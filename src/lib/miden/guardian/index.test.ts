@@ -30,6 +30,7 @@ import {
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
   ProposalChainSyncError,
   ProposalIdMismatchError,
+  type AbandonTicket,
   type ProposalSyncPhase
 } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
@@ -274,6 +275,11 @@ jest.mock('./account', () => ({
 jest.mock('./native-http');
 // A pubkey-check deadline no other deadline shares, so a test can tell which one a call reads.
 jest.mock('./serialize', () => ({ ...jest.requireActual('./serialize'), NEW_GUARDIAN_PUBKEY_TIMEOUT_MS: 45_000 }));
+// The wallet's own nonce-only abandon request, covered against the real client in legacy-abandon.test.ts.
+const mockAbandonCandidateByNonce = jest.fn(async (..._args: unknown[]): Promise<{ commitment?: string }> => ({}));
+jest.mock('./legacy-abandon', () => ({
+  abandonCandidateByNonce: (...a: unknown[]) => mockAbandonCandidateByNonce(...a)
+}));
 const { mockProbeVerdicts, resetMockProbes } =
   jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
@@ -356,6 +362,14 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   guardianPublicKey: 'old-pubkey',
   ...overrides
 });
+
+const LEGACY_TICKET: AbandonTicket = { legacy: true };
+
+// A proposal path abandons through the service itself, handing over the proposal id it holds.
+const stubAbandon = (
+  service: MultisigService,
+  impl: (nonce: number, proposalId: string | undefined) => Promise<AbandonTicket> = async () => LEGACY_TICKET
+) => jest.spyOn(service, 'abandonCandidate').mockImplementation(impl);
 
 // The gate that decides whether the sync loop may cold-re-register — i.e.
 // whether this device may POST `/configure`, an account-wide write. Every test
@@ -574,16 +588,13 @@ describe('MultisigService', () => {
             free: () => mockSummaryFree()
           };
         });
-        const abandonCandidate = jest.fn(async () => {
-          holdDuringAbandon = currentWasmHold;
-          return { state: 'pending' };
-        });
         const proposal = { kind: 'custom', id: otherId, nonce: 41 };
-        const multisig = makeMultisig({
-          createProposal: jest.fn(async () => proposal),
-          abandonCandidate
-        });
+        const multisig = makeMultisig({ createProposal: jest.fn(async () => proposal) });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        stubAbandon(service, async () => {
+          holdDuringAbandon = currentWasmHold;
+          return LEGACY_TICKET;
+        });
 
         await expect(service.createCustomProposal(bytes)).rejects.toBeInstanceOf(ProposalIdMismatchError);
 
@@ -625,9 +636,9 @@ describe('MultisigService', () => {
           throw error;
         });
         const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
-        const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
-        const multisig = makeMultisig({ createProposal, abandonCandidate });
+        const multisig = makeMultisig({ createProposal });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
 
         await expect(service.createCustomProposal(bytes)).rejects.toBe(error);
 
@@ -643,12 +654,12 @@ describe('MultisigService', () => {
           proposeHold = currentWasmHold;
           throw error;
         });
-        const abandonCandidate = jest.fn(async () => {
-          holdDuringAbandon = currentWasmHold;
-          return { state: 'pending' };
-        });
-        const multisig = makeMultisig({ createProposal, abandonCandidate });
+        const multisig = makeMultisig({ createProposal });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service, async () => {
+          holdDuringAbandon = currentWasmHold;
+          return LEGACY_TICKET;
+        });
 
         await expect(service.createCustomProposal(bytes)).rejects.toBe(error);
 
@@ -661,7 +672,7 @@ describe('MultisigService', () => {
           requiredSignatures: 1
         });
         expect(abandonCandidate).toHaveBeenCalledTimes(1);
-        expect(abandonCandidate).toHaveBeenCalledWith(41);
+        expect(abandonCandidate).toHaveBeenCalledWith(41, SUMMARY_COMMITMENT);
         expect(holdDuringAbandon).toBeNull();
         expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
         expect(mockYieldWasmClientLock.mock.calls[0]?.[1]).toBe(proposeHold);
@@ -670,18 +681,15 @@ describe('MultisigService', () => {
       it('keeps the SDK error when abandoning the prepared nonce fails', async () => {
         const error = new Error('Invalid proposal: salt');
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-        const abandonCandidate = jest.fn(async () => {
+        const multisig = makeMultisig({ createProposal: jest.fn(async () => Promise.reject(error)) });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service, async () => {
           throw new Error('abandon refused');
         });
-        const multisig = makeMultisig({
-          createProposal: jest.fn(async () => Promise.reject(error)),
-          abandonCandidate
-        });
-        const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
         try {
           await expect(service.createCustomProposal(bytes)).rejects.toBe(error);
-          expect(abandonCandidate).toHaveBeenCalledWith(41);
+          expect(abandonCandidate).toHaveBeenCalledWith(41, SUMMARY_COMMITMENT);
           expect(warn).toHaveBeenCalled();
         } finally {
           warn.mockRestore();
@@ -700,12 +708,9 @@ describe('MultisigService', () => {
           Object.assign(new Error('unsupported layout'), { name: 'TransactionSummaryLayoutError' })
         ]
       ])('does not abandon when createCustomProposal throws %s', async (_label, error) => {
-        const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
-        const multisig = makeMultisig({
-          createProposal: jest.fn(async () => Promise.reject(error)),
-          abandonCandidate
-        });
+        const multisig = makeMultisig({ createProposal: jest.fn(async () => Promise.reject(error)) });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
 
         await expect(service.createCustomProposal(bytes)).rejects.toBe(error);
 
@@ -732,12 +737,12 @@ describe('MultisigService', () => {
 
       it('refuses a nonce above the safe integer range before creating a proposal', async () => {
         const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
-        const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
         mockAccountGet.mockResolvedValueOnce({
           nonce: () => ({ asInt: () => BigInt(Number.MAX_SAFE_INTEGER) })
         });
-        const multisig = makeMultisig({ createProposal, abandonCandidate });
+        const multisig = makeMultisig({ createProposal });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
 
         await expect(service.createCustomProposal(bytes)).rejects.toThrow(/nonce is too large/);
 
@@ -747,13 +752,13 @@ describe('MultisigService', () => {
 
       it('abandons nothing when the hold is evicted while reading the proposal nonce', async () => {
         const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
-        const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
         mockAccountGet.mockImplementationOnce(async () => {
           currentWasmHold = null;
           return { nonce: () => ({ asInt: () => 40n }) };
         });
-        const multisig = makeMultisig({ createProposal, abandonCandidate });
+        const multisig = makeMultisig({ createProposal });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
 
         await expect(service.createCustomProposal(bytes)).rejects.toBeInstanceOf(WasmClientPoisonedError);
 
@@ -869,10 +874,11 @@ describe('MultisigService', () => {
         const error = new Error('proposal refused');
         const multisig = makeMultisig({ [sdk]: jest.fn(async () => Promise.reject(error)) });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
 
         await expect(create(service)).rejects.toBe(error);
 
-        expect(multisig.abandonCandidate).not.toHaveBeenCalled();
+        expect(abandonCandidate).not.toHaveBeenCalled();
         expect(snapshotCrashDiagnostics(error)).toEqual(
           securityChange === undefined
             ? { proposalStep: 'proposal_create' }
@@ -942,7 +948,11 @@ describe('MultisigService', () => {
         }
       ];
 
-      const arrange = (sdk: string, id: string, abandonCandidate: jest.Mock) => {
+      const arrange = (
+        sdk: string,
+        id: string,
+        abandon?: (nonce: number, proposalId: string | undefined) => Promise<AbandonTicket>
+      ) => {
         let pathHold: object | null = null;
         const respond = jest.fn(async () => {
           pathHold = currentWasmHold;
@@ -952,34 +962,28 @@ describe('MultisigService', () => {
           threshold: 1,
           [sdk]: respond,
           // Chain-synced paths call createProposal; replace-hot-key already names that method.
-          ...(sdk === 'createProposal' ? {} : { createProposal: respond }),
-          abandonCandidate
+          ...(sdk === 'createProposal' ? {} : { createProposal: respond })
         });
-        return {
-          multisig,
-          pathHold: () => pathHold,
-          service: new MultisigService(multisig as never, {} as never, 'https://x')
-        };
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        return { multisig, pathHold: () => pathHold, service, abandonCandidate: stubAbandon(service, abandon) };
       };
 
       it.each(paths)(
-        '$path: abandons the candidate at the proposal nonce, then fails',
+        '$path: abandons the candidate at the proposal nonce with the derived commitment, then fails',
         async ({ path, sdk, create }) => {
-          const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
-          const { multisig, service } = arrange(sdk, OTHER_ID, abandonCandidate);
+          const { multisig, service, abandonCandidate } = arrange(sdk, OTHER_ID);
 
           await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
 
           expect(abandonCandidate).toHaveBeenCalledTimes(1);
-          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE);
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
           expect(multisig.signProposal).not.toHaveBeenCalled();
           expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(path === 'replace-hot-key' ? 0 : 1);
         }
       );
 
       it.each(paths)('$path: abandons nothing when the id is the derived commitment', async ({ sdk, create }) => {
-        const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
-        const { service } = arrange(sdk, SUMMARY_COMMITMENT, abandonCandidate);
+        const { service, abandonCandidate } = arrange(sdk, SUMMARY_COMMITMENT);
 
         await create(service);
 
@@ -988,14 +992,13 @@ describe('MultisigService', () => {
 
       it.each(paths)('$path: a failed abandon still ends in ProposalIdMismatchError', async ({ sdk, create }) => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-        const abandonCandidate = jest.fn(async () => {
+        const { service, abandonCandidate } = arrange(sdk, OTHER_ID, async () => {
           throw new Error('abandon refused');
         });
-        const { service } = arrange(sdk, OTHER_ID, abandonCandidate);
 
         try {
           await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
-          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE);
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
           expect(warn).toHaveBeenCalled();
         } finally {
           warn.mockRestore();
@@ -1006,15 +1009,14 @@ describe('MultisigService', () => {
         '$path: the mismatch abandon observes a null hold',
         async ({ sdk, create }) => {
           let holdDuringAbandon: object | null = null;
-          const abandonCandidate = jest.fn(async () => {
+          const { service, pathHold, abandonCandidate } = arrange(sdk, OTHER_ID, async () => {
             holdDuringAbandon = currentWasmHold;
-            return { state: 'pending' };
+            return LEGACY_TICKET;
           });
-          const { service, pathHold } = arrange(sdk, OTHER_ID, abandonCandidate);
 
           await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
 
-          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE);
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
           expect(holdDuringAbandon).toBeNull();
           expect(pathHold()).not.toBeNull();
           expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
@@ -1026,8 +1028,7 @@ describe('MultisigService', () => {
         jest.useFakeTimers();
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
         try {
-          const abandonCandidate = jest.fn(() => new Promise<never>(() => {}));
-          const { service } = arrange('createProposal', OTHER_ID, abandonCandidate);
+          const { service, abandonCandidate } = arrange('createProposal', OTHER_ID, () => new Promise<never>(() => {}));
           const outcome = service.createCustomProposal(new Uint8Array([1]));
           const rejected = outcome.then(
             () => {
@@ -1040,7 +1041,7 @@ describe('MultisigService', () => {
 
           await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS);
           await rejected;
-          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE);
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
           expect(warn).toHaveBeenCalled();
         } finally {
           warn.mockRestore();
@@ -1612,20 +1613,43 @@ describe('MultisigService', () => {
       );
     });
 
-    it('abandonCandidate forwards the candidate nonce to the Guardian SDK', async () => {
+    it('abandonCandidate sends the nonce-only request to its Guardian, signed by its request signer', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const signer = { publicKey: '0x02aa' };
+      const service = new MultisigService(multisig as never, {} as never, 'https://x', signer as never);
+      mockAbandonCandidateByNonce.mockResolvedValueOnce({ commitment: '0xc0ffee' });
 
-      await service.abandonCandidate(7);
+      await expect(service.abandonCandidate(7, 'prop-7')).resolves.toEqual({ commitment: '0xc0ffee', legacy: true });
 
-      expect(multisig.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(mockAbandonCandidateByNonce).toHaveBeenCalledTimes(1);
+      expect(mockAbandonCandidateByNonce).toHaveBeenCalledWith('https://x', signer, 'acc-id', 7);
+      expect(multisig.abandonCandidate).not.toHaveBeenCalled();
     });
 
-    it('abandonStatus forwards the candidate nonce to the Guardian SDK (#1081)', async () => {
+    it('abandonCandidate sends the same request for a record kept without a proposal id', async () => {
+      const signer = { publicKey: '0x02aa' };
+      const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x', signer as never);
+
+      await expect(service.abandonCandidate(7, undefined)).resolves.toEqual({ legacy: true });
+
+      expect(mockAbandonCandidateByNonce).toHaveBeenCalledWith('https://x', signer, 'acc-id', 7);
+    });
+
+    it('abandonCandidate refuses without a request signer and sends nothing', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
-      await expect(service.abandonStatus(7)).resolves.toBe('waiting');
+      await expect(service.abandonCandidate(7, 'prop-7')).rejects.toThrow(/request signer/);
+
+      expect(mockAbandonCandidateByNonce).not.toHaveBeenCalled();
+      expect(multisig.abandonCandidate).not.toHaveBeenCalled();
+    });
+
+    it('abandonStatus forwards the candidate nonce to the Guardian SDK whatever the ticket (#1081)', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.abandonStatus(7, { commitment: '0xc0ffee', legacy: true })).resolves.toBe('waiting');
 
       expect(multisig.abandonStatus).toHaveBeenCalledWith(7);
     });
@@ -3352,9 +3376,10 @@ describe('MultisigService', () => {
       const otherId = `0x${'77'.repeat(32)}`;
       const multisig = makeMultisig({
         threshold: 1,
-        createProposal: jest.fn(async () => ({ kind: 'custom', id: otherId }))
+        createProposal: jest.fn(async () => ({ kind: 'custom', id: otherId, nonce: 7 }))
       });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const abandonCandidate = stubAbandon(service);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
       mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
@@ -3374,18 +3399,15 @@ describe('MultisigService', () => {
         securityChange: 'replace-hot-key'
       });
       expect(multisig.signProposal).not.toHaveBeenCalled();
-      expect(multisig.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(abandonCandidate).toHaveBeenCalledWith(7, SUMMARY_COMMITMENT);
     });
 
     it('abandons the captured nonce when SDK verification rejects after the push', async () => {
       const error = new Error('Invalid proposal: bound block mismatch');
-      const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
-      const multisig = makeMultisig({
-        threshold: 1,
-        createProposal: jest.fn(async () => Promise.reject(error)),
-        abandonCandidate
-      });
+      const multisig = makeMultisig({ threshold: 1, createProposal: jest.fn(async () => Promise.reject(error)) });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const abandonCandidate = stubAbandon(service);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       const now = jest.spyOn(Date, 'now').mockReturnValue(123456);
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
@@ -3399,7 +3421,7 @@ describe('MultisigService', () => {
         await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(error);
         expect(now).toHaveBeenCalledTimes(1);
         expect(abandonCandidate).toHaveBeenCalledTimes(1);
-        expect(abandonCandidate).toHaveBeenCalledWith(123456);
+        expect(abandonCandidate).toHaveBeenCalledWith(123456, SUMMARY_COMMITMENT);
         expect(mockYieldWasmClientLock).not.toHaveBeenCalled();
       } finally {
         now.mockRestore();
@@ -3414,13 +3436,9 @@ describe('MultisigService', () => {
       });
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       for (const error of [refused, pending]) {
-        const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
-        const multisig = makeMultisig({
-          threshold: 1,
-          createProposal: jest.fn(async () => Promise.reject(error)),
-          abandonCandidate
-        });
+        const multisig = makeMultisig({ threshold: 1, createProposal: jest.fn(async () => Promise.reject(error)) });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
         mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
         mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
           request: { kind: 'request' },
@@ -3439,6 +3457,7 @@ describe('MultisigService', () => {
       const error = new Error('proposal refused');
       const multisig = makeMultisig({ threshold: 1, createProposal: jest.fn(async () => Promise.reject(error)) });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const abandonCandidate = stubAbandon(service);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
       mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
@@ -3447,7 +3466,7 @@ describe('MultisigService', () => {
       });
       mockRequestBoundBlockNum.mockReturnValueOnce(4242);
       await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(error);
-      expect(multisig.abandonCandidate).not.toHaveBeenCalled();
+      expect(abandonCandidate).not.toHaveBeenCalled();
       expect(snapshotCrashDiagnostics(error)).toEqual({
         proposalStep: 'proposal_create',
         securityChange: 'replace-hot-key'

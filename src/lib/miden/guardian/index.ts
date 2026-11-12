@@ -38,6 +38,7 @@ import {
   OUTGOING_GUARDIAN_DEADLINE_MS,
   withTimeout
 } from './discover';
+import { abandonCandidateByNonce } from './legacy-abandon';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import {
   GUARDIAN_RETRY_MAX_ATTEMPTS,
@@ -268,6 +269,15 @@ export const GUARDIAN_CANDIDATE_HOLD_MS = 1_080_000;
 
 /** Where the delta a previous write left stands: still a `candidate`, `settled`, or `unknown`. */
 export type PriorCandidateState = 'candidate' | 'settled' | 'unknown';
+
+/**
+ * What `MultisigService.abandonCandidate` hands the status poll of that abandon: the commitment of the abandoned delta
+ * when the Guardian named one (0.19 does, 0.18 does not), and whether the abandon was the nonce-only request.
+ */
+export interface AbandonTicket {
+  commitment?: string;
+  legacy: boolean;
+}
 
 /** The Guardian holds no delta at that nonce. Duck-typed like the other Guardian error checks. */
 const isGuardianDeltaNotFound = (err: unknown): boolean =>
@@ -685,7 +695,7 @@ export class MultisigService {
         return proposal;
       } catch (error) {
         if (isPostPushProposalVerificationFailure(error)) {
-          await this.abandonMismatchCandidate(nonce, hold);
+          await this.abandonMismatchCandidate(nonce, commitmentHex, hold);
         }
         throw error;
       }
@@ -706,15 +716,16 @@ export class MultisigService {
     try {
       assertProposalIdIsCommitment(proposal, expectedCommitmentHex);
     } catch (mismatch) {
-      await this.abandonMismatchCandidate(proposal.nonce, hold);
+      await this.abandonMismatchCandidate(proposal.nonce, expectedCommitmentHex, hold);
       throw mismatch;
     }
   }
 
-  private async abandonMismatchCandidate(nonce: number, hold?: WasmLockHold): Promise<void> {
+  // `proposalId` is the commitment this device derived, the id the proposal it pushed should have had.
+  private async abandonMismatchCandidate(nonce: number, proposalId: string, hold?: WasmLockHold): Promise<void> {
     const abandon = () =>
       withTimeout(
-        this.abandonCandidate(nonce),
+        this.abandonCandidate(nonce, proposalId),
         OUTGOING_GUARDIAN_DEADLINE_MS,
         'abandoning a candidate after proposal verification failed'
       );
@@ -907,16 +918,30 @@ export class MultisigService {
    * check, and a finalized abandon releases the account onto stale state. The one
    * exception is a submit the node then discarded: that transaction is no longer in
    * the mempool and never lands, and the Guardian still refuses the abandon if it did.
+   *
+   * `_proposalId` names the proposal that left the candidate, undefined for a record kept before records carried it.
+   * The request sent is the nonce-only one that every Guardian from 0.18 on takes, signed by this service's request
+   * signer, so a service built without one refuses.
    */
-  async abandonCandidate(nonce: number): Promise<void> {
-    await this.multisig.abandonCandidate(nonce);
+  async abandonCandidate(nonce: number, _proposalId: string | undefined): Promise<AbandonTicket> {
+    if (this.requestSigner === undefined) {
+      throw new Error(`No request signer to abandon the candidate at nonce ${nonce} on ${this.guardianEndpoint}`);
+    }
+    const { commitment } = await abandonCandidateByNonce(
+      this.guardianEndpoint,
+      this.requestSigner,
+      this.accountId,
+      nonce
+    );
+    return { commitment, legacy: true };
   }
 
   /**
    * Where an abandon asked for with `abandonCandidate` stands (#1081): `'waiting'` while the Guardian's quarantine
-   * runs, `'abandoned'` once it released the account, `'landed'` if the transaction landed after all.
+   * runs, `'abandoned'` once it released the account, `'landed'` if the transaction landed after all. `_ticket` is what
+   * that abandon returned; a nonce-only abandon is read by its nonce alone.
    */
-  async abandonStatus(nonce: number): Promise<AbandonStatus> {
+  async abandonStatus(nonce: number, _ticket: AbandonTicket): Promise<AbandonStatus> {
     return this.multisig.abandonStatus(nonce);
   }
 
@@ -1329,7 +1354,9 @@ export class MultisigService {
           await this.requireProposalIdIsCommitment(created, summaryCommitmentHex);
           return created;
         } catch (error) {
-          if (isPostPushProposalVerificationFailure(error)) await this.abandonMismatchCandidate(nonce);
+          if (isPostPushProposalVerificationFailure(error)) {
+            await this.abandonMismatchCandidate(nonce, summaryCommitmentHex);
+          }
           throw error;
         }
       },

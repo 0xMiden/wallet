@@ -736,7 +736,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     await generateTransaction(buildTx('on-send-pre-submit', row) as never, signCallback, false, provider as never);
 
     const stored = txStore.find(r => r.id === 'on-send-pre-submit') as Record<string, unknown>;
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(stored.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
@@ -759,7 +759,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
 
       const stored = txStore.find(r => r.id === id) as unknown as ITransaction;
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       expect(stored).toMatchObject({ status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR });
       expect(stored.mayHaveSubmitted).toBeUndefined();
       expect(stored.submitEvidence ?? []).not.toEqual(
@@ -837,7 +837,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     expect(stored.status).toBe(ITransactionStatus.Queued);
     expect(stored.processingStartedAt).toBeUndefined();
     // Provably before the submit, so the candidate is abandoned at once and the requeue never meets it (#1081).
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(stored.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
@@ -3139,13 +3139,13 @@ describe('guardian bridged-send / earn-deposit byte-identity — flag ON result 
 
 // An Agglayer bridged-send and a USDCx burn can await the node's verdict, so a killed attempt keeps the candidate
 // (#1081); an earn deposit cannot, so it still abandons at once.
-type KillCase = Case & { abandons: number[][]; evidence: unknown };
+type KillCase = Case & { abandons: [number, string][]; evidence: unknown };
 const bridgeEarnKillCases = (): KillCase[] => [
   { ...bridgeEarnCase('agglayer'), abandons: [], evidence: KEPT_AT_7 },
   { ...bridgeEarnCase('usdcx'), abandons: [], evidence: KEPT_AT_7 },
   {
     ...bridgeEarnCase('earn-deposit'),
-    abandons: [[7]],
+    abandons: [[7, 'prop']],
     evidence: expect.not.arrayContaining([expect.objectContaining({ candidateKept: true })])
   }
 ];
@@ -3329,7 +3329,7 @@ describe('guardian offscreen submit gate (#1644)', () => {
 
     const stored = txStore.find(r => r.id === id) as Record<string, unknown>;
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(stored.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
@@ -3382,7 +3382,7 @@ describe('guardian offscreen submit gate (#1644)', () => {
     await generateTransaction(buildTx('gate-pending', consumeRow) as never, signCallback, false, provider as never);
 
     expect(await pending).toBe(false);
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
   });
 
   it('the gate refuses once the attempt has settled', async () => {
@@ -3913,7 +3913,7 @@ describe('structural guardian leaf kill-window (funds-safety) — an offscreen k
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
       // The SW submit-catch abandoned the guardian candidate (idempotent), exactly once.
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       // The row is terminally FAILED — NOT requeued, and carries no requeue cooldown stamp.
       const finalRow = txStore.find(r => r.id === `s-kill-${row.type}`)!;
       expect(finalRow.status).toBe(ITransactionStatus.Failed);
@@ -4301,7 +4301,7 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
       expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       expect(mockProxyGetCommitState).not.toHaveBeenCalled();
       expect(statusAtAbandon).toBeDefined();
       expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
@@ -4327,7 +4327,7 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
 
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       expect(mockProxyGetCommitState).not.toHaveBeenCalled();
       expect(statusAtAbandon).toBeDefined();
       expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);

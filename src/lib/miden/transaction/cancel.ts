@@ -1019,6 +1019,7 @@ const handBackInterruptedCandidate = (tx: ITransaction): void => {
   recordGuardianCandidate(accountId, {
     endpoint: candidate.endpoint,
     nonce: candidate.nonce,
+    ...(candidate.proposalId === undefined ? {} : { proposalId: candidate.proposalId }),
     proposedAt: candidate.proposedAt,
     proposedAtMono: monotonicNowMs() - ageMs,
     ...(crossed ? { attemptId: candidate.attemptId } : { abandon: true as const })

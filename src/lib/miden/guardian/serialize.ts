@@ -67,11 +67,14 @@ export function withGuardianAccountLock<T>(accountId: string, fn: () => Promise<
  * attempt its entry names; a resolved submit, a #1317 mark and a later write
  * name none or another, and never match. A mark of a kept record keeps it;
  * #1317's retry rewrites a marked record plain without it once that abandon
- * is taken or the window closes.
+ * is taken or the window closes. `proposalId` is the id of the proposal that
+ * left the candidate, which every abandon of it is given; a record restored
+ * from a row kept before rows carried it has none.
  */
 export interface GuardianCandidate {
   endpoint: string;
   nonce: number;
+  proposalId?: string;
   proposedAt: number;
   proposedAtMono: number;
   abandon?: true;

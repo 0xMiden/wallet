@@ -443,9 +443,9 @@ export interface ISwitchGuardianExtraInputs {
   switchProposalId?: string;
   switchDeltaPushed?: boolean;
   // `switchProposalNonce`: that proposal's nonce. When the node discards the switch, the reconcile
-  // abandons this nonce's candidate on the outgoing guardian before the row fails, through
-  // `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233). Its sibling on
-  // a rotation or a threshold update is `proposalNonce`.
+  // abandons this nonce's candidate, naming `switchProposalId`, on the outgoing guardian before the row
+  // fails, through `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233).
+  // Its siblings on a rotation or a threshold update are `proposalNonce` and `proposalId`.
   switchProposalNonce?: number;
   // `nodeDiscarded`: the node discarded the switch; `cancelTransaction` writes it, `isNodeDiscardedRow` reads it.
   nodeDiscarded?: boolean;
@@ -1241,11 +1241,12 @@ export interface ITransaction {
   attemptId?: string;
   /**
    * The candidate a Guardian attempt's proposal left on its Guardian, written once the proposal exists (#1666): its
-   * Guardian as the service spells it, its nonce, the wall-clock stamp taken before the proposal and the attempt it
-   * belongs to. The in-memory record that abandons a failed write's candidate dies with its process, so the startup
-   * sweep reads this for the attempt a dead process left, and an end from outside the pipeline reads its nonce.
+   * Guardian as the service spells it, its nonce, the id of the proposal, the wall-clock stamp taken before the
+   * proposal and the attempt it belongs to. The in-memory record that abandons a failed write's candidate dies with its
+   * process, so the startup sweep reads this for the attempt a dead process left, and an end from outside the pipeline
+   * reads its nonce. A row kept before the id was written has none.
    */
-  guardianCandidate?: { endpoint: string; nonce: number; proposedAt: number; attemptId: string };
+  guardianCandidate?: { endpoint: string; nonce: number; proposalId?: string; proposedAt: number; attemptId: string };
 }
 
 /**
@@ -1992,12 +1993,14 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // allowlist push needs the self-heal to catch up.
   // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
   // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
-  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
+  // `proposalNonce` / `proposalId`: the landed reconcile abandons this proposal's candidate when the node
+  // discards the write.
   extraInputs: {
     newHotPublicKey?: string;
     reRegisterFailed?: boolean;
     guardianEndpoint?: string;
     proposalNonce?: number;
+    proposalId?: string;
     nodeDiscarded?: boolean;
   };
   delegateTransaction?: boolean | undefined;
@@ -2035,8 +2038,15 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
-  extraInputs: { procedure: string; threshold: number; proposalNonce?: number; nodeDiscarded?: boolean };
+  // `proposalNonce` / `proposalId`: the landed reconcile abandons this proposal's candidate when the node
+  // discards the write.
+  extraInputs: {
+    procedure: string;
+    threshold: number;
+    proposalNonce?: number;
+    proposalId?: string;
+    nodeDiscarded?: boolean;
+  };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, procedure: string, threshold: number, delegateTransaction?: boolean) {
