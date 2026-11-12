@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import {
-  AccountId, Note, NoteArray, NoteAssets, NoteAttachment, NoteFile, NoteType, TransactionRequest, TransactionRequestBuilder
+  AccountId, Note, NoteAndArgs, NoteAndArgsArray, NoteArray, NoteAssets, NoteAttachment, NoteFile, NoteType, TransactionRequest, TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk';
 
 import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
@@ -9,8 +10,15 @@ import { isRecord } from '../../../src/lib/update/guards';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 
-export function assertMainnetConsumeRequestHash(_noteFile: Uint8Array, _canonicalSha256: string): void {
-  throw new Error('Mainnet consume request inspection is not implemented');
+export function assertMainnetConsumeRequestHash(noteFile: Uint8Array, canonicalSha256: string): void {
+  if (noteFile.length < 1 || noteFile.length > 1_048_576 || !/^[0-9a-f]{64}$/.test(canonicalSha256))
+    throw new Error('Invalid mainnet consume note or request digest');
+  const note = NoteFile.deserialize(noteFile).note();
+  if (!note) throw new Error('Missing full note for exact mainnet consume inspection');
+  const expected = new TransactionRequestBuilder().withInputNotes(new NoteAndArgsArray([new NoteAndArgs(note, null)]))
+    .withExpirationDelta(600).build();
+  if (createHash('sha256').update(canonicalRequestBytes(expected.serialize())).digest('hex') !== canonicalSha256)
+    throw new Error('Actual native consume request differs from the exact single-note builder');
 }
 
 export interface EpochCollateralReview {
