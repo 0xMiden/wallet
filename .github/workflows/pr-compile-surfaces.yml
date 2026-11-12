@@ -1,217 +1,193 @@
-name: Compile surfaces
-
-# The wallet ships FOUR surfaces — Chrome extension, iOS, Android and the Tauri
-# desktop app — and until now only the extension was built on a PR. A change that
-# broke the Android gradle build, the iOS Xcode build, or the Rust in src-tauri
-# merged with nothing going red, and was found later by whoever next tried to
-# ship that platform.
-#
-# These are COMPILE gates, deliberately: no emulator, no simulator, no chain.
-# They answer "does this still build" in minutes, which is the failure that
-# actually reaches main. Behaviour on those surfaces is covered by the E2E
-# suites (e2e-blockchain.yml for iOS, e2e-android.yml for Android).
-#
-# Each job is a required-check candidate, so none of them is `continue-on-error`:
-# a gate that cannot fail is worse than no gate, because it reads as coverage.
+name: QA 2147 C-01 passing guards
 
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  # The linked-PR injections list a dispatched branch's open pull request and read its description.
-  pull-requests: read
-
-concurrency:
-  group: compile-surfaces-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  android:
-    name: Compile Android
+  regression:
+    name: C-01 seven suites and static gates
     runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
+    timeout-minutes: 30
+    env:
+      EXPECTED_SOURCE_SHA: '428dea8807f2c4987a86f7f63d8e42b2f9a4d229'
+      EXPECTED_SOURCE_TREE: 'c4e53da21dacb043a3b1fa0dfca07572a24d494b'
+      EXPECTED_SOURCE_PARENT: '1fe48b4a2badf7223e22dfa655c7b5b950e2932f'
+      ORIGINAL_REVIEW_HEAD: '657f4b98cb0aa7756865c0030ea11bc99bb7a016'
+      PR_BASE_SHA: '94e5ba9b2a40df2e706a323e0155510880cabaa0'
+      EXPECTED_QA_BRANCH: 'ci/qa-2147-c01-green-c4e53da2-20261112-v1'
+      NODE_OPTIONS: '--max-old-space-size=4096'
+      UV_THREADPOOL_SIZE: '2'
+      CARGO_BUILD_JOBS: '2'
+      RAYON_NUM_THREADS: '2'
     steps:
+      - name: Set the evidence path from the runner environment
+        shell: bash
+        run: printf 'EVIDENCE_DIR=%s/qa-2147-c01-green\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: '21'
-      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - uses: gradle/actions/setup-gradle@v4
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # `mobile:sync` regenerates the Capacitor bridge files the gradle build
-      # needs; assembleDebug is the same target the Android E2E job builds, so a
-      # break here is a break there.
-      - name: Build debug APK
-        run: yarn test:e2e:android:build
-      # The JVM logic tests (Play update classification, hot-key rules) run
-      # nowhere else: assembleDebug never compiles src/test.
-      - name: Run Android unit tests
-        run: cd android && ./gradlew :app:testDebugUnitTest :miden-dapp-browser:testDebugUnitTest --console=plain
-
-  desktop:
-    name: Compile desktop (Tauri)
-    runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
+          ref: '428dea8807f2c4987a86f7f63d8e42b2f9a4d229'
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Record and verify the exact candidate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          printf 'workflow_sha=%s\nworkflow_ref=%s\nsource_sha=%s\nsource_tree=%s\ninstall_lifecycle_scripts=enabled\n' "$GITHUB_SHA" "$GITHUB_WORKFLOW_REF" "$(git rev-parse HEAD)" "$(git rev-parse HEAD^{tree})" > "$EVIDENCE_DIR/source.txt"
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git status --porcelain)"
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF_NAME" = "$EXPECTED_QA_BRANCH"
+          python3 <<'PYBIND'
+          import hashlib,json,os,pathlib,subprocess
+          git=lambda *args:subprocess.check_output(['git',*args],text=True).strip()
+          source=os.environ['EXPECTED_SOURCE_SHA'];parent=os.environ['EXPECTED_SOURCE_PARENT'];workflow=os.environ['GITHUB_SHA']
+          fix_paths=["src/lib/miden/transaction/index.ts", "src/lib/miden/transaction/transactions.background-matrix.test.ts", "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts", "src/lib/miden/transaction/transactions.guardian.test.ts", "src/lib/miden/transaction/transactions.send-stage-timings.test.ts", "src/lib/miden/transaction/transactions.test.ts"]
+          path_union=["CHANGELOG.md", "src/lib/miden/transaction/effect-checked-signer.test.ts", "src/lib/miden/transaction/index.ts", "src/lib/miden/transaction/proposal-effect-guard.test.ts", "src/lib/miden/transaction/proposal-effect-guard.ts", "src/lib/miden/transaction/transactions.background-matrix.test.ts", "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts", "src/lib/miden/transaction/transactions.guardian.test.ts", "src/lib/miden/transaction/transactions.send-stage-timings.test.ts", "src/lib/miden/transaction/transactions.test.ts"]
+          assert git('rev-parse','HEAD')==source
+          assert git('rev-parse','HEAD^{tree}')==os.environ['EXPECTED_SOURCE_TREE']
+          assert git('show','-s','--format=%P',source)==parent
+          assert git('diff','--name-only',parent,source).splitlines()==sorted(fix_paths)
+          assert git('diff','--name-only',os.environ['ORIGINAL_REVIEW_HEAD'],source).splitlines()==sorted(fix_paths)
+          assert git('diff','--name-only',os.environ['PR_BASE_SHA'],source).splitlines()==path_union
+          assert git('diff','--name-only',source,workflow).splitlines()==['.github/workflows/pr-compile-surfaces.yml']
+          paths=['package.json','yarn.lock','jest.config.ts','jest.setup.js','src/lib/miden/transaction/proposal-effect-guard.ts','src/lib/miden/transaction/effect-checked-signer.ts']
+          blobs={p:git('rev-parse',source+':'+p) for p in paths}
+          assert all(blobs[p]==git('rev-parse',parent+':'+p) for p in paths)
+          hashed=sorted(set(paths+path_union))
+          data={'workflowSha':workflow,'workflowRef':os.environ['GITHUB_WORKFLOW_REF'],'runId':os.environ['GITHUB_RUN_ID'],'runAttempt':os.environ['GITHUB_RUN_ATTEMPT'],'sourceSha':source,'sourceTree':os.environ['EXPECTED_SOURCE_TREE'],'sourceParent':parent,'originalReviewHead':os.environ['ORIGINAL_REVIEW_HEAD'],'prBase':os.environ['PR_BASE_SHA'],'installLifecycleScripts':'enabled','fixPaths':fix_paths,'fullPrPathUnion':path_union,'unchangedBlobs':blobs,'sha256':{p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in hashed}}
+          pathlib.Path(os.environ['EVIDENCE_DIR'],'source-manifest.json').write_text(json.dumps(data,indent=2)+'\n')
+          PYBIND
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
-      - name: Drop apt repositories this repo never installs from
-        uses: ./.github/actions/apt-drop-unused-repos
-      # Tauri's system deps on Linux. The desktop app ships for macOS, but the
-      # Rust in src-tauri is what this gate is checking and it compiles here far
-      # cheaper than on a macOS runner.
-      - name: Install Tauri system dependencies
-        # Same mirror hardening as the xvfb steps in the e2e workflows: the
-        # azure mirror intermittently blackholes and an unbounded `apt-get
-        # update` can eat the whole job budget. Current runners also use a
-        # mirror+file source, so rewrite its mirror list as well as direct sources.
-        timeout-minutes: 8
+          node-version: 22
+          cache: yarn
+      - name: Install frozen dependencies with normal lifecycle scripts
+        timeout-minutes: 10
+        shell: bash
         run: |
-          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
-            /etc/apt/apt-mirrors.txt 2>/dev/null || true
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # REQUIRED before cargo: `tauri::generate_context!()` reads tauri.conf.json's
-      # `frontendDist` (../dist/desktop) at COMPILE time and fails the build if the
-      # directory is absent. `cargo check` alone is not runnable from a clean
-      # checkout — verified locally, where it failed with
-      # "The `frontendDist` configuration is set to `../dist/desktop` but this path doesn't exist".
-      - name: Build desktop frontend
-        run: yarn build:desktop
-      - name: Check Rust
-        working-directory: src-tauri
-        run: cargo check --locked --all-targets
-
-  ios:
-    name: Compile iOS
-    # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
-    # 33.8s to launch WebContent for a hosted fixture without changing its source.
-    # macos-26-xlarge also has the required toolchain. NOT macos-15:
-    # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
-    # `UIGlassEffect`, an iOS 26 API — so the build fails there with
-    # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
-    # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
-    runs-on: macos-26-xlarge
-    # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
-    # on the runner. That step finished in 73 minutes, and the 75 minute limit
-    # then cancelled yarn install. The other linked-SDK jobs already use 120.
-    # A run without the marker does not build the SDK, so the extra ceiling is idle.
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      - name: Sync Capacitor
-        run: yarn mobile:sync
-      # -project, not -workspace: this app resolves its native deps through Swift
-      # Package Manager, not CocoaPods. Unsigned and for a generic device, because
-      # this gate is about whether the code COMPILES — signing belongs to release.
-      - name: Build App scheme
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 600000 2>&1 | tee "$EVIDENCE_DIR/install.log"
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Run all seven named suites
+        timeout-minutes: 12
+        shell: bash
         run: |
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -destination 'generic/platform=iOS' \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
-
-      # The XCTest logic tests (App Store version comparison, receipt trust) run
-      # nowhere else: `build` never compiles the AppTests target. The simulator
-      # is chosen by id so a runner image that renames its devices still works.
-      - name: Run iOS unit tests
+          set +e
+          set -o pipefail
+          printf '%s\n' 'yarn jest --runTestsByPath src/lib/miden/transaction/transactions.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/lib/miden/transaction/transactions.send-stage-timings.test.ts src/lib/miden/transaction/transactions.background-matrix.test.ts src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts src/lib/miden/transaction/proposal-effect-guard.test.ts src/lib/miden/transaction/effect-checked-signer.test.ts --maxWorkers=2 --watchman=false --coverage=false --json --outputFile=<evidence>/jest-results.json' > "$EVIDENCE_DIR/test-command.txt"
+          yarn jest --runTestsByPath src/lib/miden/transaction/transactions.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/lib/miden/transaction/transactions.send-stage-timings.test.ts src/lib/miden/transaction/transactions.background-matrix.test.ts src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts src/lib/miden/transaction/proposal-effect-guard.test.ts src/lib/miden/transaction/effect-checked-signer.test.ts --maxWorkers=2 --watchman=false --coverage=false --json --outputFile="$EVIDENCE_DIR/jest-results.json" 2>&1 | tee "$EVIDENCE_DIR/jest.log"
+          test_exit=${PIPESTATUS[0]}
+          printf '%s\n' "$test_exit" > "$EVIDENCE_DIR/jest-exit.txt"
+          exit 0
+      - name: Check the full TypeScript project
+        timeout-minutes: 6
+        shell: bash
         run: |
-          node --test scripts/ios-test-screenshots.test.cjs
-          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
-          xcrun simctl bootstatus "$UDID" -b
-          mkdir -p artifacts
-          node scripts/ios-test-screenshots.cjs "$UDID" > artifacts/ios-screenshot-helper.log 2>&1 &
-          SCREENSHOT_PID=$!
-          trap 'kill "$SCREENSHOT_PID"; wait "$SCREENSHOT_PID" || true' EXIT
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -destination "id=$UDID" \
-            -parallel-testing-enabled NO \
-            -only-testing:AppTests \
-            -resultBundlePath artifacts/ios-unit-tests.xcresult \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            test
-      - name: Upload iOS test results
+          set +e
+          set -o pipefail
+          yarn tsc --noEmit --pretty false -p . 2>&1 | tee "$EVIDENCE_DIR/tsc.log"
+          type_exit=${PIPESTATUS[0]}
+          printf '%s\n' "$type_exit" > "$EVIDENCE_DIR/tsc-exit.txt"
+          exit 0
+      - name: Check lint on all six fix files
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          yarn eslint --max-warnings 0 src/lib/miden/transaction/index.ts src/lib/miden/transaction/transactions.background-matrix.test.ts src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/lib/miden/transaction/transactions.send-stage-timings.test.ts src/lib/miden/transaction/transactions.test.ts 2>&1 | tee "$EVIDENCE_DIR/eslint.log"
+          lint_exit=${PIPESTATUS[0]}
+          printf '%s\n' "$lint_exit" > "$EVIDENCE_DIR/eslint-exit.txt"
+          exit 0
+      - name: Check formatting after the tests
         if: always()
-        uses: actions/upload-artifact@v4
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          set +e
+          set -o pipefail
+          yarn prettier --check src/lib/miden/transaction/index.ts src/lib/miden/transaction/transactions.background-matrix.test.ts src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/lib/miden/transaction/transactions.send-stage-timings.test.ts src/lib/miden/transaction/transactions.test.ts 2>&1 | tee "$EVIDENCE_DIR/prettier.log"
+          format_exit=${PIPESTATUS[0]}
+          printf '%s\n' "$format_exit" > "$EVIDENCE_DIR/prettier-exit.txt"
+          exit 0
+      - name: Require complete passing source-bound evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const dir = process.env.EVIDENCE_DIR;
+          const summary = {workflowSha: process.env.GITHUB_SHA, sourceSha: process.env.EXPECTED_SOURCE_SHA, sourceTree: process.env.EXPECTED_SOURCE_TREE, validPassingProof: false};
+          try {
+            const source = JSON.parse(fs.readFileSync(path.join(dir, 'source-manifest.json'), 'utf8'));
+            assert.equal(source.workflowSha, process.env.GITHUB_SHA);
+            assert.equal(source.sourceSha, process.env.EXPECTED_SOURCE_SHA);
+            assert.equal(source.sourceTree, process.env.EXPECTED_SOURCE_TREE);
+            assert.equal(source.sourceParent, process.env.EXPECTED_SOURCE_PARENT);
+            assert.equal(source.installLifecycleScripts, 'enabled');
+            summary.exits = Object.fromEntries(['jest', 'tsc', 'eslint', 'prettier'].map(name => [name, Number(fs.readFileSync(path.join(dir, name + '-exit.txt'), 'utf8').trim())]));
+            for (const [name, value] of Object.entries(summary.exits)) assert.equal(value, 0, name + ' exit');
+            const result = JSON.parse(fs.readFileSync(path.join(dir, 'jest-results.json'), 'utf8'));
+            const expected = ["src/lib/miden/transaction/transactions.test.ts", "src/lib/miden/transaction/transactions.guardian.test.ts", "src/lib/miden/transaction/transactions.send-stage-timings.test.ts", "src/lib/miden/transaction/transactions.background-matrix.test.ts", "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts", "src/lib/miden/transaction/proposal-effect-guard.test.ts", "src/lib/miden/transaction/effect-checked-signer.test.ts"];
+            summary.counts = {total: result.numTotalTests, passed: result.numPassedTests, failed: result.numFailedTests, pending: result.numPendingTests, todo: result.numTodoTests, runtimeErrorSuites: result.numRuntimeErrorTestSuites};
+            assert.equal(result.success, true);
+            assert.equal(result.numTotalTestSuites, 7);
+            assert.equal(result.numPassedTestSuites, 7);
+            assert.equal(result.numFailedTestSuites, 0);
+            assert.equal(result.numRuntimeErrorTestSuites, 0);
+            assert.equal(result.numFailedTests, 0);
+            assert.equal(result.numPendingTests, 0);
+            assert.equal(result.numTodoTests, 0);
+            assert.ok(result.numTotalTests > 0);
+            assert.equal(result.numPassedTests, result.numTotalTests);
+            assert.equal(result.testResults.length, 7);
+            summary.suites = expected.map(file => {
+              const suite = result.testResults.find(row => row.name === path.resolve(file));
+              assert.ok(suite, 'missing exact suite: ' + file);
+              assert.equal(suite.status, 'passed');
+              assert.ok(suite.assertionResults.length > 0, file);
+              assert.ok(suite.assertionResults.every(row => row.status === 'passed'), file);
+              return {file, assertions: suite.assertionResults.length};
+            });
+            const earn = result.testResults.find(row => row.name === path.resolve('src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts'));
+            assert.equal(earn.assertionResults.length, 13);
+            const earnRequired = [
+              'earn-deposit refuses to submit once the caller abandoned the Epoch intent',
+              'earn-deposit with no request bytes is refused before it mints: no send-style fallback for Earn',
+              'refuses an Earn deposit abandoned during unknown fee discovery',
+              'refuses an Earn deposit abandoned during known fee discovery',
+              'requeues a live Earn deposit with request bytes when its fee is unknown'
+            ];
+            for (const title of earnRequired) assert.ok(earn.assertionResults.some(row => row.title === title && row.status === 'passed'), title);
+            const guardian = result.testResults.find(row => row.name === path.resolve('src/lib/miden/transaction/transactions.guardian.test.ts'));
+            const guardianRequired = ['signs a send whose summary moves its approved amount', 'refuses a send whose proposal carries no summary before it signs', 'refuses a send whose amount is a string before it signs'];
+            for (const title of guardianRequired) assert.ok(guardian.assertionResults.some(row => row.title === title && row.status === 'passed'), title);
+            summary.earnAssertions = earn.assertionResults.map(row => ({title: row.title, fullName: row.fullName, status: row.status}));
+            summary.guardianRequired = guardianRequired;
+            summary.validPassingProof = true;
+          } catch (error) {
+            summary.error = error.stack || String(error);
+            process.exitCode = 1;
+          } finally {
+            fs.mkdirSync(dir, {recursive: true});
+            fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
+            console.log(JSON.stringify(summary, null, 2));
+          }
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: ios-unit-test-results
-          path: |
-            artifacts/ios-unit-tests.xcresult
-            artifacts/ios-screenshot-helper.log
-          if-no-files-found: ignore
+          name: qa-2147-c01-green-c4e53da2
+          path: ${{ runner.temp }}/qa-2147-c01-green/
+          if-no-files-found: error
+          retention-days: 7
