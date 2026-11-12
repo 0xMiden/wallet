@@ -1,3 +1,5 @@
+import { serializeBigints } from 'lib/intercom/helpers';
+
 import type { AssetAmount, TxAssetView } from './decode';
 import type { NoteDetail, NoteFlow } from './note-flow';
 
@@ -28,17 +30,9 @@ export interface SimulatedEffectsWire {
 
 const DECIMAL_AMOUNT = /^\d+$/;
 
-function amountToWire({ faucetId, amount }: AssetAmount): WireAssetAmount {
-  return { faucetId, amount: amount.toString() };
-}
-
 function amountFromWire({ faucetId, amount }: WireAssetAmount): AssetAmount {
   if (typeof amount !== 'string' || !DECIMAL_AMOUNT.test(amount)) throw new Error('malformed simulated effects');
   return { faucetId, amount: BigInt(amount) };
-}
-
-function noteToWire({ assets, ...note }: NoteDetail): NoteDetailWire {
-  return { ...note, ...(assets && { assets: assets.map(amountToWire) }) };
 }
 
 function noteFromWire({ assets, ...note }: NoteDetailWire): NoteDetail {
@@ -46,18 +40,7 @@ function noteFromWire({ assets, ...note }: NoteDetailWire): NoteDetail {
 }
 
 export function toSimulatedEffectsWire(view: TxAssetView, noteFlow?: NoteFlow): SimulatedEffectsWire {
-  const { outgoing, incoming, fee, ...rest } = view;
-  return {
-    view: {
-      ...rest,
-      outgoing: outgoing.map(amountToWire),
-      incoming: incoming.map(amountToWire),
-      ...(fee && { fee: amountToWire(fee) })
-    },
-    ...(noteFlow && {
-      noteFlow: { ...noteFlow, inputs: noteFlow.inputs.map(noteToWire), outputs: noteFlow.outputs.map(noteToWire) }
-    })
-  };
+  return serializeBigints({ view, noteFlow });
 }
 
 /** Throws on an amount that is not a non-negative decimal integer, so a malformed reply never renders as verified. */
