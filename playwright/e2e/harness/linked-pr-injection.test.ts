@@ -21,9 +21,10 @@ const GUARDED_EVENTS = ['push', 'workflow_dispatch'];
 const NOT_INJECTED =
   "steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'";
 const INJECTED = "steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'";
-const PRESENTATION_COMPARE_ONLY = "github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'";
+const PRESENTATION_COMPARE_ONLY =
+  "github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')";
 const PRESENTATION_COMPARE_TIMEOUT =
-  "${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare' && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}";
+  "${{ github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures') && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}";
 
 /** A step's content lines, trimmed, with the list item's `- ` removed from the first. */
 type Step = { line: number; lines: string[] };
