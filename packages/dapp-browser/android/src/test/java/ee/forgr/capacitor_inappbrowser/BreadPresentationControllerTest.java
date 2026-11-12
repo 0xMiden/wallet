@@ -2775,8 +2775,23 @@ public class BreadPresentationControllerTest {
         assertTrue(dialog.isShowing());
     }
 
+    private android.view.MotionEvent copyCapsulePacket(android.view.MotionEvent event) {
+        android.os.Parcel parcel = android.os.Parcel.obtain();
+        try {
+            event.writeToParcel(parcel, 0);
+            parcel.setDataPosition(0);
+            return android.view.MotionEvent.CREATOR.createFromParcel(parcel);
+        } finally {
+            parcel.recycle();
+        }
+    }
+
     private void dispatchPhysicalCapsulePacket(ImageButton capsule, android.view.MotionEvent physical, int[] restOrigin) {
-        android.view.MotionEvent local = android.view.MotionEvent.obtain(physical);
+        // Robolectric's obtain(other) shares mutable historical coordinates with its source.
+        android.view.MotionEvent local = copyCapsulePacket(physical);
+        float currentY = physical.getY();
+        float[] historyY = new float[physical.getHistorySize()];
+        for (int index = 0; index < historyY.length; index++) historyY[index] = physical.getHistoricalY(index);
         try {
             android.graphics.Matrix inverse = new android.graphics.Matrix();
             assertTrue("the moving root must have an inverse", root.getMatrix().invert(inverse));
@@ -2787,7 +2802,13 @@ public class BreadPresentationControllerTest {
             local.offsetLocation(-bounds.left, -bounds.top);
             assertEquals(physical.getRawY(), local.getRawY(), 0.01f);
             assertEquals(physical.getHistorySize(), local.getHistorySize());
+            assertEquals(physical.getEventTime(), local.getEventTime());
             assertTrue(capsule.dispatchTouchEvent(local));
+            assertEquals("physical packet current coordinates must remain immutable", currentY, physical.getY(), 0f);
+            assertEquals("physical packet raw coordinates must remain immutable", currentY, physical.getRawY(), 0f);
+            for (int index = 0; index < historyY.length; index++) {
+                assertEquals("physical packet history must remain immutable", historyY[index], physical.getHistoricalY(index), 0f);
+            }
         } finally {
             local.recycle();
         }
@@ -2817,20 +2838,22 @@ public class BreadPresentationControllerTest {
         // Robolectric's estimator ignores history, so also inspect the real tracker's input packets.
         List<android.view.MotionEvent> consumed = new ArrayList<>();
         try {
-            physical.addMovement(down);
+            for (android.view.MotionEvent packet : packets) physical.addMovement(packet);
+            physical.computeCurrentVelocity(1000);
+            assertTrue("the raw physical reference moves downward", physical.getYVelocity() > 0f);
             dispatchPhysicalCapsulePacket(capsule, down, restOrigin);
-            android.view.VelocityTracker actual = spy(ReflectionHelpers.<android.view.VelocityTracker>getField(controller, "tracker"));
+            android.view.VelocityTracker owned = ReflectionHelpers.getField(controller, "tracker");
+            assertNotSame("the physical reference must use an independent tracker", physical, owned);
+            android.view.VelocityTracker actual = spy(owned);
             ReflectionHelpers.setField(controller, "tracker", actual);
             doAnswer(call -> {
-                consumed.add(android.view.MotionEvent.obtain(call.getArgument(0)));
+                consumed.add(copyCapsulePacket(call.getArgument(0)));
                 return call.callRealMethod();
             }).when(actual).addMovement(any(android.view.MotionEvent.class));
             for (android.view.MotionEvent packet : List.of(first, second)) {
-                physical.addMovement(packet);
                 dispatchPhysicalCapsulePacket(capsule, packet, restOrigin);
                 if (packet == first) assertTrue("the second packet must use a changed root matrix", root.getScaleX() < 1f);
             }
-            physical.computeCurrentVelocity(1000);
             actual.computeCurrentVelocity(1000);
             assertEquals("capsule velocity must match raw physical event history", physical.getYVelocity(), actual.getYVelocity(), 1f);
             assertEquals(2, consumed.size());
