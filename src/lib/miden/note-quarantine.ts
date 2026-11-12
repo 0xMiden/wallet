@@ -149,30 +149,83 @@ async function readLiveEntries(): Promise<QuarantineEntry[]> {
   return parseEntries(await fetchFromStorage<unknown>(QUARANTINE_KEY)).filter(entry => entry.at > cutoff);
 }
 
+/**
+ * One dry run's quarantine. `abandoned` is set when a timeout or a pipeline kill wins, and a later
+ * {@link quarantineNoteIds} for that attempt writes nothing.
+ */
+export interface QuarantineAttempt {
+  id: number;
+  abandoned: boolean;
+}
+
+let nextQuarantineAttemptId = 1;
+// One in-process queue for every quarantine-set read-modify-write. Release, quarantine, and
+// abandonment share it: a timeout can return while a lookup is still running, and a second request
+// can read the set before a release writes it. Either one would otherwise put a released id back
+// and hide the note until the TTL. The tail never rejects, so one storage failure does not wedge
+// the next mutation.
+let quarantineMutations = Promise.resolve();
+
+function serializeQuarantineMutation<T>(mutate: () => Promise<T>): Promise<T> {
+  const result = quarantineMutations.then(mutate);
+  quarantineMutations = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
+/** Assigns the attempt id a dry run passes to {@link quarantineNoteIds}. */
+export function beginQuarantineAttempt(): QuarantineAttempt {
+  const attempt = { id: nextQuarantineAttemptId, abandoned: false };
+  nextQuarantineAttemptId += 1;
+  return attempt;
+}
+
+/**
+ * Marks `attempt` abandoned and settles the mutation queue. An in-flight mutation runs to its
+ * decision first — it writes only if it had already started the storage put — so a caller that
+ * then releases cannot be overtaken by a stale write.
+ */
+export async function abandonQuarantineAttempt(attempt: QuarantineAttempt): Promise<void> {
+  attempt.abandoned = true;
+  await serializeQuarantineMutation(async () => {
+    attempt.abandoned = true;
+  });
+}
+
 /** Adds `ids` to the quarantine set (deduped, capped to the last MAX_QUARANTINED). Never throws. */
-export async function quarantineNoteIds(ids: string[]): Promise<void> {
-  if (ids.length === 0) return;
-  try {
-    const existing = await readLiveEntries();
-    const now = Date.now();
-    const merged = [...existing.filter(entry => !ids.includes(entry.id)), ...ids.map(id => ({ id, at: now }))];
-    const capped = merged.slice(-MAX_QUARANTINED);
-    await putToStorage(QUARANTINE_KEY, capped);
-  } catch {
-    // Quarantine failures must never break simulation.
-  }
+export async function quarantineNoteIds(ids: string[], attempt?: QuarantineAttempt): Promise<void> {
+  if (ids.length === 0 || attempt?.abandoned === true) return;
+  await serializeQuarantineMutation(async () => {
+    if (attempt?.abandoned === true) return;
+    try {
+      const existing = await readLiveEntries();
+      // Abandon can land during the read. Skipping the write is the safe direction: the caller
+      // that abandoned is about to release, and a write here would hide the note until the TTL.
+      if (attempt?.abandoned) return;
+      const now = Date.now();
+      const merged = [...existing.filter(entry => !ids.includes(entry.id)), ...ids.map(id => ({ id, at: now }))];
+      const capped = merged.slice(-MAX_QUARANTINED);
+      await putToStorage(QUARANTINE_KEY, capped);
+    } catch {
+      // Quarantine failures must never break simulation.
+    }
+  });
 }
 
 /** Removes `ids` from the quarantine set. Never throws. */
 export async function releaseNoteIds(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  try {
-    const existing = await readLiveEntries();
-    const remaining = existing.filter(entry => !ids.includes(entry.id));
-    await putToStorage(QUARANTINE_KEY, remaining);
-  } catch {
-    // Quarantine failures must never break confirm.
-  }
+  await serializeQuarantineMutation(async () => {
+    try {
+      const existing = await readLiveEntries();
+      const remaining = existing.filter(entry => !ids.includes(entry.id));
+      await putToStorage(QUARANTINE_KEY, remaining);
+    } catch {
+      // Quarantine failures must never break confirm.
+    }
+  });
 }
 
 /** Reads the currently-hidden ids as a Set (empty on missing/error). Never throws. */

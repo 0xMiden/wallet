@@ -941,6 +941,10 @@
     "message": "Не удалось проверить ваш баланс с помощью Epoch. Попытайтесь ещё раз.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Не удалось загрузить ваш баланс. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "Функция «Earn» недоступна в этой сети",
     "englishSource": "Earn is not available on this network"
@@ -1328,6 +1332,32 @@
   "submissionRejectedByNetwork": {
     "message": "Сеть отклонила эту заявку. Попробуйте ещё раз.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Ваш «Guardian» по-прежнему удерживает эту транзакцию, поэтому повторную попытку пока совершить нельзя.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Сеть подтвердила, что эта транзакция так и не прошла, поэтому ничего не переместилось. Ваш «Guardian» по-прежнему удерживает средства, поэтому повторную попытку пока совершить нельзя.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Ваш «Guardian» по-прежнему удерживает эту транзакцию. Вы можете повторить попытку через $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Вы можете повторить попытку через $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Ответ на эту отправку не поступил. Кошелек не может подтвердить, прошла ли она. Возможно, операция всё ещё завершается, поэтому проверьте, прежде чем повторить попытку.",
@@ -4832,6 +4862,14 @@
     "message": "Недоступно",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "Неподдерживаемые термины",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Неизвестная шкала",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "Временно недоступно",
     "englishSource": "Temporarily unavailable"
@@ -6032,6 +6070,10 @@
     "message": "Ошибка при внесении депозита через мост",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "В вашем подключенном кошельке нет токенов с положительным балансом в этой сети.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "В вашем подключенном кошельке на $network$ хранится $balance$ $token$, что меньше суммы, необходимой для этого депозита. Ничего не было отправлено.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
@@ -6443,6 +6485,10 @@
   "couldNotDecodeTransaction": {
     "message": "Это dApp запрашивает пользовательскую транзакцию. Кошелек не смог расшифровать её детали — продолжайте только в том случае, если точно знаете, что она собой представляет.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "customTransactionNotSimulated": {
+    "message": "Кошелек не смог смоделировать эту транзакцию, поэтому не может показать, что она собой представляет. Вы не можете её утвердить.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
   },
   "rawValue": {
     "message": "Исходное значение",

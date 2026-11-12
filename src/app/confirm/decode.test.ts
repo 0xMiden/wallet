@@ -6,6 +6,7 @@ import {
   importedNoteAssets,
   netOutflowByFaucet,
   simulatedBytesToView,
+  simulatedOutputRecipients,
   summaryBytesToView,
   summaryToView
 } from './decode';
@@ -512,6 +513,41 @@ describe('simulatedBytesToView', () => {
   it('reports undefined only when the dry run produced neither shape', () => {
     expect(simulatedBytesToView({})).toBeUndefined();
     expect(simulatedBytesToView({ summaryBytes: undefined, executedBytes: undefined })).toBeUndefined();
+  });
+});
+
+describe('simulatedOutputRecipients', () => {
+  const withRecipient = (base: object, digest: string) => ({
+    ...base,
+    recipientDigest: () => ({ toHex: () => digest })
+  });
+
+  it('gives the sorted recipient digests of the user notes of a summary, without the fee note', () => {
+    (TransactionSummary.deserialize as jest.Mock).mockReturnValueOnce({
+      outputNotes: () => ({
+        notes: () => [
+          withRecipient(note([fa('fA', 1n)]), '0xbb'),
+          withRecipient(feeNote(5n), '0xfee'),
+          withRecipient(note([fa('fA', 2n)]), '0xaa')
+        ]
+      })
+    });
+
+    expect(simulatedOutputRecipients({ summaryBytes: 'sumB64' })).toEqual(['0xaa', '0xbb']);
+  });
+
+  it('decodes an executed transaction with the same ladder', () => {
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
+      executedTransaction: () => ({
+        outputNotes: () => ({ notes: () => [withRecipient(note([fa('fA', 1n)]), '0xcc')] })
+      })
+    });
+
+    expect(simulatedOutputRecipients({ executedBytes: 'execB64' })).toEqual(['0xcc']);
+  });
+
+  it('reports undefined when the dry run produced neither shape', () => {
+    expect(simulatedOutputRecipients({})).toBeUndefined();
   });
 });
 

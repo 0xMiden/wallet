@@ -183,6 +183,29 @@ jest.mock('lib/miden/back/defaults', () => ({
   }
 }));
 
+/**
+ * The approval of a custom transaction needs a dry run that succeeds. The dry run itself is covered by
+ * `simulate-custom-tx.test.ts`, so here it gives a result whose decoded view moves nothing.
+ */
+jest.mock('./simulate-custom-tx', () => ({
+  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
+}));
+
+jest.mock('app/confirm/decode', () => ({
+  ...jest.requireActual('app/confirm/decode'),
+  simulatedBytesToView: () => ({
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false
+  }),
+  simulatedOutputRecipients: () => []
+}));
+
 const mockGetCurrentAccountPublicKey = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
@@ -2744,40 +2767,19 @@ describe('a request that prompts, made while the wallet is locked (#1414)', () =
       );
     });
 
-    it('retires the client when the declared summary traps, and refuses before any popup', async () => {
-      const trap = new WebAssembly.RuntimeError('unreachable');
+    it('never reads the declared outputs of the request, so the sheet shows only the dry run', async () => {
+      const expectedOutputOwnNotes = jest.fn(() => []);
       await withRequest(
-        () => ({
-          expectedOutputOwnNotes: () => {
-            throw trap;
-          }
-        }),
-        async () => {
-          lockWallet();
-          const outcome = settle(startCustom());
-          await new Promise(resolve => setTimeout(resolve, 0));
-
-          expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
-          await expect(outcome).resolves.toEqual({ ok: false, message: expect.stringMatching(/^INVALID_PARAMS: /) });
-          expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
-        }
-      );
-    });
-
-    it('keeps the opaque warning, and retires nothing, when the summary fails without a trap', async () => {
-      await withRequest(
-        () => ({
-          expectedOutputOwnNotes: () => {
-            throw new Error('cannot summarise');
-          }
-        }),
+        () => ({ expectedOutputOwnNotes }),
         async () => {
           lockWallet();
           const popup = await openPopup(startCustom);
           unlockWallet();
           const payload = await popup.getPayload();
 
-          expect(JSON.stringify(payload)).toContain('Warning, the wallet could not decode this transaction request');
+          expect(expectedOutputOwnNotes).not.toHaveBeenCalled();
+          expect(JSON.stringify(payload)).toContain('Simulated effects:');
+          expect(JSON.stringify(payload)).not.toContain('Declared by the site');
           expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
         }
       );

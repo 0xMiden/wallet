@@ -941,6 +941,10 @@
     "message": "Epoch ile bakiyenizi kontrol edemedik. Lütfen tekrar deneyin.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Bakiyeniz yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "Bu ağda \"Earn\" özelliği mevcut değildir",
     "englishSource": "Earn is not available on this network"
@@ -1328,6 +1332,32 @@
   "submissionRejectedByNetwork": {
     "message": "Ağ bu gönderimi reddetti. Lütfen tekrar deneyin.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Guardian'ınız bu işlemi hâlâ elinde tutuyor, bu nedenle henüz yeniden denenemez.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Ağ, bu işlemin hiçbir zaman gerçekleşmediğini doğruladı; dolayısıyla hiçbir şey hareket etmedi. Token'ınız hâlâ Guardian'da tutuluyor; bu nedenle henüz yeniden denenemez.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Guardian'ınız bu işlemi hâlâ bekletiyor. $time$ sonra yeniden deneyebilirsiniz.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "$time$ sonra tekrar deneyebilirsiniz.",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Bu gönderimden herhangi bir yanıt alınamadı. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu nedenle tekrar denemeden önce kontrol edin.",
@@ -4829,6 +4859,14 @@
     "message": "Kullanılamıyor",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "Desteklenmeyen",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Bilinmeyen ölçek",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "Geçici olarak kullanılamıyor",
     "englishSource": "Temporarily unavailable"
@@ -6029,6 +6067,10 @@
     "message": "Köprü yatırımı başarısız oldu",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Bağlı cüzdanınızda bu ağda pozitif bakiyeye sahip hiçbir token bulunmamaktadır.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "Bağlı cüzdanınızda $balance$ tutarında $token$, $network$ ağında bulunmaktadır; bu tutar, bu para yatırma işlemi için gereken miktardan daha azdır. Hiçbir şey gönderilmedi.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
@@ -6440,6 +6482,10 @@
   "couldNotDecodeTransaction": {
     "message": "Bu dApp, özel bir işlem talep ediyor. Cüzdan, işlemin ayrıntılarını çözemedi — ne işe yaradığını tam olarak biliyorsanız devam edin.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "customTransactionNotSimulated": {
+    "message": "Cüzdan bu işlemi simüle edemediğinden, ne yaptığını gösteremez. Bu işlemi onaylayamazsınız.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
   },
   "rawValue": {
     "message": "Ham değer",

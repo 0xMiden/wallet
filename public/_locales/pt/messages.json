@@ -941,6 +941,10 @@
     "message": "Não foi possível verificar seu saldo com a Epoch. Tente novamente.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Não foi possível carregar seu saldo. Verifique sua conexão e tente novamente.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "O recurso “Earn” não está disponível nesta rede",
     "englishSource": "Earn is not available on this network"
@@ -1328,6 +1332,32 @@
   "submissionRejectedByNetwork": {
     "message": "A rede rejeitou este envio. Tente novamente.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Seu “Guardian” ainda está retendo essa transação, portanto ela ainda não pode ser repetida.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "A rede confirmou que essa transação nunca foi concluída, portanto nada foi movimentado. Seu “Guardian” ainda está retendo a transação, por isso ainda não é possível tentar novamente.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Seu Guardian ainda está retendo essa transação. Você pode tentar novamente após $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Você pode tentar novamente após $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Não houve resposta a este envio. A carteira não pode confirmar se ele foi processado. Ele ainda pode ser concluído, portanto, verifique antes de tentar novamente.",
@@ -4833,6 +4863,14 @@
     "message": "Indisponível",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "Não suportado",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Escala desconhecida",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "Temporariamente indisponível",
     "englishSource": "Temporarily unavailable"
@@ -6033,6 +6071,10 @@
     "message": "Falha no depósito da ponte",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Sua carteira conectada não possui tokens com saldo positivo nesta rede.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "Sua carteira conectada possui $balance$ $token$ na $network$, valor inferior ao necessário para este depósito. Nada foi enviado.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
@@ -6444,6 +6486,10 @@
   "couldNotDecodeTransaction": {
     "message": "Este dApp está solicitando uma transação personalizada. A carteira não conseguiu decodificar os detalhes da transação — só continue se você souber exatamente o que ela faz.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "customTransactionNotSimulated": {
+    "message": "A carteira não conseguiu simular essa transação, portanto não pode mostrar o que ela faz. Você não pode aprová-la.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
   },
   "rawValue": {
     "message": "Valor bruto",

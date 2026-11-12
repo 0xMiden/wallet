@@ -3,7 +3,7 @@ import Dexie from 'dexie';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, provenBadgeNetwork } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope } from 'lib/miden-chain/native-asset';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -69,6 +69,52 @@ function withStoredSettlementStamps(record: ITransaction, stored: ITransaction):
       ...(lineageClosedAt != null ? { lineageClosedAt } : {})
     }
   };
+}
+
+// Facts `badgesFromHistory` reads on a recovered row. Missing and undefined compare equal, and so does null, which a
+// stored row uses for a field the decoded record never carried.
+const RECOVERED_BADGE_INPUTS = [
+  'phase',
+  'requestedAmount',
+  'requestedFaucetId',
+  'reclaimedAt',
+  'swapOrderTxId',
+  'swapSettleKind'
+];
+
+function badgeInput(row: ITransaction, key: string): unknown {
+  const inputs: unknown = row.extraInputs;
+  if (typeof inputs !== 'object' || inputs === null || !Object.hasOwn(inputs, key)) return undefined;
+  return Reflect.get(inputs, key);
+}
+
+function sameBadgeFact(left: unknown, right: unknown): boolean {
+  if (left == null || right == null) return left == null && right == null;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((item, index) => item === right[index])
+    );
+  }
+  return left === right;
+}
+
+function sameRecoveredBadgeProjection(stored: ITransaction, record: ITransaction): boolean {
+  return (
+    stored.type === record.type &&
+    stored.status === record.status &&
+    stored.accountId === record.accountId &&
+    sameBadgeFact(stored.amount, record.amount) &&
+    sameBadgeFact(stored.faucetId, record.faucetId) &&
+    sameBadgeFact(stored.secondaryAccountId, record.secondaryAccountId) &&
+    sameBadgeFact(stored.dappOrigins, record.dappOrigins) &&
+    sameBadgeFact(stored.noteId, record.noteId) &&
+    sameBadgeFact(stored.noteIds, record.noteIds) &&
+    sameBadgeFact(stored.recoveredBadgeNetwork, record.recoveredBadgeNetwork) &&
+    RECOVERED_BADGE_INPUTS.every(key => sameBadgeFact(badgeInput(stored, key), badgeInput(record, key)))
+  );
 }
 
 // An eviction, an offscreen abort or a terminated client of a summary or local result-commitment decode the pass was
@@ -458,6 +504,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
               answer.delta,
               summary
             );
+            record.recoveredBadgeNetwork = provenBadgeNetwork() ?? '';
             // Import one output per call so each operation releases the WASM lock.
             for (const note of summary.outputNotes) {
               await check();
@@ -511,9 +558,13 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                   if (match.recovery) {
                     const operators = normalizeHistoryOperators([...match.recovery.operators, operator]);
                     const recovery = { ...match.recovery, operators };
+                    // A decoded record replaces a partial or older recovery, and a current one whose badge facts
+                    // differ, including the provenance stamp a backup cannot keep.
                     if (
                       record.recovery?.completeness === 'decoded' &&
-                      (match.recovery.completeness === 'partial' || match.recovery.version < GUARDIAN_HISTORY_VERSION)
+                      (match.recovery.completeness === 'partial' ||
+                        match.recovery.version < GUARDIAN_HISTORY_VERSION ||
+                        !sameRecoveredBadgeProjection(match, record))
                     ) {
                       const upgraded = {
                         ...withStoredSettlementStamps(record, match),

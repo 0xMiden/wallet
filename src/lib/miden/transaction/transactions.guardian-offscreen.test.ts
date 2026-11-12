@@ -56,11 +56,18 @@
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { clearGuardianAccountLocks, GuardianBackpressureError } from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WalletType } from 'screens/onboarding/types';
 
-import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
+import {
+  CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR,
+  CustomTransactionEffectsChangedError,
+  isUnconfirmedFailure,
+  STALE_PROOF_ERROR,
+  TRANSACTION_EXPIRED_ERROR
+} from './constants';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
@@ -240,6 +247,21 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
     mockPrepareCustomRequestBytes(...args)
 }));
 
+// The effects check of an `execute` row is covered by `custom-effects.test.ts`. Here the generation-time dry run
+// gives the approved effects, so the row goes on to its proposal.
+const mockVerifyPreparedCustomRequest = jest.fn(async (..._args: unknown[]): Promise<void> => undefined);
+const mockAssertCustomEffectsApproved = jest.fn((..._args: unknown[]) => undefined);
+// The access stands for the client, the prepared bytes and the hold that the check receives.
+jest.mock('./custom-effects', () => ({
+  customEffectsCheckAccess: (_client: unknown, accountId: string, preparedBytes: Uint8Array, hold: unknown) => ({
+    accountId,
+    preparedBytes,
+    hold
+  }),
+  assertCustomEffectsApproved: (...args: unknown[]) => mockAssertCustomEffectsApproved(...args),
+  verifyPreparedCustomRequest: (...args: unknown[]) => mockVerifyPreparedCustomRequest(...args)
+}));
+
 jest.mock('lib/settings/constants', () => ({}));
 // These proposals carry no summary; the signing-time effect check has its own tests (#2147).
 jest.mock('./proposal-effect-guard', () => ({ assertProposalEffectApproved: async () => {} }));
@@ -354,11 +376,13 @@ const mockProxyGetInputNoteDetails = jest.fn(async (..._a: unknown[]) => [] as u
 // The node's verdict on a transaction, which the real `didDirectSwitchLand` reads after a structural
 // commit wait fails. Default: still pending, no verdict.
 const mockProxyGetCommitState = jest.fn(async (..._a: unknown[]) => 'pending');
+const mockProxyNewTransaction = jest.fn(async (..._a: unknown[]) => makeResult());
 jest.mock('../back/miden-client-proxy', () => ({
   dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
     getAccount: (...a: unknown[]) => mockProxyGetAccount(...a),
+    newTransaction: (...a: unknown[]) => mockProxyNewTransaction(...a),
     waitForTransactionCommit: (...a: unknown[]) => mockProxyWaitForCommit(...a),
     getInputNoteDetails: (...a: unknown[]) => mockProxyGetInputNoteDetails(...a),
     getTransactionCommitState: (...a: unknown[]) => mockProxyGetCommitState(...a)
@@ -612,6 +636,8 @@ function arrange(id: string, extra: Record<string, unknown>, result = makeResult
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAssertCustomEffectsApproved.mockReset();
+  mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
   txStore.length = 0;
   mockPlatformIsMobile = false;
   // Reset alongside its siblings. Left `false` by a test that forgot to restore
@@ -712,6 +738,41 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
   });
+
+  it.each([
+    ['a plain send', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }],
+    [
+      'a send with its bytes pinned',
+      { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1', requestBytes: new Uint8Array([4, 4]) }
+    ]
+  ])(
+    'a stale proof from the offscreen leaf ends %s Failed with its candidate abandoned and Retry open (#2060)',
+    async (label, row) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockRejectedValue(new StaleProofError());
+      const id = `on-stale-${label}`;
+      const { service } = arrange(id, row);
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+      const stored = txStore.find(r => r.id === id) as unknown as ITransaction;
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(stored).toMatchObject({ status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR });
+      expect(stored.mayHaveSubmitted).toBeUndefined();
+      expect(stored.submitEvidence ?? []).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+      );
+      expect(isUnconfirmedFailure(stored)).toBe(false);
+
+      const restoreLocks = installNavigatorLocks();
+      try {
+        await requeueFailedTransaction(id);
+      } finally {
+        restoreLocks();
+      }
+      expect(stored.status).toBe(ITransactionStatus.Queued);
+    }
+  );
 
   it('an untagged failure after the offscreen dispatch keeps the candidate, a node refusal included (#1081)', async () => {
     // Once the request reached the leaf no classifier tells a refusal from a lost response, so the candidate waits
@@ -2683,6 +2744,117 @@ describe('guardian custom proposals preserve the prepared request through signin
     expect(Array.from(txStore.find(row => row.id === id)!.requestBytes as Uint8Array)).toEqual([71, 72, 73]);
   });
 
+  it('execute: checks the prepared bytes against the approved effects and the charged spends before proposing', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'effects-checked-execute';
+    const approvedEffects = { shape: 'summary', outgoing: [{ faucetId: 'faucet-a', amount: 5n }] };
+    const spentAssetTotals = [{ faucetId: 'faucet-a', amount: 5n }];
+    const { service } = arrange(id, { ...executeCase.row, approvedEffects, spentAssetTotals });
+    const enriched = new Uint8Array([81, 82]);
+    mockPrepareCustomRequestBytes.mockResolvedValueOnce(enriched);
+    const proposalSummary = 'proposal-summary';
+    service.createCustomProposal.mockImplementationOnce(async () => {
+      expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledTimes(1);
+      const proposal = { id: 'prop', nonce: 7, txSummary: proposalSummary };
+      return proposal;
+    });
+
+    await generateTransaction(
+      buildTx(id, { ...executeCase.row, approvedEffects, spentAssetTotals }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledWith(
+      { accountId: 'guardian-acc', preparedBytes: enriched, hold: expect.anything() },
+      approvedEffects,
+      spentAssetTotals
+    );
+    expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
+      approvedEffects,
+      { summaryBytes: proposalSummary },
+      spentAssetTotals
+    );
+    expect(service.createCustomProposal).toHaveBeenCalledWith(enriched);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', enriched);
+  });
+
+  it('execute: fails the row before any proposal when the generation-time effects are not the approved ones', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'effects-changed-execute';
+    const { service } = arrange(id, executeCase.row);
+    mockVerifyPreparedCustomRequest.mockRejectedValueOnce(new CustomTransactionEffectsChangedError('outgoing'));
+
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(row => row.id === id) as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.error).toBe(CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR);
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+  });
+
+  it('execute: checks a standard-account request against approved effects before submit', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'standard-effects-checked-execute';
+    const approvedEffects = { shape: 'summary', outgoing: [{ faucetId: 'faucet-a', amount: 5n }] };
+    const spentAssetTotals = [{ faucetId: 'faucet-a', amount: 5n }];
+    const { row } = arrange(id, { ...executeCase.row, approvedEffects, spentAssetTotals });
+    mockIsGuardianAccount.mockResolvedValueOnce(false);
+    const prepared = new Uint8Array([91, 92]);
+    mockPrepareCustomRequestBytes.mockResolvedValueOnce(prepared);
+
+    await generateTransaction(
+      buildTx(id, { ...row, approvedEffects, spentAssetTotals }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledWith(
+      { accountId: 'guardian-acc', preparedBytes: prepared, hold: expect.anything() },
+      approvedEffects,
+      spentAssetTotals
+    );
+    expect(mockProxyNewTransaction.mock.calls[0]?.slice(0, 4)).toEqual(['guardian-acc', prepared, false, signCallback]);
+    expect(mockVerifyPreparedCustomRequest.mock.invocationCallOrder[0]).toBeLessThan(
+      mockProxyNewTransaction.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('execute: abandons a proposal whose summary differs from the approved effects', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'proposal-effects-changed-execute';
+    const approvedEffects = { shape: 'summary', outgoing: [{ faucetId: 'faucet-a', amount: 5n }] };
+    const { service } = arrange(id, { ...executeCase.row, approvedEffects });
+    const mismatch = new Error('approved effects changed');
+    service.createCustomProposal.mockResolvedValueOnce({
+      id: 'proposal-mismatch',
+      nonce: 19,
+      txSummary: 'proposal-summary'
+    } as never);
+    mockAssertCustomEffectsApproved.mockImplementationOnce(() => {
+      throw mismatch;
+    });
+
+    await generateTransaction(
+      buildTx(id, { ...executeCase.row, approvedEffects }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
+      approvedEffects,
+      { summaryBytes: 'proposal-summary' },
+      undefined
+    );
+    expect(service.abandonCandidate).toHaveBeenCalled();
+    expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === id)?.status).toBe(ITransactionStatus.Failed);
+  });
+
   it('execute: persists auth diagnostics before creating the proposal', async () => {
     const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
     const id = 'diagnosed-execute';
@@ -2839,6 +3011,19 @@ describe('the pin is per attempt and retires on a tagged failure (#1081)', () =>
     const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
     expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'pin', preSubmitEnd: true })]);
     expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('a retired pin leaves the requeue arms open (#2060)', async () => {
+    const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      markErrorBeforeSubmit(new Error('transaction execution failed: transaction is unauthorized'))
+    );
+    const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'pin', preSubmitEnd: true })]);
+    // A pin counted as a crossing would close every arm and end this row Failed.
+    const stored = txStore.find(r => r.id === 'pin-retire');
+    expect(stored?.status).toBe(ITransactionStatus.Queued);
+    expect(stored?.lastDeferral).toBe('guardian_unauthorized');
   });
 
   it('a request that cannot serialize is never pinned', async () => {

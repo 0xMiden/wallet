@@ -229,6 +229,32 @@ export function simulatedBytesToView(result: {
 }
 
 /**
+ * The recipient digest of each note that a dry run creates for the user, sorted. The fee note is not included.
+ *
+ * Uses the same ladder and the same fee-note split as `simulatedBytesToView`, so the approval dry run and the
+ * generation dry run of a custom request decode their recipients identically. `undefined` means the dry run gave
+ * neither result.
+ */
+export function simulatedOutputRecipients(result: {
+  summaryBytes?: string;
+  executedBytes?: string;
+}): string[] | undefined {
+  if (result.summaryBytes) {
+    return userNoteRecipients(TransactionSummary.deserialize(b64ToU8(result.summaryBytes)));
+  }
+  if (result.executedBytes) {
+    return userNoteRecipients(TransactionResult.deserialize(b64ToU8(result.executedBytes)).executedTransaction());
+  }
+  return undefined;
+}
+
+function userNoteRecipients(source: Parameters<typeof splitExecutedOutputNotes>[0]): string[] {
+  return splitExecutedOutputNotes(source)
+    .userNotes.map(note => note.recipientDigest().toHex())
+    .sort();
+}
+
+/**
  * Per-faucet value leaving the account, for spending-limit accounting.
  *
  * `credit` is the value this request BROUGHT IN and may therefore offset: the assets of the notes
