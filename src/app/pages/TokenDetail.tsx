@@ -18,7 +18,7 @@ import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { CopyButton } from 'components/ui/CopyButton';
-import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
@@ -432,6 +432,7 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   const edited = canEdit && hasOverride;
   const [editOpen, setEditOpen] = useState(false);
   const [editSession, setEditSession] = useState(0);
+  const [faucetOpen, setFaucetOpen] = useState(false);
   // Undefined on a build with no explorer configured for the effective network (e.g. a custom
   // dev-settings override with a blank explorer URL) — the row below degrades by not rendering,
   // the same way history's explorer links do (`TransactionStatus.tsx`'s `ExternalLinkValue`).
@@ -480,31 +481,39 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
         {t('tokenInfo')}
       </SectionHeader>
       <DetailCard surface="outline">
-        {/* What the token is: the faucet's own words, or the wallet's for testnet iETH. It comes first
-            because it describes the token; the rows after it are identifiers. The text can be long,
-            so it wraps under the label.
-            A stacked row breaks inside words, which suits an address but not prose. The span breaks
-            at spaces and breaks a word only when the word is wider than the card. */}
+        {metadata?.name && metadata.name !== metadata.symbol && (
+          <DetailRow label={t('tokenNameLabel')} stacked data-testid="token-detail-name">
+            <span className="break-normal wrap-break-word">{metadata.name}</span>
+          </DetailRow>
+        )}
         {description && (
           <DetailRow label={t('tokenDescription')} stacked data-testid="token-detail-description">
             <span className="break-normal wrap-break-word">{description}</span>
           </DetailRow>
         )}
-        {/* The faucet that mints this token, under the name the transaction detail page gives every
-            faucet id. A bare copy glyph beside the id cut by the shared `truncateHash`, in the row's
-            value style; the full id is what gets copied. */}
-        <DetailRow label={t('faucetId')} data-testid="token-detail-contract">
-          <CopyButton
-            text={tokenId}
-            label={truncateHash(tokenId, 8)}
-            // The visible label is a value, so the control is named by what it does.
-            aria-label={copied => (copied ? t('copied') : t('copyToClipboard'))}
-            icon="leading"
-            className="min-w-0 text-ink"
-            contentClassName="text-value"
-            data-testid="token-detail-copy-contract"
-          />
-        </DetailRow>
+        <DetailDisclosure
+          title={t('faucetId')}
+          summary={truncateHash(tokenId, 8)}
+          open={faucetOpen}
+          onOpenChange={setFaucetOpen}
+          data-testid="token-detail-contract"
+        >
+          <DetailRow label={t('faucetId')} stacked>
+            <div className="flex min-w-0 w-full flex-col gap-2">
+              <span dir="ltr" className="select-text break-all" data-testid="token-detail-full-faucet-id">
+                {tokenId}
+              </span>
+              <CopyButton
+                text={tokenId}
+                aria-label={copied => (copied ? t('copied') : t('copyToClipboard'))}
+                icon="leading"
+                className="min-h-11 self-start text-ink"
+                contentClassName="text-value"
+                data-testid="token-detail-copy-contract"
+              />
+            </div>
+          </DetailRow>
+        </DetailDisclosure>
         <DetailRow label={t('type')}>{t('fungible')}</DetailRow>
         {/* Centred on the chip, which is taller than the label's line. */}
         <DetailRow label={t('network')} className="items-center">
