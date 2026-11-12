@@ -13,7 +13,6 @@ jest.mock('app/a11y/RootSuspenseFallback', () => ({
   default: ({ 'data-testid': testId }: { 'data-testid'?: string }) => <div data-testid={testId} />
 }));
 
-
 const renderWithSheet = () =>
   render(
     <>

@@ -25,7 +25,6 @@ jest.mock('@capacitor/app', () => ({
 const mockRequestLock = jest.fn<Promise<void>, []>();
 jest.mock('./lock-request', () => ({ requestLock: () => mockRequestLock() }));
 
-
 const MINUTE = 60_000;
 const START = new Date('2026-01-01T00:00:00Z').getTime();
 
