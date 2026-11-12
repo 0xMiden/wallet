@@ -1359,7 +1359,6 @@ describe('MultisigService', () => {
   describe('signing helpers', () => {
     it.each([
       { name: 'standalone signing', run: (service: MultisigService) => service.signProposal('p') },
-      { name: 'sign and execute', run: (service: MultisigService) => service.signAndExecuteProposal('p') },
       {
         name: 'sign and prepare a request',
         run: (service: MultisigService) => service.signAndCreateTransactionRequest('p')
@@ -1462,11 +1461,6 @@ describe('MultisigService', () => {
         name: 'standalone signing',
         proposalType: 'send',
         run: (service: MultisigService) => service.signProposal('p')
-      },
-      {
-        name: 'sign and execute',
-        proposalType: 'send',
-        run: (service: MultisigService) => service.signAndExecuteProposal('p')
       },
       {
         name: 'normal request preparation',
@@ -1602,16 +1596,6 @@ describe('MultisigService', () => {
         expect(multisig.executeProposal).not.toHaveBeenCalled();
       }
     );
-
-    it('signAndExecuteProposal signs then executes a given proposal', async () => {
-      const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
-
-      await service.signAndExecuteProposal('p-1');
-
-      expect(multisig.signProposal).toHaveBeenCalledWith('p-1');
-      expect(multisig.executeProposal).toHaveBeenCalledWith('p-1');
-    });
 
     it('signAndCreateTransactionRequest signs then returns the request payload', async () => {
       // Non-custom proposal → the normal createTransactionProposalRequest path.

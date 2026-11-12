@@ -23,7 +23,7 @@ import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
-import { configureGuardianAccount } from './configure';
+import { configureGuardianAccount, ecdsaCosigners } from './configure';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { checkEndpointCommitment, type EndpointCommitmentCheck } from './operator-map';
@@ -889,84 +889,57 @@ export const finalizeDirectGuardianSwitch = async (
   }
   const hotPublicKey = walletAccount.hotPublicKey;
 
-  const {
-    accountIdHex,
-    stateBase64,
-    stateCommitment,
-    firstState,
-    signerCommitments,
-    detectedSigners,
-    declaredSigners,
-    guardianCommitment
-  } = await asPreflight(() =>
-    withWasmClientLock(async hold => {
-      await midenClientProxy.syncState();
-      // Same parking-await rule as `readDirectSwitchCommitState`, and this is
-      // the more dangerous of the two: an eviction during the sync releases the
-      // mutex, and the reads below would then serialize an account handle out
-      // of a client a successor already owns - a blob this function POSTs to
-      // the operator as the account's authoritative state and its new signer
-      // allowlist. The self-heal reaches here from the 3 s loop, so it is a
-      // scheduled exposure, not a once-per-rotation one.
-      assertWasmHoldCurrent(hold, 'guardian register preflight, after the state sync');
-      const account = await midenClientProxy.getAccount(walletAccount.publicKey);
-      // AND AGAIN AFTER THE ACCOUNT READ, which is a parking await of its own.
-      // Guarding only the sync above covered the first of the two and left the
-      // whole payload derivation - `AccountInspector.fromAccount`,
-      // `account.serialize()`, the guardian-slot read - running on a handle
-      // borrowed from a client an eviction may already have handed to a
-      // successor. That is the same one-guard-per-hold mistake
-      // `reRegisterCurrentStateOnGuardian` fixed by re-checking after BOTH of
-      // its awaits, and the stakes here are the highest in the change: these
-      // bytes are POSTed to the operator as the account's authoritative state
-      // and its new signer allowlist. Still strictly pre-write, so failing
-      // here costs a refunded attempt and nothing else.
-      assertWasmHoldCurrent(hold, 'guardian register preflight, after the account read');
-      if (!account) {
-        throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
-      }
-      const detected = AccountInspector.fromAccount(account);
-      return {
-        accountIdHex: account.id().toString(),
-        stateBase64: u8ToB64(account.serialize()),
-        // The commitment of these bytes, which the node has to hold before a 0.19 Guardian stores them.
-        stateCommitment: account.to_commitment().toHex(),
-        firstState: account.nonce().asInt() === 0n,
-        detectedSigners: detected.signerCommitments.length,
-        // Storage's own count, so the completeness check below compares the read
-        // against what the account SAYS it holds rather than against a constant.
-        declaredSigners: detected.numSigners,
-        signerCommitments: detected.signerCommitments,
-        // Read from the SAME account as the bytes below, because the check it
-        // feeds is about those bytes.
-        guardianCommitment: getGuardianCommitmentFromAccount(account)
-      };
-    }, lockOptions)
-  );
-
-  // `AccountInspector.fromAccount` swallows per-slot read failures, so a set
-  // SHORTER than the count storage declares is a truncated read — and this
-  // allowlist becomes the new operator's authorization policy for the account.
-  //
-  // The empty case alone is not enough. A partial read of a 2-of-3 guardian
-  // account — say the hot key alone, cold's slot unreadable — passes a length
-  // check, and `/configure` then installs an allowlist the COLD key is not in.
-  // Cold is the key the recovery paths sign with (`buildColdMultisigService`,
-  // `reRegisterCurrentStateOnGuardian`), so the account would be left unable to
-  // repair its own registration on the operator it just rotated to, on the path
-  // whose whole premise is that the previous operator is gone. The inspector's
-  // own docs say a truncated read must not be stored as authoritative config;
-  // `assertCompleteDetectedConfig` is the library's check for exactly this, and
-  // it additionally requires the guardian commitment a guarded multisig always
-  // has. Failing here costs nothing — nothing has been written yet, and the
-  // rotation itself has already committed, so the row completes with
-  // `registerFailed` and the self-heal retries against a later, complete read.
-  if (declaredSigners === 0 || detectedSigners !== declaredSigners) {
-    throw new GuardianRegistrationPreflightError(
-      `Refusing to register on the new guardian with an incomplete signer allowlist: storage declares ` +
-        `${declaredSigners} signers, read ${detectedSigners} (truncated read)`
+  const { accountIdHex, stateBase64, stateCommitment, firstState, signerCommitments, guardianCommitment } =
+    await asPreflight(() =>
+      withWasmClientLock(async hold => {
+        await midenClientProxy.syncState();
+        // Same parking-await rule as `readDirectSwitchCommitState`, and this is
+        // the more dangerous of the two: an eviction during the sync releases the
+        // mutex, and the reads below would then serialize an account handle out
+        // of a client a successor already owns - a blob this function POSTs to
+        // the operator as the account's authoritative state and its new signer
+        // allowlist. The self-heal reaches here from the 3 s loop, so it is a
+        // scheduled exposure, not a once-per-rotation one.
+        assertWasmHoldCurrent(hold, 'guardian register preflight, after the state sync');
+        const account = await midenClientProxy.getAccount(walletAccount.publicKey);
+        // AND AGAIN AFTER THE ACCOUNT READ, which is a parking await of its own.
+        // Guarding only the sync above covered the first of the two and left the
+        // whole payload derivation - `AccountInspector.fromAccount`,
+        // `account.serialize()`, the guardian-slot read - running on a handle
+        // borrowed from a client an eviction may already have handed to a
+        // successor. That is the same one-guard-per-hold mistake
+        // `reRegisterCurrentStateOnGuardian` fixed by re-checking after BOTH of
+        // its awaits, and the stakes here are the highest in the change: these
+        // bytes are POSTed to the operator as the account's authoritative state
+        // and its new signer allowlist. Still strictly pre-write, so failing
+        // here costs a refunded attempt and nothing else.
+        assertWasmHoldCurrent(hold, 'guardian register preflight, after the account read');
+        if (!account) {
+          throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
+        }
+        // `AccountInspector.fromAccount` skips what it cannot read, and this
+        // allowlist becomes the new operator's authorization policy for the account.
+        // A partial read of a 2-of-3 account (the hot key alone, cold's slot
+        // unreadable) would install an allowlist without the COLD key, the key every
+        // recovery path signs with, on the path whose premise is that the previous
+        // operator is gone. `ecdsaCosigners` refuses a read shorter than the count
+        // storage declares, and any signer or guardian not read as ECDSA, the only
+        // policy `/configure` sends; `asPreflight` makes that refusal a refunded one.
+        const signerCommitments = ecdsaCosigners(AccountInspector.fromAccount(account));
+        return {
+          accountIdHex: account.id().toString(),
+          stateBase64: u8ToB64(account.serialize()),
+          // The commitment of these bytes, which the node has to hold before a 0.19 Guardian stores them.
+          stateCommitment: account.to_commitment().toHex(),
+          firstState: account.nonce().asInt() === 0n,
+          signerCommitments,
+          // Read from the SAME account as the bytes below, because the check it
+          // feeds is about those bytes.
+          guardianCommitment: getGuardianCommitmentFromAccount(account)
+        };
+      }, lockOptions)
     );
-  }
+
   // And THIS DEVICE has to be in the policy it is installing.
   //
   // Note what the comparison is between. Deriving the left-hand side from the

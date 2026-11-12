@@ -620,11 +620,6 @@ export class MultisigService {
     );
   }
 
-  async signAndExecuteProposal(id: string): Promise<void> {
-    await this.signProposal(id);
-    await withWasmClientLock(() => this.multisig.executeProposal(id));
-  }
-
   /**
    * Create a custom transaction proposal from a serialized transaction request.
    * This is used for 'execute' type transactions.

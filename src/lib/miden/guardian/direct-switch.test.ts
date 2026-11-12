@@ -255,6 +255,14 @@ jest.mock('@openzeppelin/miden-multisig-client', () => {
 const mockedMultisigClient = jest.requireMock('@openzeppelin/miden-multisig-client');
 const mockedSdk = jest.requireMock('@miden-sdk/miden-sdk/lazy');
 
+// An `AccountInspector.fromAccount` read as multisig-client 0.19 reports it: every signer read ECDSA, as is the guardian.
+const ecdsaRead = (signerCommitments: string[], numSigners = signerCommitments.length) => ({
+  numSigners,
+  signerCommitments,
+  signers: signerCommitments.map(commitment => ({ commitment, scheme: 'ecdsa' })),
+  guardianScheme: 'ecdsa'
+});
+
 // The multisig client's ECDSA auth-scheme prefix byte. `Signature.deserialize`
 // dispatches on it, so it decides which curve the bytes behind it are read as.
 const ECDSA_AUTH_SCHEME_ID = 1;
@@ -332,13 +340,10 @@ beforeEach(() => {
   // rather than stubbed out.
   mockedMultisigClient.AccountInspector.getGuardianPublicKeyCommitment.mockReturnValue(NEW_GUARDIAN_COMMITMENT);
   mockCheckEndpointCommitment.mockImplementation(async () => 'match');
-  mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
-    // `0x`-prefixed on purpose: storage hands back prefixed hex while
-    // getSignerDetailsFromAccount hands back bare, and the hot-membership check
-    // has to see through that.
-    numSigners: 2,
-    signerCommitments: ['0xhotcommitment', '0xcoldcommitment']
-  });
+  // `0x`-prefixed on purpose: storage hands back prefixed hex while
+  // getSignerDetailsFromAccount hands back bare, and the hot-membership check
+  // has to see through that.
+  mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue(ecdsaRead(['0xhotcommitment', '0xcoldcommitment']));
   mockedMultisigClient.executeForSummaryAtTip.mockResolvedValue({
     toCommitment: () => ({ toHex: () => '0xtxcommitment' })
   });
@@ -1216,10 +1221,9 @@ describe('finalizeDirectGuardianSwitch', () => {
     // presentation only — a strict compare would refuse, and a mutation reading
     // slot 0 instead of the checked value is visible in the argument below.
     mockCommitmentFromPublicKeyHex.mockImplementation(async () => 'HOTCOMMITMENT');
-    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
-      numSigners: 2,
-      signerCommitments: ['0xhotcommitment', '0xcoldcommitment']
-    });
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue(
+      ecdsaRead(['0xhotcommitment', '0xcoldcommitment'])
+    );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any);
@@ -1232,12 +1236,12 @@ describe('finalizeDirectGuardianSwitch', () => {
   // An empty derive means a truncated storage read, not an account with no
   // signers; registering that would lock the account out of its own new guardian.
   it('refuses to register an empty signer allowlist', async () => {
-    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({ numSigners: 0, signerCommitments: [] });
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue(ecdsaRead([], 0));
 
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
-    ).rejects.toThrow('incomplete signer allowlist');
+    ).rejects.toThrow('incomplete signer set');
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 
@@ -1246,10 +1250,7 @@ describe('finalizeDirectGuardianSwitch', () => {
   // install an allowlist without the cold key — the key every recovery path
   // signs with, on the flow whose premise is that the old operator is gone.
   it('refuses to register a partially-read signer allowlist', async () => {
-    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
-      numSigners: 2,
-      signerCommitments: ['0xhotcommitment']
-    });
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue(ecdsaRead(['0xhotcommitment'], 2));
 
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1262,15 +1263,49 @@ describe('finalizeDirectGuardianSwitch', () => {
   // own hot commitment is not in it, `/configure` would hand the new operator an
   // allowlist that locks out the very signer authenticating the call.
   it('refuses to register an allowlist that omits this device hot signer', async () => {
-    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
-      numSigners: 2,
-      signerCommitments: ['0xsomeoneelse', '0xcoldcommitment']
-    });
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue(ecdsaRead(['0xsomeoneelse', '0xcoldcommitment']));
 
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
     ).rejects.toThrow('omits this device');
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  // `/configure` always sends a `MidenEcdsa` policy, so a signer or guardian read under another scheme is no policy to
+  // install. Refused as preflight, so the caller refunds it.
+  it.each([
+    [
+      'a non-ECDSA signer',
+      {
+        ...ecdsaRead(['0xhotcommitment', '0xcoldcommitment']),
+        signers: [
+          { commitment: '0xhotcommitment', scheme: 'ecdsa' },
+          { commitment: '0xcoldcommitment', scheme: 'falcon' }
+        ]
+      }
+    ],
+    ['an unread guardian scheme', { ...ecdsaRead(['0xhotcommitment', '0xcoldcommitment']), guardianScheme: null }]
+  ])('refuses a direct switch whose read has %s before any /configure', async (_label, read) => {
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue(read);
+    const guardianProvider: GuardianAccountProvider = {
+      getAccounts: async () => [walletAccount()],
+      getPublicKeyForCommitment: async () => '0xhotpk',
+      signWord: async () => '0xsig'
+    };
+    const onBeforeRegister = jest.fn();
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      guardianProvider,
+      undefined,
+      onBeforeRegister
+    ).catch((e: unknown) => e);
+
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(error).toHaveProperty('message', expect.stringContaining('Refusing to register'));
+    expect(onBeforeRegister).not.toHaveBeenCalled();
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 
@@ -1514,10 +1549,7 @@ describe('finalizeDirectGuardianSwitch', () => {
   });
 
   it('marks failures that never reached the operator as preflight, so the caller can refund them', async () => {
-    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
-      numSigners: 2,
-      signerCommitments: ['0xhotcommitment']
-    });
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue(ecdsaRead(['0xhotcommitment'], 2));
 
     const error = await finalizeDirectGuardianSwitch(
       '0xacct',
