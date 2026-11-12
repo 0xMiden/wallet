@@ -6,7 +6,7 @@ import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
 import { epochReadOnlyProvider } from '../node_modules/.cache/nightly-epoch-provider.mjs';
 
 import { epochCheckpointFixture } from '../node_modules/.cache/nightly-epoch-fixture.mjs';
-import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote } from '../node_modules/.cache/nightly-epoch-request.mjs';
+import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote, inspectEpochRefundNote } from '../node_modules/.cache/nightly-epoch-request.mjs';
 
 const sdk = getWrappedSdk();
 const actor = 'mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5_qr7qqq9wr6w';
@@ -130,6 +130,36 @@ function request(options = {}) {
   if (options.feeSalt) builder = builder.withFeeConversionSalt(sdk.Word.fromHex(`0x${'11'.repeat(32)}`)).withBlockNumbers([900]);
   return { state: snapshot, bytes: builder.build().serialize(), noteId };
 }
+
+function refundFile(options = {}) {
+  const input = request(options);
+  const note = sdk.TransactionRequest.deserialize(input.bytes).expectedOutputOwnNotes()[0];
+  input.state.forwardNoteId = input.noteId;
+  input.state.forwardAuthority = { minimumOutput: input.state.forwardMinimum, bindingHash,
+    reclaimHeight: 7200, mandateReclaimHeight: 2200 };
+  return { snapshot: input.state, bytes: Uint8Array.from(sdk.NoteFile.fromInputNote(
+    sdk.InputNote.authenticated(note, sdk.NoteInclusionProof.mockAtBlock(1000))
+  ).serialize()) };
+}
+test('validates the exact matured original P2IDE collateral bytes before a refund, without fresh authority', () => {
+  const input = refundFile();
+  assert.equal(inspectEpochRefundNote(input.snapshot, input.bytes, 7200), BigInt(input.snapshot.principal));
+});
+for (const [name, options] of [
+  ['another collateral sender', { wrongSender: true }], ['another allocator', { selfRecipient: true }],
+  ['another asset', { wrongFaucet: true }], ['another amount', { amount: 1_010_001n }],
+  ['another mandate binding', { wrongBinding: true }], ['another reclaim height', { reclaimHeight: 9000 }],
+  ['a non-reclaimable script', { p2id: true }]
+]) test(`rejects collateral refund bytes with ${name}`, () => {
+  const input = refundFile(options);
+  assert.throws(() => inspectEpochRefundNote(input.snapshot, input.bytes, 9000));
+});
+test('does not refund before the live reclaim height or without the original inspected authority/note ID', () => {
+  const input = refundFile();
+  assert.throws(() => inspectEpochRefundNote(input.snapshot, input.bytes, 7199));
+  assert.throws(() => inspectEpochRefundNote({ ...input.snapshot, forwardAuthority: undefined }, input.bytes, 7200));
+  assert.throws(() => inspectEpochRefundNote({ ...input.snapshot, forwardNoteId: `0x${'a'.repeat(64)}` }, input.bytes, 7200));
+});
 
 for (const options of [{}, { feeSalt: true }]) {
   test(`inspects real SDK collateral bytes${options.feeSalt ? ' with declared fee salt' : ''} without submitting`, () => {

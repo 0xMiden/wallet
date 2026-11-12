@@ -56,6 +56,12 @@ export function inspectEpochForwardQuote(
   return { bindingHash: getSimpleWitnessHash(task.intentData, task.taskTypeString), mandateReclaimHeight: reclaimHeight };
 }
 
+export function inspectEpochRefundNote(
+  _state: MainnetEpochCheckpoint, _bytes: Uint8Array, _currentBlock: number
+): bigint {
+  throw new Error('Epoch collateral refund inspection is not implemented');
+}
+
 export function inspectEpochReturnNote(
   state: MainnetEpochCheckpoint, expectedNoteId: string, bytes: Uint8Array
 ): bigint {
