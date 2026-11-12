@@ -480,11 +480,12 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
         {t('tokenInfo')}
       </SectionHeader>
       <DetailCard surface="outline">
-        {/* What the token is: the faucet's own words, or the wallet's for testnet iETH. It comes first
-            because it describes the token; the rows after it are identifiers. The text can be long,
-            so it wraps under the label.
-            A stacked row breaks inside words, which suits an address but not prose. The span breaks
-            at spaces and breaks a word only when the word is wider than the card. */}
+        {metadata?.name && metadata.name !== metadata.symbol && (
+          <DetailRow label={t('tokenNameLabel')} stacked data-testid="token-detail-name">
+            <span className="break-normal wrap-break-word">{metadata.name}</span>
+          </DetailRow>
+        )}
+        {/* The faucet's own description, or the wallet's for testnet iETH, stays separate from names and ids. */}
         {description && (
           <DetailRow label={t('tokenDescription')} stacked data-testid="token-detail-description">
             <span className="break-normal wrap-break-word">{description}</span>

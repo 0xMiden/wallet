@@ -326,6 +326,53 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Check out TokenDetail baseline
+        if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: token-detail-baseline
+
+      - name: Prepare TokenDetail baseline harness
+        if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        run: |
+          mkdir -p token-detail-baseline/playwright/visual
+          cp playwright.token-detail-visual.config.ts token-detail-baseline/
+          cp -R playwright/visual/token-detail token-detail-baseline/playwright/visual/
+          ln -s "$GITHUB_WORKSPACE/node_modules" token-detail-baseline/node_modules
+          printf '{"role":"before","sha":"%s"}\n' "$(git -C token-detail-baseline rev-parse HEAD)" > token-detail-baseline/token-detail-source.json
+
+      - name: Capture TokenDetail current-main baseline
+        if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        timeout-minutes: 5
+        working-directory: token-detail-baseline
+        env:
+          TOKEN_DETAIL_CAPTURE: before
+        run: $GITHUB_WORKSPACE/node_modules/.bin/playwright test --config playwright.token-detail-visual.config.ts
+
+      - name: Capture TokenDetail candidate
+        if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        timeout-minutes: 5
+        env:
+          TOKEN_DETAIL_CAPTURE: after
+        run: |
+          printf '{"role":"after","sha":"%s"}\n' "$(git rev-parse HEAD)" > token-detail-source.json
+          yarn playwright test --config playwright.token-detail-visual.config.ts
+
+      - name: Upload TokenDetail visual acceptance
+        if: always() && github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: token-detail-visual
+          path: |
+            token-detail-baseline/test-results/token-detail-visual/
+            token-detail-baseline/token-detail-source.json
+            test-results/token-detail-visual/
+            token-detail-source.json
+          if-no-files-found: warn
+          retention-days: 7
+
   native-toolbar:
     needs: translations
     uses: ./.github/workflows/native-toolbar.yml
