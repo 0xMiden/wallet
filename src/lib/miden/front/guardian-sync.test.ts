@@ -5,7 +5,7 @@
  * can't block the whole sync cycle.
  */
 
-import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
+import { GuardianRegistrationPreflightError, GuardianStateOffChainRefusal } from 'lib/miden/guardian/direct-switch';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -3667,7 +3667,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
         stateOnChain?: string
       ) => {
         if (stateOnChain === 'require') {
-          throw new GuardianRegistrationPreflightError('the node does not hold the state this device would register');
+          throw new GuardianStateOffChainRefusal('the node does not hold the state this device would register');
         }
         onBeforeRegister?.();
         posts += 1;
@@ -3687,6 +3687,32 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(isGuardianUnrepairable('unregistered-pk')).toBe(false);
 
     clock.restore();
+  });
+
+  // Both refusals are refunded, and the log says which one it was: a missing chain state is not a bad local read.
+  it.each([
+    [
+      'the chain does not hold the state',
+      () => new GuardianStateOffChainRefusal('the node does not hold the state this device would register'),
+      'the chain does not hold this device',
+      'could not be read completely'
+    ],
+    [
+      'the local read is incomplete',
+      () => new GuardianRegistrationPreflightError('account state read back incomplete'),
+      'could not be read completely',
+      'the chain does not hold this device'
+    ]
+  ])('says why a refused registration waits (%s)', async (_label, refusal, said, unsaid) => {
+    mockFinalizeDirectGuardianSwitch.mockRejectedValue(refusal());
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await runUntilPersistent();
+
+    const lines = warn.mock.calls.map(call => String(call[0]));
+    expect(lines.filter(line => line.includes(said))).toHaveLength(1);
+    expect(lines.some(line => line.includes(unsaid))).toBe(false);
+    warn.mockRestore();
   });
 
   // The read agreed, then the Guardian's own node had not caught up: it refused before storing anything.

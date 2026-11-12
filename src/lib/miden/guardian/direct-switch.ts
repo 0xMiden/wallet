@@ -778,6 +778,21 @@ export const isGuardianKeyMismatchRefusal = (error: unknown): boolean =>
   error.endpointCheck === 'mismatch';
 
 /**
+ * The `'require'` refusal: one node read did not show the state this device would register, so a Guardian 0.19 would
+ * not store it yet. A preflight error by name, so callers refund it like any other.
+ */
+export class GuardianStateOffChainRefusal extends GuardianRegistrationPreflightError {
+  readonly stateOffChain = true;
+}
+
+/** Name-based, like its siblings. */
+export const isGuardianStateOffChainRefusal = (error: unknown): boolean =>
+  error instanceof Error &&
+  error.name === GUARDIAN_REGISTRATION_PREFLIGHT &&
+  'stateOffChain' in error &&
+  error.stateOffChain === true;
+
+/**
  * Tag EVERYTHING raised before the first `/configure` as preflight, rather than
  * enumerating throw sites.
  *
@@ -1008,7 +1023,7 @@ export const finalizeDirectGuardianSwitch = async (
   if (!firstState && stateOnChain === 'require') {
     const onChain = await readChainAccountCommitment(accountIdHex, LANDED_COMMITMENT_READ_TIMEOUT_MS);
     if (onChain === undefined || !sameCommitment(onChain, stateCommitment)) {
-      throw new GuardianRegistrationPreflightError(
+      throw new GuardianStateOffChainRefusal(
         `Not registering on ${newGuardianEndpoint} yet: the node ` +
           `${onChain === undefined ? 'could not be read' : 'does not hold this state'}, and a Guardian stores a ` +
           'state past nonce 0 only once the chain does'

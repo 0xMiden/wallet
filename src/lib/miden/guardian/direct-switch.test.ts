@@ -1,7 +1,7 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { getRpcEndpoint } from 'lib/miden-chain/constants';
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import type { WalletAccount } from 'lib/shared/types';
 
 import {
@@ -10,6 +10,7 @@ import {
   finalizeDirectGuardianSwitch,
   isGuardianKeyMismatchRefusal,
   isGuardianRegistrationPreflightError,
+  isGuardianStateOffChainRefusal,
   isGuardianUnreachableError,
   readChainAccountCommitment,
   readDirectSwitchCommitState,
@@ -1155,6 +1156,29 @@ describe('waitForStateOnChain', () => {
       jest.useRealTimers();
     }
   });
+
+  // The read is capped at the time left only once it reaches the node, so one can still end past the bound.
+  it('waitForStateOnChain ends with false and reads no more when a read uses up the rest of the bound', async () => {
+    jest.useFakeTimers();
+    try {
+      jest
+        .mocked(ensureSdkWasmReady)
+        .mockImplementationOnce(() => new Promise<void>(resolve => setTimeout(() => resolve(), 7_000)));
+      mockGetAccountProof.mockResolvedValue(chainProof(`0x${'0f'.repeat(32)}`));
+
+      const outcome = settled(waitForStateOnChain('acc-1', STATE_COMMITMENT, 5_000));
+
+      await jest.advanceTimersByTimeAsync(6_999);
+      expect(outcome.value).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome.value).toBe(false);
+
+      await jest.advanceTimersByTimeAsync(STATE_ON_CHAIN_WAIT_MS);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('finalizeDirectGuardianSwitch', () => {
@@ -1271,6 +1295,7 @@ describe('finalizeDirectGuardianSwitch', () => {
 
     expect(isGuardianRegistrationPreflightError(error)).toBe(true);
     expect(isGuardianKeyMismatchRefusal(error)).toBe(true);
+    expect(isGuardianStateOffChainRefusal(error)).toBe(false);
     expect(error).toMatchObject({ endpointCheck: 'mismatch' });
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
     // Checked against the guardian key of the account this function itself read,
@@ -1727,6 +1752,7 @@ describe('finalizeDirectGuardianSwitch', () => {
       ).catch((e: unknown) => e);
 
       expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+      expect(isGuardianStateOffChainRefusal(error)).toBe(true);
       expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
       expect(onBeforeRegister).not.toHaveBeenCalled();
       expect(mockGuardianConfigure).not.toHaveBeenCalled();
@@ -1746,7 +1772,7 @@ describe('finalizeDirectGuardianSwitch', () => {
         undefined,
         'require'
       ).catch((e: unknown) => e);
-      expect(isGuardianRegistrationPreflightError(refused)).toBe(true);
+      expect(isGuardianStateOffChainRefusal(refused)).toBe(true);
       expect(mockGuardianConfigure).not.toHaveBeenCalled();
 
       await finalizeDirectGuardianSwitch(

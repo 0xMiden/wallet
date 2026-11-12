@@ -15,6 +15,7 @@ import {
   finalizeDirectGuardianSwitch,
   isGuardianAccountUnknown,
   isGuardianRegistrationPreflightError,
+  isGuardianStateOffChainRefusal,
   isGuardianUnreachableError,
   readDirectSwitchCommitState
 } from 'lib/miden/guardian/direct-switch';
@@ -1565,8 +1566,11 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       // either way, so this does not re-read on every 3s tick.
       pushAttempt.settle('refunded');
       console.warn(
-        `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet — the local account state could ` +
-          `not be read completely enough to authorize the operator (no attempt spent):`,
+        isGuardianStateOffChainRefusal(e)
+          ? `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet: the chain does not hold this ` +
+              `device's state yet, so the registration waits for a later lap (no attempt spent):`
+          : `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet: the local account state could ` +
+              `not be read completely enough to authorize the operator (no attempt spent):`,
         e
       );
       return false;
