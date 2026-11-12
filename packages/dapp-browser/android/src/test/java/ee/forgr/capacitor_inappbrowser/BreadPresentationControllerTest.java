@@ -2775,6 +2775,15 @@ public class BreadPresentationControllerTest {
         assertTrue(dialog.isShowing());
     }
 
+    private android.view.VelocityTracker freshCapsuleTracker() {
+        int strategy = ReflectionHelpers.getStaticField(android.view.VelocityTracker.class, "VELOCITY_TRACKER_STRATEGY_DEFAULT");
+        // The pooled Robolectric tracker retains cleared coordinates that its history lookup still reads.
+        android.view.VelocityTracker tracker = ReflectionHelpers.callConstructor(android.view.VelocityTracker.class,
+            ReflectionHelpers.ClassParameter.from(int.class, strategy));
+        assertEquals(strategy, (int) ReflectionHelpers.getField(tracker, "mStrategy"));
+        return tracker;
+    }
+
     private android.view.MotionEvent copyCapsulePacket(android.view.MotionEvent event) {
         android.os.Parcel parcel = android.os.Parcel.obtain();
         try {
@@ -2834,13 +2843,15 @@ public class BreadPresentationControllerTest {
         second.addBatch(t + 50, x, y + 145, 1f, 1f, 0);
         second.addBatch(t + 60, x, y + 148, 1f, 1f, 0);
         List<android.view.MotionEvent> packets = List.of(down, first, second);
-        android.view.VelocityTracker physical = android.view.VelocityTracker.obtain();
+        android.view.VelocityTracker physical = freshCapsuleTracker();
         // Robolectric's estimator ignores history, so also inspect the real tracker's input packets.
         List<android.view.MotionEvent> consumed = new ArrayList<>();
         try {
             for (android.view.MotionEvent packet : packets) physical.addMovement(packet);
             physical.computeCurrentVelocity(1000);
             assertTrue("the raw physical reference moves downward", physical.getYVelocity() > 0f);
+            assertNull("the fixture has not started a capsule tracker", ReflectionHelpers.getField(controller, "tracker"));
+            ReflectionHelpers.setField(controller, "tracker", freshCapsuleTracker());
             dispatchPhysicalCapsulePacket(capsule, down, restOrigin);
             android.view.VelocityTracker owned = ReflectionHelpers.getField(controller, "tracker");
             assertNotSame("the physical reference must use an independent tracker", physical, owned);
