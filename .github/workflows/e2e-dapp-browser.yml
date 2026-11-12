@@ -34,6 +34,7 @@ on:
           - all
           - auth-tab
           - presentation-compare
+          - presentation-gesture-api36
         default: all
       baseline_sha:
         description: Exact base commit for the Android presentation comparison
@@ -515,6 +516,81 @@ jobs:
           path: test-results-android/
           retention-days: 7
           if-no-files-found: ignore
+
+  android-presentation-gesture:
+    name: Android API36 presentation gestures
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-gesture-api36'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
+      ANDROID_SERIAL: emulator-5554
+      E2E_NETWORK: testnet
+      MIDEN_E2E_TEST: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install SDK packages
+        run: sdkmanager --install "platform-tools" "emulator" "platforms;android-36" "system-images;android-36;google_apis_playstore;x86_64"
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
+      - name: Build debug and instrumentation APKs
+        run: |
+          yarn test:e2e:android:build
+          (cd android && ./gradlew :app:assembleDebugAndroidTest && ./gradlew --stop)
+      - name: Run live API36 managed presentation gestures
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis_playstore
+          arch: x86_64
+          profile: pixel_6
+          avd-name: Pixel_API_36_Presentation
+          force-avd-creation: true
+          emulator-boot-timeout: 600
+          cores: 4
+          ram-size: 4096M
+          disable-animations: false
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics
+          script: bash .github/scripts/run-dapp-presentation-gesture-api36.sh
+      - name: Upload gesture acceptance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-presentation-gesture-${{ github.run_id }}
+          path: test-results-presentation-gesture/
+          retention-days: 7
+          if-no-files-found: error
 
   android-auth-tab-acceptance:
     name: Android Auth Tab acceptance
