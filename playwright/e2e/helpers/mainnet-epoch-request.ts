@@ -2,7 +2,11 @@ import {
   AccountId, Note, NoteArray, NoteAssets, NoteType, TransactionRequest, TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk';
 
+import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
+
 import { canonicalRequestBytes } from '../../../scripts/canonical-request-bytes.mjs';
+import { isRecord } from '../../../src/lib/update/guards';
+import { epochReadOnlyProvider } from './mainnet-epoch-provider';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 
 export interface EpochCollateralReview {
@@ -12,9 +16,41 @@ export interface EpochCollateralReview {
 }
 
 export function inspectEpochForwardQuote(
-  _state: MainnetEpochCheckpoint, _payload: unknown, _currentBlock: number
+  state: MainnetEpochCheckpoint, payload: unknown, currentBlock: number, observedNonce: string
 ): { bindingHash: string; mandateReclaimHeight: number } {
-  throw new Error('Epoch forward quote binding is not implemented');
+  parseMainnetEpochCheckpoint(state);
+  if (!Number.isSafeInteger(currentBlock) || currentBlock <= 0 || observedNonce !== state.forwardNonce ||
+      !isRecord(payload) || payload.chainId !== String(state.virtualChainId) || payload.isRegisteredOnchain !== false ||
+      payload.sponsorSignature !== '0x' || !isRecord(payload.compact) || !isRecord(payload.compact.mandate))
+    throw new Error('Epoch forward quote or latest SDK nonce is outside its authorization');
+  const compact = payload.compact;
+  const mandate = payload.compact.mandate;
+  if (typeof compact.sponsor !== 'string' || compact.sponsor.toLowerCase() !== state.evm.account.toLowerCase() ||
+      compact.nonce !== state.forwardNonce || compact.amount !== state.principal || compact.token !== `0x${'0'.repeat(40)}` ||
+      typeof mandate.minTokenOut !== 'string' || !/^[1-9]\d{0,77}$/.test(mandate.minTokenOut) ||
+      BigInt(mandate.minTokenOut) >= (1n << 256n) || BigInt(mandate.minTokenOut) < BigInt(state.forwardMinimum) ||
+      typeof mandate.midenReclaimHeight !== 'string' || !/^[1-9]\d{0,9}$/.test(mandate.midenReclaimHeight))
+    throw new Error('Epoch forward compact weakens its actor, amount, nonce or output floor');
+  const reclaimHeight = Number(mandate.midenReclaimHeight);
+  if (reclaimHeight <= currentBlock || reclaimHeight > currentBlock + state.recallBlocks || reclaimHeight > 0xffff_ffff)
+    throw new Error('Epoch forward mandate reclaim estimate is stale or outside its window');
+  const { sdk } = epochReadOnlyProvider(state.allocatorUrl, state.virtualChainId, state.evm.account);
+  const task = sdk.getTaskData({
+    taskType: sdk.TaskType.GetTokenOut,
+    intentData: { isNative: false, depositTokenAddress: `0x${'0'.repeat(40)}`, tokenInAmount: state.principal,
+      outputTokenAddress: state.evm.token, minTokenOut: mandate.minTokenOut, destinationChainId: String(state.evm.chainId),
+      protocolHashIdentifier: `0x${'0'.repeat(64)}`, recipient: state.evm.account },
+    extraDataTypestring: `uint256 midenReclaimHeight,${sdk.MIDEN_TO_EVM_EXTRA_TYPESTRING}`,
+    extraData: { midenSourceAccount: state.accountHex, midenFaucetId: state.native.hex,
+      midenNoteType: 'P2IDE', midenNoteId: '', midenReclaimHeight: String(reclaimHeight) }
+  });
+  if (payload.witnessTypeString !== task.taskTypeString ||
+      Object.keys(mandate).sort().join(',') !== Object.keys(task.intentData).sort().join(','))
+    throw new Error('Epoch forward mandate has undeclared fields or a different witness shape');
+  const bindingHash = getSimpleWitnessHash(mandate, task.taskTypeString);
+  if (bindingHash !== getSimpleWitnessHash(task.intentData, task.taskTypeString))
+    throw new Error('Epoch forward mandate does not bind the authorized route, actors and amounts');
+  return { bindingHash, mandateReclaimHeight: reclaimHeight };
 }
 
 export function inspectEpochCollateralRequest(

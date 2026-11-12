@@ -35,7 +35,7 @@ function forwardPayload() {
 
 test('binds the actual SDK forward mandate, not unsigned labels or an assumed dry-quote nonce', () => {
   const { snapshot, payload } = forwardPayload();
-  assert.deepEqual(inspectEpochForwardQuote(snapshot, payload, 1000), {
+  assert.deepEqual(inspectEpochForwardQuote(snapshot, payload, 1000, snapshot.forwardNonce), {
     bindingHash: getSimpleWitnessHash(payload.compact.mandate, payload.witnessTypeString), mandateReclaimHeight: 2200
   });
 });
@@ -58,7 +58,11 @@ for (const [name, mutate] of [
 ]) test(`refuses forward collateral binding with ${name}`, () => {
   const { snapshot, payload } = forwardPayload();
   mutate(payload);
-  assert.throws(() => inspectEpochForwardQuote(snapshot, payload, 1000));
+  assert.throws(() => inspectEpochForwardQuote(snapshot, payload, 1000, snapshot.forwardNonce));
+});
+test('refuses a changed actual SDK nonce response even when the earlier quote payload still matches', () => {
+  const { snapshot, payload } = forwardPayload();
+  assert.throws(() => inspectEpochForwardQuote(snapshot, payload, 1000, '10'));
 });
 
 const bindingFelts = [0x11111111111111n, 0x11111111111111n, 0x11111111111111n, 0x11111111111111n, 0x11111111n];
