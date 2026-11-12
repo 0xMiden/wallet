@@ -4,6 +4,8 @@ import { act, render, screen } from '@testing-library/react';
 
 import { backgroundLockPending } from 'lib/lock-up/background-lock';
 
+import { BackgroundLockCover } from './BackgroundLockCover';
+
 const mockMiden = { ready: true };
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => mockMiden }));
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
@@ -11,7 +13,6 @@ jest.mock('app/a11y/RootSuspenseFallback', () => ({
   default: ({ 'data-testid': testId }: { 'data-testid'?: string }) => <div data-testid={testId} />
 }));
 
-import { BackgroundLockCover } from './BackgroundLockCover';
 
 const renderWithSheet = () =>
   render(

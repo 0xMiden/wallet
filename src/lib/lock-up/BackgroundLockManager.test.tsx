@@ -3,6 +3,7 @@ import React from 'react';
 import { act, render } from '@testing-library/react';
 
 import { BACKGROUND_LOCK_HEARTBEAT_MS, backgroundLockPending } from './background-lock';
+import { BackgroundLockManager } from './BackgroundLockManager';
 import { backgroundLockDelay } from './index';
 
 const mockPlatform = { mobile: true, desktop: false };
@@ -24,7 +25,6 @@ jest.mock('@capacitor/app', () => ({
 const mockRequestLock = jest.fn<Promise<void>, []>();
 jest.mock('./lock-request', () => ({ requestLock: () => mockRequestLock() }));
 
-import { BackgroundLockManager } from './BackgroundLockManager';
 
 const MINUTE = 60_000;
 const START = new Date('2026-01-01T00:00:00Z').getTime();
