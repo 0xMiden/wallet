@@ -400,10 +400,11 @@ async function finishEpochReturn(wallet: GuardianAwareWalletPage, state: Mainnet
     const native = await vaultBalanceByFaucetId(wallet.page, state.native.faucetId);
     const evmToken = await tokenBalance(); const evmNative = await client.getBalance({ address: account });
     state.after = { native: native.toString(), evmToken: evmToken.toString(), evmNative: evmNative.toString() };
+    const valuation = state.reverseAuthority?.valuation;
     state.realizedCostUsdMicros = realizedMainnetLoopLoss([
-      { identity: `miden:${state.native.hex}`, decimals: 6, usdMicros: BigInt(state.native.usdMicros), before: BigInt(state.native.balance), after: native },
-      { identity: `evm:${state.evm.chainId}:${state.evm.token.toLowerCase()}`, decimals: 6, usdMicros: BigInt(state.evm.tokenUsdMicros), before: BigInt(state.evm.tokenBalance), after: evmToken },
-      { identity: `evm:${state.evm.chainId}:native`, decimals: 18, usdMicros: BigInt(state.evm.nativeUsdMicros), before: BigInt(state.evm.nativeBalance), after: evmNative }
+      { identity: `miden:${state.native.hex}`, decimals: 6, usdMicros: BigInt(valuation?.stableUsdMicros ?? state.native.usdMicros), before: BigInt(state.native.balance), after: native },
+      { identity: `evm:${state.evm.chainId}:${state.evm.token.toLowerCase()}`, decimals: 6, usdMicros: BigInt(valuation?.stableUsdMicros ?? state.evm.tokenUsdMicros), before: BigInt(state.evm.tokenBalance), after: evmToken },
+      { identity: `evm:${state.evm.chainId}:native`, decimals: 18, usdMicros: BigInt(valuation?.gasUsdMicros ?? state.evm.nativeUsdMicros), before: BigInt(state.evm.nativeBalance), after: evmNative }
     ]).toString();
     state.phase = 'complete'; await persist();
 }

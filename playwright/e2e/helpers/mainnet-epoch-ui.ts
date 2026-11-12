@@ -49,8 +49,9 @@ export function planEpochRoundTrip(state: MainnetEpochCheckpoint, returnInput: b
   if (returnInput <= 0n || returnInput > forward || BigInt(state.evm.nativeBalance) < BigInt(state.evmFeeBudget)) {
     throw new Error('Epoch return exceeds its attributed proceeds or existing gas balance');
   }
-  const nativePrice = BigInt(state.native.usdMicros);
-  const tokenPrice = BigInt(state.evm.tokenUsdMicros);
+  const valuation = state.reverseAuthority?.valuation;
+  const nativePrice = BigInt(valuation?.stableUsdMicros ?? state.native.usdMicros);
+  const tokenPrice = BigInt(valuation?.stableUsdMicros ?? state.evm.tokenUsdMicros);
   const feeBudget = BigInt(state.feeBudget);
   const plan = planOneClickRoundTrip({
     routeId: `epoch:${state.evm.chainId}:${state.evm.token}`,
@@ -65,7 +66,7 @@ export function planEpochRoundTrip(state: MainnetEpochCheckpoint, returnInput: b
     reverse: {
       inputUsdMicros: tokenValueUsdMicro(returnInput, 6, tokenPrice, true),
       minimumOutputUsdMicros: tokenValueUsdMicro(BigInt(state.reverseMinimum), 6, nativePrice, false),
-      nativeFeeUsdMicros: tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, BigInt(state.evm.nativeUsdMicros), true)
+      nativeFeeUsdMicros: tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, BigInt(valuation?.gasUsdMicros ?? state.evm.nativeUsdMicros), true)
     }
   });
   if (plan.worstCaseCostUsdMicros > BigInt(state.lossBudgetUsdMicros)) {

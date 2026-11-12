@@ -29,6 +29,7 @@ export interface EpochForwardAuthority {
   mandateReclaimHeight: number;
 }
 export interface EpochReverseAuthority {
+  valuation?: { pricedAt: string; stableUsdMicros: string; gasUsdMicros: string };
   arbiter: string;
   lockTag: string;
   preparedAt: string;
@@ -167,7 +168,7 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
   }
   if (value.reverseAuthority !== undefined) {
     const authority = value.reverseAuthority;
-    if (!record(authority) || !onlyKeys(authority, ['arbiter', 'lockTag', 'preparedAt', 'minimumExpiry', 'maximumExpiry']) ||
+    if (!record(authority) || !onlyKeys(authority, ['arbiter', 'lockTag', 'preparedAt', 'minimumExpiry', 'maximumExpiry', 'valuation']) ||
         !evmAddress(authority.arbiter) || /^0x0{40}$/i.test(authority.arbiter) ||
         typeof authority.lockTag !== 'string' || !/^0x[0-9a-f]{24}$/i.test(authority.lockTag) ||
         !timestamp(authority.preparedAt) || Date.parse(authority.preparedAt) < Date.parse(value.createdAt) ||
@@ -176,6 +177,17 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
         BigInt(authority.maximumExpiry) < BigInt(authority.minimumExpiry) ||
         BigInt(authority.maximumExpiry) - BigInt(authority.minimumExpiry) > 300n)
       throw new Error('Invalid bounded Epoch reverse authority');
+    if (authority.valuation !== undefined) {
+      const valuation = authority.valuation;
+      if (!record(valuation) || !onlyKeys(valuation, ['pricedAt', 'stableUsdMicros', 'gasUsdMicros']) ||
+          !timestamp(valuation.pricedAt) || Date.parse(valuation.pricedAt) < Date.parse(value.pricedAt) ||
+          Date.parse(valuation.pricedAt) > Date.parse(authority.preparedAt) ||
+          !positive(valuation.stableUsdMicros) || !positive(valuation.gasUsdMicros) ||
+          BigInt(valuation.stableUsdMicros) < BigInt(value.native.usdMicros) ||
+          BigInt(valuation.stableUsdMicros) < BigInt(value.evm.tokenUsdMicros) ||
+          BigInt(valuation.gasUsdMicros) < BigInt(value.evm.nativeUsdMicros))
+        throw new Error('Invalid or weaker Epoch return valuation');
+    }
   }
   if (value.consumeAuthority !== undefined) {
     const authority = value.consumeAuthority;
@@ -245,10 +257,13 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
         BigInt(value.evm.tokenBalance) + BigInt(value.forwardReceived) - BigInt(value.returnAmount) !== BigInt(value.after.evmToken)) {
       throw new Error('Epoch portfolio contains unattributed credits or debits');
     }
+    const metadata = record(value.reverseAuthority) ? value.reverseAuthority.valuation : undefined;
+    const stablePrice = record(metadata) && positive(metadata.stableUsdMicros) ? metadata.stableUsdMicros : undefined;
+    const gasPrice = record(metadata) && positive(metadata.gasUsdMicros) ? metadata.gasUsdMicros : undefined;
     const cost = realizedMainnetLoopLoss([
-      { identity: `miden:${value.native.hex}`, decimals: 6, usdMicros: BigInt(value.native.usdMicros), before: BigInt(value.native.balance), after: BigInt(value.after.native) },
-      { identity: `evm:${value.evm.chainId}:token`, decimals: 6, usdMicros: BigInt(value.evm.tokenUsdMicros), before: BigInt(value.evm.tokenBalance), after: BigInt(value.after.evmToken) },
-      { identity: `evm:${value.evm.chainId}:native`, decimals: 18, usdMicros: BigInt(value.evm.nativeUsdMicros), before: BigInt(value.evm.nativeBalance), after: BigInt(value.after.evmNative) }
+      { identity: `miden:${value.native.hex}`, decimals: 6, usdMicros: BigInt(stablePrice ?? value.native.usdMicros), before: BigInt(value.native.balance), after: BigInt(value.after.native) },
+      { identity: `evm:${value.evm.chainId}:token`, decimals: 6, usdMicros: BigInt(stablePrice ?? value.evm.tokenUsdMicros), before: BigInt(value.evm.tokenBalance), after: BigInt(value.after.evmToken) },
+      { identity: `evm:${value.evm.chainId}:native`, decimals: 18, usdMicros: BigInt(gasPrice ?? value.evm.nativeUsdMicros), before: BigInt(value.evm.nativeBalance), after: BigInt(value.after.evmNative) }
     ]);
     if (cost !== BigInt(value.realizedCostUsdMicros) || cost > BigInt(value.lossBudgetUsdMicros)) {
       throw new Error('Epoch realized cost is inconsistent or exceeds its authorized loss budget');
