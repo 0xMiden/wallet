@@ -1,3 +1,5 @@
+import { BOUNDED_JSON_FAILURES, type BoundedJsonFailure } from 'lib/remote-json';
+
 import type { OneClickConfig } from './schema';
 
 /**
@@ -55,6 +57,16 @@ export interface StartupEligibilityDiagnostics {
   startupEligibilityStage: (typeof STARTUP_ELIGIBILITY_STAGES)[number];
   startupEligibilityReason: StartupEligibilityReason;
   startupEligibilityRetry: (typeof STARTUP_ELIGIBILITY_RETRIES)[number];
+  startupEligibilityRequestFailure?: BoundedJsonFailure;
+}
+
+/** The bounded JSON failure kept when eligibility failed on the request itself. */
+export function retainedStartupRequestFailure(
+  reason: StartupEligibilityReason,
+  failure: unknown
+): BoundedJsonFailure | undefined {
+  if (reason !== 'request_failed') return undefined;
+  return BOUNDED_JSON_FAILURES.find(value => value === failure);
 }
 
 /** A failed startup decision keeps geo-gated features off until the page restarts; the wallet stays open. */
