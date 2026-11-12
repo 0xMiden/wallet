@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { canonicalMainnetLoopFaucet, qualifyMainnetLoopConfig } from '../playwright/e2e/helpers/mainnet-loop-config';
+import { parseBridgeConfig } from '../src/lib/remote-config/schema';
 
 const native = 'mm1arnfum9xuwwlrvgvrefejwvlavn3vk24';
 const hex = '0xe69e6ca6e39df1b10c1e5399399feb';
@@ -45,6 +46,28 @@ describe('mainnet faucet identity across config and wallet-cache formats', () =>
 });
 
 describe('nightly-only mainnet NEAR configuration', () => {
+  it('produces a production-parseable overlay from the published Bech32 token-list identity', () => {
+    const published = {
+      ...document(),
+      supportedEvmChains: {
+        arbitrum: {
+          chainId: 42161,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { USDC: { contractAddress: usdc } }
+            }
+          }
+        }
+      }
+    };
+    expect(parseBridgeConfig(published, 'mainnet')).not.toBeNull();
+    const snapshot = qualifyMainnetLoopConfig(published, catalog(), tokens());
+    expect(parseBridgeConfig(snapshot, 'mainnet')).toMatchObject({
+      swap: { oneClick: { midenAssets: [{ assetId: nativeAsset, faucetId: hex, decimals: 6 }] } }
+    });
+  });
   it('rejects an insecure provider rather than replacing its URL silently', () => {
     const original = document();
     const unsafe = { ...original, swap: { ...original.swap, oneClick: { serviceUrl: 'http://insecure.example' } } };
@@ -71,7 +94,7 @@ describe('nightly-only mainnet NEAR configuration', () => {
         oneClick: {
           serviceUrl: 'https://1click.chaindefuser.com',
           feePolicy: nightlyFeePolicy,
-          midenAssets: [{ assetId: nativeAsset, faucetId: native, decimals: 6 }],
+          midenAssets: [{ assetId: nativeAsset, faucetId: hex, decimals: 6 }],
           evmAssets: [
             { assetId: evmAsset, blockchain: 'arb', chainId: 42161, contractAddress: usdc, decimals: 6, symbol: 'USDC' }
           ]
