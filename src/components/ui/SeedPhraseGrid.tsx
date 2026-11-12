@@ -11,6 +11,11 @@ const WORD_COUNT = 12;
 export interface SeedPhraseGridProps {
   /** The words, in order. */
   words: string[];
+  /**
+   * Draw bars in place of the words. The words are left out of the DOM entirely, since a blurred
+   * word is still readable from the markup and recoverable by matching it against the word list.
+   */
+  masked?: boolean;
   /** Layout only (margins). */
   className?: string;
   'data-testid'?: string;
@@ -21,20 +26,37 @@ export interface SeedPhraseGridProps {
  * numbered columns. The number is part of the phrase — it is how the user checks they wrote it
  * down in order — so every screen that shows the words shows them the same way.
  */
-export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({ words, className, 'data-testid': dataTestId }) => (
-  <div data-testid={dataTestId} className={cn('rounded-2xl bg-fill p-5', className)}>
-    <div className="grid grid-cols-3 gap-x-4 gap-y-5">
-      {words.map((word, idx) => (
-        <div key={idx} className="flex min-w-0 items-center gap-2">
-          <span className="w-5 text-right text-caption text-muted">{idx + 1}.</span>
-          <span data-testid={`seed-word-${idx}`} className="text-value text-ink">
-            {word}
-          </span>
-        </div>
-      ))}
+export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({
+  words,
+  masked = false,
+  className,
+  'data-testid': dataTestId
+}) => {
+  const { t } = useTranslation();
+
+  return (
+    <div
+      data-testid={dataTestId}
+      className={cn('rounded-2xl bg-fill p-5', className)}
+      {...(masked ? { 'data-masked': 'true', role: 'group', 'aria-label': t('recoveryPhraseHidden') } : {})}
+    >
+      <div className="grid grid-cols-3 gap-x-4 gap-y-5">
+        {words.map((word, idx) => (
+          <div key={idx} className="flex min-w-0 items-center gap-2">
+            <span className="w-5 text-right text-caption text-muted">{idx + 1}.</span>
+            {masked ? (
+              <span aria-hidden="true" className="h-1.5 flex-1 rounded-full bg-fill-pressed" />
+            ) : (
+              <span data-testid={`seed-word-${idx}`} className="text-value text-ink">
+                {word}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export interface SeedPhrasePlaceholderProps {
   /** Layout only (margins). */

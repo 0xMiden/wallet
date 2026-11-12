@@ -1891,5 +1891,6 @@
   "arcadeBalanceUnknown": "Balance unavailable",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Game Coins",
-  "arcadePostingPolicy": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  "arcadePostingPolicy": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction.",
+  "recoveryPhraseHidden": "Recovery phrase hidden"
 }

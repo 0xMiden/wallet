@@ -36,3 +36,16 @@ it('names the privacy warning both screens open on', () => {
   expect(screen.getByText('viewThisInPrivatePlace')).toBeInTheDocument();
   expect(screen.getByText('anyoneWithRecoveryPhrase')).toBeInTheDocument();
 });
+
+it('masked renders no word text and no seed-word test ids', () => {
+  const words = Array.from({ length: 12 }, (_, i) => `word${i}`);
+  const { container } = render(<SeedPhraseGrid words={words} masked data-testid="grid" />);
+
+  expect(screen.queryByText(words[0])).toBeNull();
+  expect(screen.queryByTestId('seed-word-0')).toBeNull();
+  expect(container.textContent).not.toContain('word');
+  expect(screen.getByRole('group', { name: 'recoveryPhraseHidden' })).toBeInTheDocument();
+  expect(screen.getByTestId('grid')).toHaveAttribute('data-masked', 'true');
+  expect(screen.getByText('12.')).toBeInTheDocument();
+  expect(container.querySelectorAll('[aria-hidden="true"].bg-fill-pressed')).toHaveLength(12);
+});
