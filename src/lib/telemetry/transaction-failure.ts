@@ -76,6 +76,7 @@ export const FAILURE_REASONS = [
   'rotation_funding_note_unavailable',
   'rotation_funding_not_native',
   'rotation_gate_refusal',
+  'proposal_effect_refused',
   'consume_not_landed',
   'consume_landed_external',
   'note_invalid',
