@@ -106,6 +106,7 @@ jest.mock('./components', () => {
   const R = require('react');
   return {
     __esModule: true,
+    useEarnAssetFaucetId: () => undefined,
     EarnSummaryPanel: ({
       summary,
       titleId,
