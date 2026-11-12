@@ -67,7 +67,8 @@ export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetVi
   return reasons.length > 0 ? reasons.join('; ') : undefined;
 }
 
-const refusal = (transaction: ITransaction, detail: string, cause?: unknown): ProposalEffectRefusedError =>
+/** The refusal the effect check throws for `transaction`, with the localized sentence the row shows. */
+export const effectRefusal = (transaction: ITransaction, detail: string, cause?: unknown): ProposalEffectRefusedError =>
   new ProposalEffectRefusedError(
     transaction.type,
     detail,
@@ -96,15 +97,15 @@ export async function assertViewEffectApproved(
     view = await decode();
   } catch (error) {
     if (isKilledPipeline(error) || error instanceof ProposalEffectRefusedError) throw error;
-    throw refusal(transaction, 'the transaction summary could not be read', error);
+    throw effectRefusal(transaction, 'the transaction summary could not be read', error);
   }
   let detail: string | undefined;
   try {
     detail = proposalEffectRefusal(transaction, view);
   } catch (error) {
-    throw refusal(transaction, 'its approved amounts could not be read', error);
+    throw effectRefusal(transaction, 'its approved amounts could not be read', error);
   }
-  if (detail !== undefined) throw refusal(transaction, detail);
+  if (detail !== undefined) throw effectRefusal(transaction, detail);
 }
 
 /**
@@ -118,7 +119,7 @@ export async function assertProposalEffectApproved(
 ): Promise<void> {
   if (!isEffectChecked(transaction.type)) return;
   if (typeof txSummary !== 'string' || txSummary.length === 0) {
-    throw refusal(transaction, 'the proposal carries no transaction summary');
+    throw effectRefusal(transaction, 'the proposal carries no transaction summary');
   }
   await assertViewEffectApproved(transaction, async () => {
     try {
@@ -126,7 +127,7 @@ export async function assertProposalEffectApproved(
       return await withWasmClientLock(async () => summaryBytesToView(txSummary), { label: 'proposal effect check' });
     } catch (error) {
       if (isKilledPipeline(error)) throw error;
-      throw refusal(transaction, 'the proposal summary could not be read', error);
+      throw effectRefusal(transaction, 'the proposal summary could not be read', error);
     }
   });
 }
