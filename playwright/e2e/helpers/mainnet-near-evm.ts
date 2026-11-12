@@ -30,9 +30,60 @@ export interface MainnetNearBroadcastInput {
   persist(state: MainnetNearCheckpoint): Promise<void>;
 }
 export function createMainnetNearEvmBroadcast(
-  _state: MainnetNearCheckpoint, _input: MainnetNearBroadcastInput
+  state: MainnetNearCheckpoint, input: MainnetNearBroadcastInput
 ): MainnetOneClickEvmSenderInput['broadcast'] {
-  return async () => { throw new Error('Durable native NEAR signed broadcast is not implemented'); };
+  parseMainnetNearCheckpoint(state);
+  if (state.phase !== 'reverse-authorized' || state.transactions?.length || state.paidEvmFees !== '0' ||
+      state.evmNonceBefore === undefined || !state.forwardReceived || !state.reverseQuote || !state.returnValuation || state.consumeAuthority)
+    throw new Error('Native NEAR broadcast requires unused original return authority');
+  const scope = () => JSON.stringify({ ...state, transactions: undefined, paidEvmFees: undefined, updatedAt: undefined });
+  const original = scope(); const account = getAddress(state.evm.account); const nonce = state.evmNonceBefore;
+  const received = BigInt(state.forwardReceived); const deadline = Date.parse(state.reverseQuote.deadline);
+  const pricedAt = Date.parse(state.returnValuation.pricedAt);
+  const active = () => {
+    const age = Date.now() - pricedAt;
+    if (input.signal.aborted || scope() !== original || age < 0 || age > 600_000 || Date.now() >= deadline)
+      throw new Error('Original native NEAR signing authority changed, expired or was aborted');
+  };
+  const live = async () => {
+    active();
+    const [chain, latest, pending, native, token] = await Promise.all([
+      input.client.getChainId(), input.client.getTransactionCount({ address: account, blockTag: 'latest' }),
+      input.client.getTransactionCount({ address: account, blockTag: 'pending' }), input.client.getBalance({ address: account }),
+      input.client.readTokenBalance()
+    ]);
+    active();
+    if (chain !== state.evm.chainId || latest !== nonce || pending !== nonce || native !== BigInt(state.evm.nativeBalance) ||
+        token !== BigInt(state.evm.tokenBalance) + received) throw new Error('Native NEAR live chain, nonce or attributed portfolio changed');
+  };
+  let attempted = false;
+  return async transaction => {
+    if (attempted) throw new Error('Native NEAR broadcast is one-shot; recovery is required');
+    attempted = true;
+    await live();
+    const envelope: MainnetNearEvmEnvelope = { ...transaction, chainId: state.evm.chainId, nonce,
+      maxPriorityFeePerGas: transaction.maxPriorityFeePerGas ?? 0n };
+    const raw = await input.sign({ ...envelope }); active();
+    const hash = await inspectMainnetNearSignedTransfer(state, envelope, raw); active();
+    const entry: NonNullable<MainnetNearCheckpoint['transactions']>[number] = { kind: 'transfer', nonce, hash };
+    state.transactions = [entry];
+    await input.persist(state);
+    active();
+    if (state.transactions?.length !== 1 || state.transactions[0] !== entry) throw new Error('Native NEAR signed journal was replaced during upload');
+    await live();
+    await inspectMainnetNearSignedTransfer(state, envelope, raw); active();
+    // The caller's public RPC transport must use retryCount: 0; persistence resolves only after exact upload acknowledgement.
+    const returned = await input.client.sendRawTransaction({ serializedTransaction: raw });
+    if (returned.toLowerCase() !== hash.toLowerCase()) throw new Error('Native NEAR broadcast returned another hash');
+    const receipt = await input.client.waitForTransactionReceipt({ hash, timeout: 180_000 });
+    if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase() || receipt.gasUsed <= 0n || receipt.gasUsed > envelope.gas ||
+        receipt.effectiveGasPrice <= 0n || receipt.effectiveGasPrice > envelope.maxFeePerGas)
+      throw new Error('Native NEAR receipt differs from the actual signed fee envelope');
+    entry.feeWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString(); state.paidEvmFees = entry.feeWei;
+    await input.persist(state);
+    if (receipt.status !== 'success') throw new Error('Native NEAR transfer reverted; actual fees retained, no retry');
+    return hash;
+  };
 }
 
 const signed1559 = (raw: Hex): raw is TransactionSerializedEIP1559 => raw.startsWith('0x02') && isHex(raw, { strict: true });

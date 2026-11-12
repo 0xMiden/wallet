@@ -207,7 +207,7 @@ export function createEpochEvmSender(
           !decoded.to || getAddress(decoded.to) !== getAddress(envelope.to) ||
           (decoded.data ?? '0x').toLowerCase() !== envelope.data.toLowerCase() ||
           (decoded.value ?? 0n) !== envelope.value || decoded.gas !== gas || decoded.maxFeePerGas !== maxFeePerGas ||
-          decoded.maxPriorityFeePerGas !== maxPriorityFeePerGas || (decoded.accessList?.length ?? 0) !== 0 ||
+          (decoded.maxPriorityFeePerGas ?? 0n) !== maxPriorityFeePerGas || (decoded.accessList?.length ?? 0) !== 0 ||
           getAddress(signer) !== account)
         throw new Error('Actual signed Epoch envelope or payer differs from its approved transaction');
       const hash = keccak256(raw);
