@@ -55,17 +55,24 @@ describe('funded nightly swap workflow', () => {
     for (const name of ['Prepare mainnet Epoch loop', 'Prepare mainnet NEAR loop']) expect(step(name).if).toContain('!inputs.swaps_only');
   });
   it('uses the actual immutable uploader for every SDK, signed EVM and native claim hold', () => {
-    for (const name of ['Upload Epoch native forward authority', 'Upload Epoch reverse authority', 'Upload Epoch signed transfer 1',
-      'Upload Epoch signed transfer 2', 'Upload Epoch signed transfer 3', 'Upload Epoch native return claim',
-      'Upload NEAR native forward authority', 'Upload NEAR reverse authority', 'Upload NEAR signed transfer', 'Upload NEAR native return claim']) {
+    for (const name of ['Upload Epoch native forward authority', 'Upload Epoch reverse authority', 'Upload mainnet epoch signed EVM 1',
+      'Upload mainnet epoch signed EVM 2', 'Upload mainnet epoch signed EVM 3', 'Upload mainnet epoch native return claim',
+      'Upload NEAR native forward authority', 'Upload NEAR reverse authority', 'Upload mainnet near signed EVM 1', 'Upload mainnet near native return claim']) {
       const entry = step(name); expect(entry.uses).toBe('./.github/actions/mainnet-loop-upload');
       const withInputs = object(entry.with);
       for (const input of ['checkpoint', 'gate', 'artifact-name', 'process-id', 'snapshot-directory']) expect(withInputs[input]).toEqual(expect.any(String));
       expect(withInputs['artifact-name']).toContain('${{ github.run_id }}');
     }
-    expect(object(step('Upload Epoch signed transfer 3').with)['skip-after-deposit']).toBe('true');
-    expect(object(step('Upload NEAR signed transfer').with).gate).toContain('.evm-1');
-    expect(object(step('Upload NEAR native return claim').with).gate).toContain('.claim');
+    expect(step('Upload mainnet epoch signed EVM 3').if).toContain("envelope-kind != 'deposit'");
+    expect(object(step('Upload mainnet epoch signed EVM 3').with)['skip-after-deposit']).toBeUndefined();
+    expect(object(step('Upload mainnet near signed EVM 1').with).gate).toContain('.evm-1');
+    expect(object(step('Upload mainnet near native return claim').with).gate).toContain('.claim');
+  });
+  it('reports the actual snapshot envelope and recovery gate, rather than guessing from a newer live file', () => {
+    const action = object(YAML.parse(readFileSync(resolve(__dirname, '../.github/actions/mainnet-loop-upload/action.yml'), 'utf8')));
+    const outputs = object(action.outputs);
+    expect(object(outputs['envelope-kind']).value).toBe('${{ steps.snapshot.outputs.envelope_kind }}');
+    expect(object(outputs['alternative-gate']).value).toBe('${{ steps.snapshot.outputs.alternative_gate }}');
   });
   it('waits for the existing provider settlement window without extending the SDK request hold', () => {
     const action = readFileSync(resolve(__dirname, '../.github/actions/mainnet-loop-upload/action.yml'), 'utf8');

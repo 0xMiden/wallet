@@ -81,6 +81,17 @@ describe('provider-scoped mainnet recovery discovery', () => {
         artifact(`mainnet-${prefix}-${stage}-${id}`, true), artifact(`mainnet-${prefix}-reverse-authorized-${id}`)
       ] }), async () => ({ jobs: [] }), baseline, provider)).rejects.toThrow(/expired/);
     });
+    it.each(['fresh-return', 'recovered-return', 'refund'])('never downgrades an attempted actual %s claim to a pre-claim snapshot', async kind => {
+      const name = kind === 'fresh-return' ? `Upload mainnet ${provider} native return claim` :
+        `Authorize original ${provider} ${kind === 'refund' ? 'refund' : 'return claim'}`;
+      await expect(chooseSwapCheckpoint(runs, async id => ({ artifacts: [artifact(`mainnet-${prefix}-reverse-signed-1-${id}`)] }),
+        async () => jobs(name, 'success'), baseline, provider)).rejects.toThrow(/missing|claim|refund/i);
+    });
+    it('does not mistake a no-op recovery launcher for a funded claim or discard the earlier final checkpoint', async () => {
+      const selected = await chooseSwapCheckpoint(runs, async id => ({ artifacts: id === baseline + 1 ? [artifact(`mainnet-${prefix}-final-${id}`)] : [] }),
+        async () => jobs(`Recover prior mainnet ${provider === 'epoch' ? 'Epoch' : 'NEAR'}`, 'success'), baseline, provider);
+      expect(selected.name).toBe(`mainnet-${prefix}-final-${baseline + 1}`);
+    });
     it('rejects contradictory live return and refund authorities without a final snapshot', async () => {
       await expect(chooseSwapCheckpoint(runs, async id => ({ artifacts: [
         artifact(`mainnet-${prefix}-return-authorized-${id}`), artifact(`mainnet-${prefix}-refund-authorized-${id}`)
