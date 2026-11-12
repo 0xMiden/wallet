@@ -1050,6 +1050,10 @@ const holdSigners = new WeakMap<WasmLockHold, SignCallback>();
  * Run `run` with `signer` answering every sign the SDK asks for while `hold` owns the mutex, in place of the realm
  * signer and wrapped as it is (`buildSdkSignCallback`). The proxy's inline writes take it, so a write signs through
  * the signer the transaction loop handed it, as its offscreen path does through its op.
+ *
+ * A checked write is judged only while its own hold is current. A sign the SDK asked for while the write was yielded,
+ * or one from an inline write that skips this wrapper, gets the plain realm signer. Today neither happens: a write
+ * signs inside `executeRequest`, before its one yield (the offscreen-prover leg).
  */
 export async function withHoldSigner<T>(
   hold: WasmLockHold,

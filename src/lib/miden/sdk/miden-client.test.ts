@@ -546,7 +546,7 @@ describe('getMidenClient singleton', () => {
         installRealmKeystore({ sign: realm });
         const perWrite = jest.fn(async () => new Uint8Array([2]));
         const dryRunInputs = new Uint8Array([5]);
-        // Another hold takes the mutex while the write is yielded, as a dry run can during a delegated prove.
+        // Another hold takes the mutex while the write is yielded, as a dry run can during its offscreen-prover leg.
         const dryRun = () => withWasmClientLock(async () => signCallback(publicKey, dryRunInputs));
         await withWasmClientLock(hold =>
           withHoldSigner(hold, perWrite, async () => {

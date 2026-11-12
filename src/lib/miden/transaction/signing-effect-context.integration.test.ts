@@ -282,7 +282,8 @@ describe("an inline write's signer", () => {
       const dryRunInputs = new Uint8Array([0xee]);
       const signs = mockClient.methods[method]!;
       const signed = signs.getMockImplementation()!;
-      // The write yields its hold before it signs, as a delegated prove does, and a dry run takes the lock.
+      // A dry run takes the lock while the write is yielded. A real write's one yield, its offscreen-prover leg, comes
+      // after its sign; yielding first here also shows the write's own sign, back under its hold, keeps its signer.
       signs.mockImplementation(async () => {
         const hold = getCurrentWasmLockHold();
         await yieldWasmClientLock(
