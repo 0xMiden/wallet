@@ -53,6 +53,7 @@ function registerMainnetLoop(): void {
     selectMainnetOneClickAssets: jest.fn()
   }));
   jest.doMock('../ios/helpers/wc-counterparty', () => ({ WcCounterparty: jest.fn() }));
+  jest.doMock('./test-dapp', () => ({ setAutoConsume: jest.fn().mockResolvedValue(undefined) }));
   jest.doMock('./mainnet-one-click-checkpoint', () => ({
     assertMainnetOneClickMayStart: jest.fn(),
     loadMainnetOneClickCheckpoint: jest.fn(() => mockCheckpoint),
@@ -93,6 +94,7 @@ describe('mainnet 1Click checkpoint recovery', () => {
     jest.dontMock('../fixtures/two-wallets');
     jest.dontMock('./mainnet-one-click-ui');
     jest.dontMock('../ios/helpers/wc-counterparty');
+    jest.dontMock('./test-dapp');
     jest.dontMock('./mainnet-one-click-checkpoint');
   });
 
