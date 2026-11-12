@@ -71,6 +71,16 @@ afterEach(() => {
   if (oldCrypto) Object.defineProperty(globalThis, 'crypto', oldCrypto);
   else Reflect.deleteProperty(globalThis, 'crypto');
 });
+function offscreenStorage() {
+  const relay = jest.fn(async (message: unknown) => {
+    if (!isRecord(message)) throw new Error('Invalid unit relay message');
+    if (message.operation === 'get') return { ok: true, value: await get() };
+    if (message.operation === 'set') { await set(message.items); return { ok: true }; }
+    throw new Error('Unsupported unit relay operation');
+  });
+  Object.defineProperty(globalThis, 'chrome', { configurable: true, value: { runtime: { sendMessage: relay } } });
+  return relay;
+}
 const run = (actor = account) => awaitTestSendAuthorization(actor, { serialize });
 async function held(promise: Promise<void>) {
   expect(
@@ -94,6 +104,20 @@ it('preserves unarmed legacy E2E sends', async () => {
   await run();
   expect(serialize).not.toHaveBeenCalled();
   expect(set).not.toHaveBeenCalled();
+});
+it('preserves unarmed E2E sends in the real offscreen API shape without chrome.storage', async () => {
+  data = {}; const relay = offscreenStorage();
+  await run();
+  expect(relay).toHaveBeenCalledWith(expect.objectContaining({ target: 'sw', operation: 'get' }));
+  expect(serialize).not.toHaveBeenCalled();
+});
+it('retains the funded byte hold through the offscreen service-worker storage relay', async () => {
+  const relay = offscreenStorage();
+  const promise = run(); await held(promise);
+  patch({ status: 'released' });
+  await jest.advanceTimersByTimeAsync(500); await promise;
+  expect(data[KEY]).toMatchObject({ nonce: scope.nonce, status: 'spent' });
+  expect(relay).toHaveBeenCalledWith(expect.objectContaining({ target: 'sw', operation: 'set' }));
 });
 it('fails closed before inspecting bytes when an explicitly armed policy disappeared', async () => {
   data = { [`${KEY}_required`]: { accountId: account, nonce: scope.nonce } };
