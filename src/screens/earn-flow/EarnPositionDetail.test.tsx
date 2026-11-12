@@ -106,6 +106,7 @@ jest.mock('./components', () => {
   const R = require('react');
   return {
     __esModule: true,
+    useEarnAssetFaucetId: () => undefined,
     EarnSummaryPanel: ({
       summary,
       titleId,
@@ -634,6 +635,7 @@ describe('EarnPositionDetail after a failed load', () => {
     mockLoadState = { isLoading: true };
     renderDetail('no-such-position');
 
+    expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();

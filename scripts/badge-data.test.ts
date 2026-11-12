@@ -178,7 +178,7 @@ describe('badge workflows', () => {
   // The exact count makes a step the line reader misses (and so never checks) fail here instead.
   it.each([
     ['coverage-badge.yml', 'coverage-badge.yml', null, 5],
-    ['pr.yml job coverage', 'pr.yml', 'coverage', 2],
+    ['pr.yml job coverage', 'pr.yml', 'coverage', 3],
     ['pr.yml job coverage-gate', 'pr.yml', 'coverage-gate', 4]
   ])('%s interpolates no expression into its run scripts', (_label, workflow, job, count) => {
     const scripts = runScripts(job ? jobText(workflow, job) : workflowText(workflow));

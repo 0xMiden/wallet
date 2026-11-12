@@ -227,11 +227,11 @@ import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { WalletMessageType } from 'lib/shared/types';
 
+import { start } from './main';
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
 import { ICON_BY_TYPE, ITransaction, ITransactionStatus, TRANSACTION_STAGES } from '../db/types';
 import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { MidenMessageType, NoteTypeEnum } from '../types';
-import { start } from './main';
 
 let dispatch: (req: any, port?: any) => Promise<any>;
 
@@ -393,7 +393,8 @@ describe('main.start', () => {
 });
 
 describe('processRequest', () => {
-  it('SyncRequest → SyncResponse and triggers doSync', async () => {
+  it('returns an unforced SyncResponse without waiting for doSync', async () => {
+    mockDoSync.mockImplementationOnce(() => new Promise(() => {}));
     const res = await dispatch({ type: WalletMessageType.SyncRequest });
     expect(res.type).toBe(WalletMessageType.SyncResponse);
     expect(mockDoSync).toHaveBeenCalledWith(undefined);
@@ -412,9 +413,48 @@ describe('processRequest', () => {
     expect(Actions.estimateUsdcxBurnFee).toHaveBeenCalledWith(req);
   });
 
-  it('forwards a forced SyncRequest', async () => {
-    await dispatch({ type: WalletMessageType.SyncRequest, force: true });
+  it('answers a forced sync when that sync settles', async () => {
+    let settleSync!: () => void;
+    let syncStarted!: () => void;
+    const started = new Promise<void>(resolve => {
+      syncStarted = resolve;
+    });
+    mockDoSync.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          settleSync = resolve;
+          syncStarted();
+        })
+    );
+    let requestSettled = false;
+    const request = dispatch({ type: WalletMessageType.SyncRequest, force: true }).then(response => {
+      requestSettled = true;
+      return response;
+    });
+
+    await started;
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(mockDoSync).toHaveBeenCalledWith(true);
+    expect(requestSettled).toBe(false);
+
+    settleSync();
+    await expect(request).resolves.toEqual({ type: WalletMessageType.SyncResponse });
+    expect(requestSettled).toBe(true);
+  });
+
+  it('answers a forced sync after logging a sync failure', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = new Error('sync failed');
+    mockDoSync.mockRejectedValueOnce(error);
+
+    try {
+      await expect(dispatch({ type: WalletMessageType.SyncRequest, force: true })).resolves.toEqual({
+        type: WalletMessageType.SyncResponse
+      });
+      expect(warning).toHaveBeenCalledWith('[SyncManager] Error:', error);
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it('NoteClaimStarted broadcasts the note id and returns ack', async () => {

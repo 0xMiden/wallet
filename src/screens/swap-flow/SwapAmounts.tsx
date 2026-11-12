@@ -163,7 +163,6 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
               fiatPrice: tokenQuote(prices, offerToken.faucetId, offerToken.symbol)?.price ?? 0
             }}
             tokenLabel={midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol)}
-            logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
             amountDisplayValue={
               requestEdited && offerAmount
@@ -230,7 +229,6 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
               fiatPrice: tokenQuote(prices, requestToken.faucetId, requestToken.symbol)?.price ?? 0
             }}
             tokenLabel={midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol)}
-            logoSymbol={requestToken.logoSymbol}
             amount={requestAmount}
             isValidAmount={Number(requestAmount) > 0 && !requestExceedsPrecision}
             error={requestExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined}

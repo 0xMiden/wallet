@@ -85,14 +85,8 @@ jest.mock('components/Button', () => {
 jest.mock('components/TokenLogo', () => {
   const R = require('react');
   return {
-    TokenLogo: ({ symbol, faucetId, fallbackSymbol, size }: any) =>
-      R.createElement('div', {
-        'data-testid': 'token-logo',
-        'data-symbol': symbol,
-        'data-faucet-id': faucetId,
-        'data-fallback-symbol': fallbackSymbol,
-        'data-size': size
-      })
+    TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) =>
+      R.createElement('div', { 'data-testid': 'token-logo', 'data-faucet-id': faucetId, 'data-size': size })
   };
 });
 
@@ -146,8 +140,8 @@ jest.mock('components/Toggle', () => ({
     })
 }));
 
-const OFFER_TOKEN = { symbol: 'IMIDEN', faucetId: 'f-offer', decimals: 8, logoSymbol: 'MIDEN' };
-const REQUEST_TOKEN = { symbol: 'IETH', faucetId: 'f-request', decimals: 8, logoSymbol: 'ETH' };
+const OFFER_TOKEN = { symbol: 'IMIDEN', faucetId: 'f-offer', decimals: 8 };
+const REQUEST_TOKEN = { symbol: 'IETH', faucetId: 'f-request', decimals: 8 };
 
 const renderComponent = (overrides: Partial<ReviewSwapProps> = {}) => {
   const props: ReviewSwapProps = {
@@ -179,12 +173,8 @@ describe('ReviewSwap', () => {
 
       const logos = screen.getAllByTestId('token-logo');
       expect(logos).toHaveLength(2);
-      expect(logos[0]).toHaveAttribute('data-symbol', 'IMIDEN');
       expect(logos[0]).toHaveAttribute('data-faucet-id', 'f-offer');
-      expect(logos[0]).toHaveAttribute('data-fallback-symbol', 'MIDEN');
-      expect(logos[1]).toHaveAttribute('data-symbol', 'IETH');
       expect(logos[1]).toHaveAttribute('data-faucet-id', 'f-request');
-      expect(logos[1]).toHaveAttribute('data-fallback-symbol', 'ETH');
 
       // Captions come from the translated keys, as neutral Pills beside each Hero.
       expect(screen.getByText('youSend')).toBeInTheDocument();
@@ -203,7 +193,7 @@ describe('ReviewSwap', () => {
 
       expect(screen.getByText('3 Test iETH')).toBeInTheDocument();
       expect(screen.getByTestId('swap-rate-row')).toHaveTextContent('1 IMIDEN ≈ 2 Test iETH');
-      expect(screen.getAllByTestId('token-logo')[1]).toHaveAttribute('data-symbol', 'IETH');
+      expect(screen.getAllByTestId('token-logo')[1]).toHaveAttribute('data-faucet-id', TEST_TOKEN_IETH.faucetId);
     });
 
     it.each([

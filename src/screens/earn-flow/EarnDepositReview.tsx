@@ -14,6 +14,7 @@ import { TokenUsdValue } from 'components/TokenUsdValue';
 import { Card } from 'components/ui/Card';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
+import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { earnCollateralFaucetId, earnMarketForVault, earnVaultTakesDeposits, openEarnPosition } from 'lib/epoch';
@@ -46,6 +47,7 @@ import {
 import { placeholderVault } from './earn-mapping';
 import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
 import { ChartDotProps, EarnVault } from './types';
 import { useEarnCollateralState } from './useEarnCollateral';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
@@ -67,7 +69,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { search } = useLocation();
   const amount = useMemo(() => new URLSearchParams(search).get('amount') ?? '0', [search]);
   const amountValue = parseAmount(amount);
-  const { vaults, vaultsPending, isLoading, loadError, refetch } = useEarnPositions();
+  const { vaults, vaultsPending, isLoading, isRefreshing, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
   // The vaults come from the derivation's catalogue, which can settle after the positions read.
@@ -288,7 +290,13 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         onBack={goBack}
         headerActions={
           found && (
-            <EarnAssetMark asset={found.asset} network={found.network} fundingAsset={found.fundingAsset} decorative />
+            <EarnAssetMark
+              asset={found.asset}
+              network={found.network}
+              faucetId={collateral?.faucetId}
+              fundingAsset={found.fundingAsset}
+              decorative
+            />
           )
         }
         footerLayout="stack"
@@ -309,6 +317,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               <Button
                 data-testid="earn-deposit-review-confirm"
                 title={t('earnOpenPosition')}
+                aria-busy={isSubmitting}
+                iconLeft={isSubmitting && <Spinner size="sm" />}
                 variant={ButtonVariant.Primary}
                 accent="earn"
                 onClick={handleOpenPosition}
@@ -323,15 +333,23 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       >
         {loadFailed && !found ? (
           <EarnLoadError
+            isRetrying={isRefreshing}
             onRetry={refetch}
             message={t('earnVaultLoadError')}
             errorId="earnVaultLoadError"
             className="mt-10"
           />
-        ) : pending ? null : (
+        ) : pending ? (
+          <EarnLoading />
+        ) : (
           <>
             {loadFailed && (
-              <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} errorId="earnVaultLoadError" />
+              <EarnLoadError
+                isRetrying={isRefreshing}
+                onRetry={refetch}
+                message={t('earnVaultLoadError')}
+                errorId="earnVaultLoadError"
+              />
             )}
             <EarnHero
               layout="label-first"
@@ -343,7 +361,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               labelClassName={amountCaptionClassName}
               figureClassName={classNames('mt-3 text-ink', amountFigureClassName(formatMoneyAmount(amount, 'typed')))}
               value={formatMoneyAmount(amount, 'typed')}
-              unit={<EarnAmountUnit symbol={depositSymbol} compact />}
+              unit={<EarnAmountUnit symbol={depositSymbol} faucetId={collateral?.faucetId} compact />}
               label={t('earnDepositAmountTitle')}
               meta={
                 collateral && (

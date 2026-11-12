@@ -50,16 +50,21 @@ export type BridgeConfigDocument = Omit<ParsedBridgeConfig, 'nearIntents'> & {
 };
 
 /**
- * Earn and Guardian Fast bridge-out on the local node. No `midenUsdcFaucet`: each test creates its
- * collateral faucet and hands it over with `__TEST_SET_EARN_FAUCET__`. No `agglayer` section: the
- * local node's bridge account is not one the harness uses, so the Slow routes read "not configured".
+ * Epoch routes on the local node. A bridge test supplies its collateral faucet before the wallet starts.
+ * Earn tests can use `__TEST_SET_EARN_FAUCET__` instead. No AggLayer route is configured.
  */
-export function localnetEpochDocument(): BridgeConfigDocument {
+export function localnetEpochDocument(collateralFaucetId?: string): BridgeConfigDocument {
   return {
     network: 'localnet',
     version: 1,
     'bridge-providers': {
-      epoch: { allocatorUrl: FAKE_ALLOCATOR_URL, positionsUrl: FAKE_POSITIONS_URL },
+      epoch: {
+        allocatorUrl: FAKE_ALLOCATOR_URL,
+        positionsUrl: FAKE_POSITIONS_URL,
+        ...(collateralFaucetId === undefined
+          ? {}
+          : { outputs: { 'usdc-localnet-output': { faucetId: collateralFaucetId } } })
+      },
       agglayer: {},
       usdcx: {}
     },
@@ -70,7 +75,12 @@ export function localnetEpochDocument(): BridgeConfigDocument {
           epoch: {
             depositEnabled: true,
             withdrawalEnabled: true,
-            tokens: { USDC: { contractAddress: MOCK_USDC_ADDRESS, outputs: [] } }
+            tokens: {
+              USDC: {
+                contractAddress: MOCK_USDC_ADDRESS,
+                outputs: collateralFaucetId === undefined ? [] : ['usdc-localnet-output']
+              }
+            }
           }
         }
       }
