@@ -1,6 +1,7 @@
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 
 import BigNumber from 'bignumber.js';
+import classNames from 'clsx';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
@@ -1394,7 +1395,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     {(entry.oneClickTracking.error ||
                       entry.oneClickTracking.statusResponse?.swapDetails.refundReason) && (
                       <DetailRow label={t('oneClickFailureReason')}>
-                        <span className="text-status-negative wrap-break-word select-text">
+                        {/* An expired deposit got no funds, so nothing failed: muted, not the red of a failure. */}
+                        <span
+                          className={classNames(
+                            'wrap-break-word select-text',
+                            entry.oneClickTracking.phase === 'expired' ? 'text-muted' : 'text-status-negative'
+                          )}
+                        >
                           {entry.oneClickTracking.error ??
                             entry.oneClickTracking.statusResponse?.swapDetails.refundReason}
                         </span>

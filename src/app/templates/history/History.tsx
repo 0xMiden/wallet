@@ -825,6 +825,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     bridgeReclaimHeight: bridge?.reclaimHeight,
     bridgeInPhase: bridgedReceive?.phase,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+    oneClickTracking: bridgedReceive?.oneClick,
     earnWithdrawPhase: earnWithdraw?.phase,
     earnDepositStatus: earnDeposit?.epochStatus
   };
@@ -843,6 +844,11 @@ const patchLoadedActivityStatus = (
     const row = fresh.get(entry.txId);
     if (row === undefined) return entry;
     const fields = loadedActivityStatusFields(row);
+    // Every read gives a new tracking object. Every tracking write moves `updatedAt`, so an equal stamp keeps the
+    // shown object and the row does not render again.
+    if (entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
+      fields.oneClickTracking = entry.oneClickTracking;
+    }
     if (Object.entries(fields).every(([field, value]) => entry[field as keyof IHistoryEntry] === value)) return entry;
     changed = true;
     return { ...entry, ...fields };
@@ -1056,6 +1062,8 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+      // A NEAR Intents deposit reads Expired from its tracking deadline (`bridgeBadgeStatusOf`).
+      oneClickTracking: bridgedReceive?.oneClick,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceChainId: bridgedReceive?.sourceChainId,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,

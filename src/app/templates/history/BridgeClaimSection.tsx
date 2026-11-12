@@ -49,7 +49,9 @@ const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash
 const EPOCH_STATUS_LABEL: Record<BridgeStatus, string> = {
   pending: 'bridgeInProgress',
   confirmed: 'confirmed',
-  failed: 'bridgeFailed'
+  failed: 'bridgeFailed',
+  // Only a NEAR Intents deposit expires; an Epoch row never reads it.
+  expired: 'statusExpired'
 };
 
 const CLAIM_STATUS_LABEL: Record<IBridgeClaimStatus, string> = {

@@ -24,17 +24,17 @@ import {
   resolveOneClickDestinationReceipts,
   submitOneClickDeposit
 } from './client';
-import { assertOneClickFundingDeadline, effectiveOneClickFundingDeadline } from './deadline';
+import { assertOneClickFundingDeadline } from './deadline';
 import {
   oneClickActualOutputAmount,
   oneClickDestinationFaucet,
   hasOneClickDeliveryArrived,
   hasOneClickDeliveryArrivedByAmount
 } from './delivery';
+import { isNearIntentsDepositExpired, isOneClickTerminalPhase as isTerminal } from './expiry';
 import type { NearIntentsConfig, OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
-/** A deposit row stays open for this time after its funding deadline before it can expire. */
-export const NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS = 10 * 60_000;
+export { NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS, isNearIntentsDepositExpired } from './expiry';
 /**
  * The additional time before a row expires when 1Click has no record of its address (HTTP 404). A 404 is weaker
  * evidence than a `PENDING_DEPOSIT` answer, so the row stays open for one day in case the answer is an error.
@@ -226,35 +226,6 @@ export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClic
       };
       return undefined;
     });
-}
-
-const TERMINAL_PHASES: ReadonlySet<IOneClickPhase> = new Set(['delivered', 'refunded', 'failed', 'expired']);
-
-const isTerminal = (phase: IOneClickPhase): boolean => TERMINAL_PHASES.has(phase);
-
-function fundingDeadlineMs(tracking: IOneClickTrackingData): number | undefined {
-  if (tracking.fundingDeadline !== undefined) {
-    const stored = Date.parse(tracking.fundingDeadline);
-    return Number.isFinite(stored) ? stored : undefined;
-  }
-  try {
-    return Date.parse(effectiveOneClickFundingDeadline(tracking.request.deadline, tracking.quote.quote.deadline));
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Tell if a deposit into Miden expired: 1Click still waits for the deposit (`PENDING_DEPOSIT`, or no status read
- * yet) and the funding deadline plus the grace time is in the past. A row with a known origin transaction, or with
- * any other provider status, never expires this way.
- */
-export function isNearIntentsDepositExpired(tracking: IOneClickTrackingData, now = Date.now()): boolean {
-  if (tracking.direction !== 'evm-to-miden' || tracking.originTransactionHash || isTerminal(tracking.phase))
-    return false;
-  if (tracking.providerStatus !== undefined && tracking.providerStatus !== 'PENDING_DEPOSIT') return false;
-  const deadline = fundingDeadlineMs(tracking);
-  return deadline !== undefined && now > deadline + NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS;
 }
 
 async function updateTracking(rowId: string, patch: Partial<IOneClickTrackingData>): Promise<void> {

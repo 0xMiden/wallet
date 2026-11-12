@@ -33,6 +33,7 @@ describe('StatusBadge', () => {
     ['cancelled', 'cancelled', 'neutral'],
     ['unconfirmed', 'notConfirmed', 'pending'],
     ['reclaimed', 'reclaimed', 'neutral'],
+    ['expired', 'statusExpired', 'neutral'],
     ['claimed', 'accepted', 'positive'],
     ['redeeming', 'earnWithdrawStatusRedeeming', 'pending'],
     ['delivering', 'earnWithdrawStatusDelivering', 'pending'],
@@ -61,7 +62,7 @@ describe('StatusBadge', () => {
   });
 
   it('covers every status in the table above', () => {
-    expect(STATUSES).toHaveLength(32);
+    expect(STATUSES).toHaveLength(33);
   });
 
   it.each(STATUSES)('labels %s with a key that exists in the English catalog', status => {

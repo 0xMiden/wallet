@@ -1280,6 +1280,7 @@
   "sent": "Sent",
   "pending": "Pending",
   "reclaimed": "Reclaimed",
+  "statusExpired": "Expired",
   "faucetRequestTitle": "Faucet Request",
   "share": "Share",
   "receiveShareCaption": "Send your address",
