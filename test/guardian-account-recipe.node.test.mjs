@@ -16,6 +16,7 @@ const legacyAccounts = JSON.parse(
 ).accounts;
 
 let client;
+let AccountInspector;
 let createMultisigAccount;
 let deriveGuardianAccountSeed;
 let guardianAccountConfig;
@@ -46,7 +47,7 @@ before(async () => {
   ({ deriveGuardianAccountSeed, guardianAccountConfig, rebuildGuardianAccount } = await import(
     `data:text/javascript;base64,${Buffer.from(compiled.outputText).toString('base64')}`
   ));
-  ({ createMultisigAccount } = await import(rewrites.get('@openzeppelin/miden-multisig-client')));
+  ({ AccountInspector, createMultisigAccount } = await import(rewrites.get('@openzeppelin/miden-multisig-client')));
   // The native binding's objects are reclaimed by the garbage collector and have no free(); the browser build's do.
   for (const cls of [sdk.Account, sdk.AccountId, sdk.Word]) cls.prototype.free ??= () => {};
   client = await sdk.MidenClient.createMock();
@@ -163,6 +164,61 @@ test('the derived and legacy seeds give different accounts', async () => {
   const derived = await created(guardianAccountConfig({ ...recipe, initSeed: await derivedSeed(coldSeed, recipe) }));
 
   assert.notEqual(derived.accountIdHex, legacy.accountIdHex);
+});
+
+// The hot and guardian commitments as a recovery reads them back (readServedStateFacts, through AccountInspector).
+const readBack = served => ({
+  hotCommitment: normalize(AccountInspector.getSignerPublicKeyCommitments(served)[0]),
+  guardianCommitment: normalize(AccountInspector.getGuardianPublicKeyCommitment(served))
+});
+const facts = served => ({
+  accountIdHex: served.id().toString(),
+  commitment: normalize(served.to_commitment().toHex())
+});
+// A key whose commitment starts with a zero digit, which a reader that dropped leading zeros would change.
+const leadingZeroKey = () => {
+  for (;;) {
+    const key = sdk.AuthSecretKey.ecdsaWithRNG(seed()).publicKey();
+    if (normalize(key.toCommitment().toHex()).startsWith('0')) return key;
+  }
+};
+
+test('an honest account rebuilds from the commitments a recovery reads back', async () => {
+  const coldSeed = seed();
+  const coldCommitment = commitmentOf(coldSeed);
+  const hot = leadingZeroKey();
+  // As creation receives it from the guardian: 0x-prefixed lower-case.
+  const guardianCommitment = `0x${normalize(leadingZeroKey().toCommitment().toHex())}`;
+  const initSeed = await deriveGuardianAccountSeed(coldSeed, hot.toCommitment().toHex(), guardianCommitment);
+  const { account } = await createMultisigAccount(
+    client,
+    guardianAccountConfig({
+      hotCommitment: hot.toCommitment().toHex(),
+      coldCommitment,
+      guardianCommitment,
+      guardianPublicKey: 'g-pubkey',
+      initSeed
+    })
+  );
+  const served = sdk.Account.deserialize(account.serialize());
+  const slots = readBack(served);
+  const rebuilt = await rebuildGuardianAccount({
+    ...slots,
+    coldCommitment,
+    initSeed: await deriveGuardianAccountSeed(coldSeed, slots.hotCommitment, slots.guardianCommitment)
+  });
+  assert.deepEqual(rebuilt, facts(served));
+
+  // A released wallet's account, rebuilt from its read-back slots and the phrase's cold seed, not its recorded keys.
+  const fixture = legacyAccounts[0];
+  const legacy = sdk.Account.deserialize(new Uint8Array(Buffer.from(fixture.accountBase64, 'base64')));
+  const legacyColdSeed = new Uint8Array(Buffer.from(fixture.coldSeed, 'hex'));
+  const legacyRebuilt = await rebuildGuardianAccount({
+    ...readBack(legacy),
+    coldCommitment: commitmentOf(legacyColdSeed),
+    initSeed: legacyColdSeed
+  });
+  assert.deepEqual(legacyRebuilt, facts(legacy));
 });
 
 for (const fixture of legacyAccounts) {

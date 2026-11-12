@@ -1,5 +1,5 @@
 {
-  "about": "Guardian accounts built with the library sets released wallets shipped, using their creation config (seed: the cold seed). Test-only seeds and keys.",
+  "about": "Built in Node by installing each shipped pair of @openzeppelin/miden-multisig-client and @miden-sdk/miden-sdk on its own (the SDK pinned by an npm override) and calling that pair's createMultisigAccount with the v1.17.0 creation config (threshold 1, signers [hot, cold], private, ecdsa, update_guardian 2, update_procedure_threshold 2) and the legacy init seed, the cold seed itself. The keys are fixed test-only keys (the cold commitment is AuthSecretKey.ecdsaWithRNG(coldSeed)'s), so a new pair is added by building the same coldSeed, hotCommitment and guardianCommitment with it and appending its entries.",
   "accounts": [
     {
       "set": "v1.17.0",
