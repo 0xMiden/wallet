@@ -1,4 +1,8 @@
 {
+  "refresh": {
+    "message": "更新",
+    "englishSource": "Refresh"
+  },
   "deviceRevokedBody": {
     "message": "このデバイスはアカウントの署名者リストから削除され、取引への署名ができなくなりました。リカバリーフレーズを使用して、このデバイスを再びメインデバイスにするか、このデバイスからウォレットを削除してください。",
     "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."

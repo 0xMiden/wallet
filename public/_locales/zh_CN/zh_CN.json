@@ -1,4 +1,5 @@
 {
+  "refresh": "刷新",
   "deviceRevokedBody": "该设备已从账户的签名人列表中移除，无法再对交易进行签名。请使用恢复短语将其重新设为主设备，或从该设备中移除该钱包。",
   "deviceRevokedBodyNoRecoveryKey": "该设备已从账户的签名人列表中移除，无法再对交易进行签名。请将钱包从该设备中移除。您可以使用助记词恢复访问权限。",
   "deviceRevokeAuthentication": "请进行身份验证以撤销此设备的权限。",

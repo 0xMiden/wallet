@@ -1,4 +1,8 @@
 {
+  "refresh": {
+    "message": "刷新",
+    "englishSource": "Refresh"
+  },
   "deviceRevokedBody": {
     "message": "该设备已从账户的签名人列表中移除，无法再对交易进行签名。请使用恢复短语将其重新设为主设备，或从该设备中移除该钱包。",
     "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."

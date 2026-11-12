@@ -1,4 +1,8 @@
 {
+  "refresh": {
+    "message": "새로 고침",
+    "englishSource": "Refresh"
+  },
   "deviceRevokedBody": {
     "message": "이 기기는 계정의 서명자 목록에서 제거되었으며 더 이상 거래에 서명할 수 없습니다. 복구 문구를 사용하여 이 기기를 다시 주 기기로 설정하거나, 이 기기에서 지갑을 제거하십시오.",
     "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."

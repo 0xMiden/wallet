@@ -1,4 +1,5 @@
 {
+  "refresh": "重新整理",
   "deviceRevokedBody": "此裝置已從帳戶的簽署者清單中移除，且無法再簽署交易。請使用恢復短語將其重新設為主裝置，或從此裝置中移除該錢包。",
   "deviceRevokedBodyNoRecoveryKey": "此裝置已從該帳戶的簽署者清單中移除，且無法再簽署交易。請將錢包從此裝置中移除。您可以使用恢復短語來恢復存取權限。",
   "deviceRevokeAuthentication": "請進行身份驗證以撤銷此裝置的權限。",

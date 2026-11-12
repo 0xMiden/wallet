@@ -1,4 +1,8 @@
 {
+  "refresh": {
+    "message": "Refresh",
+    "englishSource": "Refresh"
+  },
   "deviceRevokedBody": {
     "message": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device.",
     "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."

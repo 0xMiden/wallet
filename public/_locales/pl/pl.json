@@ -1,4 +1,5 @@
 {
+  "refresh": "Odśwież",
   "deviceRevokedBody": "To urządzenie zostało usunięte z listy podpisujących konto i nie może już podpisywać transakcji. Użyj frazy odzyskiwania, aby ponownie ustawić je jako urządzenie główne, lub usuń portfel z tego urządzenia.",
   "deviceRevokedBodyNoRecoveryKey": "To urządzenie zostało usunięte z listy osób uprawnionych do podpisywania transakcji na koncie i nie może już podpisywać transakcji. Usuń portfel z tego urządzenia. Dostęp można przywrócić za pomocą frazy odzyskiwania.",
   "deviceRevokeAuthentication": "Zautentyfikuj się, aby unieważnić to urządzenie.",
