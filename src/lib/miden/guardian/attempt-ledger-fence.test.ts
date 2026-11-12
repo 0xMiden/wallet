@@ -210,6 +210,8 @@ const ALLOWED: Record<string, string[]> = {
   // when that probe settles, so it is not a retry budget. `NULL_BODY_STATUSES`
   // is a constant table of HTTP statuses the fetch boundary answers with no body.
   'src/lib/miden/guardian/native-http.ts': ['guardianOrigins', 'NULL_BODY_STATUSES', 'probeHolds'],
+  // Static proposal and error-name catalogs, with no per-account retry state.
+  'src/lib/miden/guardian/index.ts': ['BUILTIN_PROPOSAL_TYPES', 'POST_PUSH_PROPOSAL_VERIFICATION_NAMES'],
   // One promise chain per account, which serializes that account's guardian
   // transactions: ordering, not retry state. `guardianCandidates` is the one
   // candidate a write left on its Guardian, which the next proposal asks about

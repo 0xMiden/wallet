@@ -342,7 +342,7 @@ describe('Settings page — root menu (non-guardian)', () => {
 
       expect(screen.getByTestId('verify-seed-flow')).toBeInTheDocument();
       // invalidTab would bounce the user back to the menu instead.
-      expect(mockNavigate).not.toHaveBeenCalledWith('/settings', expect.anything());
+      expect(mockNavigate).not.toHaveBeenCalledWith('/me', expect.anything());
     }
   );
 
@@ -355,7 +355,7 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     render(<Settings tabSlug="reveal-private-key" />);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+    expect(mockNavigate).toHaveBeenCalledWith('/me', expect.anything());
   });
 
   it('removes the recovery phrase settings when the seed status changes', () => {
@@ -409,25 +409,12 @@ describe('Settings page — root menu (non-guardian)', () => {
     });
   });
 
-  it('renders the settings header and version footer', () => {
-    render(<Settings tabSlug={null} />);
-
-    expect(screen.getByTestId('nav-title')).toHaveTextContent('settings');
-    expect(screen.getByTestId('nav-header')).toBeInTheDocument();
+  it('renders the Profile settings menu without a standalone header or back button', () => {
+    render(<Settings />);
+    expect(screen.getByTestId('profile-settings-menu')).toBeInTheDocument();
+    expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('nav-back')).not.toBeInTheDocument();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
-  });
-
-  it('uses a pushed-page header with no filter row', () => {
-    render(<Settings tabSlug={null} />);
-    expect(screen.getAllByTestId('nav-header')).toHaveLength(1);
-    expect(screen.queryByRole('radiogroup')).toBeNull();
-  });
-
-  it('returns from Settings to Me when there is no history', () => {
-    mockHistoryPosition = 0;
-    render(<Settings tabSlug={null} />);
-    fireEvent.click(screen.getByTestId('nav-back'));
-    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('renders all four group headings', () => {
@@ -630,50 +617,11 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(scroller!.contains(header)).toBe(false);
   });
 
-  it('gives each page its own scroll container so offsets do not carry across', () => {
-    const { rerender } = render(<Settings tabSlug={null} />);
-    const listScroller = document.querySelector('.overflow-y-auto');
-
+  it('leaves menu scrolling to Profile and gives sub-pages their own scroll area', () => {
+    const { rerender } = render(<Settings />);
+    expect(document.querySelector('.overflow-y-auto')).toBeNull();
     rerender(<Settings tabSlug="language" />);
-
-    // Same route, so React would otherwise reconcile one container and keep its
-    // scrollTop: the sub-page opened at the list's offset and vice versa.
-    expect(document.querySelector('.overflow-y-auto')).not.toBe(listScroller);
-  });
-
-  it('restores the list scroll position when the user comes back from a sub-page', () => {
-    const rootScrollTop = { current: 0 };
-    const { unmount } = render(<Settings tabSlug={null} rootScrollTop={rootScrollTop} />);
-    const listScroller = document.querySelector<HTMLElement>('.overflow-y-auto');
-    if (!listScroller) throw new Error('List scroller did not render');
-
-    listScroller.scrollTop = 420;
-    fireEvent.scroll(listScroller);
-
-    // Root and sub-pages use different layouts, so Settings itself remounts.
-    unmount();
-    const subpage = render(<Settings tabSlug="language" />);
-    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(0);
-    subpage.unmount();
-    render(<Settings tabSlug={null} rootScrollTop={rootScrollTop} />);
-
-    // The key that gives each page its own scroller is also what loses the list's
-    // place: returning built a fresh one at the top, so a user who opened Language
-    // from the bottom of a long list came back to the top. The drawers this
-    // replaced kept the list mounted underneath.
-    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(420);
-  });
-
-  it('does not carry the list offset into the sub-page it opens', () => {
-    const { rerender } = render(<Settings tabSlug={null} />);
-    const listScroller = document.querySelector<HTMLElement>('.overflow-y-auto');
-    listScroller!.scrollTop = 420;
-    fireEvent.scroll(listScroller!);
-
-    rerender(<Settings tabSlug="language" />);
-
-    // The restore is for the root only — a sub-page still opens at its top.
-    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(0);
+    expect(document.querySelector('.overflow-y-auto')).not.toBeNull();
   });
 
   it('takes focus to the sub-page title, which a route change does not announce', () => {
@@ -733,9 +681,9 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
   });
 
-  it('announces Settings when pushed from the profile', () => {
-    render(<Settings tabSlug={null} />);
-    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
+  it('uses the Profile header for the settings menu', () => {
+    render(<Settings />);
+    expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument();
   });
 
   it('re-announces on a sibling-to-sibling move, where only the title changes', () => {
@@ -785,7 +733,7 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('replaces an unknown slug with the Settings root route so the footer is restored', () => {
     render(<Settings tabSlug="does-not-exist" />);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
     expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
 
@@ -796,7 +744,7 @@ describe('Settings page — root menu (non-guardian)', () => {
   it.each(['support', 'send-feedback'])('replaces the action-only slug %s instead of rendering a blank page', slug => {
     render(<Settings tabSlug={slug} />);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
     expect(screen.queryByTestId('nav-title')).not.toBeInTheDocument();
   });
 });
@@ -846,7 +794,7 @@ describe('Settings page — guardian account', () => {
 
     // Redirect out of the full-screen layout to the root's tab layout.
     expect(screen.queryByTestId('guardian-settings-body')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 });
 
@@ -876,7 +824,7 @@ describe('Settings page — recovery phrase row', () => {
 
     view.rerender(<Settings tabSlug="remove-seed-phrase" />);
     expect(screen.getByTestId('verify-seed-flow')).toBeInTheDocument();
-    expect(mockNavigate).not.toHaveBeenCalledWith('/settings', expect.anything());
+    expect(mockNavigate).not.toHaveBeenCalledWith('/me', expect.anything());
   });
 
   it('renders no overlay on the Settings root when the row is tapped, with a single haptic', () => {
@@ -931,7 +879,7 @@ describe('Settings page — active tab routing', () => {
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
-  it('sends back to the settings root, replacing, when a sub-page was opened cold', () => {
+  it('sends back to Profile, replacing, when a sub-page was opened cold', () => {
     // A deep link or a reload lands on the sub-page at the first history entry,
     // where goBack() is a no-op - the back button has to route instead, and replace so
     // forward does not walk back into the page just left.
@@ -941,7 +889,7 @@ describe('Settings page — active tab routing', () => {
     fireEvent.click(screen.getByTestId('nav-back'));
 
     expect(mockGoBack).not.toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('renders the edit-miden-faucet-id tab', () => {
@@ -997,7 +945,7 @@ describe('Settings page — active tab routing', () => {
     render(<Settings tabSlug="reveal-private-key" />);
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+    expect(mockNavigate).toHaveBeenCalledWith('/me', expect.anything());
   });
 
   it('reveals the hot key for a guardian with an activated hot key', () => {
@@ -1012,7 +960,7 @@ describe('Settings page — active tab routing', () => {
     render(<Settings tabSlug="reveal-hot-key" />);
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('does not expose the hot key page for a non-guardian account', () => {
@@ -1020,7 +968,7 @@ describe('Settings page — active tab routing', () => {
     render(<Settings tabSlug="reveal-hot-key" />);
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 });
 
@@ -1044,7 +992,7 @@ describe('Settings page — developer endpoints row', () => {
 describe('Settings page — mobile body attribute effects', () => {
   it('embeds the unchanged settings groups without a second header or hiding tab navigation', () => {
     mockIsMobile = true;
-    render(<Settings embedded />);
+    render(<Settings />);
     expect(screen.getByTestId('profile-settings-menu')).toBeInTheDocument();
     expect(screen.queryByTestId('nav-title')).not.toBeInTheDocument();
     for (const title of ['generalSettings', 'addressBook', 'language', 'keys', 'advancedSettings', 'privacyPolicy']) {
@@ -1052,9 +1000,9 @@ describe('Settings page — mobile body attribute effects', () => {
     }
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
-  it('keeps Settings in the pushed-page frame and releases dApp trays on unmount', () => {
+  it('releases dApp trays when a settings sub-page unmounts', () => {
     mockIsMobile = true;
-    const { unmount } = render(<Settings tabSlug={null} />);
+    const { unmount } = render(<Settings tabSlug="networks" />);
 
     expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
     expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
@@ -1081,13 +1029,13 @@ describe('Settings page — mobile body attribute effects', () => {
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
-  it('keeps dApp trays parked while leaving the root for a settings page', () => {
+  it('leaves Profile dApp trays visible until the settings sub-page opens', () => {
     mockIsMobile = true;
     render(<Settings tabSlug={null} />);
 
     fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
 
-    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
   it('does not touch body attributes on non-mobile platforms', () => {
@@ -1165,7 +1113,7 @@ describe('Settings page — encrypted wallet file gate', () => {
     mockNavigate.mockClear();
     view.rerender(<Settings tabSlug="encrypted-wallet-file" />);
     expect(screen.queryByTestId('encrypted-file-flow')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+    expect(mockNavigate).toHaveBeenCalledWith('/me', expect.anything());
   });
 
   it('offers the row as soon as the wallet gains an account the file restores', () => {

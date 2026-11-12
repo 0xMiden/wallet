@@ -1,7 +1,7 @@
 import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
-import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
+import { importedNoteIds, quarantineNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
@@ -15,6 +15,20 @@ const getInputNote = jest.fn(async (_id: string): Promise<unknown> => null);
 const executeRequest = jest.fn(async () => ({ result: { serialize: () => new Uint8Array([9, 9]) } }));
 const fakeClient = { transactions: { executeRequest } };
 const getMidenClient = jest.fn(async () => ({ client: fakeClient, importNoteBytes, syncState, getInputNote }));
+type MockQuarantineAttempt = { abandoned: boolean };
+const mockQuarantinedIds = new Set<string>();
+const mockBeginQuarantineAttempt = jest.fn((): MockQuarantineAttempt => ({ abandoned: false }));
+const mockAbandonQuarantineAttempt = jest.fn(async (attempt: MockQuarantineAttempt) => {
+  attempt.abandoned = true;
+});
+const mockQuarantineCallObserver: { current?: () => void } = {};
+const mockQuarantineNoteIds = jest.fn(async (ids: string[], attempt?: MockQuarantineAttempt) => {
+  if (!attempt?.abandoned) ids.forEach(id => mockQuarantinedIds.add(id));
+  mockQuarantineCallObserver.current?.();
+});
+const mockReleaseNoteIds = jest.fn(async (ids: string[]) => {
+  ids.forEach(id => mockQuarantinedIds.delete(id));
+});
 
 // The lock hands its callback a HOLD, and the dry run re-checks ownership at every
 // transition (#788 follow-up). Model both here: a hold-less pass-through would make
@@ -37,7 +51,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   // here would make every eviction test below vacuously green.
   assertWasmHoldCurrent: (hold: object | null, where: string) => {
     if (hold !== null && hold === currentWasmHold) return;
-    throw new Error(`operation abandoned ${where}`);
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
   },
   withWasmClientLock: jest.fn(async (fn: (hold: object) => Promise<unknown>) => {
     const hold = { mock: 'wasm-lock-hold' };
@@ -64,13 +79,16 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
 // As the real decode does: an entry that traps is skipped unless the caller asks for the trap, and one that cannot be
 // read (`unreadable`) is always skipped.
 jest.mock('lib/miden/note-quarantine', () => ({
+  beginQuarantineAttempt: () => mockBeginQuarantineAttempt(),
+  abandonQuarantineAttempt: (attempt: MockQuarantineAttempt) => mockAbandonQuarantineAttempt(attempt),
   importedNoteIds: jest.fn((notes: string[] | undefined, options?: { rethrowTraps?: boolean }) =>
     (notes ?? []).flatMap(n => {
       if (n.startsWith('trap') && options?.rethrowTraps) throw mockDecodeTrap;
       return n.startsWith('trap') || n.startsWith('unreadable') ? [] : [`id:${n}`];
     })
   ),
-  quarantineNoteIds: jest.fn(async () => undefined)
+  quarantineNoteIds: jest.fn((...args: [string[], MockQuarantineAttempt?]) => mockQuarantineNoteIds(...args)),
+  releaseNoteIds: (...args: [string[]]) => mockReleaseNoteIds(...args)
 }));
 // As strict as the SDK where it matters: fromHex takes only a literal `0x` and returns the canonical
 // (lowercase) id, and fromBech32 rejects an underscore, standing in for a routing suffix it cannot decode.
@@ -100,6 +118,19 @@ jest.mock('lib/shared/helpers', () => ({
 describe('simulateCustomTransaction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockQuarantinedIds.clear();
+    delete mockQuarantineCallObserver.current;
+    mockBeginQuarantineAttempt.mockReset().mockImplementation(() => ({ abandoned: false }));
+    mockAbandonQuarantineAttempt.mockReset().mockImplementation(async attempt => {
+      attempt.abandoned = true;
+    });
+    mockQuarantineNoteIds.mockReset().mockImplementation(async (ids, attempt) => {
+      if (!attempt?.abandoned) ids.forEach(id => mockQuarantinedIds.add(id));
+      mockQuarantineCallObserver.current?.();
+    });
+    mockReleaseNoteIds.mockReset().mockImplementation(async ids => {
+      ids.forEach(id => mockQuarantinedIds.delete(id));
+    });
     getInputNote.mockImplementation(async () => null);
   });
 
@@ -152,7 +183,10 @@ describe('simulateCustomTransaction', () => {
       importNotes: ['noteA', 'noteB']
     });
     expect(importedNoteIds).toHaveBeenCalledWith(['noteA', 'noteB'], { rethrowTraps: true });
-    expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteA', 'id:noteB']);
+    expect(quarantineNoteIds).toHaveBeenCalledWith(
+      ['id:noteA', 'id:noteB'],
+      expect.objectContaining({ abandoned: false })
+    );
     // Quarantine must be placed before the notes actually land in the client DB.
     const quarantineOrder = (quarantineNoteIds as jest.Mock).mock.invocationCallOrder[0]!;
     const importOrder = importNoteBytes.mock.invocationCallOrder[0]!;
@@ -162,7 +196,7 @@ describe('simulateCustomTransaction', () => {
   it('quarantines with an empty id list when importNotes is missing', async () => {
     await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
     expect(importedNoteIds).toHaveBeenCalledWith(undefined, { rethrowTraps: true });
-    expect(quarantineNoteIds).toHaveBeenCalledWith([]);
+    expect(quarantineNoteIds).toHaveBeenCalledWith([], expect.objectContaining({ abandoned: false }));
     expect(getInputNote).not.toHaveBeenCalled();
   });
 
@@ -177,13 +211,27 @@ describe('simulateCustomTransaction', () => {
       importNotes: ['noteA', 'noteB']
     });
     expect(getInputNote).toHaveBeenCalledWith('id:noteA');
-    expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteB']);
+    expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteB'], expect.objectContaining({ abandoned: false }));
+  });
+
+  it('does not import a carried note the wallet already holds', async () => {
+    const introducedNote = 'noteB-extra';
+    getInputNote.mockImplementation(async (id: string) => (id === 'id:noteA' ? { alreadyHere: true } : null));
+
+    await simulateCustomTransaction({
+      address: 'mtst1abc',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA', introducedNote]
+    });
+
+    expect(importNoteBytes).toHaveBeenCalledTimes(1);
+    expect(importNoteBytes).toHaveBeenCalledWith(new Uint8Array([introducedNote.length]), expect.anything());
   });
 
   it('treats a failed provenance lookup as already-held (quarantines nothing)', async () => {
     getInputNote.mockRejectedValueOnce(new Error('note store unavailable'));
     await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64', importNotes: ['noteA'] });
-    expect(quarantineNoteIds).toHaveBeenCalledWith([]);
+    expect(quarantineNoteIds).toHaveBeenCalledWith([], expect.objectContaining({ abandoned: false }));
   });
 
   it('tolerates a missing importNotes list', async () => {
@@ -242,7 +290,7 @@ describe('simulateCustomTransaction', () => {
       });
 
       expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3', introducedCount: 1 });
-      expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteA']);
+      expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteA'], expect.objectContaining({ abandoned: false }));
       expect(importNoteBytes).toHaveBeenCalledTimes(2);
       expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
     });
@@ -340,6 +388,15 @@ describe('simulateCustomTransaction', () => {
     expect(res).toEqual({ error: 'note not found' });
   });
 
+  it('keeps a genuine dry-run error whose text is Simulation timed out as an error result', async () => {
+    jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(new Error('Simulation timed out'));
+
+    await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).resolves.toEqual({
+      error: 'Simulation timed out'
+    });
+    expect(executeRequest).not.toHaveBeenCalled();
+  });
+
   // #788 follow-up: a watchdog eviction hands the mutex to a successor without
   // stopping this callback, so the abandoned dry run must stop at its next
   // transition instead of borrowing a client somebody else is inside. Nothing
@@ -348,15 +405,23 @@ describe('simulateCustomTransaction', () => {
   describe('abandons the dry run at the next transition after a lock eviction', () => {
     const input = { address: 'mtst1abc', transactionRequest: 'reqB64', importNotes: ['noteA', 'noteB'] };
 
+    const expectHoldLoss = async (simulation: Promise<unknown>, where: string) => {
+      const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+      await expect(simulation).rejects.toBeInstanceOf(WasmClientPoisonedError);
+      await expect(simulation).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: `operation abandoned ${where}` })
+      });
+      expect(mockBeginQuarantineAttempt).toHaveBeenCalledTimes(1);
+      expect(mockAbandonQuarantineAttempt).toHaveBeenCalledWith(mockBeginQuarantineAttempt.mock.results[0]?.value);
+    };
+
     it('during the client build: nothing WASM runs at all', async () => {
       getMidenClient.mockImplementationOnce(async () => {
         revokeWasmHold();
         return { client: fakeClient, importNoteBytes, syncState, getInputNote };
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned after the client build' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'after the client build');
       expect(getInputNote).not.toHaveBeenCalled();
       expect(quarantineNoteIds).not.toHaveBeenCalled();
       expect(importNoteBytes).not.toHaveBeenCalled();
@@ -370,9 +435,7 @@ describe('simulateCustomTransaction', () => {
         return null;
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the provenance lookup' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the provenance lookup');
       expect(getInputNote).toHaveBeenCalledTimes(1);
       expect(quarantineNoteIds).not.toHaveBeenCalled();
       expect(importNoteBytes).not.toHaveBeenCalled();
@@ -383,9 +446,7 @@ describe('simulateCustomTransaction', () => {
         revokeWasmHold();
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned after the quarantine write' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'after the quarantine write');
       expect(importNoteBytes).not.toHaveBeenCalled();
       expect(syncState).not.toHaveBeenCalled();
     });
@@ -396,9 +457,7 @@ describe('simulateCustomTransaction', () => {
         return 'noteid';
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the note import' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the note import');
       expect(importNoteBytes).toHaveBeenCalledTimes(1);
       expect(syncState).not.toHaveBeenCalled();
     });
@@ -409,9 +468,7 @@ describe('simulateCustomTransaction', () => {
         return undefined;
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned after the sync' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'after the sync');
       expect(accountRefToSdk).not.toHaveBeenCalled();
       expect(executeForSummaryAtTip).not.toHaveBeenCalled();
     });
@@ -423,9 +480,7 @@ describe('simulateCustomTransaction', () => {
         return { serialize };
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the summary serialize' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the summary serialize');
       // `summary.serialize()` reads through the evicted client's RefCell, which
       // is the double borrow the guard exists to prevent.
       expect(serialize).not.toHaveBeenCalled();
@@ -437,9 +492,7 @@ describe('simulateCustomTransaction', () => {
         throw Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' });
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the local execution fallback' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the local execution fallback');
       expect(executeRequest).not.toHaveBeenCalled();
     });
 
@@ -453,14 +506,12 @@ describe('simulateCustomTransaction', () => {
         return { result: { serialize } };
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the result serialize' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the result serialize');
       expect(serialize).not.toHaveBeenCalled();
     });
   });
 
-  it('times out and returns { error: "Simulation timed out" } when the locked work hangs', async () => {
+  it('a simulation timeout rejects with CustomSimulationTimeoutError', async () => {
     jest.useFakeTimers();
     try {
       (executeForSummaryAtTip as jest.Mock).mockImplementationOnce(() => new Promise(() => {}));
@@ -471,8 +522,54 @@ describe('simulateCustomTransaction', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      const res = await resultPromise;
-      expect(res).toEqual({ error: 'Simulation timed out' });
+      await expect(resultPromise).rejects.toMatchObject({
+        name: 'CustomSimulationTimeoutError',
+        message: 'The wallet could not finish simulating this transaction. Try again.'
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not quarantine an imported note after timeout release wins', async () => {
+    jest.useFakeTimers();
+    const attempt = { abandoned: false };
+    mockBeginQuarantineAttempt.mockReturnValueOnce(attempt);
+    let resolveLookup!: (result: unknown) => void;
+    let signalLookup!: () => void;
+    const lookupStarted = new Promise<void>(resolve => {
+      signalLookup = resolve;
+    });
+    getInputNote.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveLookup = resolve;
+          signalLookup();
+        })
+    );
+    let signalQuarantine!: () => void;
+    const quarantineCalled = new Promise<void>(resolve => {
+      signalQuarantine = resolve;
+    });
+    mockQuarantineCallObserver.current = signalQuarantine;
+
+    try {
+      const simulation = simulateCustomTransaction({
+        address: 'mtst1abc',
+        transactionRequest: 'reqB64',
+        importNotes: ['noteA']
+      });
+      await lookupStarted;
+      jest.advanceTimersByTime(20_000);
+      await simulation.catch(() => undefined);
+
+      await releaseNoteIds(['id:noteA']);
+      resolveLookup(null);
+      await quarantineCalled;
+
+      expect(mockQuarantinedIds.has('id:noteA')).toBe(false);
+      expect(mockAbandonQuarantineAttempt).toHaveBeenCalledWith(attempt);
+      expect(mockQuarantineNoteIds).toHaveBeenCalledWith(['id:noteA'], attempt);
     } finally {
       jest.useRealTimers();
     }
@@ -480,24 +577,65 @@ describe('simulateCustomTransaction', () => {
 });
 
 describe('an abandoned dry run', () => {
-  it('reports an interruption rather than wallet-internal eviction text', async () => {
-    // The dApp consent sheet interpolates this string onto a line the signer reads. "WASM client
-    // poisoned (watchdog): held the WASM client lock past its watchdog ceiling" says nothing a
-    // signer can act on, and naming our internals to an untrusted page is its own problem.
+  it('waits for quarantine abandonment before rethrowing a kill', async () => {
     const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
-    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    const eviction = new WasmClientPoisonedError('watchdog');
+    const attempt = { abandoned: false };
+    mockBeginQuarantineAttempt.mockReturnValueOnce(attempt);
+    let releaseAbandon!: () => void;
+    let signalAbandon!: () => void;
+    const abandonStarted = new Promise<void>(resolve => {
+      signalAbandon = resolve;
+    });
+    const abandonFinished = new Promise<void>(resolve => {
+      releaseAbandon = resolve;
+    });
+    mockAbandonQuarantineAttempt.mockImplementationOnce(async current => {
+      current.abandoned = true;
+      signalAbandon();
+      await abandonFinished;
+    });
+    jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(eviction);
+    const simulation = simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+    let settled = false;
+    const settledSimulation = simulation.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
 
-    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
-
-    expect(res).toEqual({ error: 'the simulation was interrupted before it finished' });
+    try {
+      await Promise.race([abandonStarted, settledSimulation]);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockAbandonQuarantineAttempt).toHaveBeenCalledWith(attempt);
+      expect(settled).toBe(false);
+    } finally {
+      releaseAbandon();
+    }
+    await expect(simulation).rejects.toBe(eviction);
   });
 
-  it('reports a dry run a terminated client refused as an interruption too', async () => {
-    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(new Error('Client terminated'));
+  it('rethrows a lock eviction so the request can retry', async () => {
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    const eviction = new WasmClientPoisonedError('watchdog');
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(eviction);
 
-    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+    await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).rejects.toBe(
+      eviction
+    );
+  });
 
-    expect(res).toEqual({ error: 'the simulation was interrupted before it finished' });
+  it('rethrows a terminated client so the request can retry', async () => {
+    const terminated = new Error('Client terminated');
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(terminated);
+
+    await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).rejects.toBe(
+      terminated
+    );
   });
 });
 

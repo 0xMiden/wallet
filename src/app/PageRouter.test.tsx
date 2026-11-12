@@ -624,13 +624,11 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
   });
 
-  it('/settings renders Settings with no tab slug inside FullScreenPage', () => {
+  it('/settings redirects to Profile without a standalone Settings page', () => {
     renderAt('/settings', ready);
-    const el = screen.getByTestId('settings');
-    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
-    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
-    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
-    expect(el).toHaveAttribute('data-tab-slug', '');
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/me');
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
   });
 
   it('/settings/:tabSlug stays outside TabLayout so sub-pages keep their own layout', () => {
@@ -649,23 +647,6 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
     expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
     expect(el).toHaveAttribute('data-tab-slug', 'reveal-seed-phrase');
-  });
-
-  it('retains the root scroll reference across Settings layout changes', () => {
-    const { rerender } = renderAt('/settings', ready);
-    const initialRef = mockSettingsProps.mock.lastCall![0].rootScrollTop;
-    expect(initialRef).toEqual({ current: 0 });
-    initialRef.current = 420;
-
-    mockLocation.pathname = '/settings/language';
-    rerender(<PageRouter />);
-    mockLocation.pathname = '/settings';
-    rerender(<PageRouter />);
-
-    // The page's own restoration is exercised in Settings.test.tsx. This pins
-    // the router contract: its root must receive the same saved ref on return.
-    expect(mockSettingsProps.mock.lastCall![0].rootScrollTop).toBe(initialRef);
-    expect(mockSettingsProps.mock.lastCall![0].rootScrollTop.current).toBe(420);
   });
 
   // Registered ahead of the generic `/settings/:tabSlug?` route above so it

@@ -5,6 +5,8 @@
  * only probed routes while its probe is in flight. On every platform a routed request is cut off at
  * GUARDIAN_REQUEST_TIMEOUT_MS (#312).
  */
+import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
+
 import { isGuardianRequestTimeout } from './serialize';
 
 const mockIsMobile = jest.fn(() => true);
@@ -629,6 +631,167 @@ describe('the Guardian request deadline (#312)', () => {
     await expect(globalThis.fetch(`${CUSTOM}/state`, { signal: caller.signal })).rejects.toBe(reason);
     expect(mockNativeRequest).not.toHaveBeenCalled();
     expect(mockWebFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('the Guardian request deadline across a freeze (#2060)', () => {
+  const FROZEN_MS = 80_000;
+  // The running clock keeps one 5 s pulse of a measured freeze, so that much of the deadline is spent.
+  const LEFT_AFTER_FREEZE_MS = 55_000;
+
+  let doc: HiddenDocument;
+  let resetClock: () => void = () => undefined;
+
+  /**
+   * A fresh boundary with the running clock of that same module registry, as mobile startup initialises it. Returns
+   * only once the transport is parked, so a test decides when and how the request ends.
+   */
+  function loadBoundary(mobile: boolean, { tracked = true }: { tracked?: boolean } = {}) {
+    mockIsMobile.mockReturnValue(mobile);
+    globalThis.fetch = mockWebFetch;
+    let boundary!: typeof import('./native-http');
+    jest.isolateModules(() => {
+      boundary = require('./native-http');
+      const clock: typeof import('lib/mobile/background-time') = require('lib/mobile/background-time');
+      resetClock = clock.__resetBackgroundTimeForTest;
+      if (tracked) clock.initBackgroundTimeTracking();
+    });
+    let answer: (value: unknown) => void = () => undefined;
+    let fail: (error: unknown) => void = () => undefined;
+    const transport = new Promise((resolve, reject) => {
+      answer = resolve;
+      fail = reject;
+    });
+    mockNativeRequest.mockReturnValue(transport);
+    mockWebFetch.mockReturnValue(transport);
+    boundary.registerGuardianOrigin(CUSTOM);
+    const request = track(globalThis.fetch(`${CUSTOM}/delta/proposal`, { method: 'POST' }));
+    return { boundary, request, answer: (value: unknown) => answer(value), fail: (error: unknown) => fail(error) };
+  }
+
+  const nativeAnswer = { status: 200, headers: {}, data: '{}' };
+  const answers: [string, boolean, unknown][] = [
+    ['on mobile', true, nativeAnswer],
+    ['off mobile', false, webResponse(200, '{}')]
+  ];
+
+  const freeze = async () => {
+    doc.setHidden(true);
+    doc.freezeFor(FROZEN_MS);
+    await jest.advanceTimersByTimeAsync(0);
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    doc = installHiddenDocument();
+  });
+
+  afterEach(() => {
+    resetClock();
+    doc.restore();
+    jest.useRealTimers();
+  });
+
+  it.each(answers)('keeps a request an 80 s freeze crosses and uses its answer, %s', async (_label, mobile, reply) => {
+    const { request, answer } = loadBoundary(mobile);
+
+    await freeze();
+    doc.setHidden(false);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(request.settled).toBe(false);
+
+    answer(reply);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(request.settled).toBe(true);
+    expect(request.error).toBeUndefined();
+    // The timer the fire re-armed goes with the answer.
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it.each(answers)('cuts a request a freeze crossed off once its running time is spent, %s', async (_label, mobile) => {
+    const { boundary, request } = loadBoundary(mobile);
+
+    await freeze();
+    doc.setHidden(false);
+    await jest.advanceTimersByTimeAsync(LEFT_AFTER_FREEZE_MS - 1);
+    expect(request.settled).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  it.each(answers)('still cuts a foreground request off at 60 s, %s', async (_label, mobile) => {
+    const { boundary, request } = loadBoundary(mobile);
+
+    await jest.advanceTimersByTimeAsync(boundary.GUARDIAN_REQUEST_TIMEOUT_MS - 1);
+    expect(request.settled).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  it.each(answers)('still cuts a request off at 60 s while hidden JS keeps running, %s', async (_label, mobile) => {
+    const { boundary, request } = loadBoundary(mobile);
+
+    doc.setHidden(true);
+    await jest.advanceTimersByTimeAsync(boundary.GUARDIAN_REQUEST_TIMEOUT_MS - 1);
+    expect(request.settled).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  // The texts the native layers give for a request that cannot reach the Guardian. Most read as neither unreachable nor
+  // an outage, while the cut-off is both, so this decides whether a row goes back to the queue or ends.
+  it.each([
+    'The network connection was lost.',
+    'Could not connect to the server.',
+    'A server with the specified hostname could not be found.',
+    'Failed to connect to guardian.example/1.2.3.4:443',
+    'Unable to resolve host "guardian.example": No address associated with hostname'
+  ])('reads a failure a freeze carried past the deadline as the cut-off: %s', async message => {
+    const { boundary, request, fail } = loadBoundary(true);
+
+    await freeze();
+    fail(new Error(message));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  it("keeps a failure inside the deadline as the transport's own, a freeze or not", async () => {
+    const { request, fail } = loadBoundary(true);
+    const dropped = new Error('The network connection was lost.');
+
+    doc.setHidden(true);
+    doc.freezeFor(20_000);
+    fail(dropped);
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(request.error).toBe(dropped);
+  });
+
+  it('still reads a failure past the deadline as the cut-off, whatever the timer did', async () => {
+    const { boundary, request, fail } = loadBoundary(true);
+
+    // Past the deadline with the timer still to fire, as a late timer leaves it.
+    const lateClock = jest
+      .spyOn(performance, 'now')
+      .mockReturnValue(performance.now() + boundary.GUARDIAN_REQUEST_TIMEOUT_MS);
+    fail(new Error('The request timed out.'));
+    await jest.advanceTimersByTimeAsync(0);
+    lateClock.mockRestore();
+
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  // Desktop, the extension's service worker and its offscreen document never initialise tracking.
+  it.each(answers)('counts a freeze as elapsed where tracking never started, %s', async (_label, mobile) => {
+    const { boundary, request } = loadBoundary(mobile, { tracked: false });
+
+    await freeze();
+
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
   });
 });
 

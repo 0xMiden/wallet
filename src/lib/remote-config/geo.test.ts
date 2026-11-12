@@ -1,4 +1,23 @@
-import { geoFeatureEnabled, hasGeoBlocks, parseGeoPhrase, placeBlocked, readGeoBlocks } from './geo';
+import {
+  geoFeatureEnabled,
+  hasGeoBlocks,
+  parseGeoPhrase,
+  placeBlocked,
+  readGeoBlocks,
+  retainedStartupRequestFailure
+} from './geo';
+import * as geoModule from './geo';
+
+type AssertFalse<T extends false> = T;
+type StartupEligibilityFailureAliasesRemainRemoved = AssertFalse<
+  'STARTUP_ELIGIBILITY_REQUEST_FAILURES' extends keyof typeof geoModule ? true : false
+>;
+// @ts-expect-error this duplicate type alias must remain removed from the geo contract
+type StartupEligibilityRequestFailureAliasRemainsRemoved = geoModule.StartupEligibilityRequestFailure;
+const removedAliasChecks:
+  | [StartupEligibilityFailureAliasesRemainRemoved, StartupEligibilityRequestFailureAliasRemainsRemoved]
+  | undefined = undefined;
+void removedAliasChecks;
 
 const invalid = (): never => {
   throw new Error('invalid');
@@ -138,5 +157,13 @@ describe('global wallet policy', () => {
 
   it('rejects an unknown active global rule rather than silently allowing it', () => {
     expect(() => readGeoBlocks({ wallet: { 'block unknown territory': 'yes' } }, invalid)).toThrow();
+  });
+});
+
+describe('retainedStartupRequestFailure', () => {
+  it('retains a request_failed member and rejects version_mismatch and a non-member', () => {
+    expect(retainedStartupRequestFailure('request_failed', 'http_error')).toBe('http_error');
+    expect(retainedStartupRequestFailure('version_mismatch', 'http_error')).toBeUndefined();
+    expect(retainedStartupRequestFailure('request_failed', 'https://private.example')).toBeUndefined();
   });
 });
