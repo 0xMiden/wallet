@@ -1,224 +1,79 @@
-name: Build Chrome Extension
-
+name: Token quantity expected-red proof
 on:
-  workflow_call:
-    inputs:
-      network:
-        type: string
-        default: both
-      feature_eligibility_url:
-        type: string
-        required: true
-    secrets:
-      APTABASE_APP_KEY:
-        required: false
-      SENTRY_DSN:
-        required: false
-
   workflow_dispatch:
-    inputs:
-      network:
-        description: 'Network to build for'
-        required: false
-        default: 'both'
-        type: choice
-        options:
-          - both
-          - testnet
-          - devnet
-
 permissions:
-  contents: write # needed to attach assets to a GitHub Release
-  actions: write # needed for artifact cleanup
-  pull-requests: read # the linked-PR injections read a dispatched branch's pull request
-
-concurrency:
-  group: build-chrome-${{ github.ref }}
-  cancel-in-progress: true
-
+  contents: read
 jobs:
-  setup:
-    runs-on: ubuntu-slim
-    outputs:
-      networks: ${{ steps.set.outputs.networks }}
-      eligibility_url: ${{ steps.eligibility.outputs.endpoint }}
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - id: set
-        shell: bash
+      - name: Record frozen source and test parity
         env:
-          NETWORK_SELECTION: ${{ inputs.network || 'both' }}
+          QA_SHA: ${{ github.sha }}
+          PRODUCT_SHA: c44c9aac837ef5f3a9ef248eb7436772d1c6b416
         run: |
-          case "$NETWORK_SELECTION" in
-            both) echo 'networks=["testnet","devnet"]' >> "$GITHUB_OUTPUT" ;;
-            testnet|devnet) printf 'networks=["%s"]\n' "$NETWORK_SELECTION" >> "$GITHUB_OUTPUT" ;;
-            *) echo 'Unsupported build network' >&2; exit 1 ;;
-          esac
-      - name: Check feature eligibility endpoint
-        id: eligibility
-        shell: bash
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$QA_SHA"
+          test "$(git rev-parse HEAD^)" = "$PRODUCT_SHA"
+          test "$(git diff --name-only "$PRODUCT_SHA" HEAD)" = ".github/workflows/build-chrome.yml"
+          git diff --exit-code "$PRODUCT_SHA" HEAD -- . ':(exclude).github/workflows/build-chrome.yml'
+          mkdir -p proof
+          printf 'product=%s\nqa=%s\n' "$PRODUCT_SHA" "$QA_SHA" > proof/source.txt
+          git diff --name-status "$PRODUCT_SHA" HEAD > proof/qa-only-paths.txt
+          sha256sum src/components/ui/AssetListItem.tsx playwright/visual/token-display/main.tsx playwright/visual/token-display/visual.spec.ts playwright.token-display-visual.config.ts package.json yarn.lock > proof/input-sha256.txt
+      - name: Install frozen dependencies
+        run: yarn install --frozen-lockfile --network-timeout 120000
+      - name: Install Chromium
+        run: yarn playwright install --with-deps chromium
+      - name: Run six token display cases (expected red)
         env:
-          FEATURE_ELIGIBILITY_URL: ${{ inputs.feature_eligibility_url || vars.FEATURE_ELIGIBILITY_URL }}
-          FEATURE_ELIGIBILITY_NETWORKS: ${{ steps.set.outputs.networks }}
-          FEATURE_ELIGIBILITY_ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
+          PLAYWRIGHT_JSON_OUTPUT_FILE: proof/results.json
+        run: yarn playwright test --config playwright.token-display-visual.config.ts --reporter=list,json
+      - name: Verify six cases and the named regression
+        if: always()
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
-            node --input-type=module <<'NODE'
-          import { appendFileSync } from 'node:fs';
-          import { validateEndpoint } from './services/feature-eligibility/check-deployment.mjs';
-          const endpoint = validateEndpoint(process.env.FEATURE_ELIGIBILITY_URL).href;
-          appendFileSync(process.env.GITHUB_OUTPUT, `endpoint=${endpoint}\n`);
+          node - <<'NODE'
+          const assert = require('node:assert/strict');
+          const report = require('./proof/results.json');
+          assert.equal(report.stats.expected, 4);
+          assert.equal(report.stats.unexpected, 2);
+          assert.equal(report.stats.flaky, 0);
+          assert.equal(report.stats.skipped, 0);
+          const failures = [];
+          function visit(suite) {
+            for (const spec of suite.specs || []) {
+              for (const test of spec.tests || []) {
+                if (test.status === 'unexpected') failures.push({ title: spec.title, results: test.results });
+              }
+            }
+            for (const child of suite.suites || []) visit(child);
+          }
+          for (const suite of report.suites) visit(suite);
+          assert.deepEqual(failures.map(test => test.title).sort(), [
+            'keeps token values and normalized USD amount legible at 320px, dark',
+            'keeps token values and normalized USD amount legible at 320px, light'
+          ]);
+          for (const failure of failures) {
+            assert(failure.results.some(result => (result.errors || []).some(error =>
+              error.message.includes('WTEST is fully inside the amount box')
+            )), failure.title);
+          }
+          console.log(JSON.stringify({ stats: report.stats, intendedFailures: failures.map(test => test.title) }));
           NODE
-          else
-            node services/feature-eligibility/check-deployment.mjs
-          fi
-
-  build:
-    needs: setup
-    strategy:
-      fail-fast: false
-      matrix:
-        network: ${{ fromJSON(needs.setup.outputs.networks) }}
-
-    runs-on: ubuntu-latest
-    name: Build Chrome (${{ matrix.network }})
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          ref: ${{ github.sha }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # On a dispatch from a pull request's branch these build against that pull request's linked
-      # web-sdk and Guardian PRs, as its own CI does. Dispatch only, so a release build never runs
-      # them and installs the published packages exactly as before.
-      - name: Inject linked web-sdk PR
-        id: inject-web-sdk
-        if: github.event_name == 'workflow_dispatch'
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        id: inject-guardian
-        if: github.event_name == 'workflow_dispatch'
-        uses: ./.github/actions/inject-linked-guardian-pr
-
-      - name: Install dependencies
-        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
-        run: yarn install --frozen-lockfile
-      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
-      - name: Install dependencies (linked PRs injected)
-        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
-        uses: ./.github/actions/yarn-install
-
-      - name: Build Chrome extension
-        env:
-          MIDEN_NETWORK: ${{ matrix.network }}
-          # PRODUCTION build. Every vite config gates BOTH minification and
-          # source maps on this one variable:
-          #
-          #   sourcemap: process.env.MODE_ENV !== 'production'
-          #   minify:    process.env.MODE_ENV === 'production'
-          #
-          # It was never set here, so the extension users install shipped
-          # UNMINIFIED and with its full source maps: 59.9 MB of .map files and
-          # 34.5 MB of formatted, commented JavaScript, in a 29.96 MB zip that
-          # was 40% source maps. `build:mobile` already sets this — the
-          # extension was simply missed.
-          #
-          # Measured on the 1.15.20 tree: 29.96 MB -> 15.43 MB zipped (-48.5%).
-          MODE_ENV: production
-          NODE_ENV: production
-          # Baked into the bundle, so not confidential once shipped -- these are
-          # write-only ingestion ids, and a secret only keeps them out of git.
-          # Absent (a fork) each resolves to '' and turns its feature off.
-          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          FEATURE_ELIGIBILITY_URL: ${{ needs.setup.outputs.eligibility_url }}
-        run: yarn build:chrome
-
-      - name: Resolve artifact version
-        id: artifact_version
-        uses: ./.github/actions/artifact-version
-
-      - name: Compute artifact name
-        id: name
-        shell: bash
-        run: |
-          VERSION="${{ steps.artifact_version.outputs.version }}"
-          NETWORK="${{ matrix.network }}"
-          ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
-          FILE="MidenWallet.${VERSION}.${ENV_CAP}.zip"
-          {
-            echo "version=${VERSION}"
-            echo "env_cap=${ENV_CAP}"
-            echo "file=${FILE}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Rename zip
-        shell: bash
-        run: |
-          mkdir -p release-output
-          mv dist/chrome.zip "release-output/${{ steps.name.outputs.file }}"
-
-      - name: Upload Chrome artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: MidenWallet-${{ steps.name.outputs.version }}-${{ steps.name.outputs.env_cap }}-Chrome
-          path: release-output/${{ steps.name.outputs.file }}
-          retention-days: 30
-          if-no-files-found: error
-
-      - name: Attach to GitHub Release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "release-output/${{ steps.name.outputs.file }}" --clobber
-
-  # Cleanup old artifacts, keep only last 10 builds per network
-  cleanup:
-    runs-on: ubuntu-slim
-    needs: build
-    steps:
-      - name: Delete old artifacts
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { data: artifacts } = await github.rest.actions.listArtifactsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              per_page: 100
-            });
-
-            const groups = {};
-            for (const artifact of artifacts.artifacts) {
-              const m = artifact.name.match(/^MidenWallet-[^-]+-(Testnet|Devnet)-Chrome$/);
-              if (m) {
-                const key = m[1];
-                if (!groups[key]) groups[key] = [];
-                groups[key].push(artifact);
-              }
-            }
-
-            for (const [prefix, items] of Object.entries(groups)) {
-              items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-              const toDelete = items.slice(10);
-              for (const artifact of toDelete) {
-                console.log(`Deleting old artifact: ${artifact.name} (${artifact.id})`);
-                await github.rest.actions.deleteArtifact({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  artifact_id: artifact.id
-                });
-              }
-            }
-
-            console.log('Cleanup complete. Kept 10 most recent Chrome builds per network.');
+          name: token-quantity-expected-red
+          path: |
+            proof/
+            test-results/token-display-visual/
+          retention-days: 7
