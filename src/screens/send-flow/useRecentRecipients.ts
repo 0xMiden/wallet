@@ -20,7 +20,7 @@ const EMPTY_RECENTS: RecentRecipient[] = [];
  * whose `secondaryAccountId` is the bridge allocator, so the user-facing
  * recipient comes from `extraInputs.destinationAddress` instead.
  */
-const recipientOf = (row: ITransaction): { address: string; networkName?: string } | undefined => {
+export const recipientOf = (row: ITransaction): { address: string; networkName?: string } | undefined => {
   if (row.type === 'send') {
     const address = row.secondaryAccountId?.trim();
     return address ? { address } : undefined;

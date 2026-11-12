@@ -33,7 +33,10 @@ describe('native presentation trace helpers', () => {
     expect(helper).toContain('await delay(200)');
     expect(helper).toContain('await beforeUp()');
     expect(helper).toContain("'motionevent', 'UP'");
-    expect(spec.indexOf("`trial-${index}-end`)")).toBeLessThan(spec.indexOf("'native-presentation-${VARIANT}-${index}'"));
+    const endMarker = spec.indexOf('`trial-${index}-end`)');
+    const screenshot = spec.indexOf('`native-presentation-${VARIANT}-${index}`');
+    expect(endMarker).toBeGreaterThan(-1);
+    expect(screenshot).toBeGreaterThan(endMarker);
   });
 
   it('reboots the reserved Android device before each comparison variant', () => {

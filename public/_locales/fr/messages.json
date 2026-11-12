@@ -4026,6 +4026,10 @@
     "message": "Vous ne pouvez pas envoyer de colis à votre propre adresse",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Nouveau destinataire",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -6350,6 +6354,10 @@
   "couldNotDecodeTransaction": {
     "message": "Cette dApp demande une transaction personnalisée. Le portefeuille n'a pas pu décoder ses détails — ne continuez que si vous savez exactement en quoi cela consiste.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "customTransactionNotSimulated": {
+    "message": "Le portefeuille n’a pas pu simuler cette transaction ; il ne peut donc pas afficher ce qu’elle implique. Vous ne pouvez pas l’approuver.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
   },
   "rawValue": {
     "message": "Valeur brute",
