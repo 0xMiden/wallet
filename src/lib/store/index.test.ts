@@ -1202,16 +1202,8 @@ describe('useWalletStore', () => {
   });
 
   describe('Signing actions', () => {
-    it('signData returns signature', async () => {
-      mockRequest.mockResolvedValueOnce({
-        type: WalletMessageType.SignDataResponse,
-        signature: 'sig123'
-      });
-
-      const { signData } = useWalletStore.getState();
-      const result = await signData('pk1', 'data-to-sign');
-
-      expect(result).toBe('sig123');
+    it('offers no store action for signing raw data, which nothing answers', () => {
+      expect('signData' in useWalletStore.getState()).toBe(false);
     });
 
     it('signTransaction returns Uint8Array from hex', async () => {
@@ -2314,15 +2306,6 @@ describe('useWalletStore', () => {
   });
 
   describe('signing actions', () => {
-    it('signData returns signature', async () => {
-      mockRequest.mockResolvedValueOnce({
-        type: WalletMessageType.SignDataResponse,
-        signature: 'sig-base64'
-      });
-      const sig = await useWalletStore.getState().signData('pk', 'inputs');
-      expect(sig).toBe('sig-base64');
-    });
-
     it('signTransaction returns signature as Uint8Array from hex', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SignTransactionResponse,

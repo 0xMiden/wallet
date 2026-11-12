@@ -204,7 +204,6 @@ export interface WalletActions {
   verifyStrictActionAuthentication: (credential?: string) => Promise<void>;
 
   // Signing actions
-  signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;

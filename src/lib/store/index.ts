@@ -670,16 +670,6 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Signing actions
-    signData: async (publicKey, signingInputs) => {
-      const res = await request({
-        type: WalletMessageType.SignDataRequest,
-        publicKey,
-        signingInputs
-      });
-      assertResponse(res.type === WalletMessageType.SignDataResponse);
-      return res.signature;
-    },
-
     signTransaction: async (publicKey, signingInputs) => {
       const res = await request({
         type: WalletMessageType.SignTransactionRequest,
