@@ -24,9 +24,14 @@ export function createBackgroundLockClock(delayMs: () => number, now: number): B
   return {
     hidden(at) {
       // The first signal wins. More than a heartbeat after the last foreground moment it is a pause delivered late,
-      // so the absence is measured from that moment rather than counting the freeze as foreground. The signal's own
-      // time stays the floor below which a reading means the clock was set back.
+      // so the absence is measured from that moment rather than counting the freeze as foreground, and the signal's
+      // own time stays the floor below which a reading means the clock was set back. A signal below that moment is
+      // itself a set-back, so the moment stays both the hide and the floor.
       if (hiddenAt !== null) return;
+      if (at < lastSeen) {
+        hiddenAt = hiddenSignal = lastSeen;
+        return;
+      }
       hiddenSignal = at;
       hiddenAt = at - lastSeen <= BACKGROUND_LOCK_HEARTBEAT_MS ? at : lastSeen;
     },
@@ -43,6 +48,9 @@ export function createBackgroundLockClock(delayMs: () => number, now: number): B
       // While hidden the heartbeat decides as a resume would, so a resume that never arrives still locks.
       if (hiddenAt !== null && hiddenSignal !== null) return at < hiddenSignal || at - hiddenAt >= delayMs();
       const gap = at - lastSeen;
+      // A reading below the last foreground moment is the clock set back, not a new foreground moment: it does not
+      // lock here, and the next resume still measures against that moment.
+      if (gap < 0) return false;
       lastSeen = at;
       return gap >= delayMs();
     }

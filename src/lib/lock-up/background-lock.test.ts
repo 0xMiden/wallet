@@ -86,6 +86,28 @@ describe('createBackgroundLockClock', () => {
     expect(clock.visible(1_500_000)).toBe(true);
   });
 
+  it('a hidden signal below the last foreground moment locks', () => {
+    const clock = make(1_000_000);
+    clock.hidden(10);
+    expect(clock.visible(10)).toBe(true);
+    const later = make(1_000_000);
+    later.hidden(10);
+    expect(later.visible(10 + DELAY - 1)).toBe(true);
+    const held = make(1_000_000);
+    held.hidden(10);
+    expect(held.tick(10)).toBe(true);
+  });
+
+  it('a heartbeat that sees the clock move back leaves the later decision a set-back', () => {
+    const clock = make(1_000_000);
+    expect(clock.tick(10)).toBe(false);
+    expect(clock.visible(10)).toBe(true);
+    const followed = make(1_000_000);
+    expect(followed.tick(10)).toBe(false);
+    followed.hidden(10);
+    expect(followed.tick(10)).toBe(true);
+  });
+
   it('a heartbeat that sees the clock move back does not lock', () => {
     const clock = make(1_000_000);
     expect(clock.tick(10)).toBe(false);
