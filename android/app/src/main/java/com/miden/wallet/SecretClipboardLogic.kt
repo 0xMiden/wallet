@@ -11,11 +11,16 @@ object SecretClipboardLogic {
 
     enum class Decision { CLEAR, DROP, WAIT }
 
-    /// What a due clear does with the clip now on the clipboard.
+    /// What a due clear does with the clip now on the clipboard: an unfocused app cannot read it (Android 10+), so it
+    /// waits; a focused one clears only its own clip, recognised by the marker its write carried.
     @JvmStatic
-    fun decide(focused: Boolean, currentMarker: String?, ownMarker: String): Decision = Decision.WAIT
+    fun decide(focused: Boolean, currentMarker: String?, ownMarker: String): Decision = when {
+        !focused -> Decision.WAIT
+        currentMarker == ownMarker -> Decision.CLEAR
+        else -> Decision.DROP
+    }
 
     /// The delay itself when it is within the supported bounds, else null.
     @JvmStatic
-    fun validClearAfterMs(raw: Long?): Long? = null
+    fun validClearAfterMs(raw: Long?): Long? = raw?.takeIf { it in MIN_CLEAR_AFTER_MS..MAX_CLEAR_AFTER_MS }
 }
