@@ -6,7 +6,7 @@ import { test } from '../../fixtures/two-wallets';
 import { vaultBalanceByFaucetId, walletDiscoveredBaseFee, walletDiscoveredNativeFaucetId } from '../../helpers/balance-truth';
 import { loadMainnetEpochCheckpoint, saveMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from '../../helpers/mainnet-epoch-checkpoint';
 import { epochReadOnlyProvider, prepareEpochRoundTrip } from '../../helpers/mainnet-epoch-provider';
-import { recoverEpochForward, recoverEpochReturn, runEpochRefund } from '../../helpers/mainnet-epoch-runtime';
+import { recoverEpochForward, recoverEpochReturn, runEpochRefund, runEpochReverse } from '../../helpers/mainnet-epoch-runtime';
 import { planEpochRoundTrip } from '../../helpers/mainnet-epoch-ui';
 import { remainingMainnetLoopBudget } from '../../helpers/mainnet-loop-budget';
 import { canonicalMainnetLoopFaucet } from '../../helpers/mainnet-loop-config';
@@ -42,24 +42,33 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
     await restoreMainnetLoopGuardian(walletB, keyPair);
     if (await walletB.getAccountAddress() !== previous.account) throw new Error('Epoch recovery Guardian account changed');
     const signal = AbortSignal.timeout(1_100_000);
+    const returnOriginalProceeds = async () => {
+      if (previous.reverseNonce !== undefined || previous.reverseAuthority || previous.transactions?.length || previous.consumeAuthority)
+        throw new Error('Existing original reverse authorization is ambiguous; never refresh or retry it');
+      const key = (process.env.E2E_MAINNET_EVM_KEY?.trim() ?? '').replace(/^0x/, '');
+      if (!/^[0-9a-f]{64}$/i.test(key)) throw new Error('Existing funded EVM key is required for original return recovery');
+      await recoverEpochForward(walletB, previous, STATE_PATH, signal);
+      await runEpochReverse(walletB, previous, STATE_PATH, previous.sourceRunId, `0x${key}`, `${STATE_PATH}.recover-reverse`, signal);
+    };
     if (previous.returnMidenTxId && previous.returnNoteId === previous.forwardNoteId) {
       await runEpochRefund(walletB, previous, STATE_PATH, `${STATE_PATH}.refund`, signal);
     } else if (previous.transactions?.length) {
       await recoverEpochReturn(walletB, previous, STATE_PATH, `${STATE_PATH}.recover`, signal);
+    } else if (previous.forwardReceived) {
+      await returnOriginalProceeds();
     } else {
-      if (previous.forwardReceived) throw new Error('Original Epoch proceeds require bounded reverse-stage recovery; no fresh deposit is authorized');
       if (!previous.forwardAuthority || !previous.forwardNoteId)
         throw new Error('Missing exact original collateral authorization; submission outcome is ambiguous');
       const provider = epochReadOnlyProvider(previous.allocatorUrl, previous.virtualChainId, previous.evm.account);
       const status = await provider.sdk.getIntentStatus(provider.config, previous.evm.account, previous.forwardNonce);
       if (!Array.isArray(status)) throw new Error('Unknown original Epoch settlement status; do not refund or retry');
       if (status.some(leg => leg.chainId === previous.evm.chainId && ['success', 'completed'].includes(leg.status))) {
-        await recoverEpochForward(walletB, previous, STATE_PATH, signal);
-        throw new Error('Epoch proceeds reconciled; bounded original reverse-stage recovery is required');
+        await returnOriginalProceeds();
+      } else {
+        if (await readMainnetMidenBlock(getEnvironmentConfig().rpcUrl) < previous.forwardAuthority.reclaimHeight)
+          throw new Error('Original Epoch collateral is still pending before reclaim maturity');
+        await runEpochRefund(walletB, previous, STATE_PATH, `${STATE_PATH}.refund`, signal);
       }
-      if (await readMainnetMidenBlock(getEnvironmentConfig().rpcUrl) < previous.forwardAuthority.reclaimHeight)
-        throw new Error('Original Epoch collateral is still pending before reclaim maturity');
-      await runEpochRefund(walletB, previous, STATE_PATH, `${STATE_PATH}.refund`, signal);
     }
     writeFileSync('test-results/mainnet-epoch-recovery.json', `${JSON.stringify({ recoveryOnly: true,
       sourceRunId: previous.sourceRunId })}\n`);
