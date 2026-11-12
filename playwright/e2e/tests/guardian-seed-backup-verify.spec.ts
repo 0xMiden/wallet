@@ -94,8 +94,10 @@ test.describe('Seed Phrase Backup and Verification', () => {
       // funding into the spendable vault, and it settles its own fee because a note's
       // credit lands before `pay_fee` withdraws.
       //
-      // No-op on a chain that charges nothing, so this spec stays fast there.
-      await ensureFeeFunded(midenCli, walletA, addressA);
+      // No-op on a chain that charges nothing, so this spec stays fast there. Only a real claim leaves
+      // the Guardian a backup to canonicalize, and the settle wait throws when no push was observed.
+      walletA.trackGuardianCommitments();
+      if ((await ensureFeeFunded(midenCli, walletA, addressA)) > 0n) await walletA.waitForGuardianSettled();
     });
 
     await steps.step('home_offers_the_backup_prompt', async () => {

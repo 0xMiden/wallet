@@ -2,6 +2,7 @@ import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
+import { DELEGATED_PROVE_TIMEOUT_MS } from './delegated-prove-timeout';
 import type { WasmLockHold } from './miden-client';
 
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
@@ -19,6 +20,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 describe('MidenClientInterface', () => {
   afterEach(() => {
+    // doMock survives resetModules; only the store-name case below registers this one.
+    jest.dontMock('./store-name');
     jest.resetModules();
     jest.clearAllMocks();
   });
@@ -186,6 +189,9 @@ describe('MidenClientInterface', () => {
   it('creates a client with provided callbacks', async () => {
     const fakeMidenClient = buildFakeMidenClient();
     const createMock = jest.fn(async () => fakeMidenClient);
+    // The realm client opens the store the resolver names (#2086).
+    const sdkStoreNameFor = jest.fn(async () => 'MidenClientDB_mcst');
+    jest.doMock('./store-name', () => ({ sdkStoreNameFor }));
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       MidenClient: { create: createMock, createMock: jest.fn() },
@@ -281,9 +287,11 @@ describe('MidenClientInterface', () => {
       insertKeyCallback
     });
 
+    expect(sdkStoreNameFor).toHaveBeenCalledWith('rpc-local');
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({
         rpcUrl: 'rpc-local',
+        storeName: 'MidenClientDB_mcst',
         seed: expect.any(Uint8Array),
         keystore: expect.objectContaining({
           insertKey: insertKeyCallback
@@ -635,6 +643,7 @@ describe('MidenClientInterface', () => {
 
     const [note] = await client.getInputNoteDetails();
     expect(note?.assets).toEqual([]);
+    expect(note?.standardPayment).toBe(false);
     expect(note?.nonFungibleAssets).toEqual([{ faucetId: 'nft-faucet', assetId: '0xabababab\u2026ababab' }]);
   });
 
@@ -1758,7 +1767,7 @@ describe('MidenClientInterface', () => {
       staged.prove.mockImplementationOnce(() => new Promise<never>(() => {}));
       const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
       mockStagedSdk();
-      const { MidenClientInterface, DELEGATED_PROVE_TIMEOUT_MS } = await import('./miden-client-interface');
+      const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       const pending = client.consumeNoteId({
@@ -4165,6 +4174,25 @@ describe('MidenClientInterface', () => {
     expect(builds[0]).toContain('(first build)');
     expect(builds[0]).toContain(' at rpc.example');
     expect(builds[0]).not.toContain('strands');
+  });
+
+  it('builds the reader on the store the realm client opens (#2086)', async () => {
+    const sdkStoreNameFor = jest.fn(async () => 'MidenClientDB_mcst');
+    readerDoMock('./store-name', () => ({ sdkStoreNameFor }));
+    const createClient = jest.fn(async () => emptyReader());
+    const { makeClient } = await importWithReader(createClient);
+    await makeClient().getConsumableNotes('mtst1account');
+    expect(sdkStoreNameFor).toHaveBeenCalledWith('https://rpc.example');
+    expect(createClient).toHaveBeenCalledWith(
+      'https://rpc.example',
+      undefined,
+      undefined,
+      'MidenClientDB_mcst',
+      undefined,
+      false,
+      undefined,
+      '0xfee'
+    );
   });
 
   // The SDK's static P2IDE check reads an absent reclaim height as 0 and answers the reclaimer (usually the sender)

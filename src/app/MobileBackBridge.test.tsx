@@ -97,14 +97,14 @@ describe('MobileBackBridge', () => {
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  it('on a cold-opened settings subpage: replaces to /settings and consumes the event', () => {
+  it('on a cold-opened settings subpage: replaces to /me and consumes the event', () => {
     const { handler } = renderAt('/settings/security', 0);
 
     const result = handler();
 
     expect(result).toBe(true);
     expect(navigateMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith('/settings', HistoryAction.Replace);
+    expect(navigateMock).toHaveBeenCalledWith('/me', HistoryAction.Replace);
     expect(goBackMock).not.toHaveBeenCalled();
   });
 

@@ -41,6 +41,8 @@ export const amountExceedsTokenDecimals = (amount: string, decimals: number): bo
   jest
     .requireActual<typeof import('../../../src/lib/i18n/numbers')>('lib/i18n/numbers')
     .amountExceedsTokenDecimals(amount, decimals);
+export const toLocalFormat = (...args: Parameters<typeof import('../../../src/lib/i18n/numbers').toLocalFormat>) =>
+  jest.requireActual<typeof import('../../../src/lib/i18n/numbers')>('lib/i18n/numbers').toLocalFormat(...args);
 // Mirrors the real formatBigInt: the decimal point shifted into the digit string, trailing zeros dropped.
 export const formatBigInt = (amount: bigint, decimals: number): string => {
   const negative = amount < 0n;

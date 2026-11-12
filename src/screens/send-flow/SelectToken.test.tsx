@@ -140,10 +140,10 @@ jest.mock('components/ui/SearchInput', () => ({
 }));
 
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
-// surfaces the `symbol`/`size` props the row passes through.
+// surfaces the `faucetId`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, faucetId, size }: { symbol: string; faucetId?: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-faucet-id={faucetId} data-size={size} />
+  TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} />
   )
 }));
 
@@ -222,6 +222,39 @@ beforeEach(() => {
 
 afterEach(() => {
   mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+});
+
+it('shows no $0.00 for an unread known-scale row when the quote is ready', () => {
+  mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+  const unread = {
+    data: [{ ...BTC, balance: 0 }],
+    isLoading: true,
+    isValidating: true,
+    mutate: jest.fn()
+  };
+  mockUseAllBalances.mockReturnValue(unread);
+  renderDrawer();
+
+  expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+  expect(screen.getByTestId('send-token-skeleton')).toBeInTheDocument();
+});
+
+it('keeps unread availability warnings out of the picker while search remains usable', () => {
+  mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+  mockNativeFaucetId = MIDEN.tokenId;
+  const unread = {
+    data: [{ ...BTC, tokenId: TEST_TOKEN_IETH.faucetId, balance: 0 }],
+    isLoading: true,
+    isValidating: true,
+    mutate: jest.fn()
+  };
+  mockUseAllBalances.mockReturnValue(unread);
+  renderDrawer();
+
+  expect(screen.queryByTestId('send-picker-held-notice')).not.toBeInTheDocument();
+  expect(screen.getByTestId('send-token-skeleton')).toBeInTheDocument();
+  fireEvent.change(search(), { target: { value: 'BTC' } });
+  expect(search()).toHaveValue('BTC');
 });
 
 describe('SelectTokenDrawer', () => {
@@ -497,7 +530,7 @@ describe('SelectTokenDrawer', () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_TOKEN_IETH.faucetId, fiatPrice: 3 }));
   });
 
-  it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {
+  it('stacks the rows unboxed with a 72px floor, divided by a hairline like the home assets list', () => {
     setBalances([BTC, ETH]);
     renderDrawer();
 
@@ -506,7 +539,9 @@ describe('SelectTokenDrawer', () => {
     expect(list.className).toContain('divide-rule-default');
     expect(list.className).not.toContain('bg-fill');
     expect(list.className).not.toContain('rounded-2xl');
-    expect(screen.getByTestId('send-token-ETH').className).toContain('h-18');
+    const rowClasses = screen.getByTestId('send-token-ETH').className.split(/\s+/);
+    expect(rowClasses).toContain('min-h-18');
+    expect(rowClasses).not.toContain('h-18');
   });
 });
 
@@ -596,4 +631,48 @@ it('does not report the pending token availability warning as a user-visible err
   } finally {
     jest.useRealTimers();
   }
+});
+
+it('filters assets by destination and updates the list when the destination changes', () => {
+  const { config, derived } = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  const reads = derived?.chains[11155111];
+  if (!config || !derived || !reads) throw new Error('The test config is missing.');
+  mockBridgeSnapshot = {
+    ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+    network: 'mainnet',
+    config: {
+      ...config,
+      supportedEvmChains: {
+        robinhood: {
+          chainId: 4663,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { ETH: { contractAddress: '0x0000000000000000000000000000000000000000', outputs: [] } }
+            }
+          }
+        }
+      }
+    },
+    derived: {
+      ...derived,
+      chains: {
+        4663: {
+          ...reads,
+          epoch: {
+            tokens: { ETH: { state: 'ok', value: { symbol: 'ETH', decimals: 18, midenFaucetId: ETH.tokenId } } }
+          }
+        }
+      }
+    }
+  };
+  setBalances([ETH, BTC, XYZ]);
+  const { onSelect, onOpenChange, rerender } = renderDrawer({ destinationChainId: 4663 });
+  expect(screen.getByTestId('send-token-ETH')).toBeEnabled();
+  expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('send-token-XYZ')).not.toBeInTheDocument();
+
+  rerender(<SelectTokenDrawer open onSelect={onSelect} onOpenChange={onOpenChange} />);
+  expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
 });

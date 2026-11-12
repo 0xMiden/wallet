@@ -121,6 +121,7 @@ export async function createEligibilityFixture({
   const selected = new Set(networks);
   const documents = new Map();
   const waiting = new Set();
+  let lastEligibilityOrigin;
   let mode = 'allowed';
   const readSource = async network => {
     const response = await fetchImpl(`${source.replace(/\/$/, '')}/${network}.json`, {
@@ -182,6 +183,16 @@ export async function createEligibilityFixture({
     try {
       if (request.method === 'OPTIONS') return send(response, 204, undefined);
       if (request.method === 'GET' && url.pathname === '/healthz') return send(response, 200, { ready: true });
+      if (request.method === 'GET' && url.pathname === '/_fixture/origin') {
+        return send(response, 200, {
+          observed: lastEligibilityOrigin !== undefined,
+          origin: lastEligibilityOrigin ?? null
+        });
+      }
+      if (request.method === 'POST' && url.pathname === '/_fixture/origin') {
+        lastEligibilityOrigin = undefined;
+        return send(response, 200, { reset: true });
+      }
       if (request.method === 'POST' && url.pathname === '/_fixture/response') {
         const { state } = await readBody(request);
         if (!MODES.has(state)) return send(response, 400, { error: 'invalid_state' });
@@ -207,6 +218,7 @@ export async function createEligibilityFixture({
         if (!selected.has(network) || [...url.searchParams.keys()].length !== 1) {
           return send(response, 400, { error: 'invalid_request' });
         }
+        lastEligibilityOrigin = request.headers.origin ?? null;
         return await answer(response, network);
       }
       send(response, 404, { error: 'not_found' });

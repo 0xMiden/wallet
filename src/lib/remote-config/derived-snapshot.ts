@@ -8,6 +8,8 @@ import type {
   BridgeToken,
   DerivedBridgeConfig,
   DerivedChainConfig,
+  EpochAllocatorAccount,
+  EpochTokenRead,
   Probe,
   TokenMetadata
 } from './derive';
@@ -103,6 +105,12 @@ function probe<T>(value: unknown, read: (value: unknown) => T | null): Probe<T> 
   if (value.state !== 'ok') return null;
   const found = read(value.value);
   return found === null ? null : { state: 'ok', value: found };
+}
+
+function allocatorAccount(value: unknown): EpochAllocatorAccount | null {
+  // An older snapshot stored the allocator URL beside the account. The document already names that URL.
+  if (!isRecord(value) || !isMidenAccountId(value.accountId)) return null;
+  return { accountId: value.accountId };
 }
 
 function market(value: Parameters<typeof metadata>[0]): EarnMarket | null {
@@ -279,12 +287,41 @@ function chainReads(value: unknown): DerivedChainConfig | null {
   const l1BridgeCode = probe(agglayer.l1BridgeCode, yes);
   // A copy stored by a build that read no deposit tokens has no such probe, so it reads as missing and is derived again.
   const deposits = probe(agglayer.depositTokens, depositTokens);
-  const evmUsdc = probe(epoch.evmUsdc, metadata);
-  if (!rollupId || !tokens || !evmNetworkId || !l1BridgeCode || !deposits || !evmUsdc) return null;
+  // A copy stored by a build that read only the route's USDC has no token map, so it reads as missing and is derived
+  // again.
+  const epochTokens = epochTokenReads(epoch.tokens);
+  if (!rollupId || !tokens || !evmNetworkId || !l1BridgeCode || !deposits || !epochTokens) return null;
   return {
     agglayer: { rollupId, tokens, evmNetworkId, l1BridgeCode, depositTokens: deposits },
-    epoch: { evmUsdc }
+    epoch: { tokens: epochTokens }
   };
+}
+
+// An Epoch token's read: its contract's metadata, the faucet it settles into when the derivation resolved one, and
+// that faucet's own metadata when it was read too.
+function epochTokenRead(value: unknown): EpochTokenRead | null {
+  const read = metadata(value);
+  if (!read || !isRecord(value) || value.midenFaucetId === undefined) return read;
+  if (!isMidenAccountId(value.midenFaucetId)) return null;
+  if (value.midenSymbol === undefined && value.midenDecimals === undefined) {
+    return { ...read, midenFaucetId: value.midenFaucetId };
+  }
+  const faucet = metadata({ symbol: value.midenSymbol, decimals: value.midenDecimals });
+  return faucet
+    ? { ...read, midenFaucetId: value.midenFaucetId, midenSymbol: faucet.symbol, midenDecimals: faucet.decimals }
+    : null;
+}
+
+// One token read that does not read back makes the whole map unreadable, as a partial list would hide a token.
+function epochTokenReads(value: unknown): Record<string, Probe<EpochTokenRead>> | null {
+  if (!isRecord(value)) return null;
+  const reads: Record<string, Probe<EpochTokenRead>> = {};
+  for (const [symbol, read] of Object.entries(value)) {
+    const parsed = probe(read, epochTokenRead);
+    if (!parsed) return null;
+    reads[symbol] = parsed;
+  }
+  return reads;
 }
 
 /**
@@ -305,6 +342,9 @@ export function parseStoredDerived(value: unknown, network: string, version: num
   }
   const indexer = probe(agglayer.indexer, yes);
   const allocator = probe(epoch.allocator, yes);
+  // Old builds did not store this optional probe; keep their other reads intact.
+  const allocatorAccountRead: Probe<EpochAllocatorAccount> | null =
+    epoch.allocatorAccount === undefined ? { state: 'absent' } : probe(epoch.allocatorAccount, allocatorAccount);
   const earnMarket = probe(epoch.market, market);
   const midenUsdcFaucet = probe(epoch.midenUsdcFaucet, metadata);
   // A copy stored by a build that read no swap pairs has no such probe, so it reads as missing and is derived again.
@@ -319,7 +359,9 @@ export function parseStoredDerived(value: unknown, network: string, version: num
           state: 'error',
           message: 'The stored Earn vault catalogue is malformed'
         });
-  if (!indexer || !allocator || !earnMarket || !midenUsdcFaucet || !swapPairs || !vaults) return null;
+  if (!indexer || !allocator || !allocatorAccountRead || !earnMarket || !midenUsdcFaucet || !swapPairs || !vaults) {
+    return null;
+  }
   const reads: Record<number, DerivedChainConfig> = {};
   for (const [key, entry] of Object.entries(chains)) {
     const chainId = Number(key);
@@ -333,7 +375,7 @@ export function parseStoredDerived(value: unknown, network: string, version: num
     derivedAt,
     chains: reads,
     agglayer: { indexer },
-    epoch: { allocator, market: earnMarket, midenUsdcFaucet, vaults },
+    epoch: { allocator, allocatorAccount: allocatorAccountRead, market: earnMarket, midenUsdcFaucet, vaults },
     swap: { pairs: swapPairs }
   };
 }
@@ -342,10 +384,10 @@ export function parseStoredDerived(value: unknown, network: string, version: num
 export function failedDerivation(config: BridgeConfig, message: string, derivedAt: number): DerivedBridgeConfig {
   const error: Probe<never> = { state: 'error', message };
   const chains: Record<number, DerivedChainConfig> = {};
-  for (const { chainId } of Object.values(config.supportedEvmChains)) {
+  for (const { chainId, bridges } of Object.values(config.supportedEvmChains)) {
     chains[chainId] = {
       agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error, depositTokens: error },
-      epoch: { evmUsdc: error }
+      epoch: { tokens: Object.fromEntries(Object.keys(bridges.epoch?.tokens ?? {}).map(symbol => [symbol, error])) }
     };
   }
   return {
@@ -354,7 +396,7 @@ export function failedDerivation(config: BridgeConfig, message: string, derivedA
     derivedAt,
     chains,
     agglayer: { indexer: error },
-    epoch: { allocator: error, market: error, midenUsdcFaucet: error, vaults: error },
+    epoch: { allocator: error, allocatorAccount: error, market: error, midenUsdcFaucet: error, vaults: error },
     swap: { pairs: error }
   };
 }

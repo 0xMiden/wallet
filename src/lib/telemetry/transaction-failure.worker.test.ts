@@ -311,6 +311,49 @@ it('serializes only independent closed deadline queue and reap evidence without 
   expect(wire).not.toContain(privateValue);
 });
 
+it('sends only closed values for a refused submit whose error carries ids, hex and amounts', async () => {
+  const account = 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe';
+  const accountHex = '0x7bfb0f38b0fafa103f86a80559417021';
+  const transaction = `0x${'c4'.repeat(32)}`;
+  const note = `0x${'9a'.repeat(32)}`;
+  const amount = '1250000';
+  reportTransactionFailure({
+    type: 'send',
+    stage: 'submitting',
+    submitApproachHidden: 'under_half',
+    proofWindow: 'under_30_blocks',
+    hiddenDuringSubmit: false,
+    submitLegMs: 12_345,
+    error: new Error(
+      'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: ' +
+        "invalid request parameters (transaction expired): status: 'invalid request parameters (transaction expired)', " +
+        `self: "tx ${transaction} of ${amount} from ${account} to ${accountHex} note ${note}"`
+    )
+  });
+  await settle();
+  expect(captured).toHaveLength(1);
+  const event = JSON.parse(captured[0]!.split('\n')[2]!) as {
+    exception: { values: { value: string }[] };
+    extra: { walletDiagnostics: Record<string, unknown> };
+  };
+  expect(event.extra.walletDiagnostics).toMatchObject({
+    submitApproachHidden: 'under_half',
+    proofWindow: 'under_30_blocks',
+    submitHidden: 'no',
+    submitLeg: 'over_11s'
+  });
+  const message = event.exception.values[0]!.value;
+  expect(message).toContain(
+    '; point pipeline; submit_rejected; endpoint submit_proven_transaction; grpc invalid_argument; node expired;'
+  );
+  for (const field of ['under_half', 'under_30_blocks', 'over_11s']) expect(message).not.toContain(field);
+  for (const leak of [account, accountHex, transaction, note, amount, 'transaction expired']) {
+    expect(captured[0]).not.toContain(leak);
+  }
+  expect(JSON.stringify(event.extra)).not.toContain('12345');
+  expect(message).not.toContain('12345');
+});
+
 it.each(['user_cancelled', 'queued_expired', 'stuck_reaped'] as const)(
   'omits deadline progress from the final wire when effective identity is %s',
   async reason => {

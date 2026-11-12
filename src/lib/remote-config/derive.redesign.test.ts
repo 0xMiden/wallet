@@ -77,7 +77,7 @@ it('reads each bridge from its listed chain and discovers the Earn market from E
   const result = await deriveBridgeConfig(config, { ...dependencies(), evm });
   expect(result.derivedAt).toBe(100);
   expect(result.chains?.[11155111]?.agglayer.rollupId).toEqual({ state: 'ok', value: 86 });
-  expect(result.chains?.[84532]?.epoch.evmUsdc).toEqual({ state: 'skipped' });
+  expect(result.chains?.[84532]?.epoch.tokens).toEqual({});
   expect(result.epoch.market).toMatchObject({
     state: 'ok',
     value: {
@@ -106,6 +106,6 @@ it('keeps independent chain probes when one RPC fails', async () => {
       erc20: async () => ({ symbol: 'USDC', decimals: 18 })
     })
   });
-  expect(result.chains?.[11155111]?.epoch.evmUsdc).toMatchObject({ state: 'error' });
+  expect(result.chains?.[11155111]?.epoch.tokens.USDC).toMatchObject({ state: 'error' });
   expect(result.epoch.allocator).toEqual({ state: 'ok', value: true });
 });

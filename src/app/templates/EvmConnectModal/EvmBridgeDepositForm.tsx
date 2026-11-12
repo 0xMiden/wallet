@@ -27,12 +27,15 @@ import { truncateAddress } from 'utils/string';
 
 interface EvmBridgeDepositFormProps {
   token: UITokenWithPendingBalance;
+  /** The Miden faucet the deposit arrives in, which keys the token's logo; undefined while that faucet does not exist. */
+  logoFaucetId: string | undefined;
   network?: BridgeNetwork;
   tokenLabel: string;
   arrivingName: string;
   destinationName?: string;
   amount: string;
   isValidAmount: boolean;
+  balanceUnreadable?: boolean;
   error?: string;
   errorId?: UserErrorId | null;
   errorDiagnostics?: UiEvidenceInput;
@@ -47,12 +50,14 @@ interface EvmBridgeDepositFormProps {
 /** Bridge funding uses Send's amount field and the shared flow body; the manager owns navigation. */
 export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   token,
+  logoFaucetId,
   network,
   tokenLabel,
   arrivingName,
   destinationName,
   amount,
   isValidAmount,
+  balanceUnreadable = false,
   error,
   errorId,
   errorDiagnostics,
@@ -66,7 +71,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   const { t } = useTranslation();
   const [shortcutSelection, setShortcutSelection] = React.useState(0);
   const prices = useWalletStore(state => state.tokenPrices);
-  const balanceReady = token.balance !== null;
+  const balanceReady = !balanceUnreadable && token.balance !== null;
   const canProceed = token.scaleIsKnown && balanceReady && !!network && isValidAmount;
   const visibleError = error && (amount || error !== 'invalidAmount') ? error : undefined;
   const amountError =
@@ -147,10 +152,12 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       <DetailCard surface="outline" face="heading" className="mt-8">
         <ListRow
           title={tokenLabel}
-          avatar={<TokenLogo symbol={token.name} faucetId={token.id} size="md" />}
+          avatar={<TokenLogo faucetId={logoFaucetId} size="md" />}
           subtitle={
             token.scaleIsKnown ? (
-              balanceReady ? (
+              balanceUnreadable ? (
+                t('unavailable')
+              ) : balanceReady ? (
                 `${t('available')} ${balanceText}`
               ) : (
                 <Skeleton className="h-4 w-20" />

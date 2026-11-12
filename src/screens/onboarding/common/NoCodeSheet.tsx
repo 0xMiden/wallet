@@ -2,7 +2,10 @@ import React, { FC } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { MAINNET_EARLY_ACCESS_URL } from 'app/constants';
 import { Button } from 'components/Button';
+import { TextAction } from 'components/ui/TextAction';
+import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { cn } from 'lib/ui/util';
@@ -17,6 +20,9 @@ export interface NoCodeSheetProps {
  */
 export const NoCodeSheet: FC<NoCodeSheetProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
+  const openEarlyAccess = () => {
+    openExternalUrl({ url: MAINNET_EARLY_ACCESS_URL, title: t('mainnetCountdownLink') }).catch(() => {});
+  };
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="no-code">
@@ -31,6 +37,13 @@ export const NoCodeSheet: FC<NoCodeSheetProps> = ({ open, onOpenChange }) => {
           <DrawerDescription>{t('noCodeBody')}</DrawerDescription>
           {/* The shared Button fires its own tap haptic. */}
           <DrawerFooter className="shrink-0 gap-2.5">
+            <TextAction
+              onClick={openEarlyAccess}
+              className="self-center underline decoration-1 underline-offset-[3px]"
+              data-testid="no-code-sheet-early-access"
+            >
+              {t('mainnetCountdownLink')}
+            </TextAction>
             <Button
               title={t('gotIt')}
               onClick={() => onOpenChange(false)}

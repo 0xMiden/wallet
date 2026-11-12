@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { UserRejectedRequestError } from 'viem';
 
 import { englishWordlist } from '@miden/hd-key';
+import { CctpQuoteRefusedError } from 'lib/usdcx/cctp';
 import { markReownNativeFailure, type ReownNativeFailure } from 'lib/walletconnect/native-request-failure';
 
 import {
@@ -81,6 +82,19 @@ it('reads the library error from the cause the writer handed over, not the store
   );
 });
 
+it('classifies a CCTP quote refusal by its fixed class without reporting provider details', () => {
+  const providerCode = 'private-provider-code';
+  const providerMessage = 'private provider response';
+  const refusal = new CctpQuoteRefusedError(providerCode, providerMessage);
+  const cause = walletRaised(new Error('Circle quote unavailable', { cause: refusal }));
+
+  const report = reportBridge({ route: 'usdcx', step: 'precheck_quote', cause }, cause);
+
+  expect(report).toContain('; via usdcx; failed at precheck_quote; evm error cctp_quote_refused. ');
+  expect(report).not.toContain(providerCode);
+  expect(report).not.toContain(providerMessage);
+});
+
 it('reports no answer for a failure the wallet raised, whose writer hands over no cause', () => {
   expect(
     reportBridge(
@@ -102,6 +116,57 @@ it('reports other for a cause that names no library error', () => {
   expect(reportBridge({ route: 'agglayer', step: 'reconciler_receipt', cause }, cause.message)).toContain(
     '; via agglayer; failed at reconciler_receipt; evm error other. '
   );
+});
+
+it('keeps the wallet request client within its closed values', () => {
+  expect(reportBridge({ route: 'agglayer', step: 'wallet_deposit', requestClient: 'unlisted' } as never)).toContain(
+    'wallet request client other'
+  );
+});
+
+it('omits the wallet request client outside an approve or deposit request', () => {
+  expect(reportBridge({ route: 'agglayer', step: 'deposit_receipt', requestClient: 'wagmi' })).not.toContain(
+    'wallet request client'
+  );
+});
+
+it('reports the Fast solve request client', () => {
+  const native = reportBridge({
+    route: 'epoch',
+    step: 'epoch_solve',
+    requestClient: 'native_reown',
+    cause: REFUSED_FAST_DEPOSIT
+  });
+  const wagmi = reportBridge({
+    route: 'epoch',
+    step: 'epoch_solve',
+    requestClient: 'wagmi',
+    cause: REFUSED_FAST_DEPOSIT
+  });
+  const unlisted = reportBridge({
+    route: 'epoch',
+    step: 'epoch_solve',
+    requestClient: 'unlisted',
+    cause: REFUSED_FAST_DEPOSIT
+  } as never);
+  const unset = reportBridge({ route: 'epoch', step: 'epoch_solve', cause: REFUSED_FAST_DEPOSIT });
+
+  expect(native).toContain('failed at epoch_solve; wallet request client native_reown; evm error user_rejected');
+  expect(native).toContain('wallet request client native_reown');
+  expect(wagmi).toContain('wallet request client wagmi');
+  expect(unlisted).toContain('wallet request client other');
+  expect(unset).not.toContain('wallet request client');
+  for (const message of [native, wagmi, unlisted, unset])
+    expect(containsSeedMaterial(message, englishWordlist)).toBe(false);
+});
+
+it('names epoch_solve in the Fast solve request client policy line', () => {
+  const policyLine = readFileSync(join(REPO_ROOT, 'docs/privacy/index.md'), 'utf8')
+    .split('\n')
+    .find(line => line.includes('Only inbound bridge failures') && line.includes('wallet request client'));
+
+  expect(policyLine).toContain('`wallet_approve`, `wallet_deposit` or `epoch_solve` carry wallet request client');
+  expect(policyLine).toContain('wallet request client (`native_reown`, `wagmi`)');
 });
 
 const OWN_WORDS = 'The Fast route has no quoted deposit.';
@@ -180,6 +245,8 @@ const LIBRARY_CASES: ReadonlyArray<readonly [string, unknown]> = [
   ['http_other', named('HttpRequestError', 'HTTP request failed.', { status: '429' })],
   ['unknown_rpc_error', 'An unknown RPC error occurred.\n\nDetails: Something went wrong.\nVersion: viem@2.55.4'],
   ['unknown_rpc_error', named('UnknownRpcError', 'An unknown error occurred.')],
+  ['cctp_quote_refused', new CctpQuoteRefusedError('private-provider-code', 'private provider response')],
+  ['other', named('CctpQuoteRefusedErrorExtended', 'provider refusal')],
   ['receipt_timeout', named('WaitForTransactionReceiptTimeoutError', 'Timed out while waiting for transaction.')],
   ['chain_mismatch', named('ChainMismatchError', 'The current chain of the wallet does not match.')],
   ['chain_unconfigured', named('ChainNotFoundError', 'No chain was provided to the request.')],

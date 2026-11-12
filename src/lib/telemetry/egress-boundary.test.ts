@@ -1850,13 +1850,13 @@ describe('crash-report egress', () => {
         expect(evidence.requestErrors).toBe(1);
         expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
           storageOwner: 'wallet_transactions',
-          storageOperation: 'cursor',
+          storageOperation: 'cursor_iteration',
           pageVisibility: 'hidden'
         });
         expect(event.tags).toEqual({
           network: 'testnet',
           storage_owner: 'wallet_transactions',
-          storage_operation: 'cursor'
+          storage_operation: 'cursor_iteration'
         });
         expect(event.tags).not.toHaveProperty('page_visibility');
         expect(increment).toBeGreaterThan(0);
@@ -1902,9 +1902,9 @@ describe('crash-report egress', () => {
         expect(wireText()).toContain('"pageVisibility":"hidden"');
         expect(wireText()).not.toContain('"page_visibility"');
         expect(wireText()).toContain('"storageOwner":"wallet_transactions"');
-        expect(wireText()).toContain('"storageOperation":"cursor"');
+        expect(wireText()).toContain('"storageOperation":"cursor_iteration"');
         expect(wireText()).toContain('"storage_owner":"wallet_transactions"');
-        expect(wireText()).toContain('"storage_operation":"cursor"');
+        expect(wireText()).toContain('"storage_operation":"cursor_iteration"');
         expectNoStoragePoison(wireText());
         const event = sentryEvents()[0];
         if (event === undefined) throw new Error('missing cursor report');
@@ -2415,8 +2415,9 @@ describe('user-visible error reports', () => {
     const reporter = reportUserVisibleError as (...args: unknown[]) => void;
     reporter('walletAccessUnavailableBody', 'startup', {
       startupEligibilityStage: 'eligibility_retry',
-      startupEligibilityReason: 'version_mismatch',
+      startupEligibilityReason: 'request_failed',
       startupEligibilityRetry: 'retry_failed',
+      startupEligibilityRequestFailure: 'timeout',
       raw: POISON.mnemonic12,
       account: POISON.compositePublicKey
     });
@@ -2425,8 +2426,9 @@ describe('user-visible error reports', () => {
     const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
       startupEligibilityStage: 'eligibility_retry',
-      startupEligibilityReason: 'version_mismatch',
-      startupEligibilityRetry: 'retry_failed'
+      startupEligibilityReason: 'request_failed',
+      startupEligibilityRetry: 'retry_failed',
+      startupEligibilityRequestFailure: 'timeout'
     });
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('raw');
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('account');
@@ -3157,3 +3159,42 @@ it('sends the closed mainnet code rejection origin on the actual outgoing envelo
   expect(wire).not.toMatch(/ABCDEF123456|0x1234|98\.76/);
   expect(leaksIn(wire)).toEqual([]);
 });
+
+it.each(['native_reown', 'wagmi'] as const)(
+  'sends only the closed bridge request client %s on the actual Sentry envelope',
+  async requestClient => {
+    consentOn();
+    const privateText = 'private-topic-123 refused 0x1234567890 amount 98.76 https://private.example.invalid/path';
+    const bridgeReceive = {
+      route: 'agglayer',
+      step: 'wallet_deposit',
+      requestClient,
+      cause: privateText
+    } as never;
+    reportTransactionFailure({
+      type: 'bridged-receive',
+      point: 'bridge_receive_settlement',
+      bridgeReceive,
+      error: privateText
+    });
+    await flushEgress();
+
+    const events = sentryEvents();
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (event === undefined) throw new Error('Expected one Sentry event');
+    const exception = objectAt(event, 'exception');
+    if (!Array.isArray(exception.values)) throw new Error('Expected exception values');
+    const firstException = exception.values[0];
+    if (typeof firstException !== 'object' || firstException === null || Array.isArray(firstException)) {
+      throw new Error('Expected one Sentry exception object');
+    }
+    const value = stringAt(firstException as Record<string, unknown>, 'value');
+    expect(value).toContain(`wallet request client ${requestClient}`);
+    expect(value).toContain('evm error other');
+    for (const text of [privateText, 'private-topic-123', '0x1234567890', '98.76', 'private.example.invalid']) {
+      expect(wireText()).not.toContain(text);
+    }
+    expect(leaksIn(wireText())).toEqual([]);
+  }
+);

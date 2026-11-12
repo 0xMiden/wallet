@@ -10,6 +10,7 @@ import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import {
+  bridgeInSourceLabel,
   evmUsdcLabel,
   midenTokenLabel,
   TEST_EPOCH_USDC_LABEL,
@@ -92,6 +93,13 @@ describe('token labels', () => {
   it("labels the bridge's EVM USDC on testnet whatever symbol its read gave", () => {
     expect(evmUsdcLabel(LOADED, 'USDC')).toBe('Test Epoch USDC');
     expect(evmUsdcLabel(LOADED, 'USDC.e')).toBe('Test Epoch USDC');
+  });
+
+  it('keeps POL and WETH on an Epoch bridge-in with no saved token, and still labels USDC', () => {
+    const epoch = (symbol: string) => bridgeInSourceLabel(TEST_BRIDGE_CONFIG_SNAPSHOT, { provider: 'epoch', symbol });
+    expect(epoch('POL')).toBe('POL');
+    expect(epoch('WETH')).toBe('WETH');
+    expect(epoch('USDC')).toBe('Test Epoch USDC');
   });
 
   it('keeps the symbol of every other Miden token, a USDC impostor included', () => {

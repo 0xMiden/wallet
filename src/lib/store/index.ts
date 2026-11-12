@@ -8,6 +8,7 @@ import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
+import { isSyncFused } from 'lib/miden/front/sync-fuse';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
@@ -322,6 +323,8 @@ export const useWalletStore = create<WalletStore>()(
     // Initial balance state
     balances: {},
     balancesLoading: {},
+    balanceReadFailed: {},
+    balanceReadInFlight: {},
     balancesLastFetched: {},
     balancesDisplayFaucetId: {},
 
@@ -991,6 +994,24 @@ export const useWalletStore = create<WalletStore>()(
       fetchingAddresses.add(accountAddress);
 
       try {
+        // Before the first await, so a caller that already found this address in flight still sees it.
+        set(state => ({
+          balanceReadInFlight: { ...state.balanceReadInFlight, [accountAddress]: true }
+        }));
+        const recordUnlandedRead = () => {
+          const hasBalances = get().balances[accountAddress] !== undefined;
+          if (hasBalances) {
+            set(state => ({
+              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false }
+            }));
+            return;
+          }
+          if (isSyncFused('balances')) {
+            set(state => ({
+              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
+            }));
+          }
+        };
         const effectiveNetwork = () => `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
         const network = effectiveNetwork();
         const overridden = new Set<string>();
@@ -1012,12 +1033,31 @@ export const useWalletStore = create<WalletStore>()(
         });
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
-        if (balances === null) return;
+        if (balances === null) {
+          recordUnlandedRead();
+          return;
+        }
         // A Developer Settings save repointed this realm while the read was out: these are the old
         // node's balances. The metadata it wrote stays, each faucet's own record on any network.
-        if (effectiveNetwork() !== network) return;
-        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot));
+        if (effectiveNetwork() !== network) {
+          recordUnlandedRead();
+          return;
+        }
+        set(state => ({
+          ...withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot),
+          balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false }
+        }));
+      } catch (error) {
+        if (get().balances[accountAddress] === undefined) {
+          set(state => ({
+            balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
+          }));
+        }
+        throw error;
       } finally {
+        set(state => ({
+          balanceReadInFlight: { ...state.balanceReadInFlight, [accountAddress]: false }
+        }));
         fetchingAddresses.delete(accountAddress);
       }
     },
@@ -1029,7 +1069,13 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     clearBalances: () => {
-      set({ balances: {}, balancesLoading: {}, balancesLastFetched: {} });
+      set({
+        balances: {},
+        balancesLoading: {},
+        balancesLastFetched: {},
+        balanceReadFailed: {},
+        balanceReadInFlight: {}
+      });
     },
 
     // Asset actions

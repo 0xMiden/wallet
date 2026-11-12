@@ -14,6 +14,7 @@ import { useRetryableSWR } from 'lib/swr';
 import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { isOwnClaimableNote } from '../claimable-note-ownership';
 import { toNoteTypeString } from '../helpers';
 import { AssetMetadata } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
@@ -82,6 +83,11 @@ function parseNotes(
     const firstAsset = note.assets[0];
     if (!firstAsset) continue;
 
+    // Only this account's notes: another trader's PSWAP order on a tracked pair tag is
+    // consumable by anyone, and is not a payment to this account (#2118).
+    const swapOrder = swapOrders.get(noteId);
+    if (!isOwnClaimableNote({ standardPayment: note.standardPayment, swapOrder })) continue;
+
     const kind = note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown';
     parsed.push({
       id: noteId,
@@ -91,7 +97,7 @@ function parseNotes(
       isBeingClaimed: notesBeingClaimed.has(noteId),
       claimingTxId: notesBeingClaimed.get(noteId),
       type: kind,
-      swapOrder: swapOrders.get(noteId),
+      swapOrder,
       blockNum: note.blockNum,
       recallableAtMs: note.recallableAtMs,
       standardPayment: note.standardPayment,
@@ -581,6 +587,9 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     // client order, which changes between syncs, and the Activity cards animate every move.
     return sortClaimableNotes<ClaimableNoteWithMetadata>(
       extensionNotes
+        // The service worker already drops other accounts' notes; a list it stored
+        // before that rule existed may still hold them (#2118).
+        .filter(isOwnClaimableNote)
         .filter(n => !n.swapOrder || n.swapOrder.autoConsume === false)
         .filter(n => n.metadata || assetsMetadata[n.faucetId])
         .map(n => ({

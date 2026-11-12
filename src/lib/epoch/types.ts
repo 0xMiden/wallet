@@ -49,6 +49,11 @@ export interface EVMToMidenIntentParams {
   destinationChainId: number;
   evmSourceAddress: string;
   evmTokenAddress: string;
+  /**
+   * True when the deposit is the source chain's native coin (`evmTokenAddress` is the zero address): the SDK then
+   * deposits it with `depositNativeAndRegister`, sending the amount as the call's value, with no approval.
+   */
+  isNative?: boolean;
   midenRecipientId: string;
   midenFaucetId: string;
   /**

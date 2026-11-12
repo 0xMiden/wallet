@@ -82,7 +82,7 @@ const Me: React.FC = () => {
           </span>
           <Icon name={IconName.ChevronRightLucide} size="sm" aria-hidden="true" className="shrink-0 stroke-muted" />
         </CardButton>
-        <Settings embedded />
+        <Settings />
       </div>
     </>
   );

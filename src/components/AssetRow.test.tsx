@@ -19,6 +19,7 @@ import { useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useWalletStore } from 'lib/store';
 
 import AssetRowDefault, { AssetRow } from './AssetRow';
 
@@ -48,8 +49,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getSdkSyncedNativeAssetIdSync: jest.fn(() => null)
 }));
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, faucetId }: { symbol: string; faucetId?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-faucet-id={faucetId} />
+  TokenLogo: ({ faucetId }: { faucetId: string | undefined }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} />
   )
 }));
 // The figures under test follow the default rule, no figure without a quote; pinned here against
@@ -161,6 +162,7 @@ function priceInfo(overrides: Partial<TokenPriceInfo> = {}): TokenPriceInfo {
 beforeEach(() => {
   jest.clearAllMocks();
   mockSparklinePointsRenders.length = 0;
+  useWalletStore.setState({ tokenPricesStatus: 'loading' });
   // Sensible defaults; individual tests override as needed.
   tokenPrices = { BTC: priceInfo() };
   mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
@@ -243,6 +245,14 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('row-price').textContent).toMatch(/\$0\.0+/);
   });
 
+  it('shows a status instead of an overflowing USD value', () => {
+    tokenPrices = { BTC: priceInfo({ price: 2 }) };
+
+    render(<AssetRow asset={makeAsset({ balance: Number.MAX_VALUE })} tokenPrices={tokenPrices} />);
+
+    expect(screen.queryByTestId('row-price')).not.toBeInTheDocument();
+    expect(screen.getByTestId('row-price-status')).toHaveTextContent('unavailable');
+  });
   it('treats a move under 0.1% either way as flat: a grey pill and a grey line', () => {
     for (const change of [0, -0.02, 0.09]) {
       tokenPrices = { BTC: priceInfo({ percentageChange24h: change }) };
@@ -310,6 +320,15 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
   });
 
+  it('shows unavailable after price loading finishes without a quote', () => {
+    useWalletStore.setState({ tokenPricesStatus: 'ready' });
+    tokenPrices = {};
+
+    render(<AssetRow asset={makeAsset({ balance: 7 })} tokenPrices={tokenPrices} />);
+
+    expect(screen.getByTestId('row-price-status')).toHaveTextContent('unavailable');
+  });
+
   // The nominal rate is a dollar figure, not a market, so it has no 24h move to show.
   it('values the native token at the nominal rate, with no 24h move, when the feed does not quote it', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
@@ -332,6 +351,7 @@ describe('AssetRow', () => {
     render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
 
     expect(screen.queryByTestId('row-price')).toBeNull();
+    expect(screen.getByTestId('row-price-status')).toHaveTextContent('assetPriceUnsupported');
     expect(screen.queryByTestId('row-delta')).toBeNull();
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
     expect(mockUseTokenSparkline).toHaveBeenCalledWith(undefined, '1D');
@@ -383,11 +403,12 @@ describe('AssetRow', () => {
     expect(mockSparklinePointsRenders[1]).toBe(mockSparklinePointsRenders[0]);
   });
 
-  it('uses metadata.name for the displayed name and passes the symbol to TokenLogo', () => {
-    render(<AssetRow asset={makeAsset({ symbol: 'ETH', name: 'Ethereum' })} tokenPrices={tokenPrices} />);
+  it('uses metadata.name for the displayed name and passes the faucet id to TokenLogo', () => {
+    const asset = makeAsset({ symbol: 'ETH', name: 'Ethereum' });
+    render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
 
     expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'Ethereum');
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', asset.tokenId);
   });
 
   it('falls back to the symbol when metadata.name is empty', () => {
@@ -493,13 +514,13 @@ describe('AssetRow', () => {
       tokenId: TEST_MIDEN_USDC_FAUCET
     });
 
-    it('names the bridge faucet and suffixes its balance with the testnet label, keeping the USDC logo', () => {
+    it("names the bridge faucet and suffixes its balance with the testnet label, keeping its own faucet's logo", () => {
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       render(<AssetRow asset={bridgeUsdc()} tokenPrices={tokenPrices} />);
 
       expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'Test Epoch USDC');
       expect(screen.getByTestId('row-amount')).toHaveTextContent('3.00 Test Epoch USDC');
-      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', TEST_MIDEN_USDC_FAUCET);
     });
 
     it('shows the label once the bridge config publishes after the first render, with no new props', () => {

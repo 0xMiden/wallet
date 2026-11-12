@@ -16,10 +16,10 @@ describe('preset helper', () => {
     const o = presetToOverride(MIDEN_NETWORK_NAME.MAINNET);
     expect(o.networkName).toBe(MIDEN_NETWORK_NAME.MAINNET);
     expect(o.presetName).toBe(MIDEN_NETWORK_NAME.MAINNET);
-    expect(o.rpcUrl).toBe('https://rpc.cedar.miden.io');
-    expect(o.proverUrl).toBe('https://tx-prover.cedar.miden.io');
-    expect(o.noteTransportUrl).toBe('https://transport.cedar.miden.io');
-    expect(o.explorerUrl).toBe('https://explorer.cedar.miden.io');
+    expect(o.rpcUrl).toBe('https://rpc.mainnet.miden.io');
+    expect(o.proverUrl).toBe('https://tx-prover.mainnet.miden.io');
+    expect(o.noteTransportUrl).toBe('https://transport.mainnet.miden.io');
+    expect(o.explorerUrl).toBe('https://explorer.mainnet.miden.io');
     expect(o.faucetUrl).toBe('');
     expect(o.faucetApiUrl).toBe('');
   });

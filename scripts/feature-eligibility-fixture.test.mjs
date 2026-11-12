@@ -51,6 +51,22 @@ test('freezes one upstream policy and serves identical versions in config and de
   assert.equal((await fetch(`${fixture.url}/v1/eligibility?network=devnet`)).status, 400);
 });
 
+test('exposes only the most recent eligibility Origin and can clear the observation', async () => {
+  const fixture = await start();
+  const observationUrl = `${fixture.url}/_fixture/origin`;
+  assert.deepEqual(await (await fetch(observationUrl)).json(), { observed: false, origin: null });
+
+  await fetch(`${fixture.url}/v1/eligibility?network=testnet`, { headers: { Origin: 'chrome-extension://test-id' } });
+  assert.deepEqual(await (await fetch(observationUrl)).json(), {
+    observed: true,
+    origin: 'chrome-extension://test-id'
+  });
+
+  const reset = await fetch(observationUrl, { method: 'POST' });
+  assert.equal(reset.status, 200);
+  assert.deepEqual(await (await fetch(observationUrl)).json(), { observed: false, origin: null });
+});
+
 test('generates localnet explicitly without requesting a nonexistent published document', async () => {
   const fixture = await start({
     networks: ['localnet'],

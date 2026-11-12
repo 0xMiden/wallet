@@ -1,0 +1,234 @@
+name: E2E Upgrade
+
+# Updates a mainnet wallet from the previous full release to the ref under test and checks that its account and every
+# balance survive (#2086: 1.17.9 moved the mainnet RPC host, the SDK names its store after that host, and every
+# updated wallet opened an empty one). It builds both versions for mainnet, restores the nightly's long-lived Guardian
+# account on the previous release, then loads the build under test from the same extension path into the same Chrome
+# profile, so Chrome treats it as an update of the same extension. The account is private and guarded, as every wallet
+# account is, so the node holds only its commitment: the build under test must show the vault the previous release
+# showed, while that commitment shows the account has not transacted.
+#
+# The release it updates from is the `from` input, else the release of the ref's own version when the ref is past it
+# (main after a release: what users run now), else the newest full release below that version. `to` builds another
+# ref than the one this file runs from, which is how an older pair is checked with the current harness (v1.17.8 to
+# v1.17.9 must fail). Release E2E (release-e2e.yml) dispatches it nightly and per release. It sends nothing: the
+# wallet runs with auto-consume off.
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: Release tag to update from; empty picks the newest full release below the version under test
+        required: false
+        default: ''
+        type: string
+      to:
+        description: Branch, tag or commit to update to; empty is the ref this workflow runs on
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+# The mainnet nightly spends this account, and phase 1's vault is its only reference: a nightly send between the two
+# phases would read as a lost balance. A run waits for the other here; GitHub cancels an older run still pending when
+# a newer one queues in the group.
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    name: Chrome mainnet update keeps balances
+    runs-on: ubuntu-latest
+    # A dispatch is the only trigger; the form gives it the linked-PR builds' time, as every injecting job's does.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 165 || 120 }}
+    env:
+      E2E_NETWORK: mainnet
+      # Where the build under test is built: its own checkout for `to`, else the harness checkout.
+      CANDIDATE_DIR: ${{ inputs.to != '' && 'candidate' || '.' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Check out the build under test
+        if: inputs.to != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.to }}
+          path: candidate
+
+      - name: Pick the release to update from
+        id: refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FROM: ${{ inputs.from }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version "${CANDIDATE_DIR}/package.json")
+          to=$(git -C "$CANDIDATE_DIR" rev-parse HEAD)
+          # gh prints an error body on stdout when the ref does not exist, so only a full SHA counts.
+          commit_of() {
+            local sha
+            sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/$1" --jq .sha 2>/dev/null || true)
+            if [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then echo "$sha"; fi
+          }
+          from="$FROM"
+          if [ -z "$from" ]; then
+            released=$(commit_of "v${version}")
+            if [ -n "$released" ] && [ "$released" != "$to" ]; then
+              from="v${version}"
+            else
+              list=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 200 \
+                --json tagName --jq '.[].tagName')
+              tags=$(printf '%s\n' "$list" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+              from=$({ printf '%s\n' "$tags"; echo "v${version}"; } | sort -uV \
+                | awk -v cur="v${version}" '$0 == cur { print prev; exit } { prev = $0 }')
+            fi
+          fi
+          if [ -z "$from" ]; then
+            echo "::error title=E2E Upgrade::no full release below ${version} to update from"
+            exit 1
+          fi
+          if [ "$(commit_of "$from")" = "$to" ]; then
+            echo "::error title=E2E Upgrade::${from} is the commit under test (${to}): nothing to update"
+            exit 1
+          fi
+          echo "from=${from}" >> "$GITHUB_OUTPUT"
+          echo "to=${to}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the previous release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.refs.outputs.from }}
+          path: previous
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      # The harness and a version under test built here follow the dispatch branch's linked PRs, as every E2E does.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+
+      - name: Install miden-client-cli
+        uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
+
+      - name: Install xvfb
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
+      # The previous release, and a `to` ref, build from their own lockfiles, as published: never with a linked PR.
+      - name: Install the previous release
+        working-directory: previous
+        run: yarn install --frozen-lockfile
+      - name: Build the previous release for mainnet
+        id: previous
+        working-directory: previous
+        run: |
+          echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+          yarn test:e2e:blockchain:build
+          mv dist/chrome_unpacked "$RUNNER_TEMP/previous-extension"
+      # Its node_modules would sit inside the harness checkout for the rest of the job.
+      - name: Remove the previous release checkout
+        run: rm -rf previous
+
+      - name: Install the version under test
+        if: inputs.to != ''
+        working-directory: candidate
+        run: yarn install --frozen-lockfile
+      - name: Build the version under test for mainnet
+        working-directory: ${{ env.CANDIDATE_DIR }}
+        run: |
+          yarn test:e2e:blockchain:build
+          mv dist/chrome_unpacked "$RUNNER_TEMP/candidate-extension"
+
+      # Both builds load from one path: an unpacked extension's id comes from its path, and its storage from its id.
+      - name: Restore the accounts on the previous release
+        env:
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+          E2E_UPGRADE_VERSION: ${{ steps.previous.outputs.version }}
+        run: |
+          rm -rf "$RUNNER_TEMP/wallet-extension"
+          cp -R "$RUNNER_TEMP/previous-extension" "$RUNNER_TEMP/wallet-extension"
+          EXTENSION_DIST="$RUNNER_TEMP/wallet-extension" \
+            E2E_WALLET_A_PROFILE="$RUNNER_TEMP/profile-a" \
+            E2E_UPGRADE_PHASE=before E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/upgrade-before \
+            xvfb-run -a yarn playwright test mainnet-upgrade.spec.ts --config playwright.mainnet.config.ts
+
+      - name: Update to the version under test
+        env:
+          E2E_UPGRADE_VERSION: ${{ steps.refs.outputs.version }}
+        run: |
+          rm -rf "$RUNNER_TEMP/wallet-extension"
+          cp -R "$RUNNER_TEMP/candidate-extension" "$RUNNER_TEMP/wallet-extension"
+          EXTENSION_DIST="$RUNNER_TEMP/wallet-extension" \
+            E2E_WALLET_A_PROFILE="$RUNNER_TEMP/profile-a" \
+            E2E_UPGRADE_PHASE=after E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/upgrade-after \
+            xvfb-run -a yarn playwright test mainnet-upgrade.spec.ts --config playwright.mainnet.config.ts
+
+      - name: Publish the summary
+        if: always()
+        env:
+          FROM: ${{ steps.refs.outputs.from }}
+          TO: ${{ steps.refs.outputs.to }}
+          VERSION: ${{ steps.refs.outputs.version }}
+        run: |
+          {
+            echo "### Update from \`${FROM}\` to ${VERSION} (\`${TO:0:9}\`)"
+            if [ -f test-results/upgrade/before.json ]; then
+              echo
+              echo 'Accounts and balances on the previous release:'
+              echo '```json'
+              cat test-results/upgrade/before.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-upgrade-${{ github.run_id }}
+          path: |
+            test-results/upgrade/
+            test-results/upgrade-before/
+            test-results/upgrade-after/
+          retention-days: 30
+          if-no-files-found: ignore

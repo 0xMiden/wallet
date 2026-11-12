@@ -6,6 +6,7 @@ import hyperevm from 'app/icons/logos/networks/hyper-evm.svg?url';
 import monad from 'app/icons/logos/networks/monad.svg?url';
 import optimism from 'app/icons/logos/networks/optimism.svg?url';
 import polygon from 'app/icons/logos/networks/polygon.svg?url';
+import robinhood from 'app/icons/logos/networks/robinhood.svg?url';
 import solana from 'app/icons/logos/networks/solana.svg?url';
 
 export function networkLogo(network: string | undefined): string | undefined {
@@ -28,6 +29,8 @@ export function networkLogo(network: string | undefined): string | undefined {
     case 'polygon':
     case 'polygon-amoy':
       return polygon;
+    case 'robinhood':
+      return robinhood;
     case 'solana':
     case 'solana-devnet':
       return solana;

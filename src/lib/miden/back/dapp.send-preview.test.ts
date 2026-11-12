@@ -148,7 +148,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
         nullifier: 'nf1',
         state: 0,
         assets: [{ faucetId: 'faucet-6dp', amount: '1500000' }],
-        nonFungibleAssets: []
+        nonFungibleAssets: [],
+        standardPayment: true
       }
     ],
     on: jest.fn()

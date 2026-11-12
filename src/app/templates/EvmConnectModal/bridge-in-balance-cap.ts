@@ -12,7 +12,7 @@ import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availabil
 import { selectBridgeInMaxBalanceUsd } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 
-import type { DepositToken, OfferedErc20 } from './deposit-token';
+import { type DepositToken, epochTokenKey, type OfferedErc20 } from './deposit-token';
 
 /**
  * Where a bridge-in stands against the document's balance ceiling (`limits.bridgeInMaxBalanceUsd`).
@@ -75,22 +75,28 @@ export interface DepositTokenPrice {
   expiresAt?: number;
 }
 
+/** A deposit token as the ceiling prices it: its symbol and the Miden faucet that delivers it, once one is known. */
+export type DeliveredToken = Pick<OfferedErc20, 'symbol'> & { delivery?: { midenFaucetId: string } };
+
 /**
- * Pure: the price the ceiling weighs a deposit of `token` at. USDC and Circle USDC are at par; ETH and an offered
- * ERC-20 (`erc20`, the pick resolved from the offered list) take the feed's quote, an ERC-20's under the price symbol
- * of the faucet that delivers it. A missing or stale quote is pending until the feed supplies a fresh one or rules its
- * market out; an ERC-20 with no
+ * Pure: the price the ceiling weighs a deposit of `token` at. USDC (Circle's, or the Epoch route's) is at par; ETH,
+ * another Epoch token and an offered ERC-20 (`delivered`, the pick resolved from the offered list or the Epoch route)
+ * take the feed's quote, an Epoch token's and an ERC-20's under the price symbol of the faucet that delivers it. A
+ * missing or stale quote is pending until the feed supplies a fresh one or rules its market out; a token with no
  * delivery faucet or price symbol, and the nominal $1 a test network gives an unquoted token, leave it unpriced.
  */
 export function depositTokenPrice(
   token: DepositToken,
-  erc20: OfferedErc20 | null,
+  delivered: DeliveredToken | null,
   tokenPrices: TokenPrices,
   now = Date.now()
 ): DepositTokenPrice {
-  if (token === 'USDC' || token === 'CIRCLE_USDC') return { priceUsd: 1, pending: false };
-  const priceSymbol =
-    token === 'ETH' ? 'ETH' : erc20?.delivery ? priceSymbolFor(erc20.delivery.midenFaucetId, erc20.symbol) : undefined;
+  if (token === 'CIRCLE_USDC' || epochTokenKey(token) === 'USDC') return { priceUsd: 1, pending: false };
+  const priceSymbol = (() => {
+    if (token === 'ETH') return 'ETH';
+    if (!delivered?.delivery) return undefined;
+    return priceSymbolFor(delivered.delivery.midenFaucetId, delivered.symbol);
+  })();
   if (priceSymbol === undefined) return { priceUsd: undefined, pending: false };
   const quote = quotedPrice(tokenPrices, priceSymbol);
   if (quote === undefined) return { priceUsd: undefined, pending: usdMarketPending(priceSymbol) };

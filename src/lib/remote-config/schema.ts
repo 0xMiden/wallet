@@ -135,8 +135,20 @@ export interface RouteSwitches {
   withdrawalEnabled: boolean;
 }
 
+/**
+ * One token of an Epoch route. The Miden faucet the solver settles it into is the token-list's entry for
+ * `midenSymbol` (the token's own key when absent), unless `outputs` names entries of `bridge-providers.epoch.outputs`:
+ * then it is the first one's, as on testnet, whose Epoch faucet the token-list does not list.
+ */
+export interface EpochTokenConfig {
+  contractAddress: EvmAddress;
+  midenSymbol?: string;
+  outputs: string[];
+}
+
 export interface EpochChainConfig extends RouteSwitches {
-  tokens: { USDC?: { contractAddress: EvmAddress; outputs: string[] } };
+  /** The EVM tokens the route carries, keyed by the symbol the wallet shows. Never empty. */
+  tokens: Record<string, EpochTokenConfig>;
 }
 
 export interface AgglayerDepositTokenConfig {
@@ -246,9 +258,9 @@ export interface BridgeConfig {
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
-// An ERC-20 symbol as the deposit picker shows it: 1 to 11 upper-case ASCII letters or digits. The same rule as the
-// config repo's validator (scripts/validate.mjs).
-const AGGLAYER_TOKEN_SYMBOL = /^[A-Z0-9]{1,11}$/;
+// An ERC-20 symbol as an AggLayer or Epoch route keys it: 1 to 11 upper-case ASCII letters or digits. The same rule
+// as the config repo's validator (scripts/validate.mjs).
+const BRIDGE_TOKEN_SYMBOL = /^[A-Z0-9]{1,11}$/;
 // Lower-case letters and digits in groups joined by single hyphens.
 const GUARDIAN_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // C0 controls, DEL and C1 controls: none belongs in a line of text the wallet shows.
@@ -444,22 +456,30 @@ function outputNames(value: ConfigValue): string[] {
   return names;
 }
 
-// Undefined for a route that lists no token this build knows.
+// Undefined for a route that lists no token. A map keyed by symbol, each entry an EVM address, no address twice: the
+// rules the config repo's validator applies.
 function epochChain(value: ConfigValue): EpochChainConfig | undefined {
   const bridge = section(value);
   const routeSwitches = switches(bridge);
-  const tokens = section(bridge.tokens);
-  if (tokens.USDC === undefined) return undefined;
-  const token = section(tokens.USDC);
-  return {
-    ...routeSwitches,
-    tokens: {
-      USDC: {
-        contractAddress: evmAddress(token.contractAddress),
-        outputs: token.outputs === undefined ? [] : outputNames(token.outputs)
-      }
-    }
-  };
+  const tokens: Record<string, EpochTokenConfig> = {};
+  const addresses = new Set<string>();
+  for (const [symbol, entry] of Object.entries(section(bridge.tokens))) {
+    if (!BRIDGE_TOKEN_SYMBOL.test(symbol)) return invalid();
+    const token = section(entry);
+    const contractAddress = evmAddress(token.contractAddress);
+    if (addresses.has(contractAddress)) return invalid();
+    addresses.add(contractAddress);
+    const midenSymbol = read(token, 'midenSymbol', value =>
+      typeof value === 'string' && BRIDGE_TOKEN_SYMBOL.test(value) ? value : invalid()
+    );
+    tokens[symbol] = {
+      contractAddress,
+      ...(midenSymbol === undefined ? {} : { midenSymbol }),
+      outputs: token.outputs === undefined ? [] : outputNames(token.outputs)
+    };
+  }
+  if (Object.keys(tokens).length === 0) return undefined;
+  return { ...routeSwitches, tokens };
 }
 
 // A map keyed by symbol, each entry an EVM address, no address twice: the rules the config repo's validator applies.
@@ -467,7 +487,7 @@ function agglayerDepositTokens(value: ConfigValue): Record<string, AgglayerDepos
   const tokens: Record<string, AgglayerDepositTokenConfig> = {};
   const addresses = new Set<string>();
   for (const [symbol, token] of Object.entries(section(value))) {
-    if (!AGGLAYER_TOKEN_SYMBOL.test(symbol)) return invalid();
+    if (!BRIDGE_TOKEN_SYMBOL.test(symbol)) return invalid();
     const contractAddress = evmAddress(section(token).contractAddress);
     if (addresses.has(contractAddress)) return invalid();
     addresses.add(contractAddress);
@@ -620,31 +640,29 @@ function readGuardians(value: unknown, url: (value: unknown) => string): Guardia
 
 const member = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
 
-// The USDC contract of each Epoch route, lowercase, by chain id: the markets a vault can name. Read from the document
-// as written, as the config repo's validator reads it, so a chain or route this build leaves out (a newer build's
-// chain, a route with no provider values) still names its vaults. A route with no USDC address names none.
-function epochUsdcByChain(value: unknown): Map<number, string | undefined> {
-  const routes = new Map<number, string | undefined>();
-  if (!isRecord(value)) return routes;
+// The chain ids of the document's `supportedEvmChains`: the chains a vault can name. The parser reads them from the
+// document as written, as the config repo's validator reads them. Thus a chain that this build leaves out (a newer
+// build's chain, a chain with no usable bridge) still names its vaults. The vault's token does not have to be a
+// bridge token of that chain.
+function evmChainIds(value: unknown): Set<number> {
+  const chainIds = new Set<number>();
+  if (!isRecord(value)) return chainIds;
   for (const entry of Object.values(value)) {
     const chainId = member(entry, 'chainId');
-    const epoch = member(member(entry, 'bridges'), 'epoch');
-    if (!isPositiveSafeInteger(chainId) || !isRecord(epoch)) continue;
-    const usdc = member(member(member(epoch, 'tokens'), 'USDC'), 'contractAddress');
-    routes.set(chainId, typeof usdc === 'string' ? usdc.toLowerCase() : undefined);
+    if (isPositiveSafeInteger(chainId)) chainIds.add(chainId);
   }
-  return routes;
+  return chainIds;
 }
 
-// `LENDER_KEY:chainId:underlying` of an Epoch route's own USDC, lowercase.
-function earnMarketUid(value: unknown, routes: Map<number, string | undefined>): string {
+// `LENDER_KEY:chainId:underlying`, lowercase. The chain is one of `chainIds`. The underlying is any EVM address in
+// lower case.
+function earnMarketUid(value: unknown, chainIds: ReadonlySet<number>): string {
   if (typeof value !== 'string') return invalid();
   const parts = value.split(':');
   const [lenderKey = '', chainId = '', underlying = ''] = parts;
   if (parts.length !== 3 || !EARN_LENDER_KEY.test(lenderKey) || !EARN_CHAIN_ID.test(chainId)) return invalid();
   if (!LOWERCASE_EVM_ADDRESS.test(underlying) || !Number.isSafeInteger(Number(chainId))) return invalid();
-  const usdc = routes.get(Number(chainId));
-  return usdc !== undefined && usdc === underlying ? value.toLowerCase() : invalid();
+  return chainIds.has(Number(chainId)) ? value.toLowerCase() : invalid();
 }
 
 // Literal text, shown as written: 1 to `maxLength` characters. Unlike a Guardian's text, neither the config repo's
@@ -663,7 +681,7 @@ function oneOf<T extends string>(values: readonly T[], value: unknown): T {
   return values.find(known => known === value) ?? invalid();
 }
 
-function readEarnVault(value: unknown, routes: Map<number, string | undefined>): EarnVaultConfig {
+function readEarnVault(value: unknown, chainIds: ReadonlySet<number>): EarnVaultConfig {
   if (!isRecord(value)) return invalid();
   if (typeof value.id !== 'string' || !EARN_VAULT_ID.test(value.id)) return invalid();
   const about = read(value, 'about', about => earnVaultText(about, MAX_EARN_VAULT_ABOUT_LENGTH));
@@ -671,7 +689,7 @@ function readEarnVault(value: unknown, routes: Map<number, string | undefined>):
   const logo = read(value, 'logo', earnVaultLogo);
   return {
     id: value.id,
-    marketUid: earnMarketUid(value.marketUid, routes),
+    marketUid: earnMarketUid(value.marketUid, chainIds),
     name: earnVaultText(value.name, MAX_EARN_VAULT_NAME_LENGTH),
     protocol: oneOf(EARN_VAULT_PROTOCOLS, value.protocol),
     ...(about === undefined ? {} : { about }),
@@ -686,8 +704,8 @@ function readEarnVault(value: unknown, routes: Map<number, string | undefined>):
 function readEarn(value: unknown, earnEnabled: boolean, chains: unknown): { vaults: EarnVaultConfig[] } | undefined {
   if (value === undefined) return earnEnabled ? invalid() : undefined;
   if (!earnEnabled || !isRecord(value) || !Array.isArray(value.vaults) || value.vaults.length === 0) return invalid();
-  const routes = epochUsdcByChain(chains);
-  const vaults = value.vaults.map((entry: unknown) => readEarnVault(entry, routes));
+  const chainIds = evmChainIds(chains);
+  const vaults = value.vaults.map((entry: unknown) => readEarnVault(entry, chainIds));
   const ids = new Set(vaults.map(vault => vault.id));
   const markets = new Set(vaults.map(vault => vault.marketUid));
   if (ids.size !== vaults.length || markets.size !== vaults.length) return invalid();
@@ -733,9 +751,9 @@ function readConfig(
     if (bridges.epoch && (!allocatorUrl || !positionsUrl)) delete bridges.epoch;
     if (bridges.agglayer && !indexerUrl) delete bridges.agglayer;
     if (bridges.usdcx && (midenDomain === undefined || !attestationUrl || !irisUrl)) delete bridges.usdcx;
-    const usdc = bridges.epoch?.tokens.USDC;
     // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
-    if (usdc) usdc.outputs = usdc.outputs.filter(name => Object.prototype.hasOwnProperty.call(outputs, name));
+    for (const token of Object.values(bridges.epoch?.tokens ?? {}))
+      token.outputs = token.outputs.filter(name => Object.prototype.hasOwnProperty.call(outputs, name));
   }
   const guardians = readGuardians(body.guardians, url);
   const limits = readLimits(body.limits);
@@ -783,11 +801,16 @@ function readConfig(
   };
 }
 
-/** The Earn collateral faucet: the output the Epoch USDC token declares first, as the Epoch provider lists it. */
+/** The Miden faucet an Epoch token settles into: its first output, as the Epoch provider lists it. */
+export function epochTokenFaucetId(config: BridgeConfig, token: EpochTokenConfig | undefined): string | undefined {
+  const name = token?.outputs[0];
+  return name === undefined ? undefined : config['bridge-providers'].epoch.outputs?.[name]?.faucetId;
+}
+
+/** The Earn collateral faucet: the faucet the first Epoch route's USDC settles into. */
 export function epochCollateralFaucetId(config: BridgeConfig): string | undefined {
   const epoch = Object.values(config.supportedEvmChains).find(chain => chain.bridges.epoch)?.bridges.epoch;
-  const name = epoch?.tokens.USDC?.outputs[0];
-  return name === undefined ? undefined : config['bridge-providers'].epoch.outputs?.[name]?.faucetId;
+  return epochTokenFaucetId(config, epoch?.tokens.USDC);
 }
 
 /**

@@ -14,10 +14,11 @@
 
 import * as path from 'path';
 
+import { getEligibilityFixtureOrigin, resetEligibilityFixtureOrigin } from '../../helpers/feature-eligibility';
 import { DappBrowserDriver } from '../../harness/dapp-browser-driver';
 import { runDappBrowserJourney } from '../../harness/dapp-browser-scenario';
 import { startDappFixtureServer, type DappFixtureServer } from '../../harness/dapp-fixture-server';
-import { test } from '../fixtures/two-simulators';
+import { expect, test } from '../fixtures/two-simulators';
 
 test.describe('dApp Browser (iOS)', () => {
   test.describe.configure({ mode: 'serial' });
@@ -32,7 +33,7 @@ test.describe('dApp Browser (iOS)', () => {
     await server?.stop();
   });
 
-  test('open, minimize, maximize, switch and close dApps', async ({ walletA, steps }) => {
+  test('open, minimize, maximize, switch and close dApps', async ({ walletA, steps }, testInfo) => {
     // A wallet has to exist before the browser tab is reachable — the peek tray
     // is gated on the unlocked wallet shell.
     await steps.step('create_wallet', async () => {
@@ -46,6 +47,17 @@ test.describe('dApp Browser (iOS)', () => {
         );
       }
     });
+
+    await resetEligibilityFixtureOrigin();
+    await walletA.lockWallet();
+    await expect.poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 10_000 }).toBe(true);
+    const eligibilityOrigin = await getEligibilityFixtureOrigin();
+    expect(eligibilityOrigin).toEqual({ observed: true, origin: 'capacitor://localhost' });
+    await testInfo.attach('eligibility-origin', {
+      body: JSON.stringify(eligibilityOrigin),
+      contentType: 'application/json'
+    });
+    await walletA.unlockWallet();
 
     const driver = new DappBrowserDriver({
       target: walletA,

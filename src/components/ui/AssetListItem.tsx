@@ -79,7 +79,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
     delta?.direction === 'negative' ? 'negative' : delta?.direction === 'neutral' ? 'muted' : 'positive';
 
   const classes = classNames(
-    'w-full h-18 flex items-center justify-between text-left',
+    'w-full min-h-18 flex items-center justify-between text-left',
     onClick && [
       'cursor-pointer active:opacity-90 transition-opacity disabled:cursor-default disabled:opacity-50',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset'
@@ -89,8 +89,8 @@ export const AssetListItem: FC<AssetListItemProps> = ({
 
   const content = (
     <>
-      {/* The leading group gives way first: a long name or amount truncates rather than pushing the
-          price and the check out of the row. */}
+      {/* The leading group gives way first: the name truncates and the amount wraps, rather than
+          pushing the price and the check out of the row. */}
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden">{icon}</div>
 
@@ -99,7 +99,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
             <div className="text-row-title text-ink truncate">{name}</div>
             {badge && <div className="shrink-0">{badge}</div>}
           </div>
-          <div className="text-caption-heading text-muted truncate">{amount}</div>
+          <div className="text-caption-heading text-muted min-w-0 break-words">{amount}</div>
         </div>
       </div>
 

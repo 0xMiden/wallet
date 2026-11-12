@@ -295,7 +295,8 @@ export function listedFiatValue(
 ): number | undefined {
   const price = listedPrice(prices, symbol);
   if (!scaleIsKnown || !(price > 0) || !Number.isFinite(balance) || balance < 0) return undefined;
-  return balance * price;
+  const value = balance * price;
+  return Number.isFinite(value) ? value : undefined;
 }
 
 // --- Kline (candlestick) chart data ---

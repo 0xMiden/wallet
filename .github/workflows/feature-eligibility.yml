@@ -39,6 +39,8 @@ jobs:
         with:
           node-version: 22
       - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs services/feature-eligibility/staging-probe.test.mjs scripts/feature-eligibility-staging-probe.test.mjs scripts/feature-eligibility-staging-probe-recovery.test.mjs scripts/feature-eligibility-staging-inspect.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
+      - name: Verify staging topology in an isolated workerd runtime
+        run: node services/feature-eligibility/run-staging-topology-workerd.mjs
       - name: Verify store publishing and production artifact guards
         run: node --test scripts/store-publishing/*.test.mjs
       - name: Verify store artifact archive inspection

@@ -19,8 +19,9 @@ export interface EvmBridgeNetworkDrawerProps {
 }
 
 /**
- * Bottom-sheet picker for the source network of a deposit. The USDCx route lists every chain of the
- * source table with a local xReserve; the other routes have one source and never open it.
+ * Bottom-sheet picker for the source network of a deposit. It lists every chain any deposit route starts from (a
+ * Circle source, an Epoch route that takes a token, an AggLayer chain), whatever the token; the token drawer then
+ * offers what the picked chain bridges.
  */
 export const EvmBridgeNetworkDrawer: React.FC<EvmBridgeNetworkDrawerProps> = ({
   open,

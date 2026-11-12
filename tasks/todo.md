@@ -601,6 +601,14 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Bind amount edits and assertions to their existing pay/receive side containers.
 - [ ] Verify focused green CI and hand off for normal review and full Swap integration.
 
+# Issue #2100 - diagnose coverage runner shutdowns
+
+- [x] Add tests for timestamped memory and workspace-disk sampling, interval, cleanup, and non-fatal sampler errors; CI run 41327233660 confirmed the intended assertion failures against the no-op stub on all three shards.
+- [x] Add a 30-second resource sampler to each coverage shard without changing Jest, shard count, workers, or the 95% gate.
+- [x] Run guarded Node tests (3/3), badge Jest tests (33/33), Prettier on implementation files, and diff-check.
+- [ ] Complete a current-source Review Council loop and apply every actionable finding.
+- [ ] Push the reviewed implementation and verify exact-head CI logs include samples and pass the unchanged coverage gate.
+
 # Issue #1936 - readable transaction notes
 
 ## Plan
@@ -618,19 +626,55 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - Local preflight: 171 tests across 6 suites, TypeScript, named ESLint and i18n lint passed. Wrong P2ID root and stale asset-label mutations each failed their intended assertions; both were restored.
 - Latest green PR coverage report showed 95.81% branches against the unchanged 95% gate. Current-head CI and both-theme screenshots remain pending with the issue owner.
 
-# Issue #2035 - normalize redundant leading zeroes
+# Issue #1840 - Android dApp touch-down warm-up
 
-- [x] Read the issue brief and latest main source.
-- [x] Create an isolated worktree and install dependencies with Node 22.
-- [x] Write and self-review the private spec and implementation plan.
-- [x] Add failing exact-string and caret tests.
-- [x] Implement normalization without Number coercion.
-- [x] Verify token/USD behavior, named suites, TypeScript and named ESLint.
-- [ ] Run repository-wide lint, i18n and prover-pin gates in CI; capture both-theme UI evidence.
-- [ ] Complete independent review, commit, push and watch exact-head CI.
-- [ ] Merge only after the pre-merge check passes.
+- [x] Resume after the 1.17.7 hold and merge current main into the issue branch.
+- [x] Add and prove red Robolectric lifecycle tests in Android CI.
+- [x] Implement and route the per-dialog warm-up.
+- [ ] Pass Android unit tests and the complete exact-head CI gate.
+- [x] Add opt-in native-tap Android E2E, FrameTimeline capture and comparison output.
+- [ ] Collect and inspect the before/after FrameTimeline artifacts and comparison report.
+- [x] Diagnose current CI red: `linked-pr-injection.test.ts` still treated the presentation-compare baseline install and 180-minute comparison timeout as ordinary push/dispatch installs.
+- [x] Update the workflow harness to assert the baseline install and extended timeout are limited to the presentation-compare dispatch.
+- [x] Diagnose exact-head run 41165198245: the E2E harness convention gate rejected an `expect` nested in the conditional baseline-install case.
+- [x] Refactor that assertion so the expected guard is selected before an unconditional assertion.
+- [ ] Verify the named harness suite and mutation checks, then rerun exact-head CI after review.
+- [ ] Complete exact-head CI and the recorded independent review, then merge.
 
-## Review
+Acceptance plan for the native-tap measurement:
+
+- Use the PR base and candidate APKs on the same API 34 emulator and run the same E2E sequence against each.
+- Trigger the minimized-card expansion with `adb shell input tap`, using the WebView's native screen bounds and the card's CSS rectangle to calculate the physical tap point.
+- Record Perfetto FrameTimeline data around repeated taps, mark each attempt in the trace, and upload both raw traces plus a process-scoped frame-duration/jank comparison.
+- Keep the measurement as an opt-in `workflow_dispatch` suite so routine dApp E2E and PR CI are unchanged.
+- Pin and verify the Trace Processor binary used for the summary; preserve exact baseline and candidate SHAs in the artifact.
+
+# Issue #1840 - Android warm-dialog expand CI follow-up
+
+- [x] Read the exact current-head failure and identify the zero-sized root guard in `expand()`.
+- [x] Compare the failing setup with the existing `openMorph()` fixture.
+- [x] Use a measured, revealed dialog before hiding and exercising the warm expand.
+- [x] Advance Robolectric Choreographer frames in the expanded-animation assertion; advancing only the main looper does not render frames.
+- [x] Restore the saved accessibility importance after the hide operation changes the dialog decor.
+- [x] Write trace and metadata into the uploaded artifact directory and assert required files are nonempty.
+- [ ] Commit and push the final CI correction, then watch all exact-head checks.
+- [ ] Complete the independent direct review and send the final behavior/SHA to the #1956 owner.
+# Issues #2034 and #2035 - token row values and amount normalization
+
+- [x] Confirm the expected-red PR run on be7ad2f: AssetRow leaves an empty value slot, and `listedFiatValue` returns Infinity for an overflowing product.
+- [x] Integrate current main f8a348 in a clean worktree, committed as local merge 8d7181a, while preserving the original dirty checkout.
+- [x] Add the smallest finite-result guard and render unavailable status without an empty value element.
+- [x] Add narrow 320/360/402px light and dark visual acceptance to the PR job.
+- [x] Run the seven focused regression suites, TypeScript and named ESLint through the guarded local helper on Node 22.
+- [x] Integrate current main 79b4795 locally as merge 4640ced, preserving the release-note and task-file edits.
+- [x] Integrate current main a328096 locally as merge 0222550, preserving the release-note and task-file edits.
+- [x] Re-run the focused suites, TypeScript, named lint, source-only Prettier and diff-check on integrated head 06c9945; seven suites passed 257/257, and all named checks passed.
+- [ ] Complete Review Council, fix verified P0-P2 findings, and re-verify.
+- [ ] Push once, monitor exact-head checks and screenshots, and resolve failures.
+- [ ] Squash-merge after current-head CI, Council review and mergeability pass.
+
+
+### Amount input regression history
 
 RED: the first two named suites ran 104 tests, with five expected failures for redundant integer zeroes and caret behavior, plus one empty-input test setup failure corrected before implementation. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.
 
