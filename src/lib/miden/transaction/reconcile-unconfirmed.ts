@@ -27,6 +27,7 @@ import {
 } from './helper';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, LandingProof, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
+import { submitApproach } from './submit-approach-diagnostics';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
@@ -317,6 +318,7 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
         : {}),
       ...(proofWaitBlocks === undefined ? {} : { proofWaitBlocks }),
       ...(expiryWindowBlocks === undefined ? {} : { expiryWindowBlocks }),
+      ...submitApproach(failed),
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     };
     if (judgement.neverCommittedBy === 'expired') annotateProofWaitAvailability(failure, availability);
@@ -512,8 +514,9 @@ export interface CandidateRelease {
   /**
    * Asks the account's Guardian to abandon the candidate at `nonce` that the attempt `attemptId` kept. Undefined when
    * there is nothing to poll: this realm's record of the account's candidate is not that attempt's at that nonce
-   * (another realm, a restart, another write's record), its abandon window closed, the account's Guardian changed, no
-   * service could be built, or the abandon failed, so the Guardian may never have taken it.
+   * (another realm, a process that ended it without the startup sweep, another write's record), its abandon window
+   * closed, the account's Guardian changed, no service could be built, or the abandon failed, so the Guardian may never
+   * have taken it.
    */
   abandon(accountId: string, nonce: number, attemptId: string): Promise<KeptCandidatePoll | undefined>;
 }
@@ -553,7 +556,9 @@ const clearKeptCandidate = async (rowId: string, attemptId: string, nonce: numbe
  * (nothing asked, or an abandon that failed), or the time running out leaves it, and Retry's hold then waits for the
  * Guardian's own discard. Best-effort and bounded: a later pass joins this one meanwhile, which is rare (only right
  * after such a proof) and cheaper than a second release. The bound reads the monotonic clock and caps every read at
- * the time left, so neither a wall clock set back nor a Guardian slow to answer can hold the pass past it.
+ * the time left, so neither a wall clock set back nor a Guardian slow to answer can hold the pass past it, except on a
+ * read a freeze crosses: its cap is running time (#2060), which a freeze does not spend, so that read can run on for
+ * what was left of the cap after the resume, while the bound has already passed.
  */
 async function releaseKeptCandidates(
   accountId: string,

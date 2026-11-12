@@ -1356,6 +1356,131 @@ describe('a submit the node refused', () => {
   });
 });
 
+describe('the way to a failed submit', () => {
+  const refusal = () =>
+    new Error(
+      `failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: ` +
+        `invalid request parameters (transaction expired): status: 'invalid request parameters (transaction expired)', ` +
+        `self: "tx ${TX_ID} of ${AMOUNT} for ${ACCOUNT} note ${NOTE_COMMITMENT} op ${OP_ID} from ${ACCOUNT_HEX}"`
+    );
+  const lifecycle = { submitApproachHidden: 'half_or_more', proofWindow: 'under_30_blocks' } as const;
+  const reported = (index = 0): unknown => jest.mocked(captureCrash).mock.calls[index]?.[0];
+
+  it('leaves the message of a refusal as it was, so its issue does not split', async () => {
+    const base: TransactionFailure = { type: 'send', stage: 'submitting', error: refusal() };
+    reportTransactionFailure(base);
+    reportTransactionFailure({ ...base, ...lifecycle, hiddenDuringSubmit: true, submitLegMs: 10_000 });
+    await settle();
+    expect(capturedMessage(1)).toBe(capturedMessage(0));
+  });
+
+  it('adds nothing but closed values to a refusal whose error carries ids, hex and amounts', async () => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      error: refusal(),
+      ...lifecycle,
+      hiddenDuringSubmit: true,
+      submitLegMs: 9_500
+    });
+    await settle();
+    const diagnostics = snapshotCrashDiagnostics(reported());
+    expect(diagnostics).toMatchObject({
+      submitApproachHidden: 'half_or_more',
+      proofWindow: 'under_30_blocks',
+      submitHidden: 'yes',
+      submitLeg: '9_to_11s'
+    });
+    const sent = JSON.stringify(diagnostics);
+    for (const leak of [
+      TX_ID,
+      ACCOUNT,
+      ACCOUNT_HEX,
+      NOTE_COMMITMENT,
+      OP_ID,
+      AMOUNT,
+      'c4c4',
+      '9500',
+      'transaction expired'
+    ]) {
+      expect(sent).not.toContain(leak);
+    }
+    expectNoTransactionData(capturedMessage(0));
+  });
+
+  it.each<[boolean | undefined, number | undefined, string, string]>([
+    [true, 0, 'yes', 'under_9s'],
+    [false, 8_999, 'no', 'under_9s'],
+    [undefined, 9_000, 'unavailable', '9_to_11s'],
+    [true, 11_000, 'yes', '9_to_11s'],
+    [false, 11_001, 'no', 'over_11s'],
+    [undefined, undefined, 'unavailable', 'unavailable'],
+    [true, -1, 'yes', 'unavailable'],
+    [true, Number.NaN, 'yes', 'unavailable']
+  ])('reads a refusal hidden %s after %s ms as %s and %s', async (hiddenDuringSubmit, submitLegMs, hidden, leg) => {
+    reportTransactionFailure({ type: 'send', stage: 'submitting', error: refusal(), hiddenDuringSubmit, submitLegMs });
+    await settle();
+    expect(snapshotCrashDiagnostics(reported())).toMatchObject({ submitHidden: hidden, submitLeg: leg });
+  });
+
+  it.each<[string, Partial<TransactionFailure>]>([
+    [
+      'an unknown outcome, whose message names both',
+      { outcome: 'unconfirmed', error: submitOutcomeUnknown('internal') }
+    ],
+    ['an unnamed failure, whose message names both', { error: new Error(`opaque ${ACCOUNT}`) }],
+    [
+      'a verdict that names a prior refusal',
+      { reason: 'never_committed', neverCommittedRule: 'expired', priorError: refusal() }
+    ],
+    ['a wallet reason over a refusal', { reason: 'user_cancelled', error: refusal() }]
+  ])('leaves the hidden answer and the leg off %s', async (_name, fields) => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      hiddenDuringSubmit: true,
+      submitLegMs: 500,
+      ...fields
+    });
+    await settle();
+    const diagnostics = snapshotCrashDiagnostics(reported());
+    expect(diagnostics).not.toHaveProperty('submitHidden');
+    expect(diagnostics).not.toHaveProperty('submitLeg');
+  });
+
+  it('carries the lifecycle of a row that reached its submit whatever ended it', async () => {
+    reportTransactionFailure({ type: 'send', stage: 'submitting', reason: 'stuck_reaped', ...lifecycle });
+    await settle();
+    expect(snapshotCrashDiagnostics(reported())).toMatchObject(lifecycle);
+  });
+
+  it('drops a value outside the closed lists, and a field the caller left out', async () => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      error: new Error('opaque'),
+      submitApproachHidden: ACCOUNT,
+      proofWindow: `${AMOUNT} blocks`
+    } as never);
+    reportTransactionFailure({ type: 'send', stage: 'submitting', error: new Error('opaque') });
+    await settle();
+    for (const index of [0, 1]) {
+      const sent = snapshotCrashDiagnostics(reported(index));
+      expect(sent).not.toHaveProperty('submitApproachHidden');
+      expect(sent).not.toHaveProperty('proofWindow');
+      expect(JSON.stringify(sent)).not.toContain(ACCOUNT);
+    }
+  });
+
+  it('takes no field from an accessor', async () => {
+    const failure: TransactionFailure = { type: 'send', stage: 'submitting', error: new Error('opaque') };
+    Object.defineProperty(failure, 'proofWindow', { get: () => 'under_30_blocks', enumerable: true });
+    reportTransactionFailure(failure);
+    await settle();
+    expect(snapshotCrashDiagnostics(reported())).not.toHaveProperty('proofWindow');
+  });
+});
+
 describe('a pipeline killed from outside', () => {
   const sync = (cause: unknown) => new Error(`pre-flight sync for ${ACCOUNT} failed`, { cause });
 

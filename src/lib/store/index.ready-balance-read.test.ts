@@ -66,7 +66,9 @@ describe('the balance read when the wallet becomes Ready', () => {
       status: WalletStatus.Locked,
       balances: {},
       balancesLoading: {},
-      balancesLastFetched: {}
+      balancesLastFetched: {},
+      balanceReadFailed: {},
+      balanceReadInFlight: {}
     });
   });
 
@@ -106,6 +108,20 @@ describe('the balance read when the wallet becomes Ready', () => {
 
     expect(useWalletStore.getState().balancesLoading.pk1).toBeUndefined();
     expect(useWalletStore.getState().balances.pk1).toBeUndefined();
+  });
+
+  it('publishes a Ready-time rejection on the shared read state', async () => {
+    mockFetchBalances.mockRejectedValue(new Error('evicted'));
+
+    useWalletStore.getState().syncFromBackend(readyState as any);
+    await flush();
+
+    const state = useWalletStore.getState();
+    expect(state.balanceReadFailed.pk1).toBe(true);
+    expect(state.balanceReadInFlight.pk1).toBe(false);
+    expect(state.balancesLoading.pk1).toBeUndefined();
+    expect(state.balances.pk1).toBeUndefined();
+    expect(fetchingAddresses.has('pk1')).toBe(false);
   });
 
   it('keeps balances already on screen when a read on a later unlock fails', async () => {
@@ -164,7 +180,13 @@ describe('the store fetchBalances action', () => {
   beforeEach(() => {
     mockFetchBalances.mockReset();
     fetchingAddresses.clear();
-    useWalletStore.setState({ balances: {}, balancesLoading: {}, balancesLastFetched: {} });
+    useWalletStore.setState({
+      balances: {},
+      balancesLoading: {},
+      balancesLastFetched: {},
+      balanceReadFailed: {},
+      balanceReadInFlight: {}
+    });
   });
 
   it('never marks an address that has balances as loading, so a refresh keeps its rows on screen', async () => {

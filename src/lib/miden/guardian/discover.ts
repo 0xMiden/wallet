@@ -67,6 +67,7 @@ import { normalizeHex } from 'lib/miden/sdk/submit-evidence';
 import { ensureSdkWasmReady, getGuardianOptionsForNetwork, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { setRunningTimeout } from 'lib/mobile/background-time';
 import { sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 
 /** One operator that answered the probe with at least one account. */
@@ -149,7 +150,7 @@ export const GUARDIAN_PROBE_CONCURRENCY = 6;
 export const GUARDIAN_PROBE_REQUEST_ATTEMPTS = 2;
 
 /**
- * Wall-clock ceiling on one round trip to the OUTGOING guardian of a switch, after which the wallet
+ * Running-time ceiling on one round trip to the OUTGOING guardian of a switch, after which the wallet
  * stops waiting and treats the operator as unreachable. Generous: this is a backstop against an
  * operator that has stopped answering, not a latency target, and expiring early costs the user a
  * coordinated switch they could have had. Every outgoing-guardian wait shares it (#1233).
@@ -165,28 +166,30 @@ export class GuardianProbeTimeoutError extends Error {
 
 /**
  * Reject with {@link GuardianProbeTimeoutError} if `promise` hasn't settled in
- * `timeoutMs`. The underlying request keeps running (the guardian client has no
- * abort) and its late result is dropped: harmless for a read, and a caller that
- * wraps a write makes a late landing safe itself, by retrying it idempotently
- * (the registration loops count `account_already_exists` as success) or by
- * recording it for reconciliation (the transaction's endpoint persist). Inside a
+ * `timeoutMs` of running time. Several callers read that rejection as a verdict on
+ * the operator, and an overdue timer runs the moment a frozen WebView resumes, ahead
+ * of the answer the native layer then delivers (#2060). The underlying request keeps
+ * running (the guardian client has no abort) and its late result is dropped: harmless
+ * for a read, and a caller that wraps a write makes a late landing safe itself, by
+ * retrying it idempotently (the registration loops count `account_already_exists` as
+ * success) or by recording it for reconciliation (the transaction's endpoint persist). Inside a
  * WASM lock hold, use it only when the abandoned tail makes no WASM call after its
  * first suspension except on objects the flow built itself from plain inputs (such
  * as a signer key from a seed), never the client or any object a client call returned.
  */
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
+    const cancelTimer = setRunningTimeout(
       () => reject(new GuardianProbeTimeoutError(`${label} timed out after ${timeoutMs}ms`)),
       timeoutMs
     );
     promise.then(
       value => {
-        clearTimeout(timer);
+        cancelTimer();
         resolve(value);
       },
       error => {
-        clearTimeout(timer);
+        cancelTimer();
         reject(error);
       }
     );
