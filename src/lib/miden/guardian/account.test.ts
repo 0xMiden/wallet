@@ -15,6 +15,7 @@ import { u8ToB64 } from 'lib/shared/helpers';
 import {
   assertGuardianKeyCommitment,
   createGuardianAccount,
+  deriveGuardianAccountSeed,
   fetchGuardianCreateKey,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
@@ -451,6 +452,16 @@ describe('guardianProviderFromEndpoint', () => {
   });
 });
 
+describe('deriveGuardianAccountSeed', () => {
+  it('matches the pinned SHA-256 vector over the domain string and the cold seed', async () => {
+    const coldSeed = Uint8Array.from({ length: 32 }, (_, i) => i);
+    const out = await deriveGuardianAccountSeed(coldSeed);
+    expect(out).toHaveLength(32);
+    expect(Buffer.from(out).toString('hex')).toBe('07c128010254963c6ece79192f24530db0897e995faec080b90621309f7d9b63');
+    expect(Array.from(out)).not.toEqual(Array.from(coldSeed));
+  });
+});
+
 describe('createGuardianAccount', () => {
   const ACCOUNT_STATE = new Uint8Array([7, 8, 9]);
   const makeMultisig = () => ({
@@ -516,7 +527,7 @@ describe('createGuardianAccount', () => {
         guardianPublicKey: 'g-pubkey',
         storageMode: 'private',
         signatureScheme: 'ecdsa',
-        seed
+        seed: await deriveGuardianAccountSeed(seed)
       }),
       expect.anything()
     );
@@ -565,6 +576,31 @@ describe('createGuardianAccount', () => {
     const seedArg = ecdsaCall.mock.calls[0]?.[0];
     expect(seedArg).toBeInstanceOf(Uint8Array);
     expect((seedArg as Uint8Array).length).toBe(32);
+  });
+
+  it('passes the builder a derived seed, never the cold seed the cold key comes from', async () => {
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+    const coldSeed = Uint8Array.from({ length: 32 }, (_, i) => i);
+
+    await createAndRegister(makeWebClient(), coldSeed);
+
+    const config = multisigClientConfig.create.mock.calls[0]?.[0] as { seed: Uint8Array };
+    expect(Array.from(config.seed)).toEqual(Array.from(await deriveGuardianAccountSeed(coldSeed)));
+    expect(Array.from(config.seed)).not.toEqual(Array.from(coldSeed));
+    const ecdsaCall = jest.requireMock('@miden-sdk/miden-sdk/lazy').AuthSecretKey.ecdsaWithRNG;
+    expect(ecdsaCall).toHaveBeenCalledWith(coldSeed);
+  });
+
+  it('derives the builder seed from the random cold seed when none is provided', async () => {
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+
+    await createAndRegister(makeWebClient());
+
+    const ecdsaCall = jest.requireMock('@miden-sdk/miden-sdk/lazy').AuthSecretKey.ecdsaWithRNG;
+    const coldSeed = ecdsaCall.mock.calls[0]?.[0] as Uint8Array;
+    const config = multisigClientConfig.create.mock.calls[0]?.[0] as { seed: Uint8Array };
+    expect(Array.from(config.seed)).not.toEqual(Array.from(coldSeed));
+    expect(Array.from(config.seed)).toEqual(Array.from(await deriveGuardianAccountSeed(coldSeed)));
   });
 
   it('falls back to the effective network default when no override is supplied', async () => {
