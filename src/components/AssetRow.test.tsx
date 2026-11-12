@@ -48,8 +48,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getSdkSyncedNativeAssetIdSync: jest.fn(() => null)
 }));
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, faucetId }: { symbol: string; faucetId?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-faucet-id={faucetId} />
+  TokenLogo: ({ faucetId }: { faucetId: string | undefined }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} />
   )
 }));
 // The figures under test follow the default rule, no figure without a quote; pinned here against
@@ -360,11 +360,12 @@ describe('AssetRow', () => {
     expect(mockSparklinePointsRenders[1]).toBe(mockSparklinePointsRenders[0]);
   });
 
-  it('uses metadata.name for the displayed name and passes the symbol to TokenLogo', () => {
-    render(<AssetRow asset={makeAsset({ symbol: 'ETH', name: 'Ethereum' })} tokenPrices={tokenPrices} />);
+  it('uses metadata.name for the displayed name and passes the faucet id to TokenLogo', () => {
+    const asset = makeAsset({ symbol: 'ETH', name: 'Ethereum' });
+    render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
 
     expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'Ethereum');
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', asset.tokenId);
   });
 
   it('falls back to the symbol when metadata.name is empty', () => {
@@ -469,13 +470,13 @@ describe('AssetRow', () => {
       tokenId: TEST_MIDEN_USDC_FAUCET
     });
 
-    it('names the bridge faucet and suffixes its balance with the testnet label, keeping the USDC logo', () => {
+    it("names the bridge faucet and suffixes its balance with the testnet label, keeping its own faucet's logo", () => {
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       render(<AssetRow asset={bridgeUsdc()} tokenPrices={tokenPrices} />);
 
       expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'Test Epoch USDC');
       expect(screen.getByTestId('row-amount')).toHaveTextContent('3.00 Test Epoch USDC');
-      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', TEST_MIDEN_USDC_FAUCET);
     });
 
     it('shows the label once the bridge config publishes after the first render, with no new props', () => {
