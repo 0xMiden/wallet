@@ -47,10 +47,13 @@ export function inspectEpochForwardQuote(
   if (payload.witnessTypeString !== task.taskTypeString ||
       Object.keys(mandate).sort().join(',') !== Object.keys(task.intentData).sort().join(','))
     throw new Error('Epoch forward mandate has undeclared fields or a different witness shape');
-  const bindingHash = getSimpleWitnessHash(mandate, task.taskTypeString);
-  if (bindingHash !== getSimpleWitnessHash(task.intentData, task.taskTypeString))
-    throw new Error('Epoch forward mandate does not bind the authorized route, actors and amounts');
-  return { bindingHash, mandateReclaimHeight: reclaimHeight };
+  for (const [key, expected] of Object.entries(task.intentData)) {
+    const actual = mandate[key];
+    if (typeof actual !== 'string' || typeof expected !== 'string' ||
+        (['tokenIn', 'tokenOut', 'recipient'].includes(key) ? actual.toLowerCase() !== expected.toLowerCase() : actual !== expected))
+      throw new Error('Epoch forward mandate does not bind the authorized route, actors and amounts');
+  }
+  return { bindingHash: getSimpleWitnessHash(task.intentData, task.taskTypeString), mandateReclaimHeight: reclaimHeight };
 }
 
 export function inspectEpochCollateralRequest(
