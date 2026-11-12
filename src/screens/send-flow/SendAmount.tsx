@@ -15,7 +15,6 @@ import { Notice } from 'components/ui/Notice';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
-import { balanceLowerBound } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -24,7 +23,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
-import { balanceFormatterFor, formatBalance } from './amount-format';
+import { balanceFormatterFor } from './amount-format';
 import { AmountShortcuts } from './AmountShortcuts';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
@@ -151,7 +150,6 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           balance={token.balance}
           decimals={token.decimals}
           scaleIsKnown={scaleIsKnown}
-          maxAmount={formatBalance(balanceLowerBound(token.balance, token.decimals))}
           onAmountChange={value => {
             setShortcutSelection(selection => selection + 1);
             onAmountChange(value);
