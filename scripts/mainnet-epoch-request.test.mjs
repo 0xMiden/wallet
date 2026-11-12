@@ -81,9 +81,9 @@ function returnFile(options = {}) {
     : sdk.Note.createP2IDNote(from, to, new sdk.NoteAssets(assets), noteType, attachment);
   const noteId = note.id().toString();
   // Unit-only transport proof; funded runtime must use the provider-correlated note and its real chain receipt.
-  return { snapshot, noteId, bytes: sdk.NoteFile.fromInputNote(
+  return { snapshot, noteId, bytes: Uint8Array.from(sdk.NoteFile.fromInputNote(
     sdk.InputNote.authenticated(note, sdk.NoteInclusionProof.mockAtBlock(1000))
-  ).serialize() };
+  ).serialize()) };
 }
 for (const privacy of [false, true]) test(`inspects actual SDK ${privacy ? 'private' : 'public'} return-note bytes without consuming`, () => {
   const input = returnFile({ private: privacy });
