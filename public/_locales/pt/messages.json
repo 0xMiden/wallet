@@ -864,6 +864,10 @@
     "message": "Não foi possível verificar seu saldo com a Epoch. Tente novamente.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Não foi possível carregar seu saldo. Verifique sua conexão e tente novamente.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "O recurso “Earn” não está disponível nesta rede",
     "englishSource": "Earn is not available on this network"
@@ -5898,6 +5902,10 @@
   "bridgeDepositFailed": {
     "message": "Falha no depósito da ponte",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Sua carteira conectada não possui tokens com saldo positivo nesta rede.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "Sua carteira conectada possui $balance$ $token$ na $network$, valor inferior ao necessário para este depósito. Nada foi enviado.",

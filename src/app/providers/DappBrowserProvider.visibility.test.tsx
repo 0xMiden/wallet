@@ -50,6 +50,8 @@ const nativeListeners = new Map<
     policyResolved?: boolean;
     policyRevision?: number;
     detail?: unknown;
+    frameOrigin?: string;
+    mainFrame?: boolean;
     token?: string;
     requestId?: string;
     visible?: boolean;
@@ -884,6 +886,8 @@ it('does not reposition or reveal after a production title message', async () =>
   await act(async () => {
     await nativeListeners.get('messageFromWebview')?.({
       id: 'origin',
+      frameOrigin: 'https://origin.test',
+      mainFrame: true,
       detail: { __midenInternal: 'title', title: 'Updated title' }
     });
   });
@@ -906,6 +910,8 @@ it('retains in-flight positioning through a production title message', async () 
   await act(async () => {
     await nativeListeners.get('messageFromWebview')?.({
       id: 'origin',
+      frameOrigin: 'https://origin.test',
+      mainFrame: true,
       detail: { __midenInternal: 'title', title: 'Loading title' }
     });
   });

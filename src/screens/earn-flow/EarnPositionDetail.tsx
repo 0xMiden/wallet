@@ -22,6 +22,7 @@ import {
 } from './components';
 import { formatApy, placeholderPosition, usdFigureFormatter } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
 import { ChartDotProps, EarnPosition } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -31,7 +32,7 @@ interface EarnPositionDetailProps {
 
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const { summary, positions, isLoading, error, errorDiagnostics, refetch } = useEarnPositions();
+  const { summary, positions, isLoading, isRefreshing, error, errorDiagnostics, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
   const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
@@ -72,10 +73,19 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
     >
       {/* A failed load never draws the placeholder position, or a $0 summary, as if it were real. */}
       {loadFailed && !found ? (
-        <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} className="mt-10" />
-      ) : pending ? null : (
+        <EarnLoadError
+          errorDiagnostics={errorDiagnostics}
+          isRetrying={isRefreshing}
+          onRetry={refetch}
+          className="mt-10"
+        />
+      ) : pending ? (
+        <EarnLoading />
+      ) : (
         <>
-          {loadFailed && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
+          {loadFailed && (
+            <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
+          )}
           {/* As far under the divider as the vault page's caption and the Earn tab's. */}
           <EarnSummaryPanel
             summary={summary}

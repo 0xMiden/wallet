@@ -864,6 +864,10 @@
     "message": "Epochで残高を確認できませんでした。もう一度お試しください。",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "残高を読み込めませんでした。接続状態を確認して、もう一度お試しください。",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "このネットワークでは「Earn」機能は利用できません",
     "englishSource": "Earn is not available on this network"
@@ -5893,6 +5897,10 @@
   "bridgeDepositFailed": {
     "message": "ブリッジへの入金が失敗しました",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "接続されているウォレットには、このネットワーク上で残高がプラスのトークンは存在しません。",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "接続されたウォレットには、$network$上の$balance$分の$token$が保管されていますが、この入金額には不足しています。何も送信されませんでした。",

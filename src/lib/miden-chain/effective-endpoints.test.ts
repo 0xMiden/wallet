@@ -616,6 +616,20 @@ describe('getTestNetworkNameKey', () => {
 });
 
 describe('badge network provenance', () => {
+  it('accepts canonical network defaults and rejects a custom endpoint override', async () => {
+    const m = loadModule();
+    expect(m.provenBadgeNetwork()).toBe(m.getEffectiveNetworkName());
+
+    await m.applyEndpointOverride(m.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+    expect(m.provenBadgeNetwork()).toBe(MIDEN_NETWORK_NAME.MAINNET);
+
+    await m.applyEndpointOverride({
+      ...m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.MAINNET),
+      rpcUrl: 'https://custom.invalid'
+    });
+    expect(m.provenBadgeNetwork()).toBeUndefined();
+  });
+
   it('retains canonical Mainnet provenance when the saved onboarding choice loads in a new realm', async () => {
     const before = loadModule();
     await before.applyEndpointOverride(before.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
