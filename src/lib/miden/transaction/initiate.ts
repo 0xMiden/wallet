@@ -264,6 +264,14 @@ export interface ConsumeNotesQueueResult {
   feeRefusedNoteIds: string[];
 }
 
+/** Settlement refused a payback chunk because one note of its cohort is backing off or held, and nothing covers it. */
+export class ClaimCohortRefusedError extends Error {
+  constructor() {
+    super('Claim not queued: a payback of this order is backing off or held');
+    this.name = 'ClaimCohortRefusedError';
+  }
+}
+
 /**
  * Queue ONE consume transaction for many notes (Claim All / Claim Group) —
  * both the wallet's consume request (`buildConsumeTransactionRequest`) and the
@@ -296,6 +304,12 @@ export interface ConsumeNotesQueueResult {
  *
  * `settlementLink` is swap settlement's: the order a row settles, written in the insert that creates the row, so
  * no running processor ever sees a settlement claim without it (#1644).
+ *
+ * `cohortNoteIds`, when passed, is every payback of the order this pass is about to claim, across all of its chunks.
+ * Inside the same dedup transaction, before any row is written, a member that is backing off or held by a dApp
+ * transaction, and that no live or completed claim covers, refuses the call with {@link ClaimCohortRefusedError}
+ * and writes nothing. A member a live or completed claim already covers does not block. Callers that omit the cohort
+ * keep skipping those notes one by one.
  */
 export const queueConsumeNotes = async (
   accountId: string,
@@ -306,7 +320,8 @@ export const queueConsumeNotes = async (
   verificationBaseFee?: number | null,
   entryPoint?: ConsumeEntryPoint,
   canSign?: () => boolean,
-  settlementLink?: IConsumeSwapSettleExtraInputs
+  settlementLink?: IConsumeSwapSettleExtraInputs,
+  cohortNoteIds?: readonly string[]
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -323,7 +338,11 @@ export const queueConsumeNotes = async (
         }
       : undefined,
     entryPoint,
-    canSign
+    canSign,
+    undefined,
+    undefined,
+    undefined,
+    cohortNoteIds
   );
 
 /**
@@ -637,7 +656,12 @@ const queueConsumeRows = async (
   canSign?: () => boolean,
   feeContext?: ClaimFeeContext,
   feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>,
-  outgoing?: { spends: readonly IConsumedAssetTotal[]; authorization?: SpendingLimitAuthorization }
+  outgoing?: { spends: readonly IConsumedAssetTotal[]; authorization?: SpendingLimitAuthorization },
+  // Every payback of one swap order this pass will claim, across chunks. Checked below, before any row is written,
+  // with the same coverage and held-note reads as the per-note loop. One member backing off or held by a dApp
+  // transaction, and not covered by a live or completed claim, writes nothing and throws `ClaimCohortRefusedError`.
+  // A covered member does not block. Omitted, each note is skipped on its own.
+  cohortNoteIds?: readonly string[]
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -686,6 +710,17 @@ const queueConsumeRows = async (
     for (const row of await getNoteHoldingTransactions(accountId)) {
       for (const noteId of row.heldNoteIds ?? []) {
         if (!heldByDappTransaction.has(noteId)) heldByDappTransaction.set(noteId, row.id);
+      }
+    }
+
+    // The cohort is re-read on every chunk. A note this pass already admitted is a live claim and does not block;
+    // one backing off or held anywhere refuses the chunk, so the pass cannot queue the others alone.
+    if (cohortNoteIds !== undefined) {
+      for (const noteId of cohortNoteIds) {
+        const { liveOrCompleted, backingOff } = await noteClaimCoverage(accountId, noteId, nowSec, rotationFunding);
+        if (!liveOrCompleted && (backingOff || heldByDappTransaction.has(noteId))) {
+          throw new ClaimCohortRefusedError();
+        }
       }
     }
 

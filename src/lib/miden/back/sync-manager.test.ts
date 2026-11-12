@@ -234,6 +234,9 @@ jest.mock('../transaction/initiate', () => ({
   get ClaimFeeRefusedError() {
     return jest.requireActual('../transaction/initiate').ClaimFeeRefusedError;
   },
+  get ClaimCohortRefusedError() {
+    return jest.requireActual('../transaction/initiate').ClaimCohortRefusedError;
+  },
   initiateConsumeNotesTransaction: (...a: any[]) => mockInitiateConsumeBatch(...a),
   initiatePswapReclaimTransaction: (...a: any[]) => mockInitiatePswapReclaim(...a),
   noteClaimCoverage: async () => ({ rows: [] }),

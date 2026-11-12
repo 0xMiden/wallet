@@ -26,6 +26,7 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { chunkNotesForClaim } from '../transaction/constants';
 import {
+  ClaimCohortRefusedError,
   initiateConsumeNotesTransaction,
   initiatePswapReclaimTransaction,
   noteClaimCoverage
@@ -442,6 +443,10 @@ export async function reconcileSwapOrderNotes(
     // for both kinds: a lone tip row that stamped Reclaimed would leave the order Reclaimed for good, since the
     // payback chunks never stamp and the repair runs only while both stamps are absent.
     const splitOrder = paybackChunks.length > 1 || reclaimChunks.length > 1;
+    // The coverage sum counted every payback still on the order, so this pass claims that set together. Each chunk
+    // is admitted with the whole cohort; after a refusal no later payback chunk is queued. The tip reclaim still runs.
+    const paybackCohort = paybackNotes.map(note => note.id);
+    let stopPaybackChunks = false;
     for (const batch of [...paybackChunks, ...reclaimChunks]) {
       if (batch.length === 0) continue;
       // No `verificationBaseFee`, so no claim floor, unlike the three native auto-consumers: a payback settled here
@@ -459,6 +464,7 @@ export async function reconcileSwapOrderNotes(
       // Partial fills stay lineage-'active' until expiry, so this same-tick pair
       // of consumes is their normal settlement path.
       const hasPayback = batch.some(note => note.swapOrder?.role === 'payback');
+      if (hasPayback && stopPaybackChunks) continue;
       // Link the consume row back to its swap order so history renders the
       // order as a single swap row (the linked consume is suppressed) and
       // `completeConsumeTransaction` can stamp the settlement on the swap row.
@@ -494,10 +500,18 @@ export async function reconcileSwapOrderNotes(
           undefined,
           'swap_settlement',
           canSign,
-          settlementLink
+          settlementLink,
+          hasPayback ? paybackCohort : undefined
         );
       } catch (error) {
+        // A cohort that cannot be claimed together writes nothing, so there is no row to re-tag. A fee refusal of
+        // one payback chunk stops the later ones the same way: the next pass claims what is still unheld together.
+        if (error instanceof ClaimCohortRefusedError) {
+          stopPaybackChunks = true;
+          continue;
+        }
         if (!(error instanceof ClaimFeeRefusedError)) throw error;
+        if (hasPayback) stopPaybackChunks = true;
         continue;
       }
       // The id may be a dedup winner from an earlier tick, inserted before the

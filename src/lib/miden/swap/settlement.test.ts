@@ -88,6 +88,9 @@ jest.mock('lib/miden/transaction/initiate', () => ({
   get ClaimFeeRefusedError() {
     return jest.requireActual('lib/miden/transaction/initiate').ClaimFeeRefusedError;
   },
+  get ClaimCohortRefusedError() {
+    return jest.requireActual('lib/miden/transaction/initiate').ClaimCohortRefusedError;
+  },
   initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1'),
   initiatePswapReclaimTransaction: jest.fn(async () => 'consume-zero-fill'),
   noteClaimCoverage: (...args: unknown[]) => mockNoteClaimCoverage(...args)
@@ -112,8 +115,16 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
 // and no claim guard.
 const SETTLES = [undefined, undefined, undefined, 'swap_settlement', undefined] as const;
 // Then the order link the queue writes in the row's insert (#1644).
-const SETTLE = [...SETTLES, expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'settle' })];
-const RECLAIM = [...SETTLES, expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'reclaim' })];
+const SETTLE = [
+  ...SETTLES,
+  expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'settle' }),
+  expect.any(Array)
+];
+const RECLAIM = [
+  ...SETTLES,
+  expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'reclaim' }),
+  undefined
+];
 
 const tx = (overrides: Record<string, unknown> = {}) => ({
   id: 'swap-1',
@@ -1208,6 +1219,47 @@ describe('swap order note settlement', () => {
     }
   });
 
+  it.each([
+    ['cohort refusal', 'ClaimCohortRefusedError'],
+    ['fee refusal', 'ClaimFeeRefusedError']
+  ] as const)(
+    'a %s of the first payback chunk queues no later one, still queues the tip, and re-tags no payback row',
+    async (_kind, errorName) => {
+      const initiate = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      const refusal =
+        errorName === 'ClaimCohortRefusedError'
+          ? new initiate.ClaimCohortRefusedError()
+          : new initiate.ClaimFeeRefusedError();
+      const paybacks = Array.from({ length: 9 }, (_, i) => consumable(`payback-${i}`, 'payback'));
+      const tip = consumable('tip', 'tip');
+      jest.mocked(initiateConsumeNotesTransaction).mockRejectedValueOnce(refusal).mockResolvedValueOnce('consume-tip');
+      const modifiedIds: string[] = [];
+      modify.mockImplementation(async () => {
+        const where: unknown = jest.mocked(Repo.transactions.where).mock.calls.at(-1)?.[0];
+        modifiedIds.push(typeof where === 'object' && where !== null && 'id' in where ? String(where.id) : '');
+        return 1;
+      });
+      try {
+        const result = await reconcileSwapOrderNotes('account-1', [tip, ...paybacks], false, 220);
+
+        // The first chunk carries eight paybacks; the cohort is every payback of the order. The later chunk is not
+        // queued, and the refusal does not re-tag a row. The tip reclaim still runs.
+        const calls = jest.mocked(initiateConsumeNotesTransaction).mock.calls;
+        expect(calls.map(call => call[1])).toEqual([paybacks.slice(0, 8), [tip]]);
+        expect(calls[0]![9]).toEqual(paybacks.map(note => note.id));
+        expect(calls[1]![9]).toBeUndefined();
+        expect(result.queuedTransactionIds).toEqual(['consume-tip']);
+        expect(modifiedIds).toEqual(['swap-1', 'consume-tip']);
+      } finally {
+        modify.mockImplementation(async () => 1);
+        jest.mocked(initiateConsumeNotesTransaction).mockReset();
+        jest.mocked(initiateConsumeNotesTransaction).mockResolvedValue('consume-1');
+      }
+    }
+  );
+
   it('tags a fund-less expired batch (tip only) as reclaim', async () => {
     await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip')], true, 220);
 
@@ -2148,7 +2200,8 @@ describe('swap order note settlement', () => {
         swapSettleKind: 'settle',
         swapPaybackDepths: { 'payback-88': 1 },
         swapPaybackAmounts: { 'payback-88': '5' }
-      }
+      },
+      ['payback-88']
     );
   });
 });
