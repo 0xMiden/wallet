@@ -1,4 +1,4 @@
-import { fetchBoundedJson, type JsonResponse } from 'lib/remote-json';
+import { fetchBoundedJson, type BoundedJsonFailure, type JsonResponse } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 
 import type { FeatureEligibility, StartupEligibilityReason } from './geo';
@@ -40,14 +40,15 @@ export async function lookupFeatureEligibility(
   version: number,
   options: {
     fetchImpl?: (url: string, init: RequestInit) => Promise<JsonResponse>;
-    onFailure?: (reason: StartupEligibilityReason) => void;
+    onFailure?: (reason: StartupEligibilityReason, requestFailure?: BoundedJsonFailure) => void;
   } = {}
 ): Promise<FeatureEligibility | null> {
   const openForDevelopment = localDevelopmentEligibility(network, version);
   if (openForDevelopment) return openForDevelopment;
-  const fail = (reason: StartupEligibilityReason): null => {
+  const fail = (reason: StartupEligibilityReason, requestFailure?: BoundedJsonFailure): null => {
     try {
-      options.onFailure?.(reason);
+      if (requestFailure === undefined) options.onFailure?.(reason);
+      else options.onFailure?.(reason, requestFailure);
     } catch {
       /* Diagnostics never change the decision. */
     }
@@ -67,16 +68,23 @@ export async function lookupFeatureEligibility(
   } catch {
     return fail('endpoint_invalid');
   }
+  let requestFailure: BoundedJsonFailure | undefined;
   try {
     url.searchParams.set('network', network);
     const fetchImpl = options.fetchImpl ?? fetch;
     const body = await fetchBoundedJson(
       (requestUrl, init) => fetchImpl(requestUrl, { ...init, credentials: 'omit', referrerPolicy: 'no-referrer' }),
       url.href,
-      { maxBytes: 4 * 1_024, timeoutMs: 10_000 }
+      {
+        maxBytes: 4 * 1_024,
+        timeoutMs: 10_000,
+        onFailure: failure => {
+          requestFailure = failure;
+        }
+      }
     );
     return readEligibility(body, network, version, fail);
   } catch {
-    return fail('request_failed');
+    return fail('request_failed', requestFailure);
   }
 }

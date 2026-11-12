@@ -6,6 +6,7 @@ import {
   STARTUP_ELIGIBILITY_REASONS,
   STARTUP_ELIGIBILITY_RETRIES
 } from 'lib/remote-config/geo';
+import { BOUNDED_JSON_FAILURES } from 'lib/remote-json';
 import {
   REOWN_NATIVE_ORIGINS,
   REOWN_WALLET_RESPONSE_CODES,
@@ -52,6 +53,7 @@ import {
   RELAY_VISIBILITY
 } from './relay-diagnostics';
 import { EXECUTION_ROUTES, AUTH_OBSERVATIONS, AUTH_ARG_PRESENCE } from './transaction-execution-diagnostics';
+import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
 import {
   FEATURE_UNAVAILABLE_FEATURES,
   FEATURE_UNAVAILABLE_REASONS,
@@ -87,6 +89,7 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['auth argument presence', AUTH_ARG_PRESENCE],
   ['Startup eligibility stage', STARTUP_ELIGIBILITY_STAGES],
   ['startup eligibility reason', STARTUP_ELIGIBILITY_REASONS],
+  ['startup eligibility request failure', BOUNDED_JSON_FAILURES],
   ['startup eligibility retry', STARTUP_ELIGIBILITY_RETRIES],
   ["the node's consume verdict", CONSUME_VERDICTS],
   ['storage owner', STORAGE_OWNERS],
@@ -194,6 +197,8 @@ it.each([
   ['featureUnavailableFeature', FEATURE_UNAVAILABLE_FEATURES],
   ['featureUnavailableReason', FEATURE_UNAVAILABLE_REASONS],
   ['submissionFeedbackBranch', SUBMISSION_FEEDBACK_BRANCHES],
+  ['submissionRejectedEndpoint', SUBMIT_ENDPOINTS],
+  ['submissionRejectedStatus', SUBMIT_GRPC_STATUSES],
   ['pendingRetryReason', PENDING_RETRY_REASONS],
   ['recipientValidationStage', RECIPIENT_VALIDATION_STAGES],
   ['backupNetworkFailureStage', BACKUP_NETWORK_FAILURE_STAGES]

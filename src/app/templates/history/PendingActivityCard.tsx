@@ -310,6 +310,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
                 tone={submission.kind === 'rejected' ? 'negative' : 'neutral'}
                 role={submission.kind === 'rejected' ? 'alert' : 'status'}
                 errorId={submission.rowCopy === undefined ? submission.messageKey : undefined}
+                errorDiagnostics={submission.errorDiagnostics}
                 data-testid="pending-activity-submission"
               >
                 {submissionText}

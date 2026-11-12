@@ -530,6 +530,41 @@ describe('PendingActivityCard live failure reporting', () => {
     ]);
   });
 
+  it('forwards only the closed submission rejection evidence through its visible Notice', () => {
+    render(
+      card({
+        note,
+        status: 'claiming',
+        txId: 'tx-refused',
+        submission: {
+          kind: 'rejected',
+          messageKey: 'submissionRejectedByNetwork',
+          details: 'private endpoint response',
+          errorDiagnostics: {
+            kind: 'submission_rejected',
+            submissionRejectedEndpoint: 'submit_proven_transaction',
+            submissionRejectedStatus: 'invalid_argument'
+          }
+        }
+      })
+    );
+
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1000);
+
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      [
+        'submissionRejectedByNetwork',
+        'notice',
+        {
+          kind: 'submission_rejected',
+          submissionRejectedEndpoint: 'submit_proven_transaction',
+          submissionRejectedStatus: 'invalid_argument'
+        }
+      ]
+    ]);
+  });
+
   it('does not restart the same failure dwell when the same note receives refreshed details', () => {
     const { rerender } = render(card({ note, status: 'pending' }));
     open();

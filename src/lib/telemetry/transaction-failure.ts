@@ -54,6 +54,7 @@ import {
 } from './transaction-execution-diagnostics';
 import { operationOfType, stepOfStage, TRANSACTION_OPERATIONS, TRANSACTION_STEPS } from './transaction-operation';
 import { TELEMETRY_ERROR_KINDS } from './types';
+import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './ui-producer-diagnostics';
 import packageJson from '../../../package.json';
 
 export { AUTH_LAYOUTS, COMMITMENT_MATCHES, ACCOUNT_AUTH_CODES } from './transaction-execution-diagnostics';
@@ -110,25 +111,7 @@ export const REPORTED_IDENTITIES = [
 /** Every identity the reporter coins passes through here, so it cannot send one the list, and the policy, lacks. */
 const coined = (identity: (typeof REPORTED_IDENTITIES)[number]): string => identity;
 
-export const SUBMIT_GRPC_STATUSES = [
-  'unavailable',
-  'internal',
-  'cancelled',
-  'aborted',
-  'data_loss',
-  'deadline_exceeded',
-  'unknown',
-  'not_found',
-  'invalid_argument',
-  'permission_denied',
-  'already_exists',
-  'resource_exhausted',
-  'failed_precondition',
-  'out_of_range',
-  'unimplemented',
-  'unauthenticated',
-  'other'
-] as const;
+export { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './ui-producer-diagnostics';
 
 // The statuses miden-client 0.17.3's `is_indeterminate_submission` reads as an unknown outcome, and the fallback.
 export const SUBMIT_UNKNOWN_OUTCOME_STATUSES = [
@@ -139,13 +122,6 @@ export const SUBMIT_UNKNOWN_OUTCOME_STATUSES = [
   'data_loss',
   'deadline_exceeded',
   'unknown',
-  'other'
-] as const;
-
-export const SUBMIT_ENDPOINTS = [
-  'submit_proven_transaction',
-  'submit_proven_batch',
-  'get_transaction_encryption_key',
   'other'
 ] as const;
 

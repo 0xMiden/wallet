@@ -1231,7 +1231,7 @@ describe('wallet storage rejection boundaries', () => {
     { method: 'getMany', operation: 'get' },
     { method: 'query', operation: 'query' },
     { method: 'count', operation: 'count' },
-    { method: 'openCursor', operation: 'cursor' },
+    { method: 'openCursor', operation: 'cursor_open' },
     { method: 'mutate', operation: 'mutate' }
   ];
   const modes: BoundaryMode[] = ['throw', 'reject', 'primitive'];
@@ -1502,7 +1502,7 @@ describe('wallet storage rejection boundaries', () => {
       expect(requestErrorSeen).toBe(true);
       expect(caught).toBeInstanceOf(Error);
       expect(caught).toMatchObject({ name: 'UnknownError', inner: failure });
-      expect(snapshotCrashDiagnostics(caught)).toMatchObject(pair(owner, 'cursor'));
+      expect(snapshotCrashDiagnostics(caught)).toMatchObject(pair(owner, 'cursor_iteration'));
     } finally {
       spy.mockRestore();
       await dispose(target);
@@ -1667,7 +1667,7 @@ describe('wallet storage rejection boundaries', () => {
         );
         expect(caught).toBe(failure);
         expect(dataReads).toBe(0);
-        expect(snapshotCrashDiagnostics(caught)).toEqual(pair(owner, 'cursor'));
+        expect(snapshotCrashDiagnostics(caught)).toEqual(pair(owner, 'cursor_iteration'));
       });
     } finally {
       await dispose(target);
