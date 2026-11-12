@@ -49,13 +49,28 @@ describe('effect-checked write lint', () => {
     }
   );
 
-  it('allowlists only the files that make a gated write', () => {
+  it('exempts only the allowlisted writers and test files from the write ban', () => {
     const config = JSON.parse(fs.readFileSync(path.join(ROOT, '.eslintrc'), 'utf8'));
-    const overrides = config.overrides.filter((o: { rules?: Record<string, unknown> }) =>
-      Array.isArray(o.rules?.['no-restricted-syntax'])
-    );
-    expect(overrides).toHaveLength(1);
-    expect(overrides[0].files).toEqual(ALLOWLIST);
+    const exemptions = config.overrides
+      .filter((o: { rules?: Record<string, unknown> }) => o.rules && 'no-restricted-syntax' in o.rules)
+      .map((o: { files: string[]; rules: Record<string, unknown> }) => [
+        o.files,
+        o.rules['no-restricted-syntax'] === 'off'
+      ]);
+    expect(exemptions).toEqual([
+      [ALLOWLIST, false],
+      [['**/*.test.ts', '**/*.test.tsx'], true]
+    ]);
+  });
+
+  it('reports a raw write in fee-notes.ts, which may only read outputNotes', async () => {
+    expect(await lint(WRITE, 'src/lib/miden/activity/fee-notes.ts')).toEqual([MESSAGE]);
+  });
+
+  it('bans outputNotes in fee-notes.ts outside its one sanctioned read', async () => {
+    const messages = await lint('executed.outputNotes();\n', 'src/lib/miden/activity/fee-notes.ts');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain('splitExecutedOutputNotes');
   });
 
   it('reports a raw write in the custom-transaction simulator, which only dry-runs through custom-dry-run.ts', async () => {

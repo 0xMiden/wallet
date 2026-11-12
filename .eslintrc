@@ -306,14 +306,6 @@
   "overrides": [
     {
       "files": [
-        "src/lib/miden/activity/fee-notes.ts"
-      ],
-      "rules": {
-        "no-restricted-syntax": "off"
-      }
-    },
-    {
-      "files": [
         "src/lib/miden/sdk/miden-client-interface.ts",
         "src/lib/miden/back/miden-client-proxy.ts",
         "src/offscreen/main.ts",
