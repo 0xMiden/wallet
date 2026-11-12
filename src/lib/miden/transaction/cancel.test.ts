@@ -1,6 +1,7 @@
 // Light mocks so importing cancel.ts doesn't pull in Dexie / the WASM client proxy.
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GuardianSwitchDiscardedError, GuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { ApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
@@ -261,6 +262,7 @@ describe('the end of a swap, recorded when its row fails (#1660)', () => {
     ['a user cancel', USER_CANCELLED_TRANSACTION_REASON, 'cancelled'],
     ['the stuck reaper', TRANSACTION_STUCK_ERROR, 'timeout'],
     ['the startup sweep', TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted'],
+    ['a proof that kept going stale', new StaleProofError(), 'timeout'],
     ['a failure that timed out', new Error('guardian request timed out'), 'timeout'],
     ['any other failure', new Error('mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe refused'), 'failed']
   ])('names %s as %s', async (_label, error, outcome) => {

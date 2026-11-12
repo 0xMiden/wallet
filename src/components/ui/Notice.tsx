@@ -41,6 +41,11 @@ export interface NoticeProps {
   title?: React.ReactNode;
   /** Leading glyph, drawn 16px in the tone's ink. Decorative: the text carries the meaning. */
   icon?: React.ReactNode;
+  /**
+   * Beside the copy and outside `role`: a value that changes too often to announce, such as a countdown. With it the
+   * role sits on the copy alone, so a tick inside a `status` or `alert` notice never reaches a screen reader.
+   */
+  trailing?: React.ReactNode;
   tone?: NoticeTone;
   variant?: NoticeVariant;
   /** `note` (default) for standing copy; `alert` only for something that just went wrong. */
@@ -62,6 +67,14 @@ const noticeVariants = cva('flex w-full items-start text-left', {
       // 4px of inset only, so the glyph lines up with the copy above it rather than the group edge.
       inline: 'gap-2 px-1'
     } satisfies Record<NoticeVariant, string>
+  },
+  defaultVariants: { variant: 'block' }
+});
+
+// The copy's own box beside a `trailing` value, at the gap the notice would have given it.
+const noticeCopyVariants = cva('flex min-w-0 flex-1 items-start', {
+  variants: {
+    variant: { block: 'gap-2.5', inline: 'gap-2' } satisfies Record<NoticeVariant, string>
   },
   defaultVariants: { variant: 'block' }
 });
@@ -121,6 +134,7 @@ export const Notice: React.FC<NoticeProps> = ({
   children,
   title,
   icon,
+  trailing,
   tone = 'neutral',
   errorId,
   errorOccurrence,
@@ -133,16 +147,8 @@ export const Notice: React.FC<NoticeProps> = ({
   'data-reason': dataReason
 }) => {
   useUserVisibleError(tone === 'negative' ? errorId : null, 'notice', errorOccurrence, errorDiagnostics);
-  return (
-    <div
-      id={id}
-      role={role}
-      data-tone={tone}
-      data-variant={variant}
-      data-testid={dataTestId}
-      data-reason={dataReason}
-      className={cn(noticeVariants({ variant }), variant === 'block' && noticeSurfaceVariants({ tone }), className)}
-    >
+  const copy = (
+    <>
       {icon && (
         <span
           aria-hidden="true"
@@ -173,6 +179,28 @@ export const Notice: React.FC<NoticeProps> = ({
           </span>
         )}
       </div>
+    </>
+  );
+  return (
+    <div
+      id={id}
+      role={trailing === undefined ? role : undefined}
+      data-tone={tone}
+      data-variant={variant}
+      data-testid={dataTestId}
+      data-reason={dataReason}
+      className={cn(noticeVariants({ variant }), variant === 'block' && noticeSurfaceVariants({ tone }), className)}
+    >
+      {trailing === undefined ? (
+        copy
+      ) : (
+        <>
+          <div role={role} className={noticeCopyVariants({ variant })}>
+            {copy}
+          </div>
+          {trailing}
+        </>
+      )}
     </div>
   );
 };

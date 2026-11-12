@@ -433,6 +433,26 @@ describe('EmulatorControl', () => {
     });
   });
 
+  describe('leaving the foreground', () => {
+    it.each<[string, (emulator: EmulatorControl) => Promise<void>, string]>([
+      ['pressHome', emulator => emulator.pressHome(SERIAL), 'KEYCODE_HOME'],
+      ['sleepScreen', emulator => emulator.sleepScreen(SERIAL), 'KEYCODE_SLEEP'],
+      ['wakeScreen', emulator => emulator.wakeScreen(SERIAL), 'KEYCODE_WAKEUP']
+    ])('%s sends its key through the bounded adb wrapper', async (_name, press, key) => {
+      const calls = adbAnswers(() => ({}));
+
+      await press(new EmulatorControl());
+
+      expect(calls).toEqual([{ args: ['-s', SERIAL, 'shell', 'input', 'keyevent', key], timeout: 30_000 }]);
+    });
+
+    it('fails when adb cannot deliver the key', async () => {
+      adbAnswers(() => ({ error: new Error('device offline') }));
+
+      await expect(new EmulatorControl().pressHome(SERIAL)).rejects.toThrow('device offline');
+    });
+  });
+
   it('bounds every adb call it makes', async () => {
     const calls = adbAnswers(args =>
       isDumpsys(args) ? { stdout: GONE } : args.includes('pidof') ? { stdout: '1' } : {}

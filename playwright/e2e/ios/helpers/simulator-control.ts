@@ -15,6 +15,9 @@ const DEVICE_PAIR_NAME_B = 'miden-e2e-B';
 const DEVICE_TYPE_A = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17';
 const DEVICE_TYPE_B = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro';
 
+// Ships in every simulator runtime, so backgrounding needs nothing installed.
+const BACKGROUND_COVER_BUNDLE_ID = 'com.apple.Preferences';
+
 const BOOT_TIMEOUT_MS = 60_000;
 const BOOT_POLL_MS = 1_000;
 // First boot of an iOS 26 runtime on a cold macos-26 CI runner can take
@@ -159,6 +162,16 @@ export class SimulatorControl {
       childEnv[`SIMCTL_CHILD_${key}`] = value;
     }
     await execFileAsync('xcrun', ['simctl', 'launch', udid, bundleId], { env: childEnv });
+  }
+
+  /** Leave the running app the way an app switch does: another installed app takes the foreground. */
+  async background(udid: string): Promise<void> {
+    await execSimctl(['launch', udid, BACKGROUND_COVER_BUNDLE_ID]);
+  }
+
+  /** Return to a running app. Without `--terminate-running-process`, simctl activates the process it finds. */
+  async foreground(udid: string, bundleId: string): Promise<void> {
+    await execSimctl(['launch', udid, bundleId]);
   }
 
   async terminate(udid: string, bundleId: string): Promise<void> {

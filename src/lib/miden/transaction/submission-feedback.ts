@@ -4,7 +4,9 @@ import { SUBMIT_UNKNOWN_OUTCOME_STATUSES, submitGrpcFailure } from 'lib/telemetr
 import type { SubmissionFeedbackBranch } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
+  hasUnresolvedAttempt,
   isAccountBlockedError,
+  isOutcomeUnconfirmed,
   isUserCancelledTransaction,
   REMOTE_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
@@ -12,13 +14,16 @@ import {
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR
 } from './constants';
+import { awaitingVerdict, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 
-export type SubmissionFeedbackKind = 'rejected' | 'interrupted' | 'unanswered';
+export type SubmissionFeedbackKind = 'rejected' | 'interrupted' | 'unanswered' | 'guardianHold';
 
 export type SubmissionMessageKey =
   | 'submissionRejectedByNetwork'
   | 'submissionRejectedByGuardian'
   | 'submissionBlockedByIssuer'
+  | 'submissionHeldByGuardian'
+  | 'submissionProvenHeldByGuardian'
   | 'submissionInterrupted'
   | 'submissionUnanswered';
 
@@ -117,4 +122,53 @@ export function submissionFeedback(row: FeedbackRow | undefined): SubmissionFeed
   }
   // An error no category recognizes gets no verdict: the row keeps its existing failed or not-confirmed copy.
   return undefined;
+}
+
+type FinishedRow = FeedbackRow & Parameters<typeof isOutcomeUnconfirmed>[0];
+
+// The rotation gate reads these through `isUnconfirmedFailure`, which decides whether it offers its key-pair exit, so
+// Activity reads them by that rule, whatever text they stored.
+const readByRotationGate = (row: FinishedRow): boolean =>
+  row.type === 'replace-hot-key' || row.rotationFunding === true;
+
+/**
+ * Whether a finished row reads Not confirmed, the one rule every surface shares (#2060). A row the node proved never
+ * committed and a rotation row follow the outcome rule, whatever text they stored. Otherwise a stored timeout, drop or
+ * missing answer does, including on a Failed row. A stored refusal does while the reconciler still judges the row: a
+ * refusal past the crossing cannot be told from a lost answer, which is why the leaf keeps its candidate, so only a
+ * verdict can rule the attempt dead. With nothing left to judge the refusal is the row's outcome, whatever the node
+ * said.
+ */
+export function readsAsNotConfirmed(row: FinishedRow, nowSec: number = nowSeconds()): boolean {
+  const feedback = submissionFeedback(row);
+  if (feedback === undefined || row.neverCommittedAt !== undefined || readByRotationGate(row)) {
+    return isOutcomeUnconfirmed(row);
+  }
+  return feedback.kind !== 'rejected' || (hasUnresolvedAttempt(row) && awaitingVerdict(row, nowSec));
+}
+
+/**
+ * What a surface may say about a finished row's outcome (#2060): the stored outcome only where the row's reading agrees
+ * with it. While the Guardian holds the candidate a retry would meet, the row says that instead, since its refusal, a
+ * proven row's "safe to retry" and a claim card's Retry hint would all invite a Retry the hold refuses. The exception
+ * is a row that reads Not confirmed while the reconciler still judges it: that row keeps its reading until the verdict.
+ */
+export function shownSubmissionFeedback(
+  row: FinishedRow,
+  nowSec: number = nowSeconds()
+): SubmissionFeedback | undefined {
+  if (row.status !== ITransactionStatus.Failed && row.status !== ITransactionStatus.Unconfirmed) return undefined;
+  const feedback = submissionFeedback(row);
+  const refused = feedback?.kind === 'rejected';
+  const notConfirmed = readsAsNotConfirmed(row, nowSec);
+  if (!(notConfirmed && awaitingVerdict(row, nowSec)) && keptCandidateHoldUntil(row, nowSec) !== undefined) {
+    const details = feedback?.details ?? row.rawError;
+    return {
+      kind: 'guardianHold',
+      messageKey: row.neverCommittedAt === undefined ? 'submissionHeldByGuardian' : 'submissionProvenHeldByGuardian',
+      ...(details === undefined ? {} : { details })
+    };
+  }
+  if (notConfirmed) return refused ? undefined : feedback;
+  return refused ? feedback : undefined;
 }
