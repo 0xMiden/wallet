@@ -603,6 +603,42 @@ describe('createGuardianAccount', () => {
     expect(Array.from(config.seed)).toEqual(Array.from(await deriveGuardianAccountSeed(coldSeed)));
   });
 
+  // The caller checks its hold just before this call, so the cold key and the hot-key mint
+  // must run before any suspension; the digest waits behind the pre-build check instead.
+  it('derives the account seed after the hot key, behind the pre-build hold check', async () => {
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+    const createKey = await fetchGuardianCreateKey();
+    const coldSeed = Uint8Array.from({ length: 32 }, (_, i) => i);
+    const order: string[] = [];
+    jest
+      .requireMock('@miden-sdk/miden-sdk/lazy')
+      .AuthSecretKey.ecdsaWithRNG.mockImplementationOnce((seed: Uint8Array) => {
+        order.push('cold');
+        return buildStubKey(`s${Array.from(seed).join('-')}`);
+      });
+    mockGenerateHotKey.mockImplementationOnce(async () => {
+      order.push('hot');
+      return { ciphertext: 'hot-ciphertext-hex', publicKeyHex: 'hot-pubkey-hex', commitmentHex: '0xhot-commit' };
+    });
+    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
+    const digest = jest.spyOn(crypto.subtle, 'digest').mockImplementation((algorithm, data) => {
+      order.push('digest');
+      return realDigest(algorithm, data);
+    });
+
+    try {
+      await createGuardianAccount(makeWebClient() as never, createKey, coldSeed, step => {
+        if (step === 'before the account build') order.push('build');
+      });
+    } finally {
+      digest.mockRestore();
+    }
+
+    expect(order).toEqual(['cold', 'hot', 'digest', 'build']);
+    const config = multisigClientConfig.create.mock.calls[0]?.[0] as { seed: Uint8Array };
+    expect(Array.from(config.seed)).toEqual(Array.from(await deriveGuardianAccountSeed(coldSeed)));
+  });
+
   it('falls back to the effective network default when no override is supplied', async () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
