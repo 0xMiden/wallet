@@ -1,6 +1,10 @@
 import { netOutflowByFaucet, summaryBytesToView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
 import { getMessage } from 'lib/i18n/core';
-import { getVerificationBaseFee, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
+import {
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  isVerificationBaseFeeKnownAbsent
+} from 'lib/miden-chain/native-asset';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import type { IConsumeGcPurchaseExtraInputs, ITransaction, ITransactionType } from '../db/types';
@@ -36,7 +40,7 @@ const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransacti
   })
 };
 
-const isEffectChecked = (type: ITransactionType): boolean => ALLOWED_OUTFLOW[type] !== undefined;
+export const isEffectChecked = (type: ITransactionType): boolean => ALLOWED_OUTFLOW[type] !== undefined;
 
 /**
  * Why `view` moves more than `transaction` was approved to move, or undefined when it does not (or its type is not
@@ -67,13 +71,74 @@ export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetVi
   return reasons.length > 0 ? reasons.join('; ') : undefined;
 }
 
-const refusal = (transaction: ITransaction, detail: string, cause?: unknown): ProposalEffectRefusedError =>
+/** The refusal the effect check throws for `transaction`, with the localized sentence the row shows. */
+export const effectRefusal = (transaction: ITransaction, detail: string, cause?: unknown): ProposalEffectRefusedError =>
   new ProposalEffectRefusedError(
     transaction.type,
     detail,
     getMessage('proposalEffectRefused'),
     cause === undefined ? undefined : { cause }
   );
+
+/** Decode `transaction`'s view and refuse it when it moves more than the row was approved to move. */
+async function assertDecodedViewApproved(
+  transaction: ITransaction,
+  decode: () => TxAssetView | Promise<TxAssetView>
+): Promise<void> {
+  let view: TxAssetView;
+  try {
+    view = await decode();
+  } catch (error) {
+    // A trap stays that same error. Wrapping it would hide the object from the retire that owns it.
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    if (isKilledPipeline(error) || error instanceof ProposalEffectRefusedError) throw error;
+    throw effectRefusal(transaction, 'the transaction summary could not be read', error);
+  }
+  let detail: string | undefined;
+  try {
+    detail = proposalEffectRefusal(transaction, view);
+  } catch (error) {
+    throw effectRefusal(transaction, 'its approved amounts could not be read', error);
+  }
+  if (detail !== undefined) throw effectRefusal(transaction, detail);
+}
+
+/**
+ * Refuse a checked-type transaction whose decoded view moves more than its row was approved to move. `decode` is a
+ * thunk because the chain-fee lookup must run first: the decoder reads the fee that lookup fills. A decode that throws
+ * a refusal passes through, a kill of the decoding hold passes through, a trap passes through as that same error,
+ * and any other failure becomes a refusal.
+ */
+export async function assertViewEffectApproved(
+  transaction: ITransaction,
+  decode: () => TxAssetView | Promise<TxAssetView>
+): Promise<void> {
+  if (!isEffectChecked(transaction.type)) return;
+  // The fee note is told apart only once this realm knows the chain's fee; an untold fee reads as an outflow and
+  // refuses, so it is looked up first rather than left to whatever this realm cached. A null while discovery failed
+  // or the probe is cooling down is not an answer, and the summary stays unread. A number, 0 included, and a null
+  // the probe found absent, both continue; the decoder reads the fee the await just filled.
+  const chainFee = await getVerificationBaseFee();
+  if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
+    throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
+  await assertDecodedViewApproved(transaction, decode);
+}
+
+/**
+ * The signer's effect check. The write decided the chain fee before it ran, and this reads that cache. A null while
+ * the probe has not found the fee absent throws, and the summary stays unread. A number, 0 included, and a null the
+ * probe found absent, both continue into the same decode as `assertViewEffectApproved`.
+ */
+export async function assertCachedViewEffectApproved(
+  transaction: ITransaction,
+  decode: () => TxAssetView | Promise<TxAssetView>
+): Promise<void> {
+  if (!isEffectChecked(transaction.type)) return;
+  const chainFee = getVerificationBaseFeeSync();
+  if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
+    throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
+  await assertDecodedViewApproved(transaction, decode);
+}
 
 /**
  * Refuse a proposal of a checked type whose summary moves more than its row was approved to move (#2147). Runs before
@@ -86,27 +151,15 @@ export async function assertProposalEffectApproved(
 ): Promise<void> {
   if (!isEffectChecked(transaction.type)) return;
   if (typeof txSummary !== 'string' || txSummary.length === 0) {
-    throw refusal(transaction, 'the proposal carries no transaction summary');
+    throw effectRefusal(transaction, 'the proposal carries no transaction summary');
   }
-  // The fee note is told apart only once this realm knows the chain's fee; an untold fee reads as an outflow and
-  // refuses, so it is looked up first rather than left to whatever this realm cached. A null while discovery failed
-  // or the probe is cooling down is not an answer, and the summary stays unread. A number, 0 included, and a null
-  // the probe found absent, both continue; the decoder reads the fee the await just filled.
-  const chainFee = await getVerificationBaseFee();
-  if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) throw new ProposalFeeUnknownError();
-  let view: TxAssetView;
-  try {
-    // A trap rejects the hold's callback, so the lock retires the client before the refusal wraps it.
-    view = await withWasmClientLock(async () => summaryBytesToView(txSummary), { label: 'proposal effect check' });
-  } catch (error) {
-    if (isKilledPipeline(error)) throw error;
-    throw refusal(transaction, 'the proposal summary could not be read', error);
-  }
-  let detail: string | undefined;
-  try {
-    detail = proposalEffectRefusal(transaction, view);
-  } catch (error) {
-    throw refusal(transaction, 'its approved amounts could not be read', error);
-  }
-  if (detail !== undefined) throw refusal(transaction, detail);
+  await assertViewEffectApproved(transaction, async () => {
+    try {
+      // A trap rejects the hold's callback, so the lock retires the client before the refusal wraps it.
+      return await withWasmClientLock(async () => summaryBytesToView(txSummary), { label: 'proposal effect check' });
+    } catch (error) {
+      if (isKilledPipeline(error)) throw error;
+      throw effectRefusal(transaction, 'the proposal summary could not be read', error);
+    }
+  });
 }

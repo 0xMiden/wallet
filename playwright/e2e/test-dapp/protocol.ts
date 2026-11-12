@@ -131,6 +131,16 @@ export interface SignatureView {
   payloadB64: string;
   /** The 32 word bytes the key signed: the word itself, the SigningInputs commitment, or a login message. */
   messageB64: string;
+  /** What the provider answered beside the signature; absent from an older wallet and for the summary variant's login. */
+  signedCommitmentB64?: string;
+}
+/** `domain`: verify against `signBytesCommitment(payload, kind)`; without it, against the raw value. */
+export interface VerifyInput {
+  kind: 'word' | 'signingInputs';
+  payloadB64: string;
+  signatureB64: string;
+  publicKeyB64: string;
+  domain?: 'signBytes';
 }
 export interface SelfTestView {
   publicKeyB64: string;
@@ -236,7 +246,7 @@ export interface DappCommands {
   loginKey: { input: Empty; output: Outcome<LoginKeyView> };
   signLoginWord: { input: { wordHex: string }; output: Outcome<SignatureView> };
   verifySignature: {
-    input: { kind: 'word' | 'signingInputs'; payloadB64: string; signatureB64: string; publicKeyB64: string };
+    input: VerifyInput;
     output: { verifies: boolean; commitmentHex: string };
   };
   selfTestSignature: { input: { kind: 'word' | 'signingInputs' }; output: SelfTestView };

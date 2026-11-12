@@ -4066,6 +4066,10 @@
     "message": "A carteira interrompeu essa transação antes de assiná-la, pois não conseguiu confirmar que a transação movimentava apenas o que você aprovou. Nenhum valor foi movimentado.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
+  "chainFeeUnknown": {
+    "message": "A carteira não conseguiu ler a taxa de rede, por isso não assinou esta transação. Nada foi enviado. Tente novamente daqui a pouco.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
+  },
   "amountMustBeLessThanBalance": {
     "message": "O valor deve ser inferior ao saldo",
     "englishSource": "Amount must be less than balance"
@@ -6368,6 +6372,10 @@
   "opaqueSignatureTitle": {
     "message": "Solicitação de assinatura opaca",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Essa assinatura não pode autorizar uma transação a partir da sua conta.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Este site solicitou que você assinasse um valor bruto. A carteira não pode mostrar o que está sendo autorizado. Só continue se confiar plenamente neste site.",

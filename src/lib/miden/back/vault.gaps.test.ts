@@ -122,22 +122,32 @@ jest.mock('lib/i18n', () => ({
   })
 }));
 
-const mockSign = jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([0xff, 0xaa, 0xbb, 0xcc])) }));
+const mockSign = jest.fn(() => ({
+  serialize: jest.fn(() => new Uint8Array([0xff, 0xaa, 0xbb, 0xcc])),
+  free: jest.fn()
+}));
 const mockPublicKey = jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([0xff, 0x11, 0x22, 0x33])) }));
 const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => ({
   sign: mockSign,
-  signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])) })),
-  publicKey: mockPublicKey
+  signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])), free: jest.fn() })),
+  publicKey: mockPublicKey,
+  free: jest.fn()
 }));
 const mockWordFromHex = jest.fn((_hex: string) => ({ __wordMarker: 'word' }));
-const mockSigningInputsDeserialize = jest.fn((bytes: Uint8Array) => ({
-  // The discriminant byte stands in for the variant: each variant's commitment differs, so the test can tell
-  // which input was reduced.
-  toCommitment: () => ({
-    toHex: () => `0x${(bytes[0] ?? 0).toString(16).padStart(2, '0').repeat(32)}`,
+// The domain module returns the word both key paths sign. The discriminant byte stands in for the variant: a
+// signingInputs request with a non-zero discriminant (Arbitrary 1, Blind 2) is the domain word DOMAIN_FILL, and
+// discriminant 0 is a TransactionSummary, whose word is that byte.
+const DOMAIN_FILL = 0xd0;
+const mockSignBytesInputs = jest.fn((bytes: Uint8Array, kind: string) => {
+  const fill = kind === 'signingInputs' && (bytes[0] ?? 0) !== 0 ? DOMAIN_FILL : (bytes[0] ?? 0);
+  return {
+    toHex: () => `0x${fill.toString(16).padStart(2, '0').repeat(32)}`,
+    serialize: () => new Uint8Array(32).fill(fill),
     free: jest.fn()
-  }),
-  free: jest.fn()
+  };
+});
+jest.mock('lib/miden/sign-bytes/domain', () => ({
+  signBytesInputs: (bytes: Uint8Array, kind: string) => mockSignBytesInputs(bytes, kind)
 }));
 const HOT_COMMITMENT = 'deadbeef'.repeat(8);
 const mockCommitmentFromPublicKeyHex = jest.fn(async (publicKeyHex: string) =>
@@ -155,7 +165,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       deserialize: (bytes: Uint8Array) => mockAuthSecretKeyDeserialize(bytes),
       ecdsaWithRNG: jest.fn(() => ({ __marker: 'ecdsa-secret' }))
     },
-    SigningInputs: { deserialize: (bytes: Uint8Array) => mockSigningInputsDeserialize(bytes) },
+    SigningInputs: { deserialize: jest.fn(() => ({})) },
     Word: { deserialize: jest.fn(() => ({})), fromHex: (h: string) => mockWordFromHex(h) },
     AccountBuilder: jest.fn().mockImplementation(() => {
       const built = {
@@ -234,8 +244,9 @@ beforeEach(() => {
   (isMobile as jest.Mock).mockReturnValue(false);
   mockAuthSecretKeyDeserialize.mockReturnValue({
     sign: mockSign,
-    signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])) })),
-    publicKey: mockPublicKey
+    signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])), free: jest.fn() })),
+    publicKey: mockPublicKey,
+    free: jest.fn()
   } as any);
 });
 
@@ -297,7 +308,7 @@ describe('Vault instance signData - Guardian account', () => {
     // byte itself before handing the raw ECDSA signature to Guardian. `signWord`/`signHotDigest`
     // strip that tag (mock sign() → [0xff,0xaa,0xbb,0xcc], slice(1) → [0xaa,0xbb,0xcc]); signData
     // re-prepends the ECDSA scheme tag (0x01) so the returned bytes deserialize as a full Signature.
-    const returned = b64ToU8(sig);
+    const returned = b64ToU8(sig.signature);
     expect(returned[0]).toBe(0x01); // ECDSA Signature scheme tag
     expect(Array.from(returned.slice(1))).toEqual([0xaa, 0xbb, 0xcc]); // raw sig after MidenWalletSigner strips the tag
     // Signed the exact word it was handed, via the hot (secure-hot-key) path.
@@ -338,25 +349,56 @@ describe('Vault instance signData - Guardian account', () => {
 
     const data = u8ToB64(new Uint8Array(32).fill(0x11));
     const sig = await vault.signData(commitment, data, 'word', addr);
+    const word = mockSignBytesInputs.mock.results.at(-1)!.value;
+    const key = mockAuthSecretKeyDeserialize.mock.results.at(-1)!.value;
 
-    // Default path returns the FULL serialized signature (with the scheme byte).
-    expect(sig).toBe(u8ToB64(new Uint8Array([0xff, 0xaa, 0xbb, 0xcc])));
+    // Default path signs that word with the key's sign and returns the full serialized signature.
+    expect(mockSign).toHaveBeenCalledWith(word);
+    expect(key.signData).not.toHaveBeenCalled();
+    expect(Array.from(b64ToU8(sig.signature))).toEqual([0xff, 0xaa, 0xbb, 0xcc]);
+    expect(mockWordFromHex).not.toHaveBeenCalled();
   });
 
   it.each([
-    ['arbitrary', 0x01],
-    ['summary', 0x00],
-    ['blind', 0x02]
-  ])('signs %s signing inputs with the hot key over their commitment', async (_variant, discriminant) => {
+    ['word', 'word', 0xab],
+    ['blind', 'signingInputs', 0x02],
+    ['arbitrary', 'signingInputs', 0x01]
+  ] as const)('the hot key signs the word the single-key path signs for %s', async (_label, kind, first) => {
+    const payload = new Uint8Array(32).fill(first);
+    const guardian = await seedGuardianVault();
+    const hot = await guardian.signData(HOT_COMMITMENT, u8ToB64(payload), kind, GUARDIAN_ADDR);
+    expect(mockSignBytesInputs).toHaveBeenLastCalledWith(payload, kind);
+
+    const addr = 'mtst1-plain-parity';
+    const commitment = 'cafe'.repeat(16);
+    const plain = await seedVault('pw', {
+      accounts: [{ publicKey: addr, name: 'Plain', isPublic: true, type: WalletType.OnChain } as any],
+      currentPk: addr
+    });
+    const vaultKey = (plain as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey(commitment), '01020304']], vaultKey);
+    const single = await plain.signData(commitment, u8ToB64(payload), kind, addr);
+    expect(mockSignBytesInputs).toHaveBeenLastCalledWith(payload, kind);
+
+    expect(hot.signedCommitment).toBe(single.signedCommitment);
+    expect(mockWordFromHex).toHaveBeenCalledWith(`0x${Buffer.from(b64ToU8(single.signedCommitment)).toString('hex')}`);
+  });
+
+  it.each([
+    ['arbitrary', 0x01, DOMAIN_FILL],
+    ['summary', 0x00, 0x00],
+    ['blind', 0x02, DOMAIN_FILL]
+  ])('signs %s signing inputs with the hot key over their commitment', async (_variant, discriminant, fill) => {
     const vault = await seedGuardianVault();
     const payload = new Uint8Array([discriminant, 0x10, 0x20]);
     mockAuthSecretKeyDeserialize.mockClear();
 
     const sig = await vault.signData(HOT_COMMITMENT, u8ToB64(payload), 'signingInputs', GUARDIAN_ADDR);
 
-    expect(Array.from(b64ToU8(sig))).toEqual([0x01, 0xaa, 0xbb, 0xcc]);
-    const commitmentHex = `0x${discriminant.toString(16).padStart(2, '0').repeat(32)}`;
-    expect(mockWordFromHex).toHaveBeenCalledWith(commitmentHex);
+    expect(Array.from(b64ToU8(sig.signature))).toEqual([0x01, 0xaa, 0xbb, 0xcc]);
+    expect(mockSignBytesInputs).toHaveBeenLastCalledWith(payload, 'signingInputs');
+    // Summary: the decoded inputs' own commitment; Arbitrary and Blind: the domain commitment.
+    expect(mockWordFromHex).toHaveBeenCalledWith(`0x${fill.toString(16).padStart(2, '0').repeat(32)}`);
     // Only the hot ciphertext (0a0b0c) is ever deserialized, never the decoy (dec0de) under the commitment.
     const deserialized = mockAuthSecretKeyDeserialize.mock.calls.map(([bytes]) => Buffer.from(bytes!).toString('hex'));
     expect(deserialized).toEqual(['0a0b0c']);
@@ -383,9 +425,9 @@ describe('Vault instance signData - Guardian account', () => {
       const vault = await seedGuardianVault();
       const data = u8ToB64(new Uint8Array(32).fill(0x01));
 
-      await expect(vault.signData(encode(HOT_COMMITMENT), data, kind, GUARDIAN_ADDR)).resolves.toBe(
-        u8ToB64(new Uint8Array([0x01, 0xaa, 0xbb, 0xcc]))
-      );
+      await expect(vault.signData(encode(HOT_COMMITMENT), data, kind, GUARDIAN_ADDR)).resolves.toMatchObject({
+        signature: u8ToB64(new Uint8Array([0x01, 0xaa, 0xbb, 0xcc]))
+      });
     });
 
     it.each(['word', 'signingInputs'] as const)('refuses a %s request for a different commitment', async kind => {
