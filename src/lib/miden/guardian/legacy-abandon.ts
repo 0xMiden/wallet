@@ -2,7 +2,7 @@ import { GuardianHttpError, RequestAuthPayload } from '@openzeppelin/guardian-cl
 
 import type { WalletSigner } from './signer';
 
-// The client's own pause before it re-signs a request that lost the Guardian's timestamp race.
+// The pause before re-signing a request that lost the Guardian's timestamp race, the client's own.
 const REPLAY_RETRY_DELAY_MS = 50;
 
 /**
@@ -13,7 +13,7 @@ const REPLAY_RETRY_DELAY_MS = 50;
  * nonce; a 0.18 one names none.
  *
  * A refusal throws `GuardianHttpError`. `authentication_replay` (the timestamp was not past the last one the Guardian
- * saw from this signer) is retried once with a later timestamp, as the client retries it.
+ * saw from this signer) is retried once, with a later timestamp; a second replay throws.
  */
 export async function abandonCandidateByNonce(
   endpoint: string,

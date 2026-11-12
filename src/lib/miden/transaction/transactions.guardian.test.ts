@@ -1650,7 +1650,7 @@ describe('generateTransaction — Guardian routing', () => {
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
       })),
-      abandonCandidate: jest.fn(async () => {}),
+      abandonCandidate: jest.fn(async (_nonce: number, _proposalId: string | undefined) => {}),
       reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
     };
     mockBuildColdMultisigService.mockResolvedValue(coldService);
@@ -11643,7 +11643,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(createProposal.mock.calls.map(([, commitment]) => commitment)).toEqual(['0xnewcommit', '0xderivedcommit']);
       expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
       // The refusal created no candidate, so there is nothing to abandon or to mark for a retried abandon.
-      expect(coldService.abandonCandidate).not.toHaveBeenCalledWith(7, 'prop-replace');
+      expect(coldService.abandonCandidate.mock.calls.map(([n]) => n)).not.toContain(7);
       expect(getGuardianCandidate('acc-1')).toEqual({
         endpoint: 'https://old.guardian',
         nonce: 8,
@@ -12452,7 +12452,12 @@ describe('generateTransaction — Guardian routing', () => {
   // the switch. Then it did not happen, and the row ends as the direct path's discard does.
   // The restore needs an unlocked wallet, and the wallet can lock during the adopt wait: a restore
   // that never lands is named on the Failed row, which otherwise says nothing changed.
-  const startDiscardedLandedSwitch = (txId: string, abandonCandidate: jest.Mock, restoreFails = false) => {
+  const startDiscardedLandedSwitch = (
+    txId: string,
+    abandonCandidate: jest.Mock,
+    restoreFails = false,
+    proposalId: unknown = 'prop-switch'
+  ) => {
     const extraInputs = {
       previousGuardianEndpoint: 'https://old.guardian',
       newGuardianEndpoint: 'https://new.guardian'
@@ -12461,7 +12466,7 @@ describe('generateTransaction — Guardian routing', () => {
     const service = {
       guardianEndpoint: 'https://old.guardian',
       createSwitchGuardianProposal: jest.fn(async () => ({
-        proposal: { id: 'prop-switch', nonce: 41 },
+        proposal: { id: proposalId, nonce: 41 },
         newEndpoint: 'https://new.guardian'
       })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
@@ -12579,6 +12584,16 @@ describe('generateTransaction — Guardian routing', () => {
       expect(isUnconfirmedFailure(row() as never)).toBe(false);
     }
   );
+
+  it('abandons a discarded switch by its nonce alone when the stored proposal id is not a string', async () => {
+    const abandonCandidate = jest.fn(async (_nonce: number, _proposalId: string | undefined) => {});
+    const { run, row } = startDiscardedLandedSwitch('switch-discarded-malformed-id', abandonCandidate, false, 77);
+    await run;
+
+    expect(abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(abandonCandidate).toHaveBeenCalledWith(41, undefined);
+    expect(row().status).toBe(ITransactionStatus.Failed);
+  });
 
   it("still fails a discarded switch on the node's verdict when the abandon is refused", async () => {
     const abandonCandidate = jest.fn(async (_nonce: number) => {

@@ -1302,9 +1302,16 @@ async function reconcileStructuralApplyFailure(
     // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
     const switchInputs = (tx as SwitchGuardianTransaction).extraInputs;
     const nonce = switchInputs?.switchProposalNonce;
+    const proposalId = switchInputs?.switchProposalId;
     if (isGuardianSwitchDiscardedError(error) && typeof nonce === 'number') {
-      if (service) await abandonDiscardedCandidate(tx.accountId, service, nonce, switchInputs?.switchProposalId);
-      else flagCandidateForAbandon(tx.accountId, nonce);
+      if (service) {
+        await abandonDiscardedCandidate(
+          tx.accountId,
+          service,
+          nonce,
+          typeof proposalId === 'string' ? proposalId : undefined
+        );
+      } else flagCandidateForAbandon(tx.accountId, nonce);
     }
     throw error;
   }
