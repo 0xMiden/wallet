@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { spawnSync } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 
 const MESSAGE =
@@ -23,6 +24,16 @@ const lint = async (code: string, filePath: string) => {
 
 const WRITE = 'client.transactions.executeRequest(id, req);\n';
 
+// Pinned here so a new exemption is a reviewed test edit, not only a config line.
+const ALLOWLIST = [
+  'src/lib/miden/sdk/miden-client-interface.ts',
+  'src/lib/miden/back/miden-client-proxy.ts',
+  'src/offscreen/main.ts',
+  'src/lib/miden/sdk/dry-run-request.ts',
+  'src/lib/miden/sdk/custom-dry-run.ts',
+  'src/lib/miden/transaction/index.ts'
+];
+
 // Each case starts ESLint with the full config, which takes seconds under a loaded coverage run.
 jest.setTimeout(60_000);
 
@@ -37,6 +48,19 @@ describe('effect-checked write lint', () => {
       expect(await lint(`client.${name}(a);\n`, 'src/lib/miden/foo/bar.ts')).toEqual([MESSAGE]);
     }
   );
+
+  it('allowlists only the files that make a gated write', () => {
+    const config = JSON.parse(fs.readFileSync(path.join(ROOT, '.eslintrc'), 'utf8'));
+    const overrides = config.overrides.filter((o: { rules?: Record<string, unknown> }) =>
+      Array.isArray(o.rules?.['no-restricted-syntax'])
+    );
+    expect(overrides).toHaveLength(1);
+    expect(overrides[0].files).toEqual(ALLOWLIST);
+  });
+
+  it('reports a raw write in the custom-transaction simulator, which only dry-runs through custom-dry-run.ts', async () => {
+    expect(await lint(WRITE, 'src/lib/miden/back/simulate-custom-tx.ts')).toEqual([MESSAGE]);
+  });
 
   it('allows the write in an allowlisted file', async () => {
     expect(await lint(WRITE, 'src/lib/miden/sdk/dry-run-request.ts')).toEqual([]);

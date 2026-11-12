@@ -319,7 +319,6 @@
         "src/offscreen/main.ts",
         "src/lib/miden/sdk/dry-run-request.ts",
         "src/lib/miden/sdk/custom-dry-run.ts",
-        "src/lib/miden/back/simulate-custom-tx.ts",
         "src/lib/miden/transaction/index.ts"
       ],
       "rules": {
