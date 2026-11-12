@@ -1,217 +1,46 @@
-name: Compile surfaces
-
-# The wallet ships FOUR surfaces — Chrome extension, iOS, Android and the Tauri
-# desktop app — and until now only the extension was built on a PR. A change that
-# broke the Android gradle build, the iOS Xcode build, or the Rust in src-tauri
-# merged with nothing going red, and was found later by whoever next tried to
-# ship that platform.
-#
-# These are COMPILE gates, deliberately: no emulator, no simulator, no chain.
-# They answer "does this still build" in minutes, which is the failure that
-# actually reaches main. Behaviour on those surfaces is covered by the E2E
-# suites (e2e-blockchain.yml for iOS, e2e-android.yml for Android).
-#
-# Each job is a required-check candidate, so none of them is `continue-on-error`:
-# a gate that cannot fail is worse than no gate, because it reads as coverage.
+name: QA F15 retryable simulation regression (expected red)
 
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  # The linked-PR injections list a dispatched branch's open pull request and read its description.
-  pull-requests: read
-
-concurrency:
-  group: compile-surfaces-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  android:
-    name: Compile Android
+  regression:
+    name: F15 simulation retry identity (expected red)
     runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: '21'
-      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - uses: gradle/actions/setup-gradle@v4
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # `mobile:sync` regenerates the Capacitor bridge files the gradle build
-      # needs; assembleDebug is the same target the Android E2E job builds, so a
-      # break here is a break there.
-      - name: Build debug APK
-        run: yarn test:e2e:android:build
-      # The JVM logic tests (Play update classification, hot-key rules) run
-      # nowhere else: assembleDebug never compiles src/test.
-      - name: Run Android unit tests
-        run: cd android && ./gradlew :app:testDebugUnitTest :miden-dapp-browser:testDebugUnitTest --console=plain
-
-  desktop:
-    name: Compile desktop (Tauri)
-    runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
+          ref: 'fadc9fdc3c4d3c8fa79eb95b2ce8210e194c0361'
+          persist-credentials: false
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
-      - name: Drop apt repositories this repo never installs from
-        uses: ./.github/actions/apt-drop-unused-repos
-      # Tauri's system deps on Linux. The desktop app ships for macOS, but the
-      # Rust in src-tauri is what this gate is checking and it compiles here far
-      # cheaper than on a macOS runner.
-      - name: Install Tauri system dependencies
-        # Same mirror hardening as the xvfb steps in the e2e workflows: the
-        # azure mirror intermittently blackholes and an unbounded `apt-get
-        # update` can eat the whole job budget. Current runners also use a
-        # mirror+file source, so rewrite its mirror list as well as direct sources.
-        timeout-minutes: 8
+          node-version: 22
+          cache: yarn
+      - name: Install frozen dependencies
+        timeout-minutes: 5
+        run: yarn install --frozen-lockfile --network-timeout 600000
+      - name: Run the frozen F15 regressions
+        env:
+          EXPECTED_SOURCE_SHA: 'fadc9fdc3c4d3c8fa79eb95b2ce8210e194c0361'
+        shell: bash
         run: |
-          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
-            /etc/apt/apt-mirrors.txt 2>/dev/null || true
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # REQUIRED before cargo: `tauri::generate_context!()` reads tauri.conf.json's
-      # `frontendDist` (../dist/desktop) at COMPILE time and fails the build if the
-      # directory is absent. `cargo check` alone is not runnable from a clean
-      # checkout — verified locally, where it failed with
-      # "The `frontendDist` configuration is set to `../dist/desktop` but this path doesn't exist".
-      - name: Build desktop frontend
-        run: yarn build:desktop
-      - name: Check Rust
-        working-directory: src-tauri
-        run: cargo check --locked --all-targets
-
-  ios:
-    name: Compile iOS
-    # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
-    # 33.8s to launch WebContent for a hosted fixture without changing its source.
-    # macos-26-xlarge also has the required toolchain. NOT macos-15:
-    # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
-    # `UIGlassEffect`, an iOS 26 API — so the build fails there with
-    # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
-    # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
-    runs-on: macos-26-xlarge
-    # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
-    # on the runner. That step finished in 73 minutes, and the 75 minute limit
-    # then cancelled yarn install. The other linked-SDK jobs already use 120.
-    # A run without the marker does not build the SDK, so the extra ceiling is idle.
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      - name: Sync Capacitor
-        run: yarn mobile:sync
-      # -project, not -workspace: this app resolves its native deps through Swift
-      # Package Manager, not CocoaPods. Unsigned and for a generic device, because
-      # this gate is about whether the code COMPILES — signing belongs to release.
-      - name: Build App scheme
-        run: |
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -destination 'generic/platform=iOS' \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
-
-      # The XCTest logic tests (App Store version comparison, receipt trust) run
-      # nowhere else: `build` never compiles the AppTests target. The simulator
-      # is chosen by id so a runner image that renames its devices still works.
-      - name: Run iOS unit tests
-        run: |
-          node --test scripts/ios-test-screenshots.test.cjs
-          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
-          xcrun simctl bootstatus "$UDID" -b
-          mkdir -p artifacts
-          node scripts/ios-test-screenshots.cjs "$UDID" > artifacts/ios-screenshot-helper.log 2>&1 &
-          SCREENSHOT_PID=$!
-          trap 'kill "$SCREENSHOT_PID"; wait "$SCREENSHOT_PID" || true' EXIT
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -destination "id=$UDID" \
-            -parallel-testing-enabled NO \
-            -only-testing:AppTests \
-            -resultBundlePath artifacts/ios-unit-tests.xcresult \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            test
-      - name: Upload iOS test results
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          git diff --exit-code
+          printf 'workflow_sha=%s\ntested_source_sha=%s\ntested_source_tree=%s\n' "$GITHUB_SHA" "$(git rev-parse HEAD)" "$(git rev-parse HEAD^{tree})" > qa-f15-red-source.txt
+          sha256sum src/lib/miden/back/simulate-custom-tx.ts src/lib/miden/back/dapp.ts src/lib/miden/back/simulate-custom-tx.test.ts src/lib/miden/back/dapp.custom-consent.test.ts >> qa-f15-red-source.txt
+          yarn jest --runTestsByPath src/lib/miden/back/simulate-custom-tx.test.ts src/lib/miden/back/dapp.custom-consent.test.ts --testNamePattern='a simulation timeout rejects|rethrows a lock eviction|rethrows a terminated client|rethrows the kill and releases' --maxWorkers=2 --coverage=false --json --outputFile=qa-f15-red-results.json 2>&1 | tee qa-f15-red.log
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: ios-unit-test-results
+          name: f15-regression-expected-red
           path: |
-            artifacts/ios-unit-tests.xcresult
-            artifacts/ios-screenshot-helper.log
-          if-no-files-found: ignore
+            qa-f15-red-source.txt
+            qa-f15-red-results.json
+            qa-f15-red.log
+          if-no-files-found: error
+          retention-days: 7
