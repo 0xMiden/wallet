@@ -76,5 +76,16 @@ jobs:
                 edges{node{note_id sender block_number}} pageInfo{hasNextPage}}}`;
             const metadata = await read(query, { id: sample.note_id, account: sample.sender, height: sample.block_number });
             console.log(JSON.stringify({ url, metadata, purpose: 'Public transaction/note ID correlation probe only; not funded loop acceptance' }));
+            const { RpcClient, Endpoint, NoteId, Word, Address } = await import('@miden-sdk/miden-sdk');
+            const rpc = new RpcClient(new Endpoint('https://rpc.mainnet.miden.io'));
+            const fetched = await rpc.getNotesById([NoteId.fromHex(sample.note_id)]);
+            const height = Number(sample.block_number);
+            const header = await rpc.getBlockHeaderByNumber(height);
+            const note = fetched[0]; const proof = note?.inclusionProof;
+            const verified = fetched.length === 1 && note.noteId.toString() === sample.note_id &&
+              proof.location().blockNum() === height && header.blockNum() === height &&
+              note.metadata.sender().toString() === Address.fromBech32(sample.sender).getAccountId().toString() &&
+              proof.notePath().verify(BigInt(proof.location().blockNoteTreeIndex()), Word.fromHex(sample.note_id), header.noteRoot());
+            console.log(JSON.stringify({ publicNoteProof: { noteId: sample.note_id, blockNumber: height, verified }, purpose: 'Read-only real SDK Merkle inclusion check; no note bytes or keys' }));
           } catch { console.log(JSON.stringify({ url, status: 'unavailable' })); }
           NODE
