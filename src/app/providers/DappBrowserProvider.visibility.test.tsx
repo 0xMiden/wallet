@@ -1900,6 +1900,59 @@ describe('native morph adoption', () => {
     expect(control().mode).toBe('launcher');
   });
 
+  it('adopts an expansion id from a capsule minimize and parks only after its collapsed terminal', async () => {
+    await openForeground();
+    mockMorph.mockResolvedValue({ accepted: true });
+    act(() => control().reportLandingCard(CARD));
+    let firstParking: Promise<void> = Promise.resolve();
+    act(() => {
+      firstParking = control().park('origin');
+    });
+    await settle();
+    const firstId = lastMorphId();
+    emitMorph('started', 'collapsed', firstId);
+    emitMorph('settled', 'collapsed', firstId);
+    await act(async () => firstParking);
+    expect(parked()).toEqual(['origin']);
+
+    await act(async () => void control().restore('origin', { card: CARD }));
+    await settle();
+    const expansionId = lastMorphId();
+    emitMorph('started', 'expanded', expansionId);
+    emitMorph('retargeted', 'collapsed', expansionId);
+    const callsBeforeMinimize = mockMorph.mock.calls.length;
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: expansionId })));
+
+    expect(control().motion).toMatchObject({ id: 'origin', morphId: expansionId, target: 'collapsed' });
+    expect(mockMorph).toHaveBeenCalledTimes(callsBeforeMinimize);
+    expect(parked()).toEqual([]);
+    emitMorph('settled', 'collapsed', expansionId);
+    await settle();
+    expect(parked()).toEqual(['origin']);
+
+    await act(async () => void control().restore('origin', { card: CARD }));
+    await settle();
+    const unsettledExpansionId = lastMorphId();
+    emitMorph('started', 'expanded', unsettledExpansionId);
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: unsettledExpansionId })));
+    expect(control().motion).toMatchObject({ id: 'origin', morphId: unsettledExpansionId, target: 'collapsed' });
+    emitMorph('settled', 'expanded', unsettledExpansionId);
+    await settle();
+    expect(parked()).toEqual([]);
+  });
+
+  it('parks a native minimize without a morph id through the guarded route without a morph wait', async () => {
+    await openForeground();
+    jest.useFakeTimers();
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent()));
+    await settle();
+
+    expect(control().motion).toBeNull();
+    expect(mockMorph).not.toHaveBeenCalled();
+    expect(parked()).toEqual(['origin']);
+    expect(control().mode).toBe('launcher');
+  });
+
   it('follows an adopted native collapse as started when its started event came first', async () => {
     await openForeground();
 

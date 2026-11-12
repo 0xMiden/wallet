@@ -22,6 +22,7 @@
 - [CHANGE][mobile] Mobile dApp browser: native listeners attach frame identity; the Android JavaScript-interface fallback forwards page events without frame identity, so the wallet bridge refuses fallback wallet requests while generic app events still reach their listeners.
 - [CHANGE][mobile] Mobile dApp browser: answer a verified main-frame availability PING while the session origin trails the document; continue refusing other origin-mismatched messages.
 - [FIX][all] New Guardian accounts derive their account seed separately from the recovery key's seed, so the account's stored seed never carries key material.
+- [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
 - [FIX][all] Token logos come only from the verified token list by faucet id, so the Bridge in review shows the token's logo (POL) and the Miden logo on its To row, and a token can no longer borrow another token's logo by its symbol (#2093).
 - [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
 - [FIX][all] Single-key accounts now refuse to sign a claim or dApp transaction that moves more than was approved, the check Guardian accounts already had.

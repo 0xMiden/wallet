@@ -7,6 +7,7 @@ final class BreadPresentationState {
     private final long timeout;
     private long generation;
     private long navigationGeneration;
+    private long inputAuthority; // Geometry and paint changes do not revoke an accepted gesture.
     private long remaining;
     private long lastTick;
     private boolean visible = true;
@@ -31,6 +32,8 @@ final class BreadPresentationState {
         this.timeout = timeout; remaining = timeout; visible = initiallyVisible;
     }
     long navigationGeneration() { return navigationGeneration; }
+    long inputAuthority() { return inputAuthority; }
+    void revokeInputAuthority() { inputAuthority++; }
     long generation() { return generation; }
     boolean fullscreen() { return fullscreen; }
     boolean isReady() { return ready; }
@@ -67,6 +70,7 @@ final class BreadPresentationState {
         if (closed) return;
         generation++;
         navigationGeneration++;
+        revokeInputAuthority();
         policyRevision++;
         acknowledgedPolicy = -1;
         configured = ready = painted = revealed = failed = false;
@@ -78,7 +82,9 @@ final class BreadPresentationState {
     void configure(String token, boolean fullscreen, boolean manualReady) {
         if (closed || failed) return;
         this.token = token;
-        if (!configured || this.fullscreen != fullscreen) { policyRevision++; acknowledgedPolicy = -1; }
+        if (!configured || this.fullscreen != fullscreen) {
+            policyRevision++; acknowledgedPolicy = -1; revokeInputAuthority();
+        }
         if (this.fullscreen != fullscreen) layoutChanged();
         this.fullscreen = fullscreen;
         configured = true;
@@ -126,12 +132,14 @@ final class BreadPresentationState {
         if (closed || visible == value) return;
         tick(now);
         visible = value;
+        if (!value) revokeInputAuthority();
         layoutChanged();
     }
     void foreground(boolean value, long now) {
         if (closed || foreground == value) return;
         tick(now);
         foreground = value;
+        if (!value) revokeInputAuthority();
         layoutChanged();
     }
     boolean tick(long now) {
@@ -144,7 +152,7 @@ final class BreadPresentationState {
     }
     void fail() {
         if (!closed && !failed) {
-            if (!policyResolved()) { policyRevision++; acknowledgedPolicy = -1; }
+            if (!policyResolved()) { policyRevision++; acknowledgedPolicy = -1; revokeInputAuthority(); }
             failed = true;
             layoutChanged();
         }
@@ -152,6 +160,7 @@ final class BreadPresentationState {
     boolean close() {
         if (closed) return false;
         closed = true;
+        revokeInputAuthority();
         motion = Motion.NONE;
         generation++;
         navigationGeneration++;

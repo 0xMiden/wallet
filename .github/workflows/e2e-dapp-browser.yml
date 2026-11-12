@@ -34,6 +34,9 @@ on:
           - all
           - auth-tab
           - presentation-compare
+          - presentation-gesture-api36
+          - presentation-gesture-ios
+          - presentation-gestures
         default: all
       baseline_sha:
         description: Exact base commit for the Android presentation comparison
@@ -56,7 +59,7 @@ concurrency:
 jobs:
   ios-dapp-browser:
     name: dApp Browser (iOS)
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || (inputs.suite == 'presentation-gesture-ios' || inputs.suite == 'presentation-gestures')
     runs-on: macos-26-xlarge
     # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 135 || 60 }}
@@ -215,10 +218,45 @@ jobs:
           }
 
       - name: Run dApp browser E2E (iOS)
+        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
         # --retries=2 absorbs the CDP "no pages found" / degraded-CoreSimulator
         # hiccups the other iOS jobs see. Each retry re-installs and re-launches
         # from scratch, so a transient runner fault gets a clean attempt.
         run: yarn playwright test --config playwright.ios.dapp.config.ts --retries=2
+
+      - name: Verify installed idb HID contract
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-gesture-ios' || inputs.suite == 'presentation-gestures')
+        run: |
+          mkdir -p test-results-ios/presentation-gesture
+          brew list --versions idb-companion > test-results-ios/presentation-gesture/idb-companion-version.txt
+          python3 -m unittest discover -s playwright/e2e/ios/helpers -p idb_hid_path_test.py -v > test-results-ios/presentation-gesture/idb-hid-selfcheck.log 2>&1
+          cat test-results-ios/presentation-gesture/idb-hid-selfcheck.log
+          grep -E '^Ran 5 tests in ' test-results-ios/presentation-gesture/idb-hid-selfcheck.log
+
+      - name: Run native iOS capsule gesture acceptance
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-gesture-ios' || inputs.suite == 'presentation-gestures')
+        env:
+          DAPP_PRESENTATION_GESTURE_IOS: '1'
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          yarn playwright test --config playwright.ios.presentation-gesture.config.ts --retries=0
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = 'test-results-ios/presentation-gesture';
+          const r = JSON.parse(fs.readFileSync(path.join(root, 'results.json'), 'utf8'));
+          if (r.stats.expected !== 1 || r.stats.unexpected !== 0 || r.stats.skipped !== 0 || r.stats.flaky !== 0)
+            throw new Error('Exactly one native-input test must pass without skips/retries');
+          const find = dir => fs.readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
+            const file = path.join(dir, entry.name);
+            return entry.isDirectory() ? find(file) : entry.name === 'capsule-gesture-cases.json' ? [file] : [];
+          });
+          const evidence = find(root);
+          if (evidence.length !== 1) throw new Error('Native gesture case evidence is missing or duplicated');
+          const result = JSON.parse(fs.readFileSync(evidence[0], 'utf8'));
+          if (result.sourceSha !== process.env.GITHUB_SHA || result.caseCount !== 3 || result.cases.length !== 3)
+            throw new Error('Expected three executed native gesture cases on the exact workflow source');
+          NODE
 
       - name: Upload artifacts
         if: always()
@@ -231,12 +269,12 @@ jobs:
 
   android-dapp-browser:
     name: dApp Browser (Android)
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'presentation-compare'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
     # The emulator needs KVM. GitHub's ubuntu runners have it; the WarpBuild hosts behind
     # warp-ubuntu-latest-x64-8x stopped exposing /dev/kvm on 2026-09-15 ("Enable KVM" failed before any build).
     runs-on: ubuntu-latest
     # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare' && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures') && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: testnet
       MIDEN_E2E_TEST: 'true'
@@ -318,7 +356,7 @@ jobs:
           E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Validate exact comparison commits
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         env:
           BASELINE_SHA: ${{ inputs.baseline_sha }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -333,7 +371,7 @@ jobs:
           echo "baseline=$BASELINE_SHA candidate=$CANDIDATE_SHA" | tee test-results-android/presentation-comparison-source.txt
 
       - name: Build baseline APK for presentation comparison
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         env:
           BASELINE_SHA: ${{ inputs.baseline_sha }}
         run: |
@@ -421,7 +459,7 @@ jobs:
         run: yarn test:e2e:android:build
 
       - name: Save candidate APK for presentation comparison
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/wallet-presentation-after.apk"
           test -s "$RUNNER_TEMP/wallet-presentation-after.apk"
@@ -437,7 +475,7 @@ jobs:
         run: yarn test:e2e:android:dapp:run
 
       - name: Download pinned Perfetto Trace Processor
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/perfetto-linux-amd64.zip"
@@ -449,7 +487,7 @@ jobs:
           "$RUNNER_TEMP/perfetto/trace_processor_shell" --version
 
       - name: Run alternating native-tap FrameTimeline comparison
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         env:
           BASELINE_APK: ${{ runner.temp }}/wallet-presentation-before.apk
           CANDIDATE_APK: ${{ runner.temp }}/wallet-presentation-after.apk
@@ -485,7 +523,7 @@ jobs:
           run_variant "${order[1]}"
 
       - name: Analyze before and after FrameTimeline traces
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: always() && github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         run: |
           node scripts/analyze-native-frame-timeline.mjs \
             "$RUNNER_TEMP/perfetto/trace_processor_shell" \
@@ -515,6 +553,105 @@ jobs:
           path: test-results-android/
           retention-days: 7
           if-no-files-found: ignore
+
+  android-presentation-gesture:
+    name: Android API36 presentation gestures
+    if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-gesture-api36' || inputs.suite == 'presentation-gestures')
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 90 }}
+    env:
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
+      ANDROID_SERIAL: emulator-5554
+      E2E_NETWORK: testnet
+      MIDEN_E2E_TEST: 'true'
+      # This standalone provider uses the same first-party snapshot as Auth Tab, independently pinned here.
+      PRESENTATION_WEBVIEW_URL: https://storage.googleapis.com/chromium-browser-snapshots/AndroidDesktop_x64/1726326/chrome-android-desktop.zip
+      PRESENTATION_WEBVIEW_ARCHIVE_SHA256: b39db5cafdf8c401b499b078b826b594b69eb12a3ac3213caa304ae26d045cad
+      PRESENTATION_WEBVIEW_SHA256: e1dae242d29551381ce493f58bd2572e57f6212d732abd83f48e594c479ecb72
+      PRESENTATION_WEBVIEW_APK: ${{ github.workspace }}/.presentation-SystemWebView.apk
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install SDK packages
+        run: sdkmanager --install "platform-tools" "emulator" "build-tools;36.0.0" "platforms;android-36" "system-images;android-36;google_apis;x86_64"
+      - name: Download and verify pinned presentation WebView
+        run: |
+          set -euo pipefail
+          mkdir -p test-results-presentation-gesture
+          archive="$RUNNER_TEMP/presentation-webview.zip"
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 180 "$PRESENTATION_WEBVIEW_URL" --output "$archive"
+          echo "$PRESENTATION_WEBVIEW_ARCHIVE_SHA256  $archive" | sha256sum --check
+          unzip -p "$archive" chrome-android-desktop/apks/SystemWebView.apk > "$PRESENTATION_WEBVIEW_APK"
+          echo "$PRESENTATION_WEBVIEW_SHA256  $PRESENTATION_WEBVIEW_APK" | sha256sum --check
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$PRESENTATION_WEBVIEW_APK" > test-results-presentation-gesture/webview-apk-identity.txt
+          grep -qF "package: name='com.android.webview' versionCode='812100007' versionName='158.0.8121.0'" test-results-presentation-gesture/webview-apk-identity.txt
+          grep -qxF "sdkVersion:'29'" test-results-presentation-gesture/webview-apk-identity.txt
+          grep -qxF "targetSdkVersion:'36'" test-results-presentation-gesture/webview-apk-identity.txt
+          grep -qxF "native-code: 'x86_64'" test-results-presentation-gesture/webview-apk-identity.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump xmltree "$PRESENTATION_WEBVIEW_APK" AndroidManifest.xml > test-results-presentation-gesture/webview-manifest.txt
+          grep -qF 'com.android.webview.WebViewLibrary' test-results-presentation-gesture/webview-manifest.txt
+          grep -qF 'libwebviewchromium.so' test-results-presentation-gesture/webview-manifest.txt
+          printf 'url=%s\narchive_sha256=%s\napk_sha256=%s\n' "$PRESENTATION_WEBVIEW_URL" "$PRESENTATION_WEBVIEW_ARCHIVE_SHA256" "$PRESENTATION_WEBVIEW_SHA256" > test-results-presentation-gesture/webview-provenance.txt
+          rm "$archive"
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
+      - name: Build debug and instrumentation APKs
+        run: |
+          yarn test:e2e:android:build
+          (cd android && ./gradlew :app:assembleDebugAndroidTest && ./gradlew --stop)
+      - name: Run live API36 managed presentation gestures
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          avd-name: Pixel_API_36_Presentation
+          force-avd-creation: true
+          emulator-boot-timeout: 600
+          cores: 4
+          ram-size: 4096M
+          disable-animations: false
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics
+          script: bash .github/scripts/run-dapp-presentation-gesture-api36.sh
+      - name: Upload gesture acceptance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-presentation-gesture-${{ github.run_id }}
+          path: test-results-presentation-gesture/
+          retention-days: 7
+          if-no-files-found: error
 
   android-auth-tab-acceptance:
     name: Android Auth Tab acceptance

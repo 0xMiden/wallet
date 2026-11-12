@@ -142,3 +142,37 @@ final class BreadPresentationState {
         mainFrame && !messageToken.isEmpty && messageToken == documentToken && startedGeneration == currentGeneration
     }
 }
+
+enum BreadCapsuleDrag {
+    static let commitTravel = 0.3
+    static let projectionSeconds = 0.3
+    static let flingVelocity = 450.0
+    static let maximumProgressVelocity = 8.0
+
+    static func shouldBegin(horizontalVelocity: Double, verticalVelocity: Double) -> Bool {
+        horizontalVelocity.isFinite && verticalVelocity.isFinite
+            && verticalVelocity > 0 && verticalVelocity > abs(horizontalVelocity)
+    }
+
+    static func progress(translationY: Double, distance: Double) -> Double {
+        guard translationY.isFinite, distance.isFinite, distance > 0 else { return 1 }
+        let value = 1 - translationY / distance
+        if value > 1 { return 1 + BreadMorphGeometry.rubberBand((value - 1) * distance, length: distance) / distance }
+        if value < 0 { return BreadMorphGeometry.rubberBand(value * distance, length: distance) / distance }
+        return value
+    }
+
+    static func progressVelocity(verticalVelocity: Double, distance: Double) -> Double {
+        guard verticalVelocity.isFinite, distance.isFinite, distance > 0 else { return 0 }
+        return min(maximumProgressVelocity, max(-maximumProgressVelocity, -verticalVelocity / distance))
+    }
+
+    static func releaseTarget(progress: Double, progressVelocity: Double, verticalVelocity: Double) -> Double {
+        let projected = progress + projectionSeconds * progressVelocity - 1
+        if abs(verticalVelocity) >= flingVelocity && abs(progressVelocity) > 0.01 {
+            return progressVelocity > 0 ? 1 : 0
+        }
+        if abs(projected) >= commitTravel { return projected > 0 ? 1 : 0 }
+        return 1
+    }
+}

@@ -404,6 +404,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // Read through the ref by listeners and effects of the commit that set it; `motion` is its rendered copy.
   const [motion, setMotion] = useState<DappMotion | null>(null);
   const flightRef = useRef<MorphFlight | null>(null);
+  const nativeMinimizeRequests = useRef(0);
   const landingCardRef = useRef<MorphCard | null>(null);
   const morphEventRef = useRef<(event: PresentationMorphEvent) => void>(() => undefined);
   const adoptCollapseRef = useRef<
@@ -711,6 +712,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       });
       listenerRemovers.push(() => presentationL.remove());
       const minimizeL = await InAppBrowser.addListener('presentationMinimizeRequested', event => {
+        if (process.env.MIDEN_E2E_TEST === 'true') nativeMinimizeRequests.current += 1;
         const state = getSessionStateById(event.id);
         const lifetime = event.managedHostCloseToken;
         const instance = state?.instance;
@@ -2532,6 +2534,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (process.env.MIDEN_E2E_TEST !== 'true') return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).__TEST_DAPP_BROWSER__ = {
+      get nativeMinimizeRequestCount() {
+        return nativeMinimizeRequests.current;
+      },
       get pendingConfirmationCount() {
         return dappConfirmationStore.getAllPendingRequests().length;
       },

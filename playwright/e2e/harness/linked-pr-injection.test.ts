@@ -21,9 +21,10 @@ const GUARDED_EVENTS = ['push', 'workflow_dispatch'];
 const NOT_INJECTED =
   "steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'";
 const INJECTED = "steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'";
-const PRESENTATION_COMPARE_ONLY = "github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'";
+const PRESENTATION_COMPARE_ONLY =
+  "github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')";
 const PRESENTATION_COMPARE_TIMEOUT =
-  "${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare' && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}";
+  "${{ github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures') && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}";
 
 /** A step's content lines, trimmed, with the list item's `- ` removed from the first. */
 type Step = { line: number; lines: string[] };
@@ -568,6 +569,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-bridge.yml chrome-bridge-testnet: push 70, dispatch 100',
       'e2e-dapp-browser.yml ios-dapp-browser: push 60, dispatch 135',
       'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 180',
+      'e2e-dapp-browser.yml android-presentation-gesture: push 90, dispatch 120',
       'e2e-dapp-browser.yml android-auth-tab-acceptance: push 60, dispatch 90',
       'e2e-dapp.yml dapp-e2e: push 220, dispatch 250',
       'e2e-dapp.yml dapp-e2e-ios: push 160, dispatch 245',
