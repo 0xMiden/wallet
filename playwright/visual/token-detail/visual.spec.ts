@@ -78,7 +78,7 @@ if (capture === 'before') {
     await expect(page.getByTestId('pending-activity-row')).toBeVisible();
     await captureViewport(page, screenshotPath(testInfo, 'history'));
     const pendingCard = page.locator('[data-pending-status="pending"]');
-    await pendingCard.getByRole('button').click();
+    await pendingCard.getByRole('button', { name: /^Received From:/ }).click();
     await expect(pendingCard.getByTestId('pending-activity-hint')).toContainText('Not yet accepted');
     await captureViewport(page, screenshotPath(testInfo, 'pending'));
   });
