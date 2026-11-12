@@ -19,7 +19,7 @@ import { WalletStatus } from 'lib/shared/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
-const mockSignData = jest.fn(async () => 'fake-sig-base64');
+const mockSignData = jest.fn(async () => ({ signature: 'fake-sig-base64', signedCommitment: 'fake-commitment-b64' }));
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
     vault: {
@@ -2882,7 +2882,8 @@ describe('requests for an account that is not the current one (#1419)', () => {
   it('still signs when the current account is unchanged at approval', async () => {
     await expect(requests.sign!()).resolves.toEqual({
       type: MidenDAppMessageType.SignResponse,
-      signature: 'fake-sig-base64'
+      signature: 'fake-sig-base64',
+      signedCommitment: 'fake-commitment-b64'
     });
     expect(mockSignData).toHaveBeenCalledTimes(1);
   });

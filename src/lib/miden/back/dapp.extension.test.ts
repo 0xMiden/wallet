@@ -49,7 +49,7 @@ _g.__dappExtTestStoreListeners = new Set<(state: unknown) => void>();
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
     vault: {
-      signData: jest.fn(async () => 'fake-signature-base64')
+      signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' }))
     }
   })
 );
@@ -57,7 +57,7 @@ const mockFetchAccounts = jest.fn(async () => [] as unknown[]);
 // What an unlocked store hands `withUnlocked`'s callback here.
 const unlockedContext = () => ({
   vault: {
-    signData: jest.fn(async () => 'fake-signature-base64'),
+    signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' })),
     fetchAccounts: mockFetchAccounts
   }
 });
@@ -797,7 +797,11 @@ describe('requestSign — extension flow', () => {
     );
     const res = await sigPromise;
     expect(res.type).toBe(MidenDAppMessageType.SignResponse);
-    expect((res as any).signature).toBe('fake-signature-base64');
+    expect(res).toEqual({
+      type: MidenDAppMessageType.SignResponse,
+      signature: 'fake-signature-base64',
+      signedCommitment: 'fake-commitment-b64'
+    });
   });
 
   it('rejects with NotGranted when the user declines', async () => {
@@ -1364,6 +1368,33 @@ describe('Full confirmation cycles in extension mode', () => {
     expect(notes[0].noteId).toBe('note-full');
   });
 
+  it('requestConsumableNotes marks each note with whether it is a standard payment', async () => {
+    const base = { noteType: 1, senderAccountId: 'sender-bech32', state: 2, assets: [], swapAttachment: null };
+    const partialNote = { ...base, noteId: null, nullifier: null, standardPayment: true };
+    const dtos = [
+      { ...base, noteId: 'pay', nullifier: 'n-1', standardPayment: true },
+      { ...base, noteId: 'other', nullifier: 'n-2', standardPayment: false },
+      { ...base, noteId: 'legacy', nullifier: 'n-3' },
+      partialNote
+    ];
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue(dtos);
+    _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+    const res = await driveConfirmation(
+      () =>
+        dapp.requestConsumableNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppConsumableNotesConfirmationRequest
+    );
+    const notes = (res as any).consumableNotes;
+    expect(notes.map((n: any) => [n.noteId, n.standardPayment])).toEqual([
+      ['pay', true],
+      ['other', false],
+      ['legacy', false]
+    ]);
+  });
+
   it('requestAssets resolves when confirmed', async () => {
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
       vault: () => ({
@@ -1821,11 +1852,22 @@ describe('Full confirmation cycles in extension mode', () => {
     it('accepts the b64 form the wallet itself handed out at connect', async () => {
       arrangeSignerAccount();
       mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
-        fn({ vault: { signData: jest.fn(async () => 'fake-signature-base64') } })
+        fn({
+          vault: {
+            signData: jest.fn(async () => ({
+              signature: 'fake-signature-base64',
+              signedCommitment: 'fake-commitment-b64'
+            }))
+          }
+        })
       );
 
       const res = await signWith(Buffer.from(SIGNER_COMMITMENT).toString('base64'));
-      expect((res as any).signature).toBe('fake-signature-base64');
+      expect(res).toEqual({
+        type: MidenDAppMessageType.SignResponse,
+        signature: 'fake-signature-base64',
+        signedCommitment: 'fake-commitment-b64'
+      });
     });
 
     it.each([

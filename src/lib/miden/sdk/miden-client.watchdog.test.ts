@@ -1430,6 +1430,7 @@ describe('poisoned client recovery', () => {
     getCurrentWasmLockHold: typeof getCurrentWasmLockHold;
     withWasmLockWatchdogPaused: typeof withWasmLockWatchdogPaused;
     retireWasmClientForCaughtTrap: (hold: WasmLockHold, cause: unknown) => void;
+    retireWasmClientForUnheldTrap: (cause: unknown) => void;
   }
 
   const loadIsolated = async (freeImpl?: () => void) => {
@@ -1998,6 +1999,40 @@ describe('poisoned client recovery', () => {
     expect(listener).toHaveBeenCalledTimes(1);
     expect(await mod.getMidenClient()).toBe(successor);
     expect(create).toHaveBeenCalledTimes(2);
+    unsubscribe();
+  });
+
+  it('an unheld retire disposes the client at once when nothing holds or yields the lock, once per trap', async () => {
+    const { mod, free, create } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    await mod.getMidenClient();
+
+    mod.retireWasmClientForUnheldTrap(trap);
+    mod.retireWasmClientForUnheldTrap(trap);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(free).toHaveBeenCalledTimes(1);
+    await mod.getMidenClient();
+    expect(create).toHaveBeenCalledTimes(2);
+    unsubscribe();
+  });
+
+  it('an unheld retire leaves a current holder alone', async () => {
+    const { mod, free, markPoisoned } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+
+    await mod.withWasmClientLock(async () => {
+      await mod.getMidenClient();
+      mod.retireWasmClientForUnheldTrap(trap);
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(listener).not.toHaveBeenCalled();
+    expect(markPoisoned).not.toHaveBeenCalled();
+    expect(free).not.toHaveBeenCalled();
     unsubscribe();
   });
 
