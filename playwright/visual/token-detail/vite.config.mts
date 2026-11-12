@@ -27,6 +27,7 @@ const fixtureModules: Record<string, string> = {
   'app/env': fixture,
   'app/hooks/useHiddenTokens': fixture,
   'app/hooks/useMidenFaucetId': nativeFaucetFixture,
+  'app/providers/DappBrowserProvider': fixture,
   'app/templates/history/History': historyFixture,
   'components/NetworkModeBanner': fixture,
   'lib/miden-chain/effective-endpoints': fixture,
@@ -36,6 +37,7 @@ const fixtureModules: Record<string, string> = {
   'lib/mobile/haptics': fixture,
   'lib/mobile/useHideNavbarWhileOpen': fixture,
   'lib/platform': fixture,
+  'lib/prices': fixture,
   'lib/remote-config/use-feature-availability': fixture,
   'lib/store': fixture,
   'lib/swr': fixture,
@@ -58,6 +60,15 @@ export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom'],
     alias: [
+      {
+        find: /^lib\/miden\/metadata$/,
+        replacement: resolve(root, 'src/lib/miden/metadata/index.ts'),
+        customResolver(source, importer) {
+          return importer === resolve(root, 'src/lib/i18n/numbers.ts')
+            ? resolve(root, 'src/lib/miden/metadata/defaults.ts')
+            : source;
+        }
+      },
       ...Object.entries(fixtureModules).map(([path, replacement]) => ({
         find: new RegExp('^' + path + '$'),
         replacement

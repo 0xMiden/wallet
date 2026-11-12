@@ -80,6 +80,7 @@ export const useHiddenTokens = () => {
 };
 
 export const useHideNavbarWhileOpen = () => undefined;
+export const useHideForegroundDappWhileOpen = () => undefined;
 export const useUserVisibleError = () => undefined;
 export const NetworkModeBanner = () => null;
 export const hapticLight = () => undefined;
@@ -107,3 +108,6 @@ export * from '../../../src/lib/platform';
 export * from '../../../src/lib/miden-chain/effective-endpoints';
 export * from '../../../src/lib/miden/metadata/overrides';
 export * from '../../../src/lib/token-list/runtime';
+export { pricesLoaded, quotedPrice } from '../../../src/lib/prices/binance';
+export type { Timeframe, TokenPriceInfo } from '../../../src/lib/prices/binance';
+export { fetchKlineData } from '../../../src/lib/prices/feed';
