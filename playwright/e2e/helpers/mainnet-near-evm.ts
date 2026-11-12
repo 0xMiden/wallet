@@ -40,7 +40,9 @@ export function inspectMainnetNearForwardReceipt(
   );
   if (transfers.some(log => log.args.from.toLowerCase() === state.evm.account.toLowerCase()))
     throw new Error('Native NEAR cannot self-fill its payout');
-  const received = transfers.reduce((sum, log) => sum + log.args.value, 0n);
+  const transfer = transfers[0];
+  if (!transfer || transfers.length !== 1) throw new Error('Native NEAR receipt has a missing or ambiguous payout');
+  const received = transfer.args.value;
   if (received < BigInt(state.forwardQuote.minimumOutput))
     throw new Error('Native NEAR payout is below the reviewed output');
   return received;
