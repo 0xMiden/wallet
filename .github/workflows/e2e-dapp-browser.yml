@@ -1,4 +1,4 @@
-name: Isolated timeout regression (expected green)
+name: Configuration-path regression (expected red)
 
 # Diagnostic QA branch only; never a wallet merge gate or runtime adoption.
 on:
@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ripgrep
-      - name: Verify frozen source and run propagation/guard regressions (expected green)
+      - name: Verify frozen source and run configuration-path regression (expected red)
         shell: bash
         env:
           EXPECTED_SOURCE: ${{ inputs.expected_source }}
@@ -45,23 +45,29 @@ jobs:
           archive="$GITHUB_WORKSPACE/.github/qa/2027-timeout-origin-runtime.zip"
           sha256sum "$archive" | tee -a "$proof"
           printf '%s  %s\n' \
-            'c5e41b626c38db3bcf8c22b48a52ad39d265be66cc9994543c4286bd70e4eb27' "$archive" \
+            '01ac99de6bf93e86c7cb8156400ffc6a87d8eb1652712be44adafe8ef4746024' "$archive" \
             | sha256sum --check --strict | tee -a "$proof"
           candidate=$(mktemp -d "$RUNNER_TEMP/2027-timeout-candidate.XXXXXX")
-          # The hash-pinned archive has 170 regular files, all under runtime-0.9.0.
+          # The hash-pinned archive has 171 regular files, all under runtime-0.9.0.
           unzip -q "$archive" -d "$candidate"
           cd "$candidate"
           sha256sum runtime-0.9.0/scripts/rev-evidence.py \
-            runtime-0.9.0/tests/test_prepare_timeout_origin.py | tee -a "$proof"
+            runtime-0.9.0/tests/test_prepare_timeout_origin.py \
+            runtime-0.9.0/tests/test_source_config_paths.py | tee -a "$proof"
           printf '%s\n' \
             'f8851ceb7a40053c194524162a6850beab6495d2002f0865149271daeddcd905  runtime-0.9.0/scripts/rev-evidence.py' \
             'fe8a06df82c4e8e59824be83b6ae937d9c073157c2e23d81a74a6ff8c01d7158  runtime-0.9.0/tests/test_prepare_timeout_origin.py' \
+            '60b1cc297d4ff50392095ab9f9eeb0ec9881630fcb8c380716ad40c0d5d8b578  runtime-0.9.0/tests/test_source_config_paths.py' \
             | sha256sum --check --strict | tee -a "$proof"
 
           python3 -B -m unittest discover \
             -s runtime-0.9.0/tests \
             -p test_prepare_timeout_origin.py \
             -v 2>&1 | tee "$RUNNER_TEMP/2027-timeout-regression.log"
+          python3 -B -m unittest discover \
+            -s runtime-0.9.0/tests \
+            -p test_source_config_paths.py \
+            -v 2>&1 | tee -a "$RUNNER_TEMP/2027-timeout-regression.log"
           bash runtime-0.9.0/tests/run-tests.sh plan_read_budget_counts_the_current_source_target \
             2>&1 | tee -a "$RUNNER_TEMP/2027-timeout-regression.log"
           bash runtime-0.9.0/tests/run-tests.sh evidence_source_context_memo \
