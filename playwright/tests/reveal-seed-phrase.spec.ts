@@ -90,6 +90,8 @@ test.describe('reveal recovery phrase', () => {
     const otherPage = await extensionContext.newPage();
     await otherPage.bringToFront();
     await walletPage.bringToFront();
+    // Playwright emulates focus, so switching pages need not fire a real blur on the wallet page.
+    await walletPage.evaluate(() => window.dispatchEvent(new Event('blur')));
     await expect(reviewPage.getByTestId('seed-word-0')).toHaveCount(0, { timeout: 10_000 });
     await walletPage.screenshot({ path: testInfo.outputPath('posture-reveal-remasked.png') });
     await otherPage.close();
