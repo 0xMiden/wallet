@@ -1001,7 +1001,7 @@ describe('MultisigService', () => {
           expect(abandonCandidate).toHaveBeenCalledTimes(1);
           expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
           expect(multisig.signProposal).not.toHaveBeenCalled();
-          expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(path === 'replace-hot-key' ? 0 : 1);
+          expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
         }
       );
 
@@ -1028,24 +1028,21 @@ describe('MultisigService', () => {
         }
       });
 
-      it.each(paths.filter(entry => entry.path !== 'replace-hot-key'))(
-        '$path: the mismatch abandon observes a null hold',
-        async ({ sdk, create }) => {
-          let holdDuringAbandon: object | null = null;
-          const { service, pathHold, abandonCandidate } = arrange(sdk, OTHER_ID, async () => {
-            holdDuringAbandon = currentWasmHold;
-            return LEGACY_TICKET;
-          });
+      it.each(paths)('$path: the mismatch abandon observes a null hold', async ({ sdk, create }) => {
+        let holdDuringAbandon: object | null = null;
+        const { service, pathHold, abandonCandidate } = arrange(sdk, OTHER_ID, async () => {
+          holdDuringAbandon = currentWasmHold;
+          return LEGACY_TICKET;
+        });
 
-          await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
+        await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
 
-          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
-          expect(holdDuringAbandon).toBeNull();
-          expect(pathHold()).not.toBeNull();
-          expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
-          expect(mockYieldWasmClientLock.mock.calls[0]?.[1]).toBe(pathHold());
-        }
-      );
+        expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
+        expect(holdDuringAbandon).toBeNull();
+        expect(pathHold()).not.toBeNull();
+        expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
+        expect(mockYieldWasmClientLock.mock.calls[0]?.[1]).toBe(pathHold());
+      });
 
       it('a hanging custom abandon still rejects as ProposalIdMismatchError after the warn', async () => {
         jest.useFakeTimers();
@@ -3492,29 +3489,40 @@ describe('MultisigService', () => {
       expect(abandonCandidate).toHaveBeenCalledWith(7, SUMMARY_COMMITMENT);
     });
 
-    it('abandons the captured nonce when SDK verification rejects after the push', async () => {
+    it('labels the proposal with the store nonce plus one and creates it inside the build hold', async () => {
+      let holdDuringCreate: object | null = null;
+      const multisig = makeMultisig({
+        threshold: 1,
+        createProposal: jest.fn(async () => {
+          holdDuringCreate = currentWasmHold;
+          return { kind: 'custom', id: SUMMARY_COMMITMENT, nonce: 5 };
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      mockAccountGet.mockResolvedValue({ nonce: () => ({ asInt: () => 4n }) });
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+
+      await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
+
+      expect(multisig.createProposal).toHaveBeenCalledWith(5, 'base64-bytes', expect.anything());
+      expect(holdDuringCreate).not.toBeNull();
+    });
+
+    it('a post-push verification failure abandons nonce 5 with the summary commitment', async () => {
       const error = new Error('Invalid proposal: bound block mismatch');
       const multisig = makeMultisig({ threshold: 1, createProposal: jest.fn(async () => Promise.reject(error)) });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       const abandonCandidate = stubAbandon(service);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
-      const now = jest.spyOn(Date, 'now').mockReturnValue(123456);
+      mockAccountGet.mockResolvedValue({ nonce: () => ({ asInt: () => 4n }) });
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
-      mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
-        request: { kind: 'request' },
-        salt: { toHex: () => 'salt-hex' }
-      });
-      mockRequestBoundBlockNum.mockReturnValueOnce(4242);
 
-      try {
-        await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(error);
-        expect(now).toHaveBeenCalledTimes(1);
-        expect(abandonCandidate).toHaveBeenCalledTimes(1);
-        expect(abandonCandidate).toHaveBeenCalledWith(123456, SUMMARY_COMMITMENT);
-        expect(mockYieldWasmClientLock).not.toHaveBeenCalled();
-      } finally {
-        now.mockRestore();
-      }
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(error);
+
+      expect(abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(abandonCandidate).toHaveBeenCalledWith(5, SUMMARY_COMMITMENT);
+      expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
     });
 
     it('does not abandon a pre-push failure or a pending conflict', async () => {

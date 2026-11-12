@@ -638,6 +638,19 @@ export class MultisigService {
     );
   }
 
+  /** The account's next nonce, read from the store in `hold`: the Guardian accepts a proposal only at that nonce. */
+  private async nextProposalNonce(hold: WasmLockHold, client: MidenClient, label: string): Promise<number> {
+    const storeAccount = await client.accounts.get(this.accountId);
+    assertWasmHoldCurrent(hold, `${label}: after reading the proposal nonce account`);
+    const nonceAccount = storeAccount ?? this.multisig.account;
+    assertWasmHoldCurrent(hold, `${label}: before reading the proposal nonce`);
+    const nonceValue = BigInt(nonceAccount.nonce().asInt()) + 1n;
+    if (nonceValue > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error('Guardian proposal nonce is too large to represent safely');
+    }
+    return Number(nonceValue);
+  }
+
   /**
    * Create a custom proposal from `requestBytes` and make sure that its id is the summary commitment of these bytes.
    * Every custom proposal the wallet creates goes through here, in the chain-synced hold of its caller.
@@ -678,15 +691,7 @@ export class MultisigService {
         requestBytes,
         label
       );
-      const storeAccount = await client.accounts.get(this.accountId);
-      assertWasmHoldCurrent(hold, `${label}: after reading the proposal nonce account`);
-      const nonceAccount = storeAccount ?? this.multisig.account;
-      assertWasmHoldCurrent(hold, `${label}: before reading the proposal nonce`);
-      const nonceValue = BigInt(nonceAccount.nonce().asInt()) + 1n;
-      if (nonceValue > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new Error('Guardian proposal nonce is too large to represent safely');
-      }
-      const nonce = Number(nonceValue);
+      const nonce = await this.nextProposalNonce(hold, client, label);
       assertWasmHoldCurrent(hold, `${label}: before creating the proposal`);
       const metadata: ProposalMetadata = {
         boundBlockNum,
@@ -1293,7 +1298,7 @@ export class MultisigService {
     // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
-    const { summaryBase64, summaryCommitmentHex, saltHex, boundBlockNum } = await withWasmClientLock(
+    const proposal = await withWasmClientLock(
       async hold => {
         const webClient = (await getMidenClient()).client;
         // An eviction ABANDONS this callback rather than cancelling it, so every
@@ -1332,42 +1337,40 @@ export class MultisigService {
         } finally {
           commitment.free();
         }
-        return {
-          summaryBase64: u8ToB64(summary.serialize()),
-          summaryCommitmentHex,
-          saltHex: salt.toHex(),
-          boundBlockNum
+        const summaryBase64 = u8ToB64(summary.serialize());
+        const saltHex = salt.toHex();
+        const nonce = await this.nextProposalNonce(hold, webClient, 'replace-hot-key');
+        assertWasmHoldCurrent(hold, 'replace-hot-key: before creating the proposal');
+        const metadata: ProposalMetadata = {
+          proposalType: 'add_signer',
+          targetThreshold,
+          targetSignerCommitments,
+          saltHex,
+          boundBlockNum,
+          requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
+          description: 'Replace device (hot) signer'
         };
+
+        // Created in this hold because `createProposal` reads the client store first. Its id must be the commitment
+        // of the summary this device derived and sent, before any signature. A post-push failure abandons this nonce.
+        return this.proposalStep(
+          'proposal_create',
+          async () => {
+            try {
+              const created = await this.multisig.createProposal(nonce, summaryBase64, metadata);
+              await this.requireProposalIdIsCommitment(created, summaryCommitmentHex, hold);
+              return created;
+            } catch (error) {
+              if (isPostPushProposalVerificationFailure(error)) {
+                await this.abandonMismatchCandidate(nonce, summaryCommitmentHex, hold);
+              }
+              throw error;
+            }
+          },
+          'replace-hot-key'
+        );
       },
       { label: 'replace-hot-key-build' }
-    );
-    const metadata: ProposalMetadata = {
-      proposalType: 'add_signer',
-      targetThreshold,
-      targetSignerCommitments,
-      saltHex,
-      boundBlockNum,
-      requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
-      description: 'Replace device (hot) signer'
-    };
-
-    // The id of the proposal must be the commitment of the summary this device derived and sent, before any signature.
-    const proposal = await this.proposalStep(
-      'proposal_create',
-      async () => {
-        const nonce = Date.now();
-        try {
-          const created = await this.multisig.createProposal(nonce, summaryBase64, metadata);
-          await this.requireProposalIdIsCommitment(created, summaryCommitmentHex);
-          return created;
-        } catch (error) {
-          if (isPostPushProposalVerificationFailure(error)) {
-            await this.abandonMismatchCandidate(nonce, summaryCommitmentHex);
-          }
-          throw error;
-        }
-      },
-      'replace-hot-key'
     );
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;
