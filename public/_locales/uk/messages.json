@@ -5854,6 +5854,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "Функція «Розумні транзакції» MetaMask не змогла відправити цю транзакцію. Вимкніть «Розумні транзакції» у налаштуваннях MetaMask і спробуйте ще раз.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "Підключений гаманець",
     "englishSource": "Connected wallet"

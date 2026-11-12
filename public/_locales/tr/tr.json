@@ -1298,6 +1298,7 @@
   "crossChain": "Zincirler arası",
   "evmWalletConnected": "EVM cüzdanı bağlandı",
   "evmChainNotApproved": "Bağlı cüzdan $network$'yi onaylamadı. Onaylamak için cüzdanı yeniden bağlayın.",
+  "evmWalletSmartTransactionsFailed": "MetaMask Akıllı İşlemler bu işlemi gönderemedi. MetaMask ayarlarınızdan Akıllı İşlemler özelliğini kapatın ve tekrar deneyin.",
   "connectedWallet": "Bağlantılı cüzdan",
   "switchWallet": "Cüzdanı değiştir",
   "current": "Mevcut",

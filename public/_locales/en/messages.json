@@ -5852,6 +5852,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "Connected wallet",
     "englishSource": "Connected wallet"

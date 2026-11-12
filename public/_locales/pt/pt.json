@@ -1294,6 +1294,7 @@
   "crossChain": "Entre cadeias",
   "evmWalletConnected": "Carteira EVM conectada",
   "evmChainNotApproved": "A carteira conectada não aprovou $network$. Reconecte a carteira para aprová-la.",
+  "evmWalletSmartTransactionsFailed": "As Transações Inteligentes do MetaMask não conseguiram enviar esta transação. Desative as Transações Inteligentes nas configurações do MetaMask e tente novamente.",
   "connectedWallet": "Carteira conectada",
   "switchWallet": "Trocar carteira",
   "current": "Atual",

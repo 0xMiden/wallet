@@ -34,7 +34,7 @@ import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { USDCX_DECIMALS } from 'lib/usdcx/constant';
 import { isUsdcxPayoutConfirmed, isUsdcxPayoutDelayed } from 'lib/usdcx/destination-status';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
-import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
+import { nativeSigningErrorId, nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate } from 'lib/woozie';
 
@@ -321,13 +321,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
         console.error('[bridge-claim] claim failed', err);
         setStatus('failed');
         await updateBridgeClaimStatus(entry.txId, 'failed');
-        let id: UserErrorId = 'evmChainNotApproved';
-        const message = nativeSigningErrorMessage(err, t, e => {
-          id = 'raw_bridge_claim_failed';
-          return e instanceof Error ? e.message : 'Claim failed';
-        });
-        setError(message);
-        setErrorId(id);
+        setError(nativeSigningErrorMessage(err, t, e => (e instanceof Error ? e.message : 'Claim failed')));
+        setErrorId(nativeSigningErrorId(err) ?? 'raw_bridge_claim_failed');
       }
     } finally {
       setClaimInFlight(false);

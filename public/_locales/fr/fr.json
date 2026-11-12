@@ -1296,6 +1296,7 @@
   "crossChain": "Inter-chaînes",
   "evmWalletConnected": "Portefeuille EVM connecté",
   "evmChainNotApproved": "Le portefeuille connecté n’a pas approuvé $network$. Reconnectez le portefeuille pour l’approuver.",
+  "evmWalletSmartTransactionsFailed": "Les transactions intelligentes de MetaMask n’ont pas pu envoyer cette transaction. Désactivez les transactions intelligentes dans vos paramètres MetaMask et réessayez.",
   "connectedWallet": "Portefeuille connecté",
   "switchWallet": "Changer de portefeuille",
   "current": "Actuel",

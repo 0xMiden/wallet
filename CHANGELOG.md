@@ -35,6 +35,7 @@
 - [FIX][all] Offer a retry when the Earn deposit balance cannot be loaded (#2095).
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 - [FIX][all] Badge credit stays on a completed Mainnet send, swap, claim, or bridge receipt. A recovered receipt counts only after a fresh canonical Guardian read, and a backup cannot supply that credit.
+- [FIX][all] A bridge deposit or claim that the MetaMask Smart Transactions relay refuses with a server error now tells the user to turn off Smart Transactions and try again, instead of showing the raw `{"status":500,...}` error (#2107).
 
 ## 1.17.11 (2026-11-09)
 

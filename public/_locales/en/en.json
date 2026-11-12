@@ -1299,6 +1299,7 @@
   "crossChain": "Cross-chain",
   "evmWalletConnected": "EVM wallet connected",
   "evmChainNotApproved": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+  "evmWalletSmartTransactionsFailed": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again.",
   "connectedWallet": "Connected wallet",
   "switchWallet": "Switch wallet",
   "current": "Current",

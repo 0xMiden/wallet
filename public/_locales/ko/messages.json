@@ -5852,6 +5852,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "MetaMask 스마트 트랜잭션이 이 트랜잭션을 전송할 수 없습니다. MetaMask 설정에서 스마트 트랜잭션을 비활성화한 후 다시 시도해 주세요.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "연동 지갑",
     "englishSource": "Connected wallet"
