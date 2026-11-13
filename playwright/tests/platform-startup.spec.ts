@@ -51,6 +51,11 @@ async function stopWorker(context: BrowserContext, control: Page) {
     const worker = context.serviceWorkers().find(item => item.url() === scriptUrl);
     if (!worker) throw new Error('Restarted worker unavailable');
     await expect.poll(() => worker.evaluate(() => Reflect.get(globalThis, '__platformBeforeStop'))).toBeUndefined();
+    await worker.evaluate(async () => {
+      const ready: unknown = Reflect.get(globalThis, '__midenPlatformStartupReady');
+      if (!(ready instanceof Promise)) throw new Error('Protected startup barrier unavailable');
+      await ready;
+    });
     await protocol.detach();
     await control.close();
     return worker;

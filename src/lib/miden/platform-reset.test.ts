@@ -128,12 +128,19 @@ it('does not clear before an existing account-writer turn ends', async () => {
   const gate = new Promise<void>(resolve => {
     release = resolve;
   });
-  const blocker = getAccountsWriteQueue().add(async () => {
+  const queue = getAccountsWriteQueue();
+  const blocker = queue.add(async () => {
     await gate;
     mockSteps.push('writer');
   });
   const resetting = performAuthorizedExtensionReset(nonce);
-  release();
-  await Promise.all([blocker, resetting]);
+  try {
+    expect(queue.size).toBe(1);
+    expect(mockSteps).toEqual([]);
+    expect(mockData.get('vault_key_password')).toBe('fixture protector');
+  } finally {
+    release();
+    await Promise.all([blocker, resetting]);
+  }
   expect(mockSteps).toEqual(['writer', 'lock', 'wipe']);
 });
