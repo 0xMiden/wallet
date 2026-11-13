@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
@@ -121,8 +122,10 @@ export default defineConfig({
               'if (!e.defaultPrevented) { console.warn("[vitePreload] SW error:", err); }'
             );
 
-          // Strip TLA for ESM module SW compatibility
-          chunk.code = chunk.code.replace(/^await /gm, '/* tla-stripped */ ');
+          // shortcut: the pinned bundler emits sync initializers; revisit if it emits top-level async init calls.
+          if (/^await\s/m.test(chunk.code)) {
+            this.error('Async module initializers must not bypass platform startup readiness');
+          }
 
           // Reconnect the lazy `getVault()` accessor in actions.ts and
           // sync-manager.ts to the auto-generated `vault.ts` ESM factory.
@@ -197,90 +200,11 @@ export default defineConfig({
           // Inject synchronous MV3 event listeners at the very top of the file,
           // BEFORE any module evaluation or async work. Chrome requires these to be
           // registered in the first turn of the event loop.
-          const swListeners = [
-            '// ── MV3 synchronous event listeners (must be first) ──',
-            'chrome.runtime.onInstalled.addListener(function(details) {',
-            '  if (details.reason === "install") {',
-            '    chrome.storage.local.set({ fresh_install: true });',
-            '    chrome.tabs.create({ url: chrome.runtime.getURL("fullpage.html") });',
-            '  }',
-            '});',
-            'chrome.runtime.onConnect.addListener(function(port) {',
-            '  if (port.name === "Popup Connection") {',
-            '    port.onDisconnect.addListener(async function() {',
-            '      await chrome.storage.local.set({ "last-page-closure-timestamp": Date.now().toString() });',
-            '    });',
-            '  }',
-            '});',
-            'chrome.runtime.onMessage.addListener(function() { console.debug("Ping worker"); });',
-            'self.addEventListener("notificationclick", function(event) {',
-            '  event.notification.close();',
-            '  event.waitUntil(self.clients.openWindow(chrome.runtime.getURL("fullpage.html#/receive")));',
-            '});',
-            ''
-          ].join('\n');
+          const wrapper = readFileSync(resolve(__dirname, 'public/sw.js'), 'utf8');
+          const loadBoundary = wrapper.indexOf('// Load the Vite-built background bundle');
+          if (loadBoundary < 0) this.error('Service worker startup load boundary missing');
+          const swListeners = wrapper.slice(0, loadBoundary);
           chunk.code = swListeners + 'var __vitePreload = function(fn) { return fn(); };\n' + chunk.code;
-
-          // Re-inject ALL init awaits inside start()
-          const initCalls: string[] = [];
-          chunk.code.replace(/\/\* tla-stripped \*\/ (init_[\w$]+\(\));?/g, (_m: string, call: string) => {
-            initCalls.push(call.replace(/;$/, ''));
-            return '';
-          });
-          const uniqueInits = [...new Set(initCalls)];
-          // Separate inits into core (must complete) and extended (may hang).
-          // init_actions → init_dapp → init_activity never resolves because
-          // init_activity imports the frontend Zustand store which has a deep
-          // dependency chain that hangs in SW context. Similarly init_transaction_processor
-          // depends on init_activity. We run these fire-and-forget after core inits.
-          const coreInits = uniqueInits.filter(
-            c => !c.includes('init_actions') && !c.includes('init_transaction_processor')
-          );
-          const extendedInits = uniqueInits.filter(
-            c => c.includes('init_actions') || c.includes('init_transaction_processor')
-          );
-          if (coreInits.length > 0) {
-            // Create a Promise that resolves when core inits are done.
-            // Define __initsReady at MODULE SCOPE so processRequest can access it.
-            const coreInitBlock = coreInits.map(c => `  await ${c};`).join('\n');
-            const extendedInitBlock = extendedInits
-              .map(
-                c =>
-                  `    ${c}.catch(function(e) { console.warn("[SW-init] ${c.replace('()', '')} error:", e?.message || e); })`
-              )
-              .join(',\n');
-            chunk.code = chunk.code.replace(
-              /async function processRequest/,
-              [
-                '// Phase 1: Core module inits (must complete for wallet operations)',
-                'var __initsReady = (async function() {',
-                coreInitBlock,
-                '  await init();', // Actions.init() - sets state.inited
-                '  // Phase 2: Extended inits (may hang due to frontend module deps)',
-                '  // Run fire-and-forget with a 30s timeout',
-                extendedInitBlock.length > 0
-                  ? [
-                      '  Promise.race([',
-                      '    Promise.all([',
-                      extendedInitBlock,
-                      '    ]),',
-                      '    new Promise(function(r) { setTimeout(r, 30000); })',
-                      '  ]).then(function() { console.log("[SW-init] Extended inits completed"); })',
-                      '   .catch(function() {});'
-                    ].join('\n')
-                  : '',
-                '})();',
-                '',
-                'async function processRequest'
-              ].join('\n')
-            );
-            // processRequest awaits inits for any request except GET_STATE_REQUEST
-            // SYNC_REQUEST removed from bypass - it should now properly wait for init
-            chunk.code = chunk.code.replace(
-              /async function processRequest\(req[^)]*\)\s*\{/,
-              '$&\n  if (req?.type !== "GET_STATE_REQUEST") { await __initsReady; }'
-            );
-          }
         }
       }
     } satisfies Plugin,
