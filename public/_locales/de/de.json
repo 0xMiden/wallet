@@ -689,6 +689,7 @@
   "guardianInfoSwitchingIsEasyDescription": "Sie können jederzeit mit Ihrer Wiederherstellungsphrase zu einem anderen Guardian wechseln. Es ändert sich lediglich, wer Ihre Transaktionen bestätigt; Ihr Konto und Ihr Guthaben bleiben unverändert.",
   "gotIt": "Verstanden",
   "backUpYourWallet": "Erstellen Sie ein Backup Ihrer Wallet",
+  "recoveryPhraseHidden": "Wiederherstellungsphrase verborgen",
   "show": "Anzeigen",
   "hide": "Ausblenden",
   "copied": "Kopiert",
@@ -724,8 +725,8 @@
   "veryStrong": "Sehr stark!",
   "medium": "Mittel",
   "low": "Niedrig",
-  "8chars1number": "8 Zeichen, 1 Ziffer",
-  "minimumCharsWithAtLeast": "Mindestens 8 Zeichen, darunter mindestens 1 Ziffer",
+  "8chars1number": "Mindestens 12 Zeichen",
+  "minimumCharsWithAtLeast": "Verwenden Sie mindestens 12 Zeichen. Zahlen, Sonderzeichen und die Mischung aus Groß- und Kleinbuchstaben erhöhen die Sicherheit.",
   "backUpWalletInstructions": "Merken Sie sich diese 12 Wörter und bewahren Sie sie an einem sicheren Ort auf.",
   "doNotShareWithAnywone": "Gib diese Informationen an niemanden weiter.",
   "seedPhraseRecoveryCaption": "Deine Wiederherstellungsphrase stellt deine Schlüssel wieder her. Sie dient dazu, deinen Alltagsschlüssel zu rotieren, nicht für alltägliche Transaktionen.",
@@ -1896,5 +1897,8 @@
   "arcadeBalanceUnknown": "Guthaben nicht verfügbar",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Spielmünzen",
-  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst."
+  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
+  "autoLock": "Automatische Sperre",
+  "autoLockDescription": "Sperrt die Wallet, sobald sie so lange im Hintergrund war.",
+  "autoLockMinutes": "$minutes$ min"
 }

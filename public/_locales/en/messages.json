@@ -3223,6 +3223,10 @@
     "message": "Back up your wallet",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Recovery phrase hidden",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Show",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 characters, 1 number",
-    "englishSource": "8 characters, 1 number"
+    "message": "At least 12 characters",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Minimum 8 characters with at least 1 number",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Save these 12 words and store in a secure place.",
@@ -8689,5 +8693,22 @@
   "arcadePostingPolicy": {
     "message": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Auto-lock",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Locks the wallet once it has been in the background this long.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

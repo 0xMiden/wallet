@@ -3223,6 +3223,10 @@
     "message": "Haz una copia de seguridad de tu cartera",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Frase de recuperación oculta",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Mostrar",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 caracteres y 1 número",
-    "englishSource": "8 characters, 1 number"
+    "message": "Al menos 12 caracteres",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Mínimo de 8 caracteres y al menos 1 número",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Utiliza al menos 12 caracteres. Los números, los símbolos y el uso de mayúsculas y minúsculas aumentan la seguridad.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Anota estas 12 palabras y guárdalas en un lugar seguro.",
@@ -8692,5 +8696,22 @@
   "arcadePostingPolicy": {
     "message": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Bloqueo automático",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Bloquea la cartera una vez que ha permanecido inactiva durante tanto tiempo.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

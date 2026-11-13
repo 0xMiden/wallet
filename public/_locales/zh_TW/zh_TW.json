@@ -690,6 +690,7 @@
   "guardianInfoSwitchingIsEasyDescription": "您可隨時使用復原短語切換至另一位Guardian。僅有確認您交易的人員會變更；您的帳戶與資金則維持不變。",
   "gotIt": "明白了",
   "backUpYourWallet": "備份您的錢包",
+  "recoveryPhraseHidden": "備用密句已隱藏",
   "show": "顯示",
   "hide": "隱藏",
   "copied": "已複製",
@@ -725,8 +726,8 @@
   "veryStrong": "非常強勁！",
   "medium": "中",
   "low": "低",
-  "8chars1number": "8 個字元、1 個數字",
-  "minimumCharsWithAtLeast": "至少 8 個字元，其中須包含至少 1 個數字",
+  "8chars1number": "至少 12 個字元",
+  "minimumCharsWithAtLeast": "密碼長度須至少 12 個字元。包含數字、符號及大小寫混合可增強安全性。",
   "backUpWalletInstructions": "請將這 12 個單字保存下來，並存放在安全的地方。",
   "doNotShareWithAnywone": "請勿與任何人分享。",
   "seedPhraseRecoveryCaption": "您的恢復短語用於還原您的金鑰。它用於輪替您的日常簽署金鑰，而非用於日常交易。",
@@ -1906,5 +1907,8 @@
   "arcadeBalanceUnknown": "餘額不可用",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "遊戲幣",
-  "arcadePostingPolicy": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。"
+  "arcadePostingPolicy": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。",
+  "autoLock": "自動鎖定",
+  "autoLockDescription": "當錢包在背景中閒置如此長時間後，系統將鎖定該錢包。",
+  "autoLockMinutes": "$minutes$ 分鐘"
 }
