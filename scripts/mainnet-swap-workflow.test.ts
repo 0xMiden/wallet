@@ -55,6 +55,36 @@ describe('funded nightly swap workflow', () => {
       ).toThrow();
     }
   );
+  it('requires a distinct manual replacement permission and forbids combining it with a first grant', () => {
+    const inputs = object(object(object(document.on).workflow_dispatch).inputs);
+    expect(inputs.replace_unsubmitted_swap_return).toMatchObject({ type: 'boolean', default: false });
+    expect(object(main.env).MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED).toContain(
+      'inputs.replace_unsubmitted_swap_return'
+    );
+    expect(step('Prepare explicitly approved first swap recovery return').if).toContain(
+      'inputs.replace_unsubmitted_swap_return'
+    );
+  });
+  it.each([
+    { first: 'true', swaps: 'true', loops: 'false' },
+    { first: 'false', swaps: 'false', loops: 'false' },
+    { first: 'false', swaps: 'false', loops: 'true' }
+  ])('rejects an ambiguous or non-recovery-only replacement %#', ({ first, swaps, loops }) => {
+    expect(() =>
+      execFileSync('bash', ['-c', String(step('Require an original, unambiguous run').run)], {
+        env: {
+          ...process.env,
+          GITHUB_RUN_ATTEMPT: '1',
+          SWAPS_ONLY: swaps,
+          LOOPS_ONLY: loops,
+          MAINNET_SWAP_RECOVERY_RETURN_APPROVED: first,
+          MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: 'true',
+          MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: '2000000'
+        },
+        stdio: 'pipe'
+      })
+    ).toThrow();
+  });
   it('requires all three provider recoveries to finish before any new native or EVM spending', () => {
     const barrier = index('Clear all-provider recovery barrier');
     expect(barrier).toBeGreaterThan(index('Wait for original NEAR recovery'));

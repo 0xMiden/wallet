@@ -44,6 +44,8 @@ import { exportMakerNote, readLineage } from '../../helpers/swap';
 import { getEnvironmentConfig } from '../../config/environments';
 import {
   authorizeMainnetSwapRecoveryReturn,
+  authorizeMainnetSwapReturnReplacement,
+  readMainnetSwapReturnAbsence,
   readMainnetSwapPayback,
   type MainnetSwapPaybackEvidence,
   type MainnetSwapPaybackScope
@@ -589,8 +591,10 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   const account = await walletB.getAccountAddress();
   if (state && state.account !== account) throw new Error('The checkpoint belongs to a different Guardian account');
   if (mode === 'authorize-recovery-return') {
-    if (process.env.MAINNET_SWAP_RECOVERY_RETURN_APPROVED !== 'true' || !state?.forwardRequestAuthority)
-      throw new Error('Missing explicit first recovery-return approval or original signed checkpoint');
+    const replacement = process.env.MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED === 'true';
+    const first = process.env.MAINNET_SWAP_RECOVERY_RETURN_APPROVED === 'true';
+    if (first === replacement || !state?.forwardRequestAuthority)
+      throw new Error('Missing distinct explicit recovery-return approval or original signed checkpoint');
     const original = state;
     const authority = state.forwardRequestAuthority;
     const scope: MainnetSwapPaybackScope = {
@@ -611,9 +615,19 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       throw new Error('Native fee increased beyond the original recovery budget');
     const before = await balances(walletB, state);
     const quoted = await readLiveSwapLeg(live.service, state.request, state.offer, proof.amount);
-    if (quoted.minimumReceive < BigInt(state.reverseMinimum))
-      throw new Error('Recovery return quote weakened the original minimum');
-    state = authorizeMainnetSwapRecoveryReturn(state, proof, before, runId, new Date().toISOString());
+    const floor =
+      replacement &&
+      state.reverseRequestAuthority &&
+      BigInt(state.reverseRequestAuthority.minimumReceive) > BigInt(state.reverseMinimum)
+        ? state.reverseRequestAuthority.minimumReceive
+        : state.reverseMinimum;
+    if (quoted.minimumReceive < BigInt(floor)) throw new Error('Recovery return quote weakened the original minimum');
+    if (replacement) {
+      if ((await readTransactionRows(walletB.page)).some(row => row.status === 0 || row.status === 1))
+        throw new Error('Unresolved wallet activity prevents replacement authority');
+      const absence = await readMainnetSwapReturnAbsence(getEnvironmentConfig().rpcUrl, state);
+      state = authorizeMainnetSwapReturnReplacement(state, proof, before, runId, new Date().toISOString(), absence);
+    } else state = authorizeMainnetSwapRecoveryReturn(state, proof, before, runId, new Date().toISOString());
     persist(state);
     writeFileSync(
       'test-results/mainnet-swap-recovery-grant.json',
@@ -630,6 +644,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
           verifiedProtocolOrderId: proof.orderId,
           returnAmount: state.returnAmount,
           recoveryReturnAuthorizedAt: state.recoveryReturnAuthorizedAt,
+          recoveryReturnReplacement: state.recoveryReturnReplacement,
           returnExpiresAt: mainnetSwapRequestExpiresAt(state, 'reverse'),
           aggregateNativeCosts: state.paidFees,
           originalFeeBudget: state.feeBudget,
@@ -649,8 +664,11 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
     state.recoveredRunId === runId &&
     state.authorizationRunId === runId
   ) {
+    const replacement = process.env.MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED === 'true';
+    const first = process.env.MAINNET_SWAP_RECOVERY_RETURN_APPROVED === 'true';
     if (
-      process.env.MAINNET_SWAP_RECOVERY_RETURN_APPROVED !== 'true' ||
+      first === replacement ||
+      Boolean(state.recoveryReturnReplacement) !== replacement ||
       state.phase !== 'reverse-authorized' ||
       state.reverseRequestAuthority ||
       state.reverseOrderId ||

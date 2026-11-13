@@ -25,6 +25,7 @@ import { withRpcTimeout } from '../../../src/lib/miden-chain/rpc-timeout';
 import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
 import type { MainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { SWAP_LOSS_CAP, SWAP_TX_FEE_MULTIPLE } from './mainnet-swap-plan';
+import { isRecord } from '../../../src/lib/update/guards';
 
 export interface MainnetSwapPaybackScope extends TestMainnetSwapScope {
   noteId: string;
@@ -171,6 +172,165 @@ export function authorizeMainnetSwapRecoveryReturn(
       request: balances.request.toString(),
       native: balances.native.toString()
     }
+  };
+}
+
+export interface MainnetSwapReturnAbsence {
+  noteId: string;
+  atBlock: number;
+  atTime: number;
+  previousRunId: string;
+  noteCount: number;
+}
+
+export function authorizeMainnetSwapReturnReplacement(
+  state: MainnetSwapCheckpoint,
+  evidence: MainnetSwapPaybackEvidence,
+  balances: MainnetSwapBalances,
+  runId: string,
+  authorizedAt: string,
+  absence: MainnetSwapReturnAbsence
+): MainnetSwapCheckpoint {
+  const previous = state.reverseRequestAuthority;
+  const baseline = state.returnBaseline;
+  if (
+    state.phase !== 'reverse-authorized' ||
+    !previous ||
+    !state.recoveryReturnAuthorizedAt ||
+    state.recoveryReturnReplacement !== undefined ||
+    state.reverseClaimAuthority !== undefined ||
+    state.reverseReceived !== undefined ||
+    state.reverseOrderId !== previous.orderId ||
+    !state.authorizationRunId ||
+    runId === state.authorizationRunId ||
+    !Number.isFinite(Date.parse(authorizedAt)) ||
+    Date.parse(authorizedAt) <= previous.expiresAt ||
+    absence.previousRunId !== state.authorizationRunId ||
+    absence.noteId !== previous.noteId ||
+    absence.noteCount !== 0 ||
+    !Number.isSafeInteger(absence.atBlock) ||
+    absence.atBlock <= 0 ||
+    absence.atBlock < (evidence.claimedAtBlock ?? 0) ||
+    !Number.isSafeInteger(absence.atTime) ||
+    absence.atTime <= previous.expiresAt ||
+    absence.atTime > Date.parse(authorizedAt) ||
+    Date.parse(authorizedAt) - absence.atTime > 120_000 ||
+    !baseline ||
+    baseline.offer !== balances.offer.toString() ||
+    baseline.request !== balances.request.toString() ||
+    baseline.native !== balances.native.toString()
+  )
+    throw new Error('Expired return replacement lacks exact unsubmitted original authority or unchanged balances');
+  const prepared = authorizeMainnetSwapRecoveryReturn(
+    {
+      ...state,
+      phase: 'forward-authorized',
+      reverseRequestAuthority: undefined,
+      reverseOrderId: undefined,
+      recoveryReturnAuthorizedAt: undefined,
+      returnAmount: undefined,
+      returnBaseline: undefined
+    },
+    evidence,
+    balances,
+    runId,
+    authorizedAt
+  );
+  return {
+    ...prepared,
+    recoveryReturnAuthorizedAt: state.recoveryReturnAuthorizedAt,
+    reverseMinimum:
+      BigInt(state.reverseMinimum) > BigInt(previous.minimumReceive) ? state.reverseMinimum : previous.minimumReceive,
+    recoveryReturnReplacement: {
+      authorizedAt,
+      previous: { ...previous },
+      previousRunId: state.authorizationRunId,
+      absentAtBlock: absence.atBlock
+    }
+  };
+}
+
+export function assertFailedMainnetSwapReturnUpload(
+  run: unknown,
+  jobs: unknown,
+  previousRunId: string,
+  workflowId: number
+): void {
+  if (
+    !/^\d{1,25}$/.test(previousRunId) ||
+    !Number.isSafeInteger(Number(previousRunId)) ||
+    !isRecord(run) ||
+    run.id !== Number(previousRunId) ||
+    run.workflow_id !== workflowId ||
+    run.status !== 'completed' ||
+    run.conclusion !== 'failure' ||
+    !isRecord(jobs) ||
+    !Array.isArray(jobs.jobs) ||
+    jobs.jobs.length < 1 ||
+    jobs.jobs.length > 100
+  )
+    throw new Error('Original return workflow is unresolved or foreign');
+  const steps = jobs.jobs.flatMap(job => (isRecord(job) && Array.isArray(job.steps) ? job.steps.filter(isRecord) : []));
+  for (const [name, conclusion] of [
+    ['Upload recovered swap SDK return authority', 'failure'],
+    ['Upload recovered swap SDK return claim authority', 'skipped'],
+    ['Wait for recovered swap return', 'skipped']
+  ]) {
+    const matches = steps.filter(step => step.name === name);
+    if (matches.length !== 1 || matches[0]?.status !== 'completed' || matches[0]?.conclusion !== conclusion)
+      throw new Error('Original return upload or execution outcome is ambiguous');
+  }
+}
+
+export async function readMainnetSwapReturnAbsence(
+  rpcUrl: string,
+  state: MainnetSwapCheckpoint
+): Promise<MainnetSwapReturnAbsence> {
+  const previousRunId = state.authorizationRunId;
+  const authority = state.reverseRequestAuthority;
+  if (
+    !previousRunId ||
+    !/^\d{1,25}$/.test(previousRunId) ||
+    !authority ||
+    !process.env.GH_TOKEN ||
+    process.env.GITHUB_REPOSITORY !== '0xMiden/wallet'
+  )
+    throw new Error('Missing original return workflow identity or read-only metadata access');
+  const get = async (path: string): Promise<unknown> => {
+    const response = await fetch(`https://api.github.com/repos/0xMiden/wallet/${path}`, {
+      headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(30_000)
+    });
+    if (!response.ok) throw new Error(`Original return metadata unavailable: HTTP ${response.status}`);
+    return response.json();
+  };
+  const workflow = await get('actions/workflows/e2e-mainnet-nightly.yml');
+  if (!isRecord(workflow) || typeof workflow.id !== 'number' || !Number.isSafeInteger(workflow.id))
+    throw new Error('Invalid original workflow metadata');
+  assertFailedMainnetSwapReturnUpload(
+    await get(`actions/runs/${previousRunId}`),
+    await get(`actions/runs/${previousRunId}/jobs?per_page=100`),
+    previousRunId,
+    workflow.id
+  );
+  const url = new URL(rpcUrl);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
+    throw new Error('Invalid public return outcome RPC');
+  const rpc = new RpcClient(new Endpoint(rpcUrl));
+  const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(), 'latest return outcome block', {
+    retries: 0
+  });
+  const notes = await withRpcTimeout(
+    () => rpc.getNotesById([NoteId.fromHex(authority.noteId)]),
+    'exact previous return outcome',
+    { retries: 0 }
+  );
+  return {
+    previousRunId,
+    noteId: authority.noteId,
+    atBlock: header.blockNum(),
+    atTime: header.timestamp() * 1000,
+    noteCount: notes.length
   };
 }
 
