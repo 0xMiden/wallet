@@ -1,696 +1,158 @@
-name: E2E dApp Browser
-
-# The dApp-browser journey (open / minimize / maximize / switch / custom URL /
-# leave-and-return / close) on BOTH shipped mobile surfaces.
-#
-# Why its own workflow rather than a spec inside the existing suites: this suite
-# has NO chain dependency — no faucet, no funded account, no miden-client-cli.
-# Folding it into e2e-blockchain / e2e-android would make it pay for ~9 minutes
-# of cargo build it never uses, and would let a testnet outage mask a
-# dApp-browser regression. The specs are `testIgnore`d from the base configs and
-# run here via playwright.{ios,android}.dapp.config.ts — the same split the
-# guardian and bridge-in suites already use.
-#
-# The dApps under test are served by a local fixture server started by the spec
-# (playwright/e2e/harness/dapp-fixture-server.ts), so the run is deterministic
-# and offline: the product path stays entirely real (real native WebView, real
-# plugin, real HTTP), only the page on the other end is pinned.
-#
-# The simulator / emulator bring-up below is copied verbatim from
-# e2e-blockchain.yml and e2e-android.yml. It encodes specific runner failure
-# modes (wedged CoreSimulatorService, ANDROID_AVD_HOME disagreement between
-# avdmanager and the emulator). Extracting all three copies into a composite
-# action is worth doing, but is a refactor of currently-green CI and is left as
-# a follow-up rather than bundled into a new-suite PR.
+name: Swap notice source checks
 
 on:
   workflow_dispatch:
     inputs:
-      suite:
-        description: E2E suite to run
+      expected_source:
+        description: Exact QA commit SHA
         required: true
-        type: choice
-        options:
-          - all
-          - auth-tab
-          - presentation-compare
-        default: all
-      baseline_sha:
-        description: Exact base commit for the Android presentation comparison
-        required: false
-        type: string
-      candidate_sha:
-        description: Exact candidate commit for the Android presentation comparison
-        required: false
         type: string
 
 permissions:
   contents: read
-  # The linked-PR injections list a dispatched branch's open pull request and read its description.
-  pull-requests: read
-
-concurrency:
-  group: e2e-dapp-browser-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  ios-dapp-browser:
-    name: dApp Browser (iOS)
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
-    runs-on: macos-26-xlarge
-    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 135 || 60 }}
-    env:
-      E2E_NETWORK: testnet
-      MIDEN_E2E_TEST: 'true'
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # On a dispatch from a pull request's branch these build against that pull request's linked
-      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
-      - name: Inject linked web-sdk PR
-        id: inject-web-sdk
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        id: inject-guardian
-        uses: ./.github/actions/inject-linked-guardian-pr
-
-      - name: Install dependencies
-        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
-        run: yarn install --frozen-lockfile
-      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
-      - name: Install dependencies (linked PRs injected)
-        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
-        uses: ./.github/actions/yarn-install
-
-      - name: Launch Simulator.app
-        run: open -a Simulator || true
-
-      # idb lets the harness tap "Allow" on the native notification-permission alert
-      # (system-alerts.ts), which lives outside the WebView and otherwise covers the dApp
-      # slot in every paint check. Same install as e2e-blockchain.yml: fb-idb needs
-      # Python 3.11 (it calls asyncio.get_event_loop, gone in the runner's 3.14). This
-      # suite needs idb: its create_wallet step fails when the prompt is not answered,
-      # and the error names why (idb-unavailable carries idb's own last error).
-      - name: Set up Python for idb
-        continue-on-error: true
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install idb (dismiss native notification alert)
-        continue-on-error: true
-        run: |
-          brew trust facebook/fb || true
-          brew install facebook/fb/idb-companion
-          python3 -m pip install fb-idb
-
-      # Fresh-create + boot of custom simulators hangs multi-minute then
-      # errors on macos-26 runners. Pin the test harness to preinstalled
-      # Xcode sims by writing .device-pair.json before globalSetup reads it.
-      - name: Pin test pair to preinstalled simulators
-        shell: bash
-        run: |
-          list_json=$(xcrun simctl list devices --json)
-          UDID_A=$(echo "$list_json" | jq -r '
-            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
-              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
-            | first | .udid // empty')
-          UDID_B=$(echo "$list_json" | jq -r '
-            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
-              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
-            | first | .udid // empty')
-          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
-            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
-            echo "Full device list:"
-            xcrun simctl list devices
-            exit 1
-          fi
-          mkdir -p test-results-ios
-          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
-          echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
-
-      # Kick the cold boot off NOW so it overlaps the ~25-minute app build.
-      # First boot of an iOS 26 runtime on a cold runner takes many minutes
-      # (dyld shared-cache build); booting only in playwright's globalSetup
-      # left the suite racing a half-booted simulator, where simctl
-      # install/launch hang for the full test timeout. `simctl boot` is
-      # asynchronous — globalSetup's bootstatus gate later confirms
-      # readiness, which by then is long since done.
-      - name: Start wallet eligibility fixture
-        uses: ./.github/actions/start-eligibility-fixture
-        env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
-
-      - name: Pre-boot simulators (async, overlaps build)
-        shell: bash
-        run: |
-          # On a cold runner CoreSimulatorService may not respond ("Unable
-          # to boot the Simulator. launchd failed to respond",
-          # SimLaunchHostService code 4) — retry with backoff. If retries
-          # exhaust, the service is wedged, and a wedged CoreSimulatorService
-          # breaks MORE than booting: xcodebuild stops seeing any simulator
-          # destinations, so the build step would fail 25 minutes later
-          # anyway (observed). Restart the service once; if the subsystem
-          # still can't boot, fail the job HERE — minutes in, clearly
-          # attributed, and cheap to rerun.
-          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
-          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
-          boot_with_retry() {
-            local udid="$1"
-            for attempt in 1 2 3 4; do
-              state=$(xcrun simctl list devices | grep "$udid" | grep -o '(Booted)\|(Shutdown)\|(Booting)' || true)
-              if [[ "$state" == "(Booted)" || "$state" == "(Booting)" ]]; then
-                echo "$udid already $state"
-                return 0
-              fi
-              if xcrun simctl boot "$udid"; then
-                echo "$udid boot issued (attempt $attempt)"
-                return 0
-              fi
-              echo "boot attempt $attempt for $udid failed; retrying in 20s"
-              sleep 20
-            done
-            return 1
-          }
-          ensure_bootable() {
-            local udid="$1"
-            if boot_with_retry "$udid"; then return 0; fi
-            echo "CoreSimulatorService appears wedged; restarting it"
-            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
-            sleep 15
-            open -a Simulator || true
-            sleep 10
-            if boot_with_retry "$udid"; then return 0; fi
-            echo "::error::simulator subsystem unusable on this runner (boot of $udid failed after CoreSimulatorService restart)"
-            return 1
-          }
-          ensure_bootable "$UDID_A"
-          ensure_bootable "$UDID_B"
-          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
-
-      # The iOS app is built for a GENERIC simulator destination
-      # (generic/platform=iOS Simulator) — see the test:e2e:mobile:build
-      # script. A build doesn't need a concrete booted device, and the
-      # generic destination resolves to the "Any iOS Simulator Device"
-      # placeholder even when Xcode's IDE-layer CoreSimulator goes blind to
-      # concrete sims on macos-26 runners (the failure mode that a
-      # name=iPhone 17 destination hit here — xcodebuild listed zero concrete
-      # destinations and failed with "Unable to find a device"). This is the
-      # same approach build-mobile.yml's release iOS build already uses. The
-      # pinned sims are still pre-booted above for the test-run phase, which
-      # reaches them via simctl by UDID, independent of xcodebuild.
-
-      - name: Build iOS app
-        # Same SwiftPM-cache self-heal as e2e-blockchain.yml: on a failed build,
-        # wipe the corrupt cache + derived data and retry once.
-        run: |
-          yarn test:e2e:mobile:build || {
-            echo "::warning::iOS build failed; clearing SwiftPM cache and retrying once"
-            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
-            yarn test:e2e:mobile:build
-          }
-
-      - name: Run dApp browser E2E (iOS)
-        # --retries=2 absorbs the CDP "no pages found" / degraded-CoreSimulator
-        # hiccups the other iOS jobs see. Each retry re-installs and re-launches
-        # from scratch, so a transient runner fault gets a clean attempt.
-        run: yarn playwright test --config playwright.ios.dapp.config.ts --retries=2
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dapp-browser-ios-${{ github.run_id }}
-          path: test-results-ios/
-          retention-days: 7
-          if-no-files-found: ignore
-
-  android-dapp-browser:
-    name: dApp Browser (Android)
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'presentation-compare'
-    # The emulator needs KVM. GitHub's ubuntu runners have it; the WarpBuild hosts behind
-    # warp-ubuntu-latest-x64-8x stopped exposing /dev/kvm on 2026-09-15 ("Enable KVM" failed before any build).
+  source-checks:
     runs-on: ubuntu-latest
-    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare' && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [checks, visual]
     env:
-      E2E_NETWORK: testnet
-      MIDEN_E2E_TEST: 'true'
-      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
+      WALLET_SOURCE: e9625e1ff2655b8f9b6d9a28a169f11e4ccb5997
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.candidate_sha || github.sha }}
-          fetch-depth: 0
-
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
-
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-
-      - name: Install SDK packages
-        run: |
-          sdkmanager --install "platform-tools" "emulator" \
-            "platforms;android-34" "system-images;android-34;default;x86_64"
-
-      # The AVD pair is derived from this base by the harness, so its name has to
-      # match BASE_AVD in emulator-control.ts. Kept in one place there; if it is
-      # ever renamed, this step fails loudly rather than silently booting nothing.
-      - name: Create base AVD
-        run: |
-          mkdir -p "$ANDROID_AVD_HOME"
-          echo no | avdmanager create avd \
-            --name Pixel_API_34 \
-            --package "system-images;android-34;default;x86_64" \
-            --device pixel_6 \
-            --force
-          # Fail HERE if the emulator can't see what avdmanager just wrote,
-          # rather than 5 minutes later in Playwright's global setup with the
-          # SDK install and the APK build already paid for.
-          echo "AVDs visible to the emulator (ANDROID_AVD_HOME=$ANDROID_AVD_HOME):"
-          "$ANDROID_HOME/emulator/emulator" -list-avds
-          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34' || {
-            echo "::error::avdmanager created Pixel_API_34 but 'emulator -list-avds' does not list it" >&2
-            ls -la "$ANDROID_AVD_HOME" || true
-            exit 1
-          }
-
-      # On a dispatch from a pull request's branch these build against that pull request's linked
-      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
-      - name: Inject linked web-sdk PR
-        id: inject-web-sdk
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        id: inject-guardian
-        uses: ./.github/actions/inject-linked-guardian-pr
-
-      - name: Install dependencies
-        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
-        run: yarn install --frozen-lockfile
-      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
-      - name: Install dependencies (linked PRs injected)
-        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
-        uses: ./.github/actions/yarn-install
-
-      - name: Start wallet eligibility fixture
-        uses: ./.github/actions/start-eligibility-fixture
+          persist-credentials: false
+      - name: Bind workflow source
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
-
-      - name: Validate exact comparison commits
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
-        env:
-          BASELINE_SHA: ${{ inputs.baseline_sha }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EXPECTED_SOURCE: ${{ inputs.expected_source }}
+          LANE: ${{ matrix.lane }}
         run: |
           set -euo pipefail
-          [[ "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-          git cat-file -e "$BASELINE_SHA^{commit}"
-          git merge-base --is-ancestor "$BASELINE_SHA" "$CANDIDATE_SHA"
-          mkdir -p test-results-android
-          echo "baseline=$BASELINE_SHA candidate=$CANDIDATE_SHA" | tee test-results-android/presentation-comparison-source.txt
-
-      - name: Build baseline APK for presentation comparison
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
-        env:
-          BASELINE_SHA: ${{ inputs.baseline_sha }}
-        run: |
-          set -euo pipefail
-          baseline_dir="$RUNNER_TEMP/wallet-presentation-baseline"
-          git worktree add --detach "$baseline_dir" "$BASELINE_SHA"
-          cleanup() { git worktree remove --force "$baseline_dir"; }
-          trap cleanup EXIT
-          # The worktree HEAD is the baseline commit. The checkout's HEAD manifest is the
-          # committed candidate; its working tree is that manifest plus the linked injection.
-          committed_manifest="$(mktemp)"
-          git -C "$GITHUB_WORKSPACE" show HEAD:package.json > "$committed_manifest"
-          overlay_status="$(
-            COMMITTED_MANIFEST="$committed_manifest" PATCHED_MANIFEST="$GITHUB_WORKSPACE/package.json" BASELINE_MANIFEST="$baseline_dir/package.json" node <<'PRESENTATION_BASELINE_OVERLAY'
-          const fs = require('fs');
-          const read = (path) => JSON.parse(fs.readFileSync(path, 'utf8'));
-          const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-          const field = (manifest, name) => (plain(manifest[name]) ? manifest[name] : {});
-          const committed = read(process.env.COMMITTED_MANIFEST);
-          const patched = read(process.env.PATCHED_MANIFEST);
-          const baselinePath = process.env.BASELINE_MANIFEST;
-          const baseline = read(baselinePath);
-          let changed = false;
-          for (const name of ['dependencies', 'devDependencies']) {
-            const committedField = field(committed, name);
-            const patchedField = field(patched, name);
-            if (!plain(baseline[name])) continue;
-            const baselineField = baseline[name];
-            for (const key of Object.keys(patchedField)) {
-              const patchedValue = patchedField[key];
-              if (typeof patchedValue !== 'string' || patchedValue === committedField[key]) continue;
-              if (!Object.prototype.hasOwnProperty.call(baselineField, key) || baselineField[key] === patchedValue) continue;
-              baselineField[key] = patchedValue;
-              changed = true;
-            }
-          }
-          const committedResolutions = field(committed, 'resolutions');
-          const patchedResolutions = field(patched, 'resolutions');
-          const hadResolutions = plain(baseline.resolutions);
-          const resolutions = hadResolutions ? baseline.resolutions : {};
-          let resolutionsChanged = false;
-          if (hadResolutions) {
-            for (const key of Object.keys(resolutions)) {
-              if (
-                Object.prototype.hasOwnProperty.call(committedResolutions, key) &&
-                !Object.prototype.hasOwnProperty.call(patchedResolutions, key)
-              ) {
-                delete resolutions[key];
-                resolutionsChanged = true;
-              }
-            }
-          }
-          for (const key of Object.keys(patchedResolutions)) {
-            if (patchedResolutions[key] === committedResolutions[key] || resolutions[key] === patchedResolutions[key]) continue;
-            resolutions[key] = patchedResolutions[key];
-            resolutionsChanged = true;
-          }
-          if (resolutionsChanged) {
-            if (!hadResolutions) baseline.resolutions = resolutions;
-            changed = true;
-          }
-          if (changed) fs.writeFileSync(baselinePath, JSON.stringify(baseline, null, 2) + '\n');
-          process.stdout.write(changed ? 'changed\n' : 'unchanged\n');
-          PRESENTATION_BASELINE_OVERLAY
-          )" || exit 1
-          (
-            cd "$baseline_dir"
-            if [ "$overlay_status" = changed ]; then
-              yarn install --network-timeout 600000
-            elif [ "$overlay_status" = unchanged ]; then
-              yarn install --frozen-lockfile
-            else
-              echo "presentation baseline overlay printed: $overlay_status" >&2
-              exit 1
-            fi
-            yarn test:e2e:android:build
-            if ! (cd android && ./gradlew --stop); then
-              echo "Gradle daemon shutdown failed; continuing with the comparison"
-            fi
-          )
-          cp "$baseline_dir/android/app/build/outputs/apk/debug/app-debug.apk" "$RUNNER_TEMP/wallet-presentation-before.apk"
-          test -s "$RUNNER_TEMP/wallet-presentation-before.apk"
-
-      - name: Build debug APK
-        run: yarn test:e2e:android:build
-
-      - name: Save candidate APK for presentation comparison
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
-        run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/wallet-presentation-after.apk"
-          test -s "$RUNNER_TEMP/wallet-presentation-after.apk"
-
-      # Reclaim the Gradle daemon's heap before two emulators start competing
-      # for the runner's RAM.
-      - name: Stop the Gradle daemon
-        working-directory: android
-        run: ./gradlew --stop || true
-
-      - name: Run dApp browser E2E (Android)
-        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
-        run: yarn test:e2e:android:dapp:run
-
-      - name: Download pinned Perfetto Trace Processor
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
-        run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/perfetto-linux-amd64.zip"
-          curl --fail --location --retry 3 https://github.com/google/perfetto/releases/download/v59.1/linux-amd64.zip --output "$archive"
-          echo '7deb8c2572c6ae7ec80cd719d388041079827b0c44a1659694d5d88faa4f501e  '"$archive" | sha256sum --check
-          mkdir -p "$RUNNER_TEMP/perfetto"
-          unzip -q -j "$archive" linux-amd64/trace_processor_shell -d "$RUNNER_TEMP/perfetto"
-          chmod +x "$RUNNER_TEMP/perfetto/trace_processor_shell"
-          "$RUNNER_TEMP/perfetto/trace_processor_shell" --version
-
-      - name: Run alternating native-tap FrameTimeline comparison
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
-        env:
-          BASELINE_APK: ${{ runner.temp }}/wallet-presentation-before.apk
-          CANDIDATE_APK: ${{ runner.temp }}/wallet-presentation-after.apk
-          BASELINE_SHA: ${{ inputs.baseline_sha }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          E2E_FRAME_TIMELINE_CAPTURE: '1'
-          E2E_ANDROID_REBOOT_BEFORE_PRESENTATION: '1'
-        run: |
-          set -euo pipefail
-          mkdir -p test-results-android
-          if (( GITHUB_RUN_NUMBER % 2 == 0 )); then
-            order=(before after)
-          else
-            order=(after before)
-          fi
-          printf '%s %s\n' "${order[0]}" "${order[1]}" | tee test-results-android/presentation-comparison-order.txt
-          run_variant() {
-            local variant="$1" apk sha
-            if [[ "$variant" == before ]]; then
-              apk="$BASELINE_APK"
-              sha="$BASELINE_SHA"
-            else
-              apk="$CANDIDATE_APK"
-              sha="$CANDIDATE_SHA"
-            fi
-            ANDROID_E2E_APK_PATH="$apk" \
-              PRESENTATION_VARIANT="$variant" \
-              PRESENTATION_SOURCE_SHA="$sha" \
-              PRESENTATION_ORDER="${order[*]}" \
-              yarn playwright test --config playwright.android.dapp.config.ts --grep 'native tap expands a minimized dApp and records FrameTimeline'
-          }
-          run_variant "${order[0]}"
-          run_variant "${order[1]}"
-
-      - name: Analyze before and after FrameTimeline traces
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
-        run: |
-          node scripts/analyze-native-frame-timeline.mjs \
-            "$RUNNER_TEMP/perfetto/trace_processor_shell" \
-            test-results-android \
-            test-results-android/native-presentation-comparison.md
-
-      - name: Collect emulator logs on failure
-        if: failure()
-        timeout-minutes: 10
-        run: |
-          timeout 15s adb devices || true
-          for serial in emulator-5554 emulator-5556; do
-            echo "::group::$serial — app process"
-            timeout 15s adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
-            echo "::endgroup::"
-            echo "::group::$serial — wallet/webview lines"
-            timeout 15s adb -s "$serial" logcat -d 2>/dev/null \
-              | grep -iE "miden|chromium|console|fatal|ANR" | tail -200 || true
-            echo "::endgroup::"
-          done
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dapp-browser-android-${{ github.run_id }}
-          path: test-results-android/
-          retention-days: 7
-          if-no-files-found: ignore
-
-  android-auth-tab-acceptance:
-    name: Android Auth Tab acceptance
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'auth-tab'
-    runs-on: ubuntu-latest
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
-    env:
-      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
-      AUTH_TAB_FIREFOX_URL: https://ftp.mozilla.org/pub/fenix/releases/158.0.2/android/fenix-158.0.2-android-x86_64/fenix-158.0.2.multi.android-x86_64.apk
-      AUTH_TAB_FIREFOX_SHA256: 75273e0088f22d3cde1a298f694e91d5ddb096b040487569f534636dcc3ac2b3
-      # No emulator image ships an Auth Tab Chrome that runs here: Android 36 bundles Chrome 133, and every Android 37
-      # image aborts surfaceflinger in a loop on GitHub's runners (hasReadColorBufferDma). Chromium from a pinned
-      # x86_64 snapshot is the Auth Tab provider instead; its APK is signed with Chromium's public debug key, so the
-      # SHA-256 pin is the only trust anchor.
-      AUTH_TAB_CHROMIUM_URL: https://storage.googleapis.com/chromium-browser-snapshots/AndroidDesktop_x64/1726326/chrome-android-desktop.zip
-      AUTH_TAB_CHROMIUM_SHA256: c3abec16d5daaabe4583d5792f000043694595f31d30c1efad39e348b5f98a08
-      AUTH_TAB_PROVIDER: org.chromium.chrome
-      ANDROID_SERIAL: emulator-5554
-    steps:
+          mkdir -p "$RUNNER_TEMP/2115-proof"
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          test "$GITHUB_SHA" = "$EXPECTED_SOURCE"
+          printf 'qa_source=%s\nwallet_source=%s\nrun_id=%s\nrun_attempt=%s\nlane=%s\n' \
+            "$GITHUB_SHA" "$WALLET_SOURCE" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$LANE" \
+            > "$RUNNER_TEMP/2115-proof/provenance.txt"
       - uses: actions/checkout@v4
-
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
-
-      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-
-      - name: Install SDK packages
-        run: |
-          sdkmanager --install "platform-tools" "emulator" \
-            "platforms;android-36" "system-images;android-36;google_apis_playstore;x86_64"
-
-      - name: Download pinned Firefox provider
-        run: |
-          curl --fail --location --retry 3 "$AUTH_TAB_FIREFOX_URL" --output "$RUNNER_TEMP/firefox.apk"
-          echo "$AUTH_TAB_FIREFOX_SHA256  $RUNNER_TEMP/firefox.apk" | sha256sum --check
-
-      - name: Download pinned Chromium provider
-        run: |
-          curl --fail --location --retry 3 "$AUTH_TAB_CHROMIUM_URL" --output "$RUNNER_TEMP/chromium.zip"
-          unzip -q -j "$RUNNER_TEMP/chromium.zip" 'chrome-android-desktop/apks/ChromePublic.apk' -d "$RUNNER_TEMP"
-          rm "$RUNNER_TEMP/chromium.zip"
-          echo "$AUTH_TAB_CHROMIUM_SHA256  $RUNNER_TEMP/ChromePublic.apk" | sha256sum --check
-
-      - name: Inject linked web-sdk PR
-        id: inject-web-sdk
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        id: inject-guardian
-        uses: ./.github/actions/inject-linked-guardian-pr
-
-      - name: Install dependencies
-        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
-        run: yarn install --frozen-lockfile
-      - name: Install dependencies (linked PRs injected)
-        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
-        uses: ./.github/actions/yarn-install
-
-      # This fixture keeps the startup eligibility decision deterministic; without it Earn and Swap read unavailable.
-      - name: Start wallet eligibility fixture
-        uses: ./.github/actions/start-eligibility-fixture
-        env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
-
-      - name: Build debug APK
-        run: |
-          yarn test:e2e:android:build
-          # The script installs both APKs itself; the daemon would only hold memory the emulator needs.
-          (cd android && ./gradlew :app:assembleDebugAndroidTest && ./gradlew --stop)
-
-      - name: Generate run-scoped fixture CA and TLS certificate
-        shell: bash
+          ref: ${{ env.WALLET_SOURCE }}
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Bind original wallet source
         run: |
           set -euo pipefail
-          AUTH_TAB_CERT_DIR="$RUNNER_TEMP/auth-tab-cert"
-          mkdir -p "$AUTH_TAB_CERT_DIR" test-results-auth-tab
-          ca_subject="AuthTabAcceptance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          echo "AUTH_TAB_CA_SUBJECT=$ca_subject" >> "$GITHUB_ENV"
-          openssl req -x509 -newkey rsa:2048 -nodes \
-            -keyout "$AUTH_TAB_CERT_DIR/root-ca.key" \
-            -out "$AUTH_TAB_CERT_DIR/root-ca.pem" \
-            -days 2 -sha256 -subj "/CN=$ca_subject" \
-            -addext 'basicConstraints=critical,CA:TRUE' \
-            -addext 'keyUsage=critical,keyCertSign,cRLSign'
-          openssl req -newkey rsa:2048 -nodes \
-            -keyout "$AUTH_TAB_CERT_DIR/server.key" \
-            -out "$AUTH_TAB_CERT_DIR/server.csr" \
-            -subj '/CN=10.0.2.2'
-          cat > "$AUTH_TAB_CERT_DIR/server-ext.cnf" <<'EOF'
-          subjectAltName=IP:10.0.2.2
-          basicConstraints=critical,CA:FALSE
-          keyUsage=critical,digitalSignature,keyEncipherment
-          extendedKeyUsage=serverAuth
-          EOF
-          openssl x509 -req \
-            -in "$AUTH_TAB_CERT_DIR/server.csr" \
-            -CA "$AUTH_TAB_CERT_DIR/root-ca.pem" \
-            -CAkey "$AUTH_TAB_CERT_DIR/root-ca.key" \
-            -CAcreateserial \
-            -out "$AUTH_TAB_CERT_DIR/server.pem" \
-            -days 2 -sha256 -extfile "$AUTH_TAB_CERT_DIR/server-ext.cnf"
-          openssl x509 -in "$AUTH_TAB_CERT_DIR/root-ca.pem" -outform DER \
-            -out "$AUTH_TAB_CERT_DIR/auth-tab-root-ca.crt"
-          echo "AUTH_TAB_CERT_PATH=$AUTH_TAB_CERT_DIR/server.pem" >> "$GITHUB_ENV"
-          echo "AUTH_TAB_KEY_PATH=$AUTH_TAB_CERT_DIR/server.key" >> "$GITHUB_ENV"
-
-      - name: Run Auth Tab acceptance on Google Play emulator
-        id: auth-tab-emulator
-        timeout-minutes: 80
-        uses: reactivecircus/android-emulator-runner@v2
+          test "$(git rev-parse HEAD)" = "$WALLET_SOURCE"
+          test "$(git rev-parse HEAD^)" = 'fed73f86d6b53edd67de4de8dddc1c63c7668cc2'
+          git diff HEAD~2 HEAD > "$RUNNER_TEMP/2115-proof/source.patch"
+          sha256sum src/screens/swap-flow/SwapManager.tsx src/screens/swap-flow/SwapManager.test.tsx \
+            playwright/tests/wallet-access.spec.ts CHANGELOG.md package.json yarn.lock \
+            > "$RUNNER_TEMP/2115-proof/source-hashes.txt"
+      - uses: actions/setup-node@v4
         with:
-          api-level: 36
-          target: google_apis_playstore
-          arch: x86_64
-          profile: pixel_6
-          avd-name: Pixel_API_36_AuthTab
-          force-avd-creation: true
-          emulator-boot-timeout: 600
-          cores: 4
-          ram-size: 4096M
-          disable-animations: true
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics
-          script: bash .github/scripts/run-auth-tab-acceptance.sh
-
-      - name: Write acceptance evidence
-        if: always()
-        timeout-minutes: 2
+          node-version: '22'
+          cache: yarn
+      - name: Install exact dependencies
+        run: yarn install --frozen-lockfile --network-timeout 600000
+      - name: Run real consumer and producer suites
+        if: matrix.lane == 'checks'
         run: |
-          mkdir -p test-results-auth-tab
-          if [[ ! -f test-results-auth-tab/evidence.txt ]]; then
-            : > test-results-auth-tab/evidence.txt
-          fi
-          {
-            echo "source_sha=$GITHUB_SHA"
-            echo "emulator_step_outcome=${{ steps.auth-tab-emulator.outcome }}"
-            echo 'emulator_image=android-36;google_apis_playstore;x86_64'
-            echo 'emulator_avd=Pixel_API_36_AuthTab'
-            sdkmanager --list_installed 2>/dev/null | grep -F 'system-images;android-36;google_apis_playstore;x86_64' || echo 'emulator_image_revision=unread'
-            echo "auth_tab_provider=$AUTH_TAB_PROVIDER chromium_sha256=$AUTH_TAB_CHROMIUM_SHA256"
-            echo 'firefox_package=org.mozilla.firefox version=158.0.2 authTabSupported=false'
-            if [[ -f test-results-auth-tab/results.json ]]; then
-              if ! node <<'NODE'
-          const r = require('./test-results-auth-tab/results.json');
-          console.log('playwright_expected=' + r.stats.expected + ' playwright_unexpected=' + r.stats.unexpected);
-          NODE
-              then
-                echo 'playwright_results=unreadable'
-              fi
-            else
-              echo 'playwright_results=missing'
-            fi
-          } >> test-results-auth-tab/evidence.txt
-
-      - name: Upload acceptance artifacts
+          set -euo pipefail
+          mkdir -p test-results
+          yarn jest --runTestsByPath src/screens/swap-flow/SwapManager.test.tsx src/lib/miden/swap/use-swap-tokens.test.ts src/components/FeatureUnavailable.test.tsx --maxWorkers=2 --json --outputFile=test-results/2115-green-jest.json 2>&1 | tee "$RUNNER_TEMP/2115-proof/jest.log"
+      - name: Kill four predicted semantic mutants
+        if: matrix.lane == 'checks'
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          source = pathlib.Path('src/screens/swap-flow/SwapManager.tsx')
+          original = source.read_text()
+          proof = pathlib.Path(os.environ['RUNNER_TEMP']) / '2115-proof'
+          page = 'src/screens/swap-flow/SwapManager.test.tsx'
+          prefix = 'SwapFlow / SwapManager startup eligibility on the 1Click route '
+          temporary = [prefix + 'keeps the form closed while the decision is pending',
+                       prefix + 'keeps the form closed while the decision is failed',
+                       prefix + 'uses temporary-unavailability copy when the pair registry read failed']
+          cases = [
+            ('old-mapping', [("      : 'bridgeFeatureUnavailableTitle';", "      : 'swapUnavailableTitle';"),
+                             ("      : 'bridgeFeatureUnavailableBody';", "      : 'swapUnavailableBody';")], temporary),
+            ('empty-is-temporary', [("const notConfigured = availability.state === 'unavailable' && availability.reason === 'not-configured';", 'const notConfigured = false;')],
+             [prefix + 'keeps the genuine empty-registry notice copy']),
+            ('restriction-is-temporary', [("const restricted = availability.state === 'unavailable' && availability.reason === 'restricted';", 'const restricted = false;')],
+             [prefix + 'keeps the form closed while the decision is restricted']),
+            ('wrong-body', [("      : 'bridgeFeatureUnavailableBody';", "      : 'swapUnavailableBody';")], temporary)
+          ]
+          predictions = [{'name': name, 'expected_failed_names': expected} for name, _, expected in cases]
+          (proof / 'mutation-predictions.json').write_text(json.dumps(predictions, indent=2))
+          outcomes = []
+          try:
+            for name, replacements, expected in cases:
+              mutant = original
+              for old, new in replacements:
+                assert mutant.count(old) == 1, (name, old)
+                mutant = mutant.replace(old, new)
+              source.write_text(mutant)
+              output = proof / (name + '.json')
+              with (proof / (name + '.log')).open('w') as log:
+                run = subprocess.run(['yarn', 'jest', '--runTestsByPath', page, '--maxWorkers=2',
+                    '--testNamePattern', 'startup eligibility on the 1Click route', '--json', '--outputFile=' + str(output)],
+                    stdout=log, stderr=subprocess.STDOUT)
+              result = json.loads(output.read_text())
+              failures = [a['fullName'] for suite in result['testResults'] for a in suite['assertionResults'] if a['status'] == 'failed']
+              assert run.returncode == 1 and result['numTotalTests'] > 0, name
+              assert result['numRuntimeErrorTestSuites'] == 0 and sorted(failures) == sorted(expected), (name, failures)
+              outcomes.append({'name': name, 'exit': run.returncode, 'failed_names': failures, 'runtime_errors': 0})
+              source.write_text(original)
+          finally:
+            source.write_text(original)
+          assert source.read_text() == original
+          (proof / 'mutation-outcomes.json').write_text(json.dumps(outcomes, indent=2))
+          (proof / 'restored-source-sha256.txt').write_text(hashlib.sha256(source.read_bytes()).hexdigest() + '\n')
+          PY
+      - name: Check formatting, types, lint and pins
+        if: matrix.lane == 'checks'
+        run: |
+          set -euo pipefail
+          yarn prettier --check src/screens/swap-flow/SwapManager.tsx src/screens/swap-flow/SwapManager.test.tsx playwright/tests/wallet-access.spec.ts CHANGELOG.md
+          yarn tsc --noEmit -p .
+          yarn eslint src/screens/swap-flow/SwapManager.tsx src/screens/swap-flow/SwapManager.test.tsx playwright/tests/wallet-access.spec.ts
+          yarn -s lint:e2e
+          yarn -s lint:i18n
+          yarn -s check:prover-pin
+      - name: Start existing wallet eligibility fixture
+        if: matrix.lane == 'visual'
+        uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
+      - name: Build existing mock extension
+        if: matrix.lane == 'visual'
+        env:
+          MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
+        run: |
+          set -euo pipefail
+          yarn build:chrome 2>&1 | tee "$RUNNER_TEMP/2115-proof/build.log"
+          test -f dist/chrome_unpacked/manifest.json
+      - name: Install existing browser prerequisites
+        if: matrix.lane == 'visual'
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+      - name: Exercise existing real wallet-access flow
+        if: matrix.lane == 'visual'
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/2115-playwright.json
+        run: xvfb-run -a yarn playwright test playwright/tests/wallet-access.spec.ts --workers=1 --retries=0 --reporter=list,json > "$RUNNER_TEMP/2115-proof/playwright.log" 2>&1
+      - name: Preserve source-bound results and capped screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-auth-tab-${{ github.run_id }}
+          name: swap-notice-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            test-results-auth-tab/
-            android/app/build/outputs/androidTest-results/
-            android/app/build/reports/androidTests/
-          retention-days: 7
-          if-no-files-found: ignore
+            ${{ runner.temp }}/2115-proof
+            test-results
+          retention-days: 14
+          if-no-files-found: error
