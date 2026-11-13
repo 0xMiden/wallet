@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Measure real Windows native APIs without ceremonies
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           Add-Type -TypeDefinition @'
@@ -59,7 +59,50 @@ jobs:
             tpmQueryError = $tpmQueryError
             chromeVersion = $(if ($chrome) { (Get-Item $chrome).VersionInfo.ProductVersion } else { $null })
           }
-          $json = $evidence | ConvertTo-Json -Depth 5
+          $ui = [ordered]@{ status = 'not-started'; pinExpanderFound = $false; observedControls = @() }
+          try {
+            Add-Type -AssemblyName UIAutomationClient
+            Add-Type -AssemblyName UIAutomationTypes
+            Start-Process 'ms-settings:signinoptions'
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            $window = $null
+            do {
+              $windows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.Condition]::TrueCondition)
+              foreach ($candidate in $windows) {
+                if ($candidate.Current.Name -match '^(Settings|Sign-in options)$') { $window = $candidate; break }
+              }
+              if (-not $window) { Start-Sleep -Milliseconds 500 }
+            } while (-not $window -and [DateTime]::UtcNow -lt $deadline)
+            if ($window) {
+              $controls = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+              foreach ($element in $controls) {
+                if ($element.Current.Name -match 'PIN.*Windows Hello') {
+                  $ui.pinExpanderFound = $true
+                  $pattern = $null
+                  if ($element.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) { $pattern.Expand() }
+                  break
+                }
+              }
+              $controls = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+              $rows = @()
+              foreach ($element in $controls) {
+                $label = $element.Current.Name
+                if ($label -match 'PIN|Hello|sign.in|password|Set up|unavailable|organization|administrator') {
+                  $rows += @{ type = $element.Current.ControlType.ProgrammaticName; automationId = $element.Current.AutomationId; name = $label; enabled = $element.Current.IsEnabled; offscreen = $element.Current.IsOffscreen }
+                }
+              }
+              $ui.status = 'settings-controls-observed'
+              $ui.observedControls = $rows | Select-Object -First 60
+            } else {
+              $ui.status = 'settings-window-not-observed'
+            }
+          } catch {
+            $ui.status = 'settings-query-failed'
+            $ui['errorType'] = $_.Exception.GetType().Name
+          }
+          $evidence['settingsUi'] = $ui
+          $evidence['credentialWrites'] = 0
+          $json = $evidence | ConvertTo-Json -Depth 7
           $json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/native-windows-preflight.json"
           Write-Output $json
           @"
