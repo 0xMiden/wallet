@@ -9,7 +9,7 @@ jobs:
     runs-on: windows-11-arm
     timeout-minutes: 5
     steps:
-      - name: Measure real Windows native APIs without ceremonies
+      - name: Prepare disposable desktop privacy and inspect native PIN setup
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -31,6 +31,13 @@ jobs:
             [DllImport("user32.dll", EntryPoint = "mouse_event", ExactSpelling = true)]
             [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
             public static extern void MouseEvent(uint flags, uint x, uint y, uint data, UIntPtr extra);
+            [DllImport("user32.dll", ExactSpelling = true)]
+            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+            public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll", ExactSpelling = true)]
+            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool SetForegroundWindow(IntPtr window);
           }
           '@
           $os = Get-CimInstance Win32_OperatingSystem
@@ -50,7 +57,7 @@ jobs:
           }
           $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
           $evidence = [ordered]@{
-            purpose = 'Read-only native environment measurement, not enrollment/unlock qualification'
+            purpose = 'Native Windows setup feasibility; no credential input or unlock qualification'
             qualification = 'NOT RUN: no PIN, credential creation, PRF, wallet unlock or OS restart test'
             productSource = '35add7dbebd615fd57332f7ad802525dd0c131b4'
             proofSource = $env:GITHUB_SHA
@@ -70,6 +77,39 @@ jobs:
           try {
             Add-Type -AssemblyName UIAutomationClient
             Add-Type -AssemblyName UIAutomationTypes
+            $privacy = [ordered]@{ pagesHandled = 0; status = 'not-observed' }
+            for ($page = 0; $page -lt 4; $page++) {
+              $front = [Windows.Automation.AutomationElement]::FromHandle([NativeHelloPreflight]::GetForegroundWindow())
+              $nodes = $front.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+              $isPrivacy = $false
+              foreach ($node in $nodes) { if ($node.Current.Name -like '*Choose privacy settings for your device*') { $isPrivacy = $true; break } }
+              if (-not $isPrivacy) { break }
+              $privacy.status = 'privacy-wizard-observed'
+              foreach ($node in $nodes) {
+                $toggle = $null
+                if ($node.Current.IsEnabled -and -not $node.Current.IsOffscreen -and $node.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
+                  if ($toggle.Current.ToggleState -eq [Windows.Automation.ToggleState]::On) { $toggle.Toggle() }
+                }
+              }
+              $button = $null
+              foreach ($node in $nodes) {
+                if ($node.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and $node.Current.IsEnabled -and -not $node.Current.IsOffscreen -and $node.Current.Name -in @('Accept', 'Next')) { $button = $node; break }
+              }
+              if (-not $button) { $privacy.status = 'privacy-navigation-unavailable'; break }
+              $action = $null
+              if (-not $button.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$action)) { $privacy.status = 'privacy-button-pattern-unavailable'; break }
+              $accepting = $button.Current.Name -eq 'Accept'
+              $action.Invoke()
+              $privacy.pagesHandled += 1
+              $until = [DateTime]::UtcNow.AddSeconds(3)
+              while ([DateTime]::UtcNow -lt $until) {
+                try { if (-not $button.Current.IsEnabled -or $button.Current.IsOffscreen) { break } }
+                catch [System.Windows.Automation.ElementNotAvailableException] { break }
+                Start-Sleep -Milliseconds 200
+              }
+              if ($accepting) { $privacy.status = 'privacy-selection-accepted'; break }
+            }
+            $ui['firstLoginPrivacy'] = $privacy
             Start-Process 'ms-settings:signinoptions'
             $deadline = [DateTime]::UtcNow.AddSeconds(30)
             $window = $null
@@ -96,6 +136,9 @@ jobs:
                   } else {
                     $clickTarget = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SystemSettings_Users_EnrollmentPIN_EntityItem')))
                     if (-not $clickTarget -or -not $clickTarget.Current.IsEnabled -or $clickTarget.Current.IsOffscreen -or $clickTarget.Current.Name -ne 'PIN (Windows Hello)') { throw 'Exact visible PIN settings target unavailable' }
+                    $targetWindow = [IntPtr]$window.Current.NativeWindowHandle
+                    $focused = [NativeHelloPreflight]::SetForegroundWindow($targetWindow)
+                    if ([NativeHelloPreflight]::GetForegroundWindow() -ne $targetWindow) { throw 'Settings is covered by another foreground window; no native click allowed' }
                     $point = $clickTarget.GetClickablePoint()
                     if (-not [NativeHelloPreflight]::SetCursorPos([int]$point.X, [int]$point.Y)) { throw 'Native cursor placement unavailable' }
                     [NativeHelloPreflight]::MouseEvent(2, 0, 0, 0, [UIntPtr]::Zero)
