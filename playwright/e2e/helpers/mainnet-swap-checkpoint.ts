@@ -26,6 +26,15 @@ export interface MainnetSwapRequestAuthority {
   minimumReceive: string;
   expiresAt: number;
 }
+export interface MainnetSwapClaimAuthority {
+  nonce: string;
+  noteId: string;
+  amount: string;
+  sha256: string;
+  canonicalSha256: string;
+  requestCanonicalSha256: string;
+  expiresAt: number;
+}
 export interface MainnetSwapCheckpoint {
   version: 1;
   network: 'mainnet';
@@ -53,6 +62,8 @@ export interface MainnetSwapCheckpoint {
   reverseOrderId?: string;
   forwardRequestAuthority?: MainnetSwapRequestAuthority;
   reverseRequestAuthority?: MainnetSwapRequestAuthority;
+  forwardClaimAuthority?: MainnetSwapClaimAuthority;
+  reverseClaimAuthority?: MainnetSwapClaimAuthority;
   forwardReceived?: string;
   forwardRefunded?: string;
   reverseReceived?: string;
@@ -115,6 +126,15 @@ function requestAuthority(value: unknown): value is MainnetSwapRequestAuthority 
       ['nonce', 'noteId', 'sha256', 'canonicalSha256', 'orderId', 'minimumReceive', 'expiresAt'].includes(key)
     )
   );
+}
+function claimAuthority(value: unknown): value is MainnetSwapClaimAuthority {
+  return record(value) && typeof value.nonce === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.nonce) &&
+    typeof value.noteId === 'string' && /^0x[0-9a-f]{64}$/.test(value.noteId) &&
+    amount(value.amount) && BigInt(value.amount) > 0n &&
+    [value.sha256, value.canonicalSha256, value.requestCanonicalSha256].every(item => typeof item === 'string' && /^[0-9a-f]{64}$/.test(item)) &&
+    typeof value.expiresAt === 'number' && Number.isSafeInteger(value.expiresAt) &&
+    Object.keys(value).every(key => ['nonce', 'noteId', 'amount', 'sha256', 'canonicalSha256', 'requestCanonicalSha256', 'expiresAt'].includes(key));
 }
 function valid(value: unknown): value is MainnetSwapCheckpoint {
   if (
@@ -234,6 +254,14 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
     (forward.nonce === reverse.nonce || forward.orderId === reverse.orderId)
   )
     return false;
+  for (const [claim, source] of [[value.forwardClaimAuthority, forward], [value.reverseClaimAuthority, reverse]]) {
+    if (claim === undefined) continue;
+    if (!claimAuthority(claim) || !requestAuthority(source) ||
+      claim.noteId === source.noteId || claim.nonce === source.nonce ||
+      BigInt(claim.amount) < BigInt(source.minimumReceive) ||
+      claim.expiresAt <= Date.parse(value.createdAt) || claim.expiresAt > Date.parse(value.updatedAt) + 300_000 ||
+      ['unspent', 'cancelled'].includes(String(value.phase))) return false;
+  }
   if (value.phase === 'unspent' && (forward !== undefined || reverse !== undefined)) return false;
   if (value.phase === 'complete' && forward !== undefined && reverse === undefined) return false;
   return Object.keys(value).every(key =>
@@ -264,6 +292,8 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       'reverseOrderId',
       'forwardRequestAuthority',
       'reverseRequestAuthority',
+      'forwardClaimAuthority',
+      'reverseClaimAuthority',
       'forwardReceived',
       'forwardRefunded',
       'reverseReceived',

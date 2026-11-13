@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   loadMainnetSwapCheckpoint,
   mainnetSwapNextAction,
+  mainnetSwapRequestExpiresAt,
   matchAuthorizedSwap,
   saveMainnetSwapCheckpoint,
   swapProceeds,
@@ -121,14 +122,14 @@ describe('durable nightly swap authorization', () => {
     saveMainnetSwapCheckpoint(path, returned);
     expect(loadMainnetSwapCheckpoint(path)).toMatchObject(returned);
   });
-  it('accepts a separately granted first recovery return without changing the original forward deadline', () => {
+  const withGrantedReturn = () => {
     const state = withRequest();
     state.phase = 'reverse-authorized';
     state.forwardReceived = '33650';
     state.returnAmount = '33650';
     state.returnBaseline = { offer: '8990000', request: '33773', native: '8989999' };
     const grant = '2026-11-13T14:20:00.000Z';
-    const recovered = {
+    return {
       ...state,
       updatedAt: grant,
       recoveryReturnAuthorizedAt: grant,
@@ -141,10 +142,35 @@ describe('durable nightly swap authorization', () => {
         expiresAt: Date.parse(grant) + 60_000
       }
     };
+  };
+  it('accepts a separately granted first recovery return without changing the original forward deadline', () => {
+    const recovered = withGrantedReturn();
     const path = join(dir, 'recovery.json');
     saveMainnetSwapCheckpoint(path, recovered);
     expect(loadMainnetSwapCheckpoint(path)).toEqual(recovered);
-    expect(recovered.forwardRequestAuthority).toEqual(state.forwardRequestAuthority);
+    expect(recovered.forwardRequestAuthority).toEqual(withRequest().forwardRequestAuthority);
+    expect(mainnetSwapRequestExpiresAt(recovered, 'forward')).toBe(Date.parse(recovered.pricedAt) + 300_000);
+    expect(mainnetSwapRequestExpiresAt(recovered, 'reverse')).toBe(Date.parse(recovered.recoveryReturnAuthorizedAt) + 300_000);
+    expect(mainnetSwapRequestExpiresAt(withRequest(), 'reverse')).toBe(Date.parse(recovered.pricedAt) + 600_000);
+  });
+  it.each([
+    ['invalid grant', { recoveryReturnAuthorizedAt: 'not-a-date' }],
+    ['grant before original authority', { recoveryReturnAuthorizedAt: '2026-11-10T12:00:00Z' }],
+    ['grant after persisted record', { recoveryReturnAuthorizedAt: '2026-11-14T12:00:00Z' }],
+    ['unsettled original', { phase: 'forward-authorized' }]
+  ])('refuses a recovery return with %s', (_name, patch) => {
+    const path = join(dir, 'bad-grant.json');
+    writeFileSync(path, JSON.stringify({ ...withGrantedReturn(), ...patch }));
+    expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
+  });
+  it.each(['expired original return', 'extended fresh return', 'renewed forward'])('rejects %s rather than renewing authority', kind => {
+    const state = withGrantedReturn();
+    if (kind === 'expired original return') state.reverseRequestAuthority.expiresAt = Date.parse(state.pricedAt) + 600_000;
+    if (kind === 'extended fresh return') state.reverseRequestAuthority.expiresAt = Date.parse(state.recoveryReturnAuthorizedAt) + 300_001;
+    if (kind === 'renewed forward') state.forwardRequestAuthority.expiresAt = Date.parse(state.recoveryReturnAuthorizedAt) + 60_000;
+    const path = join(dir, 'bad-deadline.json');
+    writeFileSync(path, JSON.stringify(state));
+    expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
   });
   it('retains the exact signed consume fingerprint and canonical payback identity without private bytes', () => {
     const state = {
@@ -163,6 +189,25 @@ describe('durable nightly swap authorization', () => {
     saveMainnetSwapCheckpoint(path, state);
     expect(loadMainnetSwapCheckpoint(path)).toEqual(state);
     expect(readFileSync(path, 'utf8')).not.toContain('requestBytes');
+  });
+  it.each([
+    ['bad nonce', { nonce: '' }], ['bad note', { noteId: '0x12' }],
+    ['missing final signed fingerprint', { requestCanonicalSha256: '' }],
+    ['under minimum', { amount: '33648' }],
+    ['original offered note', { noteId: `0x${'a'.repeat(64)}` }],
+    ['reused create nonce', { nonce: '11111111-1111-4111-8111-111111111111' }],
+    ['private bytes', { requestBytes: 'private' }]
+  ])('rejects a durable claim with %s', (_name, patch) => {
+    const state = withRequest();
+    const claim = {
+      nonce: '22222222-2222-4222-8222-222222222222', noteId: `0x${'d'.repeat(64)}`,
+      amount: '33650', sha256: 'e'.repeat(64), canonicalSha256: 'f'.repeat(64),
+      requestCanonicalSha256: '9'.repeat(64), expiresAt: Date.parse(state.pricedAt) + 120_000,
+      ...patch
+    };
+    const path = join(dir, 'bad-claim.json');
+    writeFileSync(path, JSON.stringify({ ...state, forwardClaimAuthority: claim }));
+    expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
   });
   it('matches the actual SDK order and exact reviewed request floor, never merely the older budget floor', () => {
     const state = withRequest();
