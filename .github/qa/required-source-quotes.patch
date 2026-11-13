@@ -1,0 +1,33 @@
+--- a/scripts/lib/review-read-audit.py
++++ b/scripts/lib/review-read-audit.py
+@@ -179,6 +179,30 @@
+             if line:
+                 documents = False
+         if not line.startswith(PROMPT_ARTIFACT_PREFIXES):
++            continue
++        if re.match(r'^Required source segment [0-9]+/[0-9]+: run(?: |$)', line):
++            declaration = re.fullmatch(
++                r'Required source segment [0-9]+/[0-9]+: run (.+) raw bytes [0-9]+'
++                r' visible bytes [0-9]+ content SHA-256 [0-9a-f]{64}', line)
++            if declaration is None:
++                continue
++            command = declaration.group(1)
++            try:
++                operands = shlex.split(command)
++                if (len(operands) != 3 or operands[:2] != ['cat', '--']
++                        or shlex.join(operands) != command):
++                    continue
++                path = Path(operands[2])
++                if not path.is_absolute() or not SOURCE_SEGMENT_NAME.fullmatch(path.name):
++                    continue
++                # The canonical shell operand is literal, not an environment-expanded path.
++                path = path.resolve(strict=False)
++            except (OSError, ValueError):
++                continue
++            if path.parent != session or not SOURCE_SEGMENT_NAME.fullmatch(path.name):
++                continue
++            authorized.add(path)
++            complete.add(path)
+             continue
+         matches = re.findall(
+             r'(?<![0-9A-Za-z.])(/.*?)(?= SHA-256| bytes(?: |$)| raw bytes| in full(?: |$)|; continue|$)',
