@@ -4,6 +4,11 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero, SeedRevealToggle } from './SeedPhraseGrid';
 
+const mockHandleSecretCopy = jest.fn();
+jest.mock('lib/ui/secret-clipboard', () => ({
+  handleSecretCopyEvent: (...args: unknown[]) => mockHandleSecretCopy(...args)
+}));
+
 let mockIsMobile = false;
 jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile, isDesktop: () => false }));
 
@@ -80,5 +85,35 @@ describe('SeedRevealToggle', () => {
     mockIsMobile = true;
     const { container } = render(<SeedRevealToggle revealed={false} onToggle={jest.fn()} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('copy out of the grid', () => {
+  const stubSelection = (text: string) =>
+    jest.spyOn(window, 'getSelection').mockReturnValue({ toString: () => text } as unknown as Selection);
+
+  beforeEach(() => {
+    mockHandleSecretCopy.mockReset();
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('routes a copy of the shown words through the secret clipboard', () => {
+    stubSelection('alpha beta');
+    render(<SeedPhraseGrid words={WORDS} data-testid="grid" />);
+
+    fireEvent.copy(screen.getByTestId('grid'));
+
+    expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.any(Event), 'alpha beta');
+  });
+
+  it('yields nothing from a masked grid, whose selection holds only the numbers', () => {
+    stubSelection('1. 2. 3.');
+    render(<SeedPhraseGrid words={WORDS} masked data-testid="grid" />);
+
+    fireEvent.copy(screen.getByTestId('grid'));
+
+    expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.any(Event), '');
   });
 });

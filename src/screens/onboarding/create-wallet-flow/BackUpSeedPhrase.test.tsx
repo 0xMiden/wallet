@@ -104,12 +104,14 @@ jest.mock('components/ui/Pill', () => ({
 // assert.
 const mockClipboardWrite = jest.fn();
 const mockWriteSecret = jest.fn();
+const mockHandleSecretCopy = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 jest.mock('lib/ui/secret-clipboard', () => ({
-  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args),
+  handleSecretCopyEvent: (...args: unknown[]) => mockHandleSecretCopy(...args)
 }));
 
 // ---------------------------------------------------------------------------
@@ -153,6 +155,7 @@ beforeEach(() => {
   // preceding case's clicks unless the count is reset per case.
   mockClipboardWrite.mockClear();
   mockWriteSecret.mockReset();
+  mockHandleSecretCopy.mockReset();
 });
 
 afterEach(() => {
@@ -446,41 +449,28 @@ describe('BackUpSeedPhraseScreen', () => {
   });
 
   describe('document copy interception (useEffect)', () => {
-    it('sanitizes the selection to letters/spaces and writes it to the clipboard event', () => {
+    it('sanitizes the selection to letters/spaces and routes it through the secret clipboard', () => {
       renderComponent();
 
-      const setData = jest.fn();
-      const { preventDefaultSpy } = dispatchCopy({
-        selection: { toString: () => 'Hello 123 World!!' },
-        clipboardData: { setData }
-      });
+      dispatchCopy({ selection: { toString: () => 'Hello 123 World!!' } });
 
-      expect(setData).toHaveBeenCalledWith('text/plain', 'Hello World');
-      expect(preventDefaultSpy).toHaveBeenCalled();
+      expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.objectContaining({ type: 'copy' }), 'Hello World');
     });
 
-    it('writes an empty string when there is no active selection', () => {
+    it('routes an empty string when there is no active selection', () => {
       renderComponent();
 
-      const setData = jest.fn();
-      const { preventDefaultSpy } = dispatchCopy({
-        selection: null,
-        clipboardData: { setData }
-      });
+      dispatchCopy({ selection: null });
 
-      expect(setData).toHaveBeenCalledWith('text/plain', '');
-      expect(preventDefaultSpy).toHaveBeenCalled();
+      expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.objectContaining({ type: 'copy' }), '');
     });
 
-    it('does not throw and still prevents default when the event has no clipboardData', () => {
+    it('does not throw when the event has no clipboardData', () => {
       renderComponent();
 
-      let result: ReturnType<typeof dispatchCopy>;
-      expect(() => {
-        result = dispatchCopy({ selection: { toString: () => 'anything' } });
-      }).not.toThrow();
+      expect(() => dispatchCopy({ selection: { toString: () => 'anything' } })).not.toThrow();
 
-      expect(result!.preventDefaultSpy).toHaveBeenCalled();
+      expect(mockHandleSecretCopy).toHaveBeenCalledTimes(1);
     });
 
     it('removes the SAME copy listener it added, so the handler cannot outlive the screen', () => {
@@ -502,20 +492,14 @@ describe('BackUpSeedPhraseScreen', () => {
       removeSpy.mockRestore();
     });
 
-    it('stops rewriting the clipboard once unmounted', () => {
+    it('stops routing copies once unmounted', () => {
       const { unmount } = renderComponent();
       unmount();
 
-      const setData = jest.fn();
-      const { preventDefaultSpy } = dispatchCopy({
-        selection: { toString: () => 'Send 123 MIDEN to mtst1abc' },
-        clipboardData: { setData }
-      });
+      dispatchCopy({ selection: { toString: () => 'Send 123 MIDEN to mtst1abc' } });
 
-      // Behavioural mirror of the identity check: a leaked handler would strip the digits and
-      // preventDefault() on a copy that has nothing to do with this screen.
-      expect(setData).not.toHaveBeenCalled();
-      expect(preventDefaultSpy).not.toHaveBeenCalled();
+      // A leaked handler would strip the digits from a copy that has nothing to do with this screen.
+      expect(mockHandleSecretCopy).not.toHaveBeenCalled();
     });
   });
 });

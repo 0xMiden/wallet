@@ -7,6 +7,12 @@ import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { PrivateKeyPair } from './PrivateKeyPair';
 
+const mockHandleSecretCopy = jest.fn();
+jest.mock('lib/ui/secret-clipboard', () => ({
+  ...jest.requireActual('lib/ui/secret-clipboard'),
+  handleSecretCopyEvent: (...args: unknown[]) => mockHandleSecretCopy(...args)
+}));
+
 const mockQrOptions = jest.fn();
 jest.mock(
   'qr-code-styling',
@@ -94,4 +100,17 @@ describe('user-visible private-key errors', () => {
     act(() => jest.advanceTimersByTime(1000));
     expect(mockReport.mock.calls).toEqual([]);
   });
+});
+
+it('routes a copy out of the key text through the secret clipboard', () => {
+  const hot = 'ab'.repeat(32);
+  render(<PrivateKeyPair payload={`${hot}:${'cd'.repeat(32)}`} />);
+  fireEvent.click(screen.getByRole('button', { name: 'showPrivateKeyText' }));
+  const field = screen.getByLabelText('midenHotPrivateKey') as HTMLTextAreaElement;
+  field.focus();
+  field.setSelectionRange(2, 6);
+
+  fireEvent.copy(field);
+
+  expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.any(Event), hot.slice(2, 6));
 });

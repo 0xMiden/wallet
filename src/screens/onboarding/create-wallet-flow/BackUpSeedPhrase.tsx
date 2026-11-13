@@ -9,6 +9,7 @@ import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { Pill } from 'components/ui/Pill';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { handleSecretCopyEvent } from 'lib/ui/secret-clipboard';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { useRevealMask } from 'lib/ui/useRevealMask';
 
@@ -49,8 +50,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
     const onDocumentCopy = (event: ClipboardEvent) => {
       const selectedText = window.getSelection()?.toString();
       const formattedText = selectedText?.replace(/[^a-zA-Z\s]/g, '').replace(/\s+/g, ' ');
-      event.clipboardData?.setData('text/plain', formattedText || '');
-      event.preventDefault(); // Prevent the default copy action
+      handleSecretCopyEvent(event, formattedText || '');
     };
 
     document.addEventListener('copy', onDocumentCopy);
