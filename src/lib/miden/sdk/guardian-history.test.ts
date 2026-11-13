@@ -103,6 +103,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(),
   getVerificationBaseFee: jest.fn(),
+  refreshVerificationBaseFee: jest.fn(),
   getNativeAssetIdSync: () => (mockNativeLoaded ? 'fee' : null),
   getVerificationBaseFeeSync: () => (mockFeeLoaded ? 3 : null),
   isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent

@@ -7,6 +7,7 @@ import useVerificationBaseFee from './useVerificationBaseFee';
 
 jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFee: jest.fn(),
+  refreshVerificationBaseFee: jest.fn(),
   getVerificationBaseFeeSync: jest.fn(),
   onNativeAssetChanged: jest.fn()
 }));

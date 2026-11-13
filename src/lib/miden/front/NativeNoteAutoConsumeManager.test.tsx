@@ -34,7 +34,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFee: () => {
     mockOnFeeRead();
     return Promise.resolve(mockBaseFee);
-  }
+  },
+  refreshVerificationBaseFee: () => Promise.resolve(mockBaseFee)
 }));
 
 // The wallet store's lock state, as the claim guard reads it.

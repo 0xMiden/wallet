@@ -112,6 +112,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
 let mockBaseFee: number | null = null;
 jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFee: async () => mockBaseFee,
+  refreshVerificationBaseFee: async () => mockBaseFee,
   getNativeAssetId: async () => 'native-faucet'
 }));
 

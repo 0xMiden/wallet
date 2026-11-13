@@ -197,7 +197,8 @@ let mockBaseFee: number | null = 0;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetId: () => mockGetFaucetIdSetting(),
-  getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+  getVerificationBaseFee: () => Promise.resolve(mockBaseFee),
+  refreshVerificationBaseFee: () => Promise.resolve(mockBaseFee)
 }));
 
 const mockGetBlockTimestamps = jest.fn(
