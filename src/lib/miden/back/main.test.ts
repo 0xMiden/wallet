@@ -1359,11 +1359,14 @@ const capturedRuntimeListeners: Array<(m: any, s: any, r: (x?: any) => void) => 
  * about identity.
  */
 const OWN_EXTENSION_ID = 'this-extension';
-const ownSender = { id: OWN_EXTENSION_ID };
+const ownSender = { id: OWN_EXTENSION_ID, url: `chrome-extension://${OWN_EXTENSION_ID}/offscreen.html` };
 
 beforeAll(() => {
   const chromeAny = (globalThis as any).chrome;
-  if (chromeAny?.runtime) chromeAny.runtime.id = OWN_EXTENSION_ID;
+  if (chromeAny?.runtime) {
+    chromeAny.runtime.id = OWN_EXTENSION_ID;
+    chromeAny.runtime.getURL = (path: string) => `chrome-extension://${OWN_EXTENSION_ID}/${path}`;
+  }
   if (chromeAny?.runtime?.onMessage) {
     chromeAny.runtime.onMessage.addListener = (l: any) => capturedRuntimeListeners.push(l);
   }
@@ -1372,6 +1375,23 @@ beforeAll(() => {
 describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 slice 5)', () => {
   const flushMicro = () => new Promise(resolve => setTimeout(resolve, 0));
   const signListener = () => capturedRuntimeListeners[0]!;
+
+  it('does not accept a content-script connectivity write from the same extension ID', () => {
+    signListener()({ target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'node', active: true },
+      { id: OWN_EXTENSION_ID, url: 'https://example.com/' }, jest.fn());
+    expect(connectivityMock.getConnectivityState().node.active).toBe(false);
+  });
+
+  it('defers reverse-IPC storage publication until initial reset readiness settles', async () => {
+    let release: () => void = () => undefined;
+    mockPlatformStartup.mockImplementationOnce(() => new Promise<undefined>(resolve => { release = () => resolve(undefined); }));
+    const starting = start();
+    try {
+      signListener()({ target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'node', active: true }, ownSender, jest.fn());
+      expect(connectivityMock.getConnectivityState().node.active).toBe(false);
+    } finally { release(); await starting; await flushMicro(); }
+    expect(connectivityMock.getConnectivityState().node.active).toBe(true);
+  });
 
   it('registers exactly one runtime.onMessage listener that ignores non-sign messages (returns false)', () => {
     expect(capturedRuntimeListeners.length).toBe(1);

@@ -30,12 +30,20 @@ export function ensurePlatformUnlockStartup(): Promise<void> {
         const { resumeExtensionReset } = await import('lib/miden/platform-reset');
         await resumeExtensionReset();
       }
-    })();
+      const ready: unknown = Reflect.get(globalThis, '__midenPlatformStartupResolve');
+      if (typeof ready === 'function') ready();
+    })().catch(error => {
+      const failed: unknown = Reflect.get(globalThis, '__midenPlatformStartupReject');
+      if (typeof failed === 'function') failed(error);
+      throw error;
+    });
     const current = startupCheck;
     void current.finally(() => { if (startupCheck === current) startupCheck = undefined; }).catch(() => undefined);
   }
   return startupCheck;
 }
+
+Reflect.set(globalThis, '__midenEnsurePlatformStartup', ensurePlatformUnlockStartup);
 
 export async function getPlatformUnlockAvailability(): Promise<boolean> {
   return (await ensureTrustedPlatformStorage()) && getPlatformUnlockSupport();

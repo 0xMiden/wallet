@@ -5,7 +5,17 @@ on:
 permissions:
   contents: read
 jobs:
-  compiled-startup-regression:
+  reverse-ipc-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - run: yarn jest src/lib/miden/back/main.test.ts --maxWorkers=2
+  compiled-startup-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -19,10 +29,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: passkey-worker-prefix-proof
+          name: passkey-worker-startup-proof
           path: |
             dist/chrome_unpacked/background.js
-            dist/chrome_unpacked/background.js.map
             dist/chrome_unpacked/sw.js
             dist/chrome_unpacked/manifest.json
           if-no-files-found: error
