@@ -1,0 +1,22 @@
+--- a/tests/run-tests.sh
++++ b/tests/run-tests.sh
+@@ -78,7 +78,8 @@
+   shopt -s extdebug
+   for f in "${TEST_FILES[@]}"; do [ -f "$f" ] && . "$f"; done
+   exact_detail=$(declare -F "$exact_function" 2>/dev/null || true)
+-  exact_source=${exact_detail##* }
++  exact_source=${exact_detail#* }
++  exact_source=${exact_source#* }
+   if [ -z "$exact_detail" ] || [ "$exact_source" != "$HERE/$exact_file" ]; then
+     echo "run-tests: unknown exact test identity: $EXACT_TASK" >&2
+     exit 2
+@@ -110,7 +111,8 @@
+       for name in $(declare -F | awk '{print $3}'); do
+         [[ "$name" == test_* ]] || continue
+         detail=$(declare -F "$name")
+-        source=${detail##* }
++        source=${detail#* }
++        source=${source#* }
+         [ "$source" = "$f" ] || continue
+         printf '%s::%s\n' "$(basename "$f")" "$name"
+       done

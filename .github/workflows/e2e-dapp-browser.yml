@@ -55,7 +55,7 @@ jobs:
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           test "$source" = "$EXPECTED_SOURCE"
           test "$source" = "$GITHUB_SHA"
-          sha256sum .github/qa/source-quote-* .github/qa/required-source-quotes.patch \
+          sha256sum .github/qa/source-quote-* .github/qa/required-source-quotes.patch .github/qa/runner-source-paths.patch \
             .github/qa/test-required-source-quotes.py .github/qa/test-runner-source-paths.py \
             .github/workflows/e2e-dapp-browser.yml \
             | tee "$evidence/input-hashes.txt"
@@ -76,6 +76,7 @@ jobs:
               'source-quote-frozen-roster.json': 'f9eb285287ee49a27c1000c9b614ec3e9bbbf8de35464e26c3f53df19a3161ec',
               'source-quote-provider-metadata.json': '58a61d145e21d2ab39aa870c0fa94fb4723bf8f2668b6063e5a7f6bcbfd6b94f',
               'required-source-quotes.patch': '259fc097c23f637a74026a4dfcfcd81f7afc42963aec63e29e70c7704db1fdcc',
+              'runner-source-paths.patch': 'e4f0f53d3017ac2cc075dd7c85fd6d5a87fbaddb4e0f8970bd45e571e6f93824',
           }
           for name, digest in expected.items():
               path = qa / name
@@ -94,6 +95,8 @@ jobs:
           auditor = 'scripts/lib/review-read-audit.py'
           assert manifest[auditor]['sha256'] == 'c40e65f1d171d6a63ac0db3d4501f4995eba4c8cb7905221d7b41cfe6f7aa80c'
           assert manifest['scripts/rev-evidence.py']['sha256'] == '5cf17a146004b8e16256f9a648011c86981565ddf85d7e0bb2c7e426d0f65558'
+          assert manifest['tests/run-tests.sh'] == {
+              'sha256': '3241aff49494d152d40aa3d545a7d02c4db5dd3c00989126e868e8a7d34cdce4', 'mode': 0o755}
           roster = json.loads((qa / 'source-quote-frozen-roster.json').read_bytes())
           assert len(roster['seats']) == 4
           for index, row in enumerate(roster['seats'], 1):
@@ -125,7 +128,7 @@ jobs:
                   assert hashlib.sha256(raw).hexdigest() == manifest[name]['sha256'], name
                   members[name] = raw
           assert set(members) == set(manifest)
-          root = Path('/Volumes/X10 Pro/walletissues-storage-20261112/tooling/1818-quoted-artifact-candidate/runtime-0.9.4')
+          root = Path('/Volumes/X10 Pro/walletissues-storage-20261112/tooling/1818-quoted-runner-candidate/runtime-0.9.4')
           assert not root.exists() and not root.is_symlink()
           for parent in root.parents:
               assert not parent.is_symlink(), parent
@@ -156,7 +159,7 @@ jobs:
           (evidence / 'baseline-source-modes.json').write_text(json.dumps(actual, indent=2) + '\n')
           print('Verified 169 original files, safe members, modes, original auditor/compiler and frozen inputs', flush=True)
           PY
-          runtime='/Volumes/X10 Pro/walletissues-storage-20261112/tooling/1818-quoted-artifact-candidate/runtime-0.9.4'
+          runtime='/Volumes/X10 Pro/walletissues-storage-20261112/tooling/1818-quoted-runner-candidate/runtime-0.9.4'
           git -C "$runtime" init -b contract-baseline
           git -C "$runtime" config core.autocrlf false
           git -C "$runtime" config core.fileMode true
@@ -191,7 +194,10 @@ jobs:
           patch --batch --forward --fuzz=0 -p1 -d "$runtime" \
             < .github/qa/required-source-quotes.patch | tee "$evidence/patch.log"
           if grep -Ei 'offset|fuzz' "$evidence/patch.log"; then exit 1; fi
-          test "$(git -C "$runtime" diff --no-renames --name-only "$base" --)" = scripts/lib/review-read-audit.py
+          patch --batch --forward --fuzz=0 -p1 -d "$runtime" \
+            < .github/qa/runner-source-paths.patch | tee "$evidence/runner-patch.log"
+          if grep -Ei 'offset|fuzz' "$evidence/runner-patch.log"; then exit 1; fi
+          test "$(git -C "$runtime" diff --no-renames --name-only "$base" --)" = $'scripts/lib/review-read-audit.py\ntests/run-tests.sh'
           test -z "$(git -C "$runtime" ls-files --others --exclude-standard)"
           python3 -B - <<'PY'
           import hashlib
@@ -199,10 +205,11 @@ jobs:
           import os
           from pathlib import Path
           import stat
-          root = Path('/Volumes/X10 Pro/walletissues-storage-20261112/tooling/1818-quoted-artifact-candidate/runtime-0.9.4')
+          root = Path('/Volumes/X10 Pro/walletissues-storage-20261112/tooling/1818-quoted-runner-candidate/runtime-0.9.4')
           evidence = Path(os.environ['RUNNER_TEMP']) / 'source-quote-contract'
           expected = json.loads((evidence / 'baseline-source-modes.json').read_bytes())
           expected['scripts/lib/review-read-audit.py']['sha256'] = '32c0d0ae08bce8a74d4414ebbd3550d191135e1778067a443358b973bcd1c7f1'
+          expected['tests/run-tests.sh']['sha256'] = '5ffa3cd0b09b845aa00b0fe3c585cc8252cb75610bd8fbd4f6699a3dc63b1add'
           actual = {}
           for path in root.rglob('*'):
               if '.git' in path.relative_to(root).parts:
@@ -218,7 +225,7 @@ jobs:
               }
           assert actual == expected and len(actual) == 169
           (evidence / 'candidate-source-modes.json').write_text(json.dumps(actual, indent=2) + '\n')
-          print('Verified exact auditor-only patch and all 169 candidate bytes/modes', flush=True)
+          print('Verified exact auditor+runner patches and all 169 candidate bytes/modes', flush=True)
           PY
           tar -czf "$evidence/candidate-and-baseline-git.tar.gz" -C "$runtime" .
           probe=$(mktemp -d "$evidence/probe.XXXXXX")
@@ -296,8 +303,10 @@ jobs:
           assert cache.resolve(strict=True) == cache and not cache.is_relative_to(root)
           assert probe != cache
           assert checker.source_plugin(root) == (root, '')
-          touched = ['scripts/lib/review-read-audit.py']
-          assert checker.changed_paths(root, os.environ['QUOTES_BASE']) == set(touched)
+          changed = checker.changed_paths(root, os.environ['QUOTES_BASE'])
+          assert changed == {'scripts/lib/review-read-audit.py', 'tests/run-tests.sh'}
+          touched = sorted(path for path in changed if checker.is_boundary(path, ''))
+          assert touched == ['scripts/lib/review-read-audit.py', 'tests/run-tests.sh']
           plugin, runner, executor = checker.contract_executor(root, root)
           assert plugin == root and runner == root / 'tests/run-tests.sh'
           manifest = json.loads((evidence / 'candidate-source-modes.json').read_bytes())
@@ -311,7 +320,7 @@ jobs:
           assert list(checker.CONTRACT_TESTS) == [
               'provider_envelope_replay', 'read_audit_binds_delivered_output', 'plan_evidence', 'rev_reviewer']
           subject = checker.subject_boundary_hashes(root, '', touched)
-          assert subject == {touched[0]: {'kind': 'regular', **manifest[touched[0]]}}
+          assert subject == {name: {'kind': 'regular', **manifest[name]} for name in touched}
           identity = checker.static_identity(root, executor, touched, subject)
           names = set(checker.BOUNDARIES) | set(checker.CONTRACT_FILES)
           names.update(name for name in manifest if checker.is_contract_input(name))
@@ -375,7 +384,11 @@ jobs:
           key = checker.digest(checker.encoded(identity))
           path = probe / ('contract-pass-' + key + '.json')
           raw = checker.receipt_bytes(path, 'CI authoritative')
-          receipt = checker.validate_receipt(raw, identity, key, ['scripts/lib/review-read-audit.py'], 'CI authoritative')
+          changed = checker.changed_paths(root, os.environ['QUOTES_BASE'])
+          assert changed == {'scripts/lib/review-read-audit.py', 'tests/run-tests.sh'}
+          touched = sorted(name for name in changed if checker.is_boundary(name, ''))
+          assert touched == ['scripts/lib/review-read-audit.py', 'tests/run-tests.sh']
+          receipt = checker.validate_receipt(raw, identity, key, touched, 'CI authoritative')
           assert receipt['log_sha256'] == static['log_sha256']
           assert (evidence / 'authoritative.stdout').read_text() == str(path) + '\n'
           assert (evidence / 'verify.stdout').read_text() == str(path) + '\n'
@@ -397,9 +410,10 @@ jobs:
               actual[str(source.relative_to(root))] = {
                   'sha256': hashlib.sha256(source.read_bytes()).hexdigest(), 'mode': stat.S_IMODE(metadata.st_mode)}
           assert actual == manifest and len(actual) == 169
-          assert checker.changed_paths(root, os.environ['QUOTES_BASE']) == {'scripts/lib/review-read-audit.py'}
+          assert checker.changed_paths(root, os.environ['QUOTES_BASE']) == {'scripts/lib/review-read-audit.py', 'tests/run-tests.sh'}
           for name in ('source-quote-baseline-094.zip', 'source-quote-baseline-094.manifest.json',
-                       'source-quote-frozen-roster.json', 'source-quote-provider-metadata.json', 'required-source-quotes.patch'):
+                       'source-quote-frozen-roster.json', 'source-quote-provider-metadata.json',
+                       'required-source-quotes.patch', 'runner-source-paths.patch'):
               # Compare against the checkout's pre-execution hashes without modifying inputs or receipts.
               recorded = (evidence / 'input-hashes.txt').read_text().splitlines()
               line = next(line for line in recorded if line.endswith('  .github/qa/' + name))
@@ -417,6 +431,7 @@ jobs:
             .github/workflows/e2e-dapp-browser.yml
             .github/qa/source-quote-*
             .github/qa/required-source-quotes.patch
+            .github/qa/runner-source-paths.patch
             .github/qa/test-required-source-quotes.py
             .github/qa/test-runner-source-paths.py
             ${{ runner.temp }}/source-quote-contract/

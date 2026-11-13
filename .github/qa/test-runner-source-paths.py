@@ -14,7 +14,7 @@ import tempfile
 import unittest
 
 
-ORIGINAL_RUNNER_SHA256 = '3241aff49494d152d40aa3d545a7d02c4db5dd3c00989126e868e8a7d34cdce4'
+EXPECTED_RUNNER_SHA256 = '5ffa3cd0b09b845aa00b0fe3c585cc8252cb75610bd8fbd4f6699a3dc63b1add'
 IDENTITY = 't-origin.sh::test_origin_witness'
 OWNED = (
     "printf 'owned-source\\n' >> \"$SOURCE_WITNESS_FILE\"\n"
@@ -48,7 +48,7 @@ class RunnerSourcePathsTests(unittest.TestCase):
         tests.mkdir(parents=True)
         runner = tests / 'run-tests.sh'
         shutil.copyfile(self.runner, runner)
-        self.assertEqual(hashlib.sha256(runner.read_bytes()).hexdigest(), ORIGINAL_RUNNER_SHA256)
+        self.assertEqual(hashlib.sha256(runner.read_bytes()).hexdigest(), EXPECTED_RUNNER_SHA256)
         runner.chmod(stat.S_IMODE(self.runner.stat().st_mode))
         source = tests / 't-origin.sh'
         source.write_text(OWNED, encoding='utf-8')
@@ -200,11 +200,11 @@ def main():
     metadata = args.runner.lstat()
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
         parser.error('supplied runner must be a regular single-link file')
-    if hashlib.sha256(args.runner.read_bytes()).hexdigest() != ORIGINAL_RUNNER_SHA256:
-        parser.error('supplied runner does not match the immutable original runner')
+    if hashlib.sha256(args.runner.read_bytes()).hexdigest() != EXPECTED_RUNNER_SHA256:
+        parser.error('supplied runner does not match the reviewed candidate runner')
     args.logs.mkdir()
     (args.logs / 'supplied-runner.json').write_text(json.dumps({
-        'path': str(args.runner.resolve(strict=True)), 'sha256': ORIGINAL_RUNNER_SHA256,
+        'path': str(args.runner.resolve(strict=True)), 'sha256': EXPECTED_RUNNER_SHA256,
         'mode': stat.S_IMODE(metadata.st_mode),
     }) + '\n')
     RunnerSourcePathsTests.runner = args.runner.resolve(strict=True)
