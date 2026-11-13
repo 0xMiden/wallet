@@ -59,13 +59,16 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
       ? []
       : Array.from({ length: provider === 'epoch' ? 3 : 1 }, (_, index) => `reverse-signed-${index + 1}`).reverse();
   const reverseStages = [
-    ...(provider === 'swap' ? ['reverse-sdk-authorized'] : ['return-authorized', ...signed]),
+    ...(provider === 'swap'
+      ? ['reverse-claim-sdk-authorized', 'reverse-sdk-authorized']
+      : ['return-authorized', ...signed]),
     'reverse-authorized'
   ];
   const stages = [
     'final',
     ...(provider === 'swap' ? [] : ['refund-authorized']),
     ...reverseStages,
+    ...(provider === 'swap' ? ['forward-claim-sdk-authorized'] : []),
     ...(provider === 'near' ? [] : ['forward-sdk-authorized']),
     'forward-authorized'
   ];
@@ -83,14 +86,32 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
       if (provider === 'swap') {
         if (
           stepAttempted(jobs, ['Upload swap SDK forward authority']) &&
-          !['forward-sdk-authorized', 'reverse-sdk-authorized'].some(has)
+          ![
+            'forward-sdk-authorized',
+            'forward-claim-sdk-authorized',
+            'reverse-sdk-authorized',
+            'reverse-claim-sdk-authorized'
+          ].some(has)
         )
           throw new Error('Actual mainnet swap forward SDK checkpoint missing; refusing a pre-SDK downgrade');
         if (
           stepAttempted(jobs, ['Upload swap SDK reverse authority', 'Upload recovered swap SDK return authority']) &&
-          !has('reverse-sdk-authorized')
+          !['reverse-sdk-authorized', 'reverse-claim-sdk-authorized'].some(has)
         )
           throw new Error('Actual mainnet swap reverse SDK checkpoint missing; refusing a pre-SDK downgrade');
+        if (
+          stepAttempted(jobs, ['Upload swap SDK forward claim authority']) &&
+          !['forward-claim-sdk-authorized', ...reverseStages].some(has)
+        )
+          throw new Error('Actual forward claim checkpoint missing; refusing a create-only downgrade');
+        if (
+          stepAttempted(jobs, [
+            'Upload swap SDK reverse claim authority',
+            'Upload recovered swap SDK return claim authority'
+          ]) &&
+          !has('reverse-claim-sdk-authorized')
+        )
+          throw new Error('Actual return claim checkpoint missing; refusing a create-only downgrade');
       }
       if (
         provider === 'epoch' &&
