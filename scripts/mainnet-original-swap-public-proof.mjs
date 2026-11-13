@@ -7,7 +7,6 @@ const native = '0xe69e6ca6e39df1b10c1e5399399feb';
 const requested = '0x5cb79d29507d3ad17bb6dc60279e89';
 const originalId = '0xa026c7215add3ace6074d40ee30735489ce414dc2925b899b5004e3390df7bfa';
 const rpc = new RpcClient(new Endpoint('https://rpc.mainnet.miden.io'));
-const tip = (await rpc.getBlockHeaderByNumber()).blockNum();
 async function verify(record) {
   const proof = record.inclusionProof;
   const height = proof.location().blockNum();
@@ -26,7 +25,8 @@ assert.ok(original.note, 'Public original body unavailable');
 const serial = original.note.recipient().serialNum().toU64s();
 assert.equal(serial[0].toString(), '4527770481039375833');
 assert.equal(serial[1].toString(), '15364527778395428152');
-const consumedAt = await rpc.getNullifierCommitHeight(original.note.nullifier(), tip);
+// The second argument is the inclusive search START, not a chain-tip snapshot.
+const consumedAt = await rpc.getNullifierCommitHeight(original.note.nullifier(), 855895);
 assert.ok(Number.isInteger(consumedAt) && consumedAt >= 855895 && consumedAt <= 855903, 'Original consumption unproved');
 console.log(JSON.stringify({ purpose: 'keyless original consumption proof; no signatures or writes', originalId, createdAtBlock: 855895, consumedAtBlock: consumedAt, protocolOrderId: serial[1].toString(), historicalInclusionVerified: true }));
 const synced = await rpc.syncNotes(855895, 855903, [NoteTag.withAccountTarget(actorId)]);
@@ -58,7 +58,7 @@ for (const record of records) {
   assert.ok(attachments.some(word => word[1] === serial[1] && word[2] === values[3] && word[3] === 0n), 'Missing protocol payback attachment');
   const createdAt = await verify(record);
   assert.equal(createdAt, consumedAt, 'Payback and original consumption must share the exact maker block');
-  assert.equal(await rpc.getNullifierCommitHeight(note.nullifier(), tip), 855903);
+  assert.equal(await rpc.getNullifierCommitHeight(note.nullifier(), createdAt), 855903);
   paybacks.push({ noteId: record.noteId.toString(), createdAtBlock: createdAt, claimedAtBlock: 855903, amount: assets[0].amount().toString(), historicalInclusionVerified: true });
 }
 assert.ok(paybacks.length > 0, 'No protocol-correlated payback proved');
