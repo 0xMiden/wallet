@@ -246,6 +246,24 @@ describe('simulateCustomTransaction', () => {
     );
   });
 
+  it('a failed sync before the lookups fails the dry run before any lookup, quarantine or import', async () => {
+    // Judged on a stale client, an unsynced note of the account's own would read as introduced and be credited.
+    syncState.mockRejectedValueOnce(new Error('node unreachable'));
+
+    const res = await simulateCustomTransaction({
+      address: 'mtst1abc',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA', 'noteB']
+    });
+
+    expect(res).toEqual({ error: 'node unreachable' });
+    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(getInputNote).not.toHaveBeenCalled();
+    expect(quarantineNoteIds).not.toHaveBeenCalled();
+    expect(importNoteBytes).not.toHaveBeenCalled();
+    expect(executeForSummaryAtTip).not.toHaveBeenCalled();
+  });
+
   it('syncs once, before the lookups, when it imports nothing', async () => {
     getInputNote.mockImplementation(async () => ({ alreadyHere: true }));
 

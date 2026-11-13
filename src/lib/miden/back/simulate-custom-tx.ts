@@ -96,7 +96,7 @@ async function idsNotAlreadyHeld(
 
 /**
  * Locally executes a custom transaction to derive its ground truth WITHOUT
- * proving or submitting — a dry run. Syncs, judges against the synced client
+ * proving or submitting: a dry run. Syncs, judges against the synced client
  * which carried notes the request introduced, imports those, and syncs again
  * after an import so execution can resolve its inputs.
  *
@@ -201,7 +201,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         if (imported) {
           await client.syncState();
           // `accountRefToSdk` and `TransactionRequest.deserialize` below are
-          // WASM calls too, not just the execution — and the sync is the await
+          // WASM calls too, not just the execution, and the sync is the await
           // most likely to outlive the watchdog.
           assertWasmHoldCurrent(hold, 'after the post-import sync');
         }
