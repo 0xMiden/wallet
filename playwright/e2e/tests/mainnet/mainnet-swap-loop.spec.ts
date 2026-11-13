@@ -213,7 +213,7 @@ async function prepare(
             plan.worstCaseLossUsdMicros > allowance ||
             swapValue(holding(offer), amount) +
               swapValue(holding(live.native), 6n * SWAP_TX_FEE_MULTIPLE * live.baseFee) >
-            allowance
+              allowance
           )
             continue;
           candidates.push({ plan, offer, request });
