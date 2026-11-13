@@ -1,7 +1,6 @@
 name: Facts routing reuse (isolated regression QA)
 
-# Manual metadata-only QA. Original034 is intentionally functionally RED;
-# failures propagate normally. No producer patch, runtime adoption or wallet execution.
+# Manual metadata-only QA. No runtime adoption, wallet execution or production deadline change.
 on:
   workflow_dispatch:
     inputs:
@@ -16,7 +15,7 @@ permissions:
 jobs:
   facts-routing-reuse:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,7 +24,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Verify exact source and both original runtime copies before import
+      - name: Verify exact source and patch only a temporary original runtime
+        id: runtime_setup
         shell: bash
         env:
           EXPECTED_SOURCE: ${{ inputs.expected_source }}
@@ -39,8 +39,8 @@ jobs:
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           test "$source" = "$EXPECTED_SOURCE"
           test "$source" = "$GITHUB_SHA"
-          sha256sum .github/qa/test-facts-routing-reuse.py \
-            .github/workflows/e2e-dapp-browser.yml | tee -a "$proof"
+          sha256sum .github/qa/test-facts-routing-reuse.py .github/qa/profile-repair-facts.py \
+            .github/qa/facts-routing-reuse.patch .github/workflows/e2e-dapp-browser.yml | tee -a "$proof"
           archive="$GITHUB_WORKSPACE/.github/qa/2027-timeout-origin-runtime.zip"
           printf '%s  %s\n' \
             'dba8a1b618194daf7e6c0581b834511cd49cd3af5f278e001fedb4c95b792912' "$archive" \
@@ -54,10 +54,35 @@ jobs:
               '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620' \
               "$runtime/scripts/rev-evidence.py" \
               | sha256sum --check --strict | tee -a "$proof"
-            # Keep the exact unmodified imported source as evidence even on assertion failure.
+            if test "$identity" = candidate; then
+              patch --batch --fuzz=0 --no-backup-if-mismatch -p1 -d "$runtime" \
+                < "$GITHUB_WORKSPACE/.github/qa/facts-routing-reuse.patch"
+              printf '%s  %s\n' \
+                '7092175a97a81d5e8131cd144e245db4f65a064fc2a8ce6d19486d06f560639a' \
+                "$runtime/scripts/rev-evidence.py" \
+                | sha256sum --check --strict | tee -a "$proof"
+            fi
             cp "$runtime/scripts/rev-evidence.py" "$RUNNER_TEMP/facts-routing-reuse-$identity-compiler.py"
             printf 'FACTS_%s_RUNTIME=%s\n' "${identity^^}" "$runtime" >> "$GITHUB_ENV"
           done
+          # All other archive members must remain byte-identical; no extra candidate files.
+          python3 -B - "$RUNNER_TEMP" <<'PY'
+          import os
+          from pathlib import Path
+          import zipfile
+          root = Path(os.environ['GITHUB_WORKSPACE'])
+          archive = root / '.github/qa/2027-timeout-origin-runtime.zip'
+          with zipfile.ZipFile(archive) as bundle:
+              members = {name.removeprefix('runtime-0.9.0/'): bundle.read(name)
+                         for name in bundle.namelist() if not name.endswith('/')}
+          for identity in ('candidate', 'reference'):
+              runtime = next(Path(os.environ['RUNNER_TEMP']).glob(f'facts-routing-reuse-{identity}.*/runtime-0.9.0'))
+              actual = {str(path.relative_to(runtime)): path.read_bytes()
+                        for path in runtime.rglob('*') if path.is_file()}
+              assert actual.keys() == members.keys(), identity
+              changed = [name for name in members if actual[name] != members[name]]
+              assert changed == (['scripts/rev-evidence.py'] if identity == 'candidate' else []), changed
+          PY
       - name: Ensure host Git and ripgrep for temporary metadata fixtures only
         shell: bash
         run: |
@@ -70,35 +95,299 @@ jobs:
             sudo apt-get install -y ripgrep
           fi
           rg --version
-      - name: Run exactly five real regressions and propagate assertion failures
+      - name: Run exactly five unchanged real regressions
         shell: bash
         run: |
           set -euo pipefail
           test "$FACTS_CANDIDATE_RUNTIME" != "$FACTS_REFERENCE_RUNTIME"
-          # Capture status only to verify the test count; never invert a functional failure.
-          set +e
           python3 -B "$GITHUB_WORKSPACE/.github/qa/test-facts-routing-reuse.py" \
-            --runtime "$FACTS_CANDIDATE_RUNTIME" \
-            --reference-runtime "$FACTS_REFERENCE_RUNTIME" \
+            --runtime "$FACTS_CANDIDATE_RUNTIME" --reference-runtime "$FACTS_REFERENCE_RUNTIME" \
             2>&1 | tee "$RUNNER_TEMP/facts-routing-reuse-tests.log"
-          status=${PIPESTATUS[0]}
-          set -e
           grep -E '^Ran 5 tests in ' "$RUNNER_TEMP/facts-routing-reuse-tests.log"
-          exit "$status"
-      - name: Always retain exact source, compiler copies, hashes and logs
+          grep -x 'OK' "$RUNNER_TEMP/facts-routing-reuse-tests.log"
+      - name: Run complete existing source-config and source-context regression identities
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          python3 -B "$FACTS_CANDIDATE_RUNTIME/tests/test_source_config_paths.py" -v \
+            2>&1 | tee "$RUNNER_TEMP/facts-routing-reuse-config-tests.log"
+          grep -E '^Ran 4 tests in ' "$RUNNER_TEMP/facts-routing-reuse-config-tests.log"
+          grep -x 'OK' "$RUNNER_TEMP/facts-routing-reuse-config-tests.log"
+          REVIEW_COUNCIL_TEST_TASK='t-evidence.sh::test_evidence_hardening_context' \
+            REVIEW_COUNCIL_TEST_RESULTS_FILE="$RUNNER_TEMP/facts-routing-reuse-context.results" \
+            bash "$FACTS_CANDIDATE_RUNTIME/tests/run-tests.sh" \
+            2>&1 | tee "$RUNNER_TEMP/facts-routing-reuse-context-tests.log"
+          grep -x 'ok' "$RUNNER_TEMP/facts-routing-reuse-context.results"
+          ! grep -x 'fail' "$RUNNER_TEMP/facts-routing-reuse-context.results"
+          # The runner executes the entire context group, not an arbitrary substring filter.
+          for identity in local_names_do_not_expand_cross_file_proof \
+            wildcard_reexports_use_exact_source_proof wildcard_reexport_syntax_preserves_start_lines \
+            ts_default_import_alias_is_a_capacity_counted_obligation \
+            ts_namespace_alias_missing_target_is_a_capacity_counted_obligation \
+            coexisting_ts_projects_are_explicitly_ambiguous_with_matching_base_url \
+            ambiguous_ts_configs_are_explicit_search_obligations \
+            ts_paths_alias_and_missing_targets_are_capacity_counted \
+            ts_transitive_excluded_file_uses_project_path_aliases \
+            ts_explicit_files_root_keeps_path_aliases_outside_config_and_exclude; do
+            grep -x "PASS $identity" "$RUNNER_TEMP/facts-routing-reuse-context-tests.log"
+          done
+      - name: Require named assertion kills for all five semantic groups on temporary mutants
+        if: ${{ !cancelled() && steps.runtime_setup.outcome == 'success' && env.FACTS_CANDIDATE_RUNTIME != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY' 2>&1 | tee "$RUNNER_TEMP/facts-routing-reuse-mutations.log"
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+
+          candidate = Path(os.environ['FACTS_CANDIDATE_RUNTIME'])
+          reference = Path(os.environ['FACTS_REFERENCE_RUNTIME'])
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'facts-routing-reuse-mutations'
+          evidence.mkdir()
+          source = (candidate / 'scripts/rev-evidence.py').read_text()
+          original = (reference / 'scripts/rev-evidence.py').read_text()
+          helper = '''    @lru_cache(maxsize=4096)
+              def reexport_references(path, name):
+                  return ts_reexport_references(wildcard_source_lines(path), name, reexport_source)
+          '''
+          # Match exact source, not approximate line numbers; a source drift is a setup failure.
+          def replace_once(text, old, new):
+              assert text.count(old) == 1, repr(old)
+              return text.replace(old, new, 1)
+
+          wrong_name = '''    reexport_references_cache = {}
+              def reexport_references(path, name):
+                  if path not in reexport_references_cache:
+                      reexport_references_cache[path] = ts_reexport_references(
+                          wildcard_source_lines(path), name, reexport_source)
+                  return reexport_references_cache[path]
+          '''
+          stale = '''    from collections import OrderedDict
+              reexport_references_cache = globals().setdefault('_qa_stale_references', OrderedDict())
+              def reexport_references(path, name):
+                  key = (path, name)
+                  if key not in reexport_references_cache:
+                      reexport_references_cache[key] = ts_reexport_references(
+                          wildcard_source_lines(path), name, reexport_source)
+                  reexport_references_cache.move_to_end(key)
+                  if len(reexport_references_cache) > 4096:
+                      reexport_references_cache.popitem(last=False)
+                  return reexport_references_cache[key]
+          '''
+          mutants = {
+              'original034-no-reuse': (original, 'test_routing_reuses_intermediate_work'),
+              'wrong-name-key': (replace_once(source, helper, wrong_name),
+                                 'test_facts_match_reference_for_aliases'),
+              'global-stale': (replace_once(replace_once(source,
+                  '    routing_config_cache = {}',
+                  "    routing_config_cache = globals().setdefault('_qa_stale_routing', {})"), helper, stale),
+                  'test_facts_cache_is_invocation_local'),
+              'config-closure': (replace_once(source,
+                  'routing_config_cache[path] = source_configs_for_path(path, base_url_configs)',
+                  'routing_config_cache[path] = source_configs_for_path(\n'
+                  '                path, base_url_configs, entries, repo, source_config_cache)'),
+                  'test_config_selection_matches_reference'),
+              'truncated-references': (replace_once(source,
+                  'return ts_reexport_references(wildcard_source_lines(path), name, reexport_source)',
+                  'return ts_reexport_references(wildcard_source_lines(path), name, reexport_source)[:1]'),
+                  'test_facts_match_reference_for_cycles_and_unresolved'),
+          }
+          records = []
+          for name, (mutated, predicted) in mutants.items():
+              with tempfile.TemporaryDirectory(prefix='facts-mutant-') as directory:
+                  runtime = Path(directory) / 'runtime'
+                  shutil.copytree(candidate, runtime)
+                  (runtime / 'scripts/rev-evidence.py').write_text(mutated)
+                  (evidence / f'{name}-compiler.py').write_text(mutated)
+                  command = [sys.executable, '-B', str(Path(os.environ['GITHUB_WORKSPACE']) /
+                      '.github/qa/test-facts-routing-reuse.py'), '--runtime', str(runtime),
+                      '--reference-runtime', str(reference)]
+                  try:
+                      result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                              text=True, timeout=180)
+                  except subprocess.TimeoutExpired as error:
+                      (evidence / f'{name}.log').write_bytes(error.stdout or b'')
+                      (evidence / f'{name}-timeout.txt').write_text('No assertion kill: diagnostic timed out.\n')
+                      raise
+                  (evidence / f'{name}.log').write_text(result.stdout)
+                  blocks = re.findall(r'^FAIL: (test_\w+)(.*?)\n(?=={10,}|-{10,}\nRan |\Z)',
+                                      result.stdout, re.M | re.S)
+                  # Each accepted failure is an assertion, never an import/setup exception.
+                  killed = (result.returncode == 1 and 'Ran 5 tests in ' in result.stdout
+                            and not re.search(r'^ERROR:|errors=[1-9]', result.stdout, re.M)
+                            and bool(blocks) and all('AssertionError' in body for _, body in blocks)
+                            and any(test == predicted for test, _ in blocks)
+                            and re.search(r'^FAILED \(failures=\d+\)$', result.stdout, re.M) is not None)
+                  if name == 'original034-no-reuse':
+                      killed = (killed and "group='routing-config'" in result.stdout
+                                and "group='reexport-references'" in result.stdout
+                                and 'FAILED (failures=2)' in result.stdout)
+                  record = dict(mutant=name, predicted_test=predicted, selected_tests=5,
+                                returncode=result.returncode, assertion_kill=bool(killed),
+                                compiler_sha256=hashlib.sha256(mutated.encode()).hexdigest(),
+                                failure_tests=[test for test, _ in blocks], command=command)
+                  records.append(record)
+                  (evidence / 'summary.json').write_text(json.dumps(records, indent=2) + '\n')
+                  print(json.dumps(record), flush=True)
+          assert len(records) == 5 and all(record['assertion_kill'] for record in records), records
+          PY
+      - name: Check out frozen wallet subject for Git source metadata only
+        if: ${{ !cancelled() && steps.runtime_setup.outcome == 'success' && env.FACTS_CANDIDATE_RUNTIME != '' }}
+        uses: actions/checkout@v4
+        with:
+          ref: aee4787ec9c24d786092357762ce1a643856acd1
+          fetch-depth: 0
+          persist-credentials: false
+          path: facts-subject
+      - name: Measure sequential full12 direct facts and require entire canonical byte equality
+        if: ${{ !cancelled() && steps.runtime_setup.outcome == 'success' && env.FACTS_CANDIDATE_RUNTIME != '' }}
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY' 2>&1 | tee "$RUNNER_TEMP/facts-routing-reuse-full12.log"
+          import ast
+          from collections import Counter
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import resource
+          import shlex
+          import subprocess
+          import sys
+          import tempfile
+          import time
+
+          output = Path(os.environ['RUNNER_TEMP']) / 'facts-routing-reuse-full12'
+          output.mkdir()
+          workspace = Path(os.environ['GITHUB_WORKSPACE'])
+          root = workspace / 'facts-subject'
+          subject = 'aee4787ec9c24d786092357762ce1a643856acd1'
+          base = '5278fe5dc659a3f81bce97d118f2c9fd53001cdd'
+          # Read literal scope metadata only: do not import/execute the profiling helper.
+          helper = workspace / '.github/qa/profile-repair-facts.py'
+          parsed = ast.parse(helper.read_text())
+          assignments = {node.targets[0].id: node.value for node in parsed.body
+                         if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)}
+          changed_paths = sorted(ast.literal_eval(assignments['CHANGED_PATHS'].args[0]))
+          assert len(changed_paths) == 12 and len(set(changed_paths)) == 12
+          assert ast.literal_eval(assignments['SUBJECT_HEAD']) == subject
+          assert ast.literal_eval(assignments['SUBJECT_BASE']) == base
+          def git(*args):
+              env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+              env.update(GIT_OPTIONAL_LOCKS='0', GIT_LITERAL_PATHSPECS='1', LC_ALL='C')
+              return subprocess.check_output(['git', '-C', str(root), *args], env=env).decode().strip()
+
+          # Every guard precedes either compiler import. No wallet imports/dependencies/app checks.
+          assert git('rev-parse', 'HEAD') == subject
+          assert git('rev-parse', '--is-shallow-repository') == 'false'
+          assert not git('status', '--porcelain=v1', '--untracked-files=all'), 'subject dirty'
+          git('merge-base', '--is-ancestor', base, subject)
+          actual_paths = sorted(path for path in git(
+              'diff', '--name-only', '--no-renames', '-z', base, subject).split('\0') if path)
+          assert actual_paths == changed_paths, actual_paths
+          guards = dict(subject=subject, base=base, changed_paths=actual_paths, clean=True,
+                        full_history=True, ancestry=True, helper_sha256=hashlib.sha256(helper.read_bytes()).hexdigest())
+          (output / 'source-guards.json').write_text(json.dumps(guards, indent=2) + '\n')
+          records = []
+          pins = {'reference': '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620',
+                  'candidate': '7092175a97a81d5e8131cd144e245db4f65a064fc2a8ce6d19486d06f560639a'}
+          for identity in ('reference', 'candidate'):
+              compiler = Path(os.environ[f'FACTS_{identity.upper()}_RUNTIME']) / 'scripts/rev-evidence.py'
+              record = dict(identity=identity, compiler_sha256=hashlib.sha256(compiler.read_bytes()).hexdigest(),
+                            certifying=False, measurement='full12 direct facts only; not full repair',
+                            diagnostic_deadline_seconds=600, completed=False, error=None)
+              assert record['compiler_sha256'] == pins[identity]
+              calls = Counter()
+              with tempfile.TemporaryDirectory(prefix='facts-full12-session-') as directory:
+                  session = Path(directory)
+                  values = dict(REV_ROOT=str(root), REV_BASE=base, REV_SCOPE='branch')
+                  (session / 'scope.env').write_text(''.join(
+                      f'{key}={shlex.quote(value)}\n' for key, value in values.items()))
+                  spec = importlib.util.spec_from_file_location(f'full12_{identity}', compiler)
+                  module = importlib.util.module_from_spec(spec)
+                  sys.modules[spec.name] = module
+                  spec.loader.exec_module(module)
+                  repo = module.Repository(session)
+                  assert repo.selected == '.'
+                  base_tree, tree = repo.tree(base), repo.tree(subject)
+                  _, hunks, categories, _ = repo.changes(base_tree, tree)
+                  assert sorted(categories) == changed_paths
+                  original_configs = module.source_configs_for_path
+                  original_references = module.ts_reexport_references
+                  def configs(*args, **kwargs):
+                      calls['source_configs_for_path_total'] += 1
+                      if len(args) == 2 and not kwargs:
+                          calls['source_configs_for_path_two_argument'] += 1
+                      return original_configs(*args, **kwargs)
+                  def references(*args, **kwargs):
+                      calls['ts_reexport_references'] += 1
+                      return original_references(*args, **kwargs)
+                  module.source_configs_for_path = configs
+                  module.ts_reexport_references = references
+                  started = time.monotonic()
+                  try:
+                      module.PREPARE_PROGRESS['stage'] = 'facts'
+                      with module.prepare_deadline(600):
+                          value = module.facts(repo, tree, hunks, categories, base_tree)
+                      record['facts_elapsed_seconds'] = time.monotonic() - started
+                      data = json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode('ascii')
+                      (output / f'{identity}-facts.json').write_bytes(data)
+                      record.update(completed=True, facts_sha256=hashlib.sha256(data).hexdigest(), facts_bytes=len(data))
+                  except Exception as error:
+                      record.update(error=f'{type(error).__name__}: {error}',
+                                    facts_elapsed_seconds=time.monotonic() - started)
+                  finally:
+                      record.update(intermediate_calls=dict(calls),
+                                    process_peak_rss_kib_cumulative=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+                      records.append(record)
+                      (output / f'{identity}-summary.json').write_text(json.dumps(record, indent=2) + '\n')
+                      print(json.dumps(record), flush=True)
+          equal = (all(record['completed'] for record in records) and
+                   (output / 'reference-facts.json').read_bytes() == (output / 'candidate-facts.json').read_bytes())
+          summary = dict(certifying=False, full_repair_measured=False, complete_canonical_bytes_equal=equal,
+                         source_guards=guards, measurements=records,
+                         memory_note='Linux ru_maxrss is cumulative process peak, not a per-call delta; no cProfile')
+          if all(record['completed'] for record in records) and not equal:
+              before = (output / 'reference-facts.json').read_bytes()
+              after = (output / 'candidate-facts.json').read_bytes()
+              summary['first_mismatch_byte'] = next((i for i, pair in enumerate(zip(before, after))
+                                                    if pair[0] != pair[1]), min(len(before), len(after)))
+          (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          assert equal, 'full12 timeout/error/mismatch is noncertifying and must fail, not green'
+          PY
+          # Retain exact post-run source hashes too; imports must not rewrite compiler source.
+          sha256sum "$FACTS_REFERENCE_RUNTIME/scripts/rev-evidence.py" \
+            "$FACTS_CANDIDATE_RUNTIME/scripts/rev-evidence.py" \
+            | tee "$RUNNER_TEMP/facts-routing-reuse-post-run-hashes.txt"
+      - name: Always retain exact sources, patch, hashes, test and mutation logs, full facts and summaries
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: facts-routing-reuse-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             .github/qa/test-facts-routing-reuse.py
+            .github/qa/profile-repair-facts.py
+            .github/qa/facts-routing-reuse.patch
             .github/workflows/e2e-dapp-browser.yml
-            ${{ runner.temp }}/facts-routing-reuse-source-hashes.txt
-            ${{ runner.temp }}/facts-routing-reuse-setup.log
-            ${{ runner.temp }}/facts-routing-reuse-tools.log
-            ${{ runner.temp }}/facts-routing-reuse-tests.log
-            ${{ runner.temp }}/facts-routing-reuse-candidate-compiler.py
-            ${{ runner.temp }}/facts-routing-reuse-reference-compiler.py
+            ${{ runner.temp }}/facts-routing-reuse-*.txt
+            ${{ runner.temp }}/facts-routing-reuse-*.log
+            ${{ runner.temp }}/facts-routing-reuse-*.results
+            ${{ runner.temp }}/facts-routing-reuse-*-compiler.py
+            ${{ runner.temp }}/facts-routing-reuse-mutations/
+            ${{ runner.temp }}/facts-routing-reuse-full12/
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
