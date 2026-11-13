@@ -58,7 +58,7 @@ async function simulateEligibleOs(context: BrowserContext) {
 }
 
 async function request(page: Page, payload: { type: string; nonce?: string; command?: { action: 'state' } }): Promise<unknown> {
-  await page.evaluate(
+  return page.evaluate(
     data =>
       new Promise<unknown>((resolve, reject) => {
         const port = chrome.runtime.connect({ name: 'INTERCOM' });
@@ -143,10 +143,13 @@ async function setup(context: BrowserContext, id: string) {
   const response = await request(page, { type: 'PLATFORM_UNLOCK_REQUEST', command: { action: 'state' } });
   const result: unknown = response && typeof response === 'object' ? Reflect.get(response, 'result') : null;
   const state: unknown = result && typeof result === 'object' ? Reflect.get(result, 'state') : null;
-  await test.info().attach('platform-boundaries', { contentType: 'application/json', body: JSON.stringify({
+  const diagnostic = JSON.stringify({
     page: await page.evaluate(evidence), worker: worker ? await worker.evaluate(evidence) : null,
     state: state && typeof state === 'object' ? { available: Reflect.get(state, 'available'), hasPassword: Reflect.get(state, 'hasPassword') } : null
-  }) });
+  }, null, 2);
+  const diagnosticPath = test.info().outputPath('platform-boundaries.json');
+  await writeFile(diagnosticPath, diagnostic);
+  await test.info().attach('platform-boundaries', { contentType: 'application/json', path: diagnosticPath });
   await expect(page.getByTestId('passkey-unlock-settings')).toBeVisible({ timeout: 30_000 });
   return page;
 }
