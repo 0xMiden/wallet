@@ -59,7 +59,9 @@ const forwardAuthority = () => ({
 const forwardRequestAuthority = () => epochForwardRequestAuthorityFixture(hash, fixture().createdAt);
 it('persists exact final Epoch SDK fingerprints alongside the original collateral binding', () => {
   const state = {
-    ...fixture(), forwardNoteId: hash, forwardAuthority: forwardAuthority(),
+    ...fixture(),
+    forwardNoteId: hash,
+    forwardAuthority: forwardAuthority(),
     forwardRequestAuthority: forwardRequestAuthority()
   };
   expect(parseMainnetEpochCheckpoint(state)).toEqual(state);
@@ -77,10 +79,14 @@ it.each([
   { expiresAt: Date.parse(fixture().createdAt) + 600_001 },
   { requestBytes: [1, 2, 3] }
 ])('rejects unrelated, extended or private Epoch SDK authority: %j', changed => {
-  expect(() => parseMainnetEpochCheckpoint({
-    ...fixture(), forwardNoteId: hash, forwardAuthority: forwardAuthority(),
-    forwardRequestAuthority: { ...forwardRequestAuthority(), ...changed }
-  })).toThrow();
+  expect(() =>
+    parseMainnetEpochCheckpoint({
+      ...fixture(),
+      forwardNoteId: hash,
+      forwardAuthority: forwardAuthority(),
+      forwardRequestAuthority: { ...forwardRequestAuthority(), ...changed }
+    })
+  ).toThrow();
 });
 it('preserves original authorization while persisting the exact reviewed forward floor, binding and both reclaim heights', () => {
   const bound = { ...fixture(), forwardNoteId: hash, forwardAuthority: forwardAuthority() };
