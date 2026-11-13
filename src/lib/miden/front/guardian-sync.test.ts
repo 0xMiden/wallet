@@ -1971,6 +1971,23 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(isGuardianUnrepairable('acct-own-lagging-guardian')).toBe(false);
   });
 
+  // The Guardian stored nothing, so finishing on its refusal spends no attempt either.
+  it('finishing on a state_not_on_chain push spends no attempt', async () => {
+    arrangeOwnRotation('acct-own-lagging-budget');
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockReRegister.mockImplementation(
+      async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+        onPushStart?.(['0xbeef', '0xc01d']);
+        throw stateNotOnChainRefusal('Failed to register account on the new guardian after switching');
+      }
+    );
+
+    await runPastCooldowns(SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS);
+
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+    expect(isGuardianUnrepairable('acct-own-lagging-budget')).toBe(false);
+  });
+
   it("keeps the budget open while the chain does not confirm this device's rotation (#1233)", async () => {
     const { GuardianReRegisterRefusedError } = jest.requireActual('lib/miden/guardian');
     arrangeOwnRotation('acct-own-unconfirmed');
