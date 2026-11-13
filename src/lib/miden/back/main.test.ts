@@ -182,15 +182,18 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 
 const mockPlatformAvailability = jest.fn(async () => true);
+const mockPlatformStartup = jest.fn(async () => undefined);
 jest.mock('lib/extension/platform-unlock-startup', () => ({
   getPlatformUnlockAvailability: () => mockPlatformAvailability(),
-  ensureTrustedPlatformStorage: async () => true
+  ensureTrustedPlatformStorage: async () => true,
+  ensurePlatformUnlockStartup: () => mockPlatformStartup()
 }));
 
 jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn(),
   getFrontState: jest.fn(),
   registerNewWallet: jest.fn(),
+  registerWalletFromHotKey: jest.fn(),
   registerImportedWallet: jest.fn(),
   unlock: jest.fn(),
   platformUnlock: jest.fn(),
@@ -248,6 +251,7 @@ const flushStorage = () => new Promise(resolve => setTimeout(resolve, 0));
 beforeEach(async () => {
   jest.clearAllMocks();
   mockPlatformAvailability.mockReset().mockResolvedValue(true);
+  mockPlatformStartup.mockReset().mockResolvedValue(undefined);
   _g.__mainTest.nativeScope = 'rpc|devnet';
   _g.__mainTest.nativeRevision = 0;
   for (const k of Object.keys(_g.__mainConnStore)) delete _g.__mainConnStore[k];
@@ -288,10 +292,34 @@ beforeEach(async () => {
   // Spin up `start()` so the dispatcher gets registered, then capture
   // the handler intercom.onRequest received.
   await start();
-  dispatch = mockOnRequest.mock.calls[0]![0];
+  const handler = mockOnRequest.mock.calls[0]![0];
+  const browser = (await import('webextension-polyfill')).default;
+  const page = { sender: { id: browser.runtime.id, url: browser.runtime.getURL('fullpage.html') } };
+  dispatch = (req, port = page) => handler(req, port);
 });
 
 describe('main.start', () => {
+  it('registers listeners immediately but reads no wallet configuration before reset readiness', async () => {
+    let release: () => void = () => undefined;
+    mockPlatformStartup.mockImplementationOnce(() => new Promise<undefined>(resolve => { release = () => resolve(undefined); }));
+    mockOnRequest.mockClear(); mockLoadEndpointOverrides.mockClear(); Actions.init.mockClear();
+    const starting = start();
+    try {
+      expect(mockOnRequest).toHaveBeenCalledTimes(1);
+      await flushStorage();
+      expect(mockLoadEndpointOverrides).not.toHaveBeenCalled();
+      expect(Actions.init).not.toHaveBeenCalled();
+    } finally { release(); await starting; }
+  });
+
+  it('rejects waiting requests after reset readiness fails instead of exposing the old wallet', async () => {
+    mockPlatformStartup.mockRejectedValueOnce(new Error('reset pending'));
+    mockOnRequest.mockClear(); Actions.getFrontState.mockClear();
+    await expect(start()).rejects.toThrow('reset pending');
+    const handler = mockOnRequest.mock.calls[0]![0];
+    await expect(handler({ type: WalletMessageType.GetStateRequest })).rejects.toThrow('reset pending');
+    expect(Actions.getFrontState).not.toHaveBeenCalled();
+  });
   it('hydrates the remote config after the endpoint override and before any handler can run', () => {
     expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
     expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(
@@ -397,6 +425,23 @@ describe('main.start', () => {
     await start();
 
     expect(connectivityMock.getConnectivityState().node).toEqual({ active: false, since: null });
+  });
+});
+
+describe('wallet setup authority', () => {
+  it.each([WalletMessageType.NewWalletRequest, WalletMessageType.NewWalletFromHotKeyRequest,
+    WalletMessageType.ImportFromClientRequest])('refuses content-script setup %s', async type => {
+    const browser = (await import('webextension-polyfill')).default;
+    await expect(dispatch({ type, walletType: 'guardian', password: 'pw', mnemonic: 'fixture', ownMnemonic: false,
+      keyPairPayload: 'fixture', walletAccounts: [], importedAccounts: [] },
+      { sender: { id: browser.runtime.id, url: 'https://example.com/' } })).rejects.toThrow();
+  });
+  it('keeps legitimate content-script dApp traffic outside the private setup gate', async () => {
+    const browser = (await import('webextension-polyfill')).default;
+    await expect(dispatch({ type: MidenMessageType.PageRequest, origin: 'https://example.com', payload: 'PING' },
+      { sender: { id: browser.runtime.id, url: 'https://example.com/' } })).resolves.toEqual({
+        type: MidenMessageType.PageResponse, payload: 'PONG'
+      });
   });
 });
 
