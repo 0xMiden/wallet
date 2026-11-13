@@ -6,28 +6,7 @@ permissions:
   contents: read
   actions: read
 jobs:
-  translations:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: ./.github/actions/inject-linked-web-sdk-pr
-      - uses: ./.github/actions/inject-linked-guardian-pr
-      - uses: ./.github/actions/yarn-install
-      - run: yarn createTranslationFile
-        env:
-          DEEPL_API_KEY: ${{ secrets.DEEPL_API_KEY }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: generated-platform-locales
-          path: public/_locales/
-          if-no-files-found: error
-          retention-days: 3
   frontend-contracts:
-    needs: translations
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -38,30 +17,10 @@ jobs:
       - uses: ./.github/actions/inject-linked-web-sdk-pr
       - uses: ./.github/actions/inject-linked-guardian-pr
       - uses: ./.github/actions/yarn-install
-      - uses: actions/download-artifact@v4
-        with:
-          name: generated-platform-locales
-          path: public/_locales/
-      - run: yarn prettier --write src/app/pages/Unlock.tsx src/app/templates/PasskeyUnlockSettings.tsx src/lib/telemetry/user-visible-error-contract.ts src/components/Input.tsx src/components/Input.test.tsx src/app/pages/Settings.selectors.test.ts public/_locales/en/messages.json
       - run: yarn tsc --noEmit --pretty false
-      - run: yarn eslint src/app/pages/Unlock.tsx src/app/templates/PasskeyUnlockSettings.tsx src/lib/telemetry/user-visible-error-contract.ts src/components/Input.tsx src/components/Input.test.tsx src/app/pages/Settings.selectors.test.ts
-      - run: yarn jest src/components/Input.test.tsx src/app/pages/Unlock.test.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/lib/telemetry/user-visible-error.guard.test.ts src/lib/telemetry/user-visible-error.test.ts src/app/pages/Settings.selectors.test.ts src/lib/i18n/locale-bundle-parity.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --maxWorkers=2
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: platform-source-formatted
-          path: |
-            src/app/pages/Unlock.tsx
-            src/app/templates/PasskeyUnlockSettings.tsx
-            src/lib/telemetry/user-visible-error-contract.ts
-            src/components/Input.tsx
-            src/components/Input.test.tsx
-            src/app/pages/Settings.selectors.test.ts
-            public/_locales/en/messages.json
-          if-no-files-found: error
-          retention-days: 3
+      - run: yarn eslint src/lib/platform-auth/webauthn.ts src/lib/platform-auth/webauthn.test.ts src/app/templates/PasskeyUnlockSettings.tsx
+      - run: yarn jest src/lib/platform-auth/webauthn.test.ts src/lib/miden/platform-reset.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/user-visible-error.guard.test.ts src/app/templates/PasskeyUnlockSettings.test.tsx src/app/pages/Unlock.test.tsx src/lib/i18n/locale-bundle-parity.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --maxWorkers=2
   virtual-prf-integration:
-    needs: translations
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -72,10 +31,6 @@ jobs:
       - uses: ./.github/actions/inject-linked-web-sdk-pr
       - uses: ./.github/actions/inject-linked-guardian-pr
       - uses: ./.github/actions/yarn-install
-      - uses: actions/download-artifact@v4
-        with:
-          name: generated-platform-locales
-          path: public/_locales/
       - run: yarn prettier --write playwright/tests/platform-unlock.spec.ts
       - uses: ./.github/actions/start-eligibility-fixture
         env:
@@ -89,7 +44,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: platform-prf-restart-fixed
+          name: platform-replacement-retained-auth-red
           path: |
             test-results/
             playwright/tests/platform-unlock.spec.ts

@@ -1,4 +1,21 @@
 {
+  "passkeyUnlock": "Odblokowanie kluczem dostępu",
+  "unlockWithPasskey": "Odblokowanie za pomocą klucza dostępu",
+  "passkeyUnlockDescription": "Aby odblokować ten portfel, użyj dostawcy klucza dostępu swojego urządzenia. Hasło do portfela będzie nadal działać.",
+  "passkeyUnlockEnabled": "W tym portfelu włączono odblokowywanie za pomocą klucza dostępu.",
+  "passkeyUnlockUnavailable": "Odblokowanie za pomocą klucza dostępu jest niedostępne w tej przeglądarce, systemie operacyjnym lub portfelu. Nadal możesz używać hasła do portfela.",
+  "passkeyEnable": "Włącz odblokowywanie za pomocą klucza dostępu",
+  "passkeyReplace": "Zmień hasło dostępu",
+  "passkeyRemove": "Usuń odblokowanie za pomocą klucza dostępu",
+  "passkeyProviderRemoval": "Usunięcie opcji odblokowania za pomocą klucza dostępu w tym miejscu nie powoduje unieważnienia ani usunięcia klucza dostępu przechowywanego przez dostawcę. Jeśli nie jest już potrzebny, należy go również usunąć w ustawieniach dostawcy.",
+  "passkeySyncCapable": "Twój dostawca informuje, że ten klucz dostępu można zarchiwizować lub zsynchronizować. Dostępność na innych urządzeniach zależy od dostawcy.",
+  "passkeyDeviceBound": "Twój dostawca informuje, że nie można wykonać kopii zapasowej tego hasła dostępu.",
+  "passkeySidePanelOnly": "Otwórz panel boczny portfela, aby włączyć, zmienić lub wyłączyć odblokowywanie za pomocą klucza dostępu.",
+  "passkeySidePanelFailed": "Nie udało się otworzyć panelu bocznego. Otwórz go z paska narzędzi portfela i spróbuj ponownie.",
+  "passkeyCanceled": "Żądanie klucza dostępu zostało anulowane lub jest niedostępne. Nadal możesz korzystać z hasła do portfela.",
+  "passkeySetupFailed": "Nie udało się włączyć odblokowania za pomocą klucza dostępu. Sprawdź hasło do portfela i skorzystaj z usług dostawcy obsługującego tę funkcję.",
+  "passkeyRemoveFailed": "Nie udało się usunąć odblokowania za pomocą klucza dostępu. Spróbuj ponownie. Hasło do portfela nadal działa.",
+  "passkeyUnlockFailed": "Nie udało się odblokować za pomocą tego klucza dostępu. Użyj hasła do portfela i sprawdź ustawienia klucza dostępu.",
   "seedBackupRequiredTitle": "Utwórz kopię zapasową frazy seed",
   "seedBackupRequiredAction": "Utwórz kopię zapasową teraz",
   "seedBackupRequiredBody": "Saldo Twojego portfela osiągnęło 150 USD. Przed kontynuowaniem musisz wykonać kopię zapasową frazy nasiennej. Zapisz ją, przechowuj w bezpiecznym miejscu i zakończ weryfikację, aby móc korzystać z portfela.",
@@ -1905,5 +1922,8 @@
   "arcadeBalanceUnknown": "Saldo niedostępne",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Monety w grach",
-  "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji."
+  "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji.",
+  "autoLock": "Automatyczna blokada",
+  "autoLockDescription": "Blokuje portfel, gdy pozostaje on w tle przez tak długi czas.",
+  "autoLockMinutes": "$minutes$ min"
 }

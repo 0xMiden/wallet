@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Разблокировка с помощью пароля",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Разблокировка с помощью пароля",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Используйте поставщик паролей вашего устройства для разблокировки этого кошелька. Пароль вашего кошелька по-прежнему будет работать.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Для этого кошелька включена функция разблокировки с помощью пароля.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Разблокировка с помощью пароля недоступна в этом браузере, операционной системе или кошельке. Вы по-прежнему можете использовать пароль своего кошелька.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Включить разблокировку с помощью пароля",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Заменить пароль",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Удалить разблокировку с помощью пароля",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Удаление разблокировки с помощью пароля в данном случае не приводит к аннулированию или удалению пароля, хранящегося у вашего провайдера. Если он вам больше не нужен, удалите его также в настройках вашего провайдера.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Ваш провайдер сообщает, что этот пароль можно скопировать или синхронизировать. Доступность на других устройствах зависит от вашего провайдера.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Ваш провайдер сообщает, что этот пароль нельзя скопировать.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Откройте боковую панель кошелька, чтобы включить, заменить или отключить разблокировку с помощью пароля.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Не удалось открыть боковую панель. Откройте её с панели инструментов кошелька и попробуйте ещё раз.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "Запрос на ввод пароля был отменен или недоступен. Вы по-прежнему можете использовать пароль своего кошелька.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Не удалось включить разблокировку с помощью пароля-ключа. Проверьте пароль своего кошелька и воспользуйтесь услугами провайдера, поддерживающего эту функцию.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Не удалось снять блокировку с помощью пароля. Попробуйте ещё раз. Пароль вашего кошелька по-прежнему действует.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Не удалось разблокировать с помощью этого пароля. Используйте пароль кошелька и проверьте настройки пароля.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Сделайте резервную копию своей семенной фразы",
     "englishSource": "Back up your recovery phrase"
@@ -8693,5 +8761,22 @@
   "arcadePostingPolicy": {
     "message": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Автоблокировка",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Блокирует кошелек, если он находился в фоновом режиме в течение такого длительного времени.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ мин",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

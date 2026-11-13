@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "密鑰解鎖",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "使用密鑰解鎖",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "請使用裝置的密鑰管理工具來解鎖此錢包。您的錢包密碼仍可正常使用。",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "此錢包已啟用密鑰解鎖功能。",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "此瀏覽器、作業系統或錢包不支援密鑰解鎖功能。您仍可使用錢包密碼。",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "啟用密鑰解鎖",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "更換密鑰",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "移除密鑰解鎖功能",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "此處移除「密鑰解鎖」功能，並不代表撤銷或刪除您的服務供應商所儲存的密鑰。若您不再需要該密鑰，請務必在服務供應商的設定中一併刪除。",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "您的服務供應商表示，此密鑰可進行備份或同步。在其他裝置上的可用性取決於您的服務供應商。",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "您的服務供應商報告指出，此密鑰無法備份。",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "開啟錢包側邊欄，以啟用、更換或移除密鑰解鎖功能。",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "無法開啟側邊面板。請從錢包工具列開啟側邊面板，然後重試。",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "密鑰請求已被取消或無法使用。您仍可使用您的錢包密碼。",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "無法啟用密鑰解鎖功能。請檢查您的錢包密碼，並使用支援此功能的服務提供商。",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "無法移除密鑰解鎖。請重試。您的錢包密碼仍然有效。",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "無法使用此通行密鑰解鎖。請使用您的錢包密碼並檢查通行密鑰設定。",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "備份您的種子短語",
     "englishSource": "Back up your recovery phrase"
@@ -8689,5 +8757,22 @@
   "arcadePostingPolicy": {
     "message": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "自動鎖定",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "當錢包在背景中閒置如此長時間後，系統將鎖定該錢包。",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ 分鐘",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

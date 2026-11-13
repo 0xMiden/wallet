@@ -1,4 +1,21 @@
 {
+  "passkeyUnlock": "密鑰解鎖",
+  "unlockWithPasskey": "使用密鑰解鎖",
+  "passkeyUnlockDescription": "請使用裝置的密鑰管理工具來解鎖此錢包。您的錢包密碼仍可正常使用。",
+  "passkeyUnlockEnabled": "此錢包已啟用密鑰解鎖功能。",
+  "passkeyUnlockUnavailable": "此瀏覽器、作業系統或錢包不支援密鑰解鎖功能。您仍可使用錢包密碼。",
+  "passkeyEnable": "啟用密鑰解鎖",
+  "passkeyReplace": "更換密鑰",
+  "passkeyRemove": "移除密鑰解鎖功能",
+  "passkeyProviderRemoval": "此處移除「密鑰解鎖」功能，並不代表撤銷或刪除您的服務供應商所儲存的密鑰。若您不再需要該密鑰，請務必在服務供應商的設定中一併刪除。",
+  "passkeySyncCapable": "您的服務供應商表示，此密鑰可進行備份或同步。在其他裝置上的可用性取決於您的服務供應商。",
+  "passkeyDeviceBound": "您的服務供應商報告指出，此密鑰無法備份。",
+  "passkeySidePanelOnly": "開啟錢包側邊欄，以啟用、更換或移除密鑰解鎖功能。",
+  "passkeySidePanelFailed": "無法開啟側邊面板。請從錢包工具列開啟側邊面板，然後重試。",
+  "passkeyCanceled": "密鑰請求已被取消或無法使用。您仍可使用您的錢包密碼。",
+  "passkeySetupFailed": "無法啟用密鑰解鎖功能。請檢查您的錢包密碼，並使用支援此功能的服務提供商。",
+  "passkeyRemoveFailed": "無法移除密鑰解鎖。請重試。您的錢包密碼仍然有效。",
+  "passkeyUnlockFailed": "無法使用此通行密鑰解鎖。請使用您的錢包密碼並檢查通行密鑰設定。",
   "seedBackupRequiredTitle": "備份您的種子短語",
   "seedBackupRequiredAction": "立即備份",
   "seedBackupRequiredBody": "您的錢包餘額已達到 150 美元。您必須先備份種子短語，才能繼續操作。請將其寫下、存放在安全的地方，並完成驗證程序以使用您的錢包。",
@@ -1907,5 +1924,8 @@
   "arcadeBalanceUnknown": "餘額不可用",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "遊戲幣",
-  "arcadePostingPolicy": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。"
+  "arcadePostingPolicy": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。",
+  "autoLock": "自動鎖定",
+  "autoLockDescription": "當錢包在背景中閒置如此長時間後，系統將鎖定該錢包。",
+  "autoLockMinutes": "$minutes$ 分鐘"
 }

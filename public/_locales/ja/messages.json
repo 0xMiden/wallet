@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "パスキーによるロック解除",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "パスキーによるロック解除",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "このウォレットのロックを解除するには、お使いのデバイスのパスキープロバイダーを使用してください。ウォレットのパスワードは引き続き使用可能です。",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "このウォレットでは、パスキーによるロック解除が有効になっています。",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "このブラウザ、オペレーティングシステム、またはウォレットでは、パスキーによるロック解除は利用できません。引き続きウォレットのパスワードを使用できます。",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "パスキーによるロック解除を有効にする",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "パスキーの置き換え",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "パスキーによるロック解除を削除",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "ここでパスキーのロック解除を解除しても、プロバイダーに保存されているパスキーが失効したり削除されたりすることはありません。不要になった場合は、プロバイダーの設定からも削除してください。",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "ご利用のプロバイダーによると、このパスキーはバックアップまたは同期が可能とのことです。他のデバイスでの利用可否は、ご利用のプロバイダーによって異なります。",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "プロバイダーから、このパスキーはバックアップできないとの報告があります。",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "ウォレットのサイドパネルを開き、パスキーによるロック解除を有効化、変更、または無効化してください。",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "サイドパネルを開くことができませんでした。ウォレットのツールバーから開き、もう一度お試しください。",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "パスキーのリクエストはキャンセルされたか、利用できませんでした。引き続きウォレットのパスワードを使用できます。",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "パスキーによるロック解除を有効にできませんでした。ウォレットのパスワードを確認し、この機能をサポートしているプロバイダーをご利用ください。",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "パスキーによるロック解除を解除できませんでした。もう一度お試しください。ウォレットのパスワードは引き続き有効です。",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "このパスキーではロックを解除できませんでした。ウォレットのパスワードを使用し、パスキーの設定を確認してください。",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "シードフレーズをバックアップしてください",
     "englishSource": "Back up your recovery phrase"
@@ -8689,5 +8757,22 @@
   "arcadePostingPolicy": {
     "message": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "自動ロック",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "これほど長い間バックグラウンド状態が続くと、ウォレットがロックされます。",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$分",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

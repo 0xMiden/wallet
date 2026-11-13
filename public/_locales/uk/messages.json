@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Розблокування за допомогою пароля",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Розблокування за допомогою пароля",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Використовуйте постачальника паролів вашого пристрою, щоб розблокувати цей гаманець. Пароль вашого гаманця й надалі працюватиме.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Для цього гаманця увімкнено розблокування за допомогою пароля.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Розблокування за допомогою пароля недоступне в цьому браузері, операційній системі або гаманці. Ви все одно можете використовувати пароль до гаманця.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Увімкнути розблокування за допомогою пароля",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Замінити пароль",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Видалити розблокування за допомогою пароля",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Видалення розблокування за допомогою пароля в цьому випадку не скасовує та не видаляє пароль, збережений вашим провайдером. Якщо він вам більше не потрібен, видаліть його також у налаштуваннях вашого провайдера.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Ваш провайдер повідомляє, що цей пароль можна зберегти у резервній копії або синхронізувати. Доступність на інших пристроях залежить від вашого провайдера.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Ваш провайдер повідомляє, що цей пароль не можна зберегти в резервній копії.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Відкрийте бічну панель гаманця, щоб увімкнути, замінити або вимкнути розблокування за допомогою пароля.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Не вдалося відкрити бічну панель. Відкрийте її з панелі інструментів гаманця та спробуйте ще раз.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "Запит на пароль був скасований або недоступний. Ви все ще можете використовувати пароль свого гаманця.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Не вдалося увімкнути розблокування за допомогою пароля. Перевірте пароль свого гаманця та скористайтеся послугами провайдера, який підтримує цю функцію.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Не вдалося видалити розблокування за допомогою пароля. Спробуйте ще раз. Пароль вашого гаманця все ще діє.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Не вдалося розблокувати за допомогою цього пароля. Використовуйте пароль гаманця та перевірте налаштування пароля.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Створіть резервну копію вашої фрази-насіння",
     "englishSource": "Back up your recovery phrase"
@@ -8691,5 +8759,22 @@
   "arcadePostingPolicy": {
     "message": "Кожна гра встановлює власні ставки, виплати та повернення коштів. Ознайомтеся з її правилами перед підтвердженням транзакції.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Автоматичне блокування",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Блокує гаманець, якщо він перебував у фоновому режимі протягом такого тривалого часу.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ хв",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

@@ -1,4 +1,21 @@
 {
+  "passkeyUnlock": "Entsperren mit Passkey",
+  "unlockWithPasskey": "Entsperren mit Passwort",
+  "passkeyUnlockDescription": "Verwenden Sie den Passkey-Anbieter Ihres Geräts, um diese Wallet zu entsperren. Ihr Wallet-Passwort funktioniert weiterhin.",
+  "passkeyUnlockEnabled": "Die Entsperrung per Passkey ist für diese Wallet aktiviert.",
+  "passkeyUnlockUnavailable": "Die Entsperrung per Passkey ist in diesem Browser, Betriebssystem oder dieser Wallet nicht verfügbar. Sie können weiterhin Ihr Wallet-Passwort verwenden.",
+  "passkeyEnable": "Passkey-Entsperrung aktivieren",
+  "passkeyReplace": "Passwort ersetzen",
+  "passkeyRemove": "Passwort-Entsperrung entfernen",
+  "passkeyProviderRemoval": "Das Entfernen der Passkey-Entsperrung hier widerruft oder löscht den von Ihrem Anbieter gespeicherten Passkey nicht. Löschen Sie ihn auch in den Einstellungen Ihres Anbieters, wenn Sie ihn nicht mehr benötigen.",
+  "passkeySyncCapable": "Ihr Anbieter teilt mit, dass dieser Passkey gesichert oder synchronisiert werden kann. Die Verfügbarkeit auf anderen Geräten hängt von Ihrem Anbieter ab.",
+  "passkeyDeviceBound": "Ihr Anbieter meldet, dass dieser Passkey nicht gesichert werden kann.",
+  "passkeySidePanelOnly": "Öffnen Sie das Seitenmenü der Wallet, um die Entsperrung per Passkey zu aktivieren, zu ersetzen oder zu entfernen.",
+  "passkeySidePanelFailed": "Das Seitenpanel konnte nicht geöffnet werden. Öffnen Sie es über die Wallet-Symbolleiste und versuchen Sie es erneut.",
+  "passkeyCanceled": "Die Passkey-Anforderung wurde storniert oder war nicht verfügbar. Sie können weiterhin Ihr Wallet-Passwort verwenden.",
+  "passkeySetupFailed": "Die Entsperrung per Passkey konnte nicht aktiviert werden. Überprüfen Sie Ihr Wallet-Passwort und nutzen Sie einen Anbieter, der diese Funktion unterstützt.",
+  "passkeyRemoveFailed": "Die Entsperrung per Passwort konnte nicht durchgeführt werden. Bitte versuchen Sie es erneut. Ihr Wallet-Passwort funktioniert weiterhin.",
+  "passkeyUnlockFailed": "Das Entsperren mit diesem Passkey war nicht möglich. Verwenden Sie Ihr Wallet-Passwort und überprüfen Sie die Passkey-Einstellungen.",
   "seedBackupRequiredTitle": "Sichern Sie Ihre Seed-Phrase",
   "seedBackupRequiredAction": "Jetzt sichern",
   "seedBackupRequiredBody": "Das Guthaben in Ihrer Wallet hat 150 US-Dollar erreicht. Sie müssen Ihre Seed-Phrase sichern, bevor Sie fortfahren können. Notieren Sie sie, bewahren Sie sie an einem sicheren Ort auf und schließen Sie die Überprüfung ab, um Ihre Wallet nutzen zu können.",
@@ -1897,5 +1914,8 @@
   "arcadeBalanceUnknown": "Guthaben nicht verfügbar",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Spielmünzen",
-  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst."
+  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
+  "autoLock": "Automatische Sperre",
+  "autoLockDescription": "Sperrt die Wallet, sobald sie so lange im Hintergrund war.",
+  "autoLockMinutes": "$minutes$ min"
 }

@@ -1,4 +1,21 @@
 {
+  "passkeyUnlock": "Şifre kilidini açma",
+  "unlockWithPasskey": "Şifre anahtarıyla kilidi açma",
+  "passkeyUnlockDescription": "Bu cüzdanın kilidini açmak için cihazınızın şifre sağlayıcısını kullanın. Cüzdan şifreniz hâlâ geçerli olacaktır.",
+  "passkeyUnlockEnabled": "Bu cüzdan için Passkey kilit açma özelliği etkinleştirilmiştir.",
+  "passkeyUnlockUnavailable": "Bu tarayıcıda, işletim sisteminde veya cüzdanda Passkey kilit açma özelliği kullanılamaz. Yine de cüzdan şifrenizi kullanabilirsiniz.",
+  "passkeyEnable": "Geçiş anahtarı kilidini aç",
+  "passkeyReplace": "Şifre anahtarını değiştirin",
+  "passkeyRemove": "Şifre kilidini kaldır",
+  "passkeyProviderRemoval": "Burada \"passkey unlock\" seçeneğini kaldırmak, sağlayıcınız tarafından saklanan passkey'i iptal etmez veya silmez. Artık ihtiyacınız yoksa, sağlayıcınızın ayarlarından da silin.",
+  "passkeySyncCapable": "Sağlayıcınız, bu erişim anahtarının yedeklenebileceğini veya senkronize edilebileceğini bildirir. Diğer cihazlarda kullanılabilirlik, sağlayıcınıza bağlıdır.",
+  "passkeyDeviceBound": "Sağlayıcınız, bu şifrenin yedeklenemeyeceğini bildiriyor.",
+  "passkeySidePanelOnly": "Cüzdanın yan panelini açarak şifreli kilidi etkinleştirin, değiştirin veya kaldırın.",
+  "passkeySidePanelFailed": "Yan panel açılamadı. Cüzdan araç çubuğundan açın ve tekrar deneyin.",
+  "passkeyCanceled": "Şifre talebi iptal edildi veya kullanılamıyor. Cüzdan şifrenizi kullanmaya devam edebilirsiniz.",
+  "passkeySetupFailed": "Şifre anahtarıyla kilit açma özelliği etkinleştirilemedi. Cüzdan şifrenizi kontrol edin ve bu özelliği destekleyen bir sağlayıcı kullanın.",
+  "passkeyRemoveFailed": "Şifre kilidini kaldıramadı. Lütfen tekrar deneyin. Cüzdan şifreniz hâlâ geçerlidir.",
+  "passkeyUnlockFailed": "Bu erişim anahtarıyla kilit açılmadı. Cüzdan şifrenizi kullanın ve erişim anahtarı ayarlarını kontrol edin.",
   "seedBackupRequiredTitle": "Tohum ifadenizi yedekleyin",
   "seedBackupRequiredAction": "Şimdi yedekleyin",
   "seedBackupRequiredBody": "Cüzdanınızın bakiyesi 150 ABD dolarına ulaştı. Devam edebilmeniz için önce tohum ifadenizi yedeklemeniz gerekir. Bunu bir yere yazın, güvenli bir yerde saklayın ve cüzdanınızı kullanabilmek için kontrol işlemini tamamlayın.",
@@ -1905,5 +1922,8 @@
   "arcadeBalanceUnknown": "Bakiye mevcut değil",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Oyun Paraları",
-  "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin."
+  "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin.",
+  "autoLock": "Otomatik kilitleme",
+  "autoLockDescription": "Cüzdan bu kadar uzun süre arka planda kaldığında kilitlenir.",
+  "autoLockMinutes": "$minutes$ dakika"
 }

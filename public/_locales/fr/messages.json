@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Déverrouillage par mot de passe",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Déverrouiller avec une clé d’accès",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Utilisez le fournisseur de clés d’accès de votre appareil pour déverrouiller ce portefeuille. Le mot de passe de votre portefeuille restera valable.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Le déverrouillage par mot de passe est activé pour ce portefeuille.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Le déverrouillage par mot de passe n’est pas disponible sur ce navigateur, ce système d’exploitation ou ce portefeuille. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Activer le déverrouillage par mot de passe",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Remplacer la clé d’accès",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Supprimer le déverrouillage par mot de passe",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "La suppression du déverrouillage par clé d’accès ici ne révoque ni ne supprime la clé d’accès stockée par votre fournisseur. Supprimez-la également dans les paramètres de votre fournisseur si vous n’en avez plus besoin.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Votre fournisseur indique que ce mot de passe peut être sauvegardé ou synchronisé. Sa disponibilité sur d’autres appareils dépend de votre fournisseur.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Votre fournisseur indique que ce mot de passe ne peut pas être sauvegardé.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Ouvrez le panneau latéral du portefeuille pour activer, remplacer ou désactiver le déverrouillage par mot de passe.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Impossible d’ouvrir le panneau latéral. Ouvrez-le depuis la barre d’outils du portefeuille et réessayez.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "La demande de mot de passe a été annulée ou n’était pas disponible. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Impossible d’activer le déverrouillage par mot de passe. Vérifiez le mot de passe de votre portefeuille et utilisez un fournisseur prenant en charge cette fonctionnalité.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Impossible de supprimer le déverrouillage par mot de passe. Veuillez réessayer. Le mot de passe de votre portefeuille fonctionne toujours.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Impossible de déverrouiller avec cette clé d’accès. Utilisez le mot de passe de votre portefeuille et vérifiez les paramètres de la clé d’accès.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Sauvegardez votre phrase de récupération",
     "englishSource": "Back up your recovery phrase"
@@ -8692,5 +8760,22 @@
   "arcadePostingPolicy": {
     "message": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Verrouillage automatique",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Verrouille le portefeuille dès qu’il est resté inactif en arrière-plan pendant cette durée.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

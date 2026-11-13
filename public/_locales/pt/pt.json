@@ -1,4 +1,21 @@
 {
+  "passkeyUnlock": "Desbloqueio por senha de acesso",
+  "unlockWithPasskey": "Desbloquear com senha",
+  "passkeyUnlockDescription": "Use o provedor de senha do seu dispositivo para desbloquear esta carteira. A senha da sua carteira continuará funcionando.",
+  "passkeyUnlockEnabled": "O desbloqueio por senha de acesso está habilitado para esta carteira.",
+  "passkeyUnlockUnavailable": "O desbloqueio por senha de acesso não está disponível neste navegador, sistema operacional ou carteira. Você ainda pode usar a senha da sua carteira.",
+  "passkeyEnable": "Ativar desbloqueio por senha",
+  "passkeyReplace": "Substituir senha",
+  "passkeyRemove": "Remover o desbloqueio por senha",
+  "passkeyProviderRemoval": "Remover o desbloqueio por senha aqui não revoga nem exclui a senha armazenada pelo seu provedor. Exclua-a também nas configurações do seu provedor, caso não precise mais dela.",
+  "passkeySyncCapable": "Seu provedor informa que essa senha de acesso pode ser copiada para backup ou sincronizada. A disponibilidade em outros dispositivos depende do seu provedor.",
+  "passkeyDeviceBound": "Seu provedor informa que não é possível fazer backup desta chave de acesso.",
+  "passkeySidePanelOnly": "Abra o painel lateral da carteira para ativar, substituir ou remover o desbloqueio por senha.",
+  "passkeySidePanelFailed": "Não foi possível abrir o painel lateral. Abra-o a partir da barra de ferramentas da carteira e tente novamente.",
+  "passkeyCanceled": "A solicitação da chave de acesso foi cancelada ou está indisponível. Você ainda pode usar a senha da sua carteira.",
+  "passkeySetupFailed": "Não foi possível ativar o desbloqueio por senha. Verifique a senha da sua carteira e use um provedor que ofereça esse recurso.",
+  "passkeyRemoveFailed": "Não foi possível remover o desbloqueio por senha. Tente novamente. A senha da sua carteira ainda funciona.",
+  "passkeyUnlockFailed": "Não foi possível desbloquear com esta chave de acesso. Use a senha da sua carteira e verifique as configurações da chave de acesso.",
   "seedBackupRequiredTitle": "Faça backup da sua frase-semente",
   "seedBackupRequiredAction": "Faça backup agora",
   "seedBackupRequiredBody": "Sua carteira atingiu US$ 150. Você deve fazer backup da sua frase-semente antes de poder continuar. Anote-a, guarde-a em um local seguro e conclua a verificação para usar sua carteira.",
@@ -1902,5 +1919,8 @@
   "arcadeBalanceUnknown": "Saldo indisponível",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Moedas do jogo",
-  "arcadePostingPolicy": "Cada jogo define suas próprias apostas, pagamentos e reembolsos. Consulte as regras antes de aprovar uma transação."
+  "arcadePostingPolicy": "Cada jogo define suas próprias apostas, pagamentos e reembolsos. Consulte as regras antes de aprovar uma transação.",
+  "autoLock": "Bloqueio automático",
+  "autoLockDescription": "Bloqueia a carteira depois de permanecer inativa por tanto tempo.",
+  "autoLockMinutes": "$minutes$ min"
 }

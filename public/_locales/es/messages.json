@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Desbloqueo con clave de acceso",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Desbloquear con clave de acceso",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Utiliza el proveedor de claves de acceso de tu dispositivo para desbloquear esta cartera. La contraseña de tu cartera seguirá funcionando.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "El desbloqueo mediante clave de acceso está habilitado para esta cartera.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "El desbloqueo con clave de acceso no está disponible en este navegador, sistema operativo o monedero. Aún así, puedes utilizar la contraseña de tu monedero.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Habilitar el desbloqueo con clave de acceso",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Reemplazar clave de acceso",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Eliminar el desbloqueo con clave de acceso",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Eliminar el desbloqueo mediante clave de acceso aquí no revoca ni borra la clave de acceso almacenada por tu proveedor. Bórrala también en la configuración de tu proveedor si ya no la necesitas.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Tu proveedor indica que se puede realizar una copia de seguridad o sincronizar esta clave de acceso. La disponibilidad en otros dispositivos depende de tu proveedor.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Tu proveedor informa de que no es posible realizar una copia de seguridad de esta clave de acceso.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Abre el panel lateral de la cartera para activar, sustituir o eliminar el desbloqueo mediante clave de acceso.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "No se ha podido abrir el panel lateral. Ábrelo desde la barra de herramientas de la cartera e inténtalo de nuevo.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "La solicitud de la clave de acceso se ha cancelado o no está disponible. Aún puedes utilizar la contraseña de tu monedero.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "No se ha podido habilitar el desbloqueo con clave de acceso. Comprueba la contraseña de tu monedero y utiliza un proveedor que admita esta función.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "No se ha podido eliminar el desbloqueo con clave de acceso. Inténtalo de nuevo. La contraseña de tu monedero sigue funcionando.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "No se ha podido desbloquear con esta clave de acceso. Utiliza la contraseña de tu monedero y comprueba la configuración de la clave de acceso.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Haz una copia de seguridad de tu frase semilla",
     "englishSource": "Back up your recovery phrase"
@@ -8696,5 +8764,22 @@
   "arcadePostingPolicy": {
     "message": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Bloqueo automático",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Bloquea la cartera una vez que ha permanecido inactiva durante tanto tiempo.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }
