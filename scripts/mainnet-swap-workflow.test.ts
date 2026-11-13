@@ -92,7 +92,9 @@ describe('funded nightly swap workflow', () => {
     expect(object(upload.with).gate).toContain('.recover.sdk.claim');
     expect(object(upload.with)['alternative-gates']).toContain('.recover.done');
     expect(String(step('Recover prior mainnet swap').run)).toContain('MAINNET_SWAP_SDK_GATE=');
-    expect(index('Wait for prior mainnet swap recovery')).toBeGreaterThan(index('Upload original swap recovery claim authority'));
+    expect(index('Wait for prior mainnet swap recovery')).toBeGreaterThan(
+      index('Upload original swap recovery claim authority')
+    );
     expect(index('Wait for prior mainnet swap recovery')).toBeLessThan(index('Check original swap return disposition'));
   });
   it('requires all three provider recoveries to finish before any new native or EVM spending', () => {

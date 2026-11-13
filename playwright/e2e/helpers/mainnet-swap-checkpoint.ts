@@ -345,10 +345,17 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
     )
       return false;
   }
-  if (value.recoveryClaimNativeBefore !== undefined &&
-    (!amount(value.recoveryClaimNativeBefore) || BigInt(value.recoveryClaimNativeBefore) <= 0n || !requestAuthority(reverse) ||
-      !record(value.returnBaseline) || !amount(value.returnBaseline.native) || BigInt(value.recoveryClaimNativeBefore) > BigInt(value.returnBaseline.native) ||
-      !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))) return false;
+  if (
+    value.recoveryClaimNativeBefore !== undefined &&
+    (!amount(value.recoveryClaimNativeBefore) ||
+      BigInt(value.recoveryClaimNativeBefore) <= 0n ||
+      !requestAuthority(reverse) ||
+      !record(value.returnBaseline) ||
+      !amount(value.returnBaseline.native) ||
+      BigInt(value.recoveryClaimNativeBefore) > BigInt(value.returnBaseline.native) ||
+      !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))
+  )
+    return false;
   if (value.phase === 'unspent' && (forward !== undefined || reverse !== undefined)) return false;
   if (value.phase === 'complete' && forward !== undefined && reverse === undefined) return false;
   return Object.keys(value).every(key =>

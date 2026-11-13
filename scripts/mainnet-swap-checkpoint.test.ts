@@ -239,7 +239,8 @@ describe('durable nightly swap authorization', () => {
   );
   it('retains the real pre-claim vault baseline without replacing the original return baseline', () => {
     const state = { ...withGrantedReturn(), recoveryClaimNativeBefore: '8989866' };
-    const path = join(dir,'claim-recovery.json'); saveMainnetSwapCheckpoint(path,state);
+    const path = join(dir, 'claim-recovery.json');
+    saveMainnetSwapCheckpoint(path, state);
     expect(loadMainnetSwapCheckpoint(path)).toMatchObject(state);
   });
   it('accepts a separately granted first recovery return without changing the original forward deadline', () => {
