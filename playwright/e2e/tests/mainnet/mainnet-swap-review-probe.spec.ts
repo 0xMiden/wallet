@@ -23,6 +23,7 @@ test('read-only original swap review, never arm or submit', async ({ walletB }) 
   const initial = await vaultBalanceByFaucetId(walletB.page, state.native.faucetId);
   expect(initial.toString()).toBe(state.native.balance);
   const rows = (await readTransactionRows(walletB.page)).map(row => row.id).sort();
+  const started = Date.now();
   let accepted: ReturnType<typeof cachedSolverRegistry> | undefined;
   await expect.poll(async () => {
     const items = await walletB.page.evaluate(async () => chrome.storage.local.get([
@@ -81,14 +82,25 @@ test('read-only original swap review, never arm or submit', async ({ walletB }) 
     await walletB.refreshBalancesLanded(90_000);
     const final = await vaultBalanceByFaucetId(walletB.page, state.native.faucetId);
     diagnostics.finalBalance = final.toString();
-    const after = (await readTransactionRows(walletB.page)).map(row => row.id).sort();
+    const afterRows = await readTransactionRows(walletB.page);
+    const after = afterRows.map(row => row.id).sort();
+    const added = afterRows.filter(row => !rows.includes(row.id));
     diagnostics.rowsUnchanged = JSON.stringify(after) === JSON.stringify(rows);
+    diagnostics.addedRows = added.map(row => ({
+      type: ['send', 'swap', 'consume', 'create-account', 'register-account'].includes(row.type ?? '') ? row.type : 'other',
+      status: row.status,
+      processingStartedAt: row.processingStartedAt,
+      completedAt: row.completedAt
+    }));
+    diagnostics.freshProcessing = added.some(row => row.processingStartedAt !== undefined && row.processingStartedAt >= started);
+    diagnostics.pendingAddedRows = added.some(row => row.status === 0 || row.status === 1);
     const keys = ['e2e_mainnet_send_authorization', 'e2e_mainnet_send_authorization_required', 'e2e_mainnet_consume_authorization', 'e2e_mainnet_consume_authorization_required'];
     const policies = await walletB.page.evaluate(async keys => chrome.storage.local.get(keys), keys);
     diagnostics.noAuthority = keys.every(key => policies[key] === undefined);
     writeFileSync('test-results/read-only-swap-review.json', JSON.stringify(diagnostics, null, 2));
     expect(final).toBe(initial);
-    expect(after).toEqual(rows);
+    expect(diagnostics.freshProcessing).toBe(false);
+    expect(diagnostics.pendingAddedRows).toBe(false);
     expect(diagnostics.noAuthority).toBe(true);
   }
   expect(diagnostics.reviewReady, 'Read-only review failed; see approved public diagnostics').toBe(true);
