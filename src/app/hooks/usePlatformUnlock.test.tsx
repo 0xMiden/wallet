@@ -11,7 +11,7 @@ import { usePlatformUnlock } from './usePlatformUnlock';
 
 let mockExtension = true;
 let pending: string[];
-const mockSend = jest.fn(async (command: PlatformUnlockCommand): Promise<PlatformUnlockResult> => {
+async function sendCommand(command: PlatformUnlockCommand): Promise<PlatformUnlockResult> {
   switch (command.action) {
     case 'state':
       return { action: 'state', state: { available: true, hasPassword: true, credential: null } };
@@ -23,7 +23,8 @@ const mockSend = jest.fn(async (command: PlatformUnlockCommand): Promise<Platfor
     default:
       throw new Error('Unexpected command');
   }
-});
+}
+const mockSend = jest.fn(sendCommand);
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ platformUnlock: mockSend }) }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
 jest.mock('lib/platform-auth/capabilities', () => ({ getPlatformUnlockSupport: jest.fn() }));
@@ -36,6 +37,7 @@ const wrapper = ({ children }: React.PropsWithChildren) => (
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSend.mockReset().mockImplementation(sendCommand);
   mockExtension = true;
   pending = [];
   mockSupport.mockResolvedValue(true);
@@ -63,6 +65,32 @@ it('fails closed before worker requests on old or unsupported browser/OS evidenc
   await waitFor(() => expect(result.current.loading).toBe(false));
   expect(result.current.state.available).toBe(false);
   expect(mockSend).not.toHaveBeenCalled();
+});
+
+it('keeps the worker storage-protection refusal authoritative', async () => {
+  mockSend.mockResolvedValueOnce({ action: 'state', state: { available: false, hasPassword: true, credential: null } });
+  const { result } = renderHook(() => usePlatformUnlock(), { wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.state.available).toBe(false);
+  expect(result.current.state.hasPassword).toBe(true);
+});
+
+it.each(['reject', 'wrong-action'])('fails closed on a worker metadata failure: %s', async failure => {
+  if (failure === 'reject') mockSend.mockRejectedValueOnce(new Error('Disconnected'));
+  else mockSend.mockResolvedValueOnce({ action: 'unlock' });
+  const { result } = renderHook(() => usePlatformUnlock(), { wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.state.available).toBe(false);
+  expect(result.current.state.credential).toBeNull();
+});
+
+it('does not make metadata unavailable when the cleanup query fails', async () => {
+  mockSend.mockImplementation(async command => {
+    if (command.action === 'pending-signals') throw new Error('Cleanup unavailable');
+    return sendCommand(command);
+  });
+  const { result } = renderHook(() => usePlatformUnlock(), { wrapper });
+  await waitFor(() => expect(result.current.state.available).toBe(true));
 });
 
 it('retains failed provider cleanup for a later refresh while acknowledging successes', async () => {

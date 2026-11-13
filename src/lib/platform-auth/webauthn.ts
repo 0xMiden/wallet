@@ -72,8 +72,10 @@ function prfExtensions(salt: Uint8Array<ArrayBuffer>): AuthenticationExtensionsC
 
 export async function createPlatformCredential(
   previousCredentialId: string | null,
-  onCreated: (id: string, prfSalt: string, backupEligible: boolean) => Promise<void>
+  onCreated: (id: string, prfSalt: string, backupEligible: boolean) => Promise<void>,
+  signal?: AbortSignal
 ): Promise<{ credentialId: string; prfSecret: string }> {
+  signal?.throwIfAborted();
   const origin = await extensionOrigin();
   const challenge = crypto.getRandomValues(new Uint8Array(32));
   const salt = crypto.getRandomValues(new Uint8Array(32));
@@ -97,7 +99,8 @@ export async function createPlatformCredential(
       previousCredentialId === null ? [] : [{ type: 'public-key', id: decodePlatformBytes(previousCredentialId) }],
     extensions: prfExtensions(salt)
   };
-  const credential = publicCredential(await navigator.credentials.create({ publicKey: options }));
+  signal?.throwIfAborted();
+  const credential = publicCredential(await navigator.credentials.create({ publicKey: options, signal }));
   let data = new Uint8Array(0);
   try {
     data = authenticatorData(credential);
@@ -105,23 +108,29 @@ export async function createPlatformCredential(
     // Persist every returned ID before a validation failure or second native prompt can strand it.
     await onCreated(credential.id, encodePlatformBytes(salt), Boolean((data[32] ?? 0) & 8));
   }
+  signal?.throwIfAborted();
   await verifyCredential(credential, data, challenge, origin, 'webauthn.create');
   const secret = readPrfSecret(credential);
+  signal?.throwIfAborted();
   if (secret !== null) return { credentialId: credential.id, prfSecret: secret };
-  return getPlatformCredential(credential.id, encodePlatformBytes(salt));
+  return getPlatformCredential(credential.id, encodePlatformBytes(salt), signal);
 }
 
 export async function getPlatformCredential(
   credentialId: string,
-  prfSalt: string
+  prfSalt: string,
+  signal?: AbortSignal
 ): Promise<{ credentialId: string; prfSecret: string }> {
+  signal?.throwIfAborted();
   const id = decodePlatformBytes(credentialId);
   const salt = decodePlatformBytes(prfSalt);
   if (salt.length !== 32) throw new Error('Invalid platform salt');
   const challenge = crypto.getRandomValues(new Uint8Array(32));
   const origin = await extensionOrigin();
+  signal?.throwIfAborted();
   const credential = publicCredential(
     await navigator.credentials.get({
+      signal,
       publicKey: {
         challenge,
         userVerification: 'required',
@@ -134,6 +143,7 @@ export async function getPlatformCredential(
   if (credential.id !== credentialId) throw new Error('Invalid platform credential');
   await verifyCredential(credential, authenticatorData(credential), challenge, origin, 'webauthn.get');
   const secret = readPrfSecret(credential);
+  signal?.throwIfAborted();
   if (secret === null) throw new Error('Platform PRF unavailable');
   return { credentialId, prfSecret: secret };
 }
