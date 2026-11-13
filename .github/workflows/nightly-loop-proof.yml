@@ -1,59 +1,24 @@
-name: Read-only existing payout claim readiness
+name: Received note full export regression RED
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
-  actions: read
 concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  readonly:
+  contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      E2E_NETWORK: mainnet
-      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
-      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Verify immutable read-only source
-        run: |
-          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
-          printf 'Read-only source %s\n' "$(git rev-parse HEAD^2)"
+      - run: test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 43485129750
-          github-token: ${{ github.token }}
-          name: mainnet-swap-final-43485129750
-          path: test-results/original-authority
-      - uses: ./.github/actions/install-miden-client-cli
-      - uses: ./.github/actions/apt-drop-unused-repos
-      - name: Install Chromium
-        timeout-minutes: 10
-        run: npx playwright install --with-deps chromium
-      - uses: ./.github/actions/start-eligibility-fixture
-      - name: Build actual recovery mainnet extension without provider overlay
-        run: yarn test:e2e:blockchain:build
-      - name: Read-only issued return outcome, never replace authority
-        run: |
-          umask 077
-          code=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/return-review-results" xvfb-run -a yarn playwright test mainnet-existing-payout-readiness.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/return-review.log" 2>&1 || code=$?
-          node --input-type=module <<'NODE'
-          import { existsSync, readFileSync } from 'node:fs';
-          const path = 'test-results/read-only-existing-payout-ready.json';
-          if (!existsSync(path)) { console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.'); process.exit(1); }
-          const value = JSON.parse(readFileSync(path, 'utf8'));
-          const allowed = ['purpose','inspected','balances','payback','publicProofError','creationRows','consumeRows','noLivePolicy','consumeBlocked','errorStage','errorKind','aggregateNativeCosts','claimNativeBefore','claimUIReady','unresolvedRows','claimReadinessStage','claimExportReady','exportErrorKind','exportErrorText'];
-          if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
-          console.log(JSON.stringify(value));
-          NODE
-          exit "$code"
+      - name: Authenticated input note, proof denial, retired hold and output fallback
+        run: yarn jest src/lib/miden/sdk/miden-client-interface.test.ts --maxWorkers=2 --watch=false --testNamePattern='full input note export'
