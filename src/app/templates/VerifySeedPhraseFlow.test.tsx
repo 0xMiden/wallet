@@ -4,6 +4,7 @@ import { App } from '@capacitor/app';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import type { SeedPhraseStatus } from 'lib/shared/types';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
@@ -586,6 +587,22 @@ describe('VerifySeedPhraseFlow', () => {
       });
 
       expect(screen.queryByTestId('seed-word-0')).toBeNull();
+    });
+
+    // Only a revealed private key hides itself on a timer; a phrase is being written down.
+    it('off mobile a shown phrase stays on screen past SECRET_REVEAL_MS', async () => {
+      await openReview();
+      jest.useFakeTimers();
+      try {
+        fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
+        act(() => {
+          jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+        });
+        expect(screen.getByTestId('seed-word-0')).toHaveTextContent('w1');
+        expect(screen.getByTestId('seed-reveal-toggle')).toHaveAttribute('aria-pressed', 'true');
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('off mobile the phrase hides again when the document is hidden', async () => {
