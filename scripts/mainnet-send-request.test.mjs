@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   AccountId,
   Address,
+  Felt,
   FungibleAsset,
   Note,
   NoteAndArgs,
@@ -33,23 +34,41 @@ function fixture(change = {}) {
   const note = change.reclaim
     ? Note.createP2IDENote(sender, recipient, assets, 7200, null, privacy, new NoteAttachment())
     : Note.createP2IDNote(sender, recipient, assets, privacy, new NoteAttachment());
-  let builder = new TransactionRequestBuilder()
-    .withOwnOutputNotes(
-      new NoteArray(
-        change.extraOutput
-          ? [note, Note.createP2IDNote(sender, recipient, assets, privacy, new NoteAttachment())]
-          : [note]
-      )
+  let builder = new TransactionRequestBuilder().withOwnOutputNotes(
+    new NoteArray(
+      change.extraOutput
+        ? [note, Note.createP2IDNote(sender, recipient, assets, privacy, new NoteAttachment())]
+        : [note]
     )
-    .withExpirationDelta(change.expiration ?? 600);
+  );
+  if (!change.guardian || change.expiration !== undefined)
+    builder = builder.withExpirationDelta(change.expiration ?? 600);
+  if (change.guardian) builder = builder.withBlockNumbers([321]);
   if (change.input) builder = builder.withInputNotes(new NoteAndArgsArray([new NoteAndArgs(note, null)]));
   if (change.salt) builder = builder.withFeeConversionSalt(Word.fromHex(`0x${'0'.repeat(63)}1`));
-  return { scope, noteId: note.id().toString(), bytes: Uint8Array.from(builder.build().serialize()) };
+  let request = builder.build();
+  if (change.guardian)
+    request = request.withAuthArgs([321n, 501n, 0n, 0n, 1n, 2n, 3n, 4n, 0n, 1n, 1n, 0n].map(value => new Felt(value)));
+  return { scope, noteId: note.id().toString(), bytes: Uint8Array.from(request.serialize()) };
 }
 test('inspects the actual serialized SDK send, preserving its live random serial but nothing outside the exact native route', () => {
   const input = fixture();
   assert.equal(inspectTestMainnetSendRequest(input.scope, input.bytes), input.noteId);
 });
+test('inspects the real SDK Guardian auth layout without treating its auth advice as a standalone request', () => {
+  const input = fixture({ guardian: true });
+  assert.equal(inspectTestMainnetSendRequest(input.scope, input.bytes, true), input.noteId);
+});
+for (const [name, change] of [
+  ['another output', { extraOutput: true }],
+  ['another input', { input: true }],
+  ['overpaying principal', { amount: 1_010_001n }],
+  ['unreviewed transaction expiry', { expiration: 600 }]
+])
+  test(`Guardian send rejects ${name} despite valid authentication layout`, () => {
+    const input = fixture({ guardian: true, ...change });
+    assert.throws(() => inspectTestMainnetSendRequest(input.scope, input.bytes, true));
+  });
 for (const [name, change] of [
   ['another recipient', { recipient: actorId() }],
   ['another faucet', { faucet: '0x5cb79d29507d3ad17bb6dc60279e89' }],

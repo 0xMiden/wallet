@@ -26,6 +26,14 @@ import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
 const G = globalThis as any;
+const mockAssertGuardianAuthorization = jest.fn(async (..._args: unknown[]) => undefined);
+jest.mock(
+  '../lib/miden/sdk/test-guardian-authorization',
+  () => ({
+    assertTestGuardianRequestAuthorization: (...args: unknown[]) => mockAssertGuardianAuthorization(...args)
+  }),
+  { virtual: true }
+);
 
 // This spec has no static import/export, so without a module marker TS treats it
 // as a global script and its top-level helpers (logSpy/flush/loadModule/…) collide
@@ -717,6 +725,7 @@ async function loadModule(opts: { coi?: boolean; hwc?: number | undefined } = {}
 
 beforeEach(() => {
   resetControl();
+  mockAssertGuardianAuthorization.mockReset().mockResolvedValue(undefined);
   mockProveTransport.prove.mockClear();
   mockProveTransport.prewarm.mockClear();
   mockProveTransport.ctorCount = 0;
@@ -3941,6 +3950,38 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 
   // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
+  it('guardianPipeline refuses before execute when the exact signed authority is missing or expired', async () => {
+    mockAssertGuardianAuthorization.mockRejectedValue(new Error('Guardian signed authority expired'));
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'guardian-actual-byte-gate',
+        method: 'guardianPipeline',
+        argsB64: [
+          encodeArg('mtst1qguardian'),
+          encodeArg(new Uint8Array([1, 2, 3, 4])),
+          encodeArg(false),
+          encodeArg(null),
+          encodeArg(undefined),
+          encodeArg(false),
+          encodeArg('send')
+        ]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+    expect(sendResponse.mock.calls[0]?.[0]).toMatchObject({
+      ok: false,
+      errorBeforeSubmit: true,
+      error: expect.stringContaining('Guardian signed authority expired')
+    });
+    expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitted).not.toBe(true);
+  });
+
   it('guardianPipeline sends only closed observations from the exact executed request on rejection', async () => {
     await loadModule();
     const original = new Error('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH private 0xabcdef');

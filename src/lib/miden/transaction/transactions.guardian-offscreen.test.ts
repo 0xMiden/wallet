@@ -81,6 +81,16 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // `advice_map.write_into(target)`, so the extended advice map holding the hot/cold/
 // guardian co-signatures survives serialize; verified end-to-end at the WASM level in
 // the flag-flip guardian E2E, structurally here).
+jest.mock(
+  '../sdk/test-guardian-authorization',
+  () => ({
+    authorizeTestGuardianRequest: jest.fn(async () => undefined),
+    assertTestGuardianRequestAuthorization: jest.fn(async () => undefined)
+  }),
+  { virtual: true }
+);
+const mockGuardianAuthorization = jest.requireMock('../sdk/test-guardian-authorization');
+
 const TR_BYTES = [0xc0, 0x51, 0x67, 0xed];
 
 // What the mock `createRebasedCustomProposal` hands back as the request the proposal was
@@ -639,6 +649,8 @@ function arrange(id: string, extra: Record<string, unknown>, result = makeResult
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGuardianAuthorization.authorizeTestGuardianRequest.mockReset().mockResolvedValue(undefined);
+  mockGuardianAuthorization.assertTestGuardianRequestAuthorization.mockReset().mockResolvedValue(undefined);
   mockAssertCustomEffectsApproved.mockReset();
   mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
   txStore.length = 0;
@@ -661,6 +673,51 @@ afterEach(() => {
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   // The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
   clearGuardianAccountLocks();
+});
+
+describe('actual Guardian request authorization boundary', () => {
+  const nativeCases = [
+    ...valueMovingCases().filter(item => item.type !== 'execute'),
+    {
+      type: 'epoch',
+      row: {
+        type: 'bridged-send',
+        secondaryAccountId: 'r',
+        faucetId: 'f',
+        amount: '3',
+        requestBytes: new Uint8Array([3, 3]),
+        extraInputs: { provider: 'epoch', recallBlocks: 1000 }
+      }
+    }
+  ];
+  it.each(nativeCases.flatMap(item => [false, true].map(offscreen => ({ ...item, offscreen }))))(
+    '$type refuses execution or dispatch before actual signed-byte upload (offscreen=$offscreen)',
+    async ({ row, offscreen }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = String(offscreen);
+      const { inline } = arrange('native-signed-upload', row);
+      mockGuardianAuthorization.authorizeTestGuardianRequest.mockRejectedValue(
+        new Error('Actual request not uploaded')
+      );
+      await expect(
+        generateTransaction(buildTx('native-signed-upload', row) as never, signCallback, false, provider as never)
+      ).rejects.toThrow('Actual request not uploaded');
+      expect(inline.__executeRequest).not.toHaveBeenCalled();
+      expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    }
+  );
+  it('checks the spent signed authority after asynchronous executing-stage bookkeeping', async () => {
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { inline } = arrange('native-signed-expiry', row);
+    mockGuardianAuthorization.authorizeTestGuardianRequest.mockResolvedValue('send');
+    mockGuardianAuthorization.assertTestGuardianRequestAuthorization.mockImplementation(async () => {
+      expect(txStore.find(item => item.id === 'native-signed-expiry')?.stage).toBe('executing');
+      throw new Error('Signed authority expired during stage bookkeeping');
+    });
+    await expect(
+      generateTransaction(buildTx('native-signed-expiry', row) as never, signCallback, false, provider as never)
+    ).rejects.toThrow('Signed authority expired during stage bookkeeping');
+    expect(inline.__executeRequest).not.toHaveBeenCalled();
+  });
 });
 
 describe('guardian leaf routing — flag OFF (inline)', () => {
