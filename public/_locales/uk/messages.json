@@ -3227,6 +3227,10 @@
     "message": "Прихована фраза відновлення",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Прихований приватний ключ",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Показати",
     "englishSource": "Show"

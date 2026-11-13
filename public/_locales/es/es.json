@@ -691,6 +691,7 @@
   "gotIt": "Entendido",
   "backUpYourWallet": "Haz una copia de seguridad de tu cartera",
   "recoveryPhraseHidden": "Frase de recuperación oculta",
+  "privateKeyHidden": "Clave privada oculta",
   "show": "Mostrar",
   "hide": "Ocultar",
   "copied": "Copiado",

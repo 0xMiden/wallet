@@ -691,6 +691,7 @@
   "gotIt": "Got it",
   "backUpYourWallet": "Back up your wallet",
   "recoveryPhraseHidden": "Recovery phrase hidden",
+  "privateKeyHidden": "Private key hidden",
   "show": "Show",
   "hide": "Hide",
   "copied": "Copied",

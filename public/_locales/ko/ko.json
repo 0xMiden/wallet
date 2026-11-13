@@ -691,6 +691,7 @@
   "gotIt": "알겠습니다",
   "backUpYourWallet": "지갑을 백업하세요",
   "recoveryPhraseHidden": "복구 문구 숨김",
+  "privateKeyHidden": "비공개 키 숨김",
   "show": "표시",
   "hide": "숨기기",
   "copied": "복사됨",

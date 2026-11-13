@@ -3227,6 +3227,10 @@
     "message": "Gizlenmiş kurtarma ifadesi",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Gizli özel anahtar",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Göster",
     "englishSource": "Show"

@@ -3227,6 +3227,10 @@
     "message": "Phrase de récupération masquée",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Clé privée masquée",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Afficher",
     "englishSource": "Show"

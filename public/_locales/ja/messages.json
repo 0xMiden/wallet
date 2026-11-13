@@ -3227,6 +3227,10 @@
     "message": "リカバリーフレーズは非表示",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "秘密鍵は非公開",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "表示",
     "englishSource": "Show"

@@ -690,6 +690,7 @@
   "gotIt": "Verstanden",
   "backUpYourWallet": "Erstellen Sie ein Backup Ihrer Wallet",
   "recoveryPhraseHidden": "Wiederherstellungsphrase verborgen",
+  "privateKeyHidden": "Privater Schlüssel verborgen",
   "show": "Anzeigen",
   "hide": "Ausblenden",
   "copied": "Kopiert",

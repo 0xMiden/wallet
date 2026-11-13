@@ -3228,6 +3228,10 @@
     "message": "Wiederherstellungsphrase verborgen",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Privater Schlüssel verborgen",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Anzeigen",
     "englishSource": "Show"
