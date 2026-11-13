@@ -27,13 +27,9 @@ type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => bool
 
 const G = globalThis as any;
 const mockAssertGuardianAuthorization = jest.fn(async (..._args: unknown[]) => undefined);
-jest.mock(
-  '../lib/miden/sdk/test-guardian-authorization',
-  () => ({
-    assertTestGuardianRequestAuthorization: (...args: unknown[]) => mockAssertGuardianAuthorization(...args)
-  }),
-  { virtual: true }
-);
+jest.mock('../lib/miden/sdk/test-guardian-authorization', () => ({
+  assertTestGuardianRequestAuthorization: (...args: unknown[]) => mockAssertGuardianAuthorization(...args)
+}));
 
 // This spec has no static import/export, so without a module marker TS treats it
 // as a global script and its top-level helpers (logSpy/flush/loadModule/…) collide
