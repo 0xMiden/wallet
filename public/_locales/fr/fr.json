@@ -1921,5 +1921,8 @@
   "arcadeBalanceUnknown": "Solde indisponible",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Pièces de jeu",
-  "arcadePostingPolicy": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction."
+  "arcadePostingPolicy": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction.",
+  "autoLock": "Verrouillage automatique",
+  "autoLockDescription": "Verrouille le portefeuille dès qu’il est resté inactif en arrière-plan pendant cette durée.",
+  "autoLockMinutes": "$minutes$ min"
 }

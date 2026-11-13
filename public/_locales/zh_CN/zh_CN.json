@@ -1924,5 +1924,8 @@
   "arcadeBalanceUnknown": "余额不可用",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "游戏币",
-  "arcadePostingPolicy": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。"
+  "arcadePostingPolicy": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
+  "autoLock": "自动锁定",
+  "autoLockDescription": "当钱包在后台处于闲置状态达到一定时间后，系统将自动锁定该钱包。",
+  "autoLockMinutes": "$minutes$分钟"
 }

@@ -1917,5 +1917,8 @@
   "arcadeBalanceUnknown": "Saldo no disponible",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Monedas del juego",
-  "arcadePostingPolicy": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción."
+  "arcadePostingPolicy": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción.",
+  "autoLock": "Bloqueo automático",
+  "autoLockDescription": "Bloquea la cartera una vez que ha permanecido inactiva durante tanto tiempo.",
+  "autoLockMinutes": "$minutes$ min"
 }

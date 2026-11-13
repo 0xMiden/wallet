@@ -8757,5 +8757,22 @@
   "arcadePostingPolicy": {
     "message": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "자동 잠금",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "이 정도 시간 동안 백그라운드 상태로 있으면 지갑을 잠급니다.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$분",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

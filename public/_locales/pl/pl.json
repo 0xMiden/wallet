@@ -1922,5 +1922,8 @@
   "arcadeBalanceUnknown": "Saldo niedostępne",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Monety w grach",
-  "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji."
+  "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji.",
+  "autoLock": "Automatyczna blokada",
+  "autoLockDescription": "Blokuje portfel, gdy pozostaje on w tle przez tak długi czas.",
+  "autoLockMinutes": "$minutes$ min"
 }

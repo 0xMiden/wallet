@@ -8761,5 +8761,22 @@
   "arcadePostingPolicy": {
     "message": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Автоблокировка",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Блокирует кошелек, если он находился в фоновом режиме в течение такого длительного времени.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ мин",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }
