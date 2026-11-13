@@ -1,69 +1,76 @@
-name: Platform auth proof
+name: Platform authentication proof
 on:
   push:
     branches: [ci/846-platform-auth-proof]
 permissions:
   contents: read
-  actions: read
 jobs:
-  frontend-contracts:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  native-windows-preflight:
+    runs-on: windows-11-arm
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: ./.github/actions/inject-linked-web-sdk-pr
-      - uses: ./.github/actions/inject-linked-guardian-pr
-      - uses: ./.github/actions/yarn-install
-      - run: yarn prettier --write src/lib/platform-auth/webauthn.ts src/lib/platform-auth/webauthn.test.ts src/app/templates/PasskeyUnlockSettings.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/lib/miden/platform-reset.test.ts playwright/tests/platform-unlock.spec.ts playwright/tests/platform-startup.spec.ts
-      - run: yarn tsc --noEmit --pretty false
-      - run: yarn eslint src/lib/platform-auth/webauthn.ts src/lib/platform-auth/webauthn.test.ts src/app/templates/PasskeyUnlockSettings.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/lib/miden/platform-reset.test.ts
-      - run: yarn lint:e2e
-      - run: yarn jest src/lib/platform-auth/webauthn.test.ts src/lib/miden/platform-reset.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/user-visible-error.guard.test.ts src/app/templates/PasskeyUnlockSettings.test.tsx src/app/pages/Unlock.test.tsx src/lib/i18n/locale-bundle-parity.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --maxWorkers=2
+      - name: Measure real Windows native APIs without ceremonies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class NativeHelloPreflight {
+            [DllImport("webauthn.dll", ExactSpelling = true)]
+            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+            public static extern uint WebAuthNGetApiVersionNumber();
+            [DllImport("webauthn.dll", ExactSpelling = true)]
+            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+            public static extern int WebAuthNIsUserVerifyingPlatformAuthenticatorAvailable(
+              [MarshalAs(UnmanagedType.Bool)] out bool available);
+          }
+          '@
+          $os = Get-CimInstance Win32_OperatingSystem
+          if ($os.Caption -notmatch 'Windows 11') { throw 'This probe requires actual Windows 11, not Server or simulated OS evidence' }
+          $version = [NativeHelloPreflight]::WebAuthNGetApiVersionNumber()
+          if ($version -lt 1) { throw 'Native WebAuthn API version unavailable' }
+          [bool]$available = $false
+          $hr = [NativeHelloPreflight]::WebAuthNIsUserVerifyingPlatformAuthenticatorAvailable([ref]$available)
+          if ($hr -ne 0) { throw ('Native availability query failed: 0x{0:X8}' -f $hr) }
+          $tpm = $null
+          $tpmQueryError = $null
+          try {
+            $state = Get-Tpm
+            $tpm = @{ present = [bool]$state.TpmPresent; ready = [bool]$state.TpmReady; enabled = [bool]$state.TpmEnabled; activated = [bool]$state.TpmActivated }
+          } catch {
+            $tpmQueryError = $_.Exception.GetType().Name
+          }
+          $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          $evidence = [ordered]@{
+            purpose = 'Read-only native environment measurement, not enrollment/unlock qualification'
+            qualification = 'NOT RUN: no PIN, credential creation, PRF, wallet unlock or OS restart test'
+            productSource = '35add7dbebd615fd57332f7ad802525dd0c131b4'
+            proofSource = $env:GITHUB_SHA
+            osCaption = $os.Caption
+            osVersion = $os.Version
+            architecture = $env:PROCESSOR_ARCHITECTURE
+            processSession = [Diagnostics.Process]::GetCurrentProcess().SessionId
+            sessionName = $env:SESSIONNAME
+            nativeApiVersion = $version
+            nativeApiCalls = 2
+            platformAuthenticatorAvailable = $available
+            tpm = $tpm
+            tpmQueryError = $tpmQueryError
+            chromeVersion = $(if ($chrome) { (Get-Item $chrome).VersionInfo.ProductVersion } else { $null })
+          }
+          $json = $evidence | ConvertTo-Json -Depth 5
+          $json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/native-windows-preflight.json"
+          Write-Output $json
+          @"
+          ## Native Windows environment preflight
+          - Two actual native API calls completed on $($os.Caption).
+          - Platform authenticator available: $available
+          - **Native Hello/PIN/PRF/wallet/restart qualification: NOT RUN.**
+          - A green measurement job is not a passing Windows Hello release gate.
+          "@ | Add-Content $env:GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: platform-private-proof-formatted
-          path: |
-            src/lib/platform-auth/webauthn.ts
-            src/lib/platform-auth/webauthn.test.ts
-            src/app/templates/PasskeyUnlockSettings.tsx
-            src/app/templates/PasskeyUnlockSettings.test.tsx
-            src/lib/miden/platform-reset.test.ts
-            playwright/tests/platform-unlock.spec.ts
-            playwright/tests/platform-startup.spec.ts
-          retention-days: 3
-  virtual-prf-integration:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: ./.github/actions/inject-linked-web-sdk-pr
-      - uses: ./.github/actions/inject-linked-guardian-pr
-      - uses: ./.github/actions/yarn-install
-      - run: yarn prettier --write playwright/tests/platform-unlock.spec.ts playwright/tests/platform-startup.spec.ts
-      - uses: ./.github/actions/start-eligibility-fixture
-        env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
-      - run: MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MIDEN_E2E_DISABLE_SIDEPANEL=false yarn build:chrome
-      - run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
-      - uses: ./.github/actions/apt-drop-unused-repos
-      - run: npx playwright install --with-deps chromium
-        timeout-minutes: 12
-      - run: SKIP_EXTENSION_BUILD=true xvfb-run -a yarn test:e2e platform-unlock.spec.ts platform-startup.spec.ts --workers=1 --retries=0
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: platform-private-proof-browser
-          path: |
-            test-results/
-            playwright/tests/platform-unlock.spec.ts
-            playwright/tests/platform-startup.spec.ts
-            dist/chrome_unpacked/manifest.json
+          name: native-windows-environment-preflight
+          path: ${{ runner.temp }}/native-windows-preflight.json
           if-no-files-found: error
-          retention-days: 3
