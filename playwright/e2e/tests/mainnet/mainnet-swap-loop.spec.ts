@@ -614,6 +614,9 @@ async function recoverExistingSwapPayout(wallet: GuardianAwareWalletPage, state:
     throw new Error('Original swap creator block differs from its inclusion proof');
   await wallet.triggerSync(true);
   const file = await exportPublicInputNote(wallet, payback.noteId);
+  await wallet.navigateTo('/history?filter=pending&view=list');
+  const accept = wallet.page.locator(`[data-pending-note-id="${payback.noteId}"]`).getByRole('button', { name: /^Accept$/ });
+  await expect(accept).toBeVisible({ timeout: 60_000 });
   Object.assign(state, prepared);
   persist(state);
   const handle = await armMainnetConsumeAuthorization(wallet.page, {
@@ -624,11 +627,7 @@ async function recoverExistingSwapPayout(wallet: GuardianAwareWalletPage, state:
   const controller = new AbortController();
   let queued: TransactionRowSnapshot | undefined;
   try {
-    await wallet.page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/`);
-    await wallet.page
-      .locator(`[data-pending-note-id="${payback.noteId}"]`)
-      .getByRole('button', { name: /^Accept$/ })
-      .click();
+    await accept.click();
     await expect
       .poll(
         async () => {

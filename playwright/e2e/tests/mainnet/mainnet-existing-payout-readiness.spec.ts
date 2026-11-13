@@ -52,7 +52,8 @@ test('read-only replacement claim boundary; never arm or consume', async ({ wall
         report.exportErrorKind=/not found|not exist|missing note/i.test(message)?'note-not-found':/proof|commitment|not committed/i.test(message)?'inclusion-proof':/unsupported|format/i.test(message)?'unsupported-format':/lock|deadlock/i.test(message)?'client-lock':/network|fetch|rpc|transport/i.test(message)?'rpc':'unclassified';
       }
       report.claimReadinessStage='pending-accept';
-      await walletB.page.goto(`chrome-extension://${walletB.extensionId}/fullpage.html#/`);
+      await walletB.triggerSync(true);
+      await walletB.navigateTo('/history?filter=pending&view=list');
       await expect(walletB.page.locator(`[data-pending-note-id="${proof.noteId}"]`).getByRole('button',{name:/^Accept$/})).toBeVisible({timeout:15000});
       report.claimUIReady=true;
       report.claimReadinessStage='complete';
