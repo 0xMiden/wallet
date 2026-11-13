@@ -18,7 +18,7 @@ import { Loader } from 'components/Loader';
 import { AccountsDrawer, AssetListItemSkeleton, BalanceCard, ErrorLine, TextAction } from 'components/ui';
 import { TokenAmount } from 'components/ui/TokenAmount';
 import { springs, useMotion, usePreset } from 'lib/animation';
-import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import {
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
@@ -442,7 +442,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             delta={
               change && pricesLoaded(tokenPrices, totalPriceSymbols)
                 ? {
-                    absolute: `${change.absolute < 0 ? '-' : '+'}$${formatAmountDisplay(Math.abs(change.absolute), { grouping: true, trimTrailingZeros: false })}`,
+                    absolute: `${change.absolute < 0 ? '-' : '+'}${formatUsdDisplay(Math.abs(change.absolute))}`,
                     percentage: `${change.percentage < 0 ? '-' : '+'}${Math.abs(change.percentage).toFixed(2)}%`
                   }
                 : undefined

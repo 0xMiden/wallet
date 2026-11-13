@@ -23,7 +23,7 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
 import { earnRowChain } from 'lib/epoch/market-uid';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
-import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { formatAmountDisplay, formatUsdDisplay } from 'lib/i18n/amount-display';
 import { isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
@@ -244,7 +244,7 @@ function formatFiatDisplayAmount(
   const fiatAmount = displayAmount.abs().times(quote.price);
 
   return t('historyDetailsFiatApprox', {
-    amount: formatAmountDisplay(fiatAmount, { prefix: '$', trimTrailingZeros: false })
+    amount: formatUsdDisplay(fiatAmount)
   });
 }
 

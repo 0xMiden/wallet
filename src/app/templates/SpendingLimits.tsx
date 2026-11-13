@@ -13,7 +13,7 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
-import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import { classifySpendingLimitChange } from 'lib/miden/spending-limits/change';
 import type { SpendingLimitConfiguration, SpendingLimitDraft } from 'lib/miden/spending-limits/types';
 import { useWalletStore } from 'lib/store';
@@ -69,7 +69,7 @@ const PRESET_LIMITS = ['100', '500', '1000', '5000'] as const;
 
 /** A limit as the page shows it: whole dollars without cents ("$1,000"), a fractional one with them. */
 const formatLimitUsd = (amount: string): string =>
-  formatAmountDisplay(amount, { prefix: '$', grouping: true, trimTrailingZeros: !amount.includes('.') });
+  formatUsdDisplay(amount, { trimTrailingZeros: !amount.includes('.') });
 
 interface PendingSave {
   draft: SpendingLimitDraft;

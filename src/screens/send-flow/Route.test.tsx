@@ -385,6 +385,21 @@ describe('RouteOptions', () => {
     expect(resolveDisplayMetadata).toHaveBeenCalledWith('mtst1usdcxnative', {}, 'mtst1usdcxnative');
   });
 
+  it('groups the fast route fee as a USD amount', () => {
+    render(
+      <RouteOptions
+        route="epoch"
+        onRouteChange={jest.fn()}
+        fastFeeUsd={1234.5}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...UP}
+      />
+    );
+
+    expect(screen.getByText('$1,234.50')).toBeInTheDocument();
+  });
+
   it('marks the withdrawal notice under the USDCx route for the e2e harness', () => {
     render(
       <RouteOptions

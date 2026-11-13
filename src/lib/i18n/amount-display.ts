@@ -19,6 +19,16 @@ export interface AmountDisplayOptions {
   preserveSign?: boolean;
 }
 
+/** The one USD display policy: the components' defaults and every USD string. */
+export const USD_DISPLAY_OPTIONS: Readonly<
+  Pick<AmountDisplayOptions, 'prefix' | 'minimumFractionDigits' | 'trimTrailingZeros' | 'grouping'>
+> = {
+  prefix: '$',
+  minimumFractionDigits: 2,
+  trimTrailingZeros: false,
+  grouping: true
+};
+
 const ROUNDING: Record<AmountRounding, BigNumber.RoundingMode> = {
   up: BigNumber.ROUND_UP,
   down: BigNumber.ROUND_DOWN,
@@ -78,6 +88,10 @@ export function formatAmountDisplay(amount: DisplayAmount, options: AmountDispla
   if (!isDisplayable(value)) return '—';
   const text = renderValue(value, options, options.formatting === 'exact' ? undefined : fractionDigits(value, options));
   return options.preserveSign && typeof amount === 'string' && amount.startsWith('+') ? `+${text}` : text;
+}
+
+export function formatUsdDisplay(value: DisplayAmount, overrides: AmountDisplayOptions = {}): string {
+  return formatAmountDisplay(value, { ...USD_DISPLAY_OPTIONS, ...overrides });
 }
 
 /** Keep the final precision for every animation frame. */

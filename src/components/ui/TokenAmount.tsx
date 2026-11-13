@@ -2,7 +2,12 @@ import React, { HTMLAttributes } from 'react';
 
 import BigNumber from 'bignumber.js';
 
-import { AmountDisplayOptions, amountFormatterFor, formatAmountDisplay } from 'lib/i18n/amount-display';
+import {
+  AmountDisplayOptions,
+  amountFormatterFor,
+  formatAmountDisplay,
+  USD_DISPLAY_OPTIONS
+} from 'lib/i18n/amount-display';
 import { cn } from 'lib/ui/util';
 
 import { AnimatedNumber } from './AnimatedNumber';
@@ -96,5 +101,5 @@ export const TokenAmount: React.FC<TokenAmountProps> = ({
 export type UsdAmountProps = AmountValue & Omit<TokenAmountProps, 'amount' | 'decimals' | 'symbol' | 'symbolClassName'>;
 
 export const UsdAmount: React.FC<UsdAmountProps> = props => (
-  <TokenAmount minimumFractionDigits={2} trimTrailingZeros={false} grouping prefix="$" {...props} />
+  <TokenAmount {...USD_DISPLAY_OPTIONS} {...props} />
 );

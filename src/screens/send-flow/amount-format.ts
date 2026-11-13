@@ -1,5 +1,5 @@
-import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
 
 export function approxFiatAmount(value: number): string {
-  return formatAmountDisplay(value, { prefix: '$', trimTrailingZeros: false, minimumFractionDigits: 2 });
+  return formatUsdDisplay(value);
 }

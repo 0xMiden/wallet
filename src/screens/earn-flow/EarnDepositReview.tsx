@@ -19,7 +19,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TokenAmount } from 'components/ui/TokenAmount';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { earnCollateralFaucetId, earnMarketForVault, earnVaultTakesDeposits, openEarnPosition } from 'lib/epoch';
-import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import { amountExceedsTokenDecimals, stringToBigInt } from 'lib/i18n/numbers';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
@@ -486,7 +486,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
                 <div className="text-label uppercase tracking-wide text-muted">{item.label}</div>
                 <div className="mt-1 text-value text-positive-tint-ink">
                   {t('earnProjectedRewardAmount', {
-                    amount: formatAmountDisplay(item.reward, { prefix: '$', trimTrailingZeros: false })
+                    amount: formatUsdDisplay(item.reward)
                   })}
                 </div>
               </div>

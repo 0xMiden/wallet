@@ -3,7 +3,7 @@ import i18n from 'i18next';
 
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 
-import { amountFormatterFor } from './amount-display';
+import { amountFormatterFor, USD_DISPLAY_OPTIONS } from './amount-display';
 import { getCurrentLocale, getNumberSymbols } from './core';
 
 export {
@@ -86,12 +86,7 @@ export function formatUsd(value: number): string {
 
 /** Keep the final USD precision for every animation frame. */
 export function usdFormatterFor(target: number): (value: number) => string {
-  return amountFormatterFor(target, {
-    prefix: '$',
-    grouping: true,
-    trimTrailingZeros: false,
-    minimumFractionDigits: 2
-  });
+  return amountFormatterFor(target, USD_DISPLAY_OPTIONS);
 }
 
 export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.decimals): string {

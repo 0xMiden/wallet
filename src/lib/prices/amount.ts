@@ -1,6 +1,6 @@
 import BigNumber from 'bignumber.js';
 
-import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
 
 import { isNominalQuote, type TokenPriceInfo } from './binance';
 import { isFixedQuote } from './fixed';
@@ -57,5 +57,5 @@ export function usdEstimateText(
   if ((numeric === 0 && !value.isZero()) || (value.abs().gt(0) && value.abs().lt('0.00000000000000000001'))) {
     return `${value.isNegative() ? '−' : ''}<$0.00000000000000000001`;
   }
-  return formatAmountDisplay(value, { prefix: '$', grouping: true, trimTrailingZeros: false });
+  return formatUsdDisplay(value);
 }

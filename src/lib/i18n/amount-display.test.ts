@@ -1,8 +1,12 @@
 import BigNumber from 'bignumber.js';
 
-import { type AmountRounding, amountFormatterFor, formatAmountDisplay } from './amount-display';
+import { type AmountRounding, amountFormatterFor, formatAmountDisplay, formatUsdDisplay } from './amount-display';
 
 describe('amount display policy', () => {
+  it('formats USD strings with grouped, padded display defaults', () => {
+    expect(formatUsdDisplay(1234.5)).toBe('$1,234.50');
+  });
+
   it('removes long decimal tails from bridge amounts', () => {
     expect(formatAmountDisplay('1.5747999999999986')).toBe('1.57');
     expect(formatAmountDisplay('13.0000000000001')).toBe('13');

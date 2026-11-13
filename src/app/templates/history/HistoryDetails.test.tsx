@@ -1520,7 +1520,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByText('1000 Test Epoch USDC')).toBeInTheDocument();
-      expect(screen.getByText('historyDetailsFiatApprox_$2000.00')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2,000.00')).toBeInTheDocument();
     });
 
     it('renames a send of the bridge faucet by the testnet label once the bridge config publishes', async () => {
@@ -1544,7 +1544,7 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('1000 MID')).toBeInTheDocument();
       expect(screen.getByText('acct-B')).toBeInTheDocument();
       // Fiat: |1000| * price(2) => 2000.00, interpolated into the fiat key.
-      expect(screen.getByText('historyDetailsFiatApprox_$2000.00')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2,000.00')).toBeInTheDocument();
 
       // Status pill fed the raw status.
       expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
@@ -1599,8 +1599,8 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByText('1234.567 MID')).toBeInTheDocument();
-      expect(screen.getByText('historyDetailsFiatApprox_$2469.13')).toBeInTheDocument();
-      expect(screen.queryByText('historyDetailsFiatApprox_$2469.14')).not.toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2,469.13')).toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$2,469.14')).not.toBeInTheDocument();
     });
 
     it('estimates IETH at the ETH price, the symbol the feed quotes it under', async () => {
@@ -1611,7 +1611,7 @@ describe('HistoryDetails', () => {
       setMockRow({ ...baseSendTx, faucetId: TEST_TOKEN_IETH.faucetId, amount: 2n });
       await renderAndLoad();
 
-      expect(screen.getByText('historyDetailsFiatApprox_$6000.00')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$6,000.00')).toBeInTheDocument();
     });
 
     it('gives no estimate for a token the feed does not quote, never a $1 figure', async () => {
@@ -1664,7 +1664,7 @@ describe('HistoryDetails', () => {
       // No external tx id row.
       expect(rowByLabel('txIdLabel')).toBeUndefined();
       // No amount span (amount undefined) → fiat also absent.
-      expect(screen.queryByText('historyDetailsFiatApprox_$2000.00')).not.toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$2,000.00')).not.toBeInTheDocument();
     });
 
     it.each([
@@ -2072,7 +2072,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByText('1234.56 MID')).toBeInTheDocument();
-      expect(screen.getByText('historyDetailsFiatApprox_$2469.14')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2,469.14')).toBeInTheDocument();
     });
   });
 
@@ -2168,7 +2168,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(within(screen.getByTestId('swap-order-hero')).getByText('1234.57')).toBeInTheDocument();
-      expect(screen.getByText('historyDetailsFiatApprox_$2469.14')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2,469.14')).toBeInTheDocument();
     });
 
     it('does not call an unsettled order Confirmed while the list calls it Pending', async () => {
