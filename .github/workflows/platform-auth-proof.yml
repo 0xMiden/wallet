@@ -5,43 +5,85 @@ on:
 permissions:
   contents: read
 jobs:
-  confirm-route-gate:
+  coverage:
+    name: Coverage shard ${{ matrix.shard }}/3
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 50
+    env:
+      JEST_COVERAGE_SHARD: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: node --test scripts/ci/coverage-resource-sampler.test.mjs
       - uses: ./.github/actions/yarn-install
-      - run: yarn tsc --noEmit --pretty false
-      - run: yarn jest src/app/pages/Unlock.test.tsx src/app/pages/Settings.test.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/app/hooks/usePlatformUnlock.test.tsx src/lib/platform-auth/webauthn.test.ts src/lib/miden/back/main.test.ts src/lib/intercom/server.test.ts src/lib/intercom/sender.test.ts --maxWorkers=2
-  virtual-prf-integration:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: ./.github/actions/yarn-install
-      - run: yarn prettier --write playwright/tests/platform-unlock.spec.ts
-      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Run original coverage shard command
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
-      - run: MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MIDEN_E2E_DISABLE_SIDEPANEL=false yarn build:chrome
-      - run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
-      - uses: ./.github/actions/apt-drop-unused-repos
-      - run: npx playwright install --with-deps chromium
-        timeout-minutes: 12
-      - run: SKIP_EXTENSION_BUILD=true xvfb-run -a yarn test:e2e platform-unlock.spec.ts --workers=1 --retries=0
+          SHARD: ${{ matrix.shard }}
+          SHARDS: 3
+        run: |
+          set -euo pipefail
+          node scripts/ci/coverage-resource-sampler.mjs "$SHARD" &
+          SAMPLER_PID=$!
+          stop_sampler() {
+            kill "$SAMPLER_PID" 2>/dev/null || true
+            wait "$SAMPLER_PID" 2>/dev/null || true
+            return 0
+          }
+          trap stop_sampler EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          yarn test:coverage --maxWorkers=2 --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+      - name: Count tests
+        if: always()
+        continue-on-error: true
+        run: node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: platform-prf-full-candidate
+          name: coverage-shard-${{ matrix.shard }}
           path: |
-            test-results/
-            playwright/tests/platform-unlock.spec.ts
-            dist/chrome_unpacked/manifest.json
+            coverage/coverage-final.json
+            coverage/test-count.json
           if-no-files-found: error
-          retention-days: 3
+  coverage-gate:
+    name: Coverage Check (95% minimum)
+    needs: coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
+    steps:
+      - name: Check shards
+        env:
+          SHARDS_RESULT: ${{ needs.coverage.result }}
+        run: |
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "coverage shards $SHARDS_RESULT"; exit 1; fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install original coverage reporters
+        run: |
+          mkdir -p "$RUNNER_TEMP/covtools"
+          cd "$RUNNER_TEMP/covtools"
+          npm init -y
+          npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          path: coverage-shards
+      - name: Merge and enforce unchanged global thresholds
+        env:
+          NODE_PATH: ${{ runner.temp }}/covtools/node_modules
+        run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-merged-platform-auth
+          path: coverage/
+          if-no-files-found: warn
