@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { usePlatformUnlock } from 'app/hooks/usePlatformUnlock';
 import { useTapUnlock } from 'app/hooks/useTapUnlock';
 import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about.svg';
 import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
@@ -16,6 +17,7 @@ import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
 import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
+import PasskeyUnlockSettings from 'app/templates/PasskeyUnlockSettings';
 import RecoveryPhraseSettings from 'app/templates/RecoveryPhraseSettings';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
@@ -106,6 +108,7 @@ type Tab = {
    */
   requiresFileBackup?: boolean;
   requiresSeedPhrase?: boolean;
+  requiresPlatformUnlock?: boolean;
   /**
    * This tab's panel renders its OWN notice when the seed phrase is not 'stored'
    * (an interrupted removal, or a finished one), so its route must keep resolving
@@ -197,6 +200,13 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'keys',
         Component: KeysSettings,
         testID: SettingsSelectors.KeysButton
+      },
+      {
+        slug: 'passkey-unlock',
+        titleI18nKey: 'passkeyUnlock',
+        Component: PasskeyUnlockSettings,
+        testID: SettingsSelectors.PasskeyUnlockButton,
+        requiresPlatformUnlock: true
       },
       {
         // The file is the only backup of an OffChain account's private state and of an
@@ -373,6 +383,8 @@ export async function shouldShowDevEndpointsRow(): Promise<boolean> {
 
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
+  const { state: platformState, loading: platformLoading } = usePlatformUnlock();
+  const platformAvailable = platformState.available && platformState.hasPassword;
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
   const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
@@ -388,9 +400,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       if (tab.standardOnly && isGuardianAccount) return false;
       if (tab.requiresFileBackup && !walletNeedsFileBackup) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
+      if (tab.requiresPlatformUnlock && !platformAvailable) return false;
       return true;
     },
-    [isGuardianAccount, walletNeedsFileBackup, hasActivatedHotKey]
+    [isGuardianAccount, walletNeedsFileBackup, hasActivatedHotKey, platformAvailable]
   );
 
   // Whether the MENU offers it. The seed gate is only about the row: see allTabs.
@@ -468,7 +481,8 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   );
   const handleSubPageBack = useBackWithFallback('/me');
   const languageLabel = getCurrentLanguageLabel();
-  const invalidTab = Boolean(tabSlug) && !activeTab;
+  const waitingForPlatform = tabSlug === 'passkey-unlock' && platformLoading;
+  const invalidTab = Boolean(tabSlug) && !activeTab && !waitingForPlatform;
 
   useEffect(() => {
     // Return to the menu when a slug is unknown or unavailable to this account.
@@ -490,7 +504,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   // The existing-wallet way into Developer Settings, the Welcome logo's hidden gesture on the version line.
   const openDeveloperSettings = useTapUnlock(() => navigate('/developer-settings'));
 
-  if (invalidTab) return null;
+  if (invalidTab || waitingForPlatform) return null;
 
   const subPageTitle = activeTab ? t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey) : undefined;
   // As drawers these screens were dialogs, so they took focus and were announced by name. Routes

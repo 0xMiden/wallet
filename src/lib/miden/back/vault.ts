@@ -24,6 +24,7 @@ import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED, PublicError } from 'lib/miden/back/defaults';
 import { undoFailedSetup } from 'lib/miden/back/failed-setup';
+import { getStoredPlatformVaultKey } from 'lib/miden/back/platform-unlock-store';
 import {
   encryptAndSaveMany,
   fetchAndDecryptOne,
@@ -42,6 +43,7 @@ import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { signBytesInputs } from 'lib/miden/sign-bytes/domain';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
+import { VAULT_KEY_PASSWORD_STORAGE_KEY } from 'lib/platform-auth/types';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex, commitmentToHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
@@ -174,7 +176,6 @@ const DEFAULT_SETTINGS = {};
 const RECOVERY_SEED_HD_INDEX_LIMIT = 20;
 
 // Storage keys for vault key protectors
-const VAULT_KEY_PASSWORD_STORAGE_KEY = 'vault_key_password';
 const VAULT_KEY_HARDWARE_STORAGE_KEY = 'vault_key_hardware';
 
 enum StorageEntity {
@@ -656,6 +657,13 @@ export class Vault {
       const vaultKey = await Vault.unlockWithPassword(password);
       return new Vault(vaultKey);
     });
+  }
+
+  static async setupWithPlatformCredential(credentialId: string, prfSecret: string): Promise<Vault> {
+    return withError(
+      'Failed to unlock wallet',
+      async () => new Vault(await getStoredPlatformVaultKey(credentialId, prfSecret))
+    );
   }
 
   static async exportWalletBackupMaterial(password?: string): Promise<WalletBackupMaterial> {

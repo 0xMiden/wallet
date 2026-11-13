@@ -445,6 +445,12 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.UnlockResponse);
     },
 
+    platformUnlock: async command => {
+      const res = await request({ type: WalletMessageType.PlatformUnlockRequest, command });
+      assertResponse(res.type === WalletMessageType.PlatformUnlockResponse);
+      return res.result;
+    },
+
     // Account actions
     createAccount: async (walletType, name) => {
       const res = await request({

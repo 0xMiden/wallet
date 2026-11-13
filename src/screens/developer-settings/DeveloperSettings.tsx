@@ -17,6 +17,7 @@ import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { retireGuardianSyncPasses } from 'lib/miden/front/guardian-sync';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
+import { requestExtensionReset } from 'lib/miden/platform-reset';
 import { resetStorageDestructive } from 'lib/miden/reset';
 import { resetMidenClient } from 'lib/miden/sdk/miden-client';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
@@ -306,7 +307,8 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       try {
         // The override goes in the wipe's own blanket clear, so no separate step can fail after the
         // wallet is gone and leave onboarding on the endpoints being reset.
-        await resetStorageDestructive({ keepEndpointOverride: false });
+        if (isExtension()) await requestExtensionReset({ keepEndpointOverride: false });
+        else await resetStorageDestructive({ keepEndpointOverride: false });
       } catch (err) {
         // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
         // this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when

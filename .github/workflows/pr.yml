@@ -270,6 +270,9 @@ jobs:
       - name: Verify the built extension manifest
         run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
 
+      - name: Verify emitted platform startup barriers
+        run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
+
       - name: Drop apt repositories this repo never installs from
         uses: ./.github/actions/apt-drop-unused-repos
 

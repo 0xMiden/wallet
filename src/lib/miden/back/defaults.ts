@@ -32,6 +32,9 @@ export const intercom = {
   },
   hasClients: () => {
     return getIntercom()!.hasClients();
+  },
+  isConnected: (...args: Parameters<import('lib/intercom/server').IntercomServer['isConnected']>) => {
+    return getIntercom()!.isConnected(...args);
   }
 };
 

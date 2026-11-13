@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Şifre kilidini açma",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Şifre anahtarıyla kilidi açma",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Bu cüzdanın kilidini açmak için cihazınızın şifre sağlayıcısını kullanın. Cüzdan şifreniz hâlâ geçerli olacaktır.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Bu cüzdan için Passkey kilit açma özelliği etkinleştirilmiştir.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Bu tarayıcıda, işletim sisteminde veya cüzdanda Passkey kilit açma özelliği kullanılamaz. Yine de cüzdan şifrenizi kullanabilirsiniz.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Geçiş anahtarı kilidini aç",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Şifre anahtarını değiştirin",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Şifre kilidini kaldır",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Burada \"passkey unlock\" seçeneğini kaldırmak, sağlayıcınız tarafından saklanan passkey'i iptal etmez veya silmez. Artık ihtiyacınız yoksa, sağlayıcınızın ayarlarından da silin.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Sağlayıcınız, bu erişim anahtarının yedeklenebileceğini veya senkronize edilebileceğini bildirir. Diğer cihazlarda kullanılabilirlik, sağlayıcınıza bağlıdır.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Sağlayıcınız, bu şifrenin yedeklenemeyeceğini bildiriyor.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Cüzdanın yan panelini açarak şifreli kilidi etkinleştirin, değiştirin veya kaldırın.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Yan panel açılamadı. Cüzdan araç çubuğundan açın ve tekrar deneyin.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "Şifre talebi iptal edildi veya kullanılamıyor. Cüzdan şifrenizi kullanmaya devam edebilirsiniz.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Şifre anahtarıyla kilit açma özelliği etkinleştirilemedi. Cüzdan şifrenizi kontrol edin ve bu özelliği destekleyen bir sağlayıcı kullanın.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Şifre kilidini kaldıramadı. Lütfen tekrar deneyin. Cüzdan şifreniz hâlâ geçerlidir.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Bu erişim anahtarıyla kilit açılmadı. Cüzdan şifrenizi kullanın ve erişim anahtarı ayarlarını kontrol edin.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Tohum ifadenizi yedekleyin",
     "englishSource": "Back up your recovery phrase"

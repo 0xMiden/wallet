@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer';
 import PQueue from 'p-queue';
+import type { Runtime } from 'webextension-polyfill';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
@@ -8,7 +9,7 @@ import { getMessage } from 'lib/i18n';
 import { isMainnetAccountAdmitted, redeemMainnetAccessCode } from 'lib/mainnet-access';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
-import { MAINNET_ACCESS_CODE_REJECTED, PublicError } from 'lib/miden/back/defaults';
+import { intercom, MAINNET_ACCESS_CODE_REJECTED, PublicError } from 'lib/miden/back/defaults';
 import { undoFailedSetup } from 'lib/miden/back/failed-setup';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
@@ -16,6 +17,7 @@ import {
   revertGuardianEndpointAfterDiscard as revertDiscardedGuardianEndpoint
 } from 'lib/miden/back/guardian-drift';
 import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from 'lib/miden/back/guardian-recovery';
+import * as PlatformUnlock from 'lib/miden/back/platform-unlock-store';
 import {
   toFront,
   store,
@@ -60,6 +62,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import {
   GetStateResponse,
   GuardianRecoveryAction,
@@ -167,23 +170,25 @@ function syncRealmInsertKeySink() {
 }
 
 export async function init() {
-  console.log('[Actions.init] Starting...');
-  // This realm's one SDK client signs every inline write with the vault (#878):
-  // installed once, here, before anything can ask it to sign. Every realm that
-  // writes runs init (the service worker, mobile and desktop); the extension
-  // popup never does and never signs; the offscreen document builds its own
-  // client with its reverse-IPC signer.
-  installRealmKeystore({
-    sign: buildSdkSignCallback(
-      async (publicKey, signingInputs) =>
-        new Uint8Array(Buffer.from(await signTransaction(publicKey, signingInputs), 'hex'))
-    )
+  return getAccountsWriteQueue().add(async () => {
+    console.log('[Actions.init] Starting...');
+    // This realm's one SDK client signs every inline write with the vault (#878):
+    // installed once, here, before anything can ask it to sign. Every realm that
+    // writes runs init (the service worker, mobile and desktop); the extension
+    // popup never does and never signs; the offscreen document builds its own
+    // client with its reverse-IPC signer.
+    installRealmKeystore({
+      sign: buildSdkSignCallback(
+        async (publicKey, signingInputs) =>
+          new Uint8Array(Buffer.from(await signTransaction(publicKey, signingInputs), 'hex'))
+      )
+    });
+    const vault = await getVault(); // wait for vault initialization
+    const vaultExist = (await vault.isExist()) && (await keepsSetupPendingAdmission());
+    console.log('[Actions.init] Vault exists:', vaultExist);
+    inited(vaultExist);
+    console.log('[Actions.init] Called inited()');
   });
-  const vault = await getVault(); // wait for vault initialization
-  const vaultExist = (await vault.isExist()) && (await keepsSetupPendingAdmission());
-  console.log('[Actions.init] Vault exists:', vaultExist);
-  inited(vaultExist);
-  console.log('[Actions.init] Called inited()');
 }
 
 export async function getFrontState(): Promise<GetStateResponse['state']> {
@@ -493,33 +498,43 @@ export function registerImportedWallet(
 }
 
 export function lock() {
-  return withInited(async () => {
-    // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
-    // consume loop) to drain before clearing the vault key. If we lock while
-    // the kernel is mid-`miden::protocol::auth::request`, the signing
-    // callback has no key → executeTransaction fails → notes can end up
-    // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
-    // coincided with LOCK_REQUEST arriving while a consume loop was active.
-    await withWasmClientLock(async () => {
-      const { vault } = store.getState();
-      clearRecoveryAuthorizations();
-      releaseGuardianRecoveriesOnLock();
-      locked();
-      // Only the vault being locked gives up its insert-key sink; one an unlock in
-      // flight just installed stays (#878).
-      vault?.retire();
-    });
+  return withInited(lockForResetInTurn);
+}
+
+export async function lockForResetInTurn() {
+  // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
+  // consume loop) to drain before clearing the vault key. If we lock while
+  // the kernel is mid-`miden::protocol::auth::request`, the signing
+  // callback has no key → executeTransaction fails → notes can end up
+  // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
+  // coincided with LOCK_REQUEST arriving while a consume loop was active.
+  await withWasmClientLock(async () => {
+    const { vault } = store.getState();
+    clearRecoveryAuthorizations();
+    releaseGuardianRecoveriesOnLock();
+    locked();
+    // Only the vault being locked gives up its insert-key sink; one an unlock in
+    // flight just installed stays (#878).
+    vault?.retire();
   });
 }
 
 export function unlock(password?: string) {
+  return unlockUsing(
+    () => Vault.setup(password),
+    () => true
+  );
+}
+
+function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
       // Constructed inside the try: the constructor installs the candidate's sink,
       // and the finally below is what puts the store's back if anything after the
       // construction throws (#878).
       try {
-        const vault = await Vault.setup(password);
+        if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
+        const vault = await createVault();
         // Resuming an interrupted removal is best-effort. It reaches the keystore, a
         // client build and the offscreen document, and it throws seedRemovalFailed by
         // design; letting that escape would leave the wallet permanently unopenable,
@@ -544,17 +559,76 @@ export function unlock(password?: string) {
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonic = await vault.isOwnMnemonic();
+        const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
+        if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
         unlocked({
           vault,
           accounts,
           settings,
           currentAccount,
           ownMnemonic,
-          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+          seedPhraseStatus
         });
       } finally {
         syncRealmInsertKeySink();
       }
+    })
+  );
+}
+
+export async function platformUnlock(
+  command: PlatformUnlockCommand,
+  owner: Runtime.Port,
+  available: boolean
+): Promise<PlatformUnlockResult> {
+  if (command.action === 'unlock') {
+    await unlockUsing(
+      () => Vault.setupWithPlatformCredential(command.credentialId, command.prfSecret),
+      () => intercom.isConnected(owner)
+    );
+    return { action: 'unlock' };
+  }
+  return withInited(() =>
+    getUnlockQueue().add(async (): Promise<PlatformUnlockResult> => {
+      const current = store.getState();
+      if (
+        ['begin', 'commit', 'remove'].includes(command.action) &&
+        (current.status !== WalletStatus.Ready || current.vault === null || !intercom.isConnected(owner))
+      ) {
+        throw new PublicError(getMessage('passkeyUnlockUnavailable'));
+      }
+      switch (command.action) {
+        case 'state':
+          return { action: 'state', state: await PlatformUnlock.readPlatformUnlockState(available) };
+        case 'begin':
+          return {
+            action: 'begin',
+            enrollmentId: await PlatformUnlock.beginPlatformEnrollment(owner, command.expectedCredentialId)
+          };
+        case 'track':
+          await PlatformUnlock.trackPlatformEnrollment(owner, command.enrollmentId, command.credential);
+          break;
+        case 'commit':
+          await PlatformUnlock.commitPlatformEnrollment(
+            owner,
+            command.enrollmentId,
+            command.password,
+            command.prfSecret
+          );
+          break;
+        case 'abandon':
+          await PlatformUnlock.abandonPlatformEnrollments(owner, command.enrollmentId);
+          break;
+        case 'remove':
+          await PlatformUnlock.removePlatformUnlock(command.expectedCredentialId);
+          break;
+        case 'pending-signals':
+          return { action: 'pending-signals', credentialIds: await PlatformUnlock.getPendingPlatformSignals() };
+        case 'signal-complete':
+          await PlatformUnlock.acknowledgePlatformSignal(command.credentialId);
+          break;
+      }
+      return { action: command.action };
     })
   );
 }

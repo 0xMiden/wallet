@@ -1,5 +1,7 @@
 import { Runtime } from 'webextension-polyfill';
 
+import { ensurePlatformUnlockStartup, getPlatformUnlockAvailability } from 'lib/extension/platform-unlock-startup';
+import { isExtensionPagePort } from 'lib/intercom/extension-page';
 import { isOffscreenDocumentSender } from 'lib/intercom/sender';
 import { queueNoteImport } from 'lib/miden/activity';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
@@ -49,6 +51,8 @@ import {
   primeNativeAssetId,
   recordSyncedFeeFaucetId
 } from 'lib/miden-chain/native-asset';
+import { isExtension } from 'lib/platform';
+import { parsePlatformUnlockCommand } from 'lib/platform-auth/protocol';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
@@ -70,17 +74,36 @@ let frontStore: ReturnType<typeof store.map> | null = null;
 
 // Settles once start() has hydrated the endpoint override and the bridge config, which handlers read synchronously.
 let startupHydration: Promise<void> = Promise.resolve();
+let startupHydrated = false;
+
+function afterInitialStartup(action: () => void) {
+  if (startupHydrated) action();
+  else void startupHydration.then(action).catch(() => undefined);
+}
 
 export async function start() {
   console.log('Miden background script started');
+  startupHydrated = false;
   let hydrated: () => void = () => undefined;
-  startupHydration = new Promise<void>(resolve => {
-    hydrated = resolve;
+  let startupFailed: (error: unknown) => void = () => undefined;
+  startupHydration = new Promise<void>((resolve, reject) => {
+    hydrated = () => {
+      startupHydrated = true;
+      resolve();
+    };
+    startupFailed = reject;
   });
+  void startupHydration.catch(() => undefined);
   // Registered first so no message is missed; it dispatches only once startupHydration settles.
   intercom.onRequest(dispatchWhenHydrated);
   intercom.onNotFound(confirmationRequestNotFound);
   registerOffscreenSignHandler();
+  try {
+    await ensurePlatformUnlockStartup();
+  } catch (error) {
+    startupFailed(error);
+    throw error;
+  }
 
   // The connectivity snapshot is in-memory and therefore empty on every MV3 wake,
   // but its storage mirror — the copy the popup actually renders — is durable. Seed
@@ -263,6 +286,8 @@ function registerOffscreenSignHandler(): void {
           type?: string;
           op_id?: string;
           sign_id?: string;
+          publicKeyB64?: unknown;
+          signingInputsB64?: unknown;
           stage?: ITransactionStage;
           evidence?: unknown;
           category?: ConnectivityCategory;
@@ -311,7 +336,10 @@ function registerOffscreenSignHandler(): void {
     // has won the offscreen WASM mutex and is about to execute — arm its write
     // deadline now. Fire-and-forget: no async response, so don't hold the port.
     if (m.type === OFFSCREEN_OP_STARTED) {
-      if (typeof m.op_id === 'string') markOpStarted(m.op_id);
+      if (typeof m.op_id === 'string') {
+        const opId = m.op_id;
+        afterInitialStartup(() => markOpStarted(opId));
+      }
       return false;
     }
     // Per-step stage stamp (PR #524): the offscreen write named by `op_id` entered
@@ -323,7 +351,9 @@ function registerOffscreenSignHandler(): void {
     if (m.type === OFFSCREEN_STAGE_EVENT) {
       if (typeof m.op_id === 'string' && isTransactionStage(m.stage)) {
         // Malformed evidence parses to undefined and the crossing is still recorded, as an evidence-less entry (#1081).
-        handleOffscreenStageEvent(m.op_id, m.stage, parseSubmitEvidence(m.evidence));
+        const { op_id, stage } = m;
+        const evidence = parseSubmitEvidence(m.evidence);
+        afterInitialStartup(() => handleOffscreenStageEvent(op_id, stage, evidence));
       }
       return false;
     }
@@ -341,7 +371,8 @@ function registerOffscreenSignHandler(): void {
     // be a real boolean: a missing field would otherwise read as "clear".
     if (m.type === OFFSCREEN_CONNECTIVITY_EVENT) {
       if (isConnectivityCategory(m.category) && typeof m.active === 'boolean') {
-        applyConnectivityReport(m.category, m.active);
+        const { category, active } = m;
+        afterInitialStartup(() => applyConnectivityReport(category, active));
       }
       return false;
     }
@@ -350,7 +381,10 @@ function registerOffscreenSignHandler(): void {
     // no `chrome.storage`. Appending here is what makes a stalled write legible — the
     // last marker to arrive names the call the realm is still inside.
     if (m.type === OFFSCREEN_PROVE_MARKER) {
-      if (typeof m.ts === 'number' && typeof m.line === 'string') appendOffscreenProveMarker(m.ts, m.line);
+      if (typeof m.ts === 'number' && typeof m.line === 'string') {
+        const { ts, line } = m;
+        afterInitialStartup(() => appendOffscreenProveMarker(ts, line));
+      }
       return false;
     }
     // A telemetry event the offscreen document reported. It has a `window` and
@@ -364,35 +398,62 @@ function registerOffscreenSignHandler(): void {
       // The sink's serializer builds the payload from an allowlist, so a
       // malformed event cannot widen the wire — but it can throw, and this
       // listener is shared with signing, which must not fail because of it.
-      void Actions.handleReportTelemetryEvent({ event } as ReportTelemetryEventRequest).catch(() => {});
+      afterInitialStartup(() => {
+        void Actions.handleReportTelemetryEvent({ event } as ReportTelemetryEventRequest).catch(() => {});
+      });
       return false;
     }
     // The Guardian leaf's submit gate (#1644): answered only once the crossing is recorded, and refused on any fault, so
     // the leaf never submits on an answer that did not come from the handler.
     if (m.type === OFFSCREEN_SUBMIT_GATE) {
       if (typeof m.op_id !== 'string') return false;
-      handleOffscreenSubmitGate({
-        target: SW_TARGET,
-        type: OFFSCREEN_SUBMIT_GATE,
-        op_id: m.op_id,
-        evidence: parseSubmitEvidence(m.evidence)
-      }).then(sendResponse, (err: unknown) =>
-        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) })
-      );
+      const opId = m.op_id;
+      const evidence = parseSubmitEvidence(m.evidence);
+      startupHydration
+        .then(() =>
+          handleOffscreenSubmitGate({
+            target: SW_TARGET,
+            type: OFFSCREEN_SUBMIT_GATE,
+            op_id: opId,
+            evidence
+          })
+        )
+        .then(sendResponse, (err: unknown) =>
+          sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) })
+        );
       return true;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
-    handleOffscreenSignRequest(msg as OffscreenSignRequest, swSignCallback).then(sendResponse, (err: unknown) => {
-      // The handler already classifies vault errors; a throw here is an
-      // unexpected internal fault. Respond ok:false so the offscreen sign stub
-      // rejects (failing the write) rather than hanging on a dropped response.
-      sendResponse({
-        ok: false,
-        sign_id: m.sign_id ?? '',
-        error: err instanceof Error ? err.message : String(err),
-        reason: 'internal'
+    if (
+      typeof m.op_id !== 'string' ||
+      typeof m.sign_id !== 'string' ||
+      typeof m.publicKeyB64 !== 'string' ||
+      typeof m.signingInputsB64 !== 'string'
+    ) {
+      sendResponse({ ok: false, sign_id: m.sign_id ?? '', error: 'Invalid sign request', reason: 'internal' });
+      return true;
+    }
+    const request: OffscreenSignRequest = {
+      target: SW_TARGET,
+      type: OFFSCREEN_SIGN_REQUEST,
+      op_id: m.op_id,
+      sign_id: m.sign_id,
+      publicKeyB64: m.publicKeyB64,
+      signingInputsB64: m.signingInputsB64
+    };
+    startupHydration
+      .then(() => handleOffscreenSignRequest(request, swSignCallback))
+      .then(sendResponse, (err: unknown) => {
+        // The handler already classifies vault errors; a throw here is an
+        // unexpected internal fault. Respond ok:false so the offscreen sign stub
+        // rejects (failing the write) rather than hanging on a dropped response.
+        sendResponse({
+          ok: false,
+          sign_id: m.sign_id ?? '',
+          error: err instanceof Error ? err.message : String(err),
+          reason: 'internal'
+        });
       });
-    });
     // Returning true tells Chrome we'll call sendResponse asynchronously.
     return true;
   });
@@ -411,12 +472,45 @@ function confirmationRequestNotFound(req: unknown): Error | undefined {
 }
 
 async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
+  await ensurePlatformUnlockStartup();
   await startupHydration;
   return processRequest(req, port);
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
+  if (
+    req?.type === WalletMessageType.NewWalletRequest ||
+    req?.type === WalletMessageType.NewWalletFromHotKeyRequest ||
+    req?.type === WalletMessageType.ImportFromClientRequest ||
+    req?.type === WalletMessageType.PlatformUnlockRequest ||
+    req?.type === WalletMessageType.PlatformResetRequest
+  ) {
+    if (!isExtension()) throw new Error('Extension page required');
+    const browser = (await import('webextension-polyfill')).default;
+    if (!isExtensionPagePort(_port, browser.runtime.getURL(''), browser.runtime.id)) {
+      throw new Error('Untrusted extension page');
+    }
+  }
   switch (req?.type) {
+    case WalletMessageType.PlatformResetRequest: {
+      const { performAuthorizedExtensionReset } = await import('lib/miden/platform-reset');
+      await performAuthorizedExtensionReset(req.nonce);
+      if (!intercom.isConnected(_port)) (await import('webextension-polyfill')).default.runtime.reload();
+      return { type: WalletMessageType.PlatformResetResponse };
+    }
+    case WalletMessageType.PlatformUnlockRequest: {
+      const command = parsePlatformUnlockCommand(req.command);
+      if (command === null) throw new Error('Invalid platform request');
+      const available = await getPlatformUnlockAvailability();
+      if (!available && ['begin', 'commit', 'unlock'].includes(command.action)) {
+        throw new Error('Platform authentication unavailable');
+      }
+      const result = await Actions.platformUnlock(command, _port, available);
+      if (command.action === 'unlock') {
+        startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
+      }
+      return { type: WalletMessageType.PlatformUnlockResponse, result };
+    }
     case WalletMessageType.SyncRequest:
       if (req.force) {
         try {

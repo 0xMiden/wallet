@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "패스키 잠금 해제",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "패스키로 잠금 해제",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "이 지갑을 잠금 해제하려면 기기의 패스키 제공자를 사용하십시오. 지갑 비밀번호는 여전히 유효합니다.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "이 지갑에서는 패스키 잠금 해제가 활성화되어 있습니다.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "이 브라우저, 운영 체제 또는 지갑에서는 패스키 잠금 해제가 지원되지 않습니다. 지갑 비밀번호는 계속 사용할 수 있습니다.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "패스키 잠금 해제 활성화",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "패스키 교체",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "패스키 잠금 해제 기능 제거",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "여기서 패스키 잠금 해제를 제거한다고 해서 제공업체에 저장된 패스키가 취소되거나 삭제되는 것은 아닙니다. 더 이상 필요하지 않다면 제공업체의 설정에서도 삭제하십시오.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "서비스 제공업체에 따르면 이 패스키를 백업하거나 동기화할 수 있다고 합니다. 다른 기기에서의 사용 가능 여부는 서비스 제공업체에 따라 다릅니다.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "서비스 제공업체에 따르면 이 패스키를 백업할 수 없다고 합니다.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "지갑 사이드 패널을 열어 패스키 잠금 해제를 활성화, 교체 또는 제거하십시오.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "사이드 패널을 열 수 없습니다. 지갑 도구 모음에서 열어 다시 시도해 주세요.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "패스키 요청이 취소되었거나 사용할 수 없습니다. 지갑 비밀번호는 여전히 사용할 수 있습니다.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "패스키 잠금 해제를 활성화할 수 없습니다. 지갑 비밀번호를 확인하고 이 기능을 지원하는 제공업체를 사용하십시오.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "패스키 잠금 해제를 제거할 수 없습니다. 다시 시도해 주십시오. 지갑 비밀번호는 여전히 유효합니다.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "이 패스키로는 잠금을 해제할 수 없습니다. 지갑 비밀번호를 사용하고 패스키 설정을 확인하십시오.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "시드 문구를 백업하세요",
     "englishSource": "Back up your recovery phrase"

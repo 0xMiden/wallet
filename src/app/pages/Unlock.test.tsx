@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 
+import type { PlatformUnlockState } from 'lib/platform-auth/types';
+import { getPlatformCredential } from 'lib/platform-auth/webauthn';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import Unlock, { retireLockoutRecord, useRetireLockoutOnReady } from './Unlock';
@@ -17,6 +19,14 @@ let mockIsExtension = false;
 let mockIsDesktop = false;
 let mockIsMobile = false;
 let mockCompact = false;
+let mockSidePanel = false;
+let mockConfirmWindow = false;
+let mockPlatformState: PlatformUnlockState = { available: false, hasPassword: false, credential: null };
+const mockPlatformUnlock = jest.fn();
+jest.mock('app/hooks/usePlatformUnlock', () => ({
+  usePlatformUnlock: () => ({ state: mockPlatformState, loading: false, refresh: jest.fn() })
+}));
+jest.mock('lib/platform-auth/webauthn', () => ({ getPlatformCredential: jest.fn() }));
 
 // Backing store for the stateful `useLocalStorage` stub. Seed it per-test to
 // drive `attempt` / `timelock`; reset to `{}` in beforeEach for defaults.
@@ -53,7 +63,7 @@ jest.mock('lib/woozie', () => ({
 
 jest.mock('app/env', () => ({
   openInFullPage: (...args: unknown[]) => mockOpenInFullPage(...args),
-  useAppEnv: () => ({ compact: mockCompact })
+  useAppEnv: () => ({ compact: mockCompact, sidePanel: mockSidePanel, confirmWindow: mockConfirmWindow })
 }));
 
 jest.mock('lib/miden/types', () => ({
@@ -71,7 +81,7 @@ jest.mock('lib/miden/front', () => {
   const R = require('react');
   return {
     __esModule: true,
-    useMidenContext: () => ({ unlock: mockUnlock }),
+    useMidenContext: () => ({ unlock: mockUnlock, platformUnlock: mockPlatformUnlock }),
     readLocalStorage: (key: string, fallback: unknown) =>
       Object.prototype.hasOwnProperty.call(mockLsStore, key) ? mockLsStore[key] : fallback,
     writeLocalStorage: (key: string, value: unknown) => {
@@ -275,6 +285,10 @@ beforeEach(() => {
   jest.setSystemTime(BASE);
 
   mockIsExtension = false;
+  mockSidePanel = false;
+  mockConfirmWindow = false;
+  mockPlatformState = { available: false, hasPassword: false, credential: null };
+  mockPlatformUnlock.mockReset().mockResolvedValue({ action: 'unlock' });
   mockIsDesktop = false;
   mockIsMobile = false;
   mockCompact = false;
@@ -1825,4 +1839,117 @@ it('a wrong password reports incorrectPassword on passcode once per attempt', as
     expect(reportUserVisibleError).toHaveBeenLastCalledWith('incorrectPassword', 'passcode');
     await advance(700);
   }
+});
+
+describe('explicit extension passkey unlock', () => {
+  const mockGet = jest.mocked(getPlatformCredential);
+  beforeEach(() => {
+    mockIsExtension = true;
+    mockSidePanel = true;
+    mockPlatformState = {
+      available: true,
+      hasPassword: true,
+      credential: { credentialId: 'AQIDBA', prfSalt: 'A'.repeat(43), backupEligible: true }
+    };
+    mockGet.mockReset().mockResolvedValue({ credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) });
+  });
+
+  it('does not prompt on mount and unlocks only after the explicit button is pressed', async () => {
+    render(<Unlock />);
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('password')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'unlockWithPasskey' }));
+    await act(async () => undefined);
+    expect(mockPlatformUnlock).toHaveBeenCalledWith({
+      action: 'unlock',
+      credentialId: 'AQIDBA',
+      prfSecret: 'A'.repeat(43)
+    });
+    expect(mockUnlock).not.toHaveBeenCalled();
+  });
+
+  it('preserves the confirmation route after successful passkey unlock', async () => {
+    mockSidePanel = false;
+    mockConfirmWindow = true;
+    render(<Unlock />);
+    fireEvent.click(screen.getByRole('button', { name: 'unlockWithPasskey' }));
+    await act(async () => undefined);
+    expect(mockPlatformUnlock).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('allows an enrolled confirmation window independently of compact mode', () => {
+    mockSidePanel = false;
+    mockConfirmWindow = true;
+    mockCompact = false;
+    render(<Unlock />);
+    expect(screen.getByRole('button', { name: 'unlockWithPasskey' })).toBeInTheDocument();
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it.each(['popup', 'fullpage', 'unavailable', 'no-credential'])('keeps password-only UI on %s', surface => {
+    if (surface === 'popup' || surface === 'fullpage') {
+      mockSidePanel = false;
+      mockCompact = surface === 'popup';
+    }
+    if (surface === 'unavailable') mockPlatformState.available = false;
+    if (surface === 'no-credential') mockPlatformState.credential = null;
+    render(<Unlock />);
+    expect(screen.queryByRole('button', { name: 'unlockWithPasskey' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('password')).toBeInTheDocument();
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it.each(['cancel', 'corrupt-record'])(
+    'keeps the password fallback and does not count native failure as a password guess: %s',
+    async reason => {
+      if (reason === 'cancel') mockGet.mockRejectedValue(new DOMException('Canceled', 'NotAllowedError'));
+      else mockPlatformUnlock.mockRejectedValue(new Error('Invalid wrapping'));
+      render(<Unlock />);
+      fireEvent.click(screen.getByRole('button', { name: 'unlockWithPasskey' }));
+      await act(async () => undefined);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByLabelText('password')).toBeEnabled();
+      expect(mockLsWrites).toEqual([]);
+      expect(screen.getByRole('button', { name: 'unlockWithPasskey' })).toBeEnabled();
+    }
+  );
+
+  it('shares the existing flight guard with duplicate taps and password submission', async () => {
+    let finish: ((value: { credentialId: string; prfSecret: string }) => void) | undefined;
+    mockGet.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        })
+    );
+    const { container } = render(<Unlock />);
+    const button = screen.getByRole('button', { name: 'unlockWithPasskey' });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    submitPassword(container, 'fixture password');
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(mockUnlock).not.toHaveBeenCalled();
+    await act(async () => {
+      finish?.({ credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) });
+    });
+    expect(mockPlatformUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send an assertion that arrives after unmount', async () => {
+    let finish: ((value: { credentialId: string; prfSecret: string }) => void) | undefined;
+    mockGet.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        })
+    );
+    const view = render(<Unlock />);
+    fireEvent.click(screen.getByRole('button', { name: 'unlockWithPasskey' }));
+    view.unmount();
+    await act(async () => {
+      finish?.({ credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) });
+    });
+    expect(mockPlatformUnlock).not.toHaveBeenCalled();
+  });
 });
