@@ -547,13 +547,38 @@ describe('RevealSecret', () => {
       expect(container.querySelector('[data-testid="reveal-secret-mask"]')).toBeTruthy();
     });
 
+    // Off mobile the mask alone keeps the key out of the DOM, so each case also checks what
+    // only the guard withholds: the mask and its Show control, or on mobile the key itself.
     it('withholds the secret field until the native guard reports it is enabled', async () => {
       mockGuardReady = false;
       mockSecret = 'PRIVATE_KEY_HEX';
       const container = await renderReveal('private-key');
 
       expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
-      expect(container.querySelector('#reveal-secret-secret')).toBeFalsy();
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+      expect(container.querySelector('[data-testid="reveal-secret-mask"]')).toBeNull();
+      expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toBeNull();
+    });
+
+    it('withholds the secret field on mobile until the native guard reports it is enabled', async () => {
+      mockIsMobile = true;
+      mockGuardReady = false;
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+      expect(container.innerHTML).not.toContain('PRIVATE_KEY_HEX');
+    });
+
+    it.each([false, true])('withholds the hot key until the native guard is enabled (mobile=%s)', async mobile => {
+      mockIsMobile = mobile;
+      mockGuardReady = false;
+      mockSecret = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+      const container = await renderReveal('hot-key');
+
+      expect(container.querySelector('[role="img"]')).toBeNull();
+      expect(container.querySelector('[data-masked]')).toBeNull();
+      expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toBeNull();
     });
   });
 
