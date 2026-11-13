@@ -8706,5 +8706,54 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "Awaiting Return",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Ready to Claim",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Returning Funds",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Funds Returned",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Your funds remain on Miden. You can claim them after block $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Claim your funds to return them to your wallet.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Your funds are being returned to your wallet.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Your funds have returned to your wallet.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Funds sent to your destination.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Unable to check the funds status. Try again.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

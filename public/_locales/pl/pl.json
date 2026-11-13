@@ -1908,5 +1908,15 @@
   "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji.",
   "autoLock": "Automatyczna blokada",
   "autoLockDescription": "Blokuje portfel, gdy pozostaje on w tle przez tak długi czas.",
-  "autoLockMinutes": "$minutes$ min"
+  "autoLockMinutes": "$minutes$ min",
+  "epochAwaitingReturn": "Oczekiwanie na zwrot",
+  "epochReadyToClaim": "Gotowy do odebrania",
+  "epochReturningFunds": "Zwrot środków",
+  "epochFundsReturned": "Zwrócone środki",
+  "epochReturnWaiting": "Twoje środki pozostają na platformie Miden. Możesz je odebrać po bloku $block$.",
+  "epochReturnReady": "Odbierz swoje środki, aby przywrócić je do swojego portfela.",
+  "epochReturnPending": "Twoje środki są zwracane do Twojego portfela.",
+  "epochReturnDone": "Twoje środki powróciły do Twojego portfela.",
+  "epochReturnPaid": "Środki wysłane do miejsca docelowego.",
+  "epochReturnUnavailable": "Nie można sprawdzić stanu środków. Spróbuj ponownie."
 }

@@ -8708,5 +8708,54 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "Очікування повернення",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Готові до отримання",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Повернення коштів",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Повернення коштів",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Ваші кошти залишаються на Miden. Ви можете отримати їх після блоку $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Отримайте свої кошти, щоб повернути їх у свій гаманець.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Ваші кошти повертаються на ваш гаманець.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Ваші кошти повернулися до вашого гаманця.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Кошти, надіслані на ваш рахунок.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Ця note була використана, але виплата не підтверджена. Перевірте пункт призначення та свій баланс у Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Не вдалося перевірити стан коштів. Спробуйте ще раз.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }
