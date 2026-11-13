@@ -102,7 +102,14 @@ export async function performAuthorizedExtensionReset(nonce: string): Promise<vo
   if (typeof nonce !== 'string' || decodePlatformBytes(nonce).length !== 32) throw new Error('Invalid reset nonce');
   return getAccountsWriteQueue().add(() => finishResetInTurn(nonce));
 }
-export function resumeExtensionReset(): Promise<void> {
+export async function resumeExtensionReset(): Promise<void> {
+  const authorization = await authorizationTurn(async table => authorizationFrom(await table.get('reset')));
+  if (authorization === null) return;
+  if (authorization.phase === 'complete') {
+    const values = await getStorageProvider().get([PLATFORM_RESET_STORAGE_KEY]);
+    const marker: unknown = values[PLATFORM_RESET_STORAGE_KEY];
+    if (!object(marker) || marker.nonce !== authorization.nonce) return;
+  }
   return getAccountsWriteQueue().add(() => finishResetInTurn());
 }
 export async function requestExtensionReset(options: ExtensionResetOptions): Promise<void> {

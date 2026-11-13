@@ -22,7 +22,8 @@ import './i18n';
 import Dialogs from 'app/layouts/Dialogs';
 import { getMessage } from 'lib/i18n';
 import { resetStorageDestructive } from 'lib/miden/reset';
-import { hasExtensionRuntime, reloadInPlace } from 'lib/platform';
+import { requestExtensionReset } from 'lib/miden/platform-reset';
+import { hasExtensionRuntime, isExtension, reloadInPlace } from 'lib/platform';
 import { AlertFn, ConfirmFn, DialogsProvider, useAlert, useConfirm } from 'lib/ui/dialog';
 
 // Disable animations for extension
@@ -115,7 +116,8 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
     if (viaRuntime) window.addEventListener('pagehide', reloadOnce, { once: true });
     try {
       try {
-        await resetStorageDestructive();
+        if (isExtension()) await requestExtensionReset({ keepEndpointOverride: true });
+        else await resetStorageDestructive();
       } catch (err) {
         console.warn('[options] Could not wipe the wallet storage', err);
         await customAlert({

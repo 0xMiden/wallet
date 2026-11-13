@@ -244,7 +244,9 @@ export async function recoverPlatformEnrollmentsInTurn(): Promise<void> {
 
 export async function preparePlatformCredentialWipeInTurn(): Promise<void> {
   const state = await ledger();
-  queueId(state, credentialId((await snapshot()).raw));
+  const id = credentialId((await snapshot()).raw);
+  if (id === null && state.pending.length === 0 && state.toSignal.length === 0) return;
+  queueId(state, id);
   for (const entry of state.pending) queueId(state, entry.credential?.credentialId ?? null);
   const retired = state.pending;
   state.pending = [];
