@@ -1,6 +1,6 @@
-name: Frozen repair facts profile (noncertifying diagnostic)
+name: Required source quotes (deliberate baseline regression)
 
-# Manual QA source only; not a wallet merge gate or runtime adoption.
+# Manual regression-only QA; no runtime patch or source-read certification.
 on:
   workflow_dispatch:
     inputs:
@@ -13,10 +13,9 @@ permissions:
   contents: read
 
 jobs:
-  frozen-facts-profile:
+  required-source-quotes-baseline:
     runs-on: ubuntu-latest
-    # Bounds a 600s diagnostic sample, not the production prepare budget.
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,107 +24,54 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Verify QA source and extract only the pinned original runtime
+      - name: Verify exact source and original runtime hashes before import
         shell: bash
         env:
           EXPECTED_SOURCE: ${{ inputs.expected_source }}
         run: |
           set -euo pipefail
-          proof="$RUNNER_TEMP/repair-facts-source-hashes.txt"
+          exec > >(tee "$RUNNER_TEMP/required-source-quotes-setup.log") 2>&1
+          proof="$RUNNER_TEMP/required-source-quotes-source-hashes.txt"
           source=$(git rev-parse HEAD)
           printf 'expected_source=%s\ncheckout_head=%s\ngithub_sha=%s\n' \
             "$EXPECTED_SOURCE" "$source" "$GITHUB_SHA" | tee "$proof"
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           test "$source" = "$EXPECTED_SOURCE"
           test "$source" = "$GITHUB_SHA"
-          sha256sum .github/qa/profile-repair-facts.py .github/workflows/e2e-dapp-browser.yml | tee -a "$proof"
+          sha256sum .github/qa/test-required-source-quotes.py .github/workflows/e2e-dapp-browser.yml | tee -a "$proof"
           archive="$GITHUB_WORKSPACE/.github/qa/2027-timeout-origin-runtime.zip"
           printf '%s  %s\n' \
             'dba8a1b618194daf7e6c0581b834511cd49cd3af5f278e001fedb4c95b792912' "$archive" \
             | sha256sum --check --strict | tee -a "$proof"
-          candidate=$(mktemp -d "$RUNNER_TEMP/repair-facts-runtime.XXXXXX")
-          # The hash-pinned original archive has 171 regular files under runtime-0.9.0.
+          candidate=$(mktemp -d "$RUNNER_TEMP/required-source-quotes-runtime.XXXXXX")
+          # Extract only the hash-pinned original; never patch it in this regression job.
           unzip -q "$archive" -d "$candidate"
           runtime="$candidate/runtime-0.9.0"
           printf '%s  %s\n' \
             '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620' \
-            "$runtime/scripts/rev-evidence.py" | sha256sum --check --strict | tee -a "$proof"
-          printf 'PROFILE_RUNTIME=%s\n' "$runtime" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
-        with:
-          repository: 0xMiden/wallet
-          ref: aee4787ec9c24d786092357762ce1a643856acd1
-          fetch-depth: 0
-          persist-credentials: false
-          path: subject
-      - name: Reject wrong compiler and unrelated repository before profiling (CI only)
+            "$runtime/scripts/rev-evidence.py" \
+            'c40e65f1d171d6a63ac0db3d4501f4995eba4c8cb7905221d7b41cfe6f7aa80c' \
+            "$runtime/scripts/lib/review-read-audit.py" \
+            | sha256sum --check --strict | tee -a "$proof"
+          printf 'QUOTES_RUNTIME=%s\n' "$runtime" >> "$GITHUB_ENV"
+      - name: Run real permission regression (baseline assertions expected to fail)
         shell: bash
         run: |
           set -euo pipefail
-          helper="$GITHUB_WORKSPACE/.github/qa/profile-repair-facts.py"
-          bad_runtime=$(mktemp -d "$RUNNER_TEMP/repair-facts-wrong-compiler.XXXXXX")
-          mkdir "$bad_runtime/scripts"
-          cp "$PROFILE_RUNTIME/scripts/rev-evidence.py" "$bad_runtime/scripts/rev-evidence.py"
-          printf '\n# Deliberately altered rejection fixture; never imported.\n' >> "$bad_runtime/scripts/rev-evidence.py"
-          if python3 -B "$helper" --runtime "$bad_runtime" --repo "$GITHUB_WORKSPACE/subject" \
-            --output "$RUNNER_TEMP/repair-facts-reject-compiler" \
-            > "$RUNNER_TEMP/repair-facts-reject-compiler.log" 2>&1; then
-            cat "$RUNNER_TEMP/repair-facts-reject-compiler.log"
-            echo 'Unexpected success for altered compiler' >&2
-            exit 1
-          fi
-          cat "$RUNNER_TEMP/repair-facts-reject-compiler.log"
-          fixture=$(mktemp -d "$RUNNER_TEMP/repair-facts-wrong-repo.XXXXXX")
-          git -C "$fixture" init -q
-          git -C "$fixture" -c user.name=CI -c user.email=ci@example.invalid \
-            commit --allow-empty -qm 'Unrelated rejection fixture'
-          if python3 -B "$helper" --runtime "$PROFILE_RUNTIME" --repo "$fixture" \
-            --output "$RUNNER_TEMP/repair-facts-reject-repo" \
-            > "$RUNNER_TEMP/repair-facts-reject-repo.log" 2>&1; then
-            cat "$RUNNER_TEMP/repair-facts-reject-repo.log"
-            echo 'Unexpected success for unrelated repository' >&2
-            exit 1
-          fi
-          cat "$RUNNER_TEMP/repair-facts-reject-repo.log"
-          python3 -B - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          root = Path(os.environ['RUNNER_TEMP'])
-          for name, message in (
-              ('compiler', 'AssertionError: compiler SHA256 mismatch'),
-              ('repo', 'AssertionError: subject HEAD mismatch'),
-          ):
-              record = json.loads((root / f'repair-facts-reject-{name}/facts-profile.json').read_text())
-              assert record['error'] == message, record
-              assert record['status'] == 'error' and not record['certifying'], record
-              assert not record['compiler_imported'] and not record['profile_started'], record
-              assert not record['completed'] and not record['timed_out'], record
-              print(f'Expected rejection confirmed before import/profile: {name}')
-          PY
-      - name: Profile full twelve-path new facts (diagnostic, possibly partial)
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -B "$GITHUB_WORKSPACE/.github/qa/profile-repair-facts.py" \
-            --runtime "$PROFILE_RUNTIME" --repo "$GITHUB_WORKSPACE/subject" \
-            --output "$RUNNER_TEMP/repair-facts-profile" \
-            2>&1 | tee "$RUNNER_TEMP/repair-facts-profile.log"
-      - name: Upload only diagnostic profiles, rejection evidence, and source hashes
+          python3 -B "$GITHUB_WORKSPACE/.github/qa/test-required-source-quotes.py" \
+            --runtime "$QUOTES_RUNTIME" \
+            2>&1 | tee "$RUNNER_TEMP/required-source-quotes-tests.log"
+      - name: Always retain regression source, hashes and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: repair-facts-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          name: required-source-quotes-baseline-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/repair-facts-source-hashes.txt
-            ${{ runner.temp }}/repair-facts-profile/facts-profile.json
-            ${{ runner.temp }}/repair-facts-profile/facts-profile.txt
-            ${{ runner.temp }}/repair-facts-profile/facts-profile.pstats
-            ${{ runner.temp }}/repair-facts-profile.log
-            ${{ runner.temp }}/repair-facts-reject-compiler/facts-profile.json
-            ${{ runner.temp }}/repair-facts-reject-compiler.log
-            ${{ runner.temp }}/repair-facts-reject-repo/facts-profile.json
-            ${{ runner.temp }}/repair-facts-reject-repo.log
+            .github/qa/test-required-source-quotes.py
+            .github/workflows/e2e-dapp-browser.yml
+            ${{ runner.temp }}/required-source-quotes-source-hashes.txt
+            ${{ runner.temp }}/required-source-quotes-setup.log
+            ${{ runner.temp }}/required-source-quotes-tests.log
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
