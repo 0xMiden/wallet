@@ -62,7 +62,6 @@ const PasskeyUnlockSettings = () => {
       attempt.signal.throwIfAborted();
       const token = enrollmentId;
       const credential = await createPlatformCredential(
-        state.credential?.credentialId ?? null,
         async (credentialId, prfSalt, backupEligible) => {
           // Even an aborted attempt must journal any ID its provider actually returned.
           await platformUnlock({

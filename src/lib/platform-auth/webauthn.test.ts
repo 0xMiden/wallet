@@ -102,7 +102,7 @@ const globals = ['PublicKeyCredential', 'AuthenticatorAttestationResponse', 'Aut
 it('forwards one abort signal through creation and its fallback assertion', async () => {
   createPrf = false;
   const controller = new AbortController();
-  await createPlatformCredential(null, async () => undefined, controller.signal);
+  await createPlatformCredential(async () => undefined, controller.signal);
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }));
   expect(get).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }));
 });
@@ -110,7 +110,7 @@ it('forwards one abort signal through creation and its fallback assertion', asyn
 it('does not start either ceremony after its page already canceled', async () => {
   const controller = new AbortController();
   controller.abort();
-  await expect(createPlatformCredential(null, async () => undefined, controller.signal)).rejects.toHaveProperty(
+  await expect(createPlatformCredential(async () => undefined, controller.signal)).rejects.toHaveProperty(
     'name',
     'AbortError'
   );
@@ -123,7 +123,7 @@ it('keeps the created ID tracked but refuses a fallback prompt after cancellatio
   createPrf = false;
   const controller = new AbortController();
   const tracked = jest.fn(async () => controller.abort());
-  await expect(createPlatformCredential(null, tracked, controller.signal)).rejects.toHaveProperty('name', 'AbortError');
+  await expect(createPlatformCredential(tracked, controller.signal)).rejects.toHaveProperty('name', 'AbortError');
   expect(tracked).toHaveBeenCalledWith(id, expect.any(String), true);
   expect(get).not.toHaveBeenCalled();
 });
@@ -171,7 +171,7 @@ afterEach(() => {
 it('enrolls with required verification and tracks metadata before returning a secret', async () => {
   const tracked: unknown[] = [];
   await expect(
-    createPlatformCredential(null, async (...args) => {
+    createPlatformCredential(async (...args) => {
       events.push('track');
       tracked.push(args);
     })
@@ -193,14 +193,14 @@ it('enrolls with required verification and tracks metadata before returning a se
   expect(options?.challenge.byteLength).toBe(32);
 });
 
-it('tracks a created credential before the single fallback get and excludes the previous ID', async () => {
+it('tracks a created credential before fallback without excluding its existing provider', async () => {
   createPrf = false;
-  const result = await createPlatformCredential(id, async () => {
+  const result = await createPlatformCredential(async () => {
     events.push('track');
   });
   expect(result).toEqual({ credentialId: id, prfSecret: encoded(prf) });
   expect(events).toEqual(['create', 'track', 'get']);
-  expect(create.mock.calls[0]?.[0]?.publicKey?.excludeCredentials?.[0]?.id).toEqual(rawId);
+  expect(create.mock.calls[0]?.[0]?.publicKey?.excludeCredentials).toBeUndefined();
   expect(get.mock.calls[0]?.[0]?.publicKey).toMatchObject({
     userVerification: 'required',
     allowCredentials: [{ id: rawId }]
@@ -211,7 +211,7 @@ it('refuses a credential without PRF even when the browser reports capability', 
   createPrf = false;
   getPrf = false;
   await expect(
-    createPlatformCredential(null, async () => {
+    createPlatformCredential(async () => {
       events.push('track');
     })
   ).rejects.toThrow();
@@ -244,7 +244,7 @@ it.each(['rp', 'id', 'challenge', 'type'])('refuses a mismatched %s', async mism
 it('tracks the returned ID even if later user-verification validation fails', async () => {
   flags = 1;
   await expect(
-    createPlatformCredential(null, async () => {
+    createPlatformCredential(async () => {
       events.push('track');
     })
   ).rejects.toThrow();

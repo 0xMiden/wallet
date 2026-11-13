@@ -73,7 +73,7 @@ beforeEach(() => {
   mockState = { available: true, hasPassword: true, credential: null };
   mockConfirm.mockResolvedValue(true);
   mockOpenPanel.mockResolvedValue(true);
-  mockCreate.mockImplementation(async (_old, onCreated) => {
+  mockCreate.mockImplementation(async onCreated => {
     await onCreated(created.credentialId, created.prfSalt, created.backupEligible);
     return { credentialId: created.credentialId, prfSecret: 'A'.repeat(43) };
   });
@@ -111,7 +111,7 @@ it.each(['wrong password', 'Platform enrollment expired'])(
 it.each(['NotAllowedError', 'Platform PRF unavailable'])(
   'abandons a failed native ceremony without saving: %s',
   async reason => {
-    mockCreate.mockImplementation(async (_old, onCreated) => {
+    mockCreate.mockImplementation(async onCreated => {
       await onCreated(created.credentialId, created.prfSalt, created.backupEligible);
       throw reason === 'NotAllowedError' ? new DOMException('Canceled', reason) : new Error(reason);
     });
@@ -124,14 +124,14 @@ it.each(['NotAllowedError', 'Platform PRF unavailable'])(
   }
 );
 
-it('excludes the old credential during replacement and displays non-sync eligibility without treating it as authority', async () => {
+it('binds replacement to the old credential and treats backup eligibility as display-only', async () => {
   mockState.credential = previous;
   render(<PasskeyUnlockSettings />);
   expect(screen.getByText('passkeyDeviceBound')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'passkeyReplace' }));
   submit();
   await screen.findByText('passkeySyncCapable');
-  expect(mockCreate.mock.calls[0]?.[0]).toBe(previous.credentialId);
+  expect(mockSend).toHaveBeenCalledWith({ action: 'begin', expectedCredentialId: previous.credentialId });
 });
 
 it('removes only after confirmation and explains provider deletion separately', async () => {
@@ -201,7 +201,7 @@ it('reports a failed side-panel handoff without attempting enrollment', async ()
 
 it('cancels a pending ceremony but still journals a late returned credential ID', async () => {
   let finish: ((value: { credentialId: string; prfSecret: string }) => void) | undefined;
-  mockCreate.mockImplementation(async (_previous, onCreated) => {
+  mockCreate.mockImplementation(async onCreated => {
     const credential = await new Promise<{ credentialId: string; prfSecret: string }>(resolve => {
       finish = resolve;
     });
@@ -212,7 +212,7 @@ it('cancels a pending ceremony but still journals a late returned credential ID'
   submit();
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
   fireEvent.click(screen.getByRole('button', { name: 'cancel' }));
-  expect(mockCreate.mock.calls[0]?.[2]?.aborted).toBe(true);
+  expect(mockCreate.mock.calls[0]?.[1]?.aborted).toBe(true);
   await act(async () => {
     finish?.({ credentialId: created.credentialId, prfSecret: 'A'.repeat(43) });
   });
@@ -224,7 +224,7 @@ it('cancels a pending ceremony but still journals a late returned credential ID'
 
 it('does not start duplicate ceremonies or save a native result that arrives after unmount', async () => {
   let finish: ((value: { credentialId: string; prfSecret: string }) => void) | undefined;
-  mockCreate.mockImplementation(async (_previous, onCreated) => {
+  mockCreate.mockImplementation(async onCreated => {
     const credential = await new Promise<{ credentialId: string; prfSecret: string }>(resolve => {
       finish = resolve;
     });
