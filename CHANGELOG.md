@@ -4,6 +4,7 @@
 
 - [FEATURE][chrome] Add optional passkey unlock for eligible password wallets in Chrome 140+, with side-panel setup, confirmation-window unlock, and unchanged password fallback (#846).
 
+- [FIX][all] Off mobile the recovery phrase stays hidden until Show is pressed and hides again when the window loses focus, the desktop window is kept out of screen captures while secret material is on screen, and new wallet and backup-file passwords need at least 12 characters (existing passwords still unlock).
 - [FIX][all] Cancel timed-out Guardian discovery reads so later recovery attempts can use shared permits (#2080).
 - [FIX][all] Keep a settled Guardian probe selectable when confirming chain read is unavailable (#2080).
 - [CHANGE][all] A dApp's consumable notes carry standardPayment, true only for a P2ID or P2IDE payment, so the dApp can leave other notes out.
@@ -29,8 +30,13 @@
 - [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
 - [FIX][all] Single-key accounts now refuse to sign a claim or dApp transaction that moves more than was approved, the check Guardian accounts already had.
 - [FIX][all] Swap settlement automatically claims only genuine paybacks of the account's own orders; any other note presented as one is treated as an ordinary incoming transfer.
+- [FIX][all] Swap settlement claims a payback automatically only when the order's paybacks add up to the fill the order recorded; any other payback is claimed by hand from the claim list (on the extension it may also be claimed as an ordinary transfer).
+- [FIX][all] Automatic claims wait until the network fee is known, or the network is known to charge none, so the wallet never claims a note worth less than its fee while the fee is unknown; claiming by hand is unaffected.
 - [FIX][all] Show spinners while Earn data, balances, quotes, retries, and submissions load (#2095).
 - [FIX][mobile] The Home action bar's pill follows a swipe between Home pages, instead of moving only after the new page has settled.
+- [FIX][mobile] The claim list's first view, drawn from its cache before the live read, shows only payments to the account and notes of its own swap orders, on mobile and desktop.
+- [FIX][extension] The background service answers wallet requests only from the extension's own pages, and signs for its offscreen document only while a transaction or dry run it started is running; a content script can only forward dApp requests. The offscreen document answers only the extension's own pages and its service worker. Incoming-transfer and failure notifications now also appear while web pages are open; only the wallet's own open pages suppress them.
+- [CHANGE][extension] The dApp approval window receives the decoded preview of a custom transaction's dry run, not the executed transaction.
 - [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
 - [FIX][ci] Remove a run-owned eligibility probe when privacy settings cannot be read, while requiring the exact identity and content checks (#1894).

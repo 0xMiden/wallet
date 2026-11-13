@@ -2,6 +2,7 @@ import { Runtime } from 'webextension-polyfill';
 
 import { ensurePlatformUnlockStartup, getPlatformUnlockAvailability } from 'lib/extension/platform-unlock-startup';
 import { isExtensionPagePort } from 'lib/intercom/extension-page';
+import { isOffscreenDocumentSender } from 'lib/intercom/sender';
 import { queueNoteImport } from 'lib/miden/activity';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import {
@@ -30,6 +31,7 @@ import {
   OFFSCREEN_STAGE_EVENT,
   OFFSCREEN_SUBMIT_GATE,
   OFFSCREEN_TELEMETRY_EVENT,
+  OFFSCREEN_URL,
   SW_TARGET,
   type OffscreenSignRequest,
   type OffscreenTelemetryEvent
@@ -297,23 +299,21 @@ function registerOffscreenSignHandler(): void {
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
-    // Only this extension's own pages. `chrome.runtime.onMessage` is not private
-    // to the extension: with no `externally_connectable` declared, Chrome's
-    // default is that other EXTENSIONS may send here even though web pages may
-    // not. Everything below this line trusts its message — the op-started signal
-    // arms a write deadline, the sign request reaches the vault — so the check
-    // belongs above all three rather than on the one that happens to be newest.
+    // Only this extension's offscreen document, the one sender of `target: 'sw'`
+    // messages, so another extension, a content script or another extension page
+    // is refused. `chrome.runtime.onMessage` is not private to the extension: with
+    // no `externally_connectable` declared, other EXTENSIONS may send here, and our
+    // own content scripts carry our id. Everything below this line trusts its
+    // message (the op-started signal arms a write deadline, the sign request
+    // reaches the vault), so the check sits above all branches rather than on the
+    // one that happens to be newest.
     //
-    // Fails CLOSED, including on a sender with no id at all. Chrome populates
-    // `sender.id` on every message from an extension page, so an absent one is
-    // not a legitimate caller this would be excluding — and a security check
+    // Fails CLOSED, including on a sender with no id or no url at all. Chrome
+    // populates both on every message from the offscreen document, so an absent
+    // one is not a legitimate caller this would be excluding, and a security check
     // whose default is to allow is one that stops working the moment something
     // upstream changes shape.
-    if (
-      !sender ||
-      !isExtensionPagePort({ sender: { id: sender.id, url: sender.url } }, chrome.runtime.getURL(''), chrome.runtime.id)
-    )
-      return false;
+    if (!isOffscreenDocumentSender(sender, chrome.runtime.id, chrome.runtime.getURL(OFFSCREEN_URL))) return false;
     if (m.type === OFFSCREEN_NATIVE_ASSET_EVENT) {
       if (typeof m.id !== 'string' || !/^0x[0-9a-fA-F]{30}$/.test(m.id) || typeof m.scope !== 'string') return false;
       const id = m.id;

@@ -633,7 +633,7 @@ describe('ChromeWalletPage create paths', () => {
   it.each([
     {
       path: 'createWalletViaBypass',
-      run: (wallet: ChromeWalletPage) => wallet.createNewWallet('Test1234!'),
+      run: (wallet: ChromeWalletPage) => wallet.createNewWallet('Test1234!Wallet'),
       label: 'ChromeWalletPage.createWalletViaBypass(offchain)',
       ready: [{ store: { currentAccount: ACCOUNT } }, { home: true }],
       notReady: [{}, { store: { currentAccount: null } }]
@@ -647,7 +647,7 @@ describe('ChromeWalletPage create paths', () => {
     },
     {
       path: 'createGuardianWalletViaUi',
-      run: (wallet: ChromeWalletPage) => wallet.createGuardianWalletViaUi('Test1234!', 'http://guardian.test'),
+      run: (wallet: ChromeWalletPage) => wallet.createGuardianWalletViaUi('Test1234!Wallet', 'http://guardian.test'),
       label: 'ChromeWalletPage.createGuardianWalletViaUi',
       ready: [{ home: true }],
       notReady: [{}, { store: { currentAccount: ACCOUNT, accounts: [ACCOUNT] } }]
