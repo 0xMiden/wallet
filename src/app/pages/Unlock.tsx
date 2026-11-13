@@ -456,7 +456,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       if (mounted.current) {
         retireLockoutRecord();
         setAttempt(1);
-        navigate('/');
+        // Keep the current route, including a confirmation window's request ID.
+        window.location.reload();
       }
     } catch (cause) {
       if (mounted.current) {

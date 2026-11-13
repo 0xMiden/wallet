@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  confirm-route-regression:
+  confirm-route-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -14,7 +14,7 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/app/pages/Unlock.test.tsx --maxWorkers=2
+      - run: yarn jest src/app/pages/Unlock.test.tsx src/app/pages/Settings.test.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/app/hooks/usePlatformUnlock.test.tsx src/lib/platform-auth/webauthn.test.ts --maxWorkers=2
   virtual-prf-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -37,7 +37,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: platform-prf-first-integration
+          name: platform-prf-worker-os-integration
           path: |
             test-results/
             playwright/tests/platform-unlock.spec.ts
