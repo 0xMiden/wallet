@@ -125,6 +125,29 @@ it.each([
     parseMainnetEpochCheckpoint({ ...claimCheckpoint(), consumeAuthority: { ...consumeAuthority(), ...changed } })
   ).toThrow();
 });
+it('retains the final signed Guardian consume fingerprint and deadline without replacing its original reference', () => {
+  const state = claimCheckpoint();
+  const checkpoint = {
+    ...state,
+    consumeAuthority: {
+      ...state.consumeAuthority,
+      requestCanonicalSha256: '6'.repeat(64),
+      expiresAt: Date.parse('2026-11-12T12:04:00Z')
+    }
+  };
+  expect(parseMainnetEpochCheckpoint(checkpoint)).toEqual(checkpoint);
+});
+it.each([
+  { requestCanonicalSha256: '6'.repeat(64) },
+  { expiresAt: 1000 },
+  { requestCanonicalSha256: 'wrong', expiresAt: 1000 },
+  { requestCanonicalSha256: '6'.repeat(64), expiresAt: 0 }
+])('rejects a detached or invalid signed Guardian consume fingerprint/deadline: %j', signed => {
+  const state = claimCheckpoint();
+  expect(() => parseMainnetEpochCheckpoint({
+    ...state, consumeAuthority: { ...state.consumeAuthority, ...signed }
+  })).toThrow();
+});
 it('does not authorize a native return without the original reverse authority', () => {
   expect(() => parseMainnetEpochCheckpoint({ ...claimCheckpoint(), reverseAuthority: undefined })).toThrow();
 });
