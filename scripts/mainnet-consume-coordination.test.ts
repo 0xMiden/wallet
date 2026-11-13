@@ -115,6 +115,25 @@ it('persists exact actual request fingerprints BEFORE upload and releases only a
   expect(events).toEqual(['persist', 'upload', 'release']);
   expect(data[KEY]).toEqual({ ...waitingPolicy(), status: 'released' });
 });
+it('durably uploads and preserves the final signed Guardian fingerprint and its original deadline', async () => {
+  const signed = { requestCanonicalSha256: '6'.repeat(64), expiresAt: Date.now() + 60_000 };
+  data[KEY] = { ...waitingPolicy(), ...signed };
+  const pending = release();
+  await uploadStarted;
+  finish();
+  await pending;
+  expect(persist).toHaveBeenCalledWith({ ...authority, ...signed });
+  expect(data[KEY]).toEqual({ ...waitingPolicy(), ...signed, status: 'released' });
+});
+it('rejects a changed final Guardian fingerprint while its immutable checkpoint uploads', async () => {
+  const original = { ...waitingPolicy(), requestCanonicalSha256: '6'.repeat(64), expiresAt: Date.now() + 60_000 };
+  data[KEY] = original;
+  jest.mocked(awaitMainnetLoopAuthorization).mockImplementation(async () => {
+    data[KEY] = { ...original, requestCanonicalSha256: '7'.repeat(64) };
+  });
+  await expect(release()).rejects.toThrow(/scope|changed|authorization/i);
+  expect(data[KEY]).toMatchObject({ status: 'waiting' });
+});
 it('refuses a different actual SDK request scope before persisting or asking for upload', async () => {
   data[KEY] = { ...waitingPolicy(), canonicalSha256: '5'.repeat(64) };
   await expect(release()).rejects.toThrow(/scope|changed|request|authorization/i);

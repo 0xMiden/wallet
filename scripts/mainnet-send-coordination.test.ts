@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isRecord } from '../src/lib/update/guards';
-import type { TestMainnetSwapScope } from '../src/lib/miden/sdk/test-send-request';
+import type { TestMainnetEpochScope, TestMainnetSwapScope } from '../src/lib/miden/sdk/test-send-request';
 import {
   armMainnetSendAuthorization,
   releaseMainnetSendAuthorization,
@@ -116,6 +116,39 @@ it('arms the exact reviewed PSWAP as a distinct request kind', async () => {
   const actual = await armMainnetSendAuthorization(page, swap);
   expect(data[KEY]).toEqual({ ...actual, status: 'armed' });
   expect(data[`${KEY}_required`]).toEqual({ accountId: actual.accountId, nonce: actual.nonce });
+});
+it('arms Epoch with the entire reviewed collateral note fingerprint rather than a recipient label', async () => {
+  const epoch: TestMainnetEpochScope & { expiresAt: number } = {
+    kind: 'epoch',
+    accountId: scope.accountId,
+    faucetId: scope.faucetId,
+    amount: scope.amount,
+    expiresAt: scope.expiresAt,
+    noteId: authority.noteId,
+    noteSha256: '6'.repeat(64)
+  };
+  const armed = await armMainnetSendAuthorization(page, epoch);
+  expect(data[KEY]).toEqual({ ...armed, status: 'armed' });
+  expect(data[`${KEY}_required`]).toEqual({ accountId: armed.accountId, nonce: armed.nonce });
+});
+it('uploads final Epoch SDK authority without mistaking its kind for a PSWAP order', async () => {
+  const epoch: TestMainnetEpochScope & { expiresAt: number } = {
+    kind: 'epoch',
+    accountId: scope.accountId,
+    faucetId: scope.faucetId,
+    amount: scope.amount,
+    expiresAt: scope.expiresAt,
+    noteId: authority.noteId,
+    noteSha256: '6'.repeat(64)
+  };
+  const original = { ...epoch, nonce: handle.nonce };
+  data[KEY] = { ...original, ...authority, status: 'waiting' };
+  const pending = releaseMainnetSendAuthorization(page, original, options());
+  expect(await Promise.race([uploaded.then(() => true), pending.then(() => false, () => false)])).toBe(true);
+  finish();
+  await pending;
+  expect(persist).toHaveBeenCalledWith(authority);
+  expect(data[KEY]).toEqual({ ...original, ...authority, status: 'released' });
 });
 it('persists the actual PSWAP order identity before its exact upload and release', async () => {
   const swap: TestMainnetSwapScope & { expiresAt: number } = {
