@@ -367,9 +367,17 @@ describe('actions', () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const order: string[] = [];
       let release: () => void = () => undefined;
-      const gate = new Promise<void>(resolve => { release = resolve; });
-      const writer = getAccountsWriteQueue().add(async () => { await gate; order.push('writer'); });
-      Vault.isExist.mockImplementationOnce(async () => { order.push('init'); return false; });
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const writer = getAccountsWriteQueue().add(async () => {
+        await gate;
+        order.push('writer');
+      });
+      Vault.isExist.mockImplementationOnce(async () => {
+        order.push('init');
+        return false;
+      });
       const starting = init();
       release();
       await Promise.all([writer, starting]);

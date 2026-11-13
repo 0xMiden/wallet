@@ -170,23 +170,25 @@ function syncRealmInsertKeySink() {
 }
 
 export async function init() {
-  console.log('[Actions.init] Starting...');
-  // This realm's one SDK client signs every inline write with the vault (#878):
-  // installed once, here, before anything can ask it to sign. Every realm that
-  // writes runs init (the service worker, mobile and desktop); the extension
-  // popup never does and never signs; the offscreen document builds its own
-  // client with its reverse-IPC signer.
-  installRealmKeystore({
-    sign: buildSdkSignCallback(
-      async (publicKey, signingInputs) =>
-        new Uint8Array(Buffer.from(await signTransaction(publicKey, signingInputs), 'hex'))
-    )
+  return getAccountsWriteQueue().add(async () => {
+    console.log('[Actions.init] Starting...');
+    // This realm's one SDK client signs every inline write with the vault (#878):
+    // installed once, here, before anything can ask it to sign. Every realm that
+    // writes runs init (the service worker, mobile and desktop); the extension
+    // popup never does and never signs; the offscreen document builds its own
+    // client with its reverse-IPC signer.
+    installRealmKeystore({
+      sign: buildSdkSignCallback(
+        async (publicKey, signingInputs) =>
+          new Uint8Array(Buffer.from(await signTransaction(publicKey, signingInputs), 'hex'))
+      )
+    });
+    const vault = await getVault(); // wait for vault initialization
+    const vaultExist = (await vault.isExist()) && (await keepsSetupPendingAdmission());
+    console.log('[Actions.init] Vault exists:', vaultExist);
+    inited(vaultExist);
+    console.log('[Actions.init] Called inited()');
   });
-  const vault = await getVault(); // wait for vault initialization
-  const vaultExist = (await vault.isExist()) && (await keepsSetupPendingAdmission());
-  console.log('[Actions.init] Vault exists:', vaultExist);
-  inited(vaultExist);
-  console.log('[Actions.init] Called inited()');
 }
 
 export async function getFrontState(): Promise<GetStateResponse['state']> {
