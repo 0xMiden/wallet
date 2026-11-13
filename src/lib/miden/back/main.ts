@@ -1,6 +1,6 @@
 import { Runtime } from 'webextension-polyfill';
 
-import { getPlatformUnlockAvailability } from 'lib/extension/platform-unlock-startup';
+import { ensurePlatformUnlockStartup, getPlatformUnlockAvailability } from 'lib/extension/platform-unlock-startup';
 import { isExtensionPagePort } from 'lib/intercom/extension-page';
 import { queueNoteImport } from 'lib/miden/activity';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
@@ -76,13 +76,22 @@ let startupHydration: Promise<void> = Promise.resolve();
 export async function start() {
   console.log('Miden background script started');
   let hydrated: () => void = () => undefined;
-  startupHydration = new Promise<void>(resolve => {
+  let startupFailed: (error: unknown) => void = () => undefined;
+  startupHydration = new Promise<void>((resolve, reject) => {
     hydrated = resolve;
+    startupFailed = reject;
   });
+  void startupHydration.catch(() => undefined);
   // Registered first so no message is missed; it dispatches only once startupHydration settles.
   intercom.onRequest(dispatchWhenHydrated);
   intercom.onNotFound(confirmationRequestNotFound);
   registerOffscreenSignHandler();
+  try {
+    await ensurePlatformUnlockStartup();
+  } catch (error) {
+    startupFailed(error);
+    throw error;
+  }
 
   // The connectivity snapshot is in-memory and therefore empty on every MV3 wake,
   // but its storage mirror — the copy the popup actually renders — is durable. Seed
@@ -411,18 +420,22 @@ function confirmationRequestNotFound(req: unknown): Error | undefined {
 }
 
 async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
+  await ensurePlatformUnlockStartup();
   await startupHydration;
   return processRequest(req, port);
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
+  if (req?.type === WalletMessageType.NewWalletRequest || req?.type === WalletMessageType.NewWalletFromHotKeyRequest ||
+      req?.type === WalletMessageType.ImportFromClientRequest || req?.type === WalletMessageType.PlatformUnlockRequest) {
+    if (!isExtension()) throw new Error('Extension page required');
+    const browser = (await import('webextension-polyfill')).default;
+    if (!isExtensionPagePort(_port, browser.runtime.getURL(''), browser.runtime.id)) {
+      throw new Error('Untrusted extension page');
+    }
+  }
   switch (req?.type) {
     case WalletMessageType.PlatformUnlockRequest: {
-      if (!isExtension()) throw new Error('Platform authentication unavailable');
-      const browser = (await import('webextension-polyfill')).default;
-      if (!isExtensionPagePort(_port, browser.runtime.getURL(''), browser.runtime.id)) {
-        throw new Error('Untrusted extension page');
-      }
       const command = parsePlatformUnlockCommand(req.command);
       if (command === null) throw new Error('Invalid platform request');
       const available = await getPlatformUnlockAvailability();

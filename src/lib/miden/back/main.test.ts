@@ -34,7 +34,8 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: {
     onRequest: (cb: any) => (globalThis as any).__mainTest.onRequest(cb),
     onNotFound: (cb: any) => (globalThis as any).__mainTest.onNotFound(cb),
-    broadcast: (msg: any) => (globalThis as any).__mainTest.broadcast(msg)
+    broadcast: (msg: any) => (globalThis as any).__mainTest.broadcast(msg),
+    isConnected: () => true
   }
 }));
 
@@ -183,6 +184,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 const mockPlatformAvailability = jest.fn(async () => true);
 const mockPlatformStartup = jest.fn(async () => undefined);
+const mockPerformReset = jest.fn<Promise<void>, [string]>(async () => undefined);
+jest.mock('lib/miden/platform-reset', () => ({ performAuthorizedExtensionReset: (nonce: string) => mockPerformReset(nonce) }));
 jest.mock('lib/extension/platform-unlock-startup', () => ({
   getPlatformUnlockAvailability: () => mockPlatformAvailability(),
   ensureTrustedPlatformStorage: async () => true,
@@ -425,6 +428,20 @@ describe('main.start', () => {
     await start();
 
     expect(connectivityMock.getConnectivityState().node).toEqual({ active: false, since: null });
+  });
+});
+
+describe('reset transport authority', () => {
+  it('executes the protected nonce rather than trusting a wire reset payload', async () => {
+    await expect(dispatch({ type: WalletMessageType.PlatformResetRequest, nonce: 'A'.repeat(43),
+      options: { keepEndpointOverride: false } })).resolves.toEqual({ type: WalletMessageType.PlatformResetResponse });
+    expect(mockPerformReset).toHaveBeenCalledWith('A'.repeat(43));
+  });
+  it('does not accept a reset nonce from a content script', async () => {
+    const browser = (await import('webextension-polyfill')).default;
+    await expect(dispatch({ type: WalletMessageType.PlatformResetRequest, nonce: 'A'.repeat(43) },
+      { sender: { id: browser.runtime.id, url: 'https://example.com/' } })).rejects.toThrow();
+    expect(mockPerformReset).not.toHaveBeenCalled();
   });
 });
 

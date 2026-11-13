@@ -2,6 +2,7 @@ import { isExtension } from 'lib/platform';
 import { getPlatformUnlockSupport } from 'lib/platform-auth/capabilities';
 
 let protection: Promise<boolean> | undefined;
+let startupCheck: Promise<void> | undefined;
 
 export function ensureTrustedPlatformStorage(): Promise<boolean> {
   if (!protection) {
@@ -21,8 +22,19 @@ export function ensureTrustedPlatformStorage(): Promise<boolean> {
   return protection;
 }
 
-export async function ensurePlatformUnlockStartup(): Promise<void> {
-  await ensureTrustedPlatformStorage();
+export function ensurePlatformUnlockStartup(): Promise<void> {
+  if (!startupCheck) {
+    startupCheck = (async () => {
+      await ensureTrustedPlatformStorage();
+      if (isExtension()) {
+        const { resumeExtensionReset } = await import('lib/miden/platform-reset');
+        await resumeExtensionReset();
+      }
+    })();
+    const current = startupCheck;
+    void current.finally(() => { if (startupCheck === current) startupCheck = undefined; }).catch(() => undefined);
+  }
+  return startupCheck;
 }
 
 export async function getPlatformUnlockAvailability(): Promise<boolean> {

@@ -31,6 +31,8 @@ export enum WalletMessageType {
   UnlockResponse = 'UNLOCK_RESPONSE',
   PlatformUnlockRequest = 'PLATFORM_UNLOCK_REQUEST',
   PlatformUnlockResponse = 'PLATFORM_UNLOCK_RESPONSE',
+  PlatformResetRequest = 'PLATFORM_RESET_REQUEST',
+  PlatformResetResponse = 'PLATFORM_RESET_RESPONSE',
   LockRequest = 'LOCK_REQUEST',
   LockResponse = 'LOCK_RESPONSE',
   CreateAccountRequest = 'CREATE_ACCOUNT_REQUEST',
@@ -674,6 +676,15 @@ export interface PlatformUnlockRequest extends WalletMessageBase {
 export interface PlatformUnlockResponse extends WalletMessageBase {
   type: WalletMessageType.PlatformUnlockResponse;
   result: PlatformUnlockResult;
+}
+
+export interface PlatformResetRequest extends WalletMessageBase {
+  type: WalletMessageType.PlatformResetRequest;
+  nonce: string;
+}
+
+export interface PlatformResetResponse extends WalletMessageBase {
+  type: WalletMessageType.PlatformResetResponse;
 }
 
 export interface LockRequest extends WalletMessageBase {
@@ -1361,6 +1372,7 @@ export type WalletRequest =
   | NewWalletFromHotKeyRequest
   | UnlockRequest
   | PlatformUnlockRequest
+  | PlatformResetRequest
   | LockRequest
   | CreateAccountRequest
   | UpdateCurrentAccountRequest
@@ -1440,6 +1452,7 @@ export type WalletResponse =
   | NewWalletFromHotKeyResponse
   | UnlockResponse
   | PlatformUnlockResponse
+  | PlatformResetResponse
   | LockResponse
   | CreateAccountResponse
   | UpdateCurrentAccountResponse

@@ -496,7 +496,10 @@ export function registerImportedWallet(
 }
 
 export function lock() {
-  return withInited(async () => {
+  return withInited(lockForResetInTurn);
+}
+
+export async function lockForResetInTurn() {
     // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
     // consume loop) to drain before clearing the vault key. If we lock while
     // the kernel is mid-`miden::protocol::auth::request`, the signing
@@ -512,7 +515,6 @@ export function lock() {
       // flight just installed stays (#878).
       vault?.retire();
     });
-  });
 }
 
 export function unlock(password?: string) {
