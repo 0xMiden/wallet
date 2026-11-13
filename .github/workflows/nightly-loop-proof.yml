@@ -57,7 +57,7 @@ jobs:
           const path = 'test-results/read-only-swap-review.json';
           if (!existsSync(path)) { console.log('Read-only probe stopped before approved diagnostics; private process logs remain private.'); process.exit(1); }
           const value = JSON.parse(readFileSync(path, 'utf8'));
-          const allowed = ['purpose','initialBalance','eta','reviewReady','minimumReceive','errorKind','flowVisible','reviewVisible','pay','receive','finalBalance','rowsUnchanged','noAuthority'];
+          const allowed = ['purpose','initialBalance','eta','reviewReady','minimumReceive','errorKind','errorStage','tokenChoices','flowVisible','reviewVisible','pay','receive','finalBalance','rowsUnchanged','noAuthority'];
           if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
           console.log(JSON.stringify(value));
           NODE

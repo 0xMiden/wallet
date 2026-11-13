@@ -19,7 +19,9 @@ test('read-only original swap review, never arm or submit', async ({ walletB }) 
   expect(state.forwardRequestAuthority).toBeUndefined();
   await restoreMainnetLoopGuardian(walletB, process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR ?? '');
   expect(await walletB.getAccountAddress()).toBe(state.account);
+  await walletB.refreshBalancesLanded(90_000);
   const initial = await vaultBalanceByFaucetId(walletB.page, state.native.faucetId);
+  expect(initial.toString()).toBe(state.native.balance);
   const rows = (await readTransactionRows(walletB.page)).map(row => row.id).sort();
   let accepted: ReturnType<typeof cachedSolverRegistry> | undefined;
   await expect.poll(async () => {
@@ -58,13 +60,23 @@ test('read-only original swap review, never arm or submit', async ({ walletB }) 
   } catch (error) {
     diagnostics.reviewReady = false;
     diagnostics.errorKind = error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'preparation-rejected';
+    const message = error instanceof Error ? error.message : '';
+    diagnostics.errorStage = message.includes(`swap-token-${state.offer.symbol}`) ? 'offered-token' :
+      message.includes(`swap-token-${state.request.symbol}`) ? 'requested-token' :
+      message.includes('swap-flow') ? 'flow' : message.includes('send-token-selector') ? 'selector' :
+      message.includes('waitForResponse') ? 'eta' : message.includes('waitForFunction') ? 'projection' : 'other';
   } finally {
     diagnostics.eta = eta;
+    diagnostics.tokenChoices = (await walletB.page.locator('[data-testid^="swap-token-"]').evaluateAll(nodes =>
+      nodes.map(node => node.getAttribute('data-testid')).filter((id): id is string =>
+        typeof id === 'string' && /^swap-token-[A-Za-z0-9._-]{1,24}$/.test(id))
+    )).slice(0, 30);
     const numeric = (value: string) => /^\d*(?:\.\d*)?$/.test(value) ? value : '<not-numeric>';
     diagnostics.flowVisible = await walletB.page.getByTestId('swap-flow').isVisible().catch(() => false);
     diagnostics.reviewVisible = await walletB.page.getByTestId('swap-submit').isVisible().catch(() => false);
     diagnostics.pay = numeric(await walletB.page.getByTestId('swap-pay-side').getByTestId('send-amount-input').inputValue().catch(() => ''));
     diagnostics.receive = numeric(await walletB.page.getByTestId('swap-receive-side').getByTestId('send-amount-input').inputValue().catch(() => ''));
+    await walletB.refreshBalancesLanded(90_000);
     const final = await vaultBalanceByFaucetId(walletB.page, state.native.faucetId);
     diagnostics.finalBalance = final.toString();
     const after = (await readTransactionRows(walletB.page)).map(row => row.id).sort();
