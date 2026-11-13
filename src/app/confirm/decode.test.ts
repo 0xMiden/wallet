@@ -1018,3 +1018,20 @@ describe('the notes a verified view lists', () => {
     });
   });
 });
+
+describe('executedBytesToView fee rate', () => {
+  it('executedBytesToView keeps a fee-tagged native note in the outflow on a block that charges nothing', () => {
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
+      executedTransaction: () => ({
+        accountId: () => 'acctId',
+        inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+        outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(7n)] }),
+        accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) }),
+        blockHeader: () => ({ verificationBaseFee: () => 0 })
+      })
+    });
+    const view = executedBytesToView('execB64');
+    expect(view.outgoing).toEqual([{ faucetId: 'bech32:native', amount: 7n }]);
+    expect(view.outputNotesCreated).toBe(1);
+  });
+});

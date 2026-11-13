@@ -142,10 +142,26 @@ export function partitionFeeNote(
  * nothing. The `no-restricted-syntax` rule bans every `.outputNotes()` call, and this call
  * is the one disable.
  */
-export function splitExecutedOutputNotes(executed: { outputNotes: () => { notes: () => OutputNote[] } }): {
+export function splitExecutedOutputNotes(executed: {
+  outputNotes: () => { notes: () => OutputNote[] };
+  blockHeader?: () => { verificationBaseFee: () => number };
+}): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
 } {
+  // The kernel charged against the reference block's rate, which the realm cache can lag behind.
+  const baseFee = executed.blockHeader
+    ? headerBaseFee(executed.blockHeader.bind(executed))
+    : getVerificationBaseFeeSync();
   // eslint-disable-next-line no-restricted-syntax -- sanctioned outputNotes() read
-  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), getVerificationBaseFeeSync());
+  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), baseFee);
+}
+
+function headerBaseFee(read: () => { verificationBaseFee: () => number }): number | null {
+  try {
+    return read().verificationBaseFee();
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) throw err;
+    return null;
+  }
 }

@@ -227,3 +227,58 @@ describe('feeTextFromTransaction', () => {
     expect(feeTextFromTransaction({} as any, 6, 'MIDEN')).toBeUndefined();
   });
 });
+
+describe("splitExecutedOutputNotes against the transaction's own block", () => {
+  const userNote = outputNote(0x0, [asset(500n, 'tkn-faucet')]);
+  const taggedNative = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+  const withHeader = (blockHeader: () => unknown) =>
+    ({ outputNotes: () => ({ notes: () => [userNote, taggedNative] }), blockHeader }) as any;
+  afterEach(() => {
+    mockVerificationBaseFee = CHARGING;
+  });
+  const headerCharging = (fee: number) => () => ({ verificationBaseFee: () => fee });
+
+  it("takes the fee rate from the transaction's own block: a fee-tagged native note on a free block stays a user note although the cache says 2", () => {
+    mockVerificationBaseFee = 2;
+    const { feeNote, userNotes } = splitExecutedOutputNotes(withHeader(headerCharging(0)));
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([userNote, taggedNative]);
+  });
+
+  it('identifies the fee note on a charging block although the cache says 0', () => {
+    mockVerificationBaseFee = 0;
+    const { feeNote, userNotes } = splitExecutedOutputNotes(withHeader(headerCharging(2)));
+    expect(feeNote).toBe(taggedNative);
+    expect(userNotes).toEqual([userNote]);
+  });
+
+  it('identifies nothing when the header read throws', () => {
+    mockVerificationBaseFee = 2;
+    const { feeNote, userNotes } = splitExecutedOutputNotes(
+      withHeader(() => {
+        throw new Error('no header');
+      })
+    );
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([userNote, taggedNative]);
+  });
+
+  it('lets an eviction from the header read through', () => {
+    const eviction = new WasmClientPoisonedError('watchdog');
+    expect(() =>
+      splitExecutedOutputNotes(
+        withHeader(() => {
+          throw eviction;
+        })
+      )
+    ).toThrow(eviction);
+  });
+
+  it('keeps the realm cache for an object without a header', () => {
+    mockVerificationBaseFee = 2;
+    const { feeNote } = splitExecutedOutputNotes({
+      outputNotes: () => ({ notes: () => [userNote, taggedNative] })
+    } as any);
+    expect(feeNote).toBe(taggedNative);
+  });
+});

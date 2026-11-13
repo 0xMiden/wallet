@@ -46,6 +46,7 @@ let inflight: Promise<string> | null = null;
 let metaInflight: Promise<NativeAssetChainMetadata | null> | null = null;
 let feeInflight: Promise<number | null> | null = null;
 let feeProbedScope: string | null = null;
+let feeProbedAt = 0;
 let feeProbeRetryAfterMs = 0;
 let cachedForScope: string | null = null;
 let cachedOverride: string | undefined;
@@ -70,6 +71,8 @@ async function writeScoped(snapshot: NativeAssetSnapshot, name: string, value: u
 }
 const listeners = new Set<(id: string) => void>();
 const FEE_PROBE_RETRY_COOLDOWN_MS = 60_000;
+/** How old this realm's last successful header read may be before an effect check reads it again. */
+export const CHAIN_FEE_MAX_AGE_MS = 60_000;
 const MAX_PLAUSIBLE_BASE_FEE = 1e7;
 
 function isPlausibleBaseFee(fee: number): boolean {
@@ -102,6 +105,7 @@ function clearIdentityData(): void {
   metaMemCache = null;
   feeMemCache = null;
   feeProbedScope = null;
+  feeProbedAt = 0;
   feeProbeRetryAfterMs = 0;
   inflight = null;
   metaInflight = null;
@@ -307,7 +311,7 @@ export async function recordSyncedFeeFaucetId(
   return acknowledged && isCurrent(adopted);
 }
 
-async function discover(): Promise<string> {
+async function discover(keepFeeOnFailedRead = false): Promise<string> {
   await ensureSdkWasmReady();
   const snapshot = captureNativeAssetSnapshot();
   const configured = getEffectiveFeeFaucetId();
@@ -328,9 +332,12 @@ async function discover(): Promise<string> {
   }
   if (isCurrent(snapshot)) {
     adoptIdentity(id);
-    feeMemCache = baseFee;
+    if (!(feeReadThrew && keepFeeOnFailedRead)) feeMemCache = baseFee;
     if (feeReadThrew) feeProbeRetryAfterMs = Date.now() + FEE_PROBE_RETRY_COOLDOWN_MS;
-    else feeProbedScope = snapshot.scope;
+    else {
+      feeProbedScope = snapshot.scope;
+      feeProbedAt = Date.now();
+    }
     emit();
     const adopted = captureNativeAssetSnapshot();
     try {
@@ -386,6 +393,26 @@ export function isVerificationBaseFeeKnownAbsent(): boolean {
   return feeProbedScope === cacheScope() && feeMemCache === null;
 }
 
+function probeFee(keepFeeOnFailedRead: boolean): Promise<number | null> {
+  if (feeInflight) return feeInflight;
+  const snapshot = captureNativeAssetSnapshot();
+  let pending!: Promise<number | null>;
+  pending = (async () => {
+    try {
+      await discover(keepFeeOnFailedRead);
+      return isCurrent(snapshot) ? feeMemCache : null;
+    } catch (err) {
+      console.warn('native-asset fee discovery failed', err);
+      if (isCurrent(snapshot)) feeProbeRetryAfterMs = Date.now() + FEE_PROBE_RETRY_COOLDOWN_MS;
+      return null;
+    } finally {
+      if (feeInflight === pending) feeInflight = null;
+    }
+  })();
+  feeInflight = pending;
+  return pending;
+}
+
 export async function getVerificationBaseFee(): Promise<number | null> {
   invalidateOnEndpointChange();
   if (feeMemCache !== null) return feeMemCache;
@@ -399,23 +426,30 @@ export async function getVerificationBaseFee(): Promise<number | null> {
     return null;
   }
   if (feeMemCache !== null || feeProbedScope === cacheScope() || Date.now() < feeProbeRetryAfterMs) return feeMemCache;
-  if (feeInflight) return feeInflight;
-  const snapshot = captureNativeAssetSnapshot();
-  let pending!: Promise<number | null>;
-  pending = (async () => {
-    try {
-      await discover();
-      return isCurrent(snapshot) ? feeMemCache : null;
-    } catch (err) {
-      console.warn('native-asset fee discovery failed', err);
-      if (isCurrent(snapshot)) feeProbeRetryAfterMs = Date.now() + FEE_PROBE_RETRY_COOLDOWN_MS;
-      return null;
-    } finally {
-      if (feeInflight === pending) feeInflight = null;
-    }
-  })();
-  feeInflight = pending;
-  return pending;
+  return probeFee(false);
+}
+
+/**
+ * The chain's fee as of a read made by THIS realm at most `maxAgeMs` ago. A cached value another
+ * realm stored, or one older than the limit, is read again; a failed read gives null and leaves the
+ * cached value for display readers. Null that is not `isVerificationBaseFeeKnownAbsent()` is unknown.
+ */
+export async function refreshVerificationBaseFee(maxAgeMs: number = CHAIN_FEE_MAX_AGE_MS): Promise<number | null> {
+  invalidateOnEndpointChange();
+  if (!hydrated) await hydrateFromStorage();
+  const fresh = () => feeProbedScope === cacheScope() && Date.now() - feeProbedAt <= maxAgeMs;
+  if (fresh()) return feeMemCache;
+  try {
+    await getNativeAssetId();
+  } catch (err) {
+    console.warn('native-asset fee discovery failed', err);
+    feeProbeRetryAfterMs = Date.now() + FEE_PROBE_RETRY_COOLDOWN_MS;
+    return null;
+  }
+  if (fresh()) return feeMemCache;
+  if (!feeInflight && Date.now() < feeProbeRetryAfterMs) return null;
+  const read = await probeFee(true);
+  return Date.now() < feeProbeRetryAfterMs ? null : read;
 }
 
 export async function getNativeAssetId(): Promise<string> {
