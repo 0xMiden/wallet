@@ -57,7 +57,7 @@ const tag = fc.oneof(fc.constant(FEE_TAG), fc.integer({ min: 0, max: 0xffff }));
 const world: fc.Arbitrary<World> = fc
   .record({
     inputs: fc.array(fc.record({ fungible: fungibles, nft: fc.boolean(), tag }), { maxLength: 3 }),
-    ownedNfts: fc.constantFrom([], ['own-1'], ['own-1', 'own-2']),
+    ownedNfts: fc.constantFrom<string[]>([], ['own-1'], ['own-1', 'own-2']),
     outputs: fc.array(fc.record({ fungible: fungibles, nftPick: fc.nat(), sendsNft: fc.boolean(), tag }), {
       maxLength: 3
     }),
