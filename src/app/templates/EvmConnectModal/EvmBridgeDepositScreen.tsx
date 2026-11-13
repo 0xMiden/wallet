@@ -1046,7 +1046,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const usdcxQuotedFee =
     usdcxQuotedFeeUnits === undefined
       ? undefined
-      : formatAmountDisplay(usdcxQuotedFeeUnits, { decimals: CIRCLE_USDC_DECIMALS, rounding: 'up' });
+      : formatAmountDisplay(usdcxQuotedFeeUnits, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' });
   // Only an Epoch token on the Fast route is quoted; Slow (AggLayer) and Circle need no quote.
   const [debouncedAmount] = useDebounce(
     fastKey !== null && route === 'epoch' && isValidAmount(amount) ? amount.trim() : '',
@@ -1436,9 +1436,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const usdcxFeeAboveBalanceMessage = useCallback(
     ({ needed, fee, balance }: { needed: bigint; fee: bigint; balance: bigint }): string =>
       t('usdcxDepositFeeAboveBalance', {
-        total: formatAmountDisplay(needed, { decimals: CIRCLE_USDC_DECIMALS, rounding: 'up' }),
-        fee: formatAmountDisplay(fee, { decimals: CIRCLE_USDC_DECIMALS, rounding: 'up' }),
-        balance: formatAmountDisplay(balance, { decimals: CIRCLE_USDC_DECIMALS, rounding: 'up' }),
+        // Exact: a one-unit shortfall must read as one, and the fee is the one Circle quoted.
+        total: formatAmountDisplay(needed, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' }),
+        fee: formatAmountDisplay(fee, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' }),
+        balance: formatAmountDisplay(balance, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' }),
         token: tokenLabel,
         network: (usdcxSource && getChain(usdcxSource.chain.id)?.name) ?? ''
       }),
