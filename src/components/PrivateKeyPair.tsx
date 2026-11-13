@@ -8,7 +8,7 @@ import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 /** Kept separate from address QR encoding: no prefix or plaintext DOM attribute. */
-export function PrivateKeyPair({ payload }: { payload: string }) {
+export function PrivateKeyPair({ payload, masked = false }: { payload: string; masked?: boolean }) {
   const { t } = useTranslation();
   const [textMode, setTextMode] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -17,7 +17,7 @@ export function PrivateKeyPair({ payload }: { payload: string }) {
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || textMode) return;
+    if (!container || textMode || masked) return;
     const qr = new QRCodeStyling({
       type: 'canvas',
       width: 260,
@@ -32,7 +32,7 @@ export function PrivateKeyPair({ payload }: { payload: string }) {
     return () => {
       container.replaceChildren();
     };
-  }, [payload, textMode]);
+  }, [payload, textMode, masked]);
 
   if (!pair) return <p role="alert">{t('importHotKeyInvalid')}</p>;
   const fields = [
@@ -42,7 +42,19 @@ export function PrivateKeyPair({ payload }: { payload: string }) {
   return (
     <div className="flex flex-1 min-h-0 overflow-y-auto flex-col items-center gap-6 pt-6">
       <p className="text-sm text-text-secondary-token">{t('privateKeyPairWarning')}</p>
-      {textMode ? (
+      {masked ? (
+        // The keys and the QR are left out of the DOM entirely, as the masked recovery phrase is.
+        <div
+          data-masked="true"
+          role="group"
+          aria-label={t('privateKeyHidden')}
+          className="flex h-[260px] w-full flex-col justify-center gap-6 rounded-2xl bg-fill p-5"
+        >
+          {fields.map(field => (
+            <div key={field.id} aria-hidden="true" className="h-1.5 w-full rounded-full bg-fill-pressed" />
+          ))}
+        </div>
+      ) : textMode ? (
         <div key="text" className="flex w-full flex-col gap-4">
           {fields.map(field => (
             <div key={field.id} className="flex flex-col gap-2">

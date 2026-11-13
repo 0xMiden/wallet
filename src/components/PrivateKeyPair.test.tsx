@@ -46,6 +46,21 @@ it('renders an exact QR payload first, exposes no secret attribute, and switches
   expect(view.container.innerHTML).toBe('');
 });
 
+it('draws bars and neither the QR nor the keys while masked', () => {
+  const hot = 'ab'.repeat(32);
+  const evm = 'cd'.repeat(32);
+  const view = render(<PrivateKeyPair payload={`${hot}:${evm}`} masked />);
+  expect(screen.queryByRole('img', { name: 'privateKeyPairQr' })).toBeNull();
+  expect(view.container.querySelectorAll('canvas')).toHaveLength(0);
+  expect(view.container.querySelector('[data-masked="true"]')).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'showPrivateKeyText' }));
+  expect(screen.queryAllByRole('textbox')).toHaveLength(0);
+  expect(view.container.innerHTML).not.toContain(hot);
+  expect(view.container.innerHTML).not.toContain(evm);
+  view.rerender(<PrivateKeyPair payload={`${hot}:${evm}`} masked={false} />);
+  expect(screen.getByLabelText('midenHotPrivateKey')).toHaveValue(hot);
+});
+
 jest.mock('lib/telemetry/user-visible-error', () => ({
   ...jest.requireActual('lib/telemetry/user-visible-error'),
   reportUserVisibleError: jest.fn()

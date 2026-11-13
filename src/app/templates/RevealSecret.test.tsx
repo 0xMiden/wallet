@@ -59,7 +59,7 @@ jest.mock('components/Button', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
-  IconName: { Wallet: 'Wallet' }
+  IconName: { Wallet: 'Wallet', Eye: 'Eye', EyeOff: 'EyeOff' }
 }));
 
 // Mobile passcode-protected vaults render the numpad instead of a password
@@ -307,6 +307,9 @@ describe('RevealSecret', () => {
     });
     await flush();
 
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="seed-reveal-toggle"]')!.click();
+    });
     const field = container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!;
     // The shared multi-line field on `fill`. Off mobile the page focuses it on reveal, so the
     // words are readable; they go back behind the design system's cover the moment focus leaves.
@@ -541,7 +544,7 @@ describe('RevealSecret', () => {
       const container = await renderReveal('private-key');
 
       expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
-      expect(container.querySelector('#reveal-secret-secret')).toBeTruthy();
+      expect(container.querySelector('[data-testid="reveal-secret-mask"]')).toBeTruthy();
     });
 
     it('withholds the secret field until the native guard reports it is enabled', async () => {
@@ -551,6 +554,89 @@ describe('RevealSecret', () => {
 
       expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
       expect(container.querySelector('#reveal-secret-secret')).toBeFalsy();
+    });
+  });
+
+  // Off mobile a revealed key stays masked until Show, as the recovery phrase does.
+  describe('reveal mask', () => {
+    const toggleOf = (container: HTMLElement) =>
+      container.querySelector<HTMLButtonElement>('[data-testid="seed-reveal-toggle"]');
+    const pressShow = async (container: HTMLElement) => {
+      await act(async () => {
+        toggleOf(container)!.click();
+      });
+    };
+
+    it('keeps a private key out of the DOM until Show, then hides it again on blur', async () => {
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+      expect(container.innerHTML).not.toContain('PRIVATE_KEY_HEX');
+      expect(container.querySelector('[data-testid="reveal-secret-mask"]')).toHaveAttribute('data-masked', 'true');
+      expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'false');
+
+      await pressShow(container);
+      expect(container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!.value).toBe('PRIVATE_KEY_HEX');
+      expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'true');
+
+      await act(async () => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+      expect(container.innerHTML).not.toContain('PRIVATE_KEY_HEX');
+    });
+
+    it('hides a shown private key when the document is hidden', async () => {
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+      await pressShow(container);
+      try {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+        await act(async () => {
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+      } finally {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      }
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+    });
+
+    it('shows a private key at once with no Show control on mobile', async () => {
+      mockIsMobile = true;
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!.value).toBe('PRIVATE_KEY_HEX');
+      expect(toggleOf(container)).toBeNull();
+    });
+
+    it('keeps a hot key out of the DOM until Show, then hides it again on blur', async () => {
+      mockSecret = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+      const container = await renderReveal('hot-key');
+
+      expect(container.querySelector('[role="img"]')).toBeNull();
+      expect(container.querySelector('[data-masked="true"]')).not.toBeNull();
+      expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'false');
+
+      await pressShow(container);
+      expect(container.querySelector('[role="img"]')).not.toBeNull();
+      expect(container.querySelector('[data-masked="true"]')).toBeNull();
+
+      await act(async () => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      expect(container.querySelector('[role="img"]')).toBeNull();
+      expect(container.querySelector('[data-masked="true"]')).not.toBeNull();
+    });
+
+    it('shows a hot key at once with no Show control on mobile', async () => {
+      mockIsMobile = true;
+      mockSecret = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+      const container = await renderReveal('hot-key');
+
+      expect(container.querySelector('[role="img"]')).not.toBeNull();
+      expect(toggleOf(container)).toBeNull();
     });
   });
 

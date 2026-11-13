@@ -13,6 +13,7 @@ import { CheckboxConsent } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
+import { SeedRevealToggle } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
@@ -23,6 +24,7 @@ import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileO
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { useRevealMask } from 'lib/ui/useRevealMask';
 import { truncateAddress } from 'utils/string';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
@@ -82,6 +84,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // captures. The hook withholds `true` until the native guard is actually
   // enabled, so the unprotected first frames are never rendered.
   const isGuardReady = useScreenshotGuard(secret !== null);
+  const mask = useRevealMask({ resetKey: secret });
   const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   // Keep parked dApp trays out of the way while the reveal screen is mounted.
   useHideDappBubblesWhileOpen(true);
@@ -109,7 +112,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       secretFieldRef.current?.focus();
       secretFieldRef.current?.select();
     }
-  }, [secret]);
+  }, [secret, mask.masked]);
 
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -239,21 +242,41 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       // Withhold until the native guard reports the screen is protected — an
       // in-progress screen recording would otherwise capture the first frames.
       if (!isGuardReady) return null;
-      if (reveal === 'hot-key') return <PrivateKeyPair payload={secret} />;
+      if (reveal === 'hot-key') {
+        return (
+          <>
+            <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />
+            <PrivateKeyPair payload={secret} masked={mask.masked} />
+          </>
+        );
+      }
       return (
         <SubPageSection description={texts.fieldDesc}>
-          <TextField
-            ref={secretFieldRef}
-            secret
-            multiline
-            rows={4}
-            readOnly
-            label={texts.name}
-            id="reveal-secret-secret"
-            spellCheck={false}
-            className={secretFieldClassName}
-            value={secret}
-          />
+          <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />
+          {mask.masked ? (
+            <div
+              data-testid="reveal-secret-mask"
+              data-masked="true"
+              role="group"
+              aria-label={t('privateKeyHidden')}
+              className="flex h-[108px] items-center rounded-lg-token bg-fill px-4"
+            >
+              <span aria-hidden="true" className="h-1.5 w-full rounded-full bg-fill-pressed" />
+            </div>
+          ) : (
+            <TextField
+              ref={secretFieldRef}
+              secret
+              multiline
+              rows={4}
+              readOnly
+              label={texts.name}
+              id="reveal-secret-secret"
+              spellCheck={false}
+              className={secretFieldClassName}
+              value={secret}
+            />
+          )}
         </SubPageSection>
       );
     }
@@ -303,6 +326,9 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     onSubmit,
     register,
     secret,
+    mask.masked,
+    mask.revealed,
+    mask.toggle,
     texts,
     clearErrors,
     t,
