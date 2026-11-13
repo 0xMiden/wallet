@@ -81,14 +81,10 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // `advice_map.write_into(target)`, so the extended advice map holding the hot/cold/
 // guardian co-signatures survives serialize; verified end-to-end at the WASM level in
 // the flag-flip guardian E2E, structurally here).
-jest.mock(
-  '../sdk/test-guardian-authorization',
-  () => ({
-    authorizeTestGuardianRequest: jest.fn(async () => undefined),
-    assertTestGuardianRequestAuthorization: jest.fn(async () => undefined)
-  }),
-  { virtual: true }
-);
+jest.mock('../sdk/test-guardian-authorization', () => ({
+  authorizeTestGuardianRequest: jest.fn(async () => undefined),
+  assertTestGuardianRequestAuthorization: jest.fn(async () => undefined)
+}));
 const mockGuardianAuthorization = jest.requireMock('../sdk/test-guardian-authorization');
 
 const TR_BYTES = [0xc0, 0x51, 0x67, 0xed];
