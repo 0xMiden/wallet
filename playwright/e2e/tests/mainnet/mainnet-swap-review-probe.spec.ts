@@ -64,7 +64,9 @@ test('read-only original swap review, never arm or submit', async ({ walletB }) 
     diagnostics.errorStage = message.includes(`swap-token-${state.offer.symbol}`) ? 'offered-token' :
       message.includes(`swap-token-${state.request.symbol}`) ? 'requested-token' :
       message.includes('swap-flow') ? 'flow' : message.includes('send-token-selector') ? 'selector' :
-      message.includes('waitForResponse') ? 'eta' : message.includes('waitForFunction') ? 'projection' : 'other';
+      message.includes('waitForResponse') ? 'eta' : message.includes('waitForFunction') ? 'projection' :
+      message === 'Live swap review drifted outside its uploaded authorization' ? 'review-bounds' :
+      message === 'Mainnet swap is not fully fillable at the exact authorized terms' ? 'quote-terms' : 'other';
   } finally {
     diagnostics.eta = eta;
     diagnostics.tokenChoices = (await walletB.page.locator('[data-testid^="swap-token-"]').evaluateAll(nodes =>
