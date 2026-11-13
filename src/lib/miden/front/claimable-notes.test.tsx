@@ -9,6 +9,7 @@ import {
   isSyncFused,
   noteSyncWatchdogEviction
 } from 'lib/miden/front/sync-fuse';
+import * as Repo from 'lib/miden/repo';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
@@ -205,8 +206,6 @@ jest.mock('./assets', () => ({
     setTokensBaseMetadata: (batch: any) => (globalThis as any).__cnTest.setTokensBaseMetadata(batch)
   })
 }));
-
-import * as Repo from 'lib/miden/repo';
 
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from './auto-managed-notes';
 import { __resetClaimableNotesCacheForTests, ClaimableNoteWithMetadata, useClaimableNotes } from './claimable-notes';
