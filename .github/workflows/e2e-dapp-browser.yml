@@ -1,6 +1,6 @@
-name: Configuration-path mutations (expected red)
+name: Frozen repair facts profile (noncertifying diagnostic)
 
-# Diagnostic QA branch only; never a wallet merge gate or runtime adoption.
+# Manual QA source only; not a wallet merge gate or runtime adoption.
 on:
   workflow_dispatch:
     inputs:
@@ -13,21 +13,10 @@ permissions:
   contents: read
 
 jobs:
-  frozen-timeout-regression:
+  frozen-facts-profile:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - mutation: cwd
-            selector: test_repository_relative_config_comparisons_do_not_read_cwd
-          - mutation: lexical
-            selector: test_lexical_relpath_matches_stdlib_and_literal_results
-          - mutation: fallback
-            selector: test_compatibility_fallback_preserves_values_and_exception_types
-          - mutation: predicate
-            selector: test_public_predicate_matches_stdlib_oracle_and_literal_decisions
+    # Bounds a 600s diagnostic sample, not the production prepare budget.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,128 +25,107 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install ripgrep for guarded evidence regressions (CI only)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-      - name: Verify frozen source and run fixed configuration-path mutation (expected red)
+      - name: Verify QA source and extract only the pinned original runtime
         shell: bash
         env:
           EXPECTED_SOURCE: ${{ inputs.expected_source }}
-          MUTATION_CASE: ${{ matrix.mutation }}
-          TEST_SELECTOR: ${{ matrix.selector }}
         run: |
           set -euo pipefail
-          proof="$RUNNER_TEMP/2027-timeout-source-hashes.txt"
+          proof="$RUNNER_TEMP/repair-facts-source-hashes.txt"
           source=$(git rev-parse HEAD)
           printf 'expected_source=%s\ncheckout_head=%s\ngithub_sha=%s\n' \
             "$EXPECTED_SOURCE" "$source" "$GITHUB_SHA" | tee "$proof"
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           test "$source" = "$EXPECTED_SOURCE"
           test "$source" = "$GITHUB_SHA"
-
+          sha256sum .github/qa/profile-repair-facts.py .github/workflows/e2e-dapp-browser.yml | tee -a "$proof"
           archive="$GITHUB_WORKSPACE/.github/qa/2027-timeout-origin-runtime.zip"
-          sha256sum "$archive" | tee -a "$proof"
           printf '%s  %s\n' \
             'dba8a1b618194daf7e6c0581b834511cd49cd3af5f278e001fedb4c95b792912' "$archive" \
             | sha256sum --check --strict | tee -a "$proof"
-          candidate=$(mktemp -d "$RUNNER_TEMP/2027-timeout-candidate.XXXXXX")
-          # The hash-pinned archive has 171 regular files, all under runtime-0.9.0.
+          candidate=$(mktemp -d "$RUNNER_TEMP/repair-facts-runtime.XXXXXX")
+          # The hash-pinned original archive has 171 regular files under runtime-0.9.0.
           unzip -q "$archive" -d "$candidate"
-          cd "$candidate"
-          sha256sum runtime-0.9.0/scripts/rev-evidence.py \
-            runtime-0.9.0/tests/test_prepare_timeout_origin.py \
-            runtime-0.9.0/tests/test_source_config_paths.py | tee -a "$proof"
-          printf '%s\n' \
-            '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620  runtime-0.9.0/scripts/rev-evidence.py' \
-            'fe8a06df82c4e8e59824be83b6ae937d9c073157c2e23d81a74a6ff8c01d7158  runtime-0.9.0/tests/test_prepare_timeout_origin.py' \
-            '60b1cc297d4ff50392095ab9f9eeb0ec9881630fcb8c380716ad40c0d5d8b578  runtime-0.9.0/tests/test_source_config_paths.py' \
-            | sha256sum --check --strict | tee -a "$proof"
-
-          SOURCE_PROOF="$proof" python3 -B - <<'PY'
-          import ast
-          import hashlib
+          runtime="$candidate/runtime-0.9.0"
+          printf '%s  %s\n' \
+            '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620' \
+            "$runtime/scripts/rev-evidence.py" | sha256sum --check --strict | tee -a "$proof"
+          printf 'PROFILE_RUNTIME=%s\n' "$runtime" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          repository: 0xMiden/wallet
+          ref: aee4787ec9c24d786092357762ce1a643856acd1
+          fetch-depth: 0
+          persist-credentials: false
+          path: subject
+      - name: Reject wrong compiler and unrelated repository before profiling (CI only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$GITHUB_WORKSPACE/.github/qa/profile-repair-facts.py"
+          bad_runtime=$(mktemp -d "$RUNNER_TEMP/repair-facts-wrong-compiler.XXXXXX")
+          mkdir "$bad_runtime/scripts"
+          cp "$PROFILE_RUNTIME/scripts/rev-evidence.py" "$bad_runtime/scripts/rev-evidence.py"
+          printf '\n# Deliberately altered rejection fixture; never imported.\n' >> "$bad_runtime/scripts/rev-evidence.py"
+          if python3 -B "$helper" --runtime "$bad_runtime" --repo "$GITHUB_WORKSPACE/subject" \
+            --output "$RUNNER_TEMP/repair-facts-reject-compiler" \
+            > "$RUNNER_TEMP/repair-facts-reject-compiler.log" 2>&1; then
+            cat "$RUNNER_TEMP/repair-facts-reject-compiler.log"
+            echo 'Unexpected success for altered compiler' >&2
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/repair-facts-reject-compiler.log"
+          fixture=$(mktemp -d "$RUNNER_TEMP/repair-facts-wrong-repo.XXXXXX")
+          git -C "$fixture" init -q
+          git -C "$fixture" -c user.name=CI -c user.email=ci@example.invalid \
+            commit --allow-empty -qm 'Unrelated rejection fixture'
+          if python3 -B "$helper" --runtime "$PROFILE_RUNTIME" --repo "$fixture" \
+            --output "$RUNNER_TEMP/repair-facts-reject-repo" \
+            > "$RUNNER_TEMP/repair-facts-reject-repo.log" 2>&1; then
+            cat "$RUNNER_TEMP/repair-facts-reject-repo.log"
+            echo 'Unexpected success for unrelated repository' >&2
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/repair-facts-reject-repo.log"
+          python3 -B - <<'PY'
+          import json
           import os
           from pathlib import Path
 
-          anchored = "        return posixpath.relpath(posixpath.join('/', path), posixpath.join('/', start))\n"
-          variants = {
-              'cwd': (
-                  anchored,
-                  "        return posixpath.relpath(path, start)\n",
-                  '017ebd241fb103c3b9a42953d7e57b245cc3519ae3822e0a9daed73da80ebfc6',
-                  'test_repository_relative_config_comparisons_do_not_read_cwd',
-              ),
-              'lexical': (
-                  anchored,
-                  "        return path\n",
-                  'de55fa030dd84f35446b61f4af43afa913fa5f3d93666526a3f5461f586776f1',
-                  'test_lexical_relpath_matches_stdlib_and_literal_results',
-              ),
-              'fallback': (
-                  "    return posixpath.relpath(path, start)\n",
-                  "    return posixpath.relpath(posixpath.join('/', path), posixpath.join('/', start))\n",
-                  '98b469073391b794d8cb99332c0797fe7132979ce318a4e7f4bac276c7e4a74a',
-                  'test_compatibility_fallback_preserves_values_and_exception_types',
-              ),
-              'predicate': (
-                  anchored,
-                  "        return posixpath.relpath(posixpath.join('/', path), posixpath.join('/', start)).lstrip('../')\n",
-                  '511f1c68d11703964ab57c907b49c28be3f05e2c27e9a7e9d1fe75a030828a67',
-                  'test_public_predicate_matches_stdlib_oracle_and_literal_decisions',
-              ),
-          }
-          name = os.environ['MUTATION_CASE']
-          needle, replacement, expected_hash, selector = variants[name]
-          assert selector == os.environ['TEST_SELECTOR'], 'mutation selector mismatch'
-          compiler = Path('runtime-0.9.0/scripts/rev-evidence.py').resolve()
-          assert compiler.is_relative_to(Path(os.environ['RUNNER_TEMP']).resolve()), 'compiler outside runner temp'
-          raw = compiler.read_bytes()
-          baseline_hash = hashlib.sha256(raw).hexdigest()
-          assert baseline_hash == '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620', 'baseline compiler mismatch'
-          text = raw.decode('utf-8')
-          assert text.count(needle) == 1, 'mutation text must match exactly once'
-          mutated = text.replace(needle, replacement, 1).encode('utf-8')
-          mutated_hash = hashlib.sha256(mutated).hexdigest()
-          assert mutated_hash == expected_hash, 'predetermined mutant hash mismatch'
-          ast.parse(mutated, filename=str(compiler))
-          test_file = compiler.parent.parent / 'tests/test_source_config_paths.py'
-          test_hash = hashlib.sha256(test_file.read_bytes()).hexdigest()
-          assert test_hash == '60b1cc297d4ff50392095ab9f9eeb0ec9881630fcb8c380716ad40c0d5d8b578', 'test source mismatch'
-          compiler.write_bytes(mutated)
-          assert hashlib.sha256(compiler.read_bytes()).hexdigest() == mutated_hash, 'written mutant mismatch'
-          with Path(os.environ['SOURCE_PROOF']).open('a') as record:
-              for key, value in (
-                  ('mutation', name), ('selected_test', selector),
-                  ('test_source_config_paths_sha256', test_hash),
-                  ('baseline_compiler_sha256', baseline_hash),
-                  ('mutated_compiler_sha256', mutated_hash),
-              ):
-                  record.write(f'{key}={value}\n')
+          root = Path(os.environ['RUNNER_TEMP'])
+          for name, message in (
+              ('compiler', 'AssertionError: compiler SHA256 mismatch'),
+              ('repo', 'AssertionError: subject HEAD mismatch'),
+          ):
+              record = json.loads((root / f'repair-facts-reject-{name}/facts-profile.json').read_text())
+              assert record['error'] == message, record
+              assert record['status'] == 'error' and not record['certifying'], record
+              assert not record['compiler_imported'] and not record['profile_started'], record
+              assert not record['completed'] and not record['timed_out'], record
+              print(f'Expected rejection confirmed before import/profile: {name}')
           PY
-
-          python3 -B -m unittest discover \
-            -s runtime-0.9.0/tests \
-            -p test_prepare_timeout_origin.py \
-            -v 2>&1 | tee "$RUNNER_TEMP/2027-timeout-regression.log"
-          python3 -B -m unittest discover \
-            -s runtime-0.9.0/tests \
-            -p test_source_config_paths.py \
-            -k "$TEST_SELECTOR" \
-            -v 2>&1 | tee -a "$RUNNER_TEMP/2027-timeout-regression.log"
-          bash runtime-0.9.0/tests/run-tests.sh plan_read_budget_counts_the_current_source_target \
-            2>&1 | tee -a "$RUNNER_TEMP/2027-timeout-regression.log"
-          bash runtime-0.9.0/tests/run-tests.sh evidence_source_context_memo \
-            2>&1 | tee -a "$RUNNER_TEMP/2027-timeout-regression.log"
-          bash runtime-0.9.0/tests/run-tests.sh evidence_hardening_routing \
-            2>&1 | tee -a "$RUNNER_TEMP/2027-timeout-regression.log"
-      - name: Upload only regression log and source/hash proof
+      - name: Profile full twelve-path new facts (diagnostic, possibly partial)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B "$GITHUB_WORKSPACE/.github/qa/profile-repair-facts.py" \
+            --runtime "$PROFILE_RUNTIME" --repo "$GITHUB_WORKSPACE/subject" \
+            --output "$RUNNER_TEMP/repair-facts-profile" \
+            2>&1 | tee "$RUNNER_TEMP/repair-facts-profile.log"
+      - name: Upload only diagnostic profiles, rejection evidence, and source hashes
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: timeout-regression-${{ matrix.mutation }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: repair-facts-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/2027-timeout-regression.log
-            ${{ runner.temp }}/2027-timeout-source-hashes.txt
+            ${{ runner.temp }}/repair-facts-source-hashes.txt
+            ${{ runner.temp }}/repair-facts-profile/facts-profile.json
+            ${{ runner.temp }}/repair-facts-profile/facts-profile.txt
+            ${{ runner.temp }}/repair-facts-profile/facts-profile.pstats
+            ${{ runner.temp }}/repair-facts-profile.log
+            ${{ runner.temp }}/repair-facts-reject-compiler/facts-profile.json
+            ${{ runner.temp }}/repair-facts-reject-compiler.log
+            ${{ runner.temp }}/repair-facts-reject-repo/facts-profile.json
+            ${{ runner.temp }}/repair-facts-reject-repo.log
           if-no-files-found: warn
           retention-days: 7
