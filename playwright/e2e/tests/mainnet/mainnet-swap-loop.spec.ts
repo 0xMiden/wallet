@@ -15,6 +15,7 @@ import {
   saveMainnetSwapCheckpoint,
   matchAuthorizedSwap,
   mainnetSwapNextAction,
+  mainnetSwapRequestExpiresAt,
   swapProceeds,
   type MainnetSwapCheckpoint,
   type SavedSwapHolding,
@@ -38,7 +39,11 @@ import {
   runPreparedSwap,
   cachedSolverRegistry
 } from '../../helpers/mainnet-swap-ui';
-import { readLineage } from '../../helpers/swap';
+import { exportMakerNote, readLineage } from '../../helpers/swap';
+import { getEnvironmentConfig } from '../../config/environments';
+import { readMainnetSwapPayback, type MainnetSwapPaybackEvidence, type MainnetSwapPaybackScope } from '../../helpers/mainnet-swap-claim';
+import { mainnetConsumeRequestHash } from '../../helpers/mainnet-epoch-request';
+import { armMainnetConsumeAuthorization, releaseMainnetConsumeAuthorization } from '../../helpers/mainnet-consume-authorization';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { armMainnetSendAuthorization, releaseMainnetSendAuthorization } from '../../helpers/mainnet-send-authorization';
 
@@ -302,7 +307,61 @@ async function settle(
   if (leg === 'forward') state.forwardOrderId = matched.orderId;
   else state.reverseOrderId = matched.orderId;
   persist(state);
-  if (recover) await recoveredSwapAutoAccept(wallet.page, matched);
+  const requestAuthority = leg === 'forward' ? state.forwardRequestAuthority : state.reverseRequestAuthority;
+  if (!requestAuthority) throw new Error('Missing original SDK identity for exact payback verification');
+  const scope: MainnetSwapPaybackScope = {
+    kind: 'swap', accountId: Address.fromBech32(state.account).accountId().toString(),
+    faucetId: (leg === 'forward' ? state.offer : state.request).hex,
+    amount: leg === 'forward' ? state.principal : state.returnAmount ?? '0',
+    requestedFaucetId: (leg === 'forward' ? state.request : state.offer).hex,
+    requestedAmount: requestAuthority.minimumReceive, noteId: requestAuthority.noteId, orderId: requestAuthority.orderId
+  };
+  let payback: MainnetSwapPaybackEvidence | undefined;
+  await expect.poll(async () => {
+    payback = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope);
+    return payback !== undefined;
+  }, { timeout: 300_000, intervals: [5_000], message: 'Exact original full-fill payback not proved' }).toBe(true);
+  if (!payback) throw new Error('Missing exact original payback');
+  const originalPayback = payback;
+  const priorClaim = leg === 'forward' ? state.forwardClaimAuthority : state.reverseClaimAuthority;
+  if (priorClaim) {
+    if (priorClaim.noteId !== payback.noteId || priorClaim.amount !== payback.amount.toString() || payback.claimedAtBlock === undefined)
+      throw new Error('Original claim outcome is unresolved; never rearm it');
+  } else if (payback.claimedAtBlock !== undefined) {
+    if (!recover) throw new Error('Payback already claimed without this run retained claim authority');
+  } else {
+    const gate = process.env.MAINNET_SWAP_SDK_GATE;
+    if (!gate) throw new Error('Missing immutable SDK payback claim gate');
+    const creation = (await readTransactionRows(wallet.page)).find(row => row.id === matched.id);
+    const feeFaucet = creation?.feeFaucetId?.startsWith('0x')
+      ? await hexFaucetToBech32(wallet, creation.feeFaucetId) : creation?.feeFaucetId;
+    if (!creation?.feeAmount || feeFaucet !== state.native.faucetId ||
+      BigInt(state.paidFees) + BigInt(creation.feeAmount) + SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee) > BigInt(state.feeBudget))
+      throw new Error('Exact payback claim exceeds the remaining native fee budget');
+    await wallet.triggerSync(true);
+    const file = await exportMakerNote(wallet, payback.noteId, 90_000);
+    const handle = await armMainnetConsumeAuthorization(wallet.page, {
+      accountId: scope.accountId, noteId: payback.noteId,
+      canonicalSha256: mainnetConsumeRequestHash(Buffer.from(file, 'hex'), true)
+    });
+    const controller = new AbortController();
+    try {
+      await recoveredSwapAutoAccept(wallet.page, matched);
+      await wallet.triggerSync(true);
+      await releaseMainnetConsumeAuthorization(wallet.page, handle, {
+        checkpointPath: STATE_PATH, gatePath: `${gate}.claim`, signal: controller.signal,
+        persist: async authority => {
+          const { requestCanonicalSha256, expiresAt } = authority;
+          if (requestCanonicalSha256 === undefined || expiresAt === undefined)
+            throw new Error('Missing final signed Guardian payback claim authority');
+          const claim = { ...authority, requestCanonicalSha256, expiresAt, noteId: originalPayback.noteId, amount: originalPayback.amount.toString() };
+          if (leg === 'forward') state.forwardClaimAuthority = claim;
+          else state.reverseClaimAuthority = claim;
+          persist(state);
+        }
+      });
+    } finally { controller.abort(); }
+  }
   await wallet.page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/history-details/${matched.id}`);
   const target = leg === 'forward' ? state.request : state.offer;
   let received = 0n;
@@ -592,7 +651,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
         amount: amount.toString(),
         requestedFaucetId: requested.hex,
         requestedAmount: reviewed.minimumReceive,
-        expiresAt: Date.parse(authorized.pricedAt) + (leg === 'forward' ? 300_000 : 600_000)
+        expiresAt: mainnetSwapRequestExpiresAt(authorized, leg)
       });
       return async () => {
         const controller = new AbortController();

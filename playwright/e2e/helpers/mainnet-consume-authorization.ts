@@ -22,8 +22,12 @@ export async function blockMainnetConsumeAuthorization(page: Pick<Page, 'evaluat
     const requiredKey = `${key}_required`;
     const stored = await chrome.storage.local.get([key, requiredKey]);
     const marker = stored[requiredKey];
-    const blocked = marker && typeof marker === 'object' && !Array.isArray(marker) &&
-      Object.keys(marker).length === 1 && marker.status === 'blocked';
+    const blocked =
+      marker &&
+      typeof marker === 'object' &&
+      !Array.isArray(marker) &&
+      Object.keys(marker).length === 1 &&
+      marker.status === 'blocked';
     if (stored[key] !== undefined || (marker !== undefined && !blocked))
       throw new Error('Unresolved existing native authorization');
     await chrome.storage.local.set({ [requiredKey]: { status: 'blocked' } });
@@ -46,8 +50,12 @@ export async function armMainnetConsumeAuthorization(
       const requiredKey = `${key}_required`;
       const stored = await chrome.storage.local.get([key, requiredKey]);
       const marker = stored[requiredKey];
-      const blocked = marker && typeof marker === 'object' && !Array.isArray(marker) &&
-        Object.keys(marker).length === 1 && marker.status === 'blocked';
+      const blocked =
+        marker &&
+        typeof marker === 'object' &&
+        !Array.isArray(marker) &&
+        Object.keys(marker).length === 1 &&
+        marker.status === 'blocked';
       if (stored[key] !== undefined || (marker !== undefined && !blocked))
         throw new Error('Unresolved existing native authorization');
       await chrome.storage.local.set({

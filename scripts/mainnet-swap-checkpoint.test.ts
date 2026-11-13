@@ -150,7 +150,9 @@ describe('durable nightly swap authorization', () => {
     expect(loadMainnetSwapCheckpoint(path)).toEqual(recovered);
     expect(recovered.forwardRequestAuthority).toEqual(withRequest().forwardRequestAuthority);
     expect(mainnetSwapRequestExpiresAt(recovered, 'forward')).toBe(Date.parse(recovered.pricedAt) + 300_000);
-    expect(mainnetSwapRequestExpiresAt(recovered, 'reverse')).toBe(Date.parse(recovered.recoveryReturnAuthorizedAt) + 300_000);
+    expect(mainnetSwapRequestExpiresAt(recovered, 'reverse')).toBe(
+      Date.parse(recovered.recoveryReturnAuthorizedAt) + 300_000
+    );
     expect(mainnetSwapRequestExpiresAt(withRequest(), 'reverse')).toBe(Date.parse(recovered.pricedAt) + 600_000);
   });
   it.each([
@@ -163,15 +165,21 @@ describe('durable nightly swap authorization', () => {
     writeFileSync(path, JSON.stringify({ ...withGrantedReturn(), ...patch }));
     expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
   });
-  it.each(['expired original return', 'extended fresh return', 'renewed forward'])('rejects %s rather than renewing authority', kind => {
-    const state = withGrantedReturn();
-    if (kind === 'expired original return') state.reverseRequestAuthority.expiresAt = Date.parse(state.pricedAt) + 600_000;
-    if (kind === 'extended fresh return') state.reverseRequestAuthority.expiresAt = Date.parse(state.recoveryReturnAuthorizedAt) + 300_001;
-    if (kind === 'renewed forward') state.forwardRequestAuthority.expiresAt = Date.parse(state.recoveryReturnAuthorizedAt) + 60_000;
-    const path = join(dir, 'bad-deadline.json');
-    writeFileSync(path, JSON.stringify(state));
-    expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
-  });
+  it.each(['expired original return', 'extended fresh return', 'renewed forward'])(
+    'rejects %s rather than renewing authority',
+    kind => {
+      const state = withGrantedReturn();
+      if (kind === 'expired original return')
+        state.reverseRequestAuthority.expiresAt = Date.parse(state.pricedAt) + 600_000;
+      if (kind === 'extended fresh return')
+        state.reverseRequestAuthority.expiresAt = Date.parse(state.recoveryReturnAuthorizedAt) + 300_001;
+      if (kind === 'renewed forward')
+        state.forwardRequestAuthority.expiresAt = Date.parse(state.recoveryReturnAuthorizedAt) + 60_000;
+      const path = join(dir, 'bad-deadline.json');
+      writeFileSync(path, JSON.stringify(state));
+      expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
+    }
+  );
   it('retains the exact signed consume fingerprint and canonical payback identity without private bytes', () => {
     const state = {
       ...withRequest(),
@@ -191,7 +199,8 @@ describe('durable nightly swap authorization', () => {
     expect(readFileSync(path, 'utf8')).not.toContain('requestBytes');
   });
   it.each([
-    ['bad nonce', { nonce: '' }], ['bad note', { noteId: '0x12' }],
+    ['bad nonce', { nonce: '' }],
+    ['bad note', { noteId: '0x12' }],
     ['missing final signed fingerprint', { requestCanonicalSha256: '' }],
     ['under minimum', { amount: '33648' }],
     ['original offered note', { noteId: `0x${'a'.repeat(64)}` }],
@@ -200,9 +209,13 @@ describe('durable nightly swap authorization', () => {
   ])('rejects a durable claim with %s', (_name, patch) => {
     const state = withRequest();
     const claim = {
-      nonce: '22222222-2222-4222-8222-222222222222', noteId: `0x${'d'.repeat(64)}`,
-      amount: '33650', sha256: 'e'.repeat(64), canonicalSha256: 'f'.repeat(64),
-      requestCanonicalSha256: '9'.repeat(64), expiresAt: Date.parse(state.pricedAt) + 120_000,
+      nonce: '22222222-2222-4222-8222-222222222222',
+      noteId: `0x${'d'.repeat(64)}`,
+      amount: '33650',
+      sha256: 'e'.repeat(64),
+      canonicalSha256: 'f'.repeat(64),
+      requestCanonicalSha256: '9'.repeat(64),
+      expiresAt: Date.parse(state.pricedAt) + 120_000,
       ...patch
     };
     const path = join(dir, 'bad-claim.json');

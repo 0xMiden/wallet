@@ -54,7 +54,7 @@ jobs:
         run: |
           test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
           printf 'Verified source %s\n' "$(git rev-parse HEAD^2)"
-          yarn jest scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-consume-coordination.test.ts scripts/mainnet-loop-wallet.test.ts --maxWorkers=2 --watch=false
+          yarn jest scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-consume-coordination.test.ts scripts/mainnet-loop-wallet.test.ts scripts/mainnet-swap-artifacts.test.ts --maxWorkers=2 --watch=false
       - name: Check connected types
         if: always()
         run: yarn ts
