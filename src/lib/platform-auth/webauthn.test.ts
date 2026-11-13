@@ -98,6 +98,35 @@ const get = jest.fn(async (options?: CredentialRequestOptions): Promise<unknown>
 });
 const signal = jest.fn(async () => undefined);
 const globals = ['PublicKeyCredential', 'AuthenticatorAttestationResponse', 'AuthenticatorAssertionResponse'];
+
+it('forwards one abort signal through creation and its fallback assertion', async () => {
+  createPrf = false;
+  const controller = new AbortController();
+  await createPlatformCredential(null, async () => undefined, controller.signal);
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }));
+  expect(get).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }));
+});
+
+it('does not start either ceremony after its page already canceled', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  await expect(createPlatformCredential(null, async () => undefined, controller.signal)).rejects.toHaveProperty(
+    'name',
+    'AbortError'
+  );
+  await expect(getPlatformCredential(id, salt, controller.signal)).rejects.toHaveProperty('name', 'AbortError');
+  expect(create).not.toHaveBeenCalled();
+  expect(get).not.toHaveBeenCalled();
+});
+
+it('keeps the created ID tracked but refuses a fallback prompt after cancellation', async () => {
+  createPrf = false;
+  const controller = new AbortController();
+  const tracked = jest.fn(async () => controller.abort());
+  await expect(createPlatformCredential(null, tracked, controller.signal)).rejects.toHaveProperty('name', 'AbortError');
+  expect(tracked).toHaveBeenCalledWith(id, expect.any(String), true);
+  expect(get).not.toHaveBeenCalled();
+});
 const descriptors = globals.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
 const originalCredentials = Object.getOwnPropertyDescriptor(navigator, 'credentials');
 
