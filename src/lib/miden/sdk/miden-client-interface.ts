@@ -132,6 +132,16 @@ import {
 import { GuardianHistoryDataError } from '../guardian/history-errors';
 import { withGuardianProbe } from '../guardian/native-http';
 import {
+  assertRecoverySignerMatches,
+  assertUndeployedStateFromSeed,
+  judgeServedState,
+  readAccountChainStates,
+  readServedStateFacts,
+  selectAdoptable,
+  type ServedGuardianState,
+  type ServedStateVerdict
+} from '../guardian/recovery-verification';
+import {
   type ConsumeRestriction,
   EXPIRATION_DELTA_BLOCKS,
   isPrivateNoteType,
@@ -926,13 +936,15 @@ export class MidenClientInterface {
    * 0..MAX-1 and stops after RECOVERY_GAP_LIMIT consecutive empty indices (so a
    * small gap doesn't silently drop later accounts).
    *
-   * Each match is adopted locally only: the on-chain Account state is
-   * decoded and inserted into the WASM client + the cold key registered in
-   * the keystore. The hot signer is NOT rotated here — the on-chain hot
-   * pubkey's secret is unrecoverable, but rotation is deferred to a
-   * user-triggered banner action on the home view (initiateReplaceHotKey).
-   * The persisted WalletAccount is flagged `requiresHotKeyRotation: true`
-   * and carries no `hotPublicKey` until the rotation completes.
+   * Every served account is checked before anything is restored: its recovery
+   * (cold) signer slot must be the key the phrase derives at the index it was
+   * found under. The whole scan completes first, and only then is each match
+   * adopted locally (decoded into the WASM client, its cold key registered in the
+   * keystore), so a single refusal restores nothing. The hot signer is NOT
+   * rotated here, because the on-chain hot pubkey's secret is unrecoverable.
+   * Rotation is mandatory before the account can sign: the persisted
+   * WalletAccount is flagged `requiresHotKeyRotation: true` and carries no
+   * `hotPublicKey` until initiateReplaceHotKey completes.
    *
    * The orchestrator acquires the WASM client mutex granularly per op, so
    * callers must NOT hold the outer lock.
@@ -950,6 +962,16 @@ export class MidenClientInterface {
     guardianEndpoint: string
   ): Promise<RecoveredGuardianAccount[]> {
     const recovered: RecoveredGuardianAccount[] = [];
+    type Match = {
+      hdIndex: number;
+      sk: AuthSecretKey;
+      coldSeed: Uint8Array;
+      coldCommitment: string;
+      coldPublicKey: string;
+      coldSecretKeyHex: string;
+      states: ServedGuardianState[];
+    };
+    const found: Match[] = [];
     let consecutiveMisses = 0;
 
     // The scan holds `this` across many independently-locked ops; a recovery
@@ -971,12 +993,19 @@ export class MidenClientInterface {
           refuseIfReplaced();
           const coldSeed = deriveColdSeed(hdIndex);
           const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
-          const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
+          const coldPublicKeyHandle = coldSk.publicKey();
+          const coldPublicKey = Buffer.from(coldPublicKeyHandle.serialize().slice(1)).toString('hex');
+          const commitmentHandle = coldPublicKeyHandle.toCommitment();
+          const coldCommitment = commitmentHandle.toHex();
+          commitmentHandle.free();
+          coldPublicKeyHandle.free();
           const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-          const adopted = await this.recoverAndAdoptByKey(coldSk, guardianEndpoint);
+          const states = await this.lookupServedStatesByKey(coldSk, guardianEndpoint, acc =>
+            assertRecoverySignerMatches(acc, coldCommitment)
+          );
 
-          if (adopted.length === 0) {
+          if (states.length === 0) {
             // Tolerate a small gap before giving up, so a non-contiguous index or a
             // transient empty guardian response doesn't silently drop later accounts.
             consecutiveMisses++;
@@ -984,19 +1013,34 @@ export class MidenClientInterface {
             continue;
           }
           consecutiveMisses = 0;
-
-          for (const bech32 of adopted) {
-            recovered.push({
-              accountId: bech32,
-              hdIndex,
-              coldPublicKey,
-              coldSecretKeyHex
-            });
+          found.push({ hdIndex, sk: coldSk, coldSeed, coldCommitment, coldPublicKey, coldSecretKeyHex, states });
+        }
+        // One client for every account, outside every WASM hold: a network read must not pin the client.
+        const chain = await readAccountChainStates(
+          found.flatMap(({ states }) => states.map(({ accountIdHex }) => accountIdHex))
+        );
+        refuseIfReplaced();
+        const judged: Array<
+          Match & { state: ServedGuardianState; verdict: Exclude<ServedStateVerdict, 'undeployed'> }
+        > = [];
+        for (const match of found) {
+          for (const state of match.states) {
+            const verdict = judgeServedState(state, chain.get(state.accountIdHex) ?? { kind: 'unknown' });
+            // A never-deployed account has nothing on the chain to match yet, so it must be the one this phrase builds.
+            if (verdict === 'undeployed') {
+              await assertUndeployedStateFromSeed(state, match.coldSeed, match.coldCommitment);
+            }
+            judged.push({ ...match, state, verdict: verdict === 'undeployed' ? 'verified' : verdict });
+          }
+        }
+        for (const { hdIndex, sk, coldPublicKey, coldSecretKeyHex, state } of await selectAdoptable(judged)) {
+          for (const accountId of await this.adoptServedStates([state], sk)) {
+            recovered.push({ accountId, hdIndex, coldPublicKey, coldSecretKeyHex });
           }
         }
         return recovered;
       },
-      found => found.length > 0
+      adopted => adopted.length > 0
     );
 
     if (recovered.length === 0) {
@@ -1007,20 +1051,32 @@ export class MidenClientInterface {
   }
 
   /**
-   * Look up + adopt the Guardian accounts authorized by one key: the shared
-   * per-key body of `recoverGuardianAccountsBySeed` and
+   * Look up + adopt the Guardian accounts authorized by one key, as used by
    * `recoverGuardianAccountByHotKey`. An empty return is a MISS, not an error —
-   * the callers own their gap/empty semantics.
+   * the callers own their empty semantics.
    *
    * `verifyAccount` (when given) runs inside the WASM lock on the decoded
-   * account BEFORE it is adopted; throwing from it aborts the adoption of that
-   * match and propagates.
+   * account BEFORE it is adopted; throwing from it aborts the adoption and
+   * propagates.
    */
   private async recoverAndAdoptByKey(
     sk: AuthSecretKey,
     guardianEndpoint: string,
     verifyAccount?: (acc: Account) => Promise<void>
   ): Promise<string[]> {
+    return this.adoptServedStates(await this.lookupServedStatesByKey(sk, guardianEndpoint, verifyAccount), sk);
+  }
+
+  /**
+   * Look up the accounts one key is registered on and decode each, adopting none.
+   * `verifyAccount` (when given) runs inside the WASM lock on each decoded
+   * account; throwing from it aborts the lookup and propagates.
+   */
+  private async lookupServedStatesByKey(
+    sk: AuthSecretKey,
+    guardianEndpoint: string,
+    verifyAccount?: (acc: Account) => Promise<void>
+  ): Promise<ServedGuardianState[]> {
     // Refused before the lookup, which would show that operator the recovery's key.
     if (isOtherNetworkGuardian(guardianEndpoint, this.network)) {
       const { getMessage } = await import('lib/i18n');
@@ -1044,16 +1100,39 @@ export class MidenClientInterface {
       throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
     }
 
-    const adopted: string[] = [];
+    const states: ServedGuardianState[] = [];
     for (const { state } of matches) {
+      const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
+      states.push(
+        await withWasmClientLock(
+          async hold => {
+            const acc = Account.deserialize(accountBytes);
+            await verifyAccount?.(acc);
+            assertWasmHoldCurrent(hold, 'recover-guardian-decode after verification');
+            const facts = await readServedStateFacts(acc, accountBytes);
+            assertWasmHoldCurrent(hold, 'recover-guardian-decode after reading the facts');
+            return facts;
+          },
+          { label: 'recover-guardian-decode' }
+        )
+      );
+    }
+    return states;
+  }
+
+  /** Adopt already verified states locally and register `sk` as their key; returns the bech32 ids. */
+  private async adoptServedStates(states: readonly ServedGuardianState[], sk: AuthSecretKey): Promise<string[]> {
+    if (this.isDisposed) {
+      throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
+    }
+    const { assertWasmHoldCurrent, withWasmClientLock } = await import('../sdk/miden-client');
+    const adopted: string[] = [];
+    for (const state of states) {
       // Decode the on-chain account state and adopt it locally so subsequent
       // SDK calls (.load, executeForSummary) can resolve the account.
-      const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
       const bech32 = await withWasmClientLock(
         async hold => {
-          const acc = Account.deserialize(accountBytes);
-          await verifyAccount?.(acc);
-          assertWasmHoldCurrent(hold, 'recover-guardian-adopt after verification');
+          const acc = Account.deserialize(state.bytes);
           // The same account matches at more than one HD index, so this runs
           // twice per recovery; a plain overwrite lets whichever snapshot
           // arrives last win, including a creation-time one.

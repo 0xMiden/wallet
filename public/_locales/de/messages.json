@@ -4394,6 +4394,18 @@
     "message": "Wir konnten kein Backup für diesen Guardian finden. Überprüfen Sie die URL oder wählen Sie einen anderen Guardian aus.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Ihre Konten konnten nicht wiederhergestellt werden: Der guardian hat Kontodaten zurückgegeben, die nicht mit Ihrer Wiederherstellungsphrase übereinstimmen. Es wurde nichts wiederhergestellt.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Ihre Konten konnten nicht wiederhergestellt werden: Die Kopie eines Kontos beim guardian stimmt noch nicht mit dem Miden-Netzwerk überein. Es wurde nichts wiederhergestellt. Versuchen Sie es in einigen Minuten erneut.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Das Miden-Netzwerk konnte nicht erreicht werden, um Ihre Konten zu überprüfen. Ihre Wiederherstellungsphrase ist in Ordnung. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "Dieser „guardian“ läuft in einem anderen Miden-Netzwerk, daher kann er hier kein Konto wiederherstellen.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."

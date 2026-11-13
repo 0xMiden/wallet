@@ -142,11 +142,31 @@ afterEach(() => {
 
 it('passes the base signer through untouched for an unchecked type', async () => {
   const sign = baseSigner();
-  const send = row({ type: 'send', faucetId: 'bech32:fA', amount: 500n });
+  const incoming = row({ type: 'bridged-receive', faucetId: 'bech32:fA', amount: 500n });
   const run = jest.fn(async (signer: RawSigner) => signer);
-  await expect(withEffectCheckedSigner(send, sign, run)).resolves.toBe(sign);
+  await expect(withEffectCheckedSigner(incoming, sign, run)).resolves.toBe(sign);
   expect(getVerificationBaseFee).not.toHaveBeenCalled();
   expect(SigningInputs.deserialize).not.toHaveBeenCalled();
+});
+
+const guardedTransfers: ITransaction['type'][] = ['send', 'swap', 'earn-deposit'];
+
+it.each(guardedTransfers)('refuses %s signing above its persisted approval', async type => {
+  const sign = baseSigner();
+  givenSigning(summaryInputs(pswapFill('acct-a')));
+  const transfer = row({ type, faucetId: 'bech32:fA', amount: 499n });
+  await expect(withEffectCheckedSigner(transfer, sign, signer => signer('pk', 'aa'))).rejects.toBeInstanceOf(
+    ProposalEffectRefusedError
+  );
+  expect(sign).not.toHaveBeenCalled();
+});
+
+it.each(guardedTransfers)('passes %s signing within its persisted approval', async type => {
+  const sign = baseSigner();
+  givenSigning(summaryInputs(pswapFill('acct-a')));
+  const transfer = row({ type, faucetId: 'bech32:fA', amount: 500n });
+  await expect(withEffectCheckedSigner(transfer, sign, signer => signer('pk', 'aa'))).resolves.toBe(SIGNATURE);
+  expect(sign).toHaveBeenCalledTimes(1);
 });
 
 it('passes a summary within the approval to the base signer and returns what run returned', async () => {

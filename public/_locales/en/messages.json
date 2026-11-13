@@ -4393,6 +4393,18 @@
     "message": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "This guardian runs on another Miden network, so it cannot recover an account here.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."

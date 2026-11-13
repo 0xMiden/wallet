@@ -2047,6 +2047,8 @@ const generateTransactionWithProvider = async (
   // WASM hold, so the fee lookup it starts with never waits on the node inside one.
   let result: TransactionResult;
   try {
+    // Validate before fee discovery; keep the pre-write read because the intent can change during that await.
+    if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
     result = await withEffectCheckedSigner(transaction, signCallback, async signer => {
       switch (transaction.type) {
         case 'consume': {
@@ -2208,6 +2210,8 @@ const generateTransactionWithProvider = async (
     if (!(error instanceof ProposalFeeUnknownError) || !GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type)) {
       throw error;
     }
+    // An intent abandoned during fee discovery must fail instead of requeueing.
+    if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
     const requeueStreak = nextRequeueStreak(
       await Repo.transactions.where({ id: transaction.id }).first(),
       'chain-fee-unknown'

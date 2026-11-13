@@ -4393,6 +4393,18 @@
     "message": "이 Guardian에 대한 백업을 찾을 수 없습니다. URL을 확인하거나 다른 Guardian을 선택하십시오.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "귀하의 계정은 복구될 수 없었습니다: guardian가 귀하의 복구 문구와 일치하지 않는 계정 데이터를 반환했기 때문입니다. 복구된 내용은 전혀 없습니다.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "계정을 복구할 수 없습니다. 가디언(guardian)이 보유한 계정 사본이 아직 Miden 네트워크와 일치하지 않습니다. 복구된 내용은 없습니다. 몇 분 후에 다시 시도해 주십시오.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "계정을 확인하기 위해 Miden 네트워크에 연결할 수 없습니다. 복구 문구는 정상입니다. 연결 상태를 확인하고 다시 시도해 주십시오.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "이 guardian는 다른 Miden 네트워크에서 운영되므로, 이곳의 계정을 복구할 수 없습니다.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
