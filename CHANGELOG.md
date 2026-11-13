@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [CHANGE][all] Show distinct token names and an expandable full Faucet ID with copy feedback on token details.
 - [FIX][all] Cancel timed-out Guardian discovery reads so later recovery attempts can use shared permits (#2080).
 - [FIX][all] Keep a settled Guardian probe selectable when confirming chain read is unavailable (#2080).
 - [CHANGE][all] A dApp's consumable notes carry standardPayment, true only for a P2ID or P2IDE payment, so the dApp can leave other notes out.
