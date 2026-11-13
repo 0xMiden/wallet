@@ -615,7 +615,9 @@ async function recoverExistingSwapPayout(wallet: GuardianAwareWalletPage, state:
   await wallet.triggerSync(true);
   const file = await exportPublicInputNote(wallet, payback.noteId);
   await wallet.navigateTo('/history?filter=pending&view=list');
-  const accept = wallet.page.locator(`[data-pending-note-id="${payback.noteId}"]`).getByRole('button', { name: /^Accept Transfer$/ });
+  const accept = wallet.page
+    .locator(`[data-pending-note-id="${payback.noteId}"]`)
+    .getByRole('button', { name: /^Accept Transfer$/ });
   await expect(accept).toBeVisible({ timeout: 60_000 });
   Object.assign(state, prepared);
   persist(state);

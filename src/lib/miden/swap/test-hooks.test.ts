@@ -145,8 +145,23 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     p2ide: () => ({ root: () => ({ toHex: () => 'p2ide' }) })
   },
   NoteType: { Private: 0, Public: 1 },
-  NoteId: { fromHex: (id: string) => { requireHeld('NoteId.fromHex'); return { toString: () => id }; } },
-  NoteFile: { fromNoteId: () => { requireHeld('NoteFile.fromNoteId'); return { serialize: () => { requireHeld('NoteFile.serialize'); return new Uint8Array([3, 4]); } }; } }
+  NoteId: {
+    fromHex: (id: string) => {
+      requireHeld('NoteId.fromHex');
+      return { toString: () => id };
+    }
+  },
+  NoteFile: {
+    fromNoteId: () => {
+      requireHeld('NoteFile.fromNoteId');
+      return {
+        serialize: () => {
+          requireHeld('NoteFile.serialize');
+          return new Uint8Array([3, 4]);
+        }
+      };
+    }
+  }
 }));
 
 const g = globalThis as any;
@@ -195,7 +210,10 @@ describe('E2E swap hooks under the realm client lock (#878)', () => {
   });
 
   it('discovers one public input note under the same hold without consuming it', async () => {
-    fakeClient.importNoteBytes.mockImplementationOnce(async () => { requireHeld('public input import'); return 'received'; });
+    fakeClient.importNoteBytes.mockImplementationOnce(async () => {
+      requireHeld('public input import');
+      return 'received';
+    });
     await expect(g.__TEST_IMPORT_PUBLIC_NOTE__('received')).resolves.toEqual({ ok: true, noteId: 'received' });
     expect(fakeClient.importNoteBytes).toHaveBeenCalledWith(new Uint8Array([3, 4]), expect.any(Object));
     expect(held.labels).toEqual(['public-input-note-import']);
@@ -208,7 +226,10 @@ describe('E2E swap hooks under the realm client lock (#878)', () => {
   });
 
   it('never syncs through a hold retired during public note discovery', async () => {
-    fakeClient.importNoteBytes.mockImplementationOnce(async () => { held.revoked = true; return 'received'; });
+    fakeClient.importNoteBytes.mockImplementationOnce(async () => {
+      held.revoked = true;
+      return 'received';
+    });
     await expect(g.__TEST_IMPORT_PUBLIC_NOTE__('received')).resolves.toMatchObject({ ok: false });
     expect(fakeClient.syncState).not.toHaveBeenCalled();
     expect(held.count).toBe(0);

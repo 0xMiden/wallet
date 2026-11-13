@@ -365,9 +365,10 @@ export async function exportPublicInputNote(wallet: Wallet, noteId: string): Pro
   const result = await swOf(wallet).evaluate(async id => {
     const hook = Reflect.get(globalThis, '__TEST_IMPORT_PUBLIC_NOTE__');
     if (typeof hook !== 'function') throw new Error('Missing public input note discovery hook');
-    return await Reflect.apply(hook, globalThis, [id]) as { ok: boolean; noteId?: string; error?: string };
+    return (await Reflect.apply(hook, globalThis, [id])) as { ok: boolean; noteId?: string; error?: string };
   }, noteId);
-  if (!result.ok || result.noteId !== noteId) throw new Error(`Verified public claim note discovery failed (${result.error ?? 'identity mismatch'})`);
+  if (!result.ok || result.noteId !== noteId)
+    throw new Error(`Verified public claim note discovery failed (${result.error ?? 'identity mismatch'})`);
   return await exportMakerNote(wallet, noteId);
 }
 

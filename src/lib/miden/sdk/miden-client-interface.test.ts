@@ -220,7 +220,11 @@ describe('MidenClientInterface', () => {
     it('checks ownership before touching an input record returned after an await', async () => {
       const input = { isAuthenticated: jest.fn(() => true), toInputNote: jest.fn() };
       const { client, full } = await exportHarness(input);
-      await expect(client.exportNote('received', full, () => { throw new Error('retired hold'); })).rejects.toThrow('retired hold');
+      await expect(
+        client.exportNote('received', full, () => {
+          throw new Error('retired hold');
+        })
+      ).rejects.toThrow('retired hold');
       expect(input.isAuthenticated).not.toHaveBeenCalled();
       expect(input.toInputNote).not.toHaveBeenCalled();
     });

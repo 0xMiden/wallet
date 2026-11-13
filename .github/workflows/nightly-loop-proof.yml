@@ -1,4 +1,4 @@
-name: Public input discovery and received export GREEN
+name: Original claim public inclusion and shared allowance audit
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -9,9 +9,9 @@ concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  contracts:
+  public-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,72 +21,64 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: All connected SDK, offscreen and mainnet claim contracts
-        run: |
-          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
-          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
-          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/offscreen/main.test.ts src/lib/miden/swap/test-hooks.test.ts --maxWorkers=2 --watch=false
-          yarn lint:e2e
-      - name: Canonical types
-        if: always()
-        run: yarn ts
-      - name: Owned formatter patch
-        if: always()
-        run: |
-          yarn prettier --write src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/swap/test-hooks.ts src/lib/miden/swap/test-hooks.test.ts playwright/e2e/helpers/swap.ts playwright/e2e/helpers/mainnet-epoch-runtime.ts playwright/e2e/helpers/mainnet-near-runtime.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-epoch-readonly-completion.test.ts
-          git diff --binary -- src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/swap/test-hooks.ts src/lib/miden/swap/test-hooks.test.ts playwright/e2e/helpers/swap.ts playwright/e2e/helpers/mainnet-epoch-runtime.ts playwright/e2e/helpers/mainnet-near-runtime.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-epoch-readonly-completion.test.ts > input-export-owned-format.patch
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - uses: actions/download-artifact@v4
         with:
-          name: input-export-owned-format
-          path: input-export-owned-format.patch
-          if-no-files-found: error
-  readonly:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      E2E_NETWORK: mainnet
-      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
-      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
-    steps:
-      - uses: actions/checkout@v4
+          run-id: 43509688294
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43509688294
+          path: test-results/final
+      - uses: actions/download-artifact@v4
         with:
-          fetch-depth: 2
-      - name: Verify immutable read-only source
-        run: |
-          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
-          printf 'Read-only source %s\n' "$(git rev-parse HEAD^2)"
-      - uses: actions/setup-node@v4
+          run-id: 43509688294
+          github-token: ${{ github.token }}
+          name: mainnet-swap-reverse-claim-sdk-authorized-43509688294
+          path: test-results/sdk
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 22
-      - uses: ./.github/actions/yarn-install
+          run-id: 43509688294
+          github-token: ${{ github.token }}
+          name: mainnet-nightly-43509688294
+          path: test-results/public
       - uses: actions/download-artifact@v4
         with:
           run-id: 43485129750
           github-token: ${{ github.token }}
           name: mainnet-swap-final-43485129750
-          path: test-results/original-authority
-      - uses: ./.github/actions/install-miden-client-cli
-      - uses: ./.github/actions/apt-drop-unused-repos
-      - name: Install Chromium
-        timeout-minutes: 10
-        run: npx playwright install --with-deps chromium
-      - uses: ./.github/actions/start-eligibility-fixture
-      - name: Build actual recovery mainnet extension without provider overlay
-        run: yarn test:e2e:blockchain:build
-      - name: Read-only issued return outcome, never replace authority
+          path: test-results/prior
+      - name: Independent public nullifier, retained authorities and remaining cap
         run: |
-          umask 077
-          code=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/return-review-results" xvfb-run -a yarn playwright test mainnet-existing-payout-readiness.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/return-review.log" 2>&1 || code=$?
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
           node --input-type=module <<'NODE'
-          import { existsSync, readFileSync } from 'node:fs';
-          const path = 'test-results/read-only-existing-payout-ready.json';
-          if (!existsSync(path)) { console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.'); process.exit(1); }
-          const value = JSON.parse(readFileSync(path, 'utf8'));
-          const allowed = ['purpose','inspected','balances','payback','publicProofError','creationRows','consumeRows','noLivePolicy','consumeBlocked','errorStage','errorKind','aggregateNativeCosts','claimNativeBefore','claimUIReady','unresolvedRows','claimReadinessStage','claimExportReady','exportErrorKind','exportErrorText'];
-          if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
-          console.log(JSON.stringify(value));
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {Address,RpcClient,Endpoint} from '@miden-sdk/miden-sdk';
+          import {readMainnetSwapPayback} from './node_modules/.cache/nightly-swap-claim.mjs';
+          const read=path=>JSON.parse(readFileSync(path,'utf8'));
+          const state=read('test-results/final/roundtrip.json');
+          const sdk=read('test-results/sdk/roundtrip.json');
+          const prior=read('test-results/prior/roundtrip.json');
+          const receipt=read('test-results/public/mainnet-swap-recovery-claim.json');
+          assert.equal(state.phase,'complete');assert.equal(sdk.phase,'reverse-authorized');
+          assert.equal(state.sourceRunId,'43427924008');assert.equal(state.authorizationRunId,'43485129750');assert.equal(state.recoveredRunId,'43509688294');
+          for(const key of ['account','createdAt','pricedAt','offer','request','native','principal','feeBudget','baseFee','forwardRequestAuthority','reverseRequestAuthority','recoveryReturnAuthorizedAt','recoveryReturnReplacement','returnBaseline']) assert.deepEqual(state[key],prior[key],key);
+          assert.deepEqual(state.reverseClaimAuthority,sdk.reverseClaimAuthority);
+          assert.equal(state.reverseClaimAuthority.noteId,receipt.paybackNoteId);
+          assert.equal(state.reverseClaimAuthority.amount,receipt.paybackAmount);
+          assert.equal(sdk.recoveryClaimNativeBefore,'18987229');assert.equal(sdk.paidFees,'399');
+          const authority=state.reverseRequestAuthority;
+          const proof=await readMainnetSwapPayback('https://rpc.mainnet.miden.io',{kind:'swap',accountId:Address.fromBech32(state.account).accountId().toString(),faucetId:state.request.hex,amount:state.returnAmount,requestedFaucetId:state.offer.hex,requestedAmount:authority.minimumReceive,noteId:authority.noteId,orderId:authority.orderId});
+          assert.ok(proof);assert.equal(proof.noteId,receipt.paybackNoteId);assert.equal(proof.amount,1010066n);assert.equal(proof.claimedAtBlock,866163);
+          assert.equal(proof.originalCreatedAtBlock,receipt.creationAtBlock);assert.equal(proof.createdAtBlock,receipt.paybackCreatedAtBlock);
+          const rpc=new RpcClient(new Endpoint('https://rpc.mainnet.miden.io'));
+          const header=await rpc.getBlockHeaderByNumber(proof.claimedAtBlock);
+          assert.equal(header.blockNum(),receipt.claimedAtBlock);
+          assert.ok(header.timestamp()*1000<=state.reverseClaimAuthority.expiresAt);
+          const claimFee=BigInt(receipt.claimFee),nativeFinal=BigInt(receipt.nativeFinal);
+          assert.equal(claimFee,133n);assert.equal(BigInt(sdk.recoveryClaimNativeBefore)+proof.amount-claimFee,nativeFinal);assert.equal(nativeFinal,19997162n);assert.equal(receipt.requestFinal,'0');
+          assert.equal(BigInt(sdk.paidFees)+claimFee,BigInt(state.paidFees));assert.equal(state.paidFees,receipt.aggregateNativeCosts);assert.equal(state.paidFees,'532');
+          const debit=BigInt(state.native.balance)-nativeFinal;
+          const cost=(debit*BigInt(state.native.usdMicros)+999999n)/1000000n;
+          assert.equal(cost,894n);assert.equal(cost.toString(),state.realizedCostUsdMicros);assert.equal(state.realizedCostUsdMicros,receipt.realizedCostUsdMicros);
+          const allowance=2000000n-cost;assert.equal(allowance,1999106n);
+          console.log(JSON.stringify({purpose:'keyless original recovery claim and reduced shared allowance audit, not fresh provider acceptance',sourceRunId:state.sourceRunId,authorityRunId:state.authorizationRunId,claimRunId:state.recoveredRunId,paybackNoteId:proof.noteId,paybackAmount:proof.amount.toString(),claimedAtBlock:proof.claimedAtBlock,claimTransactionId:receipt.claimTransactionId,claimFee:claimFee.toString(),aggregateNativeCosts:state.paidFees,nativeFinal:nativeFinal.toString(),requestFinal:receipt.requestFinal,originalAuthoritiesUnchanged:true,sdkClaimFingerprintUnchanged:true,claimWithinFrozenDeadline:true,realizedCostUsdMicros:cost.toString(),freshQualificationAllowanceUsdMicros:allowance.toString(),vaultAccountingSource:'actual signed claim receipt and runner vault reconciliation; no fabricated historical per-transaction fees'}));
           NODE
-          exit "$code"

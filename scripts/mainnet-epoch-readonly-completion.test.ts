@@ -39,7 +39,9 @@ jest.mock('../playwright/e2e/helpers/mainnet-epoch-request', () => ({}));
 jest.mock('../playwright/e2e/helpers/mainnet-epoch-ui', () => ({}));
 jest.mock('../playwright/e2e/helpers/bridge', () => ({}));
 jest.mock('../playwright/e2e/helpers/epoch-quote', () => ({}));
-jest.mock('../playwright/e2e/helpers/swap', () => ({ exportPublicInputNote: (...args: unknown[]) => mockExport(...args) }));
+jest.mock('../playwright/e2e/helpers/swap', () => ({
+  exportPublicInputNote: (...args: unknown[]) => mockExport(...args)
+}));
 jest.mock('../playwright/e2e/helpers/mainnet-epoch-evm', () => ({ reconcileEpochEvmReceipts: () => true }));
 import {
   runEpochRefund,
