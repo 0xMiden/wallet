@@ -120,22 +120,28 @@ async function restartBackend(context: BrowserContext, protocol: CDPSession, pag
   if (!old) throw new Error('Extension worker unavailable');
   const scriptUrl = old.url();
   let versionId = '';
+  let running = '';
   let stopped = false;
   protocol.on('ServiceWorker.workerVersionUpdated', event => {
     for (const version of event.versions) {
       if (version.scriptURL !== scriptUrl) continue;
       if (!versionId && version.runningStatus === 'running') versionId = version.versionId;
-      if (version.versionId === versionId && version.runningStatus === 'stopped') stopped = true;
+      if (version.versionId === versionId) {
+        running = version.runningStatus;
+        if (running === 'stopped') stopped = true;
+      }
     }
   });
   await protocol.send('ServiceWorker.enable');
   await expect.poll(() => versionId).not.toBe('');
+  await old.evaluate(() => Reflect.set(globalThis, '__platformBeforeStop', true));
   await protocol.send('ServiceWorker.stopWorker', { versionId });
   await expect.poll(() => stopped).toBe(true);
   await page.reload();
-  await expect.poll(() => context.serviceWorkers().some(item => item !== old && item.url() === scriptUrl)).toBe(true);
-  const worker = context.serviceWorkers().find(item => item !== old && item.url() === scriptUrl);
+  await expect.poll(() => running).toBe('running');
+  const worker = context.serviceWorkers().find(item => item.url() === scriptUrl);
   if (!worker) throw new Error('Replacement worker unavailable');
+  await expect.poll(() => worker.evaluate(() => Reflect.get(globalThis, '__platformBeforeStop'))).toBeUndefined();
   await worker.evaluate(overrideOs);
   await page.reload();
 }
@@ -268,7 +274,9 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
           properties?.type === 'popup' ? [window] : getViews(properties);
       });
     await outside.goto(`chrome-extension://${extensionId}/${shell}#/settings/passkey-unlock`);
-    await expect.poll(() => outside.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect
+      .poll(() => outside.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+      .toBe(true);
     await expect(outside.getByText('Passkey unlock is enabled for this wallet.')).toBeVisible();
     await expect(outside.getByRole('button', { name: 'Open wallet', exact: true })).toBeVisible();
     await expect(outside.getByLabel('Password', { exact: true })).toHaveCount(0);
