@@ -18,7 +18,16 @@ import {
   inspectMainnetReturnNote
 } from '../node_modules/.cache/nightly-epoch-request.mjs';
 
+import * as nativeRequests from '../node_modules/.cache/nightly-send-request.mjs';
+
 const sdk = getWrappedSdk();
+function guardianBytes(builder) {
+  return builder
+    .withBlockNumbers([1000])
+    .build()
+    .withAuthArgs([1000n, 1180n, 0n, 0n, 1n, 2n, 3n, 4n, 0n, 1n, 1n, 0n].map(value => new sdk.Felt(value)))
+    .serialize();
+}
 const actor = 'mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5_qr7qqq9wr6w';
 const sender = () => sdk.Address.fromBech32(actor.split('_')[0]).accountId();
 const state = () => ({ ...epochCheckpointFixture(), account: actor, accountHex: sender().toString() });
@@ -325,6 +334,79 @@ function request(options = {}) {
     builder = builder.withFeeConversionSalt(sdk.Word.fromHex(`0x${'11'.repeat(32)}`)).withBlockNumbers([900]);
   return { state: snapshot, bytes: builder.build().serialize(), noteId };
 }
+
+test('binds the final Guardian Epoch request to the whole reviewed collateral note, not only its note ID', async () => {
+  const input = request();
+  const note = sdk.TransactionRequest.deserialize(input.bytes).expectedOutputOwnNotes()[0];
+  const scope = {
+    kind: 'epoch',
+    accountId: input.state.accountHex,
+    faucetId: input.state.native.hex,
+    amount: input.state.principal,
+    noteId: input.noteId,
+    noteSha256: createHash('sha256').update(note.serialize()).digest('hex')
+  };
+  const signed = guardianBytes(new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([note])));
+  assert.equal(typeof nativeRequests.inspectTestMainnetEpochRequest, 'function', 'Missing final Epoch SDK inspection');
+  assert.deepEqual(await nativeRequests.inspectTestMainnetEpochRequest(scope, signed), { noteId: input.noteId });
+  const changed = sdk.Note.withAttachments(note.assets(), note.metadata(), note.recipient(), [
+    new sdk.NoteAttachment()
+  ]);
+  assert.equal(changed.id().toString(), input.noteId, 'Attachment is not bound by the note ID alone');
+  await assert.rejects(() =>
+    nativeRequests.inspectTestMainnetEpochRequest(
+      scope,
+      guardianBytes(new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([changed])))
+    )
+  );
+});
+
+test('authorizes the Guardian consume reference without inventing a standalone expiration delta', () => {
+  const input = returnFile();
+  const note = sdk.NoteFile.deserialize(input.bytes).note();
+  const unsigned = new sdk.TransactionRequestBuilder()
+    .withInputNotes(new sdk.NoteAndArgsArray([new sdk.NoteAndArgs(note, null)]))
+    .build();
+  const expected = createHash('sha256').update(canonicalRequestBytes(unsigned.serialize())).digest('hex');
+  assert.equal(mainnetConsumeRequestHash(input.bytes, true), expected);
+});
+
+test('checks every non-authentication field of an actual Guardian consume request', async () => {
+  const input = returnFile();
+  const note = sdk.NoteFile.deserialize(input.bytes).note();
+  const build = () =>
+    new sdk.TransactionRequestBuilder().withInputNotes(
+      new sdk.NoteAndArgsArray([new sdk.NoteAndArgs(sdk.Note.deserialize(note.serialize()), null)])
+    );
+  const scope = {
+    noteId: input.noteId,
+    canonicalSha256: createHash('sha256').update(canonicalRequestBytes(build().build().serialize())).digest('hex')
+  };
+  assert.equal(
+    typeof nativeRequests.inspectTestMainnetGuardianConsumeRequest,
+    'function',
+    'Missing Guardian consume SDK inspection'
+  );
+  const signed = guardianBytes(build());
+  assert.equal(
+    await nativeRequests.inspectTestMainnetGuardianConsumeRequest(scope, signed, note),
+    createHash('sha256').update(canonicalRequestBytes(signed)).digest('hex')
+  );
+  await assert.rejects(() =>
+    nativeRequests.inspectTestMainnetGuardianConsumeRequest(
+      scope,
+      guardianBytes(build().withOwnOutputNotes(new sdk.NoteArray([note]))),
+      note
+    )
+  );
+  await assert.rejects(() =>
+    nativeRequests.inspectTestMainnetGuardianConsumeRequest(
+      scope,
+      guardianBytes(build().withExpirationDelta(600)),
+      note
+    )
+  );
+});
 
 test('canonicalizes actual request bytes in a browser without a Node Buffer global', () => {
   const bytes = Uint8Array.from(request().bytes);
