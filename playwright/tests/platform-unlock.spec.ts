@@ -233,18 +233,15 @@ async function privacy(page: Page, messages: string[]) {
   const persisted = await page.evaluate(async () => JSON.stringify(await chrome.storage.local.get(null)));
   const containsPrf = (text: string) => [...observations.secrets].some(secret => text.includes(secret));
   expect(containsPrf(persisted) || messages.some(containsPrf), 'No PRF output may enter storage or logs').toBe(false);
-  if (observations.count !== 0) {
-    const secret = observations.secrets.values().next().value;
-    if (typeof secret !== 'string') throw new Error('Private PRF observation missing');
-    expect(containsPrf(JSON.stringify({ privateReadProbe: secret })), 'A memory-only leaked read must be detected').toBe(true);
-  }
+  return containsPrf;
 }
 
 async function ceremonyCounts(page: Page) {
   return page.evaluate(() => {
     const calls: unknown = Reflect.get(window, '__platformCalls');
     const completed: unknown = Reflect.get(window, '__platformSettled');
-    if (typeof calls !== 'function' || typeof completed !== 'function') throw new Error('Ceremony observer unavailable');
+    if (typeof calls !== 'function' || typeof completed !== 'function')
+      throw new Error('Ceremony observer unavailable');
     const started: unknown = calls();
     const settled: unknown = completed();
     if (typeof started !== 'number' || typeof settled !== 'number') throw new Error('Invalid ceremony counts');
@@ -361,7 +358,13 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   await expect(page.getByTestId('unlock-password')).toHaveCount(0, { timeout: 30_000 });
   expect(assertions).toBe(priorAssertions + 1);
   expect(observations.count).toBe(prfsBeforeUnlock + 1);
-  await privacy(page, messages);
+  const containsPrf = await privacy(page, messages);
+  const secret = observations.secrets.values().next().value;
+  if (typeof secret !== 'string') throw new Error('Private PRF observation missing');
+  expect(
+    containsPrf(JSON.stringify({ privateReadProbe: secret })),
+    'A memory-only leaked read must be detected after unlock reload'
+  ).toBe(true);
 
   await request(page, { type: 'LOCK_REQUEST' });
   await protocol.send('WebAuthn.setResponseOverrideBits', { authenticatorId, isBadUV: true });
@@ -464,9 +467,13 @@ test('an authorized reset during a native ceremony cannot publish a new protecto
     let abandoned = 0;
     const observe = async (payload: unknown, ...options: unknown[]) => {
       const command: unknown = payload && typeof payload === 'object' ? Reflect.get(payload, 'command') : null;
-      const isAbandon = payload && typeof payload === 'object' &&
+      const isAbandon =
+        payload &&
+        typeof payload === 'object' &&
         Reflect.get(payload, 'type') === 'PLATFORM_UNLOCK_REQUEST' &&
-        command && typeof command === 'object' && Reflect.get(command, 'action') === 'abandon';
+        command &&
+        typeof command === 'object' &&
+        Reflect.get(command, 'action') === 'abandon';
       try {
         return await send.call(intercom, payload, ...options);
       } finally {
@@ -527,11 +534,15 @@ test('an authorized reset during a native ceremony cannot publish a new protecto
   await request(page, { type: 'PLATFORM_RESET_REQUEST', nonce });
   await protocol.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
   await expect.poll(async () => (await ceremonyCounts(page)).settled).toBe(beforeReset.settled + 1);
-  await expect.poll(() => page.evaluate(() => {
-    const completed: unknown = Reflect.get(window, '__platformAbandoned');
-    if (typeof completed !== 'function') throw new Error('Abandonment observer unavailable');
-    return completed();
-  })).toBe(1);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const completed: unknown = Reflect.get(window, '__platformAbandoned');
+        if (typeof completed !== 'function') throw new Error('Abandonment observer unavailable');
+        return completed();
+      })
+    )
+    .toBe(1);
   await expect.poll(() => storedRecord(page)).toBeNull();
   expect(
     await page.evaluate(
