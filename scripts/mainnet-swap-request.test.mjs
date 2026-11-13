@@ -85,19 +85,19 @@ function fixture(change = {}) {
   return { scope, noteId: actual.id().toString(), bytes: Uint8Array.from(request.serialize()) };
 }
 
-test('inspects actual SDK PSWAP bytes and binds the live note and serial-derived order to the reviewed terms', () => {
+test('uses the actual SDK PSWAP protocol order ID in serial[1], not the independent serial[0]', () => {
   const input = fixture();
   assert.equal(typeof requests.inspectTestMainnetSwapRequest, 'function', 'Missing exact SDK PSWAP request inspection');
   assert.deepEqual(requests.inspectTestMainnetSwapRequest(input.scope, input.bytes), {
     noteId: input.noteId,
-    orderId: '42'
+    orderId: '1'
   });
 });
-test('inspects actual SDK Guardian PSWAP auth bytes without regenerating its serial', () => {
+test('uses the same protocol order ID for actual Guardian PSWAP auth bytes without regenerating its serial', () => {
   const input = fixture({ guardian: true });
   assert.deepEqual(requests.inspectTestMainnetSwapRequest(input.scope, input.bytes, true), {
     noteId: input.noteId,
-    orderId: '42'
+    orderId: '1'
   });
 });
 for (const [name, change] of [
