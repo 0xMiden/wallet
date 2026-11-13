@@ -40,9 +40,9 @@ export interface SimulateCustomTxResult {
   /** Human-oriented error message when the dry run could not be produced. */
   error?: string;
   /**
-   * The carried notes this request brought in, as opposed to notes the wallet already held, by the provenance check
-   * inside `simulateCustomTransaction`; lowercased. Set on both successful results. The approval credits only these
-   * consumed notes, so every other one is value the account spends.
+   * The carried notes this request brought in, as opposed to notes the synced wallet already held, by the provenance
+   * check inside `simulateCustomTransaction`; lowercased. Set on both successful results. The approval credits only
+   * these consumed notes, so every other one is value the account spends.
    */
   introducedNoteIds?: string[];
 }
@@ -63,6 +63,9 @@ const SIMULATION_TIMEOUT_MS = 20_000;
  * a dry-run-imported note visible is a cosmetic surprise, while hiding a note
  * the user already owned removes their only view of their own funds. When the
  * lookup is broken for every id the quarantine simply degrades to a no-op.
+ *
+ * The caller syncs first: a note on chain that the client has not synced has no
+ * record yet and would read as introduced.
  */
 async function idsNotAlreadyHeld(
   client: { getInputNote(id: string): Promise<unknown> },
@@ -93,8 +96,9 @@ async function idsNotAlreadyHeld(
 
 /**
  * Locally executes a custom transaction to derive its ground truth WITHOUT
- * proving or submitting — a dry run. Imports the request's carried notes and
- * syncs first so execution can resolve its inputs.
+ * proving or submitting — a dry run. Syncs, judges against the synced client
+ * which carried notes the request introduced, imports those, and syncs again
+ * after an import so execution can resolve its inputs.
  *
  * Returns `summaryBytes` (a TransactionSummary) when authorization is still
  * pending — a guardian/multisig account below its signing threshold — and
@@ -140,6 +144,15 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // the callback is guardable, and the hold is re-checked at each one.
         assertWasmHoldCurrent(hold, 'after the client build');
 
+        // The held-note check below reads the client's input-note records, so it runs on a synced client. A public
+        // note addressed to the account that is on chain but not synced yet has no record, and before this sync it
+        // read as introduced: the approval credited its value as brought in by the request, so a request could
+        // consume the user's own note and send its value away with nothing shown leaving. The ids are decoded
+        // first, so bytes that trap fail before any node round trip.
+        const carriedIds = importedNoteIds(input.importNotes, IN_HOLD);
+        await client.syncState();
+        assertWasmHoldCurrent(hold, 'after the provenance sync');
+
         // Quarantine BEFORE importing: these notes are about to land in the
         // real client DB purely so `executeForSummaryAtTip` can resolve them for
         // the dry run — the user hasn't approved anything yet. Quarantining
@@ -149,11 +162,11 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // Only the ids this dry run actually INTRODUCES are quarantined. The
         // ids come from fully dApp-controlled `importNotes` bytes and can name
         // a note the user already holds (one the dApp delivered earlier, or a
-        // public note the wallet already discovered); a decline releases
-        // nothing, so quarantining by id alone would let any dApp hide the
-        // user's own claimable notes just by opening a confirm dialog they
-        // then cancel. See lib/miden/note-quarantine.ts for the full lifecycle.
-        const introducedIds = await idsNotAlreadyHeld(client, importedNoteIds(input.importNotes, IN_HOLD), hold);
+        // public note the wallet discovered, by the sync above at the latest);
+        // a decline releases nothing, so quarantining by id alone would let any
+        // dApp hide the user's own claimable notes just by opening a confirm
+        // dialog they then cancel. See lib/miden/note-quarantine.ts for the full lifecycle.
+        const introducedIds = await idsNotAlreadyHeld(client, carriedIds, hold);
         // The same provenance check decides which consumed notes the approval credits as brought in.
         // Notes the wallet already held are the user's own, and crediting them let a dApp consume a
         // pending 1000 and send 1050 for a charge of 50. Only this check knows which ids were already
@@ -171,6 +184,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // from that set and is not imported. A carried note whose id does not decode was never
         // classified and is still imported.
         const introduced = new Set(introducedIds);
+        let imported = false;
         for (const noteB64 of input.importNotes ?? []) {
           // Per-iteration, and the count is dApp-controlled — one guard before
           // the loop only covers the first import.
@@ -178,13 +192,19 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
           const [id] = importedNoteIds([noteB64], IN_HOLD);
           if (id !== undefined && !introduced.has(id)) continue;
           await client.importNoteBytes(b64ToU8(noteB64), hold);
+          imported = true;
         }
         assertWasmHoldCurrent(hold, 'after the note imports');
-        await client.syncState();
-        // `accountRefToSdk` and `TransactionRequest.deserialize` below are
-        // WASM calls too, not just the execution — and the sync is the await
-        // most likely to outlive the watchdog.
-        assertWasmHoldCurrent(hold, 'after the sync');
+        // An import commits a note only up to the client's sync height. One committed after the sync above (a note
+        // the dApp created moments before asking) is stored as expected or unverified until a later sync, and the
+        // dry run could not consume it. With nothing imported the sync above already serves the execution.
+        if (imported) {
+          await client.syncState();
+          // `accountRefToSdk` and `TransactionRequest.deserialize` below are
+          // WASM calls too, not just the execution — and the sync is the await
+          // most likely to outlive the watchdog.
+          assertWasmHoldCurrent(hold, 'after the post-import sync');
+        }
 
         // The dApp address is parsed by the wallet's canonical account-reference parser, which reduces
         // a composite `<address>_<suffix>` to its address and accepts either hex prefix case, and is

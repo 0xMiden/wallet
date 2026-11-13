@@ -132,6 +132,8 @@ describe('simulateCustomTransaction', () => {
       ids.forEach(id => mockQuarantinedIds.delete(id));
     });
     getInputNote.mockImplementation(async () => null);
+    // Some tests queue a behaviour for one of the two syncs; one left unused must not reach the next test.
+    syncState.mockReset().mockImplementation(async () => undefined);
   });
 
   it('imports notes, syncs, executes for summary and returns serialized summary', async () => {
@@ -141,7 +143,7 @@ describe('simulateCustomTransaction', () => {
       importNotes: ['noteA', 'noteB']
     });
     expect(importNoteBytes).toHaveBeenCalledTimes(2);
-    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(syncState).toHaveBeenCalledTimes(2);
     expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
     expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
@@ -232,6 +234,26 @@ describe('simulateCustomTransaction', () => {
     getInputNote.mockRejectedValueOnce(new Error('note store unavailable'));
     await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64', importNotes: ['noteA'] });
     expect(quarantineNoteIds).toHaveBeenCalledWith([], expect.objectContaining({ abandoned: false }));
+  });
+
+  it('syncs again after an import, before executing, for a carried note committed since the first sync', async () => {
+    await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64', importNotes: ['noteA'] });
+
+    expect(syncState).toHaveBeenCalledTimes(2);
+    expect(importNoteBytes.mock.invocationCallOrder[0]).toBeLessThan(syncState.mock.invocationCallOrder[1]!);
+    expect(syncState.mock.invocationCallOrder[1]).toBeLessThan(
+      jest.mocked(executeForSummaryAtTip).mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('syncs once, before the lookups, when it imports nothing', async () => {
+    getInputNote.mockImplementation(async () => ({ alreadyHere: true }));
+
+    await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64', importNotes: ['noteA'] });
+
+    expect(importNoteBytes).not.toHaveBeenCalled();
+    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(syncState.mock.invocationCallOrder[0]).toBeLessThan(getInputNote.mock.invocationCallOrder[0]!);
   });
 
   it('tolerates a missing importNotes list', async () => {
@@ -408,6 +430,18 @@ describe('simulateCustomTransaction', () => {
       expect(executeForSummaryAtTip).not.toHaveBeenCalled();
     });
 
+    it('during the sync before the lookups: no lookup, quarantine write or import runs', async () => {
+      syncState.mockImplementationOnce(async () => {
+        revokeWasmHold();
+        return undefined;
+      });
+
+      await expectHoldLoss(simulateCustomTransaction(input), 'after the provenance sync');
+      expect(getInputNote).not.toHaveBeenCalled();
+      expect(quarantineNoteIds).not.toHaveBeenCalled();
+      expect(importNoteBytes).not.toHaveBeenCalled();
+    });
+
     it('during a provenance lookup: the loop stops before the next one, and the poison is not swallowed as "already held"', async () => {
       getInputNote.mockImplementationOnce(async () => {
         revokeWasmHold();
@@ -427,7 +461,8 @@ describe('simulateCustomTransaction', () => {
 
       await expectHoldLoss(simulateCustomTransaction(input), 'after the quarantine write');
       expect(importNoteBytes).not.toHaveBeenCalled();
-      expect(syncState).not.toHaveBeenCalled();
+      // Only the sync before the lookups ran.
+      expect(syncState).toHaveBeenCalledTimes(1);
     });
 
     it('during a note import: the loop stops before the next import', async () => {
@@ -438,16 +473,20 @@ describe('simulateCustomTransaction', () => {
 
       await expectHoldLoss(simulateCustomTransaction(input), 'before the note import');
       expect(importNoteBytes).toHaveBeenCalledTimes(1);
-      expect(syncState).not.toHaveBeenCalled();
+      // Only the sync before the lookups ran.
+      expect(syncState).toHaveBeenCalledTimes(1);
     });
 
-    it('during the sync: neither the id parse nor the execution runs', async () => {
-      syncState.mockImplementationOnce(async () => {
-        revokeWasmHold();
-        return undefined;
-      });
+    it('during the sync after the imports: neither the id parse nor the execution runs', async () => {
+      syncState
+        .mockImplementationOnce(async () => undefined)
+        .mockImplementationOnce(async () => {
+          revokeWasmHold();
+          return undefined;
+        });
 
-      await expectHoldLoss(simulateCustomTransaction(input), 'after the sync');
+      await expectHoldLoss(simulateCustomTransaction(input), 'after the post-import sync');
+      expect(importNoteBytes).toHaveBeenCalledTimes(2);
       expect(accountRefToSdk).not.toHaveBeenCalled();
       expect(executeForSummaryAtTip).not.toHaveBeenCalled();
     });
@@ -653,6 +692,32 @@ describe('introduced-note provenance', () => {
       executedBytes: 'b64:9-9',
       introducedNoteIds: []
     });
+  });
+
+  it('judges a carried note against the synced client: a note the sync brings in is held, not introduced', async () => {
+    // The account's own public note is on chain but not in the client until a sync. Looked up before it, the note
+    // read as introduced and the approval credited its value as brought in by the request.
+    let synced = false;
+    syncState.mockImplementationOnce(async () => {
+      synced = true;
+    });
+    getInputNote.mockImplementation(async (id: string) => (synced && id === 'id:noteA' ? { alreadyHere: true } : null));
+
+    const result = await simulateCustomTransaction({
+      address: 'mtst1sender',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA', 'noteB']
+    });
+
+    expect(result).toEqual({ summaryBytes: 'b64:1-2-3', introducedNoteIds: ['id:noteb'] });
+    expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteB'], expect.anything());
+    expect(importNoteBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('syncs before the held-note lookups', async () => {
+    await simulateCustomTransaction({ address: 'mtst1sender', transactionRequest: 'reqB64', importNotes: ['noteA'] });
+
+    expect(syncState.mock.invocationCallOrder[0]).toBeLessThan(getInputNote.mock.invocationCallOrder[0]!);
   });
 
   it('returns the introduced ids with an executed result too', async () => {

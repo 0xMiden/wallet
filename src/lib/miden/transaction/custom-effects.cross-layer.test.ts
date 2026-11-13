@@ -7,6 +7,7 @@
 import { TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import { summaryBytesToView } from 'app/confirm/decode';
+import { simulateCustomTransaction } from 'lib/miden/back/simulate-custom-tx';
 
 import { CustomTransactionEffectsChangedError } from './constants';
 import { approveCustomSimulation, assertCustomEffectsApproved, type ApprovedCustomSimulation } from './custom-effects';
@@ -23,8 +24,27 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   getBech32AddressFromAccountId: jest.fn((id: string | { __faucet: string }) =>
     typeof id === 'string' ? `bech32:${id}` : `bech32:${id.__faucet}`
   ),
-  canonicalWalletAccountId: jest.fn((id: string) => id.replace(/^hex:/, ''))
+  canonicalWalletAccountId: jest.fn((id: string) => id.replace(/^hex:/, '')),
+  accountRefToSdk: jest.fn(() => ({ toString: () => 'acct' }))
 }));
+// The approval dry run's own client: a carried note's id is its bytes, and its result is the summary every layer reads.
+jest.mock('lib/miden/note-quarantine', () => ({
+  ...jest.requireActual('lib/miden/note-quarantine'),
+  importedNoteIds: jest.fn((notes?: string[]) => notes ?? []),
+  quarantineNoteIds: jest.fn(async () => undefined)
+}));
+jest.mock('lib/miden/sdk/custom-request', () => ({
+  prepareCustomRequestBytes: jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes)
+}));
+jest.mock('lib/miden/sdk/custom-dry-run', () => ({
+  dryRunPreparedCustomRequest: jest.fn(async () => ({ summaryBytes: 'c3VtbWFyeQ==' }))
+}));
+const mockDryRunClient = {
+  client: {},
+  syncState: jest.fn(async () => undefined),
+  getInputNote: jest.fn(async (_id: string): Promise<unknown> => null),
+  importNoteBytes: jest.fn(async () => 'imported')
+};
 // The chain charges a fee in its native asset, so the kernel's fee note is told apart on every decode.
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
@@ -58,6 +78,12 @@ jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async (fn: () => unknown) => fn(),
   assertWasmHoldCurrent: jest.fn()
+}));
+// The dry run imports the client by its alias path, which the root manual mock would answer.
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  withWasmClientLock: async (fn: () => unknown) => fn(),
+  assertWasmHoldCurrent: jest.fn(),
+  getMidenClient: async () => mockDryRunClient
 }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
@@ -188,6 +214,39 @@ describe('one approval, measured alike by the approval, the generation check and
     expect(signingCheck({ ...row, approvedOutflow: [{ faucetId: 'bech32:fX', amount: 50n }] })).toBe(
       '1050 of bech32:fX leaves (approved 50)'
     );
+  });
+
+  it('counts as leaving, at every layer, a held note the client had not synced when the request came', async () => {
+    // The account's own 1000 X public note is on chain but reaches the client only with a sync. The request carries
+    // it, consumes it and sends 1050 X.
+    let synced = false;
+    mockDryRunClient.syncState.mockImplementationOnce(async () => {
+      synced = true;
+    });
+    mockDryRunClient.getInputNote.mockImplementation(async (id: string) => (synced && id === '0xheld' ? { id } : null));
+    dryRunGives(
+      summary({
+        removed: [fa('fX', 50n), fa('usdcx', 2n)],
+        inputs: [note('0xheld', [fa('fX', 1000n)])],
+        outputs: [note('0xsent', [fa('fX', 1050n)]), feeNote(2n)]
+      })
+    );
+
+    const simulated = await simulateCustomTransaction({
+      address: 'acct',
+      transactionRequest: Buffer.from('custom-request').toString('base64'),
+      importNotes: ['0xheld']
+    });
+    expect(simulated).toEqual({ summaryBytes: SUMMARY_BYTES, introducedNoteIds: [] });
+    const approval = approveCustomSimulation(simulated);
+    if (approval === undefined) throw new Error('the dry run gave no approval');
+    const row = await queuedRow(approval);
+
+    expect(approval.view.outgoing).toEqual([{ faucetId: 'bech32:fX', amount: 1050n }]);
+    expect(row.approvedOutflow).toEqual([{ faucetId: 'bech32:fX', amount: 1050n }]);
+    expect(row.spentAssetTotals).toEqual([{ faucetId: 'bech32:fX', amount: 1050n }]);
+    expect(generationCheck(row)).not.toThrow();
+    expect(signingCheck(row)).toBeUndefined();
   });
 
   it('refuses at signing a note the approval did not show being created', async () => {
