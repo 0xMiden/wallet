@@ -101,19 +101,56 @@ class SecretClipboardSlotTest {
         assertEquals("theirs", clipText())
     }
 
+    // A recreated activity attaches unfocused from onCreate; the clear keeps the time it had left.
     @Test
-    fun aRecreatedActivityTakesOverAPendingClear() {
+    fun aRecreatedActivityKeepsTheRemainingDeadline() {
         val slot = SecretClipboardSlot()
         val first = Any()
         val second = Any()
         slot.attach(first, clipboard, focused = true)
         slot.write(clipboard, "alpha beta", 1_000)
         flushWrites()
+        advance(400)
         slot.detach(first)
+        slot.attach(second, clipboard, focused = false)
+        flushWrites()
+        slot.onWindowFocusChanged(second, true)
+        flushWrites()
         assertEquals("alpha beta", clipText())
+        advance(599)
+        assertEquals("alpha beta", clipText())
+        advance(1)
+        assertNull(clipText())
+    }
+
+    @Test
+    fun aReplacedOwnerCannotCancelTheDeadline() {
+        val slot = SecretClipboardSlot()
+        val first = Any()
+        val second = Any()
+        slot.attach(first, clipboard, focused = true)
+        slot.write(clipboard, "alpha beta", 1_000)
+        flushWrites()
         slot.attach(second, clipboard, focused = true)
+        slot.detach(first)
         advance(1_000)
         assertNull(clipText())
+    }
+
+    @Test
+    fun aReplacedOwnerCannotClearOnFocus() {
+        val slot = SecretClipboardSlot()
+        val first = Any()
+        val second = Any()
+        slot.attach(first, clipboard, focused = false)
+        slot.write(clipboard, "secret", 1_000)
+        flushWrites()
+        advance(1_000)
+        slot.attach(second, clipboard, focused = false)
+        flushWrites()
+        slot.onWindowFocusChanged(first, true)
+        flushWrites()
+        assertEquals("secret", clipText())
     }
 
     private fun clipText(): String? = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
