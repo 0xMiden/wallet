@@ -250,9 +250,8 @@ it('uses the UI producer submission lists in crash scrubbing', () => {
         errorChain: jest.fn(() => []),
         snapshotCrashDiagnostics: jest.fn(() => ({}))
       }));
-      const { reportTransactionFailure: report } = jest.requireActual<typeof import('./transaction-failure')>(
-        './transaction-failure'
-      );
+      const { reportTransactionFailure: report } =
+        jest.requireActual<typeof import('./transaction-failure')>('./transaction-failure');
       report({ type: 'send' });
       const captureCrash = jest.requireMock<typeof import('./crash')>('./crash').captureCrash;
       closedNames = jest.mocked(captureCrash).mock.calls[0]?.[2]?.closedNames;

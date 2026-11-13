@@ -22,6 +22,7 @@ import { TxStory } from 'components/tx-stage/TxStory';
 import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
@@ -78,6 +79,7 @@ import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 import { UsdcxPayoutRows } from './UsdcxPayoutRows';
 import { useEpochQuote } from './useEpochQuote';
+import { useIsNewRecipient } from './useIsNewRecipient';
 
 const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> = ({ message, errorId }) => {
   useUserVisibleError(message ? errorId : null, 'review');
@@ -129,6 +131,7 @@ export const ReviewTransaction: React.FC = () => {
 
   // A 0x recipient bridges to an EVM chain instead of a same-chain Miden send.
   const isBridge = !!to && detectAddressChain(to) === 'ethereum';
+  const isNewRecipient = useIsNewRecipient(publicKey, to);
   const bridgeNetworkObj = getBridgeNetwork(network);
   const bridgeFeature = (): BridgeFeature => {
     switch (route) {
@@ -208,6 +211,7 @@ export const ReviewTransaction: React.FC = () => {
   // header's summary keeps the current choice in view while it is closed.
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const reveal = usePreset('reveal');
+  const fade = usePreset('fade');
 
   // E2E-only hook: the harness drives the transfer type without opening the
   // sheet, so expose a setter while the review page is mounted. Mirrors the
@@ -828,7 +832,20 @@ export const ReviewTransaction: React.FC = () => {
         <DetailCard surface="outline" face="heading" className="tx-stage-list mt-6">
           {/* The full address, never truncated: this is the last look before funds move. Set in body
               text rather than the bold value face, so it reads as something to check, not a headline. */}
-          <DetailRow label={t('to')} stacked data-testid="review-row-to">
+          <DetailRow
+            label={t('to')}
+            stacked
+            data-testid="review-row-to"
+            badge={
+              isNewRecipient ? (
+                <motion.span {...fade}>
+                  <Pill size="tag" tone="muted" data-testid="review-new-recipient">
+                    {t('newRecipient')}
+                  </Pill>
+                </motion.span>
+              ) : undefined
+            }
+          >
             <span className="text-body-sm font-semibold break-all text-ink">{to}</span>
           </DetailRow>
           {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}

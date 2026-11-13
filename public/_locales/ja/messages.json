@@ -4026,6 +4026,10 @@
     "message": "自分の住所宛てには送れません",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "新しい受取人",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4061,6 +4065,10 @@
   "proposalEffectRefused": {
     "message": "ウォレットは、この取引があなたが承認した分のみを移動させるものであることを確認できなかったため、署名する前にこの取引を停止しました。資金の移動は一切行われませんでした。",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "ウォレットがネットワーク手数料を読み取れなかったため、この取引に署名しませんでした。何も送信されていません。しばらくしてから再度お試しください。",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "金額は残高より少なければなりません",
@@ -4384,6 +4392,18 @@
   "guardianAccountNotFound": {
     "message": "このGuardianのバックアップが見つかりませんでした。URLを確認するか、別のGuardianを選択してください。",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "アカウントは復元できませんでした。guardianが返したアカウントデータが、あなたのリカバリーフレーズと一致しなかったためです。何も復元されていません。",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "アカウントは復元できませんでした。guardianが保持するアカウントのコピーは、まだMidenネットワークと一致していません。何も復元されていません。数分後に再度お試しください。",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Midenネットワークに接続できず、アカウントを確認できませんでした。リカバリーフレーズに問題はありません。接続状態を確認し、もう一度お試しください。",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "このguardianは別のMidenネットワーク上で稼働しているため、こちらのアカウントを復旧することはできません。",
@@ -6348,6 +6368,10 @@
     "message": "このdAppはカスタムトランザクションを要求しています。ウォレットはその詳細をデコードできませんでした。その動作内容を正確に把握している場合のみ、続行してください。",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "このウォレットではこの取引をシミュレートできないため、その動作を表示することはできません。したがって、この取引を承認することはできません。",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "生データ",
     "englishSource": "Raw value"
@@ -6355,6 +6379,10 @@
   "opaqueSignatureTitle": {
     "message": "不透明な署名要求",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "この署名では、お客様の口座からの取引を承認することはできません。",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "このサイトでは、生の値への署名を求められています。ウォレットでは、何が承認されるのかを確認できません。このサイトを完全に信頼している場合のみ、続行してください。",

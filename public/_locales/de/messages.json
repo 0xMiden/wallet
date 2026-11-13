@@ -4027,6 +4027,10 @@
     "message": "Du kannst nicht an deine eigene Adresse senden.",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Neuer Empfänger",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4062,6 +4066,10 @@
   "proposalEffectRefused": {
     "message": "Die Wallet hat diese Transaktion vor der Signierung gestoppt, da sie nicht bestätigen konnte, dass die Transaktion ausschließlich den von Ihnen genehmigten Betrag bewegt. Es wurden keine Gelder bewegt.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "Die Wallet konnte die Netzwerkgebühr nicht lesen und hat diese Transaktion daher nicht signiert. Es wurde nichts gesendet. Versuchen Sie es in Kürze erneut.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "Der Betrag muss geringer sein als der Kontostand.",
@@ -4385,6 +4393,18 @@
   "guardianAccountNotFound": {
     "message": "Wir konnten kein Backup für diesen Guardian finden. Überprüfen Sie die URL oder wählen Sie einen anderen Guardian aus.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "Ihre Konten konnten nicht wiederhergestellt werden: Der guardian hat Kontodaten zurückgegeben, die nicht mit Ihrer Wiederherstellungsphrase übereinstimmen. Es wurde nichts wiederhergestellt.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Ihre Konten konnten nicht wiederhergestellt werden: Die Kopie eines Kontos beim guardian stimmt noch nicht mit dem Miden-Netzwerk überein. Es wurde nichts wiederhergestellt. Versuchen Sie es in einigen Minuten erneut.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Das Miden-Netzwerk konnte nicht erreicht werden, um Ihre Konten zu überprüfen. Ihre Wiederherstellungsphrase ist in Ordnung. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "Dieser „guardian“ läuft in einem anderen Miden-Netzwerk, daher kann er hier kein Konto wiederherstellen.",
@@ -6357,6 +6377,10 @@
     "message": "Diese dApp fordert eine benutzerdefinierte Transaktion an. Die Wallet konnte die Details nicht entschlüsseln – fahren Sie nur fort, wenn Sie genau wissen, was damit geschieht.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "Die Wallet konnte diese Transaktion nicht simulieren, daher kann sie nicht anzeigen, was dabei geschieht. Sie können sie nicht genehmigen.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Rohwert",
     "englishSource": "Raw value"
@@ -6364,6 +6388,10 @@
   "opaqueSignatureTitle": {
     "message": "Anfrage nach einer undurchsichtigen Signatur",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Diese Signatur kann keine Transaktion von Ihrem Konto autorisieren.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Diese Website hat Sie aufgefordert, einen Rohwert zu signieren. Die Wallet kann nicht anzeigen, was sie autorisiert. Fahren Sie nur fort, wenn Sie dieser Website voll und ganz vertrauen.",

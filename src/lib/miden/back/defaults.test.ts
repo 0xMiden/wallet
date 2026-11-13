@@ -70,6 +70,17 @@ describe('defaults', () => {
       expect(lazyIntercom.instance).toBeDefined();
     });
 
+    it('builds the server so content scripts reach only the dApp page request', async () => {
+      const MockServer = jest.fn().mockImplementation(() => ({}));
+      jest.doMock('lib/platform', () => ({ isExtension: jest.fn().mockReturnValue(true) }));
+      jest.doMock('lib/intercom/server', () => ({ IntercomServer: MockServer }));
+
+      const { getIntercom: freshGetIntercom } = await import('./defaults');
+      freshGetIntercom();
+
+      expect(MockServer).toHaveBeenCalledWith({ contentScriptRequestTypes: new Set(['MIDEN_PAGE_REQUEST']) });
+    });
+
     it('onRequest delegates to getIntercom', () => {
       mockIsExtension.mockReturnValue(true);
 

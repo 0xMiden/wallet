@@ -17,3 +17,22 @@ export class NoGuardianAccountsFoundError extends Error {
     this.name = 'NoGuardianAccountsFoundError';
   }
 }
+
+/** The served account data does not match the recovery phrase. */
+export const GUARDIAN_RECOVERY_UNVERIFIED = 'GUARDIAN_RECOVERY_UNVERIFIED';
+/** The chain could not be reached to compare the served data against. */
+export const GUARDIAN_RECOVERY_NETWORK_UNREACHABLE = 'GUARDIAN_RECOVERY_NETWORK_UNREACHABLE';
+
+/**
+ * A seed recovery refused to restore what the Guardian served. The `code` survives the intercom's flattening
+ * to a `PublicError`, and the message is the localized text onboarding shows.
+ */
+export class GuardianRecoveryVerificationError extends Error {
+  readonly code: typeof GUARDIAN_RECOVERY_UNVERIFIED | typeof GUARDIAN_RECOVERY_NETWORK_UNREACHABLE;
+
+  constructor(code: GuardianRecoveryVerificationError['code'], message: string) {
+    super(message);
+    this.name = 'GuardianRecoveryVerificationError';
+    this.code = code;
+  }
+}

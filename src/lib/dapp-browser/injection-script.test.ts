@@ -873,6 +873,28 @@ describe('signBytes', () => {
     expect(Array.from(res.signature)).toEqual([1, 2]);
   });
 
+  it('returns the signed commitment beside the signature', async () => {
+    const win = await connectedWallet();
+    const promise = win.midenWallet.signBytes(new Uint8Array([1]), 'word');
+    respond(win, lastMessage(win).reqId, {
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { signature: btoa('\x01\x02'), signedCommitment: btoa('\x03\x04') }
+    });
+    const res = await promise;
+    expect(res.signedCommitment).toBeInstanceOf(Uint8Array);
+    expect(Array.from(res.signature)).toEqual([1, 2]);
+    expect(Array.from(res.signedCommitment)).toEqual([3, 4]);
+  });
+
+  it('omits signedCommitment when the wallet sends none', async () => {
+    const win = await connectedWallet();
+    const promise = win.midenWallet.signBytes(new Uint8Array([1]), 'word');
+    respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_RESPONSE', payload: { signature: btoa('\x01\x02') } });
+    const res = await promise;
+    expect(Object.keys(res)).toEqual(['signature']);
+    expect(Array.from(res.signature)).toEqual([1, 2]);
+  });
+
   it('zero-pads single-hex-digit bytes in the public key', async () => {
     const win = makeWindow();
     inject(win);

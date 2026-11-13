@@ -92,6 +92,7 @@ const note = (id: string, amount = '1000000'): ConsumableNote => ({
   amount,
   senderAddress: 'mtst1sender',
   isBeingClaimed: false,
+  standardPayment: true,
   type: NoteTypeEnum.Public
 });
 

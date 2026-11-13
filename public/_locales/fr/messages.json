@@ -4026,6 +4026,10 @@
     "message": "Vous ne pouvez pas envoyer de colis à votre propre adresse",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Nouveau destinataire",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4061,6 +4065,10 @@
   "proposalEffectRefused": {
     "message": "Le portefeuille a interrompu cette transaction avant de la signer, car il n’a pas pu confirmer que la transaction ne transférait que ce que vous aviez approuvé. Aucun fonds n’a été transféré.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "Le portefeuille n’a pas pu lire les frais de réseau et n’a donc pas signé cette transaction. Rien n’a été envoyé. Veuillez réessayer dans quelques instants.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "Le montant doit être inférieur au solde",
@@ -4384,6 +4392,18 @@
   "guardianAccountNotFound": {
     "message": "Nous n’avons pas trouvé de sauvegarde sur ce Guardian. Vérifiez l’URL ou choisissez un autre Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "Vos comptes n’ont pas pu être restaurés : le guardian a renvoyé des données de compte qui ne correspondent pas à votre phrase de récupération. Rien n’a été restauré.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Vos comptes n’ont pas pu être restaurés : la copie d’un compte détenue par le guardian ne correspond pas encore au réseau Miden. Rien n’a été restauré. Veuillez réessayer dans quelques minutes.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Impossible d’accéder au réseau Miden pour vérifier vos comptes. Votre phrase de récupération est correcte. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "Ce « guardian » fonctionne sur un autre réseau Miden ; il ne peut donc pas récupérer un compte ici.",
@@ -6351,6 +6371,10 @@
     "message": "Cette dApp demande une transaction personnalisée. Le portefeuille n'a pas pu décoder ses détails — ne continuez que si vous savez exactement en quoi cela consiste.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "Le portefeuille n’a pas pu simuler cette transaction ; il ne peut donc pas afficher ce qu’elle implique. Vous ne pouvez pas l’approuver.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Valeur brute",
     "englishSource": "Raw value"
@@ -6358,6 +6382,10 @@
   "opaqueSignatureTitle": {
     "message": "Demande de signature opaque",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Cette signature ne permet pas d’autoriser une transaction depuis votre compte.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Ce site vous a demandé de signer une valeur brute. Le portefeuille ne peut pas afficher ce qu'il autorise. Ne continuez que si vous faites entièrement confiance à ce site.",

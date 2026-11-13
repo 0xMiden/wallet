@@ -3,6 +3,12 @@
 ## 1.17.12 (TBD)
 
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).
+- [FIX][all] Cancel timed-out Guardian discovery reads so later recovery attempts can use shared permits (#2080).
+- [FIX][all] Keep a settled Guardian probe selectable when confirming chain read is unavailable (#2080).
+- [CHANGE][all] A dApp's consumable notes carry standardPayment, true only for a P2ID or P2IDE payment, so the dApp can leave other notes out.
+- [BREAKING][all] A dApp's signBytes(data, "word"), and signBytes(data, "signingInputs") with a Blind or Arbitrary payload, now signs a domain-separated commitment that cannot authorize a transaction: the commitment of SigningInputs.newArbitrary([tag, ...payload]), where the tag is Poseidon2 of "miden-wallet/sign-bytes/v1". A transaction summary is signed as before, and the approval sheet says such a signature cannot authorize a transaction. The response also carries the signed word as signedCommitment. Migration: verify with publicKey.verify(signedCommitment, signature), or compute the word with domainSeparatedSignCommitment(data, kind) from @miden-sdk/miden-sdk 0.17.10.
+- [FEATURE][all] The send review tags a recipient this account has never sent to, and that is not a saved contact or one of your accounts, as New recipient beside the full address, as a cue to check it before sending.
+- [FIX][all] dApp execute: the wallet proposes a custom transaction only when its simulated effects equal the approved ones. The approval needs a simulation that succeeds (a request that cannot be simulated is refused before any prompt, and no sheet shows the effects the site declares), the queued row records the approved effects, and generation simulates the prepared request again and fails the row before its proposal on any difference; the spending-limit charge is the generation-time value. The network fee is part of the approved-effects comparison.
 - [FIX][android] Keep parked dApp windows hidden and non-interactive through warmup and managed close.
 - [CHANGE][all] Distinguish cursor open from iteration failures and report closed eligibility request failure families without raw response details.
 - [FIX][ios] WalletConnect responses are matched to their requests by request id, so a lost, duplicate or late wallet answer can no longer resolve a different request; a request that expires or whose session ends is rejected with its own origin, which the failure reports read as Android's.
@@ -17,17 +23,24 @@
 - [CHANGE][mobile] Mobile dApp browser: native listeners attach frame identity; the Android JavaScript-interface fallback forwards page events without frame identity, so the wallet bridge refuses fallback wallet requests while generic app events still reach their listeners.
 - [CHANGE][mobile] Mobile dApp browser: answer a verified main-frame availability PING while the session origin trails the document; continue refusing other origin-mismatched messages.
 - [FIX][all] New Guardian accounts derive their account seed separately from the recovery key's seed, so the account's stored seed never carries key material.
+- [FIX][all] Send, swap and Earn deposit signing refuses effects beyond the persisted offered token and amount, including unexpected assets and NFTs (#2147).
 - [FIX][all] Token logos come only from the verified token list by faucet id, so the Bridge in review shows the token's logo (POL) and the Miden logo on its To row, and a token can no longer borrow another token's logo by its symbol (#2093).
 - [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
+- [FIX][all] Single-key accounts now refuse to sign a claim or dApp transaction that moves more than was approved, the check Guardian accounts already had.
 - [FIX][all] Swap settlement automatically claims only genuine paybacks of the account's own orders; any other note presented as one is treated as an ordinary incoming transfer.
 - [FIX][all] Show spinners while Earn data, balances, quotes, retries, and submissions load (#2095).
 - [FIX][mobile] The Home action bar's pill follows a swipe between Home pages, instead of moving only after the new page has settled.
+- [FIX][mobile] The claim list's first view, drawn from its cache before the live read, shows only payments to the account and notes of its own swap orders, on mobile and desktop.
+- [FIX][extension] The background service answers wallet requests only from the extension's own pages, and signs for its offscreen document only while a transaction or dry run it started is running; a content script can only forward dApp requests. The offscreen document answers only the extension's own pages and its service worker. Incoming-transfer and failure notifications now also appear while web pages are open; only the wallet's own open pages suppress them.
+- [CHANGE][extension] The dApp approval window receives the decoded preview of a custom transaction's dry run, not the executed transaction.
 - [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
+- [FIX][ci] Remove a run-owned eligibility probe when privacy settings cannot be read, while requiring the exact identity and content checks (#1894).
 - [FIX][all] The bridge-in token drawer lists only Agglayer tokens with positive balances and scrolls long lists below a fixed header with vertical overscroll containment. Unreadable balances stay unavailable, and balances from a previous account or chain are cleared.
 - [FIX][all] Offer a retry when the Earn deposit balance cannot be loaded (#2095).
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 - [FIX][all] Badge credit stays on a completed Mainnet send, swap, claim, or bridge receipt. A recovered receipt counts only after a fresh canonical Guardian read, and a backup cannot supply that credit.
+- [FIX][all] Restoring a Guardian account from its recovery phrase now checks the account data the guardian returns before restoring it: the recovery key must be the account's, a deployed account must match the Miden network, and an account not yet on the network must be the one this recovery phrase created. Otherwise nothing is restored.
 
 ## 1.17.11 (2026-11-09)
 
