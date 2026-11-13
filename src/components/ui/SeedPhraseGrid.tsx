@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
-import { handleSecretCopyEvent } from 'lib/ui/secret-clipboard';
 import { revealMaskApplies } from 'lib/ui/useRevealMask';
 import { cn } from 'lib/ui/util';
 
@@ -44,8 +43,6 @@ export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({
       data-masked={masked ? 'true' : undefined}
       role={masked ? 'group' : undefined}
       aria-label={masked ? t('recoveryPhraseHidden') : undefined}
-      // A masked grid holds only the numbers, so a copy of it yields nothing.
-      onCopy={e => handleSecretCopyEvent(e.nativeEvent, masked ? '' : (window.getSelection()?.toString() ?? ''))}
     >
       <div className="grid grid-cols-3 gap-x-4 gap-y-5">
         {words.map((word, idx) => (

@@ -4,11 +4,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero, SeedRevealToggle } from './SeedPhraseGrid';
 
-const mockHandleSecretCopy = jest.fn();
-jest.mock('lib/ui/secret-clipboard', () => ({
-  handleSecretCopyEvent: (...args: unknown[]) => mockHandleSecretCopy(...args)
-}));
-
 let mockIsMobile = false;
 jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile, isDesktop: () => false }));
 
@@ -88,32 +83,9 @@ describe('SeedRevealToggle', () => {
   });
 });
 
-describe('copy out of the grid', () => {
-  const stubSelection = (text: string) =>
-    jest.spyOn(window, 'getSelection').mockReturnValue({ toString: () => text } as unknown as Selection);
+// The words are not selectable (main.css), so a copy out of the grid has no secret to route: it stays the browser's.
+it('leaves a copy out of the grid to the browser', () => {
+  render(<SeedPhraseGrid words={WORDS} data-testid="grid" />);
 
-  beforeEach(() => {
-    mockHandleSecretCopy.mockReset();
-  });
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  it('routes a copy of the shown words through the secret clipboard', () => {
-    stubSelection('alpha beta');
-    render(<SeedPhraseGrid words={WORDS} data-testid="grid" />);
-
-    fireEvent.copy(screen.getByTestId('grid'));
-
-    expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.any(Event), 'alpha beta');
-  });
-
-  it('yields nothing from a masked grid, whose selection holds only the numbers', () => {
-    stubSelection('1. 2. 3.');
-    render(<SeedPhraseGrid words={WORDS} masked data-testid="grid" />);
-
-    fireEvent.copy(screen.getByTestId('grid'));
-
-    expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.any(Event), '');
-  });
+  expect(fireEvent.copy(screen.getByTestId('grid'))).toBe(true);
 });
