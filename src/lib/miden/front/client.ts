@@ -54,6 +54,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeRegisterWalletFromHotKey = useWalletStore(s => s.registerWalletFromHotKey);
   const storeImportWalletFromClient = useWalletStore(s => s.importWalletFromClient);
   const storeUnlock = useWalletStore(s => s.unlock);
+  const platformUnlock = useWalletStore(s => s.platformUnlock);
   const storeCreateAccount = useWalletStore(s => s.createAccount);
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
@@ -418,6 +419,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     registerWallet,
     registerWalletFromHotKey,
     unlock,
+    platformUnlock,
 
     createAccount,
     updateCurrentAccount,

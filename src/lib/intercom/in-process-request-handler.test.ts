@@ -33,6 +33,11 @@ describe('processInProcessRequest', () => {
     jest.clearAllMocks();
   });
 
+  it.each(['MobileIntercomAdapter', 'DesktopIntercomAdapter'])('keeps platform credentials unavailable on %s', async label => {
+    await expect(processInProcessRequest({ type: WalletMessageType.PlatformUnlockRequest,
+      command: { action: 'state' } }, label)).rejects.toThrow();
+  });
+
   // #788 follow-up: the dead-letter drain must work on mobile/desktop, where
   // the import pass runs in the single shared realm.
   it('RetryDeadletteredNotesRequest runs the drain action and reports the requeued count', async () => {
