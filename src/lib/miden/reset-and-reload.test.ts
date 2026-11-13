@@ -1,4 +1,5 @@
 import type { EndpointOverride } from 'lib/miden-chain/effective-endpoints';
+import type { ExtensionResetOptions } from 'lib/miden/platform-reset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { ResetAndReloadError, resetWalletAndReload } from './reset-and-reload';
@@ -25,6 +26,10 @@ const resetStorageDestructive = jest.fn<Promise<void>, []>();
 jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: () => resetStorageDestructive()
 }));
+const mockRequestReset = jest.fn(async (_options: ExtensionResetOptions) => resetStorageDestructive());
+jest.mock('lib/miden/platform-reset', () => ({
+  requestExtensionReset: (options: ExtensionResetOptions) => mockRequestReset(options)
+}));
 
 const mockApplyOverride = jest.fn<Promise<void>, [EndpointOverride]>();
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -38,6 +43,13 @@ jest.mock('lib/carried-mainnet-code', () => ({
 }));
 
 describe('resetWalletAndReload', () => {
+  it('binds the endpoint switch and accepted code inside the worker reset request', async () => {
+    mockIsExtension.value = true;
+    mockRequestReset.mockClear();
+    await resetWalletAndReload(async () => undefined, MIDEN_NETWORK_NAME.MAINNET, 'fixture code');
+    expect(mockRequestReset).toHaveBeenCalledWith({ keepEndpointOverride: true,
+      targetNetwork: MIDEN_NETWORK_NAME.MAINNET, accessCode: 'fixture code' });
+  });
   const onWipeError = jest.fn<Promise<void>, [unknown]>(async () => {});
 
   beforeEach(() => {

@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  reset-transport-regression:
+  reset-caller-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -14,4 +14,4 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/lib/miden/platform-reset-transport.test.ts src/lib/miden/back/main.test.ts src/lib/intercom/in-process-request-handler.test.ts --maxWorkers=2
+      - run: yarn jest src/lib/miden/reset.test.ts src/lib/miden/reset-and-reload.test.ts src/options.test.tsx src/screens/developer-settings/DeveloperSettings.test.tsx --maxWorkers=2
