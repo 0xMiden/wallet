@@ -1,8 +1,13 @@
 /** @jest-environment node */
 
-import { GuardianHttpError, RequestAuthPayload } from '@openzeppelin/guardian-client';
+import {
+  type AbandonStatus,
+  type DeltaStatus,
+  GuardianHttpError,
+  RequestAuthPayload
+} from '@openzeppelin/guardian-client';
 
-import { abandonCandidateByNonce, guardianPredatesProposalAbandon } from './legacy-abandon';
+import { abandonCandidateByNonce, guardianPredatesProposalAbandon, legacyAbandonStatus } from './legacy-abandon';
 
 // The suite-wide stub neither canonicalizes request payloads nor parses error bodies, and this request depends on both.
 jest.mock('@openzeppelin/guardian-client', () =>
@@ -132,5 +137,39 @@ describe('guardianPredatesProposalAbandon', () => {
   it('reads a failing status as false', async () => {
     const guardian = { getStatus: jest.fn(async () => Promise.reject(new Error('down'))) } as never;
     await expect(guardianPredatesProposalAbandon(guardian)).resolves.toBe(false);
+  });
+});
+
+describe('legacyAbandonStatus', () => {
+  const at = 'now';
+  const cases: [DeltaStatus, AbandonStatus][] = [
+    [{ status: 'candidate', timestamp: at }, 'waiting'],
+    [{ status: 'canonical', timestamp: at }, 'landed'],
+    [{ status: 'retained', timestamp: at, reason: 'retry_exhausted' }, 'retained'],
+    [{ status: 'discarded', timestamp: at, reason: 'client_abandoned' }, 'abandoned'],
+    [{ status: 'discarded', timestamp: at, reason: 'superseded' }, 'unexpected'],
+    [{ status: 'pending', timestamp: at, proposerId: 'p', cosignerSigs: [] }, 'unexpected']
+  ];
+
+  it.each(cases)('maps the delta status %j to %s, as the 0.18.1 client did', async (status, expected) => {
+    const guardian = { getDelta: jest.fn(async () => ({ status })) };
+
+    await expect(legacyAbandonStatus(guardian, '0xabc', 7)).resolves.toBe(expected);
+    expect(guardian.getDelta).toHaveBeenCalledWith('0xabc', 7);
+  });
+
+  it('reads a Guardian holding no delta at the nonce as unexpected', async () => {
+    const guardian = {
+      getDelta: jest.fn(async () => Promise.reject(Object.assign(new Error('not found'), { code: 'delta_not_found' })))
+    };
+
+    await expect(legacyAbandonStatus(guardian, '0xabc', 7)).resolves.toBe('unexpected');
+  });
+
+  it('rethrows any other failure of the delta read', async () => {
+    const unavailable = Object.assign(new Error('Service Unavailable'), { status: 503 });
+    const guardian = { getDelta: jest.fn(async () => Promise.reject(unavailable)) };
+
+    await expect(legacyAbandonStatus(guardian, '0xabc', 7)).rejects.toBe(unavailable);
   });
 });

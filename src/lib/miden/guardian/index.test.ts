@@ -1714,17 +1714,25 @@ describe('MultisigService', () => {
       expect(getDelta).not.toHaveBeenCalled();
     });
 
-    // A 0.18 Guardian names no commitment, so the delta it holds at the nonce supplies it: the SDK then reads that
-    // delta's own status, as the 0.18.1 client did.
-    it('abandonStatus reads a ticket without a commitment by the delta its Guardian holds at the nonce', async () => {
+    // A 0.18 Guardian names no commitment, so the status of the delta it holds at the nonce answers, mapped as the
+    // 0.18.1 client did, with or without a new commitment on that delta.
+    it.each([
+      ['a nonce-only canonical delta reads landed', { status: 'canonical' }, '0xd31a', 'landed'],
+      [
+        'a nonce-only client-abandoned discard reads abandoned',
+        { status: 'discarded', reason: 'client_abandoned' },
+        undefined,
+        'abandoned'
+      ]
+    ])('%s', async (_label, status, newCommitment, expected) => {
       const multisig = makeMultisig();
-      const getDelta = jest.fn(async () => ({ accountId: 'acc-id', nonce: 7, newCommitment: '0xd31a' }));
+      const getDelta = jest.fn(async () => ({ accountId: 'acc-id', nonce: 7, newCommitment, status }));
       const service = new MultisigService(multisig as never, { guardianClient: { getDelta } } as never, 'https://x');
 
-      await expect(service.abandonStatus(7, LEGACY_TICKET)).resolves.toBe('waiting');
+      await expect(service.abandonStatus(7, LEGACY_TICKET)).resolves.toBe(expected);
 
       expect(getDelta).toHaveBeenCalledWith('acc-id', 7);
-      expect(multisig.abandonStatus).toHaveBeenCalledWith(7, '0xd31a');
+      expect(multisig.abandonStatus).not.toHaveBeenCalled();
     });
 
     it('abandonStatus reads a Guardian that holds no delta at the nonce as unexpected, as the SDK does', async () => {

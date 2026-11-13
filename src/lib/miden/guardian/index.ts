@@ -40,7 +40,7 @@ import {
   OUTGOING_GUARDIAN_DEADLINE_MS,
   withTimeout
 } from './discover';
-import { abandonCandidateByNonce, guardianPredatesProposalAbandon } from './legacy-abandon';
+import { abandonCandidateByNonce, guardianPredatesProposalAbandon, legacyAbandonStatus } from './legacy-abandon';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import {
   GUARDIAN_RETRY_MAX_ATTEMPTS,
@@ -984,20 +984,12 @@ export class MultisigService {
   /**
    * Where an abandon asked for with `abandonCandidate` stands (#1081): `'waiting'` while the Guardian's quarantine
    * runs, `'abandoned'` once it released the account, `'landed'` if the transaction landed after all. `ticket` is what
-   * that abandon returned. A 0.18 Guardian names no commitment, so the delta it holds at the nonce supplies one and the
-   * SDK reads that delta's own status, as the 0.18.1 client did; a Guardian with no delta there reads `'unexpected'`.
+   * that abandon returned. A 0.18 Guardian names no commitment, so the status of the delta it holds at the nonce
+   * answers, mapped as the 0.18.1 client did (`legacyAbandonStatus`).
    */
   async abandonStatus(nonce: number, ticket: AbandonTicket): Promise<AbandonStatus> {
-    let commitment = ticket.commitment;
-    if (commitment === undefined) {
-      try {
-        commitment = (await this.registrationGuardian.getDelta(this.accountId, nonce)).newCommitment ?? '';
-      } catch (error) {
-        if (isGuardianDeltaNotFound(error)) return 'unexpected';
-        throw error;
-      }
-    }
-    return this.multisig.abandonStatus(nonce, commitment);
+    if (ticket.commitment !== undefined) return this.multisig.abandonStatus(nonce, ticket.commitment);
+    return legacyAbandonStatus(this.registrationGuardian, this.accountId, nonce);
   }
 
   /**

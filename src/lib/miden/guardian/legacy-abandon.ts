@@ -1,4 +1,10 @@
-import { GuardianHttpError, type GuardianHttpClient, RequestAuthPayload } from '@openzeppelin/guardian-client';
+import {
+  type AbandonStatus,
+  type DeltaObject,
+  GuardianHttpError,
+  type GuardianHttpClient,
+  RequestAuthPayload
+} from '@openzeppelin/guardian-client';
 
 import type { WalletSigner } from './signer';
 
@@ -71,5 +77,37 @@ export async function guardianPredatesProposalAbandon(guardian: GuardianHttpClie
     return match !== null && Number(match[1]) === 0 && Number(match[2]) < 19;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Where a nonce-only abandon stands when its Guardian named no commitment: the status of the delta the Guardian holds
+ * at `nonce`, mapped as the 0.18.1 client mapped it. No delta there reads `'unexpected'`; any other failed read throws.
+ */
+export async function legacyAbandonStatus(
+  guardian: { getDelta(accountId: string, nonce: number): Promise<Pick<DeltaObject, 'status'>> },
+  accountIdHex: string,
+  nonce: number
+): Promise<AbandonStatus> {
+  let delta: Pick<DeltaObject, 'status'>;
+  try {
+    delta = await guardian.getDelta(accountIdHex, nonce);
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'delta_not_found') {
+      return 'unexpected';
+    }
+    throw error;
+  }
+  switch (delta.status.status) {
+    case 'candidate':
+      return 'waiting';
+    case 'canonical':
+      return 'landed';
+    case 'retained':
+      return 'retained';
+    case 'discarded':
+      return delta.status.reason === 'client_abandoned' ? 'abandoned' : 'unexpected';
+    default:
+      return 'unexpected';
   }
 }
