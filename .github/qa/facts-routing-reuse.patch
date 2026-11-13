@@ -1,0 +1,39 @@
+--- a/scripts/rev-evidence.py
++++ b/scripts/rev-evidence.py
+@@ -1860,6 +1860,7 @@
+     base_url_configs = source_base_urls(repo, entries)
+     source_config_cache = {}
+     candidate_file_cache = {}
++    routing_config_cache = {}
+     wildcard_lines_cache = {}
+     reexport_source = lru_cache(maxsize=256)(ts_reexport_source)
+ 
+@@ -1876,7 +1877,16 @@
+                     wildcard_lines_cache[path] = None
+         return wildcard_lines_cache[path]
+ 
++    def routing_configs(path):
++        if path not in routing_config_cache:
++            routing_config_cache[path] = source_configs_for_path(path, base_url_configs)
++        return routing_config_cache[path]
++
+     @lru_cache(maxsize=4096)
++    def reexport_references(path, name):
++        return ts_reexport_references(wildcard_source_lines(path), name, reexport_source)
++
++    @lru_cache(maxsize=4096)
+     def reexport_route(start, target, name, imported_name=None):
+         root = (start, imported_name or name)
+         if root == (target, name):
+@@ -1891,9 +1901,8 @@
+             if lines is None:
+                 unresolved_route = True
+                 continue
+-            configs, _ = source_configs_for_path(current[0], base_url_configs)
+-            for reference, next_name, source_ranges in ts_reexport_references(
+-                    lines, current[1], reexport_source):
++            configs, _ = routing_configs(current[0])
++            for reference, next_name, source_ranges in reexport_references(*current):
+                 if reference is None:
+                     unresolved_route = True
+                     continue

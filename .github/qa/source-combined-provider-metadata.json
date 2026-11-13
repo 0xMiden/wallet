@@ -1,0 +1,16 @@
+{
+  "time": "2026-11-13T11:19:08.287777+00:00",
+  "argv": [
+    "/Users/celrisen/.pi/agent/bin/codex",
+    "--version"
+  ],
+  "resolved_binary": "/Users/celrisen/.nvm/versions/node/v20.19.6/lib/node_modules/@openai/codex/bin/codex.js",
+  "returncode": 0,
+  "stdout": "codex-cli 0.167.1\n",
+  "stderr": "",
+  "versions": {
+    "codex": "codex-cli 0.167.1"
+  },
+  "genuine_metadata_only": true,
+  "not_a_provider_execution": true
+}

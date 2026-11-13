@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-11-13T03:41:50Z",
+  "seats": [
+    {
+      "seat": "codex-luna",
+      "lab": "openai",
+      "adapter": "codex",
+      "model": "gpt-6-luna",
+      "effort": "xhigh",
+      "extra": false
+    },
+    {
+      "seat": "codex-luna-2",
+      "lab": "openai",
+      "adapter": "codex",
+      "model": "gpt-6-luna",
+      "effort": "xhigh",
+      "extra": false
+    },
+    {
+      "seat": "codex-luna-3",
+      "lab": "openai",
+      "adapter": "codex",
+      "model": "gpt-6-luna",
+      "effort": "xhigh",
+      "extra": false
+    },
+    {
+      "seat": "codex-luna-4",
+      "lab": "openai",
+      "adapter": "codex",
+      "model": "gpt-6-luna",
+      "effort": "xhigh",
+      "extra": false
+    }
+  ],
+  "labs": [
+    "openai"
+  ],
+  "padded": 0,
+  "degraded": true,
+  "degradation": "available labs: openai - reduced panel diversity",
+  "excluded": [
+    {
+      "cli": "gemini",
+      "reason": "excluded by config"
+    },
+    {
+      "cli": "claude",
+      "reason": "disabled"
+    }
+  ],
+  "result_receipts": {
+    "version": 1,
+    "legacy_no_exit_sha256": {}
+  }
+}

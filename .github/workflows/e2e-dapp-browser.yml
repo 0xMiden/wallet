@@ -1,4 +1,4 @@
-name: Required source quotes (canonical contract QA)
+name: H090 combined runtime (canonical contract QA)
 
 # Linux fixture evidence with declared genuine host CLI metadata; no runtime adoption.
 on:
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  required-source-quotes:
+  combined-runtime-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -44,7 +44,7 @@ jobs:
           EXPECTED_SOURCE: ${{ inputs.expected_source }}
         run: |
           set -euo pipefail
-          evidence="$RUNNER_TEMP/source-quote-contract"
+          evidence="$RUNNER_TEMP/source-combined-contract"
           mkdir "$evidence"
           exec > >(tee "$evidence/setup.log") 2>&1
           unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
@@ -55,7 +55,8 @@ jobs:
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           test "$source" = "$EXPECTED_SOURCE"
           test "$source" = "$GITHUB_SHA"
-          sha256sum .github/qa/source-quote-* .github/qa/required-source-quotes.patch .github/qa/runner-source-paths.patch \
+          sha256sum .github/qa/2027-timeout-origin-runtime.zip .github/qa/source-combined-* \
+            .github/qa/facts-routing-reuse.patch .github/qa/required-source-quotes.patch .github/qa/runner-source-paths.patch \
             .github/qa/test-required-source-quotes.py .github/qa/test-runner-source-paths.py \
             .github/workflows/e2e-dapp-browser.yml \
             | tee "$evidence/input-hashes.txt"
@@ -69,12 +70,13 @@ jobs:
           import zipfile
 
           qa = Path(os.environ['GITHUB_WORKSPACE']) / '.github/qa'
-          evidence = Path(os.environ['RUNNER_TEMP']) / 'source-quote-contract'
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'source-combined-contract'
           expected = {
-              'source-quote-baseline-094.zip': 'e604f65c987c48ad71d0631acf0b9f898f656c5c630f823ad201d070b15f03fe',
-              'source-quote-baseline-094.manifest.json': 'f8b51ff8e67953f85261ade0012babf5069a6e177a94fca86b3ff9f65611a645',
-              'source-quote-frozen-roster.json': 'f9eb285287ee49a27c1000c9b614ec3e9bbbf8de35464e26c3f53df19a3161ec',
-              'source-quote-provider-metadata.json': '58a61d145e21d2ab39aa870c0fa94fb4723bf8f2668b6063e5a7f6bcbfd6b94f',
+              '2027-timeout-origin-runtime.zip': 'dba8a1b618194daf7e6c0581b834511cd49cd3af5f278e001fedb4c95b792912',
+              'source-combined-090.manifest.json': '4d77b6d710c3a1ad956caaa601860e3f1f7dc44aec2a73166be877d5809570a0',
+              'source-combined-frozen-roster.json': 'e5f4e32a9fe418b6c27876796356d48d12c11436bfc3a1f56087ad57c033bd25',
+              'source-combined-provider-metadata.json': '6ff2c626bc803ad43b4ebcc8948ab2d5dd6d6dc402821343448834b6b4080a36',
+              'facts-routing-reuse.patch': '573763b90327be5c49e5bb4dc64563414a2562ce0fb3ae834bb570f2a0c9e202',
               'required-source-quotes.patch': '259fc097c23f637a74026a4dfcfcd81f7afc42963aec63e29e70c7704db1fdcc',
               'runner-source-paths.patch': 'e4f0f53d3017ac2cc075dd7c85fd6d5a87fbaddb4e0f8970bd45e571e6f93824',
           }
@@ -83,8 +85,8 @@ jobs:
               metadata = path.lstat()
               assert stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1, name
               assert hashlib.sha256(path.read_bytes()).hexdigest() == digest, name
-          manifest = json.loads((qa / 'source-quote-baseline-094.manifest.json').read_bytes())
-          assert isinstance(manifest, dict) and len(manifest) == 169
+          manifest = json.loads((qa / 'source-combined-090.manifest.json').read_bytes())
+          assert isinstance(manifest, dict) and len(manifest) == 171
           for name, entry in manifest.items():
               parts = PurePosixPath(name).parts
               assert parts and not name.startswith('/') and '\\' not in name
@@ -94,28 +96,29 @@ jobs:
               assert len(entry['sha256']) == 64 and all(c in '0123456789abcdef' for c in entry['sha256'])
           auditor = 'scripts/lib/review-read-audit.py'
           assert manifest[auditor]['sha256'] == 'c40e65f1d171d6a63ac0db3d4501f4995eba4c8cb7905221d7b41cfe6f7aa80c'
-          assert manifest['scripts/rev-evidence.py']['sha256'] == '5cf17a146004b8e16256f9a648011c86981565ddf85d7e0bb2c7e426d0f65558'
+          assert manifest['scripts/rev-evidence.py']['sha256'] == '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620'
           assert manifest['tests/run-tests.sh'] == {
               'sha256': '3241aff49494d152d40aa3d545a7d02c4db5dd3c00989126e868e8a7d34cdce4', 'mode': 0o755}
-          roster = json.loads((qa / 'source-quote-frozen-roster.json').read_bytes())
+          roster = json.loads((qa / 'source-combined-frozen-roster.json').read_bytes())
           assert len(roster['seats']) == 4
           for index, row in enumerate(roster['seats'], 1):
               assert row['seat'] == ('codex-luna' if index == 1 else f'codex-luna-{index}')
               assert (row['adapter'], row['model'], row['effort'], row['extra']) == ('codex', 'gpt-6-luna', 'xhigh', False)
-          capture = json.loads((qa / 'source-quote-provider-metadata.json').read_bytes())
-          assert capture['raw_version_output'] == 'codex-cli 0.167.1\n'
-          assert capture['versions'] == {'codex': 'codex-cli 0.167.1'}
-          assert capture['roster_sha256'] == expected['source-quote-frozen-roster.json']
-          assert capture['core_count'] == 4 and capture['no_paid_provider_calls'] is True
-          assert capture['no_model_roster_change'] is True
-          assert all(os.environ[name] == value for name, value in capture['policy'].items())
+          # Commit-bound input pins associate the H roster/capture; policy is workflow/receipt-bound.
+          capture = json.loads((qa / 'source-combined-provider-metadata.json').read_bytes())
+          assert capture['stdout'] == 'codex-cli 0.167.1\n' and capture['stderr'] == ''
+          assert capture['returncode'] == 0 and capture['versions'] == {'codex': 'codex-cli 0.167.1'}
+          assert capture['argv'] == ['/Users/celrisen/.pi/agent/bin/codex', '--version']
+          assert capture['resolved_binary'] == '/Users/celrisen/.nvm/versions/node/v20.19.6/lib/node_modules/@openai/codex/bin/codex.js'
+          assert capture['time'] == '2026-11-13T11:19:08.287777+00:00'
+          assert capture['genuine_metadata_only'] is True and capture['not_a_provider_execution'] is True
           # Validate every ZIP member before creating P or importing any candidate code.
           members = {}
-          with zipfile.ZipFile(qa / 'source-quote-baseline-094.zip') as archive:
-              assert len(archive.infolist()) == 169
+          with zipfile.ZipFile(qa / '2027-timeout-origin-runtime.zip') as archive:
+              assert len(archive.infolist()) == 171
               for member in archive.infolist():
                   parts = member.filename.split('/')
-                  assert parts[0] == 'runtime-0.9.4' and len(parts) > 1
+                  assert parts[0] == 'runtime-0.9.0' and len(parts) > 1
                   assert all(part not in ('', '.', '..', '.git') for part in parts)
                   assert '\\' not in member.filename and not member.is_dir()
                   name = '/'.join(parts[1:])
@@ -128,7 +131,7 @@ jobs:
                   assert hashlib.sha256(raw).hexdigest() == manifest[name]['sha256'], name
                   members[name] = raw
           assert set(members) == set(manifest)
-          root = Path('/Volumes/X10 Pro/walletissues-storage-20261112/tooling/1818-quoted-runner-candidate/runtime-0.9.4')
+          root = Path('/Volumes/X10 Pro/walletissues-storage-20261112/tooling/2027-facts-quoted-runner-candidate/runtime-0.9.0')
           assert not root.exists() and not root.is_symlink()
           for parent in root.parents:
               assert not parent.is_symlink(), parent
@@ -157,9 +160,9 @@ jobs:
               }
           assert actual == manifest
           (evidence / 'baseline-source-modes.json').write_text(json.dumps(actual, indent=2) + '\n')
-          print('Verified 169 original files, safe members, modes, original auditor/compiler and frozen inputs', flush=True)
+          print('Verified 171 original files, safe members, modes, original auditor/compiler and frozen inputs', flush=True)
           PY
-          runtime='/Volumes/X10 Pro/walletissues-storage-20261112/tooling/1818-quoted-runner-candidate/runtime-0.9.4'
+          runtime='/Volumes/X10 Pro/walletissues-storage-20261112/tooling/2027-facts-quoted-runner-candidate/runtime-0.9.0'
           git -C "$runtime" init -b contract-baseline
           git -C "$runtime" config core.autocrlf false
           git -C "$runtime" config core.fileMode true
@@ -187,17 +190,20 @@ jobs:
               assert kind == 'blob' and mode in ('100644', '100755')
               raw = subprocess.check_output(['git', '-C', root, 'cat-file', 'blob', oid])
               actual[name.decode()] = {'sha256': hashlib.sha256(raw).hexdigest(), 'mode': int(mode, 8) & 0o777}
-          assert actual == expected and len(actual) == 169
-          print('Original Git TREE independently matches all 169 baseline bytes/modes; no commit created.')
+          assert actual == expected and len(actual) == 171
+          print('Original Git TREE independently matches all 171 baseline bytes/modes; no commit created.')
           PY
           # No commit, signing override or hook bypass: --base accepts an original tree object.
+          patch --batch --forward --fuzz=0 -p1 -d "$runtime" \
+            < .github/qa/facts-routing-reuse.patch | tee "$evidence/facts-patch.log"
+          if grep -Ei 'offset|fuzz' "$evidence/facts-patch.log"; then exit 1; fi
           patch --batch --forward --fuzz=0 -p1 -d "$runtime" \
             < .github/qa/required-source-quotes.patch | tee "$evidence/patch.log"
           if grep -Ei 'offset|fuzz' "$evidence/patch.log"; then exit 1; fi
           patch --batch --forward --fuzz=0 -p1 -d "$runtime" \
             < .github/qa/runner-source-paths.patch | tee "$evidence/runner-patch.log"
           if grep -Ei 'offset|fuzz' "$evidence/runner-patch.log"; then exit 1; fi
-          test "$(git -C "$runtime" diff --no-renames --name-only "$base" --)" = $'scripts/lib/review-read-audit.py\ntests/run-tests.sh'
+          test "$(git -C "$runtime" diff --no-renames --name-only "$base" --)" = $'scripts/lib/review-read-audit.py\nscripts/rev-evidence.py\ntests/run-tests.sh'
           test -z "$(git -C "$runtime" ls-files --others --exclude-standard)"
           python3 -B - <<'PY'
           import hashlib
@@ -205,10 +211,11 @@ jobs:
           import os
           from pathlib import Path
           import stat
-          root = Path('/Volumes/X10 Pro/walletissues-storage-20261112/tooling/1818-quoted-runner-candidate/runtime-0.9.4')
-          evidence = Path(os.environ['RUNNER_TEMP']) / 'source-quote-contract'
+          root = Path('/Volumes/X10 Pro/walletissues-storage-20261112/tooling/2027-facts-quoted-runner-candidate/runtime-0.9.0')
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'source-combined-contract'
           expected = json.loads((evidence / 'baseline-source-modes.json').read_bytes())
           expected['scripts/lib/review-read-audit.py']['sha256'] = '32c0d0ae08bce8a74d4414ebbd3550d191135e1778067a443358b973bcd1c7f1'
+          expected['scripts/rev-evidence.py']['sha256'] = '7092175a97a81d5e8131cd144e245db4f65a064fc2a8ce6d19486d06f560639a'
           expected['tests/run-tests.sh']['sha256'] = '5ffa3cd0b09b845aa00b0fe3c585cc8252cb75610bd8fbd4f6699a3dc63b1add'
           actual = {}
           for path in root.rglob('*'):
@@ -223,21 +230,21 @@ jobs:
                   'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
                   'mode': stat.S_IMODE(metadata.st_mode),
               }
-          assert actual == expected and len(actual) == 169
+          assert actual == expected and len(actual) == 171
           (evidence / 'candidate-source-modes.json').write_text(json.dumps(actual, indent=2) + '\n')
-          print('Verified exact auditor+runner patches and all 169 candidate bytes/modes', flush=True)
+          print('Verified exact compiler+auditor+runner patches and all 171 candidate bytes/modes', flush=True)
           PY
           tar -czf "$evidence/candidate-and-baseline-git.tar.gz" -C "$runtime" .
           probe=$(mktemp -d "$evidence/probe.XXXXXX")
           cache=$(mktemp -d "$evidence/cache.XXXXXX")
-          printf 'QUOTES_RUNTIME=%s\nQUOTES_BASE=%s\nQUOTES_PROBE=%s\nQUOTES_CACHE=%s\n' \
+          printf 'COMBINED_RUNTIME=%s\nCOMBINED_BASE=%s\nCOMBINED_PROBE=%s\nCOMBINED_CACHE=%s\n' \
             "$runtime" "$base" "$probe" "$cache" >> "$GITHUB_ENV"
       - name: Install and record host prerequisites only
         if: ${{ success() && steps.setup.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
-          exec > >(tee "$RUNNER_TEMP/source-quote-contract/platform-tools.log") 2>&1
+          exec > >(tee "$RUNNER_TEMP/source-combined-contract/platform-tools.log") 2>&1
           sudo apt-get update
           sudo apt-get install -y ripgrep
           uname -a
@@ -255,10 +262,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          evidence="$RUNNER_TEMP/source-quote-contract"
+          evidence="$RUNNER_TEMP/source-combined-contract"
           status=0
           REVIEW_COUNCIL_HOST=pi python3 -B "$GITHUB_WORKSPACE/.github/qa/test-runner-source-paths.py" \
-            --runner "$QUOTES_RUNTIME/tests/run-tests.sh" --logs "$evidence/runner-source-paths" \
+            --runner "$COMBINED_RUNTIME/tests/run-tests.sh" --logs "$evidence/runner-source-paths" \
             > "$evidence/runner-source-paths.stdout" 2> "$evidence/runner-source-paths.stderr" || status=$?
           printf '%s\n' "$status" > "$evidence/runner-source-paths.status"
           cat "$evidence/runner-source-paths.stdout"
@@ -269,7 +276,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          evidence="$RUNNER_TEMP/source-quote-contract"
+          evidence="$RUNNER_TEMP/source-combined-contract"
           exec > >(tee "$evidence/gates.log") 2>&1
           # Do not let inherited exact-selection, discovery, shards or overrides narrow the canonical groups.
           for name in $(compgen -v); do
@@ -277,36 +284,36 @@ jobs:
           done
           unset REVIEW_COUNCIL_CONTRACT_RUNNER REVIEW_COUNCIL_CONTRACT_PROVIDER_VERSIONS
           unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
-          export REVIEW_COUNCIL_CACHE_DIR="$QUOTES_CACHE"
+          export REVIEW_COUNCIL_CACHE_DIR="$COMBINED_CACHE"
           env | LC_ALL=C sort | grep -E '^REVIEW_COUNCIL_CONTRACT_(WORKERS|DEADLINE_SECONDS|OUTPUT_BYTES|DIAGNOSTIC_BYTES|TERM_GRACE_SECONDS)=' \
             > "$evidence/policy.txt"
-          test -z "$(find "$QUOTES_CACHE" -mindepth 1 -print -quit)"
-          test -z "$(find "$QUOTES_PROBE" -mindepth 1 -print -quit)"
-          REVIEW_COUNCIL_HOST=pi python3 -B "$QUOTES_RUNTIME/scripts/rev-contract-check.py" \
-            --root "$QUOTES_RUNTIME" --base "$QUOTES_BASE" --session "$QUOTES_PROBE" \
-            --static-check --static-result "$QUOTES_PROBE/static-contract.json" \
+          test -z "$(find "$COMBINED_CACHE" -mindepth 1 -print -quit)"
+          test -z "$(find "$COMBINED_PROBE" -mindepth 1 -print -quit)"
+          REVIEW_COUNCIL_HOST=pi python3 -B "$COMBINED_RUNTIME/scripts/rev-contract-check.py" \
+            --root "$COMBINED_RUNTIME" --base "$COMBINED_BASE" --session "$COMBINED_PROBE" \
+            --static-check --static-result "$COMBINED_PROBE/static-contract.json" \
             > "$evidence/static.stdout" 2> "$evidence/static.stderr"
           REVIEW_COUNCIL_HOST=pi python3 -B - <<'PY'
           import importlib.util
           import json
           import os
           from pathlib import Path
-          root = Path(os.environ['QUOTES_RUNTIME'])
-          probe = Path(os.environ['QUOTES_PROBE'])
-          evidence = Path(os.environ['RUNNER_TEMP']) / 'source-quote-contract'
+          root = Path(os.environ['COMBINED_RUNTIME'])
+          probe = Path(os.environ['COMBINED_PROBE'])
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'source-combined-contract'
           spec = importlib.util.spec_from_file_location('contract', root / 'scripts/rev-contract-check.py')
           checker = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(checker)
           assert root.resolve(strict=True) == root
           assert probe.resolve(strict=True) == probe and not probe.is_relative_to(root)
-          cache = Path(os.environ['QUOTES_CACHE'])
+          cache = Path(os.environ['COMBINED_CACHE'])
           assert cache.resolve(strict=True) == cache and not cache.is_relative_to(root)
           assert probe != cache
           assert checker.source_plugin(root) == (root, '')
-          changed = checker.changed_paths(root, os.environ['QUOTES_BASE'])
-          assert changed == {'scripts/lib/review-read-audit.py', 'tests/run-tests.sh'}
+          changed = checker.changed_paths(root, os.environ['COMBINED_BASE'])
+          assert changed == {'scripts/lib/review-read-audit.py', 'scripts/rev-evidence.py', 'tests/run-tests.sh'}
           touched = sorted(path for path in changed if checker.is_boundary(path, ''))
-          assert touched == ['scripts/lib/review-read-audit.py', 'tests/run-tests.sh']
+          assert touched == ['scripts/lib/review-read-audit.py', 'scripts/rev-evidence.py', 'tests/run-tests.sh']
           plugin, runner, executor = checker.contract_executor(root, root)
           assert plugin == root and runner == root / 'tests/run-tests.sh'
           manifest = json.loads((evidence / 'candidate-source-modes.json').read_bytes())
@@ -339,26 +346,27 @@ jobs:
           import json
           import os
           from pathlib import Path
-          path = Path(os.environ['GITHUB_WORKSPACE']) / '.github/qa/source-quote-provider-metadata.json'
+          path = Path(os.environ['GITHUB_WORKSPACE']) / '.github/qa/source-combined-provider-metadata.json'
           raw = path.read_bytes()
-          assert hashlib.sha256(raw).hexdigest() == '58a61d145e21d2ab39aa870c0fa94fb4723bf8f2668b6063e5a7f6bcbfd6b94f'
+          assert hashlib.sha256(raw).hexdigest() == '6ff2c626bc803ad43b4ebcc8948ab2d5dd6d6dc402821343448834b6b4080a36'
           capture = json.loads(raw)
-          assert capture['raw_version_output'] == 'codex-cli 0.167.1\n'
-          assert capture['versions'] == {'codex': 'codex-cli 0.167.1'}
+          assert capture['stdout'] == 'codex-cli 0.167.1\n' and capture['stderr'] == ''
+          assert capture['returncode'] == 0 and capture['versions'] == {'codex': 'codex-cli 0.167.1'}
+          assert capture['genuine_metadata_only'] is True and capture['not_a_provider_execution'] is True
           print(json.dumps(capture['versions']))
           PY
           )
           test "$REVIEW_COUNCIL_CONTRACT_PROVIDER_VERSIONS" = '{"codex": "codex-cli 0.167.1"}'
           export REVIEW_COUNCIL_CONTRACT_PROVIDER_VERSIONS
           printf '%s\n' 'AUTHORITATIVE uses declared genuine host version capture, NOT provider execution in CI.'
-          REVIEW_COUNCIL_HOST=pi python3 -B "$QUOTES_RUNTIME/scripts/rev-contract-check.py" \
-            --root "$QUOTES_RUNTIME" --base "$QUOTES_BASE" --session "$QUOTES_PROBE" \
-            --roster "$GITHUB_WORKSPACE/.github/qa/source-quote-frozen-roster.json" \
-            --static-result "$QUOTES_PROBE/static-contract.json" \
+          REVIEW_COUNCIL_HOST=pi python3 -B "$COMBINED_RUNTIME/scripts/rev-contract-check.py" \
+            --root "$COMBINED_RUNTIME" --base "$COMBINED_BASE" --session "$COMBINED_PROBE" \
+            --roster "$GITHUB_WORKSPACE/.github/qa/source-combined-frozen-roster.json" \
+            --static-result "$COMBINED_PROBE/static-contract.json" \
             > "$evidence/authoritative.stdout" 2> "$evidence/authoritative.stderr"
-          REVIEW_COUNCIL_HOST=pi python3 -B "$QUOTES_RUNTIME/scripts/rev-contract-check.py" \
-            --root "$QUOTES_RUNTIME" --base "$QUOTES_BASE" --session "$QUOTES_PROBE" \
-            --roster "$GITHUB_WORKSPACE/.github/qa/source-quote-frozen-roster.json" --verify-only \
+          REVIEW_COUNCIL_HOST=pi python3 -B "$COMBINED_RUNTIME/scripts/rev-contract-check.py" \
+            --root "$COMBINED_RUNTIME" --base "$COMBINED_BASE" --session "$COMBINED_PROBE" \
+            --roster "$GITHUB_WORKSPACE/.github/qa/source-combined-frozen-roster.json" --verify-only \
             > "$evidence/verify.stdout" 2> "$evidence/verify.stderr"
           sha256sum --check --strict "$evidence/static.sha256"
           REVIEW_COUNCIL_HOST=pi python3 -B - <<'PY'
@@ -368,15 +376,15 @@ jobs:
           import os
           from pathlib import Path
           import stat
-          root = Path(os.environ['QUOTES_RUNTIME'])
-          probe = Path(os.environ['QUOTES_PROBE'])
-          evidence = Path(os.environ['RUNNER_TEMP']) / 'source-quote-contract'
+          root = Path(os.environ['COMBINED_RUNTIME'])
+          probe = Path(os.environ['COMBINED_PROBE'])
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'source-combined-contract'
           qa = Path(os.environ['GITHUB_WORKSPACE']) / '.github/qa'
           spec = importlib.util.spec_from_file_location('contract', root / 'scripts/rev-contract-check.py')
           checker = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(checker)
           static = json.loads(checker.receipt_bytes(probe / 'static-contract.json', 'CI static'))
-          identity = checker.contract_identity(static['identity'], qa / 'source-quote-frozen-roster.json')
+          identity = checker.contract_identity(static['identity'], qa / 'source-combined-frozen-roster.json')
           assert identity['provider_versions'] == {'codex': 'codex-cli 0.167.1'}
           assert identity['core_roster'] == [
               {'seat': 'codex-luna' if i == 1 else f'codex-luna-{i}',
@@ -384,17 +392,17 @@ jobs:
           key = checker.digest(checker.encoded(identity))
           path = probe / ('contract-pass-' + key + '.json')
           raw = checker.receipt_bytes(path, 'CI authoritative')
-          changed = checker.changed_paths(root, os.environ['QUOTES_BASE'])
-          assert changed == {'scripts/lib/review-read-audit.py', 'tests/run-tests.sh'}
+          changed = checker.changed_paths(root, os.environ['COMBINED_BASE'])
+          assert changed == {'scripts/lib/review-read-audit.py', 'scripts/rev-evidence.py', 'tests/run-tests.sh'}
           touched = sorted(name for name in changed if checker.is_boundary(name, ''))
-          assert touched == ['scripts/lib/review-read-audit.py', 'tests/run-tests.sh']
+          assert touched == ['scripts/lib/review-read-audit.py', 'scripts/rev-evidence.py', 'tests/run-tests.sh']
           receipt = checker.validate_receipt(raw, identity, key, touched, 'CI authoritative')
           assert receipt['log_sha256'] == static['log_sha256']
           assert (evidence / 'authoritative.stdout').read_text() == str(path) + '\n'
           assert (evidence / 'verify.stdout').read_text() == str(path) + '\n'
           assert (evidence / 'authoritative.stderr').read_bytes() == b''
           assert (evidence / 'verify.stderr').read_bytes() == b''
-          cache = Path(os.environ['QUOTES_CACHE']) / 'contracts'
+          cache = Path(os.environ['COMBINED_CACHE']) / 'contracts'
           assert checker.receipt_bytes(cache / (key + '.json'), 'CI cache') == raw
           assert checker.receipt_bytes(cache / 'static' / (static['key'] + '.json'), 'CI static cache') == (probe / 'static-contract.json').read_bytes()
           manifest = json.loads((evidence / 'candidate-source-modes.json').read_bytes())
@@ -409,32 +417,34 @@ jobs:
               assert stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
               actual[str(source.relative_to(root))] = {
                   'sha256': hashlib.sha256(source.read_bytes()).hexdigest(), 'mode': stat.S_IMODE(metadata.st_mode)}
-          assert actual == manifest and len(actual) == 169
-          assert checker.changed_paths(root, os.environ['QUOTES_BASE']) == {'scripts/lib/review-read-audit.py', 'tests/run-tests.sh'}
-          for name in ('source-quote-baseline-094.zip', 'source-quote-baseline-094.manifest.json',
-                       'source-quote-frozen-roster.json', 'source-quote-provider-metadata.json',
-                       'required-source-quotes.patch', 'runner-source-paths.patch'):
+          assert actual == manifest and len(actual) == 171
+          assert checker.changed_paths(root, os.environ['COMBINED_BASE']) == {'scripts/lib/review-read-audit.py', 'scripts/rev-evidence.py', 'tests/run-tests.sh'}
+          for name in ('2027-timeout-origin-runtime.zip', 'source-combined-090.manifest.json',
+                       'source-combined-frozen-roster.json', 'source-combined-provider-metadata.json',
+                       'facts-routing-reuse.patch', 'required-source-quotes.patch', 'runner-source-paths.patch'):
               # Compare against the checkout's pre-execution hashes without modifying inputs or receipts.
               recorded = (evidence / 'input-hashes.txt').read_text().splitlines()
               line = next(line for line in recorded if line.endswith('  .github/qa/' + name))
               assert hashlib.sha256((qa / name).read_bytes()).hexdigest() == line.split()[0]
           print(json.dumps(receipt['identity'], indent=2))
-          print('Canonical receipts validated; static bytes unchanged; all 169 candidate bytes/modes unchanged.')
+          print('Canonical receipts validated; static bytes unchanged; all 171 candidate bytes/modes unchanged.')
           print('Successful internal group stdout is opaque; no per-group logs or assertion counts are inferred.')
           PY
       - name: Always retain immutable source, raw receipts, identities and all available logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: source-quote-contract-${{ github.run_id }}-${{ github.run_attempt }}
+          name: source-combined-contract-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             .github/workflows/e2e-dapp-browser.yml
-            .github/qa/source-quote-*
+            .github/qa/2027-timeout-origin-runtime.zip
+            .github/qa/source-combined-*
+            .github/qa/facts-routing-reuse.patch
             .github/qa/required-source-quotes.patch
             .github/qa/runner-source-paths.patch
             .github/qa/test-required-source-quotes.py
             .github/qa/test-runner-source-paths.py
-            ${{ runner.temp }}/source-quote-contract/
+            ${{ runner.temp }}/source-combined-contract/
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
