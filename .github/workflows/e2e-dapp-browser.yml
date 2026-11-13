@@ -145,6 +145,7 @@ jobs:
         if: matrix.lane == 'visual'
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/2115-playwright.json
+          DEBUG: pw:browser,pw:protocol
         run: xvfb-run -a yarn playwright test playwright/tests/wallet-access.spec.ts --workers=1 --retries=0 --reporter=list,json > "$RUNNER_TEMP/2115-proof/playwright.log" 2>&1
       - name: Preserve source-bound results and capped screenshots
         if: always()
