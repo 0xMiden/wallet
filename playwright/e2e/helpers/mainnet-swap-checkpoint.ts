@@ -43,6 +43,12 @@ export interface MainnetSwapCheckpoint {
   authorizationRunId?: string;
   recoveredRunId?: string;
   recoveryReturnAuthorizedAt?: string;
+  recoveryReturnReplacement?: {
+    authorizedAt: string;
+    previous: MainnetSwapRequestAuthority;
+    previousRunId: string;
+    absentAtBlock: number;
+  };
   phase: SwapLoopPhase;
   createdAt: string;
   pricedAt: string;
@@ -247,8 +253,20 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
   const forward = value.forwardRequestAuthority;
   const reverse = value.reverseRequestAuthority;
   const pricedAt = Date.parse(value.pricedAt);
-  const returnStart =
-    value.recoveryReturnAuthorizedAt === undefined ? pricedAt : Date.parse(value.recoveryReturnAuthorizedAt);
+  const replacement = value.recoveryReturnReplacement;
+  if (replacement !== undefined && (!record(replacement) ||
+    !timestamp(replacement.authorizedAt) || !timestamp(value.recoveryReturnAuthorizedAt) ||
+    !requestAuthority(replacement.previous) || !requestAuthority(forward) ||
+    Date.parse(replacement.authorizedAt) <= replacement.previous.expiresAt || Date.parse(replacement.authorizedAt) > Date.parse(value.updatedAt) ||
+    replacement.previous.expiresAt <= Date.parse(value.recoveryReturnAuthorizedAt) || replacement.previous.expiresAt > Date.parse(value.recoveryReturnAuthorizedAt) + 300_000 ||
+    typeof replacement.previousRunId !== 'string' || !/^\d{1,25}$/.test(replacement.previousRunId) ||
+    typeof value.authorizationRunId !== 'string' || replacement.previousRunId === value.authorizationRunId ||
+    typeof replacement.absentAtBlock !== 'number' || !Number.isSafeInteger(replacement.absentAtBlock) || replacement.absentAtBlock <= 0 ||
+    !Object.keys(replacement).every(key => ['authorizedAt', 'previous', 'previousRunId', 'absentAtBlock'].includes(key)) ||
+    !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))) return false;
+  const returnStart = record(replacement) && timestamp(replacement.authorizedAt)
+    ? Date.parse(replacement.authorizedAt)
+    : value.recoveryReturnAuthorizedAt === undefined ? pricedAt : Date.parse(value.recoveryReturnAuthorizedAt);
   const returnDeadline = returnStart + (value.recoveryReturnAuthorizedAt === undefined ? 600_000 : 300_000);
   if (
     forward !== undefined &&
@@ -271,6 +289,12 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))
   )
     return false;
+  if (record(replacement) && requestAuthority(replacement.previous) && requestAuthority(reverse)) {
+    const previous = replacement.previous;
+    if ([[reverse.nonce, previous.nonce], [reverse.noteId, previous.noteId], [reverse.orderId, previous.orderId],
+      [reverse.sha256, previous.sha256], [reverse.canonicalSha256, previous.canonicalSha256]].some(([current, old]) => current === old) ||
+      BigInt(reverse.minimumReceive) < BigInt(previous.minimumReceive)) return false;
+  }
   if (
     requestAuthority(forward) &&
     requestAuthority(reverse) &&
@@ -305,6 +329,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       'authorizationRunId',
       'recoveredRunId',
       'recoveryReturnAuthorizedAt',
+      'recoveryReturnReplacement',
       'phase',
       'createdAt',
       'pricedAt',
@@ -355,10 +380,11 @@ export function saveMainnetSwapCheckpoint(path: string, state: MainnetSwapCheckp
   renameSync(`${path}.tmp`, path);
 }
 export function mainnetSwapRequestExpiresAt(
-  state: Pick<MainnetSwapCheckpoint, 'pricedAt' | 'recoveryReturnAuthorizedAt'>,
+  state: Pick<MainnetSwapCheckpoint, 'pricedAt' | 'recoveryReturnAuthorizedAt' | 'recoveryReturnReplacement'>,
   leg: 'forward' | 'reverse'
 ): number {
   if (leg === 'forward') return Date.parse(state.pricedAt) + 300_000;
+  if (state.recoveryReturnReplacement) return Date.parse(state.recoveryReturnReplacement.authorizedAt) + 300_000;
   return state.recoveryReturnAuthorizedAt === undefined
     ? Date.parse(state.pricedAt) + 600_000
     : Date.parse(state.recoveryReturnAuthorizedAt) + 300_000;
