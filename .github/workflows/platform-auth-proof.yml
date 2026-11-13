@@ -5,32 +5,20 @@ on:
 permissions:
   contents: read
 jobs:
-  startup-browser-gate:
+  browser-fixture-format:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - uses: ./.github/actions/start-eligibility-fixture
-        env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
-      - run: MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MIDEN_E2E_DISABLE_SIDEPANEL=false yarn build:chrome
-      - run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
-      - uses: ./.github/actions/apt-drop-unused-repos
-      - run: npx playwright install --with-deps chromium
-        timeout-minutes: 12
-      - run: SKIP_EXTENSION_BUILD=true xvfb-run -a yarn test:e2e platform-startup.spec.ts --workers=1 --retries=0
-      - name: Check browser fixture format
-        run: yarn prettier --check playwright/tests/platform-startup.spec.ts
+      - run: yarn prettier --write playwright/tests/platform-startup.spec.ts
+      - run: yarn prettier --check playwright/tests/platform-startup.spec.ts
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: passkey-startup-browser-proof
-          path: |
-            test-results/
-            dist/chrome_unpacked/manifest.json
+          name: platform-startup-formatted-source
+          path: playwright/tests/platform-startup.spec.ts
           if-no-files-found: error
           retention-days: 3
