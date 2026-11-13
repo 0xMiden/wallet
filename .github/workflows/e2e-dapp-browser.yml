@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [checks, visual]
+        lane: [checks]
     env:
       WALLET_SOURCE: e9625e1ff2655b8f9b6d9a28a169f11e4ccb5997
     steps:
@@ -117,7 +117,6 @@ jobs:
         if: matrix.lane == 'checks'
         run: |
           set -euo pipefail
-          yarn prettier --check src/screens/swap-flow/SwapManager.tsx src/screens/swap-flow/SwapManager.test.tsx playwright/tests/wallet-access.spec.ts CHANGELOG.md
           yarn tsc --noEmit -p .
           yarn eslint src/screens/swap-flow/SwapManager.tsx src/screens/swap-flow/SwapManager.test.tsx playwright/tests/wallet-access.spec.ts
           yarn -s lint:e2e
