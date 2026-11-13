@@ -32,5 +32,5 @@ jobs:
       - name: Install Chromium
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
-      - name: Run the actual strict popup test with origin-only diagnostics
-        run: xvfb-run -a yarn test:e2e playwright/tests/popup-smoke.spec.ts --grep 'loads UI without console errors' --workers=1 --retries=0
+      - name: Reproduce the complete strict mock suite with origin-only diagnostics
+        run: xvfb-run -a yarn test:e2e --workers=1 --retries=0
