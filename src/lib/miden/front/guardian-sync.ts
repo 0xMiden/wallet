@@ -1724,6 +1724,8 @@ async function attemptColdReRegisterSelfHeal(
   let attempted = false;
   let rotation: OwnRotation | undefined;
   let verifiedSigners: readonly string[] | undefined;
+  // A 0.19 Guardian whose node lags refused the push and stored nothing, so it spends no attempt.
+  let stateNotOnChain = false;
   // What the heal's holds did, booked once on the heal fuse when the probe settles (#1233). A Guardian
   // request timeout books as an eviction: it is the same silent Guardian, cut off at 60 s before the
   // watchdog (#312). Poison is booked where it is caught instead, and the caller stops the pass.
@@ -2021,18 +2023,25 @@ async function attemptColdReRegisterSelfHeal(
       failed = true;
     }
     // The chain guard refused before any `/configure` (#1233): the push never started, so no attempt
-    // is spent, and a later tick retries once this device's copy has caught up with the chain. A 0.19
-    // Guardian whose node lags refuses the same state with `state_not_on_chain` and stores nothing.
-    if (isGuardianReRegisterRefusal(e) || isGuardianStateNotOnChain(e)) {
+    // is spent, and a later tick retries once this device's copy has caught up with the chain.
+    if (isGuardianReRegisterRefusal(e)) {
       console.warn(
         `[Guardian Sync] not re-registering ${account.publicKey}: its local state is not the chain's yet`,
         e
       );
       return 'refused-transiently';
     }
-    // A failed push (the guardian unreachable or rejecting cold) or a failed read: a later tick may
-    // retry per the bounded schedule (see `selfHealLedger`), and only a push spends an attempt.
-    console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
+    if (isGuardianStateNotOnChain(e)) {
+      stateNotOnChain = true;
+      console.warn(
+        `[Guardian Sync] not re-registering ${account.publicKey} yet: its Guardian's node does not hold this state`,
+        e
+      );
+    } else {
+      // A failed push (the guardian unreachable or rejecting cold) or a failed read: a later tick may
+      // retry per the bounded schedule (see `selfHealLedger`), and only a push spends an attempt.
+      console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
+    }
   } finally {
     if (!poisoned) {
       if (evicted) {
@@ -2050,7 +2059,7 @@ async function attemptColdReRegisterSelfHeal(
   if (finishing && verifiedSigners?.some(signer => sameCommitment(signer, finishing.commitment))) {
     return await finishOwnRotation(account, finishing);
   }
-  return attempted ? 'attempted' : 'refused-transiently';
+  return attempted && !stateNotOnChain ? 'attempted' : 'refused-transiently';
 }
 
 /**
