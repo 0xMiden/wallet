@@ -23,6 +23,7 @@ import {
 import { inspectTestMainnetSwapRequest, type TestMainnetSwapScope } from '../../../src/lib/miden/sdk/test-send-request';
 import { withRpcTimeout } from '../../../src/lib/miden-chain/rpc-timeout';
 import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
+import type { MainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 
 export interface MainnetSwapPaybackScope extends TestMainnetSwapScope {
   noteId: string;
@@ -67,11 +68,26 @@ export function inspectMainnetSwapPayback(original: Note, payback: Note, scope: 
 }
 
 export interface MainnetSwapPaybackEvidence {
+  originalNoteId: string;
+  orderId: string;
+  serialZeroOrderId: string;
   noteId: string;
   amount: bigint;
   originalCreatedAtBlock: number;
   createdAtBlock: number;
   claimedAtBlock?: number;
+}
+
+export interface MainnetSwapBalances { offer: bigint; request: bigint; native: bigint; }
+
+export function authorizeMainnetSwapRecoveryReturn(
+  state: MainnetSwapCheckpoint,
+  _evidence: MainnetSwapPaybackEvidence,
+  _balances: MainnetSwapBalances,
+  _runId: string,
+  _authorizedAt: string
+): MainnetSwapCheckpoint {
+  return state;
 }
 
 export async function readMainnetSwapPayback(
@@ -144,7 +160,12 @@ export async function readMainnetSwapPayback(
     'exact payback consumption',
     { retries: 0 }
   );
+  const serialZeroOrderId = originalNote.recipient().serialNum().toU64s()[0]?.toString();
+  if (serialZeroOrderId === undefined) throw new Error('Missing original serial identity');
   return {
+    originalNoteId: scope.noteId,
+    orderId: scope.orderId,
+    serialZeroOrderId,
     noteId,
     amount,
     originalCreatedAtBlock: originalHeight,
