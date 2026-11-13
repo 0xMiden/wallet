@@ -14,7 +14,8 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/app/pages/Unlock.test.tsx src/app/pages/Settings.test.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/app/hooks/usePlatformUnlock.test.tsx src/lib/platform-auth/webauthn.test.ts --maxWorkers=2
+      - run: yarn tsc --noEmit --pretty false
+      - run: yarn jest src/app/pages/Unlock.test.tsx src/app/pages/Settings.test.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/app/hooks/usePlatformUnlock.test.tsx src/lib/platform-auth/webauthn.test.ts src/lib/miden/back/main.test.ts src/lib/intercom/server.test.ts src/lib/intercom/sender.test.ts --maxWorkers=2
   virtual-prf-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -37,7 +38,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: platform-prf-worker-os-integration
+          name: platform-prf-boundary-files
           path: |
             test-results/
             playwright/tests/platform-unlock.spec.ts
