@@ -187,6 +187,50 @@ describe('MidenClientInterface', () => {
     }
   }
 
+  describe('full input note export', () => {
+    async function exportHarness(input: unknown) {
+      mockStagedSdk({
+        NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+        NoteFile: { fromInputNote: () => ({ serialize: () => new Uint8Array([4, 5]) }) }
+      });
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const { NoteExportType } = jest.requireActual<typeof import('./constants')>('./constants');
+      const client = Object.create(MidenClientInterface.prototype) as MidenClientInterfaceType;
+      const notes = {
+        get: jest.fn(async () => input),
+        export: jest.fn(async () => {
+          if (input) throw new Error('No output note found');
+          return { serialize: () => new Uint8Array([1, 2]) };
+        })
+      };
+      client.client = { notes } as unknown as MidenClientInterfaceType['client'];
+      return { client, notes, full: NoteExportType.FULL };
+    }
+
+    it('exports an authenticated received note that has no output record', async () => {
+      const { client, full } = await exportHarness({ isAuthenticated: () => true, toInputNote: () => ({}) });
+      await expect(client.exportNote('received', full)).resolves.toEqual(new Uint8Array([4, 5]));
+    });
+
+    it('rejects an input note without its inclusion proof', async () => {
+      const { client, full } = await exportHarness({ isAuthenticated: () => false });
+      await expect(client.exportNote('received', full)).rejects.toThrow('Input note is not authenticated');
+    });
+
+    it('checks ownership before touching an input record returned after an await', async () => {
+      const input = { isAuthenticated: jest.fn(() => true), toInputNote: jest.fn() };
+      const { client, full } = await exportHarness(input);
+      await expect(client.exportNote('received', full, () => { throw new Error('retired hold'); })).rejects.toThrow('retired hold');
+      expect(input.isAuthenticated).not.toHaveBeenCalled();
+      expect(input.toInputNote).not.toHaveBeenCalled();
+    });
+
+    it('preserves full output export when no received record exists', async () => {
+      const { client, full } = await exportHarness(null);
+      await expect(client.exportNote('sent', full)).resolves.toEqual(new Uint8Array([1, 2]));
+    });
+  });
+
   it('creates a client with provided callbacks', async () => {
     const fakeMidenClient = buildFakeMidenClient();
     const createMock = jest.fn(async () => fakeMidenClient);
