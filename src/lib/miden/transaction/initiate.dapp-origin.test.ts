@@ -34,6 +34,10 @@ jest.mock('../spending-limits/queue', () => ({
   queueOutgoingTransaction: jest.fn(async (transaction: unknown) => {
     const repo = jest.requireMock('lib/miden/repo');
     await repo.transactions.add(transaction);
+  }),
+  queueUnattributableCustomTransaction: jest.fn(async (transaction: unknown) => {
+    const repo = jest.requireMock('lib/miden/repo');
+    await repo.transactions.add(transaction);
   })
 }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));

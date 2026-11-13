@@ -864,6 +864,10 @@
     "message": "Epoch로 잔액을 확인할 수 없습니다. 다시 시도해 주세요.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "잔액을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "이 네트워크에서는 'Earn' 기능을 이용할 수 없습니다.",
     "englishSource": "Earn is not available on this network"
@@ -1251,6 +1255,32 @@
   "submissionRejectedByNetwork": {
     "message": "네트워크에서 이 제출을 거부했습니다. 다시 시도해 주세요.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "이 거래는 여전히 귀하의 Guardian가 보유하고 있으므로, 아직 재시도할 수 없습니다.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "네트워크에서 이 거래가 처리되지 않았음을 확인했으므로, 아무것도 이동하지 않았습니다. 귀하의 ‘Guardian’가 여전히 이를 보유하고 있으므로, 아직 재시도할 수 없습니다.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "현재 이 거래는 귀하의 Guardian가 여전히 보유 중입니다. $time$가 지난 후 다시 시도할 수 있습니다.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "$time$ 후에 다시 시도할 수 있습니다.",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "이 제출에 대한 응답이 돌아오지 않았습니다. 지갑에서는 제출이 정상적으로 처리되었는지 확인할 수 없습니다. 아직 완료될 수 있으므로, 다시 시도하기 전에 확인해 보십시오.",
@@ -3996,6 +4026,10 @@
     "message": "자신의 주소로 발송할 수 없습니다.",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "새로운 수취인",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4031,6 +4065,10 @@
   "proposalEffectRefused": {
     "message": "지갑은 이 거래가 귀하가 승인한 금액만 이동하는지 확인할 수 없었기 때문에, 서명하기 전에 이 거래를 중단했습니다. 자금은 이동되지 않았습니다.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "지갑이 네트워크 수수료를 읽을 수 없어 이 거래에 서명하지 못했습니다. 아무것도 전송되지 않았습니다. 잠시 후 다시 시도해 주십시오.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "금액은 잔액보다 적어야 합니다.",
@@ -4354,6 +4392,18 @@
   "guardianAccountNotFound": {
     "message": "이 Guardian에 대한 백업을 찾을 수 없습니다. URL을 확인하거나 다른 Guardian을 선택하십시오.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "귀하의 계정은 복구될 수 없었습니다: guardian가 귀하의 복구 문구와 일치하지 않는 계정 데이터를 반환했기 때문입니다. 복구된 내용은 전혀 없습니다.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "계정을 복구할 수 없습니다. 가디언(guardian)이 보유한 계정 사본이 아직 Miden 네트워크와 일치하지 않습니다. 복구된 내용은 없습니다. 몇 분 후에 다시 시도해 주십시오.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "계정을 확인하기 위해 Miden 네트워크에 연결할 수 없습니다. 복구 문구는 정상입니다. 연결 상태를 확인하고 다시 시도해 주십시오.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "이 guardian는 다른 Miden 네트워크에서 운영되므로, 이곳의 계정을 복구할 수 없습니다.",
@@ -4693,6 +4743,14 @@
   "unavailable": {
     "message": "사용 불가",
     "englishSource": "Unavailable"
+  },
+  "assetPriceUnsupported": {
+    "message": "지원되지 않음",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "알 수 없는 규모",
+    "englishSource": "Unknown scale"
   },
   "bridgeFeatureUnavailableTitle": {
     "message": "일시적으로 이용 불가",
@@ -5894,6 +5952,10 @@
     "message": "브리지 입금 실패",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "연결된 지갑에는 이 네트워크에서 잔액이 양수인 토큰이 없습니다.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "연결된 지갑에는 $network$에서 $balance$의 $token$가 보관되어 있으나, 이는 입금에 필요한 금액보다 적습니다. 아무것도 전송되지 않았습니다.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
@@ -6306,6 +6368,10 @@
     "message": "이 dApp은 사용자 지정 트랜잭션을 요청하고 있습니다. 지갑에서 해당 트랜잭션의 세부 정보를 해독할 수 없습니다. 이 트랜잭션이 정확히 무엇을 하는지 알고 있는 경우에만 계속 진행하십시오.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "지갑은 이 거래를 시뮬레이션할 수 없으므로, 해당 거래가 무엇을 하는지 보여줄 수 없습니다. 따라서 이 거래를 승인할 수 없습니다.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "원값",
     "englishSource": "Raw value"
@@ -6313,6 +6379,10 @@
   "opaqueSignatureTitle": {
     "message": "비공개 서명 요청",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "이 서명만으로는 귀하의 계좌에서 거래를 승인할 수 없습니다.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "이 사이트에서 원시 값에 서명할 것을 요청했습니다. 지갑에서는 승인 내역을 확인할 수 없습니다. 이 사이트를 전적으로 신뢰하는 경우에만 계속 진행하십시오.",

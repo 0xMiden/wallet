@@ -2,7 +2,7 @@
  * The v1.3/v1.4 upgrades walk the whole transactions table with `.modify()`. Dexie re-puts a deep
  * clone of every row whose callback returns anything but `false`, so a bare return there rewrote
  * every row - `resultBytes` blobs included - inside the `versionchange` transaction on the critical
- * path of `db.open()`. This asserts only the rows that actually change are written.
+ * path of `db.open()`. Each upgrade must write only the rows whose stored state it changes.
  */
 import Dexie from 'dexie';
 
@@ -23,9 +23,7 @@ describe('transactions upgrades', () => {
     await Dexie.delete(DB_NAME);
 
     // Seed at v1.2 - before the v1.3 bridge rename and the v1.4 consume backfill. A fixture per
-    // ARM, not per row type: every `??` fallback in the upgrade has both sides represented, and
-    // each declining condition has a row that takes it. A write-count assertion alone is
-    // satisfied equally by a correct migration and by a deleted one.
+    // ARM: every `??` fallback has both sides, and each declining condition has a row that takes it.
     const legacy = new Dexie(DB_NAME);
     legacy.version(1.2).stores({ transactions: 'id, accountId, transactionId, initiatedAt, completedAt' });
     await legacy.open();
@@ -47,7 +45,10 @@ describe('transactions upgrades', () => {
       bigRow('consume-bare', 'consume'),
       // neither upgrade touches these
       bigRow('send-1', 'send'),
-      bigRow('send-2', 'send')
+      bigRow('send-2', 'send'),
+      { ...bigRow('send-mainnet', 'send'), badgeNetwork: 'mainnet' },
+      { ...bigRow('send-testnet', 'send'), badgeNetwork: 'testnet' },
+      { ...bigRow('send-restored', 'send'), badgeNetwork: 'mainnet', restoredFromBackup: true }
     ]);
     legacy.close();
 
@@ -56,12 +57,38 @@ describe('transactions upgrades', () => {
       repo = require('./repo');
     });
 
+    const upgradeIndexes: string[] = [];
+    repo!.db.use({
+      stack: 'dbcore',
+      name: 'upgrade-query-indexes',
+      level: 1,
+      create: down => ({
+        ...down,
+        table: name => {
+          const table = down.table(name);
+          if (name !== 'transactions') return table;
+          return {
+            ...table,
+            query: request => {
+              upgradeIndexes.push(request.query.index.name ?? '');
+              return table.query(request);
+            },
+            openCursor: request => {
+              upgradeIndexes.push(request.query.index.name ?? '');
+              return table.openCursor(request);
+            }
+          };
+        }
+      })
+    });
+
     const written: string[] = [];
     repo!.transactions.hook('updating', (_mods, primKey) => {
       written.push(String(primKey));
     });
 
     await repo!.db.open();
+    expect(upgradeIndexes).toContain('[badgeNetwork+status+type]');
     const rows = await repo!.transactions.toArray();
     const byId = Object.fromEntries(rows.map(r => [r.id, r]));
     const get = (id: string) => {
@@ -70,8 +97,8 @@ describe('transactions upgrades', () => {
       return r;
     };
 
-    // WHICH rows were written...
-    expect(written.sort()).toEqual(['bridge-bare', 'bridge-full', 'consume-1']);
+    expect(written).not.toContain('send-1');
+    expect(written.sort()).toEqual(['bridge-bare', 'bridge-full', 'consume-1', 'send-mainnet']);
 
     // ...and WHAT they became. Without these, deleting either upgrade body still passes.
     expect(get('bridge-bare').type).toBe('bridged-send');
@@ -96,6 +123,10 @@ describe('transactions upgrades', () => {
     expect(get('consume-bare').noteIds).toBeUndefined();
     // The blobs the whole PR is about must survive a migration untouched.
     expect(get('send-1').resultBytes).toBeDefined();
+    expect(get('send-mainnet').badgeEvidenceRevision).toEqual(expect.any(String));
+    for (const row of rows.filter(row => row.id !== 'send-mainnet')) {
+      expect(row).not.toHaveProperty('badgeEvidenceRevision');
+    }
 
     repo!.db.close();
     await Dexie.delete(DB_NAME);
@@ -190,7 +221,8 @@ describe('transactions upgrades', () => {
     expect(byId['relayed-spent']).toMatchObject({ relayAttempts: 4, nextRelayAt: now + 1800 });
     expect(byId['restored-spent']).toMatchObject({ relayAttempts: 4, nextRelayAt: now + 1800 });
     expect(byId['undelivered-unspent']).toMatchObject({ relayAttempts: 2, nextRelayAt: now + 1800 });
-    expect(repo!.db.verno).toBe(3.1);
+    for (const row of Object.values(byId)) expect(row).not.toHaveProperty('badgeEvidenceRevision');
+    expect(repo!.db.verno).toBe(3.2);
 
     repo!.db.close();
     await Dexie.delete(DB_NAME);

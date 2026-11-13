@@ -139,12 +139,13 @@ export function partitionFeeNote(
  * so every caller has to split them -- and the ones that forgot did not fail, they silently
  * picked or counted the wrong note on a fee-charging chain while staying green at fee 0.
  * Routing every read through here means a caller cannot forget: it gets the split back or
- * nothing. Enforced by the `no-restricted-syntax` rule that bans `.outputNotes()` outside
- * this module.
+ * nothing. The `no-restricted-syntax` rule bans every `.outputNotes()` call, and this call
+ * is the one disable.
  */
 export function splitExecutedOutputNotes(executed: { outputNotes: () => { notes: () => OutputNote[] } }): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
 } {
+  // eslint-disable-next-line no-restricted-syntax -- sanctioned outputNotes() read
   return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), getVerificationBaseFeeSync());
 }

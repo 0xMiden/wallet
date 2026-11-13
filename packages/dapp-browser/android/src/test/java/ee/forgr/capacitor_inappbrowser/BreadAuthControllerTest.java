@@ -245,7 +245,9 @@ public class BreadAuthControllerTest {
 
     @Test public void installsBreadAuthBeforePresentationAndFirstNavigation() {
         WebViewDialog dialog = open();
-        assertEquals("listener:breadAuth", installed.get(0));
+        // The wallet bridge listener comes first; breadAuth is the first Bread transport.
+        assertEquals("listener:" + WebViewDialog.BRIDGE_LISTENER_NAME, installed.get(0));
+        assertEquals("listener:breadAuth", installed.get(1));
         assertTrue(installed.indexOf("listener:breadAuth") < installed.indexOf("listener:breadPresentation"));
         assertEquals(Collections.singleton("*"), rules.get("breadAuth"));
         assertEquals("https://fixture.example/first", shadowOf((WebView) ReflectionHelpers.getField(dialog, "_webView")).getLastLoadedUrl());

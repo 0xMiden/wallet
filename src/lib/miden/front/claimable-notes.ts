@@ -398,8 +398,12 @@ async function readCachedClaimableNotes(cacheKey: string): Promise<ClaimableNote
     const stored = await fetchFromStorage<unknown>(cacheKey);
     if (!Array.isArray(stored)) return null;
     // The same bound the writer applies, so a stored list can never publish more than the cache keeps.
+    // The same ownership filter as the extension's stored list, so the first view lists no foreign order.
     const notes = markFromCache(
-      sortClaimableNotes(stored.filter(isCachedClaimableNote)).slice(0, MAX_CACHED_CLAIMABLE_NOTES)
+      sortClaimableNotes(stored.filter(isCachedClaimableNote).filter(isOwnClaimableNote)).slice(
+        0,
+        MAX_CACHED_CLAIMABLE_NOTES
+      )
     );
     claimableNotesMemCache.set(cacheKey, notes);
     return notes;

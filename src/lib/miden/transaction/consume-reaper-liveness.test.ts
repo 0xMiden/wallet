@@ -50,7 +50,9 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 jest.mock('../activity/notes', () => ({ importAllNotes: jest.fn(), queueNoteImport: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getNativeAssetId: async () => 'usdcx-faucet'
+  getNativeAssetId: async () => 'usdcx-faucet',
+  // A checked write decides the chain fee before it runs.
+  getVerificationBaseFee: async () => 0
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   ...jest.requireActual('lib/miden/sdk/helpers'),

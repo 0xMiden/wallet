@@ -162,6 +162,12 @@ jest.mock('lib/platform', () => ({
   isMobile: () => false
 }));
 
+// A checked write decides the chain fee before it runs.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFee: jest.fn(async () => 0)
+}));
+
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() }
 }));
@@ -249,7 +255,15 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
     const [sentTx, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
     expect(sentTx).toBe(tx);
-    expect(sentSign).toBe(signCallback);
+    expect(typeof sentSign).toBe('function');
+    expect(sentSign).not.toBe(signCallback);
+    signCallback.mockClear();
+    const signed =
+      typeof sentSign === 'function'
+        ? Promise.resolve(Reflect.apply(sentSign, undefined, ['pk', 'aa']))
+        : Promise.reject(new Error('expected a signer'));
+    await expect(signed).rejects.toThrow();
+    expect(signCallback).not.toHaveBeenCalled();
     expect(typeof onStage).toBe('function');
     // The callback is row-bound: every stamp it makes is keyed by this tx's id.
     expect(await driveStages()).toEqual([
@@ -273,7 +287,15 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     expect(mockProxySendTransaction.mock.calls[0]!).toHaveLength(3);
     const [sentTx, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
     expect(sentTx).toBe(tx);
-    expect(sentSign).toBe(signCallback);
+    expect(typeof sentSign).toBe('function');
+    expect(sentSign).not.toBe(signCallback);
+    signCallback.mockClear();
+    const signed =
+      typeof sentSign === 'function'
+        ? Promise.resolve(Reflect.apply(sentSign, undefined, ['pk', 'aa']))
+        : Promise.reject(new Error('expected a signer'));
+    await expect(signed).rejects.toThrow();
+    expect(signCallback).not.toHaveBeenCalled();
     // The load-bearing assertion: a third argument EXISTS flag-ON. Without it the
     // per-step timings vanish on Chrome, silently.
     expect(typeof onStage).toBe('function');

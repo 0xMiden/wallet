@@ -1,5 +1,6 @@
 import { AllowedPrivateData, PrivateDataPermission, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { SimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { MidenDAppMetadata } from 'lib/adapter/types';
 import type { SerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { ReadyWalletState, WalletMessageBase, WalletNetwork, WalletState } from 'lib/shared/types';
@@ -118,7 +119,7 @@ export interface MidenDAppTransactionPayload extends MidenDAppPayloadBase {
   // Custom-transaction decode support. Undefined for the `send` sub-flow, which
   // keeps rendering via `transactionMessages`. For `custom`, the confirm UI
   // decodes `requestBytes` client-side for an instant "declared" view, then
-  // requests a verified summary via `simulateCustomTransaction`.
+  // requests the verified view via `simulateCustomTransaction`.
   txKind?: 'send' | 'custom';
   requestBytes?: string; // base64 serialized Miden-SDK TransactionRequest
   importNotes?: string[]; // base64 serialized notes carried by the request
@@ -292,8 +293,7 @@ export interface MidenDAppSimulateTransactionRequest extends WalletMessageBase {
 
 export interface MidenDAppSimulateTransactionResponse extends WalletMessageBase {
   type: MidenMessageType.DAppSimulateTransactionResponse;
-  summaryBytes?: string; // base64 serialized TransactionSummary (authorization pending)
-  executedBytes?: string; // base64 serialized TransactionResult (already fully authorized)
+  effects?: SimulatedEffectsWire;
   error?: string;
 }
 
