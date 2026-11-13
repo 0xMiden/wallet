@@ -353,43 +353,42 @@ export async function readMainnetSwapCommitHeight(
 export function prepareMainnetSwapClaimRecovery(
   state: MainnetSwapCheckpoint,
   payback: MainnetSwapPaybackEvidence,
-  balances: MainnetSwapBalances
-): MainnetSwapCheckpoint {
-  const authority = state.reverseRequestAuthority;
-  const baseline = state.returnBaseline;
+  balances: MainnetSwapBalances,
+  leg: 'forward' | 'reverse' = 'reverse'
+): bigint {
+  const forward = leg === 'forward';
+  const authority = forward ? state.forwardRequestAuthority : state.reverseRequestAuthority;
+  const baseline = forward
+    ? { offer: state.offer.balance, request: state.request.balance, native: state.native.balance }
+    : state.returnBaseline;
   if (
-    state.phase !== 'reverse-authorized' ||
-    !authority ||
-    !baseline ||
-    state.reverseClaimAuthority !== undefined ||
-    state.offer.hex !== state.native.hex ||
-    state.request.hex === state.native.hex ||
-    balances.offer !== balances.native ||
-    state.reverseOrderId !== authority.orderId ||
-    payback.originalNoteId !== authority.noteId ||
-    payback.orderId !== authority.orderId ||
-    payback.claimedAtBlock !== undefined ||
-    payback.amount < BigInt(authority.minimumReceive) ||
-    balances.request !== BigInt(state.request.balance) ||
-    BigInt(baseline.request) - balances.request !== BigInt(state.returnAmount ?? '0') ||
-    balances.native > BigInt(baseline.native) ||
-    (state.recoveryClaimNativeBefore !== undefined && state.recoveryClaimNativeBefore !== balances.native.toString())
-  )
-    throw new Error('Existing swap payout, claim outcome or original portfolio is unresolved');
-  // A restored Guardian can omit swap rows; retain vault debits, never manufacture a receipt.
-  const costs = BigInt(state.native.balance) - balances.native - BigInt(state.principal);
+    state.phase !== `${leg}-authorized` || !authority || !baseline ||
+    (forward ? state.forwardClaimAuthority : state.reverseClaimAuthority) !== undefined ||
+    state.offer.hex !== state.native.hex || state.request.hex === state.native.hex ||
+    balances.offer !== balances.native || balances.native < 0n || balances.request < 0n ||
+    (forward ? state.forwardOrderId : state.reverseOrderId) !== authority.orderId ||
+    payback.originalNoteId !== authority.noteId || payback.orderId !== authority.orderId ||
+    payback.claimedAtBlock !== undefined || payback.amount < BigInt(authority.minimumReceive) ||
+    (!forward && state.recoveryClaimNativeBefore !== undefined && state.recoveryClaimNativeBefore !== balances.native.toString())
+  ) throw new Error('Existing swap payout, claim outcome or original portfolio is unresolved');
+  const principal = BigInt(forward ? state.principal : state.returnAmount ?? '0');
+  // A missing local parent does not erase an actual vault debit or license a fabricated receipt.
+  const costs = BigInt(baseline.native) - balances.native - (forward ? principal : 0n);
   const reserve = SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee);
-  if (costs < BigInt(state.paidFees) || costs + reserve > BigInt(state.feeBudget))
-    throw new Error('No original native claim fee reserve remains');
-  const finalNative = balances.native + payback.amount - reserve;
+  if (
+    costs <= 0n || costs > reserve ||
+    balances.offer !== BigInt(baseline.offer) - (forward ? principal : 0n) - costs ||
+    balances.request !== BigInt(baseline.request) - (forward ? 0n : principal) ||
+    BigInt(state.paidFees) + costs + reserve > BigInt(state.feeBudget)
+  ) throw new Error('No attributable native debit or original claim fee reserve remains');
+  const finalNative = balances.native + (forward ? 0n : payback.amount) - reserve;
   const loss = BigInt(state.native.balance) - finalNative;
   const unit = 10n ** BigInt(state.native.decimals);
   if (
     ((loss > 0n ? loss : 0n) * BigInt(state.native.usdMicros) + unit - 1n) / unit >
     BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP)
-  )
-    throw new Error('Existing payout claim exceeds the remaining original loss allowance');
-  return { ...state, paidFees: costs.toString(), recoveryClaimNativeBefore: balances.native.toString() };
+  ) throw new Error('Existing payout claim exceeds the remaining original loss allowance');
+  return costs;
 }
 
 export async function readMainnetSwapPayback(
