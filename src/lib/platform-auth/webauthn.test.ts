@@ -5,8 +5,8 @@ import { createPlatformCredential, getPlatformCredential, signalUnknownPlatformC
 const origin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
 const rawId = new Uint8Array([1, 2, 3, 4]);
 const prf = new Uint8Array(32).fill(19);
-const encoded = (value: Uint8Array) => Buffer.from(value).toString('base64')
-  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const encoded = (value: Uint8Array) =>
+  Buffer.from(value).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const id = 'AQIDBA';
 const salt = encoded(new Uint8Array(32).fill(7));
 let flags = 13;
@@ -20,7 +20,10 @@ let prfOutput: unknown = prf.buffer;
 let authDataLength = 37;
 let events: string[] = [];
 
-jest.mock('webextension-polyfill', () => ({ __esModule: true,
+jest.mock('lib/i18n/core', () => ({ getMessage: (key: string) => (key === 'appName' ? 'Bread' : key) }));
+
+jest.mock('webextension-polyfill', () => ({
+  __esModule: true,
   default: { runtime: { getURL: () => 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/' } }
 }));
 
@@ -28,10 +31,18 @@ class Attestation {
   clientDataJSON = new ArrayBuffer(0);
   attestationObject = new ArrayBuffer(0);
   authData = new ArrayBuffer(0);
-  getAuthenticatorData() { return this.authData; }
-  getPublicKey() { return null; }
-  getPublicKeyAlgorithm() { return -7; }
-  getTransports() { return ['internal']; }
+  getAuthenticatorData() {
+    return this.authData;
+  }
+  getPublicKey() {
+    return null;
+  }
+  getPublicKeyAlgorithm() {
+    return -7;
+  }
+  getTransports() {
+    return ['internal'];
+  }
 }
 class Assertion {
   clientDataJSON = new ArrayBuffer(0);
@@ -44,7 +55,10 @@ class CredentialResult {
   rawId = rawId.buffer;
   type = credentialType;
   authenticatorAttachment = 'platform';
-  constructor(readonly response: Attestation | Assertion, readonly hasPrf: boolean) {}
+  constructor(
+    readonly response: Attestation | Assertion,
+    readonly hasPrf: boolean
+  ) {}
   getClientExtensionResults() {
     return { prf: { enabled: this.hasPrf, ...(this.hasPrf ? { results: { first: prfOutput } } : {}) } };
   }
@@ -56,11 +70,16 @@ async function credential(challenge: BufferSource, create: boolean) {
   data[32] = flags;
   const response = create ? new Attestation() : new Assertion();
   const challengeBytes = ArrayBuffer.isView(challenge)
-    ? new Uint8Array(challenge.buffer, challenge.byteOffset, challenge.byteLength) : new Uint8Array(challenge);
-  response.clientDataJSON = new TextEncoder().encode(JSON.stringify({
-    type: create ? 'webauthn.create' : 'webauthn.get', origin,
-    challenge: wrongChallenge ? 'wrong' : encoded(challengeBytes), crossOrigin: false
-  })).buffer;
+    ? new Uint8Array(challenge.buffer, challenge.byteOffset, challenge.byteLength)
+    : new Uint8Array(challenge);
+  response.clientDataJSON = new TextEncoder().encode(
+    JSON.stringify({
+      type: create ? 'webauthn.create' : 'webauthn.get',
+      origin,
+      challenge: wrongChallenge ? 'wrong' : encoded(challengeBytes),
+      crossOrigin: false
+    })
+  ).buffer;
   if (response instanceof Attestation) response.authData = data.buffer;
   else response.authenticatorData = data.buffer;
   const result = new CredentialResult(response, create ? createPrf : getPrf);
@@ -83,16 +102,32 @@ const descriptors = globals.map(name => Object.getOwnPropertyDescriptor(globalTh
 const originalCredentials = Object.getOwnPropertyDescriptor(navigator, 'credentials');
 
 beforeEach(() => {
-  flags = 13; createPrf = true; getPrf = true; wrongRp = false; wrongId = false; wrongChallenge = false;
-  credentialType = 'public-key'; events = []; prfOutput = prf.buffer; authDataLength = 37;
-  create.mockClear(); get.mockClear(); signal.mockClear();
+  flags = 13;
+  createPrf = true;
+  getPrf = true;
+  wrongRp = false;
+  wrongId = false;
+  wrongChallenge = false;
+  credentialType = 'public-key';
+  events = [];
+  prfOutput = prf.buffer;
+  authDataLength = 37;
+  create.mockClear();
+  get.mockClear();
+  signal.mockClear();
   Object.defineProperty(globalThis, 'PublicKeyCredential', { configurable: true, value: CredentialResult });
   Object.defineProperty(globalThis, 'AuthenticatorAttestationResponse', { configurable: true, value: Attestation });
   Object.defineProperty(globalThis, 'AuthenticatorAssertionResponse', { configurable: true, value: Assertion });
   Object.defineProperty(CredentialResult, 'signalUnknownCredential', { configurable: true, value: signal });
-  Object.defineProperty(navigator, 'credentials', { configurable: true, value: {
-    create, get, store: jest.fn(), preventSilentAccess: jest.fn()
-  } });
+  Object.defineProperty(navigator, 'credentials', {
+    configurable: true,
+    value: {
+      create,
+      get,
+      store: jest.fn(),
+      preventSilentAccess: jest.fn()
+    }
+  });
 });
 afterEach(() => {
   globals.forEach((name, i) => {
@@ -106,15 +141,23 @@ afterEach(() => {
 
 it('enrolls with required verification and tracks metadata before returning a secret', async () => {
   const tracked: unknown[] = [];
-  await expect(createPlatformCredential(null, async (...args) => {
-    events.push('track'); tracked.push(args);
-  })).resolves.toEqual({ credentialId: id, prfSecret: encoded(prf) });
+  await expect(
+    createPlatformCredential(null, async (...args) => {
+      events.push('track');
+      tracked.push(args);
+    })
+  ).resolves.toEqual({ credentialId: id, prfSecret: encoded(prf) });
   expect(events).toEqual(['create', 'track']);
   expect(tracked).toEqual([[id, expect.any(String), true]]);
-  const options = create.mock.calls[0][0]?.publicKey;
+  const options = create.mock.calls[0]?.[0]?.publicKey;
   expect(options).toMatchObject({
-    rp: { name: 'Bread' }, user: { name: 'Bread', displayName: 'Bread' },
-    authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' }
+    rp: { name: 'Bread' },
+    user: { name: 'Bread', displayName: 'Bread' },
+    authenticatorSelection: {
+      authenticatorAttachment: 'platform',
+      userVerification: 'required',
+      residentKey: 'preferred'
+    }
   });
   expect(options?.rp.id).toBeUndefined();
   expect(options?.user.id.byteLength).toBe(64);
@@ -123,16 +166,26 @@ it('enrolls with required verification and tracks metadata before returning a se
 
 it('tracks a created credential before the single fallback get and excludes the previous ID', async () => {
   createPrf = false;
-  const result = await createPlatformCredential(id, async () => { events.push('track'); });
+  const result = await createPlatformCredential(id, async () => {
+    events.push('track');
+  });
   expect(result).toEqual({ credentialId: id, prfSecret: encoded(prf) });
   expect(events).toEqual(['create', 'track', 'get']);
-  expect(create.mock.calls[0][0]?.publicKey?.excludeCredentials?.[0].id).toEqual(rawId);
-  expect(get.mock.calls[0][0]?.publicKey).toMatchObject({ userVerification: 'required', allowCredentials: [{ id: rawId }] });
+  expect(create.mock.calls[0]?.[0]?.publicKey?.excludeCredentials?.[0]?.id).toEqual(rawId);
+  expect(get.mock.calls[0]?.[0]?.publicKey).toMatchObject({
+    userVerification: 'required',
+    allowCredentials: [{ id: rawId }]
+  });
 });
 
 it('refuses a credential without PRF even when the browser reports capability', async () => {
-  createPrf = false; getPrf = false;
-  await expect(createPlatformCredential(null, async () => { events.push('track'); })).rejects.toThrow();
+  createPrf = false;
+  getPrf = false;
+  await expect(
+    createPlatformCredential(null, async () => {
+      events.push('track');
+    })
+  ).rejects.toThrow();
   expect(events).toEqual(['create', 'track', 'get']);
 });
 
@@ -143,27 +196,35 @@ it.each([1, 9, 12, 0])('refuses authentication without user presence and verific
 
 it('uses the supplied ID and salt for a verified get without specifying a web RP ID', async () => {
   await expect(getPlatformCredential(id, salt)).resolves.toEqual({ credentialId: id, prfSecret: encoded(prf) });
-  expect(get.mock.calls[0][0]?.publicKey).toMatchObject({
-    userVerification: 'required', allowCredentials: [{ id: rawId }],
+  expect(get.mock.calls[0]?.[0]?.publicKey).toMatchObject({
+    userVerification: 'required',
+    allowCredentials: [{ id: rawId }],
     extensions: { prf: { eval: { first: new Uint8Array(32).fill(7) } } }
   });
-  expect(get.mock.calls[0][0]?.publicKey?.rpId).toBeUndefined();
+  expect(get.mock.calls[0]?.[0]?.publicKey?.rpId).toBeUndefined();
 });
 
 it.each(['rp', 'id', 'challenge', 'type'])('refuses a mismatched %s', async mismatch => {
-  wrongRp = mismatch === 'rp'; wrongId = mismatch === 'id'; wrongChallenge = mismatch === 'challenge';
+  wrongRp = mismatch === 'rp';
+  wrongId = mismatch === 'id';
+  wrongChallenge = mismatch === 'challenge';
   if (mismatch === 'type') credentialType = 'password';
   await expect(getPlatformCredential(id, salt)).rejects.toThrow();
 });
 
 it('tracks the returned ID even if later user-verification validation fails', async () => {
   flags = 1;
-  await expect(createPlatformCredential(null, async () => { events.push('track'); })).rejects.toThrow();
+  await expect(
+    createPlatformCredential(null, async () => {
+      events.push('track');
+    })
+  ).rejects.toThrow();
   expect(events).toEqual(['create', 'track']);
 });
 
 it.each([new ArrayBuffer(31), new ArrayBuffer(33), 'not key material'])(
-  'refuses malformed PRF output %#', async output => {
+  'refuses malformed PRF output %#',
+  async output => {
     prfOutput = output;
     await expect(getPlatformCredential(id, salt)).rejects.toThrow();
   }
