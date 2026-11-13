@@ -74,6 +74,29 @@ it('accepts only a fully receipted native round trip with actual EVM/native fees
   const state = complete();
   expect(parseMainnetNearCheckpoint(state)).toEqual(state);
 });
+it('retains the final signed Guardian consume fingerprint/deadline alongside the original note reference', () => {
+  const state = complete();
+  const checkpoint = {
+    ...state,
+    consumeAuthority: {
+      ...state.consumeAuthority,
+      requestCanonicalSha256: '6'.repeat(64),
+      expiresAt: Date.parse('2026-11-12T12:04:00Z')
+    }
+  };
+  expect(parseMainnetNearCheckpoint(checkpoint)).toEqual(checkpoint);
+});
+it.each([
+  { requestCanonicalSha256: '6'.repeat(64) },
+  { expiresAt: 1000 },
+  { requestCanonicalSha256: 'wrong', expiresAt: 1000 },
+  { requestCanonicalSha256: '6'.repeat(64), expiresAt: 0 }
+])('rejects a detached or invalid signed Guardian consume fingerprint/deadline: %j', signed => {
+  const state = complete();
+  expect(() => parseMainnetNearCheckpoint({
+    ...state, consumeAuthority: { ...state.consumeAuthority, ...signed }
+  })).toThrow();
+});
 it('records a genuinely receipted provider native refund as cancelled, never as a successful round trip', () => {
   const state = complete();
   state.phase = 'cancelled';
