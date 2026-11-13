@@ -179,7 +179,9 @@ jest.mock('app/confirm/decode', () => ({
     unlistedAssets: 0,
     inputNotesConsumed: 0,
     outputNotesCreated: 0,
-    storageChanged: false
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: []
   }),
   simulatedOutputRecipients: () => []
 }));

@@ -166,7 +166,9 @@ const mockEmptySimulatedView = {
   unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 0,
-  storageChanged: false
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: []
 };
 let mockSimulatedView: unknown;
 jest.mock('app/confirm/decode', () => {
@@ -387,7 +389,15 @@ describe('requestConfirm runs an approval once (#1584)', () => {
       unlistedAssets: 0,
       inputNotesConsumed: 0,
       outputNotesCreated: 1,
-      storageChanged: false
+      storageChanged: false,
+      viewConsumedNotes: [],
+      createdNotes: [
+        {
+          id: '0xsent',
+          amounts: [{ faucetId: 'faucet-x', amount: 50n }],
+          nfts: [{ faucetId: 'mtst1nftfaucet', assetId: '0xaa\u2026dd', key: 'nft-key-1' }]
+        }
+      ]
     };
     const { answer, listener, port, confirmation } = await openTransaction();
 
@@ -740,7 +750,9 @@ const simulatedViewFixture = {
   unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 1,
-  storageChanged: false
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'faucet-x', amount: 50n }], nfts: [] }]
 };
 
 describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {

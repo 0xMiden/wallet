@@ -140,11 +140,6 @@ function importedNoteContents(
   }
 }
 
-/** The fungible side of {@link importedNoteContents}, which is all a spending limit reads. */
-export function importedNoteAssets(b64: string, options: NoteDecodeOptions = {}): AssetAmount[] {
-  return importedNoteContents(b64, options).amounts;
-}
-
 /**
  * The NFTs a summary's NET vault delta moves. One consumed into a created note never touches the vault, so it
  * appears on neither side, exactly as a fungible amount that nets to zero does.
@@ -280,18 +275,10 @@ function userNoteRecipients(source: Parameters<typeof splitExecutedOutputNotes>[
 }
 
 /**
- * Per-faucet value leaving the account, for spending-limit accounting.
- *
- * `credit` is the value this request BROUGHT IN and may therefore offset: the assets of the notes
- * the request itself introduced. It is passed in rather than read from `view.incoming` because
- * `incoming` is every consumed note, and `importNotes` is dApp-authored - its own comment says the
- * ids "can name a note the user already holds". Crediting those let a dApp consume a pending 1000
- * of the user's and send 1050 while only 50 was charged. The caller computes `credit` behind the
- * wallet's own provenance check, so membership cannot be forged from the request.
- *
- * A credit belongs only on an EXECUTED view (`executedBytesToView`), whose `outgoing` is the gross output notes. A
- * SUMMARY view's `outgoing` is the vault's net change, already net of every note the transaction consumed, so a credit
- * there subtracts the carried notes a second time: importing 50 and sending 100 showed 50 leaving and charged 0.
+ * Per-faucet value leaving the account: the view's `outgoing`, never reduced by what it consumed. `incoming` counts
+ * every consumed note, including ones the user already held, and crediting those let a dApp consume a pending 1000
+ * of the user's and send 1050 while only 50 was charged. A caller that must credit the notes a request brought in
+ * measures a holdings view ({@link toHoldingsView}) instead.
  *
  * ONE ENTRY PER CANONICAL FAUCET. The executed view flat-maps over output notes, so two notes on
  * one faucet arrive as two entries, and the same faucet can arrive under two spellings. Both
@@ -299,14 +286,12 @@ function userNoteRecipients(source: Parameters<typeof splitExecutedOutputNotes>[
  * Folding here rather than at either consumer is what keeps the number the user is shown and the
  * number the queue enforces the same one.
  */
-export function netOutflowByFaucet(view: TxAssetView, credit: readonly AssetAmount[] = []): AssetAmount[] {
+export function netOutflowByFaucet(view: TxAssetView): AssetAmount[] {
   const signed = new Map<string, bigint>();
-  const add = (faucetId: string, amount: bigint) => {
-    const key = canonicalWalletAccountId(faucetId);
-    signed.set(key, (signed.get(key) ?? 0n) + amount);
-  };
-  for (const asset of view.outgoing) add(asset.faucetId, asset.amount);
-  for (const asset of credit) add(asset.faucetId, -asset.amount);
+  for (const asset of view.outgoing) {
+    const key = canonicalWalletAccountId(asset.faucetId);
+    signed.set(key, (signed.get(key) ?? 0n) + asset.amount);
+  }
   const outflow: AssetAmount[] = [];
   for (const [faucetId, amount] of signed) if (amount > 0n) outflow.push({ faucetId, amount });
   return outflow;

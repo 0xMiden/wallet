@@ -166,9 +166,7 @@ describe('makeSimulateHandler', () => {
   });
 
   it('answers an executed dry run with its decoded effects and never the executed transaction', async () => {
-    jest
-      .mocked(simulateCustomTransaction)
-      .mockResolvedValueOnce({ executedBytes: 'execB64', introducedCredit: [], introducedCount: 0 });
+    jest.mocked(simulateCustomTransaction).mockResolvedValueOnce({ executedBytes: 'execB64', introducedNoteIds: [] });
     jest.mocked(noteFlowFromSimulatedBytes).mockReturnValueOnce({
       inputCount: 0,
       inputs: [],

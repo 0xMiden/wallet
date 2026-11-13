@@ -241,10 +241,8 @@ describe('simulateCustomTransaction', () => {
   });
 
   // Inside the hold a trap from decoding the dApp's note bytes has to reach the lock, which retires the client, and
-  // the dry run must stop before it quarantines, credits or imports anything on that client.
+  // the dry run must stop before it quarantines or imports anything on that client.
   describe('a WebAssembly trap while decoding an importNotes entry', () => {
-    const sdk: Record<string, unknown> = jest.requireMock('@miden-sdk/miden-sdk/lazy');
-
     it('in its id fails the dry run before the quarantine write and every import, and retires the client', async () => {
       const res = await simulateCustomTransaction({
         address: 'mtst1abc',
@@ -259,29 +257,6 @@ describe('simulateCustomTransaction', () => {
       expect(importNoteBytes).not.toHaveBeenCalled();
     });
 
-    it('in its assets fails the dry run before the quarantine write and every import, and retires the client', async () => {
-      const trap = new WebAssembly.RuntimeError('unreachable');
-      sdk.NoteFile = {
-        deserialize: () => {
-          throw trap;
-        }
-      };
-      try {
-        const res = await simulateCustomTransaction({
-          address: 'mtst1abc',
-          transactionRequest: 'reqB64',
-          importNotes: ['noteA']
-        });
-
-        expect(res).toEqual({ error: 'unreachable' });
-        expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
-        expect(quarantineNoteIds).not.toHaveBeenCalled();
-        expect(importNoteBytes).not.toHaveBeenCalled();
-      } finally {
-        delete sdk.NoteFile;
-      }
-    });
-
     it('is not what an ordinary decode failure is: that entry is still skipped and the rest import', async () => {
       const res = await simulateCustomTransaction({
         address: 'mtst1abc',
@@ -289,16 +264,20 @@ describe('simulateCustomTransaction', () => {
         importNotes: ['noteA', 'unreadable']
       });
 
-      expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3', introducedCount: 1 });
+      expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3', introducedNoteIds: ['id:notea'] });
       expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteA'], expect.objectContaining({ abandoned: false }));
       expect(importNoteBytes).toHaveBeenCalledTimes(2);
       expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
     });
   });
 
-  it('returns { error } when execution throws, without rethrowing', async () => {
+  it('returns { error } when execution throws, without rethrowing and without the introduced ids', async () => {
     (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(new Error('note not found'));
-    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+    const res = await simulateCustomTransaction({
+      address: 'mtst1abc',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA']
+    });
     expect(res).toEqual({ error: 'note not found' });
   });
 
@@ -640,18 +619,54 @@ describe('an abandoned dry run', () => {
 });
 
 describe('introduced-note provenance', () => {
-  // The spending-limit policy may offset what LEAVES only against what this request BROUGHT IN.
-  // `importNotes` is dApp-authored and its ids can name a note the user already holds, so the
-  // credit is derived from the wallet's own already-held check rather than from the request.
-  it('credits only the notes this request actually introduced', async () => {
+  // Signing credits only the consumed notes this request brought in. `importNotes` is dApp-authored and its ids can
+  // name a note the user already holds, so the ids come from the wallet's own already-held check.
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getInputNote.mockImplementation(async () => null);
+  });
+
+  it('returns the ids of the carried notes the wallet did not already hold', async () => {
+    getInputNote.mockImplementation(async (id: string) => (id === 'id:noteA' ? { alreadyHere: true } : null));
+
     const result = await simulateCustomTransaction({
       address: 'mtst1sender',
       transactionRequest: 'reqB64',
       importNotes: ['noteA', 'noteB']
     });
 
-    expect(result.introducedCount).toBe(2);
-    expect(result.introducedCredit).toEqual([]);
+    expect(result).toEqual({ summaryBytes: 'b64:1-2-3', introducedNoteIds: ['id:noteb'] });
+  });
+
+  it('returns no introduced id for a carried note the wallet already held, on either result', async () => {
+    getInputNote.mockImplementation(async () => ({ alreadyHere: true }));
+    const input = { address: 'mtst1sender', transactionRequest: 'reqB64', importNotes: ['noteA'] };
+
+    await expect(simulateCustomTransaction(input)).resolves.toEqual({
+      summaryBytes: 'b64:1-2-3',
+      introducedNoteIds: []
+    });
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })
+    );
+    await expect(simulateCustomTransaction(input)).resolves.toEqual({
+      executedBytes: 'b64:9-9',
+      introducedNoteIds: []
+    });
+  });
+
+  it('returns the introduced ids with an executed result too', async () => {
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })
+    );
+
+    const result = await simulateCustomTransaction({
+      address: 'mtst1sender',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA']
+    });
+
+    expect(result).toEqual({ executedBytes: 'b64:9-9', introducedNoteIds: ['id:notea'] });
   });
 });
 

@@ -3,6 +3,8 @@
  * generation-time dry run equal the effects that the user approved, and the spending-limit charge is the
  * generation-time value.
  */
+import type { ViewNote } from 'app/confirm/decode';
+
 import { CustomTransactionEffectsChangedError } from './constants';
 import {
   approveCustomSimulation,
@@ -25,6 +27,8 @@ interface TestView {
   outputNotesCreated: number;
   fee?: { faucetId: string; amount: bigint };
   storageChanged: boolean;
+  viewConsumedNotes?: ViewNote[];
+  createdNotes?: ViewNote[];
 }
 
 /** The decoded result of each dry run, by its bytes. The decoders themselves are covered by `decode.test.ts`. */
@@ -61,6 +65,13 @@ jest.mock('lib/miden/spending-limits/queue', () => ({
   hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
 }));
 
+const viewNote = (id: string, amounts: { faucetId: string; amount: bigint }[] = []): ViewNote => ({
+  id,
+  amounts,
+  nfts: []
+});
+
+/** By default the request consumes the one note it carries, `0xcarried`, and sends 10 of faucet A in `0xsent`. */
 const view = (overrides: Partial<TestView> = {}): TestView => ({
   outgoing: [{ faucetId: 'faucet-a', amount: 10n }],
   incoming: [],
@@ -71,20 +82,44 @@ const view = (overrides: Partial<TestView> = {}): TestView => ({
   outputNotesCreated: 1,
   fee: { faucetId: 'faucet-native', amount: 3n },
   storageChanged: false,
+  viewConsumedNotes: [viewNote('0xcarried')],
+  createdNotes: [viewNote('0xsent', [{ faucetId: 'faucet-a', amount: 10n }])],
   ...overrides
 });
 
-/** The approval dry run under `approved`, with the given provenance. */
+/** The approval dry run under `approved`, with the consumed notes the request introduced. */
 const approve = (
   approvedView: TestView,
   recipients: string[] = ['0xr1'],
-  provenance: { introducedCredit?: { faucetId: string; amount: bigint }[]; introducedCount?: number } = {}
+  introducedNoteIds: string[] = ['0xcarried'],
+  shape: 'summary' | 'executed' = 'summary'
 ) => {
   mockViews.set('approved', approvedView);
   mockRecipients.set('approved', recipients);
-  const approval = approveCustomSimulation({ summaryBytes: 'approved', ...provenance });
+  const approval = approveCustomSimulation(
+    shape === 'summary'
+      ? { summaryBytes: 'approved', introducedNoteIds }
+      : { executedBytes: 'approved', introducedNoteIds }
+  );
   if (approval === undefined) throw new Error('the approval dry run gave no result');
   return approval;
+};
+
+/**
+ * The approved effects of a row queued before approvals recorded note ids: the spending-limit provenance in their
+ * place, and neither id list.
+ */
+const legacyEffects = (
+  approvedView: TestView,
+  provenance: { introducedCredit?: { faucetId: string; amount: bigint }[]; introducedCount?: number },
+  shape: 'summary' | 'executed' = 'summary'
+): IApprovedCustomEffects => {
+  const {
+    introducedNoteIds: _ids,
+    approvedOutputNoteIds: _outputs,
+    ...effects
+  } = approve(approvedView, ['0xr1'], [], shape).effects;
+  return { ...effects, ...provenance };
 };
 
 /** The generation dry run under `generated`. */
@@ -102,7 +137,7 @@ beforeEach(() => {
 });
 
 describe('approveCustomSimulation', () => {
-  it('records the movement per canonical faucet, the recipients, the note counts and the provenance', () => {
+  it('records the movement per canonical faucet, the recipients, the note counts and the note ids', () => {
     const approval = approve(
       view({
         outgoing: [
@@ -112,10 +147,11 @@ describe('approveCustomSimulation', () => {
         ],
         incoming: [{ faucetId: 'faucet-c', amount: 7n }],
         outgoingNfts: [{ faucetId: 'nft-faucet', assetId: '0xaa' }],
-        fee: { faucetId: 'FAUCET-NATIVE', amount: 3n }
+        fee: { faucetId: 'FAUCET-NATIVE', amount: 3n },
+        createdNotes: [viewNote('0xsent'), viewNote('0xsent-2')]
       }),
       ['0xr2', '0xr1'],
-      { introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }], introducedCount: 1 }
+      ['0xCARRIED', '0xcarried']
     );
 
     expect(approval.effects).toEqual({
@@ -133,37 +169,84 @@ describe('approveCustomSimulation', () => {
       outputNotesCreated: 1,
       fee: { faucetId: 'faucet-native', amount: 3n },
       storageChanged: false,
-      introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
-      introducedCount: 1
+      introducedNoteIds: ['0xcarried'],
+      approvedOutputNoteIds: ['0xsent', '0xsent-2']
     });
   });
 
-  it('does not credit introduced notes again in a summary net outflow', () => {
-    const approval = approve(view(), ['0xr1'], {
-      introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
-      introducedCount: 1
-    });
+  it('measures what leaves from the holdings: a summary consuming a held 1000 X and sending 1050 X', () => {
+    const approval = approve(
+      view({
+        outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+        viewConsumedNotes: [viewNote('0xheld', [{ faucetId: 'faucet-x', amount: 1000n }])],
+        createdNotes: [viewNote('0xsent', [{ faucetId: 'faucet-x', amount: 1050n }])]
+      }),
+      ['0xr1'],
+      []
+    );
+
+    expect(approval.view.outgoing).toEqual([{ faucetId: 'faucet-x', amount: 1050n }]);
+    expect(approval.view.heldNotesSpent).toBe(1);
+    expect(approval.signing.approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 1050n }]);
+    expect(approval.spends).toEqual([{ faucetId: 'faucet-x', amount: 1050n }]);
+    // The effects compared at generation stay the dry run's own figures.
+    expect(approval.effects.outgoing).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+  });
+
+  it('does not credit an introduced note again in a summary net outflow', () => {
+    const approval = approve(
+      view({ viewConsumedNotes: [viewNote('0xcarried', [{ faucetId: 'faucet-a', amount: 4n }])] })
+    );
 
     expect(approval.spends).toEqual([{ faucetId: 'faucet-a', amount: 10n }]);
+    expect(approval.signing.approvedOutflow).toEqual([{ faucetId: 'faucet-a', amount: 10n }]);
   });
 
-  it('credits executed gross outflow with the notes the request introduced', () => {
-    mockViews.set('approved', view());
-    mockRecipients.set('approved', ['0xr1']);
-    const approval = approveCustomSimulation({
-      executedBytes: 'approved',
-      introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
-      introducedCount: 1
-    });
+  it('credits an executed gross outflow with only the notes the request introduced', () => {
+    const approval = approve(
+      view({
+        incoming: [{ faucetId: 'faucet-a', amount: 4n }],
+        viewConsumedNotes: [viewNote('0xcarried', [{ faucetId: 'faucet-a', amount: 4n }])]
+      }),
+      ['0xr1'],
+      ['0xcarried'],
+      'executed'
+    );
 
-    if (approval === undefined) throw new Error('the approval dry run gave no result');
     expect(approval.spends).toEqual([{ faucetId: 'faucet-a', amount: 6n }]);
+    expect(approval.signing.approvedOutflow).toEqual([{ faucetId: 'faucet-a', amount: 6n }]);
   });
 
-  it('gives no charge it cannot attribute when a summary consumed notes the request did not introduce', () => {
-    const approval = approve(view({ inputNotesConsumed: 2 }), ['0xr1'], { introducedCount: 1 });
+  it('counts every consumed note as held when the dry run gave no introduced ids', () => {
+    mockViews.set(
+      'approved',
+      view({ viewConsumedNotes: [viewNote('0xcarried', [{ faucetId: 'faucet-a', amount: 4n }])] })
+    );
+    mockRecipients.set('approved', ['0xr1']);
 
-    expect(approval.spends).toBeUndefined();
+    const approval = approveCustomSimulation({ summaryBytes: 'approved' });
+
+    expect(approval?.effects.introducedNoteIds).toEqual([]);
+    expect(approval?.spends).toEqual([{ faucetId: 'faucet-a', amount: 14n }]);
+  });
+
+  it('throws for a dry run that spends a held note whose assets cannot be read', () => {
+    mockViews.set('approved', view({ viewConsumedNotes: [{ id: '0xheld', amounts: [], nfts: [], opaque: true }] }));
+    mockRecipients.set('approved', ['0xr1']);
+
+    expect(() => approveCustomSimulation({ summaryBytes: 'approved', introducedNoteIds: [] })).toThrow(
+      'a held note does not list its assets'
+    );
+  });
+
+  it('throws for a view that does not list its notes', () => {
+    const { viewConsumedNotes: _consumed, createdNotes: _created, ...unlisted } = view();
+    mockViews.set('approved', unlisted);
+    mockRecipients.set('approved', ['0xr1']);
+
+    expect(() => approveCustomSimulation({ summaryBytes: 'approved', introducedNoteIds: ['0xcarried'] })).toThrow(
+      'the view does not list the notes it creates'
+    );
   });
 
   it('gives no approval when the dry run gave no result', () => {
@@ -264,7 +347,7 @@ describe('assertCustomEffectsApproved', () => {
   });
 
   it('refuses when the generation-time spends are not the spends the admission charged', () => {
-    const approval = approve(view(), ['0xr1'], { introducedCount: 1 });
+    const approval = approve(view());
     const dryRun = generate(view());
 
     expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-a', amount: 1n }])).toThrow(
@@ -272,50 +355,101 @@ describe('assertCustomEffectsApproved', () => {
     );
   });
 
-  it('charges with the approval provenance, which the generation dry run cannot identify again', () => {
-    mockViews.set('approved', view());
-    mockRecipients.set('approved', ['0xr1']);
-    const approval = approveCustomSimulation({
-      executedBytes: 'approved',
-      introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
-      introducedCount: 1
+  it('charges with the note ids the approval recorded, which the generation dry run cannot identify again', () => {
+    const executed = view({
+      incoming: [{ faucetId: 'faucet-a', amount: 4n }],
+      viewConsumedNotes: [viewNote('0xcarried', [{ faucetId: 'faucet-a', amount: 4n }])]
     });
-    if (approval === undefined) throw new Error('the approval dry run gave no result');
-    mockViews.set('generated', view());
+    const approval = approve(executed, ['0xr1'], ['0xcarried'], 'executed');
+    mockViews.set('generated', executed);
     mockRecipients.set('generated', ['0xr1']);
     const dryRun = { executedBytes: 'generated' };
 
     expect(() =>
       assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-a', amount: 6n }])
     ).not.toThrow();
+    expect(() =>
+      assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-a', amount: 10n }])
+    ).toThrow(new CustomTransactionEffectsChangedError('spentAssetTotals'));
   });
 
-  it('refuses an unattributable generation spend when a spending limit is configured', () => {
-    const approval = approve(view({ inputNotesConsumed: 2 }), ['0xr1'], { introducedCount: 0 });
-    const dryRun = generate(view({ inputNotesConsumed: 2 }));
+  it('charges a held note at generation as the approval did: 1050 matches, the net 50 does not', () => {
+    const spendsHeld = view({
+      outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+      viewConsumedNotes: [viewNote('0xheld', [{ faucetId: 'faucet-x', amount: 1000n }])],
+      createdNotes: [viewNote('0xsent', [{ faucetId: 'faucet-x', amount: 1050n }])]
+    });
+    const approval = approve(spendsHeld, ['0xr1'], []);
+    const dryRun = generate(spendsHeld);
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [], true)).toThrow(
-      new CustomTransactionEffectsChangedError('spentAssetTotals')
-    );
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, undefined, true)).toThrow(
-      new CustomTransactionEffectsChangedError('spentAssetTotals')
-    );
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, true)).not.toThrow();
+    expect(() =>
+      assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-x', amount: 50n }], true)
+    ).toThrow(new CustomTransactionEffectsChangedError('spentAssetTotals'));
   });
 
-  it('matches an uncharged row when an unattributable generation spend has no spending limit', () => {
-    const approval = approve(view({ inputNotesConsumed: 2 }), ['0xr1'], { introducedCount: 0 });
-    const dryRun = generate(view({ inputNotesConsumed: 2 }));
+  it('refuses a generation dry run whose held note can no longer be measured', () => {
+    const approval = approve(view(), ['0xr1'], []);
+    const dryRun = generate(view({ viewConsumedNotes: [{ id: '0xcarried', amounts: [], nfts: [], opaque: true }] }));
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, undefined)).not.toThrow();
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [])).not.toThrow();
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).toThrow(
+      new CustomTransactionEffectsChangedError('spentAssetTotals')
+    );
   });
 
   it('does not treat a measured empty spend as unattributable when a spending limit is configured', () => {
-    const approval = approve(view({ outgoing: [], inputNotesConsumed: 0 }));
-    const dryRun = generate(view({ outgoing: [], inputNotesConsumed: 0 }));
+    const approval = approve(view({ outgoing: [], inputNotesConsumed: 0, viewConsumedNotes: [], createdNotes: [] }));
+    const dryRun = generate(view({ outgoing: [], inputNotesConsumed: 0, viewConsumedNotes: [], createdNotes: [] }));
 
     expect(approval.spends).toEqual([]);
     expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [], true)).not.toThrow();
+  });
+
+  // A row queued before approvals recorded note ids keeps the charge it was admitted with.
+  describe('for a row queued before approvals recorded note ids', () => {
+    it('charges a summary its net outflow, without crediting the carried note again', () => {
+      const effects = legacyEffects(view(), {
+        introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
+        introducedCount: 1
+      });
+      const dryRun = generate(view());
+
+      expect(() => assertCustomEffectsApproved(effects, dryRun, [{ faucetId: 'faucet-a', amount: 10n }])).not.toThrow();
+    });
+
+    it('charges an executed result its gross outflow less the recorded credit', () => {
+      const effects = legacyEffects(
+        view(),
+        { introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }], introducedCount: 1 },
+        'executed'
+      );
+      mockViews.set('generated', view());
+      mockRecipients.set('generated', ['0xr1']);
+
+      expect(() =>
+        assertCustomEffectsApproved(effects, { executedBytes: 'generated' }, [{ faucetId: 'faucet-a', amount: 6n }])
+      ).not.toThrow();
+    });
+
+    it('refuses an unattributable generation spend when a spending limit is configured', () => {
+      const effects = legacyEffects(view({ inputNotesConsumed: 2 }), { introducedCount: 0 });
+      const dryRun = generate(view({ inputNotesConsumed: 2 }));
+
+      expect(() => assertCustomEffectsApproved(effects, dryRun, [], true)).toThrow(
+        new CustomTransactionEffectsChangedError('spentAssetTotals')
+      );
+      expect(() => assertCustomEffectsApproved(effects, dryRun, undefined, true)).toThrow(
+        new CustomTransactionEffectsChangedError('spentAssetTotals')
+      );
+    });
+
+    it('matches an uncharged row when an unattributable generation spend has no spending limit', () => {
+      const effects = legacyEffects(view({ inputNotesConsumed: 2 }), { introducedCount: 0 });
+      const dryRun = generate(view({ inputNotesConsumed: 2 }));
+
+      expect(() => assertCustomEffectsApproved(effects, dryRun, undefined)).not.toThrow();
+      expect(() => assertCustomEffectsApproved(effects, dryRun, [])).not.toThrow();
+    });
   });
 });
 
@@ -364,20 +498,22 @@ describe('customEffectsCheckAccess', () => {
 
 describe('verifyPreparedCustomRequest', () => {
   const approvedEffects = (): IApprovedCustomEffects => approve(view()).effects;
+  const charged = [{ faucetId: 'faucet-a', amount: 10n }];
+  /** A row queued before approvals recorded note ids, whose summary consumed a note it did not introduce. */
+  const unattributable = (): IApprovedCustomEffects => legacyEffects(view(), { introducedCount: 0 });
 
   it('checks the hold around the dry run and accepts the approved effects', async () => {
     const effects = approvedEffects();
     const { access, checked } = checkAccess(async () => generate(view()));
 
-    // No spending limit, so an unattributable generation spend still matches the empty charge.
-    await verifyPreparedCustomRequest(access, effects, []);
+    await verifyPreparedCustomRequest(access, effects, charged);
 
     expect(mockHasSpendingLimits).toHaveBeenCalledWith('account-a');
     expect(checked).toEqual(['before the custom request effects check', 'after the custom request effects dry run']);
   });
 
   it('refuses an unattributable generation spend when the account has a spending limit', async () => {
-    const effects = approvedEffects();
+    const effects = unattributable();
     const { access } = checkAccess(async () => generate(view()));
     mockHasSpendingLimits.mockResolvedValue(true);
 
@@ -390,7 +526,7 @@ describe('verifyPreparedCustomRequest', () => {
   });
 
   it('accepts an unattributable generation spend when no spending limit is configured', async () => {
-    const effects = approvedEffects();
+    const effects = unattributable();
     const { access } = checkAccess(async () => generate(view()));
 
     await expect(verifyPreparedCustomRequest(access, effects, undefined)).resolves.toBeUndefined();
@@ -401,7 +537,7 @@ describe('verifyPreparedCustomRequest', () => {
     const effects = approvedEffects();
     const { access } = checkAccess(async () => generate(view({ outgoing: [{ faucetId: 'faucet-a', amount: 99n }] })));
 
-    await expect(verifyPreparedCustomRequest(access, effects, [{ faucetId: 'faucet-a', amount: 10n }])).rejects.toThrow(
+    await expect(verifyPreparedCustomRequest(access, effects, charged)).rejects.toThrow(
       new CustomTransactionEffectsChangedError('outgoing')
     );
   });
@@ -413,7 +549,7 @@ describe('verifyPreparedCustomRequest', () => {
       return generate(view());
     });
 
-    await expect(verifyPreparedCustomRequest(access, effects, [])).rejects.toThrow(
+    await expect(verifyPreparedCustomRequest(access, effects, charged)).rejects.toThrow(
       'operation abandoned after the custom request effects dry run'
     );
   });

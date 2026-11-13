@@ -231,7 +231,9 @@ beforeEach(() => {
     unlistedAssets: 0,
     inputNotesConsumed: 0,
     outputNotesCreated: 0,
-    storageChanged: false
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: []
   });
   sdk.SigningInputsType = { TransactionSummary: 0, Arbitrary: 1, Blind: 2 };
   // Silence the decode-failure breadcrumbs the "cannot decode" cases emit.
@@ -392,7 +394,9 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
       unlistedAssets: 0,
       inputNotesConsumed: 0,
       outputNotesCreated: 1,
-      storageChanged: false
+      storageChanged: false,
+      viewConsumedNotes: [],
+      createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'faucet-usdc', amount: 2500000n }], nfts: [] }]
     });
 
     await expect(
@@ -529,6 +533,8 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
 
   it('lists an NFT the dry run moves by its faucet and short id', async () => {
     sdk.TransactionRequest = { deserialize: () => ({ expectedOutputOwnNotes: () => [] }) };
+    // The request brings the note carrying the NFT, so the NFT enters the holdings.
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', introducedNoteIds: ['0xcarried'] });
     mockSimulatedView.mockReturnValue({
       account: 'miden-account-1',
       outgoing: [],
@@ -538,7 +544,15 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
       unlistedAssets: 0,
       inputNotesConsumed: 1,
       outputNotesCreated: 0,
-      storageChanged: false
+      storageChanged: false,
+      viewConsumedNotes: [
+        {
+          id: '0xcarried',
+          amounts: [],
+          nfts: [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaa', assetId: '0xcdcdcdcd…cdcdcd' }]
+        }
+      ],
+      createdNotes: []
     });
 
     await expect(

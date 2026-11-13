@@ -264,11 +264,11 @@ export interface ICustomTransactionEffects {
  */
 export interface IApprovedCustomEffects extends ICustomTransactionEffects {
   /**
-   * The assets of the notes that the request introduced at approval. The spending-limit charge subtracts only this
-   * value. The wallet cannot calculate it again at generation, because the approval dry run imported those notes.
+   * Rows queued before approvals recorded `introducedNoteIds` only: the assets of the notes that the request introduced
+   * at approval, which their spending-limit charge subtracts. No longer written.
    */
   introducedCredit?: IConsumedAssetTotal[];
-  /** How many of the consumed notes the request introduced at approval. */
+  /** Rows queued before approvals recorded `introducedNoteIds` only: how many consumed notes the request introduced. */
   introducedCount?: number;
   /**
    * The consumed notes that the request itself brought in, by the approval dry run's provenance check. Signing credits
@@ -965,15 +965,15 @@ export interface ITransaction {
    */
   approvedEffects?: IApprovedCustomEffects;
   /**
-   * Execute only: the per-faucet outflow the approval-time dry run showed, recorded for every decoded dry run,
-   * including one whose `spentAssetTotals` the spending-limit policy withheld because the request consumed notes the
-   * wallet already held. Signing lets at most this leave (`proposal-effect-guard.ts`); a row without it falls back to
-   * `spentAssetTotals`.
+   * Execute only: the per-faucet value the approval-time dry run showed leaving the account's holdings
+   * (`executeApprovalOf`), where a consumed note the account already held counts as value it spends. Signing lets at
+   * most this leave (`proposal-effect-guard.ts`); a row without it falls back to `spentAssetTotals`.
    */
   approvedOutflow?: IConsumedAssetTotal[];
   /**
-   * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving. Signing lets
-   * exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry run, may send none.
+   * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving the account's
+   * holdings. Signing lets exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry
+   * run, may send none.
    */
   approvedNftOutflow?: string[];
   /** Set when signing refused the proposal for moving more than was approved (#2147). A retry would refuse again. */

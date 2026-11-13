@@ -2,8 +2,8 @@ import { Note, NoteFile, TransactionRequest, TransactionResult, TransactionSumma
 
 import {
   declaredRequestToView,
+  declaredTransactionRequestToView,
   executedBytesToView,
-  importedNoteAssets,
   netOutflowByFaucet,
   toHoldingsView,
   simulatedBytesToView,
@@ -459,13 +459,16 @@ describe('declaredRequestToView', () => {
   });
 });
 
-// The custom-transaction simulation decodes inside its WASM hold, where a trap has to reach the lock to retire the
-// client; the confirm sheet's own decode runs outside any hold and keeps skipping the entry.
-describe('importedNoteAssets', () => {
+// A caller decoding inside a WASM hold asks for a trap to reach the lock, which retires the client; the confirm
+// sheet's own decode runs outside any hold and keeps skipping the entry.
+describe('the declared view of a carried note whose decode traps', () => {
   const trap = new WebAssembly.RuntimeError('unreachable');
   const throwTrap = () => {
     throw trap;
   };
+  const request = { expectedOutputOwnNotes: () => [] } as unknown as Parameters<
+    typeof declaredTransactionRequestToView
+  >[0];
   const traps: Record<string, () => void> = {
     'NoteFile.deserialize': () => (NoteFile.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
     'Note.deserialize': () => (Note.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
@@ -474,16 +477,16 @@ describe('importedNoteAssets', () => {
 
   it.each(Object.keys(traps))('rethrows a trap in %s only when asked to', name => {
     traps[name]!();
-    expect(() => importedNoteAssets('imported', { rethrowTraps: true })).toThrow(trap);
+    expect(() => declaredTransactionRequestToView(request, ['imported'], { rethrowTraps: true })).toThrow(trap);
     traps[name]!();
-    expect(importedNoteAssets('imported')).toEqual([]);
+    expect(declaredTransactionRequestToView(request, ['imported']).incoming).toEqual([]);
   });
 
   it('still skips an entry that fails ordinarily when asked to rethrow traps', () => {
     (Note.deserialize as jest.Mock).mockImplementationOnce(() => {
       throw new Error('bad note bytes');
     });
-    expect(importedNoteAssets('imported', { rethrowTraps: true })).toEqual([]);
+    expect(declaredTransactionRequestToView(request, ['imported'], { rethrowTraps: true }).incoming).toEqual([]);
   });
 });
 
@@ -607,22 +610,15 @@ describe('netOutflowByFaucet', () => {
     ).toEqual([{ faucetId: 'f1', amount: 120n }]);
   });
 
-  it('credits only what the caller passes, never the consumed notes', () => {
-    // `incoming` is every note consumed, including ones the user already held. Crediting those
-    // let a dApp consume a pending 1000 of the user's and send 1050 for a charge of 50.
+  it('counts only what leaves the view, never crediting the consumed notes', () => {
+    // `incoming` is every note consumed, including ones the user already held. Crediting those let a dApp consume a
+    // pending 1000 of the user's and send 1050 for a charge of 50; a holdings view counts that note instead.
     const consumed = {
       ...view([{ faucetId: 'f1', amount: 1050n }]),
       incoming: [{ faucetId: 'f1', amount: 1000n }]
     };
 
     expect(netOutflowByFaucet(consumed)).toEqual([{ faucetId: 'f1', amount: 1050n }]);
-    expect(netOutflowByFaucet(consumed, [{ faucetId: 'f1', amount: 1000n }])).toEqual([
-      { faucetId: 'f1', amount: 50n }
-    ]);
-  });
-
-  it('never reports a negative outflow when the credit exceeds what left', () => {
-    expect(netOutflowByFaucet(view([{ faucetId: 'f1', amount: 10n }]), [{ faucetId: 'f1', amount: 99n }])).toEqual([]);
   });
 
   it('keeps distinct faucets apart', () => {
@@ -631,11 +627,10 @@ describe('netOutflowByFaucet', () => {
         view([
           { faucetId: 'f1', amount: 50n },
           { faucetId: 'f2', amount: 30n }
-        ]),
-        [{ faucetId: 'f1', amount: 20n }]
+        ])
       )
     ).toEqual([
-      { faucetId: 'f1', amount: 30n },
+      { faucetId: 'f1', amount: 50n },
       { faucetId: 'f2', amount: 30n }
     ]);
   });
