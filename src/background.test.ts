@@ -276,10 +276,11 @@ describe('background.ts — core service-worker listeners', () => {
     expect(mockRegisterChromeUpdateListener).not.toHaveBeenCalled();
   });
 
-  it('runs a sync when the miden-sync alarm fires', () => {
+  it('runs a sync when the miden-sync alarm fires', async () => {
     const wep = loadBackground({ target: 'firefox' });
 
     fire(wep.alarms.onAlarm, { name: 'miden-sync' });
+    await flush();
 
     expect(mockDoSync).toHaveBeenCalledTimes(1);
   });
@@ -326,10 +327,11 @@ describe('background.ts — core service-worker listeners', () => {
     expect(mockFailInterruptedTransactions).not.toHaveBeenCalled();
   });
 
-  it('fails interrupted transactions on a real browser cold-start', () => {
+  it('fails interrupted transactions on a real browser cold-start', async () => {
     const wep = loadBackground({ target: 'firefox' });
 
     fire(wep.runtime.onStartup);
+    await flush();
 
     expect(mockFailInterruptedTransactions).toHaveBeenCalledTimes(1);
   });
