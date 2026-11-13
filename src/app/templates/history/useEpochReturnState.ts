@@ -48,7 +48,8 @@ export function epochReturnNote(
 
 export function epochReturnDisplay(
   note: EpochNoteState | undefined,
-  claims: Pick<ITransaction, 'status'>[]
+  claims: Pick<ITransaction, 'status'>[],
+  payoutConfirmed = false
 ): EpochReturnState {
   const returned = claims.some(tx => tx.status === ITransactionStatus.Completed);
   if (returned) return { status: 'fundsReturned', messageKey: 'epochReturnDone' };
@@ -61,7 +62,9 @@ export function epochReturnDisplay(
   }
   switch (note) {
     case 'spent':
-      return { status: 'confirmed', messageKey: 'epochReturnPaid' };
+      return payoutConfirmed
+        ? { status: 'confirmed', messageKey: 'epochReturnPaid' }
+        : { status: 'unconfirmed', messageKey: 'epochReturnSpent' };
     case 'waiting':
       return { status: 'awaitingReturn', messageKey: 'epochReturnWaiting' };
     case 'ready':
@@ -127,6 +130,12 @@ export function useEpochReturnState(
 
   if (!noteId || height == null) return {};
   const note = read?.noteId === noteId ? read.note : undefined;
-  if (note === 'spent' && claims?.noteId !== noteId) return { messageKey: 'epochReturnUnavailable' };
-  return epochReturnDisplay(note, claims?.noteId === noteId ? claims.rows : []);
+  if (note === 'spent' && claims?.noteId !== noteId) {
+    return { status: 'unconfirmed', messageKey: 'epochReturnSpent' };
+  }
+  return epochReturnDisplay(
+    note,
+    claims?.noteId === noteId ? claims.rows : [],
+    entry?.bridgeEpochStatus === 'confirmed'
+  );
 }

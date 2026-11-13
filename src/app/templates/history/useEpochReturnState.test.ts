@@ -36,8 +36,11 @@ it('does not promise a return for a missing note or a failed read', () => {
   expect(epochReturnDisplay('absent', []).status).toBeUndefined();
   expect(epochReturnDisplay(undefined, []).status).toBeUndefined();
 });
-it('shows the Epoch payout when the note was consumed', () => {
-  expect(epochReturnDisplay('spent', []).status).toBe('confirmed');
+it('shows the Epoch payout only when Epoch confirmed the fill', () => {
+  expect(epochReturnDisplay('spent', [], true)).toEqual({ status: 'confirmed', messageKey: 'epochReturnPaid' });
+});
+it('does not call a consumed note paid without a confirmed fill', () => {
+  expect(epochReturnDisplay('spent', [], false)).toEqual({ status: 'unconfirmed', messageKey: 'epochReturnSpent' });
 });
 it('distinguishes a wallet return from an Epoch payout', () => {
   expect(epochReturnDisplay('spent', [{ status: ITransactionStatus.Completed }]).status).toBe('fundsReturned');
@@ -88,6 +91,13 @@ describe('useEpochReturnState note reads', () => {
     );
     await act(async () => undefined);
     expect(mockRead).not.toHaveBeenCalled();
+  });
+
+  it('keeps a spent note unclaimable while its claim rows load', async () => {
+    mockRead.mockResolvedValue('spent');
+    const { result } = renderHook(() => useEpochReturnState(bridgeEntry(), 'acct-1', false));
+    await act(async () => undefined);
+    expect(result.current).toEqual({ status: 'unconfirmed', messageKey: 'epochReturnSpent' });
   });
 
   it('reads the committed note of a fill-failed Completed row', async () => {

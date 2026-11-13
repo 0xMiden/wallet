@@ -1920,5 +1920,6 @@
   "epochReturnPending": "Your funds are being returned to your wallet.",
   "epochReturnDone": "Your funds have returned to your wallet.",
   "epochReturnPaid": "Funds sent to your destination.",
+  "epochReturnSpent": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance.",
   "epochReturnUnavailable": "Unable to check the funds status. Try again."
 }
