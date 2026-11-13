@@ -13,6 +13,7 @@ function scenario() {
       if (!observed.persisted) throw new Error('authorization evidence was not saved');
       observed.released = true;
     },
+    authorizeSigned: async () => {},
     settle: async () => 'settled',
     cancelQueued: async () => {
       observed.cancelled = true;
@@ -28,6 +29,32 @@ function scenario() {
   return { hooks, observed };
 }
 
+it('never reaches collateral execution when final signed SDK authorization fails', async () => {
+  const { hooks, observed } = scenario();
+  let executed = 0;
+  hooks.authorizeSigned = async () => { throw new Error('Signed SDK upload failed'); };
+  hooks.settle = async () => { executed++; return 'spent'; };
+  await expect(runGuardedEpochForward(hooks)).rejects.toThrow('Signed SDK upload failed');
+  expect(executed).toBe(0);
+  expect(observed.uncertain).toBe(true);
+  expect(observed.unspent).toBe(false);
+});
+it('holds collateral execution until the final signed SDK immutable upload actually acknowledges', async () => {
+  const { hooks } = scenario();
+  let announce: () => void = () => {};
+  let acknowledge: () => void = () => {};
+  const entered = new Promise<void>(resolve => { announce = resolve; });
+  const acknowledged = new Promise<void>(resolve => { acknowledge = resolve; });
+  let executed = 0;
+  hooks.authorizeSigned = async () => { announce(); await acknowledged; };
+  hooks.settle = async () => { executed++; return 'spent'; };
+  const pending = runGuardedEpochForward(hooks);
+  expect(await Promise.race([entered.then(() => true), pending.then(() => false, () => false)])).toBe(true);
+  expect(executed).toBe(0);
+  acknowledge();
+  await expect(pending).resolves.toBe('spent');
+  expect(executed).toBe(1);
+});
 it('persists inspected collateral before releasing processing and returns actual settlement', async () => {
   const { hooks, observed } = scenario();
   await expect(runGuardedEpochForward(hooks)).resolves.toBe('settled');

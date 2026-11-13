@@ -60,6 +60,28 @@ describe('provider-scoped mainnet recovery discovery', () => {
       ).rejects.toThrow(/missing|reverse|return/i);
     }
   );
+  it('retains final Epoch SDK authority ahead of its earlier queued collateral snapshot', async () => {
+    const selected = await chooseSwapCheckpoint(
+      runs,
+      async id => ({ artifacts: [
+        artifact(`mainnet-epoch-forward-authorized-${id}`),
+        artifact(`mainnet-epoch-forward-sdk-authorized-${id}`)
+      ] }),
+      async () => jobs('Upload Epoch SDK forward authority', 'success'),
+      baseline,
+      'epoch'
+    );
+    expect(selected.name).toBe(`mainnet-epoch-forward-sdk-authorized-${baseline + 2}`);
+  });
+  it('never downgrades a signed Epoch attempt to its earlier queued collateral authorization', async () => {
+    await expect(chooseSwapCheckpoint(
+      runs,
+      async id => ({ artifacts: [artifact(`mainnet-epoch-forward-authorized-${id}`)] }),
+      async () => jobs('Upload Epoch SDK forward authority', 'success'),
+      baseline,
+      'epoch'
+    )).rejects.toThrow(/missing|SDK|signed/i);
+  });
   it('selects the latest signed Epoch journal before an older reverse authorization', async () => {
     const selected = await chooseSwapCheckpoint(
       runs,

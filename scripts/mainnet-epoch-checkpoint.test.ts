@@ -50,6 +50,38 @@ const forwardAuthority = () => ({
   reclaimHeight: 7200,
   mandateReclaimHeight: 2200
 });
+const forwardRequestAuthority = () => ({
+  nonce: '33333333-3333-4333-8333-333333333333',
+  noteId: hash,
+  sha256: '3'.repeat(64),
+  canonicalSha256: '4'.repeat(64),
+  expiresAt: Date.parse(fixture().createdAt) + 600_000
+});
+it('persists exact final Epoch SDK fingerprints alongside the original collateral binding', () => {
+  const state = {
+    ...fixture(), forwardNoteId: hash, forwardAuthority: forwardAuthority(),
+    forwardRequestAuthority: forwardRequestAuthority()
+  };
+  expect(parseMainnetEpochCheckpoint(state)).toEqual(state);
+});
+it('never promotes a funded Epoch receipt without its actual signed request authority', () => {
+  expect(() => parseMainnetEpochCheckpoint({
+    ...settled(), forwardAuthority: forwardAuthority(), forwardRequestAuthority: undefined
+  })).toThrow();
+});
+it.each([
+  { nonce: '' },
+  { noteId: `0x${'b'.repeat(64)}` },
+  { sha256: 'wrong' },
+  { canonicalSha256: 'wrong' },
+  { expiresAt: Date.parse(fixture().createdAt) + 600_001 },
+  { requestBytes: [1, 2, 3] }
+])('rejects unrelated, extended or private Epoch SDK authority: %j', changed => {
+  expect(() => parseMainnetEpochCheckpoint({
+    ...fixture(), forwardNoteId: hash, forwardAuthority: forwardAuthority(),
+    forwardRequestAuthority: { ...forwardRequestAuthority(), ...changed }
+  })).toThrow();
+});
 it('preserves original authorization while persisting the exact reviewed forward floor, binding and both reclaim heights', () => {
   const bound = { ...fixture(), forwardNoteId: hash, forwardAuthority: forwardAuthority() };
   expect(parseMainnetEpochCheckpoint(bound)).toEqual(bound);
@@ -144,9 +176,12 @@ it.each([
   { requestCanonicalSha256: '6'.repeat(64), expiresAt: 0 }
 ])('rejects a detached or invalid signed Guardian consume fingerprint/deadline: %j', signed => {
   const state = claimCheckpoint();
-  expect(() => parseMainnetEpochCheckpoint({
-    ...state, consumeAuthority: { ...state.consumeAuthority, ...signed }
-  })).toThrow();
+  expect(() =>
+    parseMainnetEpochCheckpoint({
+      ...state,
+      consumeAuthority: { ...state.consumeAuthority, ...signed }
+    })
+  ).toThrow();
 });
 it('does not authorize a native return without the original reverse authority', () => {
   expect(() => parseMainnetEpochCheckpoint({ ...claimCheckpoint(), reverseAuthority: undefined })).toThrow();
