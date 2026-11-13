@@ -67,6 +67,15 @@ describe('secret-clipboard', () => {
     expect(mockClipboardWrite).not.toHaveBeenCalled();
   });
 
+  it('does not throw when a web copy event has no clipboardData', () => {
+    mockIsMobile = false;
+    const preventDefault = jest.fn();
+    expect(() => handleSecretCopyEvent({ clipboardData: null, preventDefault }, 'alpha beta')).not.toThrow();
+    expect(preventDefault).toHaveBeenCalled();
+    expect(mockNativeWrite).not.toHaveBeenCalled();
+    expect(mockClipboardWrite).not.toHaveBeenCalled();
+  });
+
   it('writes nothing natively for an empty selection on mobile', () => {
     const { event, preventDefault } = copyEvent();
     handleSecretCopyEvent(event, '');

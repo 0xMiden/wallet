@@ -100,8 +100,8 @@ jest.mock('components/ui/Pill', () => ({
 // Environment stubs
 // ---------------------------------------------------------------------------
 
-// The copy goes through useClipboardCopy, which writes through @capacitor/clipboard, so that is the boundary to
-// assert.
+// The Copy pill and the copy listener both write through lib/ui/secret-clipboard, so that module is the boundary to
+// assert; @capacitor/clipboard stays mocked to prove the plain write is not used.
 const mockClipboardWrite = jest.fn();
 const mockWriteSecret = jest.fn();
 const mockHandleSecretCopy = jest.fn();
@@ -125,28 +125,15 @@ const renderComponent = (props: Partial<React.ComponentProps<typeof BackUpSeedPh
 
 /**
  * Fire a synthetic `copy` event on `document`, temporarily swapping
- * `window.getSelection` for the given selection value. Returns the event and a
- * spy on `preventDefault` so the handler side-effects can be asserted.
+ * `window.getSelection` for the given selection value.
  */
-const dispatchCopy = ({
-  selection,
-  clipboardData
-}: {
-  selection: { toString: () => string } | null;
-  clipboardData?: { setData: jest.Mock };
-}) => {
+const dispatchCopy = ({ selection }: { selection: { toString: () => string } | null }) => {
   const event = new Event('copy', { cancelable: true, bubbles: true });
-  if (clipboardData !== undefined) {
-    Object.defineProperty(event, 'clipboardData', { value: clipboardData, configurable: true });
-  }
-  const preventDefaultSpy = jest.spyOn(event, 'preventDefault');
 
   const originalGetSelection = window.getSelection;
   (window as unknown as { getSelection: () => unknown }).getSelection = jest.fn(() => selection);
   document.dispatchEvent(event);
   (window as unknown as { getSelection: () => unknown }).getSelection = originalGetSelection;
-
-  return { event, preventDefaultSpy };
 };
 
 beforeEach(() => {
@@ -463,14 +450,6 @@ describe('BackUpSeedPhraseScreen', () => {
       dispatchCopy({ selection: null });
 
       expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.objectContaining({ type: 'copy' }), '');
-    });
-
-    it('does not throw when the event has no clipboardData', () => {
-      renderComponent();
-
-      expect(() => dispatchCopy({ selection: { toString: () => 'anything' } })).not.toThrow();
-
-      expect(mockHandleSecretCopy).toHaveBeenCalledTimes(1);
     });
 
     it('removes the SAME copy listener it added, so the handler cannot outlive the screen', () => {
