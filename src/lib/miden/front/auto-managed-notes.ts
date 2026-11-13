@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { useClaimFloorBaseFee } from 'app/hooks/useVerificationBaseFee';
+import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isAutoConsumeEnabled } from 'lib/settings/helpers';
 
 import { useClaimableNotes } from './claimable-notes';
@@ -52,20 +52,25 @@ function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
  * The value check runs on the BATCH TOTAL, because a batch of up to
  * MAX_NOTES_PER_UNATTENDED_CLAIM notes is one transaction paying one fee; judged per note, a backlog of
  * individually marginal notes was refused in full. The consumers queue a larger batch in chunks of that size,
- * each measured on its own (`chunkAutoConsumeBatch`, #1644). It fails open on an unknown fee, like `isWorthClaiming`: on an SDK build whose
- * block header has no fee accessor the fee stays null for good, so refusing on null
- * would switch auto-consume off permanently.
+ * each measured on its own (`chunkAutoConsumeBatch`, #1644). The fee is the claim floor's (`getClaimFloorBaseFee`):
+ * it claims nothing while the fee is unknown, and a chain proven to report no fee reads 0, so auto-consume stays on
+ * there.
  */
 export function selectAutoConsumeBatch<T extends AutoConsumeNoteShape>(
   notes: readonly T[],
   nativeFaucetId: string | null,
   verificationBaseFee: number | null
 ): T[] {
-  return nativeBatchWorthClaiming(
-    notes.filter(note => !note.fromCache),
-    nativeFaucetId,
-    verificationBaseFee
+  const live = notes.filter(note => !note.fromCache);
+  // Home and the mobile manager share this key, so the realm logs the unknown floor once.
+  noteUnknownClaimFloor(
+    'auto-consume',
+    verificationBaseFee,
+    live.some(
+      note => isNativeNonSwapNote(note, nativeFaucetId) && note.standardPayment === true && !note.isBeingClaimed
+    )
   );
+  return nativeBatchWorthClaiming(live, nativeFaucetId, verificationBaseFee);
 }
 
 /**
@@ -109,12 +114,12 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
 export function useManuallyClaimableNotes(publicAddress: string, enabled: boolean = true) {
   const { data: allNotes, isFallback } = useClaimableNotes(publicAddress, enabled);
   const nativeFaucetId = useNativeFeeFaucetId();
-  const verificationBaseFee = useVerificationBaseFee();
+  const claimFloorBaseFee = useClaimFloorBaseFee();
   const autoConsumeEnabled = isAutoConsumeEnabled();
 
   const data = useMemo(
-    () => excludeAutoManagedNotes(allNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee),
-    [allNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee]
+    () => excludeAutoManagedNotes(allNotes, nativeFaucetId, autoConsumeEnabled, claimFloorBaseFee),
+    [allNotes, nativeFaucetId, autoConsumeEnabled, claimFloorBaseFee]
   );
 
   return { data, allNotes, isFallback };

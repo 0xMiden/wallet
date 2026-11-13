@@ -9,9 +9,11 @@ import { Toggle } from 'components/Toggle';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Pill } from 'components/ui/Pill';
+import { SeedRevealToggle } from 'components/ui/SeedPhraseGrid';
 import { SubPageSection } from 'components/ui/SubPageLayout';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { useRevealMask } from 'lib/ui/useRevealMask';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
@@ -35,8 +37,10 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
   'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
-  // The words are the recovery phrase: render them only once the screen is protected from capture.
+  // The words are the recovery phrase. They render once the screen is protected from capture, and
+  // off mobile only after Show. Blur, pagehide, and a hidden document hide them again.
   const isGuardReady = useScreenshotGuard();
+  const mask = useRevealMask({ resetKey: seedPhrase.join(' ') });
   const shuffledWords = useMemo(() => shuffle(seedPhrase), [seedPhrase]);
   const [firstSelectedWordIndex, setFirstSelectedWord] = useState<number | null>(null);
   const [secondSelectedWordIndex, setSecondSelectedWord] = useState<number | null>(null);
@@ -115,6 +119,14 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
       <article className="grid grid-cols-3 gap-x-2 gap-y-4 pt-2">
         {isGuardReady &&
           shuffledWords.map((word, index) => {
+            if (mask.masked) {
+              // As tall as a word chip, so Show and Hide do not move the grid.
+              return (
+                <span key={`seed-word-${index}`} aria-hidden="true" className="flex h-8 items-center">
+                  <span className="h-1.5 w-full rounded-full bg-fill-pressed" />
+                </span>
+              );
+            }
             const order =
               index === firstSelectedWordIndex ? t('first') : index === secondSelectedWordIndex ? t('last') : null;
             return (
@@ -138,6 +150,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
             );
           })}
       </article>
+      {isGuardReady && <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />}
 
       {isHardwareSecurityAvailable && (
         <SubPageSection title={t('unlockWallet')} description={t('unlockWalletDescription')}>

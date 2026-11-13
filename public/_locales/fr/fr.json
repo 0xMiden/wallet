@@ -690,6 +690,7 @@
   "guardianInfoSwitchingIsEasyDescription": "Vous pouvez changer de Guardian à tout moment à l’aide de votre phrase de récupération. Seule la personne qui valide vos transactions change ; votre compte et vos fonds restent les mêmes.",
   "gotIt": "D'accord",
   "backUpYourWallet": "Sauvegardez votre portefeuille",
+  "recoveryPhraseHidden": "Phrase de récupération masquée",
   "show": "Afficher",
   "hide": "Masquer",
   "copied": "Copié",
@@ -725,8 +726,8 @@
   "veryStrong": "Vraiment génial !",
   "medium": "Moyen",
   "low": "Faible",
-  "8chars1number": "8 caractères, 1 chiffre",
-  "minimumCharsWithAtLeast": "Au moins 8 caractères, dont au moins 1 chiffre",
+  "8chars1number": "Au moins 12 caractères",
+  "minimumCharsWithAtLeast": "Utilisez au moins 12 caractères. Les chiffres, les symboles et l’utilisation de majuscules et de minuscules renforcent la sécurité.",
   "backUpWalletInstructions": "Notez ces 12 mots et conservez-les dans un endroit sûr.",
   "doNotShareWithAnywone": "Ne le partagez avec personne.",
   "seedPhraseRecoveryCaption": "Votre phrase de récupération permet de restaurer vos clés. Elle sert à renouveler votre clé de tous les jours, et non à effectuer des transactions quotidiennes.",
@@ -1903,5 +1904,8 @@
   "arcadeBalanceUnknown": "Solde indisponible",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Pièces de jeu",
-  "arcadePostingPolicy": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction."
+  "arcadePostingPolicy": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction.",
+  "autoLock": "Verrouillage automatique",
+  "autoLockDescription": "Verrouille le portefeuille dès qu’il est resté inactif en arrière-plan pendant cette durée.",
+  "autoLockMinutes": "$minutes$ min"
 }

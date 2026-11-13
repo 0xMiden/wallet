@@ -11,6 +11,7 @@ type NoteFixture = Pick<
 let mockFaucetId: string | null = 'faucet-native';
 let mockAutoConsume = true;
 let mockBaseFee: number | null = null;
+let mockFloorFee: number | null | undefined;
 let mockClaimableNotes: NoteFixture[] | undefined;
 let mockIsFallback = false;
 
@@ -23,7 +24,9 @@ jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: 
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => mockBaseFee
+  default: () => mockBaseFee,
+  // An unset floor passes the raw fee through, so a null raw fee stays null.
+  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -72,6 +75,7 @@ beforeEach(() => {
   mockFaucetId = 'faucet-native';
   mockAutoConsume = true;
   mockBaseFee = null;
+  mockFloorFee = undefined;
   mockClaimableNotes = [native, other, nativeManualSwap];
   mockIsFallback = false;
 });
@@ -107,8 +111,16 @@ describe('selectAutoConsumeBatch', () => {
     expect(selectAutoConsumeBatch([nativeCached, nativeDust], 'faucet-native', FEE)).toEqual([]);
   });
 
-  it('fails open on an unknown fee', () => {
-    expect(selectAutoConsumeBatch([nativeDust], 'faucet-native', null)).toEqual([nativeDust]);
+  it('claims nothing while the fee is unknown, and says so once', () => {
+    const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      // A known fee first, so the shared latch starts clear whatever ran before.
+      selectAutoConsumeBatch([native], 'faucet-native', FEE);
+      expect(selectAutoConsumeBatch([native], 'faucet-native', null)).toEqual([]);
+      expect(debug).toHaveBeenCalledWith('[claim-floor] claim skipped, fee unknown', 'auto-consume');
+    } finally {
+      debug.mockRestore();
+    }
   });
 
   it('claims nothing while the native faucet is unknown', () => {
@@ -153,6 +165,10 @@ describe('excludeAutoManagedNotes', () => {
     ]);
   });
 
+  it('lists every native note to claim by hand while the fee is unknown', () => {
+    expect(excludeAutoManagedNotes([native, nativeDust], 'faucet-native', true, null)).toEqual([native, nativeDust]);
+  });
+
   it('with auto-consume off keeps every note except a native note a consume already covers', () => {
     const otherInFlight = note('other-in-flight', 'faucet-other', '1000000', { isBeingClaimed: true });
     expect(
@@ -168,6 +184,7 @@ describe('useManuallyClaimableNotes', () => {
   });
 
   it('filters auto-managed notes out of the data', () => {
+    mockFloorFee = FEE;
     const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
     expect(result.current.data).toEqual([other, nativeManualSwap]);
     expect(result.current.isFallback).toBe(false);
@@ -175,6 +192,7 @@ describe('useManuallyClaimableNotes', () => {
 
   it('reports whether the list is still the persisted fallback', () => {
     mockIsFallback = true;
+    mockFloorFee = FEE;
     mockClaimableNotes = [nativeCached, otherCached];
     const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
     expect(result.current.isFallback).toBe(true);
@@ -186,6 +204,23 @@ describe('useManuallyClaimableNotes', () => {
     mockClaimableNotes = [nativeDust, other];
     const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
     expect(result.current.data).toEqual([nativeDust, other]);
+  });
+
+  it('keeps a worthwhile native note while the claim floor is unknown', () => {
+    mockBaseFee = null;
+    mockFloorFee = undefined;
+    mockClaimableNotes = [native, other];
+    const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
+    expect(result.current.data).toEqual([native, other]);
+  });
+
+  it('useManuallyClaimableNotes judges with the claim floor fee', () => {
+    // A chain proven fee-free: the floor reads 0 and the auto-consumers take the dust, which the raw fee would list.
+    mockBaseFee = 10000;
+    mockFloorFee = 0;
+    mockClaimableNotes = [nativeDust, other];
+    const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
+    expect(result.current.data).toEqual([other]);
   });
 
   it('returns the full list when auto-consume is off', () => {

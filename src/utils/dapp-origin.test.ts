@@ -1,4 +1,4 @@
-import { splitDappOrigin } from './dapp-origin';
+import { idnAsciiHost, splitDappOrigin } from './dapp-origin';
 
 describe('splitDappOrigin', () => {
   it.each([
@@ -40,4 +40,29 @@ describe('splitDappOrigin', () => {
       expect(splitDappOrigin(origin)).toEqual({ lead: '', domain: origin });
     }
   );
+});
+
+describe('idnAsciiHost', () => {
+  const A = String.fromCharCode(0x430);
+
+  it('gives the ASCII host for a non-ASCII host, port kept', () => {
+    expect(idnAsciiHost(`https://${A}pple.example`)).toBe('xn--pple-43d.example');
+    expect(idnAsciiHost(`https://${A}pple.example:8443`)).toBe('xn--pple-43d.example:8443');
+  });
+
+  it('gives nothing for an ASCII host, an xn-- host included', () => {
+    expect(idnAsciiHost('https://apple.example')).toBeNull();
+    expect(idnAsciiHost('https://xn--pple-43d.example')).toBeNull();
+  });
+
+  it('gives nothing when only a non-ASCII character outside the host differs', () => {
+    const c = String.fromCharCode(0x430);
+    expect(idnAsciiHost(`https://apple.example/${c}`)).toBeNull();
+    expect(idnAsciiHost(`https://apple.example:8443/path?q=${c}`)).toBeNull();
+  });
+
+  it('gives nothing for a value the URL API cannot parse', () => {
+    expect(idnAsciiHost(`not a url ${A}`)).toBeNull();
+    expect(idnAsciiHost('')).toBeNull();
+  });
 });
