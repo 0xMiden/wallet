@@ -92,6 +92,20 @@ describe('funded nightly swap workflow', () => {
     expect(object(step('Upload mainnet near signed EVM 1').with).gate).toContain('.evm-1');
     expect(object(step('Upload mainnet near native return claim').with).gate).toContain('.claim');
   });
+  it('uploads the actual final Epoch SDK snapshot after queued inspection and before collateral execution completes', () => {
+    const upload = step('Upload Epoch SDK forward authority');
+    expect(upload.uses).toBe('./.github/actions/mainnet-loop-upload');
+    expect(upload.if).toContain("recovery_cleared == 'true'");
+    expect(upload.if).toContain('!inputs.swaps_only');
+    expect(object(upload.with)).toMatchObject({
+      checkpoint: 'test-results/mainnet-epoch-state/roundtrip.json',
+      gate: 'test-results/mainnet-epoch-state/roundtrip.json.forward.sdk',
+      'artifact-name': 'mainnet-epoch-forward-sdk-authorized-${{ github.run_id }}',
+      'process-id': '${{ runner.temp }}/epoch-forward.pid'
+    });
+    expect(index('Upload Epoch SDK forward authority')).toBeGreaterThan(index('Upload Epoch native forward authority'));
+    expect(index('Wait for mainnet Epoch forward')).toBeGreaterThan(index('Upload Epoch SDK forward authority'));
+  });
   it.each([
     ['Upload swap SDK forward authority', 'Wait for mainnet swap forward', 'forward-sdk-authorized'],
     ['Upload swap SDK reverse authority', 'Wait for mainnet swap return', 'reverse-sdk-authorized'],

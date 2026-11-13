@@ -8,6 +8,8 @@ export interface MainnetConsumeAuthority {
   nonce: string;
   sha256: string;
   canonicalSha256: string;
+  requestCanonicalSha256?: string;
+  expiresAt?: number;
 }
 export interface MainnetConsumeHandle {
   nonce: string;
@@ -74,6 +76,18 @@ export async function releaseMainnetConsumeAuthorization(
       if (typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256))
         throw new Error('Invalid actual native request digest');
       authority = { nonce: expected.nonce, sha256: value.sha256, canonicalSha256: expected.canonicalSha256 };
+      if (value.requestCanonicalSha256 !== undefined || value.expiresAt !== undefined) {
+        if (
+          typeof value.requestCanonicalSha256 !== 'string' ||
+          !/^[0-9a-f]{64}$/.test(value.requestCanonicalSha256) ||
+          typeof value.expiresAt !== 'number' ||
+          !Number.isSafeInteger(value.expiresAt) ||
+          Date.now() >= value.expiresAt
+        )
+          throw new Error('Invalid or expired final Guardian consume authority');
+        authority.requestCanonicalSha256 = value.requestCanonicalSha256;
+        authority.expiresAt = value.expiresAt;
+      }
       break;
     }
     if (value.status !== 'armed') throw new Error('Native consume authorization is already used or blocked');
@@ -89,15 +103,12 @@ export async function releaseMainnetConsumeAuthorization(
       if (
         !value ||
         value.status !== 'waiting' ||
-        value.nonce !== expected.nonce ||
-        value.accountId !== expected.accountId ||
-        value.noteId !== expected.noteId ||
-        value.canonicalSha256 !== expected.canonicalSha256 ||
-        value.sha256 !== expected.sha256
+        Object.entries(expected).some(([name, entry]) => value[name] !== entry) ||
+        (expected.expiresAt !== undefined && Date.now() >= expected.expiresAt)
       )
         throw new Error('Native consume authorization scope changed after upload');
       await chrome.storage.local.set({ [key]: { ...expected, status: 'released' } });
     },
-    { key: KEY, expected: { ...expected, sha256: authority.sha256 } }
+    { key: KEY, expected: { ...expected, ...authority } }
   );
 }

@@ -70,11 +70,7 @@ export async function awaitTestConsumeAuthorization(
   for (let poll = 0; poll < 480; poll++) {
     if (Date.now() < started || Date.now() - started >= 240_000) break;
     const live: unknown = (await getTestAuthorizationStorage(KEY))[KEY];
-    if (
-      !isRecord(live) ||
-      !same(live, held) ||
-      (live.status !== 'waiting' && live.status !== 'released')
-    )
+    if (!isRecord(live) || !same(live, held) || (live.status !== 'waiting' && live.status !== 'released'))
       throw new Error('Native consume authorization changed during the request hold');
     if (live.status === 'released') {
       if ((await testRequestSha256(request.serialize())) !== digest)

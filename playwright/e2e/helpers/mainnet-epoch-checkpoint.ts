@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+import type { MainnetConsumeAuthority } from './mainnet-consume-authorization';
 import { MAINNET_LOOP_LOSS_CAP, realizedMainnetLoopLoss } from './mainnet-loop-budget';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
 import { holding, mainnetSwapNextAction, type SavedSwapHolding, type SwapLoopPhase } from './mainnet-swap-checkpoint';
@@ -39,7 +40,7 @@ export interface EpochReverseAuthority {
 export interface MainnetEpochCheckpoint {
   forwardAuthority?: EpochForwardAuthority;
   reverseAuthority?: EpochReverseAuthority;
-  consumeAuthority?: { nonce: string; sha256: string; canonicalSha256: string };
+  consumeAuthority?: MainnetConsumeAuthority;
   version: 1;
   network: 'mainnet';
   account: string;
@@ -307,13 +308,19 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
     const authority = value.consumeAuthority;
     if (
       !record(authority) ||
-      !onlyKeys(authority, ['nonce', 'sha256', 'canonicalSha256']) ||
+      !onlyKeys(authority, ['nonce', 'sha256', 'canonicalSha256', 'requestCanonicalSha256', 'expiresAt']) ||
       typeof authority.nonce !== 'string' ||
       !/^[0-9a-f-]{36}$/.test(authority.nonce) ||
       typeof authority.sha256 !== 'string' ||
       !/^[0-9a-f]{64}$/.test(authority.sha256) ||
       typeof authority.canonicalSha256 !== 'string' ||
       !/^[0-9a-f]{64}$/.test(authority.canonicalSha256) ||
+      ((authority.requestCanonicalSha256 !== undefined || authority.expiresAt !== undefined) &&
+        (typeof authority.requestCanonicalSha256 !== 'string' ||
+          !/^[0-9a-f]{64}$/.test(authority.requestCanonicalSha256) ||
+          typeof authority.expiresAt !== 'number' ||
+          !Number.isSafeInteger(authority.expiresAt) ||
+          authority.expiresAt <= 0)) ||
       !hash(value.returnNoteId)
     )
       throw new Error('Invalid exact Epoch consume request authority');

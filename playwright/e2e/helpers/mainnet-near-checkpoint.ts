@@ -106,13 +106,20 @@ function quote(value: unknown): value is MainnetNearQuoteAuthority {
 function fingerprints(value: unknown, send: boolean): boolean {
   return (
     isRecord(value) &&
-    keys(value, ['nonce', 'sha256', 'canonicalSha256', ...(send ? ['noteId'] : [])]) &&
+    keys(value, ['nonce', 'sha256', 'canonicalSha256', ...(send ? ['noteId'] : ['requestCanonicalSha256', 'expiresAt'])]) &&
     typeof value.nonce === 'string' &&
     /^[0-9a-f-]{36}$/.test(value.nonce) &&
     typeof value.sha256 === 'string' &&
     /^[0-9a-f]{64}$/.test(value.sha256) &&
     typeof value.canonicalSha256 === 'string' &&
     /^[0-9a-f]{64}$/.test(value.canonicalSha256) &&
+    (send ||
+      (value.requestCanonicalSha256 === undefined && value.expiresAt === undefined) ||
+      (typeof value.requestCanonicalSha256 === 'string' &&
+        /^[0-9a-f]{64}$/.test(value.requestCanonicalSha256) &&
+        typeof value.expiresAt === 'number' &&
+        Number.isSafeInteger(value.expiresAt) &&
+        value.expiresAt > 0)) &&
     (!send || hash(value.noteId))
   );
 }

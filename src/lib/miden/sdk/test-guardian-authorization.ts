@@ -34,9 +34,7 @@ export async function authorizeTestGuardianRequest(
   const account = walletAccountIdToSdk(transaction.accountId).toString();
   if (kind === 'consume') {
     const ids =
-      Array.isArray(transaction.noteIds) && transaction.noteIds.length > 0
-        ? transaction.noteIds
-        : [transaction.noteId];
+      Array.isArray(transaction.noteIds) && transaction.noteIds.length > 0 ? transaction.noteIds : [transaction.noteId];
     if (ids.length !== 1 || typeof ids[0] !== 'string')
       throw new Error('Guardian consume authority requires one exact original note');
     const noteId = ids[0];

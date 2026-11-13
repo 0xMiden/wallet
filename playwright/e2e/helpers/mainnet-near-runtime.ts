@@ -640,7 +640,7 @@ export async function claimMainnetNearNote(
   const handle = await armMainnetConsumeAuthorization(wallet.page, {
     accountId: state.accountHex,
     noteId: selected.noteId,
-    canonicalSha256: mainnetConsumeRequestHash(selected.bytes)
+    canonicalSha256: mainnetConsumeRequestHash(selected.bytes, true)
   });
   await wallet.page
     .locator(`[data-pending-note-id="${selected.noteId}"]`)

@@ -348,14 +348,18 @@ test('binds the final Guardian Epoch request to its reviewed collateral identity
   const signed = guardianBytes(new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([note])));
   assert.equal(typeof nativeRequests.inspectTestMainnetEpochRequest, 'function', 'Missing final Epoch SDK inspection');
   assert.deepEqual(await nativeRequests.inspectTestMainnetEpochRequest(scope, signed), { noteId: input.noteId });
-  await assert.rejects(() => nativeRequests.inspectTestMainnetEpochRequest(
-    scope,
-    guardianBytes(new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([note])).withExpirationDelta(600))
-  ));
+  await assert.rejects(() =>
+    nativeRequests.inspectTestMainnetEpochRequest(
+      scope,
+      guardianBytes(
+        new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([note])).withExpirationDelta(600)
+      )
+    )
+  );
   await assert.rejects(() => nativeRequests.inspectTestMainnetEpochRequest({ ...scope, amount: '1' }, signed));
-  await assert.rejects(() => nativeRequests.inspectTestMainnetEpochRequest(
-    { ...scope, faucetId: '0x5cb79d29507d3ad17bb6dc60279e89' }, signed
-  ));
+  await assert.rejects(() =>
+    nativeRequests.inspectTestMainnetEpochRequest({ ...scope, faucetId: '0x5cb79d29507d3ad17bb6dc60279e89' }, signed)
+  );
   const changed = sdk.Note.withAttachments(note.assets(), note.metadata(), note.recipient(), [
     new sdk.NoteAttachment()
   ]);
