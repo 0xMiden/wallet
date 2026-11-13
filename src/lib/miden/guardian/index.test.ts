@@ -921,8 +921,8 @@ describe('MultisigService', () => {
       }
     );
 
-    // On an id mismatch, every path releases the delta the Guardian holds at the proposal's own nonce, and the
-    // mismatch error stays the error the caller gets.
+    // On an id mismatch, every path releases the delta the Guardian holds at the proposal's own nonce, naming the id
+    // the Guardian returned for it, and the mismatch error stays the error the caller gets.
     describe('the candidate of a proposal whose id is not the derived commitment', () => {
       const PROPOSAL_NONCE = 41;
       const OTHER_ID = `0x${'77'.repeat(32)}`;
@@ -1003,14 +1003,14 @@ describe('MultisigService', () => {
       };
 
       it.each(paths)(
-        '$path: abandons the candidate at the proposal nonce with the derived commitment, then fails',
+        '$path: abandons the candidate at the proposal nonce with the id the Guardian returned, then fails',
         async ({ sdk, create }) => {
           const { multisig, service, abandonCandidate } = arrange(sdk, OTHER_ID);
 
           await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
 
           expect(abandonCandidate).toHaveBeenCalledTimes(1);
-          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, OTHER_ID);
           expect(multisig.signProposal).not.toHaveBeenCalled();
           expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
         }
@@ -1032,7 +1032,7 @@ describe('MultisigService', () => {
 
         try {
           await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
-          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, OTHER_ID);
           expect(warn).toHaveBeenCalled();
         } finally {
           warn.mockRestore();
@@ -1048,7 +1048,7 @@ describe('MultisigService', () => {
 
         await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
 
-        expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
+        expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, OTHER_ID);
         expect(holdDuringAbandon).toBeNull();
         expect(pathHold()).not.toBeNull();
         expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
@@ -1072,7 +1072,7 @@ describe('MultisigService', () => {
 
           await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS);
           await rejected;
-          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, SUMMARY_COMMITMENT);
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, OTHER_ID);
           expect(warn).toHaveBeenCalled();
         } finally {
           warn.mockRestore();
@@ -3669,7 +3669,7 @@ describe('MultisigService', () => {
       });
       expect(multisig.signProposal).not.toHaveBeenCalled();
       expect(abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(abandonCandidate).toHaveBeenCalledWith(7, SUMMARY_COMMITMENT);
+      expect(abandonCandidate).toHaveBeenCalledWith(7, otherId);
     });
 
     it('labels the proposal with the store nonce plus one and creates it inside the build hold', async () => {

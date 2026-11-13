@@ -701,40 +701,55 @@ export class MultisigService {
         requiredSignatures: this.multisig.getEffectiveThreshold('custom')
       };
 
-      try {
-        const proposal = await this.multisig.createProposal(nonce, summaryBase64, metadata);
-        await this.requireProposalIdIsCommitment(proposal, commitmentHex, hold);
-        return proposal;
-      } catch (error) {
-        if (isPostPushProposalVerificationFailure(error)) {
-          await this.abandonMismatchCandidate(nonce, commitmentHex, hold);
-        }
-        throw error;
-      }
+      return this.createCheckedProposal(hold, nonce, summaryBase64, metadata, commitmentHex);
     });
   }
 
   /**
-   * `assertProposalIdIsCommitment`, and on a mismatch release the delta the Guardian holds for `proposal` before the
-   * `ProposalIdMismatchError` goes to the caller. Nothing was signed or submitted, so the abandon is safe. It is best
-   * effort and bounded by OUTGOING_GUARDIAN_DEADLINE_MS: a failed abandon is logged, and the mismatch error is thrown in
-   * all cases. The abandon makes no WASM call, so a held caller yields the shared client lock while awaiting it.
+   * `createProposal` at `nonce` in `hold`, which it needs because it reads the client store first, and the id check
+   * before any signature. A post-push failure abandons `nonce` under `commitmentHex`, the id the proposal should have:
+   * the throw returns none. An id mismatch is abandoned once, inside `requireProposalIdIsCommitment`.
+   */
+  private async createCheckedProposal(
+    hold: WasmLockHold,
+    nonce: number,
+    summaryBase64: string,
+    metadata: ProposalMetadata,
+    commitmentHex: string
+  ): Promise<Proposal> {
+    try {
+      const proposal = await this.multisig.createProposal(nonce, summaryBase64, metadata);
+      await this.requireProposalIdIsCommitment(proposal, commitmentHex, hold);
+      return proposal;
+    } catch (error) {
+      if (isPostPushProposalVerificationFailure(error)) {
+        await this.abandonMismatchCandidate(nonce, commitmentHex, hold);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * `assertProposalIdIsCommitment`, and on a mismatch release the delta the Guardian holds for `proposal`, naming the id
+   * the Guardian returned for it, before the `ProposalIdMismatchError` goes to the caller. Nothing was signed or
+   * submitted, so the abandon is safe. It is best effort and bounded by OUTGOING_GUARDIAN_DEADLINE_MS: a failed abandon
+   * is logged, and the mismatch error is thrown in all cases. The abandon makes no WASM call, so the caller yields the
+   * shared client lock while awaiting it.
    */
   private async requireProposalIdIsCommitment(
     proposal: Proposal,
     expectedCommitmentHex: string,
-    hold?: WasmLockHold
+    hold: WasmLockHold
   ): Promise<void> {
     try {
       assertProposalIdIsCommitment(proposal, expectedCommitmentHex);
     } catch (mismatch) {
-      await this.abandonMismatchCandidate(proposal.nonce, expectedCommitmentHex, hold);
+      await this.abandonMismatchCandidate(proposal.nonce, proposal.id, hold);
       throw mismatch;
     }
   }
 
-  // `proposalId` is the commitment this device derived, the id the proposal it pushed should have had.
-  private async abandonMismatchCandidate(nonce: number, proposalId: string, hold?: WasmLockHold): Promise<void> {
+  private async abandonMismatchCandidate(nonce: number, proposalId: string, hold: WasmLockHold): Promise<void> {
     const abandon = () =>
       withTimeout(
         this.abandonCandidate(nonce, proposalId),
@@ -742,8 +757,7 @@ export class MultisigService {
         'abandoning a candidate after proposal verification failed'
       );
     try {
-      if (hold !== undefined) await yieldWasmClientLock(abandon, hold);
-      else await abandon();
+      await yieldWasmClientLock(abandon, hold);
     } catch (abandonError) {
       console.warn(
         `[Guardian] could not abandon the candidate at nonce ${nonce} after proposal verification failed:`,
@@ -1380,22 +1394,9 @@ export class MultisigService {
           description: 'Replace device (hot) signer'
         };
 
-        // Created in this hold because `createProposal` reads the client store first. Its id must be the commitment
-        // of the summary this device derived and sent, before any signature. A post-push failure abandons this nonce.
         return this.proposalStep(
           'proposal_create',
-          async () => {
-            try {
-              const created = await this.multisig.createProposal(nonce, summaryBase64, metadata);
-              await this.requireProposalIdIsCommitment(created, summaryCommitmentHex, hold);
-              return created;
-            } catch (error) {
-              if (isPostPushProposalVerificationFailure(error)) {
-                await this.abandonMismatchCandidate(nonce, summaryCommitmentHex, hold);
-              }
-              throw error;
-            }
-          },
+          () => this.createCheckedProposal(hold, nonce, summaryBase64, metadata, summaryCommitmentHex),
           'replace-hot-key'
         );
       },
