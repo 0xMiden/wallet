@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { useClaimFloorBaseFee } from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
 import { ArcadeBanner } from 'app/templates/ArcadeBanner';
 import Balance from 'app/templates/Balance';
@@ -73,7 +73,7 @@ const Explore: FC = () => {
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
   const feeFaucetId = useNativeFeeFaucetId();
-  const verificationBaseFee = useVerificationBaseFee();
+  const claimFloorBaseFee = useClaimFloorBaseFee();
   const { signTransaction } = useMidenContext();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const {
@@ -109,8 +109,8 @@ const Explore: FC = () => {
     if (!shouldAutoConsume || !claimableNotes || rotationPending) {
       return [];
     }
-    return selectAutoConsumeBatch(claimableNotes, feeFaucetId, verificationBaseFee);
-  }, [claimableNotes, feeFaucetId, rotationPending, shouldAutoConsume, verificationBaseFee]);
+    return selectAutoConsumeBatch(claimableNotes, feeFaucetId, claimFloorBaseFee);
+  }, [claimableNotes, feeFaucetId, rotationPending, shouldAutoConsume, claimFloorBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
@@ -121,8 +121,8 @@ const Explore: FC = () => {
   // the raw list surfaced a card, with a USD total, for native notes that were already
   // being auto-consumed (#811).
   const manuallyClaimableNotes = useMemo(
-    () => excludeAutoManagedNotes(claimableNotes, feeFaucetId, shouldAutoConsume, verificationBaseFee),
-    [claimableNotes, feeFaucetId, shouldAutoConsume, verificationBaseFee]
+    () => excludeAutoManagedNotes(claimableNotes, feeFaucetId, shouldAutoConsume, claimFloorBaseFee),
+    [claimableNotes, feeFaucetId, shouldAutoConsume, claimFloorBaseFee]
   );
 
   const autoConsumeMidenNotes = useCallback(async () => {
@@ -152,7 +152,7 @@ const Explore: FC = () => {
     //
     // The queue asks `isWalletReadyNow` right before each row it writes, so a lock that lands meanwhile queues
     // nothing. A lock refuses every note alike, so it ends the pass: no per-note fallback, no processing request.
-    const batches = chunkAutoConsumeBatch(notesToClaim, verificationBaseFee);
+    const batches = chunkAutoConsumeBatch(notesToClaim, claimFloorBaseFee);
     const batchedNotes = batches.reduce((count, batch) => count + batch.length, 0);
     if (batchedNotes === 0) return;
     let feeRefusedNotes = 0;
@@ -164,7 +164,7 @@ const Explore: FC = () => {
           isDelegatedProvingEnabled,
           false,
           true,
-          verificationBaseFee,
+          claimFloorBaseFee,
           'auto_consume',
           isWalletReadyNow
         );
@@ -217,7 +217,7 @@ const Explore: FC = () => {
     shouldAutoConsume,
     hasAutoConsumableNotes,
     signTransaction,
-    verificationBaseFee
+    claimFloorBaseFee
   ]);
 
   useEffect(() => {

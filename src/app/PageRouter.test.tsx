@@ -29,6 +29,7 @@ import React from 'react';
 
 import { act, cleanup, render, screen } from '@testing-library/react';
 
+import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import * as Woozie from 'lib/woozie';
 
 import { ONBOARDING_FINISH_BUDGET_MS, markOnboardingFinishing } from './onboarding-finish';
@@ -104,7 +105,9 @@ jest.mock('app/hooks/useAppLifecycleTelemetry', () => ({
 // The loading spinner shown during MV3 cold-start (before hydration), or while the finishing mark holds a new wallet.
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
   __esModule: true,
-  default: () => <div data-testid="root-suspense-fallback" />
+  default: ({ 'data-testid': testId }: { 'data-testid'?: string }) => (
+    <div data-testid={testId === 'wallet-pages-parked' ? testId : 'root-suspense-fallback'} />
+  )
 }));
 
 // Layouts render their children so the wrapped page stays assertable.
@@ -278,6 +281,23 @@ function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null
   return render(<PageRouter />);
 }
 
+describe('background lock cover', () => {
+  afterEach(() => act(() => backgroundLockPending.set(false)));
+
+  it('parks the wallet pages while a background lock is pending', () => {
+    act(() => backgroundLockPending.set(true));
+    renderAt('/', ready);
+    expect(screen.getByTestId('wallet-pages-parked')).toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
+
+  it('does not cover a wallet that is not ready', () => {
+    act(() => backgroundLockPending.set(true));
+    renderAt('/', { ready: false, locked: false, hydrated: true });
+    expect(screen.queryByTestId('wallet-pages-parked')).not.toBeInTheDocument();
+  });
+});
+
 // A fully booted wallet: unlocked, ready, and hydrated → resolveRootView `app`,
 // which is the only ctx that lets a specific `/`-or-deeper route resolve.
 const ready: Ctx = { ready: true, locked: false, hydrated: true };
@@ -296,6 +316,7 @@ beforeEach(() => {
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
   mockSwapEnabled.value = true;
   mockTelemetryChoice.made = false;
+  act(() => backgroundLockPending.set(false));
 });
 
 describe('app/PageRouter — no network banner', () => {

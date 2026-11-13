@@ -367,6 +367,9 @@ jest.mock('./prove-worker-client', () => ({
 // What a service worker on the build's own network sends with every call (#1482).
 const SW_ENDPOINTS = { override: null, feeFaucetId: undefined };
 
+// The forward channel accepts this extension's service worker, which arrives with an id and neither a url nor a tab.
+const EXTENSION_ID = 'this-extension';
+
 let capturedListener: Listener | undefined;
 let logSpy: jest.SpyInstance;
 let warnSpy: jest.SpyInstance;
@@ -664,13 +667,21 @@ function installChromeMock() {
   capturedListener = undefined;
   G.chrome = {
     runtime: {
+      id: EXTENSION_ID,
+      getURL: (path: string) => `chrome-extension://${EXTENSION_ID}/${path}`,
       // The Guardian leaf submits only once the service worker opens its submit gate (#1644).
       sendMessage: jest.fn((m?: { type?: string }) =>
         Promise.resolve(m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined)
       ),
       onMessage: {
         addListener: jest.fn((l: Listener) => {
-          capturedListener = l;
+          // Existing calls pass `{}`. A sender with no id, url, or tab is the worker fixture, so those calls still
+          // reach the handler. An explicit sender, including a missing one, is left as the caller passed it.
+          capturedListener = (msg, sender, sendResponse) => {
+            const bare =
+              sender != null && sender.id === undefined && sender.url === undefined && sender.tab === undefined;
+            return l(msg, bare ? { id: EXTENSION_ID } : sender, sendResponse);
+          };
         })
       }
     }
@@ -917,6 +928,70 @@ describe('offscreen/main — onMessage listener guard clauses', () => {
     expect(ret).toBe(false);
     await flush();
     expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('answers OFFSCREEN_CALL from the service worker and from an extension page', async () => {
+    await loadModule();
+    const call = (opId: string) => ({
+      target: 'offscreen',
+      type: 'OFFSCREEN_CALL',
+      op_id: opId,
+      method: 'getAccount',
+      argsB64: [encodeArg('mtst1qqaccount')],
+      deadline_ms: 1000,
+      endpoints: SW_ENDPOINTS
+    });
+
+    const workerResponse = jest.fn();
+    expect(capturedListener!(call('op-worker'), { id: G.chrome.runtime.id }, workerResponse)).toBe(true);
+    await flush();
+    expect(workerResponse).toHaveBeenCalled();
+
+    const pageResponse = jest.fn();
+    expect(
+      capturedListener!(
+        call('op-page'),
+        { id: G.chrome.runtime.id, url: G.chrome.runtime.getURL('popup.html'), tab: { id: 4 } },
+        pageResponse
+      )
+    ).toBe(true);
+    await flush();
+    expect(pageResponse).toHaveBeenCalled();
+  });
+
+  it('refuses a content script, a foreign id, and a missing sender for every offscreen op', async () => {
+    await loadModule();
+    const requests = [
+      {
+        target: 'offscreen',
+        type: 'OFFSCREEN_CALL',
+        op_id: 'op-refused',
+        method: 'getAccount',
+        argsB64: [encodeArg('mtst1qqaccount')],
+        deadline_ms: 1000,
+        endpoints: SW_ENDPOINTS
+      },
+      {
+        target: 'offscreen',
+        type: 'OFFSCREEN_PROVE',
+        txResultB64: Buffer.from([9]).toString('base64'),
+        proverDescriptor: null
+      },
+      { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', endpoints: SW_ENDPOINTS }
+    ];
+    const senders = [
+      { id: G.chrome.runtime.id, url: 'https://dapp.example/', tab: { id: 3 } },
+      { id: 'some-other-extension-id' },
+      undefined
+    ];
+    for (const sender of senders) {
+      for (const request of requests) {
+        const sendResponse = jest.fn();
+        expect(capturedListener!(request, sender, sendResponse)).toBe(false);
+        await flush();
+        expect(sendResponse).not.toHaveBeenCalled();
+      }
+    }
   });
 });
 

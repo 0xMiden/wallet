@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -10,6 +10,7 @@ import { CopyLabel } from 'components/ui/CopyLabel';
 import { Pill } from 'components/ui/Pill';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { useRevealMask } from 'lib/ui/useRevealMask';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
@@ -25,7 +26,9 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
-  const [isWordsVisible, setIsWordsVisible] = useState(false);
+  // Off mobile a blurred word would still be readable from the markup, so a hidden word is left out of the
+  // DOM and the phrase hides again whenever the window is left. Mobile keeps the blur over real text.
+  const { revealed: isWordsVisible, masked, toggle: onWordsVisibilityToggle } = useRevealMask();
   // The shared implementation, not a third one: `useClipboardCopy` (whose doc says what backs it
   // on each surface) flips `copied` only once the write resolves and owns the timer it arms. The
   // local version wrote without awaiting and reported success unconditionally - on the seed
@@ -36,10 +39,6 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   // Block screenshots/recordings while the backup phrase is on screen (#417).
   // The words are only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard();
-
-  const onWordsVisibilityToggle = useCallback(() => {
-    setIsWordsVisible(prev => !prev);
-  }, []);
 
   // The handler must be the SAME reference on the way out: the cleanup used to pass a freshly
   // allocated arrow, which matches nothing, so this listener stayed on `document` for the life of
@@ -76,29 +75,40 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
       <div className="flex flex-col gap-3">
         <article className="grid grid-cols-3 gap-2">
           {isGuardReady &&
-            seedPhrase.map((word, index) => (
-              <Pill
-                className="w-full justify-start"
-                key={`seed-word-${index}`}
-                data-testid={`seed-word-${index}`}
-                tone="word"
-              >
-                <span
-                  data-slot="word-mask"
-                  className={classNames(
-                    'flex w-full min-w-0 gap-1',
-                    'transition duration-300 ease-in-out motion-reduce:transition-none',
-                    isWordsVisible ? '[filter:none]' : '[filter:blur(8px)]'
-                  )}
+            seedPhrase.map((word, index) => {
+              return (
+                <Pill
+                  className="w-full justify-start"
+                  key={`seed-word-${index}`}
+                  data-testid={masked ? undefined : `seed-word-${index}`}
+                  tone="word"
                 >
-                  <span className="pointer-events-none text-muted tabular-nums select-none">{`${index + 1}.`}</span>
-                  <span className="truncate">{word}</span>
-                </span>
-              </Pill>
-            ))}
+                  <span
+                    data-slot="word-mask"
+                    className={classNames(
+                      'flex w-full min-w-0 gap-1',
+                      'transition duration-300 ease-in-out motion-reduce:transition-none',
+                      // A masked word has no text to blur.
+                      isWordsVisible || masked ? '[filter:none]' : '[filter:blur(8px)]'
+                    )}
+                  >
+                    <span className="pointer-events-none text-muted tabular-nums select-none">{`${index + 1}.`}</span>
+                    {masked ? (
+                      <span aria-hidden="true" className="my-auto h-1.5 flex-1 rounded-full bg-fill-pressed" />
+                    ) : (
+                      // A blurred word is still text, so it stays out of the accessibility tree until shown.
+                      <span className="truncate" aria-hidden={isWordsVisible ? undefined : true}>
+                        {word}
+                      </span>
+                    )}
+                  </span>
+                </Pill>
+              );
+            })}
         </article>
 
         <div className="flex gap-2.5">
+          {/* Not SeedRevealToggle: popup-smoke.spec.ts selects this button by its accessible name. */}
           <Button
             size="sm"
             className="flex-1"
@@ -106,6 +116,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
             title={t(isWordsVisible ? 'hide' : 'show')}
             iconLeft={isWordsVisible ? IconName.EyeOff : IconName.Eye}
             onClick={onWordsVisibilityToggle}
+            data-testid="seed-reveal-toggle"
           />
           <Button
             size="sm"

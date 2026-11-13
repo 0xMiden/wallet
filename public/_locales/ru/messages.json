@@ -3223,6 +3223,10 @@
     "message": "Сделайте резервную копию своего кошелька",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Скрытая фраза восстановления",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Показать",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 символов, 1 цифра",
-    "englishSource": "8 characters, 1 number"
+    "message": "Не менее 12 символов",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Не менее 8 символов, включая как минимум 1 цифру",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Используйте не менее 12 символов. Цифры, символы и смешанный регистр делают пароль более надежным.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Запишите эти 12 слов и храните их в надёжном месте.",
@@ -8689,5 +8693,71 @@
   "arcadePostingPolicy": {
     "message": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Автоблокировка",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Блокирует кошелек, если он находился в фоновом режиме в течение такого длительного времени.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ мин",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "В ожидании возврата",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Готовы к получению",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Возврат средств",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Возвращённые средства",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Ваши средства остаются на Miden. Вы сможете получить их после блока $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Запросите свои средства, чтобы вернуть их в свой кошелек.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Ваши средства возвращаются в ваш кошелек.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Ваши средства вернулись в ваш кошелек.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Средства, отправленные по назначению.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Эта note была использована, но выплата не подтверждена. Проверьте адрес назначения и свой баланс в Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Не удалось проверить состояние средств. Попытайтесь ещё раз.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

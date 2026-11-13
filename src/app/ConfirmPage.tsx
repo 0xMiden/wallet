@@ -37,8 +37,8 @@ import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
-import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
+import { summaryToView, TxAssetView } from './confirm/decode';
+import { noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
@@ -450,21 +450,11 @@ const CustomTransactionContent: React.FC<{
     let cancelled = false;
     (async () => {
       try {
-        const { summaryBytes, executedBytes } = await simulateCustomTransaction(id);
+        const { view, noteFlow } = await simulateCustomTransaction(id);
         if (cancelled) return;
-        // Summary when authorization is still pending, executed transaction for every ordinary
-        // single-sig account on web-sdk 0.16 - same ground truth either way. The choice lives in
-        // `simulatedBytesToView` so the backend's spending-limit gate decodes it identically;
-        // a second copy of this ladder there once treated every ordinary account as unsimulatable.
-        const view = simulatedBytesToView({ summaryBytes, executedBytes });
         if (view) {
           setVerifiedView(view);
-          try {
-            setVerifiedNoteFlow(noteFlowFromSimulatedBytes({ summaryBytes, executedBytes }));
-          } catch (noteError) {
-            console.error('Custom transaction note details unavailable:', noteError);
-            setVerifiedNoteFlow(undefined);
-          }
+          setVerifiedNoteFlow(noteFlow);
           return;
         }
         setSimError(true);

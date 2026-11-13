@@ -864,6 +864,7 @@ describe('transactions utilities', () => {
       amount: '100',
       senderAddress: 'sender',
       isBeingClaimed: false,
+      standardPayment: true,
       type: NoteTypeEnum.Private
     };
 
@@ -1316,7 +1317,14 @@ describe('transactions utilities', () => {
       }
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
-      const result = await initiateConsumeTransactionFromId('account-1', 'note-456');
+      const result = await initiateConsumeTransactionFromId(
+        'account-1',
+        'note-456',
+        undefined,
+        undefined,
+        undefined,
+        'bridge_reclaim'
+      );
 
       expect(mockTransactionsAdd).toHaveBeenCalled();
       expect(typeof result).toBe('string');

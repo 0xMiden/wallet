@@ -71,9 +71,34 @@ jest.mock('lib/miden/swap/fee-context', () => {
   return { readSwapFeeContext: (...a: any[]) => g.__px.readSwapFeeContext(...a) };
 });
 
+// A runtime id makes this realm an extension, so endpoint reset uses the polyfill's storage. The shared mock has
+// no remove; this file's copy does, and it forgets the key.
+jest.mock('webextension-polyfill', () => {
+  const actual = jest.requireActual('../../../../__mocks__/webextension-polyfill');
+  const browser = actual.default;
+  const stored: Record<string, unknown> = {};
+  const local = {
+    async get(keys: string[] | Record<string, unknown>) {
+      if (!Array.isArray(keys)) return { ...stored };
+      const items: Record<string, unknown> = {};
+      for (const key of keys) items[key] = stored[key];
+      return items;
+    },
+    async set(items: Record<string, unknown>) {
+      Object.assign(stored, items);
+    },
+    async remove(keys: string[]) {
+      for (const key of keys) delete stored[key];
+    }
+  };
+  const wrapped = { ...browser, storage: { ...browser.storage, local } };
+  return { __esModule: true, ...wrapped, default: wrapped };
+});
+
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 
 import { decodeArg } from './offscreen-codec';
+import type { OffscreenSignRequest } from './offscreen-codec';
 
 // Use the REAL offscreen-prover (issue #260, slice 5): ensureOffscreenDocument /
 // forceClose drive the chrome mock, and the criticalOp counters are the genuine
@@ -91,6 +116,8 @@ function installChromeMock(opts: { withOffscreen?: boolean } = {}) {
   docExists = false;
   fakeChrome = {
     runtime: {
+      id: 'this-extension',
+      getURL: (path: string) => `chrome-extension://this-extension/${path}`,
       sendMessage: jest.fn(),
       onMessage: {
         listeners: [] as OnMessageListener[],
@@ -122,7 +149,8 @@ function installChromeMock(opts: { withOffscreen?: boolean } = {}) {
 
 /** Resolve the reopen/open ready gate. */
 function fireReady() {
-  for (const l of fakeChrome.runtime.onMessage.listeners) l({ type: 'OFFSCREEN_READY' }, undefined, () => {});
+  const sender = { id: fakeChrome.runtime.id, url: fakeChrome.runtime.getURL('offscreen.html') };
+  for (const l of fakeChrome.runtime.onMessage.listeners) l({ type: 'OFFSCREEN_READY' }, sender, () => {});
 }
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -1943,6 +1971,18 @@ describe('MidenClientProxy — slice-7-reads getSerializedInputNoteDetails (inva
   });
 });
 
+/** A sign request the offscreen document posts for `op_id`: public key 0x0a, signing inputs 0x0b. */
+function signRequestFor(op_id: string): OffscreenSignRequest {
+  return {
+    target: 'sw',
+    type: 'OFFSCREEN_SIGN_REQUEST',
+    op_id,
+    sign_id: `sign-${op_id}`,
+    publicKeyB64: Buffer.from([0x0a]).toString('base64'),
+    signingInputsB64: Buffer.from([0x0b]).toString('base64')
+  };
+}
+
 describe('MidenClientProxy - dryRunTransaction (the USDCx burn fee probe)', () => {
   const REQUEST = new Uint8Array([1, 2, 3]);
 
@@ -2009,6 +2049,101 @@ describe('MidenClientProxy - dryRunTransaction (the USDCx burn fee probe)', () =
     fireReady();
 
     expect(await p).toBeInstanceOf(Error);
+  });
+
+  // A single-key account's dry run signs mid-execute, and as a read it registers no signer of its own.
+  it('signs a dry run with the default signer while its op runs', async () => {
+    const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
+    const defaultSigner = jest.fn(async () => new Uint8Array([0x7]));
+    const answer = { executedBytes: 'ZXhlY3V0ZWQ=' };
+    const signResponses: unknown[] = [];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+      signResponses.push(await handleOffscreenSignRequest(signRequestFor(env.op_id), defaultSigner));
+      return {
+        ok: true,
+        op_id: env.op_id,
+        resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(answer))).toString('base64'),
+        durationMs: 2
+      };
+    });
+
+    const p = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold);
+    await flush();
+    fireReady();
+
+    await expect(p).resolves.toEqual(answer);
+    expect(defaultSigner).toHaveBeenCalledWith('0a', '0b');
+    expect(signResponses).toEqual([
+      { ok: true, sign_id: expect.any(String), signatureB64: Buffer.from([0x7]).toString('base64') }
+    ]);
+  });
+
+  it('flag ON → a dry run whose default signer throws settles with no sign reason', async () => {
+    const { midenClientProxy, handleOffscreenSignRequest, __test } = await loadProxy(true);
+    const defaultSigner = jest.fn(async () => {
+      throw new Error('signer unavailable');
+    });
+    let signResponse: any;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+      signResponse = await handleOffscreenSignRequest(signRequestFor(env.op_id), defaultSigner);
+      return { ok: false, op_id: env.op_id, error: 'sign failed in offscreen execute' };
+    });
+
+    const settled = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await settled;
+
+    // The failure is classified and returned; the reason is released with the signing read.
+    expect(signResponse).toEqual(expect.objectContaining({ ok: false, reason: 'internal' }));
+    expect(__test.opSignReasonsSize()).toBe(0);
+  });
+
+  it('records no sign reason when the op released its signer before the signer failed', async () => {
+    const { handleOffscreenSignRequest, __test } = await loadProxy(true);
+    let fail: (e: Error) => void = () => undefined;
+    const signer = jest.fn(
+      () =>
+        new Promise<Uint8Array>((_resolve, reject) => {
+          fail = reject;
+        })
+    );
+    const release = __test.allowDefaultSigner('op-late');
+
+    const pending = handleOffscreenSignRequest(signRequestFor('op-late'), signer);
+    await flush();
+    release();
+    fail(new Error('signer failed after the op ended'));
+
+    expect(await pending).toEqual(expect.objectContaining({ ok: false, sign_id: 'sign-op-late' }));
+    expect(__test.opSignReasonsSize()).toBe(0);
+  });
+
+  it("refuses the dry run's op once it has settled", async () => {
+    const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
+    const defaultSigner = jest.fn(async () => new Uint8Array([0x7]));
+    let dryRunOpId = '';
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+      dryRunOpId = env.op_id;
+      await handleOffscreenSignRequest(signRequestFor(env.op_id), defaultSigner);
+      return {
+        ok: true,
+        op_id: env.op_id,
+        resultB64: Buffer.from(new TextEncoder().encode('{}')).toString('base64'),
+        durationMs: 1
+      };
+    });
+
+    const p = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold);
+    await flush();
+    fireReady();
+    await p;
+    expect(defaultSigner).toHaveBeenCalledTimes(1);
+
+    const late = await handleOffscreenSignRequest(signRequestFor(dryRunOpId), defaultSigner);
+
+    expect(late).toEqual(expect.objectContaining({ ok: false, reason: 'rejected' }));
+    expect(defaultSigner).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -2479,23 +2614,37 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
     expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
   });
 
-  it('handleOffscreenSignRequest falls back to the default callback when no op is registered', async () => {
+  it('refuses a sign for an op it is not running, and never calls the default signer', async () => {
     const { handleOffscreenSignRequest } = await loadProxy(true);
-    const { bytesToB64 } = await import('./offscreen-codec');
-    const fallback = jest.fn(async () => new Uint8Array([0x7]));
-    const resp = await handleOffscreenSignRequest(
-      {
-        target: 'sw',
-        type: 'OFFSCREEN_SIGN_REQUEST',
-        op_id: 'unregistered',
-        sign_id: 's',
-        publicKeyB64: bytesToB64(new Uint8Array([0xa])),
-        signingInputsB64: bytesToB64(new Uint8Array([0xb]))
-      } as any,
-      fallback
-    );
-    expect(fallback).toHaveBeenCalledWith('0a', '0b');
-    expect((resp as any).ok).toBe(true);
+    const defaultSigner = jest.fn(async () => new Uint8Array([0x7]));
+
+    const resp = await handleOffscreenSignRequest(signRequestFor('unregistered'), defaultSigner);
+
+    expect(resp).toEqual({
+      ok: false,
+      sign_id: 'sign-unregistered',
+      error: 'offscreen sign: op unregistered is not awaiting a signature',
+      reason: 'rejected'
+    });
+    expect(defaultSigner).not.toHaveBeenCalled();
+  });
+
+  it('refuses a sign during a read that never signs', async () => {
+    const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
+    const defaultSigner = jest.fn(async () => new Uint8Array([0x7]));
+    const signResponses: unknown[] = [];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+      signResponses.push(await handleOffscreenSignRequest(signRequestFor(env.op_id), defaultSigner));
+      return { ok: true, op_id: env.op_id, resultB64: null, durationMs: 1 };
+    });
+
+    const p = midenClientProxy.getAccount('acc-1');
+    await flush();
+    fireReady();
+    await p;
+
+    expect(signResponses).toEqual([expect.objectContaining({ ok: false, reason: 'rejected' })]);
+    expect(defaultSigner).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -2504,15 +2653,17 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
   ])(
     'handleOffscreenSignRequest rethrows a WebAssembly.RuntimeError when there is %s, and the retire helper ran',
     async (_holdCase, hold, helper) => {
-      const { handleOffscreenSignRequest } = await loadProxy(true);
+      const { handleOffscreenSignRequest, __test } = await loadProxy(true);
       const { bytesToB64 } = await import('./offscreen-codec');
       const trap = new WebAssembly.RuntimeError('unreachable');
       G.__px.inlineHold = hold;
+      // Only an op this worker runs may sign, so the trap comes from a running read's default signer.
+      const release = __test.allowDefaultSigner('op-trap');
       const response = handleOffscreenSignRequest(
         {
           target: 'sw',
           type: 'OFFSCREEN_SIGN_REQUEST',
-          op_id: 'unregistered',
+          op_id: 'op-trap',
           sign_id: 's',
           publicKeyB64: bytesToB64(new Uint8Array([1])),
           signingInputsB64: bytesToB64(new Uint8Array([2]))
@@ -2522,6 +2673,7 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
         })
       );
       await expect(response).rejects.toBe(trap);
+      release();
       expect(G.__px[helper]).toHaveBeenCalledWith(...(hold ? [hold, trap] : [trap]));
     }
   );

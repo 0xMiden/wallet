@@ -12,7 +12,12 @@ import { CopyLabel } from 'components/ui/CopyLabel';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
-import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
+import {
+  SeedPhraseGrid,
+  SeedPhrasePlaceholder,
+  SeedPhrasePrivacyHero,
+  SeedRevealToggle
+} from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { useMidenContext } from 'lib/miden/front';
@@ -23,6 +28,7 @@ import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { useRevealMask } from 'lib/ui/useRevealMask';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
@@ -59,6 +65,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard(mnemonic !== null);
+  const mask = useRevealMask({ resetKey: mnemonic });
 
   const {
     register,
@@ -392,7 +399,9 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         <SubPageSection description={t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}>
           {isGuardReady && (
             <>
-              <SeedPhraseGrid words={words} />
+              <SeedPhraseGrid words={words} masked={mask.masked} />
+
+              <SeedRevealToggle className="mt-3 self-start" revealed={mask.revealed} onToggle={mask.toggle} />
 
               {!remove && (
                 <Pill

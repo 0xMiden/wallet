@@ -35,6 +35,13 @@ jest.mock('lib/mobile/screenshot-guard', () => ({
   useScreenshotGuard: jest.fn()
 }));
 
+// Off mobile the phrase stays out of the DOM until Show. Mobile shows the words and no toggle.
+let mockIsMobile = false;
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => mockIsMobile
+}));
+
 // The word chips use the real `Pill` (not a stub): selecting a word is a Pill
 // tap, and Pill owns the tap haptic itself (default `haptic="light"`) — this
 // suite asserts against that real behavior rather than reimplementing it in a
@@ -59,11 +66,21 @@ const SEED = Array.from({ length: 12 }, (_, i) => `w${i}`);
 
 const wordChip = (index: number) => screen.getByTestId(`verify-quiz-word-${index}`);
 
-const clickWord = (index: number) => fireEvent.click(wordChip(index));
+const showWords = () => fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
+
+const clickWord = (index: number) => {
+  if (screen.queryByTestId(`verify-quiz-word-${index}`) === null) {
+    showWords();
+    // Show is its own tap; the cases below count the word chip.
+    jest.mocked(hapticLight).mockClear();
+  }
+  fireEvent.click(wordChip(index));
+};
 
 const wordButtonSelected = (index: number) => wordChip(index).getAttribute('aria-pressed');
 
 beforeEach(() => {
+  mockIsMobile = false;
   jest.clearAllMocks();
   jest.mocked(useScreenshotGuard).mockReturnValue(true);
 });
@@ -141,6 +158,7 @@ describe('VerifySeedPhraseScreen', () => {
   describe('rendering', () => {
     it('renders one chip per seed word on the step layout, Continue pinned in its footer', () => {
       render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      showWords();
 
       expect(screen.getAllByTestId(/^verify-quiz-word-\d+$/)).toHaveLength(12);
       expect(screen.getByTestId('verify-seed-phrase')).toBeInTheDocument();
@@ -162,6 +180,7 @@ describe('VerifySeedPhraseScreen', () => {
 
     it('starts with no words selected and the continue button disabled', () => {
       render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      showWords();
 
       SEED.forEach((_, i) => expect(wordButtonSelected(i)).toBe('false'));
       expect(screen.queryByText('first')).not.toBeInTheDocument();
@@ -307,9 +326,12 @@ describe('VerifySeedPhraseScreen', () => {
       expect(screen.getByRole('heading', { level: 1, name: 'verifySeedPhrase' })).toBeInTheDocument();
     });
 
-    it('renders every word once the guard reports the screen protected', () => {
+    it('keeps every word out of the DOM after the guard is ready until Show', () => {
       render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
 
+      SEED.forEach(word => expect(screen.queryByText(word)).not.toBeInTheDocument());
+      expect(screen.queryAllByTestId(/^verify-quiz-word-\d+$/)).toHaveLength(0);
+      showWords();
       SEED.forEach(word => expect(screen.getByText(word)).toBeInTheDocument());
     });
 
@@ -384,5 +406,33 @@ describe('user-visible error reporting', () => {
     dwellForError();
     expect(screen.getByTestId('verify-seed-prompt')).toHaveTextContent('verifyStepCorrect');
     expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+});
+
+describe('on mobile the quiz words are present with no Show control', () => {
+  it('renders the words once the guard is ready and draws no Show control', () => {
+    mockIsMobile = true;
+    render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+
+    expect(screen.queryByTestId('seed-reveal-toggle')).toBeNull();
+    SEED.forEach(word => expect(screen.getByText(word)).toBeInTheDocument());
+    expect(screen.getAllByTestId(/^verify-quiz-word-\d+$/)).toHaveLength(12);
+  });
+});
+
+describe('off mobile the quiz words stay out of the DOM until Show', () => {
+  it('omits the words until Show, and a window blur removes them again', () => {
+    render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+    expect(screen.queryByText('w0')).toBeNull();
+    expect(screen.queryByTestId('verify-quiz-word-0')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
+    expect(screen.getByTestId('verify-quiz-word-0')).toHaveTextContent('w0');
+
+    act(() => {
+      window.dispatchEvent(new Event('blur'));
+    });
+    expect(screen.queryByText('w0')).toBeNull();
+    expect(screen.queryByTestId('verify-quiz-word-0')).toBeNull();
   });
 });

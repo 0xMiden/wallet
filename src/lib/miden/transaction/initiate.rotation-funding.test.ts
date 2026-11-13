@@ -53,6 +53,7 @@ const note = (id: string, faucetId = 'native-faucet'): ConsumableNote => ({
   amount: '1000000',
   senderAddress: 'mtst1sender',
   isBeingClaimed: false,
+  standardPayment: true,
   type: 'unknown'
 });
 

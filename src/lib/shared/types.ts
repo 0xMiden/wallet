@@ -78,8 +78,6 @@ export enum WalletMessageType {
   GetStrictAuthenticationProtectorsResponse = 'GET_STRICT_AUTHENTICATION_PROTECTORS_RESPONSE',
   VerifyStrictActionAuthenticationRequest = 'VERIFY_STRICT_ACTION_AUTHENTICATION_REQUEST',
   VerifyStrictActionAuthenticationResponse = 'VERIFY_STRICT_ACTION_AUTHENTICATION_RESPONSE',
-  SignDataRequest = 'SIGN_DATA_REQUEST',
-  SignDataResponse = 'SIGN_DATA_RESPONSE',
   SignTransactionRequest = 'SIGN_TRANSACTION_REQUEST',
   SignTransactionResponse = 'SIGN_TRANSACTION_RESPONSE',
   SignWordRequest = 'SIGN_WORD_REQUEST',
@@ -941,17 +939,6 @@ export interface VerifyStrictActionAuthenticationResponse extends WalletMessageB
   type: WalletMessageType.VerifyStrictActionAuthenticationResponse;
 }
 
-export interface SignDataRequest extends WalletMessageBase {
-  type: WalletMessageType.SignDataRequest;
-  publicKey: string;
-  signingInputs: string;
-}
-
-export interface SignDataResponse extends WalletMessageBase {
-  type: WalletMessageType.SignDataResponse;
-  signature: string;
-}
-
 export interface SignTransactionRequest extends WalletMessageBase {
   type: WalletMessageType.SignTransactionRequest;
   publicKey: string;
@@ -1373,7 +1360,6 @@ export type WalletRequest =
   | AssessSpendingLimitRequest
   | GetStrictAuthenticationProtectorsRequest
   | VerifyStrictActionAuthenticationRequest
-  | SignDataRequest
   | SignTransactionRequest
   | SignWordRequest
   | SignEvmRequest
@@ -1451,7 +1437,6 @@ export type WalletResponse =
   | AssessSpendingLimitResponse
   | GetStrictAuthenticationProtectorsResponse
   | VerifyStrictActionAuthenticationResponse
-  | SignDataResponse
   | SignTransactionResponse
   | SignWordResponse
   | SignEvmResponse

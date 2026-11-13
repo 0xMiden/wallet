@@ -71,7 +71,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeStartGuardianRecovery = useWalletStore(s => s.startGuardianRecovery);
   const storeImportAccount = useWalletStore(s => s.importAccount);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
-  const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeSignEvm = useWalletStore(s => s.signEvm);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
@@ -256,13 +255,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeUpdateSettings]
   );
 
-  const signData = useCallback(
-    async (publicKey: string, signingInputs: string) => {
-      return storeSignData(publicKey, signingInputs);
-    },
-    [storeSignData]
-  );
-
   const signTransaction = useCallback(
     async (publicKey: string, signingInputs: string) => {
       return storeSignTransaction(publicKey, signingInputs);
@@ -440,7 +432,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     importWatchOnlyAccount,
     importMnemonicAccount,
     updateSettings,
-    signData,
     signTransaction,
     signEvm,
     getAuthSecretKey,

@@ -3223,6 +3223,10 @@
     "message": "备份您的钱包",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "恢复短语已隐藏",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "显示",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8个字符，1个数字",
-    "englishSource": "8 characters, 1 number"
+    "message": "至少 12 个字符",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "至少8个字符，其中至少包含1个数字",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "密码长度至少为12个字符。使用数字、符号及大小写混合可增强安全性。",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "请将这12个词保存下来，并存放在安全的地方。",
@@ -8685,5 +8689,71 @@
   "arcadePostingPolicy": {
     "message": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "自动锁定",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "当钱包在后台处于闲置状态达到一定时间后，系统将自动锁定该钱包。",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$分钟",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "等待返还",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "准备申领",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "退还资金",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "资金退回",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "您的资金仍保留在 Miden 上。您可以在区块 $block$ 之后提取这些资金。",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "申领您的资金，将其退回您的钱包。",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "您的资金正在返还至您的钱包。",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "您的资金已返还至您的钱包。",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "资金已发送至您的目的地。",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "该note已被使用，但支付尚未确认。请检查您的收款地址和Miden余额。",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "无法查询资金状态。请重试。",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }
