@@ -1855,6 +1855,16 @@ describe('explicit extension passkey unlock', () => {
     expect(mockUnlock).not.toHaveBeenCalled();
   });
 
+  it('preserves the confirmation route after successful passkey unlock', async () => {
+    mockSidePanel = false;
+    mockConfirmWindow = true;
+    render(<Unlock />);
+    fireEvent.click(screen.getByRole('button', { name: 'unlockWithPasskey' }));
+    await act(async () => undefined);
+    expect(mockPlatformUnlock).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
   it('allows an enrolled confirmation window independently of compact mode', () => {
     mockSidePanel = false;
     mockConfirmWindow = true;
