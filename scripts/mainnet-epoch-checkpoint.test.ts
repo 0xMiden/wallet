@@ -65,9 +65,9 @@ it('persists exact final Epoch SDK fingerprints alongside the original collatera
   expect(parseMainnetEpochCheckpoint(state)).toEqual(state);
 });
 it('never promotes a funded Epoch receipt without its actual signed request authority', () => {
-  expect(() => parseMainnetEpochCheckpoint({
-    ...settled(), forwardAuthority: forwardAuthority(), forwardRequestAuthority: undefined
-  })).toThrow();
+  const state: Record<string, unknown> = { ...settled(), forwardAuthority: forwardAuthority() };
+  delete state.forwardRequestAuthority;
+  expect(() => parseMainnetEpochCheckpoint(state)).toThrow();
 });
 it.each([
   { nonce: '' },
