@@ -56,7 +56,7 @@ it('refuses a different PRF, credential ID or corrupted authentication tag', asy
   await expect(unwrapPlatformVaultKey(wrapped, new Uint8Array(32).fill(20), credentialId)).rejects.toBeTruthy();
   await expect(unwrapPlatformVaultKey(wrapped, prf, new Uint8Array([1, 2, 3, 4]))).rejects.toBeTruthy();
   const corrupt = new Uint8Array(Buffer.from(wrapped, 'base64'));
-  corrupt[59] ^= 1;
+  corrupt[59] = (corrupt[59] ?? 0) ^ 1;
   await expect(unwrapPlatformVaultKey(encode(corrupt), prf, credentialId)).rejects.toBeTruthy();
 });
 
