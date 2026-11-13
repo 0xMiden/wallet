@@ -334,6 +334,14 @@ export async function readMainnetSwapReturnAbsence(
   };
 }
 
+export async function readMainnetSwapCommitHeight(rpc: Pick<RpcClient, 'getNullifierCommitHeight'>, note: Note, fromBlock: number): Promise<number | undefined> {
+  return withRpcTimeout(() => rpc.getNullifierCommitHeight(note.nullifier(), fromBlock), 'swap note consumption', { retries: 0 });
+}
+
+export function prepareMainnetSwapClaimRecovery(state: MainnetSwapCheckpoint, _payback: MainnetSwapPaybackEvidence, _balances: MainnetSwapBalances): MainnetSwapCheckpoint {
+  return state;
+}
+
 export async function readMainnetSwapPayback(
   rpcUrl: string,
   scope: MainnetSwapPaybackScope
@@ -364,11 +372,7 @@ export async function readMainnetSwapPayback(
   const exactScope = { ...scope, orderId: protocolOrder.toString() };
   const originalHeight = original.inclusionProof.location().blockNum();
   await verifyMainnetMidenNoteInclusion(rpcUrl, scope.noteId, originalHeight, scope.accountId);
-  const consumedHeight = await withRpcTimeout(
-    () => rpc.getNullifierCommitHeight(originalNote.nullifier(), originalHeight),
-    'original PSWAP consumption',
-    { retries: 0 }
-  );
+  const consumedHeight = await readMainnetSwapCommitHeight(rpc, originalNote, originalHeight);
   if (consumedHeight === undefined) return undefined;
   if (!Number.isSafeInteger(consumedHeight) || consumedHeight < originalHeight)
     throw new Error('Invalid original PSWAP consumption block');
@@ -407,11 +411,7 @@ export async function readMainnetSwapPayback(
     throw new Error('Payback does not share the original consumption block');
   const noteId = candidate.noteId.toString();
   await verifyMainnetMidenNoteInclusion(rpcUrl, noteId, consumedHeight, candidate.metadata.sender().toString());
-  const claimedAtBlock = await withRpcTimeout(
-    () => rpc.getNullifierCommitHeight(candidateNote.nullifier(), consumedHeight),
-    'exact payback consumption',
-    { retries: 0 }
-  );
+  const claimedAtBlock = await readMainnetSwapCommitHeight(rpc, candidateNote, consumedHeight);
   const serialZeroOrderId = originalNote.recipient().serialNum().toU64s()[0]?.toString();
   if (serialZeroOrderId === undefined) throw new Error('Missing original serial identity');
   return {

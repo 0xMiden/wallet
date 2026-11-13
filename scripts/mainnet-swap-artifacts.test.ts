@@ -47,6 +47,14 @@ describe('mainnet swap recovery artifact discovery', () => {
       )
     ).resolves.toEqual({ runId: id, name: `mainnet-swap-final-${id}`, bootstrap: false });
   });
+  it.each(['failure', 'success'])('never downgrades a recovery claim with missing durable evidence: %s', async conclusion => {
+    const id=baseline+2;
+    await expect(chooseSwapCheckpoint([run(id),run(id-1),run(baseline)],async prior=>({artifacts:prior===id?[]:[artifact(`mainnet-swap-final-${prior}`)]}),async prior=>prior===id?steps('Upload original swap recovery claim authority',conclusion):{jobs:[]},baseline)).rejects.toThrow(/claim|checkpoint|authority/i);
+  });
+  it('allows a recovery claim no-op only with its retained final checkpoint', async () => {
+    const id=baseline+1;
+    await expect(chooseSwapCheckpoint([run(id)],async()=>({artifacts:[artifact(`mainnet-swap-final-${id}`)]}),async()=>steps('Upload original swap recovery claim authority'),baseline)).resolves.toEqual({runId:id,name:`mainnet-swap-final-${id}`,bootstrap:false});
+  });
   it('prefers final then reverse authorization within the latest run, including failed runs', async () => {
     const result = await chooseSwapCheckpoint(
       [run(baseline + 2), run(baseline + 1), run(baseline)],
