@@ -65,7 +65,7 @@ export const BasketComposition: FC<{ components: readonly BasketComponent[]; cla
                 className="size-2 shrink-0 rounded-full"
                 style={{ backgroundColor: colors[i] }}
               />
-              <TokenLogo symbol={c.symbol} faucetId={c.faucetId} size="sm" />
+              <TokenLogo faucetId={c.faucetId} size="sm" />
               <span className="min-w-0 flex-1 truncate text-value text-ink">{c.symbol}</span>
               <span className="text-value tabular-nums text-muted">{formatShare(c.weight)}</span>
             </li>
