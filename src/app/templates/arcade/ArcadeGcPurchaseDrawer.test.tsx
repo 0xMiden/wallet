@@ -7,7 +7,9 @@ import type { GcSale } from 'lib/miden/arcade/gc-sale';
 import { ArcadeGcPurchaseDrawer } from './ArcadeGcPurchaseDrawer';
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, options?: { amount?: string }) => (options?.amount === undefined ? key : `${key} ${options.amount}`)
+  })
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: string) => a === b }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
@@ -79,4 +81,24 @@ it('disables confirmation for invalid amounts or when no single sale can supply 
     expect(screen.getByTestId('arcade-gc-purchase-confirm')).toBeDisabled();
   }
   expect(onConfirm).not.toHaveBeenCalled();
+});
+
+it('shows the quoted payment it confirms with every digit', () => {
+  const fractional: GcSale = { ...small, saleNoteId: 'fractional', offeredAmount: 1_000_000n, requestedAmount: 1_234_567n };
+  const onConfirm = jest.fn();
+  render(
+    <ArcadeGcPurchaseDrawer
+      open
+      onOpenChange={jest.fn()}
+      sale={fractional}
+      sales={[fractional]}
+      payBalance={10_000_000n}
+      submitting={false}
+      error={null}
+      onConfirm={onConfirm}
+    />
+  );
+  expect(screen.getByText('arcadeGcPurchaseUsdcx 1.234567')).toBeInTheDocument();
+  fireEvent.click(screen.getByTestId('arcade-gc-purchase-confirm'));
+  expect(onConfirm).toHaveBeenLastCalledWith(expect.objectContaining({ fillAmount: 1_234_567n }));
 });

@@ -104,7 +104,7 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
                 amount={BigInt(quote.quote.amountIn)}
                 decimals={originAsset.decimals}
                 symbol={originAsset.symbol}
-                rounding="up"
+                formatting="exact"
               />
             }
             subtitle={t('oneClickYouPayFrom', { network: originNetworkName })}

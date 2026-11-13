@@ -936,11 +936,12 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
             <DetailCard surface="fill">
               <DetailRow label={t('oneClickNetwork')}>{offerNetwork.name}</DetailRow>
               <DetailRow label={t('oneClickAmount')}>
-                {formatAmountDisplay(instruction.quote.amountInFormatted, {
-                  symbol: originAsset?.symbol,
-                  rounding: 'up'
-                })}{' '}
-                {originAsset?.symbol}
+                {originAsset
+                  ? `${formatAmountDisplay(BigInt(instruction.quote.amountIn), {
+                      decimals: originAsset.decimals,
+                      formatting: 'exact'
+                    })} ${originAsset.symbol}`
+                  : instruction.quote.amountInFormatted}
               </DetailRow>
               <DetailRow label={t('oneClickDepositAddress')} stacked>
                 {instruction.quote.depositAddress}

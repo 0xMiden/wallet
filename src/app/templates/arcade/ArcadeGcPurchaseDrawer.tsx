@@ -124,7 +124,7 @@ export const ArcadeGcPurchaseDrawer: React.FC<{
               <DetailRow label={t('arcadeGcPurchaseYouPay')}>
                 {quote
                   ? t('arcadeGcPurchaseUsdcx', {
-                      amount: formatAmountDisplay(quote.fillAmount, { decimals: USDCX_DECIMALS, rounding: 'up' })
+                      amount: formatAmountDisplay(quote.fillAmount, { decimals: USDCX_DECIMALS, formatting: 'exact' })
                     })
                   : t('arcadeGcPurchaseNoQuote')}
               </DetailRow>
