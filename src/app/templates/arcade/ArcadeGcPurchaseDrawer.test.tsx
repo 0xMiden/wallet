@@ -8,7 +8,8 @@ import { ArcadeGcPurchaseDrawer } from './ArcadeGcPurchaseDrawer';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { amount?: string }) => (options?.amount === undefined ? key : `${key} ${options.amount}`)
+    t: (key: string, options?: { amount?: string }) =>
+      options?.amount === undefined ? key : `${key} ${options.amount}`
   })
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: string) => a === b }));
@@ -84,7 +85,12 @@ it('disables confirmation for invalid amounts or when no single sale can supply 
 });
 
 it('shows the quoted payment it confirms with every digit', () => {
-  const fractional: GcSale = { ...small, saleNoteId: 'fractional', offeredAmount: 1_000_000n, requestedAmount: 1_234_567n };
+  const fractional: GcSale = {
+    ...small,
+    saleNoteId: 'fractional',
+    offeredAmount: 1_000_000n,
+    requestedAmount: 1_234_567n
+  };
   const onConfirm = jest.fn();
   render(
     <ArcadeGcPurchaseDrawer

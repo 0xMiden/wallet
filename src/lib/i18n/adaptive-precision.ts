@@ -50,4 +50,3 @@ export function getAdaptiveDecimalPlaces(value: BigNumber.Value, minimumDecimalP
 
   return Math.min(firstNonZeroIndex + SMALL_AMOUNT_SIGNIFICANT_PLACES, MAX_DISPLAY_DECIMAL_PLACES);
 }
-

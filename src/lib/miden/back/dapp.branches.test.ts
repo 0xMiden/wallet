@@ -1436,7 +1436,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       mockGetDetailsCommitmentMatches.mock.invocationCallOrder[0]!
     );
     const sheet = mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages: string[] };
-    expect(sheet.transactionMessages).toContain('Amount, +4500000');
+    expect(sheet.transactionMessages).toContain('Amount, +4.5');
     expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledWith(
       'miden-account-1',
       '0xreal-note',

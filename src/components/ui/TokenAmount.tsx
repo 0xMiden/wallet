@@ -102,6 +102,4 @@ export const TokenAmount: React.FC<TokenAmountProps> = ({
 
 export type UsdAmountProps = AmountValue & Omit<TokenAmountProps, 'amount' | 'decimals' | 'symbol' | 'symbolClassName'>;
 
-export const UsdAmount: React.FC<UsdAmountProps> = props => (
-  <TokenAmount {...USD_DISPLAY_OPTIONS} {...props} />
-);
+export const UsdAmount: React.FC<UsdAmountProps> = props => <TokenAmount {...USD_DISPLAY_OPTIONS} {...props} />;

@@ -157,8 +157,8 @@ describe('TransactionSuccess', () => {
       />
     );
 
-    expect(container.textContent).toContain('12345 Test Epoch USDC');
-    expect(container.textContent).not.toContain('12345 USDC');
+    expect(container.textContent).toContain('0.02 Test Epoch USDC');
+    expect(container.textContent).not.toContain('0.02 USDC');
     act(() => root.unmount());
   });
 
@@ -208,7 +208,7 @@ describe('TransactionSuccess', () => {
 
     expect(container.textContent).toContain('to');
     expect(container.textContent).toContain('Total Paid');
-    expect(container.textContent).toContain('12345 TST');
+    expect(container.textContent).toContain('0.02 TST');
     expect(container.textContent).toContain('Transaction ID');
 
     // The source-tx row is clickable → wired to onViewExplorer.
@@ -320,10 +320,10 @@ describe('TransactionSuccess', () => {
     );
 
     // The `toContain` below is what actually bites: the two failure modes this
-    // guards against render "20 AAA, 10 MIDEN" (native fallback for a foreign
-    // faucet) and "20 AAA" (secondary dropped), and neither of those contains
+    // guards against render "0.00002 AAA, 0.00001 MIDEN" (native fallback for a
+    // foreign faucet) and "0.00002 AAA" (secondary dropped), and neither of those contains
     // the string asserted here.
-    expect(container.textContent).toContain('20 AAA, Unknown');
+    expect(container.textContent).toContain('0.00002 AAA, Unknown');
     act(() => root.unmount());
   });
 

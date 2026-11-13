@@ -3121,7 +3121,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
 
     expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume-1' });
     expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({ type: 'consume', noteId: '0xreal-note' });
-    expect(_g.__dappExtTest.lastPayloadResponse.payload.transactionMessages).toContain('Amount, +45');
+    expect(_g.__dappExtTest.lastPayloadResponse.payload.transactionMessages).toContain('Amount, +0.000045');
     expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).toHaveBeenCalledWith(
       'miden-account-1',
       '0xreal-note',

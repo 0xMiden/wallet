@@ -6,10 +6,7 @@ import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { amountFormatterFor, USD_DISPLAY_OPTIONS } from './amount-display';
 import { getCurrentLocale, getNumberSymbols } from './core';
 
-export {
-  getAdaptiveDecimalPlaces,
-  MAX_DISPLAY_DECIMAL_PLACES
-} from './adaptive-precision';
+export { getAdaptiveDecimalPlaces, MAX_DISPLAY_DECIMAL_PLACES } from './adaptive-precision';
 
 /**
  * Tiny single-argument memoizer — was `micro-memoize` until we removed

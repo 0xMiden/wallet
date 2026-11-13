@@ -49,8 +49,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
   const { t } = useTranslation();
   const circleSelected = !fast?.selected;
   // Built in plain JS so the em-dash fallback does not trip the no-literal-string i18n lint.
-  const fastFeeText =
-    fast?.feeUsd != null ? formatUsdDisplay(fast.feeUsd) : '—';
+  const fastFeeText = fast?.feeUsd != null ? formatUsdDisplay(fast.feeUsd) : '—';
   return (
     <HomeGroupPaneBody
       top="header"

@@ -10,6 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { formatBigInt, stringToBigInt } from 'lib/i18n/numbers';
@@ -936,12 +937,16 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
             <DetailCard surface="fill">
               <DetailRow label={t('oneClickNetwork')}>{offerNetwork.name}</DetailRow>
               <DetailRow label={t('oneClickAmount')}>
-                {originAsset
-                  ? `${formatAmountDisplay(BigInt(instruction.quote.amountIn), {
-                      decimals: originAsset.decimals,
-                      formatting: 'exact'
-                    })} ${originAsset.symbol}`
-                  : instruction.quote.amountInFormatted}
+                {originAsset ? (
+                  <TokenAmount
+                    amount={BigInt(instruction.quote.amountIn)}
+                    decimals={originAsset.decimals}
+                    symbol={originAsset.symbol}
+                    formatting="exact"
+                  />
+                ) : (
+                  instruction.quote.amountInFormatted
+                )}
               </DetailRow>
               <DetailRow label={t('oneClickDepositAddress')} stacked>
                 {instruction.quote.depositAddress}
