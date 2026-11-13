@@ -71,9 +71,7 @@ for (const state of ['loading', 'restricted', 'unavailable', 'allowed'] satisfie
     await page.setViewportSize({ width: 900, height: 700 });
     await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
     await accessAssertions[state](page);
-    await expect
-      .poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 15_000 })
-      .toBe(true);
+    await expect.poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 15_000 }).toBe(true);
     const eligibilityOrigin = await getEligibilityFixtureOrigin();
     expect(eligibilityOrigin).toEqual({ observed: true, origin: null });
     await info.attach('eligibility-origin', {
