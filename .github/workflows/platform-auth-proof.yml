@@ -5,16 +5,17 @@ on:
 permissions:
   contents: read
 jobs:
-  init-writer-regression:
+  affected-unit-suites:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/lib/miden/back/actions.test.ts --maxWorkers=2
+      - run: yarn tsc --noEmit --pretty false
+      - run: yarn jest src/lib/platform-auth src/lib/telemetry/redact.test.ts src/lib/miden/back/platform-unlock-store.test.ts src/lib/extension/platform-unlock-startup.test.ts src/lib/extension/platform-unlock-startup-gate.test.ts src/lib/intercom/extension-page.test.ts src/lib/miden/back/actions.test.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/main.test.ts src/lib/store/index.test.ts src/lib/miden/front/client.test.tsx src/lib/intercom/client.test.ts src/lib/intercom/in-process-request-handler.test.ts src/lib/intercom/mobile-adapter.test.ts src/lib/intercom/desktop-adapter.test.ts src/lib/miden/reset.test.ts src/lib/miden/reset-and-reload.test.ts src/lib/miden/platform-reset.test.ts src/lib/miden/platform-reset-transport.test.ts src/background.test.ts src/background-entry.test.ts src/options.test.tsx src/screens/developer-settings/DeveloperSettings.test.tsx --maxWorkers=2
   startup-browser-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -33,16 +34,14 @@ jobs:
       - run: npx playwright install --with-deps chromium
         timeout-minutes: 12
       - run: SKIP_EXTENSION_BUILD=true xvfb-run -a yarn test:e2e platform-startup.spec.ts --workers=1 --retries=0
-      - name: Format the new browser fixture for local adoption
-        if: always()
-        run: yarn prettier --write playwright/tests/platform-startup.spec.ts
+      - name: Check browser fixture format
+        run: yarn prettier --check playwright/tests/platform-startup.spec.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: passkey-startup-browser-proof
           path: |
             test-results/
-            playwright/tests/platform-startup.spec.ts
             dist/chrome_unpacked/manifest.json
           if-no-files-found: error
           retention-days: 3
