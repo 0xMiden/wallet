@@ -696,7 +696,7 @@ describe('HistoryDetails', () => {
     );
     expect(formatAmount).toHaveBeenCalledWith(245000000n, 6);
     expect(rowByLabel('oneClickMinimumOutput')).toHaveTextContent('240 MUSDC');
-    expect(rowByLabel('oneClickDepositAmount')).toHaveTextContent('1');
+    expect(rowByLabel('oneClickDepositAmount')).toHaveTextContent(/^1 USDC$/);
   });
 
   it('shows the friendly destination network name', async () => {
