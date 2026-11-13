@@ -107,9 +107,10 @@ test('renders the wallet while the lookup is pending and enables features when i
     timeout: 6_000
   });
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`, { waitUntil: 'domcontentloaded' });
-  await expect(swap.getByTestId('swap-unavailable-notice')).toHaveAttribute('data-reason', 'pending', {
-    timeout: 2_000
-  });
+  const pendingSwapNotice = swap.getByTestId('swap-unavailable-notice');
+  await expect(pendingSwapNotice).toHaveAttribute('data-reason', 'pending', { timeout: 2_000 });
+  await expect(pendingSwapNotice).toContainText('Temporarily unavailable');
+  await expect(pendingSwapNotice).toContainText('This external service is currently down. Please try again later.');
   await attachScreenshot(page, info, 'wallet-access-pending-swap');
   expect(Date.now() - heldSince).toBeLessThan(9_000);
 
@@ -146,7 +147,18 @@ test('wallet opens with Earn and Swap unavailable when the lookup fails', async 
     'service-down',
     { timeout: 30_000 }
   );
+  const swapNotice = page.getByTestId('swap-flow').getByTestId('swap-unavailable-notice');
+  await expect(swapNotice).toContainText('Temporarily unavailable');
+  await expect(swapNotice).toContainText('This external service is currently down. Please try again later.');
   await expect(page.getByTestId('wallet-access-gate')).toHaveCount(0);
-  await attachScreenshot(page, info, 'wallet-access-service-down-swap');
+  for (const theme of ['light', 'dark'] as const) {
+    await page.evaluate(value => localStorage.setItem('theme_setting', value), theme);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /dark/ : /^(?!.*\bdark\b)/);
+    await expect(swapNotice).toHaveAttribute('data-reason', 'service-down', { timeout: 30_000 });
+    await expect(swapNotice).toContainText('Temporarily unavailable');
+    await expect(swapNotice).toContainText('This external service is currently down. Please try again later.');
+    await attachScreenshot(page, info, `wallet-access-service-down-swap-${theme}`);
+  }
   await info.attach('console', { body: consoleMessages.join('\n'), contentType: 'text/plain' });
 });
