@@ -19,6 +19,7 @@ import { AccountsDrawer, AssetListItemSkeleton, BalanceCard, ErrorLine, TextActi
 import { TokenAmount } from 'components/ui/TokenAmount';
 import { springs, useMotion, usePreset } from 'lib/animation';
 import { formatUsdDisplay } from 'lib/i18n/amount-display';
+import { getNumberSymbols } from 'lib/i18n/core';
 import {
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
@@ -410,6 +411,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   // Handed to HiddenAssets so an unhide that empties the section can still land focus somewhere.
   const assetListRef = useRef<HTMLDivElement>(null);
   const assetsHeadingId = useId();
+  const numberSymbols = getNumberSymbols();
   return (
     <>
       <Balance>
@@ -430,7 +432,14 @@ const HomeOverview: FC<HomeOverviewProps> = ({
               ) : (
                 // Keyed by the account: a switch lands on the new account's total instead of
                 // counting from the old one's (AnimatedNumber counts only within one subject).
-                <TokenAmount key={address} amount={balance.toNumber()} animated grouping trimTrailingZeros={false} />
+                <TokenAmount
+                  key={address}
+                  amount={balance.toNumber()}
+                  animated
+                  grouping
+                  trimTrailingZeros={false}
+                  separators={{ group: numberSymbols.group, decimal: numberSymbols.decimal }}
+                />
               )
             }
             // Until the first balance read lands the store has no entry for this
@@ -442,7 +451,9 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             delta={
               change && pricesLoaded(tokenPrices, totalPriceSymbols)
                 ? {
-                    absolute: `${change.absolute < 0 ? '-' : '+'}${formatUsdDisplay(Math.abs(change.absolute))}`,
+                    absolute: `${change.absolute < 0 ? '-' : '+'}${formatUsdDisplay(Math.abs(change.absolute), {
+                      separators: { group: numberSymbols.group, decimal: numberSymbols.decimal }
+                    })}`,
                     percentage: `${change.percentage < 0 ? '-' : '+'}${Math.abs(change.percentage).toFixed(2)}%`
                   }
                 : undefined

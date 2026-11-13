@@ -35,6 +35,7 @@ export const TokenAmount: React.FC<TokenAmountProps> = ({
   minimumFractionDigits,
   trimTrailingZeros,
   grouping,
+  separators,
   prefix,
   preserveSign,
   animated = false,
@@ -53,6 +54,7 @@ export const TokenAmount: React.FC<TokenAmountProps> = ({
     minimumFractionDigits,
     trimTrailingZeros,
     grouping,
+    separators,
     prefix,
     preserveSign
   };

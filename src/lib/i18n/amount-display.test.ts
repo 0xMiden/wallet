@@ -7,6 +7,16 @@ describe('amount display policy', () => {
     expect(formatUsdDisplay(1234.5)).toBe('$1,234.50');
   });
 
+  it('formats grouped values with the supplied locale separators', () => {
+    expect(
+      formatAmountDisplay(1234.5, {
+        grouping: true,
+        trimTrailingZeros: false,
+        separators: { group: '.', decimal: ',' }
+      })
+    ).toBe('1.234,50');
+  });
+
   it('removes long decimal tails from bridge amounts', () => {
     expect(formatAmountDisplay('1.5747999999999986')).toBe('1.57');
     expect(formatAmountDisplay('13.0000000000001')).toBe('13');

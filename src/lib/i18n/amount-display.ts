@@ -15,6 +15,7 @@ export interface AmountDisplayOptions {
   minimumFractionDigits?: number;
   trimTrailingZeros?: boolean;
   grouping?: boolean;
+  separators?: { group: string; decimal: string };
   prefix?: string;
   preserveSign?: boolean;
 }
@@ -69,10 +70,12 @@ function renderValue(value: BigNumber, options: AmountDisplayOptions, places?: n
   if (digits !== undefined) number = rounded.toFixed(digits);
   if (options.grouping) {
     number = rounded.toFormat(digits ?? rounded.decimalPlaces() ?? 0, {
-      groupSeparator: ',',
+      groupSeparator: options.separators?.group ?? ',',
       groupSize: 3,
-      decimalSeparator: '.'
+      decimalSeparator: options.separators?.decimal ?? '.'
     });
+  } else if (options.separators) {
+    number = number.replace('.', options.separators.decimal);
   }
   const prefix = options.prefix ?? '';
   if (showSmallValue && !value.isZero() && rounded.isZero()) {

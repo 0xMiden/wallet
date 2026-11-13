@@ -2,6 +2,7 @@ import React, { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { getNumberSymbols } from 'lib/i18n/core';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { hasBalanceSnapshotForNetwork } from 'lib/miden/balance-snapshot';
 import { useTokensMetadata } from 'lib/miden/front/assets';
@@ -37,6 +38,7 @@ export const ArcadeAllowance: React.FC = () => {
   const [reviewing, setReviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const numberSymbols = getNumberSymbols();
   const [spendingLimitChallenge, setSpendingLimitChallenge] = useState<
     Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { quote: GcPurchaseQuote }
   >();
@@ -119,7 +121,12 @@ export const ArcadeAllowance: React.FC = () => {
     amount >= 0 &&
     (coin === undefined || (coin.metadata.decimals === 6 && !coin.metadata.scaleIsUnknown));
   const balance = known
-    ? formatAmountDisplay(amount, { minimumFractionDigits: 6, grouping: true, rounding: 'down' })
+    ? formatAmountDisplay(amount, {
+        minimumFractionDigits: 6,
+        grouping: true,
+        rounding: 'down',
+        separators: { group: numberSymbols.group, decimal: numberSymbols.decimal }
+      })
     : null;
 
   return (
