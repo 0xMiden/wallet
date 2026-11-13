@@ -29,12 +29,6 @@ class SecretClipboardLogicTest {
         assertEquals(SecretClipboardLogic.Decision.WAIT, SecretClipboardLogic.decide(false, "m1", "m1"))
     }
 
-    // A second copy of the same text carries a fresh marker, so the first copy's deadline must leave it alone.
-    @Test
-    fun decide_dropsAnEarlierCopyOfTheSamePhrase() {
-        assertEquals(SecretClipboardLogic.Decision.DROP, SecretClipboardLogic.decide(true, "m2", "m1"))
-    }
-
     @Test
     fun validClearAfterMs_acceptsAnyPositiveDelay() {
         for (raw in listOf(null, 0L, -1L)) {

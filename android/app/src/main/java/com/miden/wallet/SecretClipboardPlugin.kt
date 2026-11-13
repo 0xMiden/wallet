@@ -1,16 +1,11 @@
 package com.miden.wallet
 
-import android.content.ClipData
 import android.content.ClipboardManager
-import android.os.Handler
-import android.os.Looper
-import android.os.PersistableBundle
+import android.view.ViewTreeObserver
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
-import com.miden.wallet.SecretClipboardLogic.Decision
-import java.util.UUID
 
 /**
  * Copies a secret as a sensitive clip and clears it after a delay, but only while the clipboard still holds the clip
@@ -18,29 +13,24 @@ import java.util.UUID
  */
 @CapacitorPlugin(name = "SecretClipboard")
 class SecretClipboardPlugin : Plugin() {
-    private class Pending(val marker: String) {
-        var waiting = false
+    private val focusListener = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+        slot.onWindowFocusChanged(this, hasFocus)
     }
-
-    // Touched only on the main looper, where the write, the check and the focus listener all run.
-    private val main = Handler(Looper.getMainLooper())
-    private var pending: Pending? = null
-    private val check = Runnable { runCheck() }
 
     override fun load() {
         super.load()
-        activity?.window?.decorView?.viewTreeObserver?.addOnWindowFocusChangeListener { hasFocus ->
-            if (hasFocus && pending?.waiting == true) {
-                main.removeCallbacks(check)
-                main.post(check)
-            }
-        }
+        val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
+        slot.attach(this, clipboard, activity?.hasWindowFocus() == true)
+        activity?.window?.decorView?.viewTreeObserver?.addOnWindowFocusChangeListener(focusListener)
     }
 
     override fun handleOnDestroy() {
-        // A destroyed activity never regains focus, so its pending clear could never run; release it.
-        main.removeCallbacks(check)
-        pending = null
+        val observer = activity?.window?.decorView?.viewTreeObserver
+        if (observer != null && observer.isAlive) {
+            observer.removeOnWindowFocusChangeListener(focusListener)
+        }
+        // Only this activity's attachment. The process-wide slot keeps the deadline for the next one.
+        slot.detach(this)
         super.handleOnDestroy()
     }
 
@@ -53,38 +43,16 @@ class SecretClipboardPlugin : Plugin() {
             ?: return call.reject("Invalid clearAfterMs")
         val clipboard = context.getSystemService(ClipboardManager::class.java)
             ?: return call.reject("Clipboard unavailable")
-        val marker = UUID.randomUUID().toString()
-        val clip = ClipData.newPlainText("", text)
-        clip.description.setExtras(PersistableBundle().apply {
-            putBoolean(SecretClipboardLogic.EXTRA_IS_SENSITIVE, true)
-            putString(SecretClipboardLogic.EXTRA_SECRET_MARKER, marker)
-        })
-        main.post {
-            try {
-                clipboard.setPrimaryClip(clip)
-            } catch (e: RuntimeException) {
-                call.reject("Clipboard write failed")
-                return@post
-            }
-            // One slot: a newer copy replaces the earlier one's deadline, whose clip is no longer on the clipboard.
-            main.removeCallbacks(check)
-            pending = Pending(marker)
-            main.postDelayed(check, clearAfterMs)
-            call.resolve()
-        }
+        slot.write(
+            clipboard,
+            text,
+            clearAfterMs,
+            onWritten = { call.resolve() },
+            onFailed = { call.reject("Clipboard write failed") }
+        )
     }
 
-    private fun runCheck() {
-        val slot = pending ?: return
-        val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
-        val currentMarker = clipboard.primaryClipDescription?.extras?.getString(SecretClipboardLogic.EXTRA_SECRET_MARKER)
-        when (SecretClipboardLogic.decide(activity?.hasWindowFocus() == true, currentMarker, slot.marker)) {
-            Decision.CLEAR -> {
-                clipboard.clearPrimaryClip()
-                pending = null
-            }
-            Decision.DROP -> pending = null
-            Decision.WAIT -> slot.waiting = true
-        }
+    private companion object {
+        val slot = SecretClipboardSlot()
     }
 }
