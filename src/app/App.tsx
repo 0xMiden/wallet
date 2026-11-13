@@ -9,6 +9,7 @@ import AwaitI18N from 'app/a11y/AwaitI18N';
 import BootAnimation from 'app/a11y/BootAnimation';
 import DisableOutlinesForClick from 'app/a11y/DisableOutlinesForClick';
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
+import { BackgroundLockCover } from 'app/BackgroundLockCover';
 import { AppEnvProvider, WindowType } from 'app/env';
 import ErrorBoundary from 'app/ErrorBoundary';
 import { ExternalPageFailedNotice } from 'app/ExternalPageFailedNotice';
@@ -101,6 +102,7 @@ const App: FC<AppProps> = ({ env }) => {
                       (transform + transient border-radius/overflow, all managed
                       by vaul). Must wrap the whole app surface. */}
                       <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
+                        <BackgroundLockCover />
                         <SeedBackupGate>
                           <Dialogs />
                           {isExtension() && <PinExtensionPrompt />}

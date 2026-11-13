@@ -1905,5 +1905,8 @@
   "arcadeBalanceUnknown": "Bakiye mevcut değil",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Oyun Paraları",
-  "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin."
+  "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin.",
+  "autoLock": "Otomatik kilitleme",
+  "autoLockDescription": "Cüzdan bu kadar uzun süre arka planda kaldığında kilitlenir.",
+  "autoLockMinutes": "$minutes$ dakika"
 }

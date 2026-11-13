@@ -1897,5 +1897,8 @@
   "arcadeBalanceUnknown": "Guthaben nicht verfügbar",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Spielmünzen",
-  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst."
+  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
+  "autoLock": "Automatische Sperre",
+  "autoLockDescription": "Sperrt die Wallet, sobald sie so lange im Hintergrund war.",
+  "autoLockMinutes": "$minutes$ min"
 }

@@ -1907,5 +1907,8 @@
   "arcadeBalanceUnknown": "餘額不可用",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "遊戲幣",
-  "arcadePostingPolicy": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。"
+  "arcadePostingPolicy": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。",
+  "autoLock": "自動鎖定",
+  "autoLockDescription": "當錢包在背景中閒置如此長時間後，系統將鎖定該錢包。",
+  "autoLockMinutes": "$minutes$ 分鐘"
 }

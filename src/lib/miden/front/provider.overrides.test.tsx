@@ -15,7 +15,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 const ensureSdkWasmReady = jest.fn().mockResolvedValue(undefined);
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: () => ensureSdkWasmReady() }));
 
-jest.mock('lib/platform', () => ({ isExtension: () => true, isMobile: () => false }));
+jest.mock('lib/platform', () => ({ isExtension: () => true, isMobile: () => false, isDesktop: () => false }));
 jest.mock('lib/store/WalletStoreProvider', () => ({ WalletStoreProvider: ({ children }: any) => <>{children}</> }));
 jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,

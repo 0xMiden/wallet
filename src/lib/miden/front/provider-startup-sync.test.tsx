@@ -10,6 +10,7 @@ import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false),
   isMobile: () => false,
+  isDesktop: () => false,
   hasExtensionRuntime: () => true
 }));
 jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolvedValue({}) }));

@@ -8692,5 +8692,22 @@
   "arcadePostingPolicy": {
     "message": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Verrouillage automatique",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Verrouille le portefeuille dès qu’il est resté inactif en arrière-plan pendant cette durée.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }
