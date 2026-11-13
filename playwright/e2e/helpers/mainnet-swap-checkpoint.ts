@@ -58,6 +58,7 @@ export interface MainnetSwapCheckpoint {
   feeBudget: string;
   paidFees: string;
   realizedCostUsdMicros?: string;
+  lossBudgetUsdMicros?: string;
   forwardOrderId?: string;
   reverseOrderId?: string;
   forwardRequestAuthority?: MainnetSwapRequestAuthority;
@@ -208,6 +209,14 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
     if (value[key] !== undefined && !amount(value[key])) return false;
   }
   if (
+    value.lossBudgetUsdMicros !== undefined &&
+    (typeof value.lossBudgetUsdMicros !== 'string' ||
+      !/^[1-9]\d{0,6}$/.test(value.lossBudgetUsdMicros) ||
+      BigInt(value.lossBudgetUsdMicros) > 2_000_000n ||
+      (amount(value.realizedCostUsdMicros) && BigInt(value.realizedCostUsdMicros) > BigInt(value.lossBudgetUsdMicros)))
+  )
+    return false;
+  if (
     value.returnBaseline !== undefined &&
     (!record(value.returnBaseline) ||
       !amount(value.returnBaseline.offer) ||
@@ -311,6 +320,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       'feeBudget',
       'paidFees',
       'realizedCostUsdMicros',
+      'lossBudgetUsdMicros',
       'forwardOrderId',
       'reverseOrderId',
       'forwardRequestAuthority',
