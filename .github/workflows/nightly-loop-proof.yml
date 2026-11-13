@@ -31,6 +31,7 @@ jobs:
           yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-request.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-request.mjs
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-provider.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-provider.mjs
+          yarn esbuild scripts/helpers/mainnet-epoch-readonly-sdk.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs
           node --test --test-concurrency=2 scripts/mainnet-epoch-evm.test.mjs scripts/mainnet-send-request.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-epoch-request.test.mjs
       - name: Verify immutable source and mainnet helpers
         if: always()
