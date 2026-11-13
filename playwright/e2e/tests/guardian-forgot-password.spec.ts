@@ -76,12 +76,11 @@ const FUND_BASE_UNITS = 100_000_000_000n;
  * The password the wallet is created with — `createGuardianWallet`'s default,
  * i.e. the one the whole suite uses. It must stop working after the reset.
  */
-const OLD_PASSWORD = 'Test1234!';
+const OLD_PASSWORD = 'Test1234!Wallet';
 /**
  * The password typed into the reset flow. Different from OLD_PASSWORD and still
- * satisfying `CreatePassword.tsx`'s real strength gate (>1 of {8+ chars, mixed
- * case, letters+digits, special char, 12+ chars}), since this journey drives
- * that real screen rather than the onboarding bypass.
+ * meeting `CreatePassword.tsx`'s real new-password floor (12+ characters), since
+ * this journey drives that real screen rather than the onboarding bypass.
  */
 const NEW_PASSWORD = 'Recovered9#Pass';
 
