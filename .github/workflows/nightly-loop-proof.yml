@@ -1,4 +1,4 @@
-name: Read-only transport and remaining-budget regression RED
+name: Transport and budget GREEN, frozen grant allowance RED
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -21,8 +21,23 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Functional transport and workflow RED with budget and codec GREEN
+      - name: Read-only byte-verified ACK and frozen allowance contracts GREEN
         run: yarn jest scripts/mainnet-loop-upload.test.ts scripts/mainnet-swap-workflow.test.ts scripts/mainnet-loop-budget.test.ts scripts/mainnet-swap-checkpoint.test.ts --maxWorkers=2 --watch=false
-      - name: Connected types
+      - name: Actual SDK frozen grant allowance RED
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs
+      - name: Canonical connected type gate
         if: always()
-        run: yarn ts && yarn tsc --project playwright.mainnet.tsconfig.json
+        run: yarn ts
+      - name: Owned formatting patch
+        if: always()
+        run: |
+          yarn prettier --write .github/actions/mainnet-loop-upload/action.yml .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/helpers/mainnet-loop-budget.ts playwright/e2e/helpers/mainnet-swap-checkpoint.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-loop-upload.test.ts scripts/mainnet-swap-workflow.test.ts scripts/mainnet-loop-budget.test.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-claim.test.mjs
+          git diff --binary -- .github/actions/mainnet-loop-upload/action.yml .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/helpers/mainnet-loop-budget.ts playwright/e2e/helpers/mainnet-swap-checkpoint.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-loop-upload.test.ts scripts/mainnet-swap-workflow.test.ts scripts/mainnet-loop-budget.test.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-claim.test.mjs > transport-budget-owned-format.patch
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: transport-budget-owned-format
+          path: transport-budget-owned-format.patch
+          if-no-files-found: error

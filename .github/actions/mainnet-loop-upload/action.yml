@@ -84,7 +84,17 @@ runs:
       run: |
         set -euo pipefail
         [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
-        timeout 30s gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}" > "$SNAPSHOT_DIRECTORY/artifact.json" 2> "$SNAPSHOT_DIRECTORY/download-errors"
-        timeout 30s gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > "$SNAPSHOT_DIRECTORY/artifact.zip" 2> "$SNAPSHOT_DIRECTORY/download-errors"
+        read_only_get() {
+          local endpoint="$1" destination="$2" attempt status
+          for attempt in 1 2 3; do
+            if timeout 30s gh api --method GET "$endpoint" > "$destination" 2> "$SNAPSHOT_DIRECTORY/download-errors"; then return 0; fi
+            status=$(grep -oE 'HTTP [0-9]{3}' "$SNAPSHOT_DIRECTORY/download-errors" | tail -1 || true)
+            printf 'Read-only artifact GET failed (%s, attempt %s/3); request remains held.\n' "${status:-transport error}" "$attempt" >&2
+            if [ "$attempt" -lt 3 ]; then sleep 2; fi
+          done
+          return 1
+        }
+        read_only_get "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}" "$SNAPSHOT_DIRECTORY/artifact.json"
+        read_only_get "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" "$SNAPSHOT_DIRECTORY/artifact.zip"
         unzip -p "$SNAPSHOT_DIRECTORY/artifact.zip" roundtrip.json | head -c 65537 > "$SNAPSHOT_DIRECTORY/downloaded.json"
         node scripts/mainnet-loop-upload.mjs release "$CHECKPOINT" "$GATE" "$SNAPSHOT" "$SNAPSHOT_DIRECTORY/downloaded.json" "$SNAPSHOT_DIRECTORY/artifact.json" "$ARTIFACT_ID" "$ARTIFACT_NAME"
