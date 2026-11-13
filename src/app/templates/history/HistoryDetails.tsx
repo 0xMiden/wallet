@@ -783,8 +783,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           lhs: `${historyAmount} ${entry.token}`
         }
       : transactionSummaryBadgeContent;
-  // The estimate prices the figure the hero prints: a bridge-in's out side, the row's own amount on
-  // SwapDetail and on a badge that prints it (a claim's, at full precision), and historyAmount otherwise.
+  // The estimate prices a bridge-in's out side, the row's exact stored amount where SwapDetail or a claim's badge
+  // shows it (both round it for display), and historyAmount otherwise.
   const heroPrintsRowAmount =
     (entry?.txType === 'swap' && requestedToken !== null) ||
     (transactionSummaryBadgeContent !== undefined && !badgeShowsHistoryAmount);

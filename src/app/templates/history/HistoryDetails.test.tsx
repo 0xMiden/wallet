@@ -1704,7 +1704,7 @@ describe('HistoryDetails', () => {
       setMockRow({ ...baseSendTx });
       await renderAndLoad();
 
-      // The shared summary badge preserves the formatter's non-finite output.
+      // A non-finite amount shows the shared '—' placeholder in the summary badge.
       expect(screen.getByText('— MID')).toBeInTheDocument();
       // formatFiatDisplayAmount → non-finite → undefined → no fiat line.
       expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
@@ -2059,7 +2059,7 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('historyDetailsFiatApprox_$40.00')).toBeInTheDocument();
     });
 
-    // A claim's hero is its badge, which prints the amount at full precision, so that is what is priced.
+    // A claim's hero is its badge, which rounds the amount for display; the estimate prices the exact amount.
     it('prices a claim at the full amount its badge shows', async () => {
       const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
@@ -2152,7 +2152,7 @@ describe('HistoryDetails', () => {
       expect(screen.queryByText('cancel')).not.toBeInTheDocument();
     });
 
-    // The swap hero prints the offered amount unrounded, so that is what is priced, whether or not the order
+    // The swap hero rounds the offered amount for display; the estimate prices the exact amount, whether or not the order
     // carries a requested amount (without one the summary badge has no content).
     it.each([
       ['an order', { requestedAmount: 1000n }],
