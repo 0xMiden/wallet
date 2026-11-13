@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer';
 import PQueue from 'p-queue';
+import type { Runtime } from 'webextension-polyfill';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
@@ -10,6 +11,8 @@ import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'l
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { MAINNET_ACCESS_CODE_REJECTED, PublicError } from 'lib/miden/back/defaults';
 import { undoFailedSetup } from 'lib/miden/back/failed-setup';
+import * as PlatformUnlock from 'lib/miden/back/platform-unlock-store';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift,
@@ -557,6 +560,12 @@ export function unlock(password?: string) {
       }
     })
   );
+}
+
+export async function platformUnlock(
+  command: PlatformUnlockCommand, owner: Runtime.Port, available: boolean
+): Promise<PlatformUnlockResult> {
+  throw new Error('Platform authentication unavailable');
 }
 
 export function updateCurrentAccount(accPublicKey: string) {

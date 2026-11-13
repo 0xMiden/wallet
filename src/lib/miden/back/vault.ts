@@ -22,6 +22,8 @@ import { MidenDAppErrorType } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
+import { getStoredPlatformVaultKey } from 'lib/miden/back/platform-unlock-store';
+import { VAULT_KEY_PASSWORD_STORAGE_KEY } from 'lib/platform-auth/types';
 import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED, PublicError } from 'lib/miden/back/defaults';
 import { undoFailedSetup } from 'lib/miden/back/failed-setup';
 import {
@@ -174,7 +176,6 @@ const DEFAULT_SETTINGS = {};
 const RECOVERY_SEED_HD_INDEX_LIMIT = 20;
 
 // Storage keys for vault key protectors
-const VAULT_KEY_PASSWORD_STORAGE_KEY = 'vault_key_password';
 const VAULT_KEY_HARDWARE_STORAGE_KEY = 'vault_key_hardware';
 
 enum StorageEntity {
@@ -656,6 +657,10 @@ export class Vault {
       const vaultKey = await Vault.unlockWithPassword(password);
       return new Vault(vaultKey);
     });
+  }
+
+  static async setupWithPlatformCredential(credentialId: string, prfSecret: string): Promise<Vault> {
+    throw new Error('Platform authentication unavailable');
   }
 
   static async exportWalletBackupMaterial(password?: string): Promise<WalletBackupMaterial> {

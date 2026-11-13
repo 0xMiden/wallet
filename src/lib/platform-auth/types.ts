@@ -20,6 +20,12 @@ export interface PlatformUnlockState {
   credential: PlatformCredentialMetadata | null;
 }
 
+export type PlatformUnlockResult =
+  | { action: 'state'; state: PlatformUnlockState }
+  | { action: 'begin'; enrollmentId: string }
+  | { action: 'pending-signals'; credentialIds: string[] }
+  | { action: 'track' | 'commit' | 'abandon' | 'remove' | 'unlock' | 'signal-complete' };
+
 export type PlatformUnlockCommand =
   | { action: 'state' }
   | { action: 'begin'; expectedCredentialId: string | null }
