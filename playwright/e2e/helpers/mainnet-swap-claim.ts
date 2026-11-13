@@ -95,7 +95,7 @@ export function authorizeMainnetSwapRecoveryReturn(
 ): MainnetSwapCheckpoint {
   const original = state.forwardRequestAuthority;
   if (
-    state.phase !== 'forward-authorized' ||
+    (state.phase !== 'forward-authorized' && state.phase !== 'forward-settled') ||
     !original ||
     state.recoveryReturnAuthorizedAt !== undefined ||
     state.reverseRequestAuthority !== undefined ||
