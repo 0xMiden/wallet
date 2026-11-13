@@ -61,17 +61,14 @@ const PasskeyUnlockSettings = () => {
       enrollmentId = begin.enrollmentId;
       attempt.signal.throwIfAborted();
       const token = enrollmentId;
-      const credential = await createPlatformCredential(
-        async (credentialId, prfSalt, backupEligible) => {
-          // Even an aborted attempt must journal any ID its provider actually returned.
-          await platformUnlock({
-            action: 'track',
-            enrollmentId: token,
-            credential: { credentialId, prfSalt, backupEligible }
-          });
-        },
-        attempt.signal
-      );
+      const credential = await createPlatformCredential(async (credentialId, prfSalt, backupEligible) => {
+        // Even an aborted attempt must journal any ID its provider actually returned.
+        await platformUnlock({
+          action: 'track',
+          enrollmentId: token,
+          credential: { credentialId, prfSalt, backupEligible }
+        });
+      }, attempt.signal);
       attempt.signal.throwIfAborted();
       if (!mounted.current) return;
       setMode('saving');
