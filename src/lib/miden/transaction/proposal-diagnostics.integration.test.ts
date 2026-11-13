@@ -58,7 +58,8 @@ const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
   toCommitment: () => ({ toHex: () => 'private-reclaim-proposal-id', free: () => {} }),
   free: () => {}
 }));
-const mockAbandon = jest.fn(async (..._args: unknown[]) => {});
+// Every way a candidate abandon can go out: the service's nonce-only request and the SDK's own.
+const mockAbandon = jest.fn(async (..._args: unknown[]): Promise<{ commitment?: string }> => ({}));
 const mockPrepareCustom = jest.fn(async (..._args: unknown[]) => {
   if (mockState.customAdvice) throw mockState.customAdvice;
   return {};
@@ -155,6 +156,9 @@ jest.mock('../guardian/account', () => ({
   resolveGuardianEndpoint: () => 'https://guardian.invalid'
 }));
 jest.mock('../guardian/signer', () => ({ WalletSigner: class {} }));
+jest.mock('../guardian/legacy-abandon', () => ({
+  abandonCandidateByNonce: (...args: unknown[]) => mockAbandon(...args)
+}));
 jest.mock('../guardian/native-http', () => ({
   ...jest.requireActual('../guardian/native-http'),
   registerGuardianOrigin: () => {}

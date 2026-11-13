@@ -3,9 +3,18 @@ on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      guardian_image_tag:
+        description: 'Guardian A image tag (empty: versions.env)'
+        type: string
+        default: ''
+      guardian_b_image_tag:
+        description: "Guardian B image tag (empty: Guardian A's tag)"
+        type: string
+        default: ''
 concurrency:
-  group: guardian-lifecycle-e2e-${{ github.ref }}
+  group: guardian-lifecycle-e2e-${{ github.ref }}-${{ inputs.guardian_image_tag }}-${{ inputs.guardian_b_image_tag }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
@@ -193,7 +202,23 @@ jobs:
         # service regardless of its own `profiles:` gating.
         # ghcr image pulls can transiently time out (Client.Timeout on ghcr.io/v2/);
         # retry so a flaky guardian pull doesn't fail this (to-be-required) gate.
+        env:
+          GUARDIAN_IMAGE_TAG_INPUT: ${{ inputs.guardian_image_tag }}
+          GUARDIAN_B_IMAGE_TAG_INPUT: ${{ inputs.guardian_b_image_tag }}
         run: |
+          # A shell variable overrides --env-file in compose interpolation. Inputs reach the
+          # shell only through env, and are checked before they name an image.
+          tag_re='^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$'
+          if [ -n "$GUARDIAN_IMAGE_TAG_INPUT" ]; then
+            [[ "$GUARDIAN_IMAGE_TAG_INPUT" =~ $tag_re ]] || { echo "guardian_image_tag is not a vX.Y.Z[-rc.N] tag" >&2; exit 1; }
+            export GUARDIAN_IMAGE_TAG="$GUARDIAN_IMAGE_TAG_INPUT"
+          fi
+          if [ -n "$GUARDIAN_B_IMAGE_TAG_INPUT" ]; then
+            [[ "$GUARDIAN_B_IMAGE_TAG_INPUT" =~ $tag_re ]] || { echo "guardian_b_image_tag is not a vX.Y.Z[-rc.N] tag" >&2; exit 1; }
+            export GUARDIAN_B_IMAGE_TAG="$GUARDIAN_B_IMAGE_TAG_INPUT"
+          fi
+          docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian --profile guardian-switch config --format json \
+            | jq -r '.services | to_entries[] | select(.key == "guardian" or .key == "guardian-b") | "\(.key): \(.value.image)"'
           for attempt in 1 2 3; do
             docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres && exit 0
             echo "guardian bring-up attempt $attempt failed; retrying in 10s" >&2

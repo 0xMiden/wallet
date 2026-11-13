@@ -67,11 +67,14 @@ export function withGuardianAccountLock<T>(accountId: string, fn: () => Promise<
  * attempt its entry names; a resolved submit, a #1317 mark and a later write
  * name none or another, and never match. A mark of a kept record keeps it;
  * #1317's retry rewrites a marked record plain without it once that abandon
- * is taken or the window closes.
+ * is taken or the window closes. `proposalId` is the id of the proposal that
+ * left the candidate, which every abandon of it is given; a record restored
+ * from a row kept before rows carried it has none.
  */
 export interface GuardianCandidate {
   endpoint: string;
   nonce: number;
+  proposalId?: string;
   proposedAt: number;
   proposedAtMono: number;
   abandon?: true;
@@ -147,6 +150,17 @@ export function isGuardianPendingConflict(err: unknown): boolean {
  */
 export function isGuardianCommitmentMismatch(err: unknown): boolean {
   return typeof err === 'object' && err !== null && 'code' in err && err.code === 'commitment_mismatch';
+}
+
+const STATE_NOT_ON_CHAIN = 'state_not_on_chain';
+
+/**
+ * A Guardian 0.19 refusal of a `/configure` state past nonce 0 that is not the account's current on-chain commitment
+ * (`409 state_not_on_chain`). Retryable, and answered before anything is stored, so a registration it refuses was
+ * never written. Matched anywhere in the cause chain, since the registration loops throw their last error as a cause.
+ */
+export function isGuardianStateNotOnChain(err: unknown): boolean {
+  return someInCauseChain(err, link => 'code' in link && link.code === STATE_NOT_ON_CHAIN);
 }
 
 /**
@@ -248,7 +262,7 @@ export const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
 export const GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS = 60_000;
 
 /**
- * Delay (ms) before the next `registerOnGuardian` retry. On a 429 that carries a
+ * Delay (ms) before the next `/configure` retry. On a 429 that carries a
  * server Retry-After, honour that cooldown (clamped to
  * [base, rate-limited-max]) — the guardian just told us how long to wait, so a
  * blind exponential retry only earns another 429. Otherwise fall back to the

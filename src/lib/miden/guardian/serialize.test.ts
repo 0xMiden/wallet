@@ -12,6 +12,7 @@ import {
   isGuardianPendingConflict,
   isGuardianRateLimited,
   isGuardianRequestTimeout,
+  isGuardianStateNotOnChain,
   recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry,
@@ -131,6 +132,37 @@ describe('isGuardianCommitmentMismatch', () => {
     ['an Error whose message alone names it', new Error('commitment_mismatch'), false]
   ])('%s -> %s', (_label, err, expected) => {
     expect(isGuardianCommitmentMismatch(err)).toBe(expected);
+  });
+});
+
+// A 0.19 Guardian's refusal of a `/configure` state the chain does not hold yet, as the pinned client reports it
+// (`code` and `rawCode` both set); the registration loops throw it as a cause.
+describe('isGuardianStateNotOnChain', () => {
+  const refusal = { status: 409, code: 'state_not_on_chain', rawCode: 'state_not_on_chain' };
+  const wrapped = (cause: unknown) =>
+    new Error('Failed to register account on the new guardian after switching', {
+      cause: new Error('request failed', { cause })
+    });
+
+  it('isGuardianStateNotOnChain matches the code, bare and as a wrapped cause', () => {
+    expect(isGuardianStateNotOnChain(refusal)).toBe(true);
+    expect(isGuardianStateNotOnChain(wrapped(refusal))).toBe(true);
+  });
+
+  it('does not match a code null and rawCode state_not_on_chain link, bare or wrapped', () => {
+    const unknownCode = { status: 409, code: null, rawCode: 'state_not_on_chain' };
+    expect(isGuardianStateNotOnChain(unknownCode)).toBe(false);
+    expect(isGuardianStateNotOnChain(wrapped(unknownCode))).toBe(false);
+  });
+
+  it.each([
+    ['a pending-delta conflict', { status: 409, code: 'conflict_pending_delta', rawCode: 'conflict_pending_delta' }],
+    ['a commitment mismatch', { status: 400, code: 'commitment_mismatch' }],
+    ['an Error whose message alone names it', new Error('state_not_on_chain')],
+    ['the code as a bare string', 'state_not_on_chain'],
+    ['null', null]
+  ])('does not match %s', (_label, err) => {
+    expect(isGuardianStateNotOnChain(err)).toBe(false);
   });
 });
 

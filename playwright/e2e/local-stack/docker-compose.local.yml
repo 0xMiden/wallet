@@ -32,8 +32,9 @@
 # node through the host gateway (see the entrypoints below).
 #
 # Environment variables consumed (from versions.env or the job env):
-#   GUARDIAN_IMAGE_TAG  — exact ghcr.io/openzeppelin/guardian tag (guardian AND
-#                         guardian-b both pin to this same tag — see versions.env)
+#   GUARDIAN_IMAGE_TAG  - exact ghcr.io/openzeppelin/guardian tag (guardian, and
+#                         guardian-b unless GUARDIAN_B_IMAGE_TAG overrides it; see versions.env)
+#   GUARDIAN_B_IMAGE_TAG - optional tag for guardian-b alone (cross-version E2E)
 #
 # There is deliberately no NODE_IMAGE_TAG: the published node images lag the node
 # the SDK is built against, so the node is compiled from source (versions.env,
@@ -170,7 +171,7 @@ services:
       retries: 10
 
   guardian-b:
-    image: ghcr.io/openzeppelin/guardian:${GUARDIAN_IMAGE_TAG}
+    image: ghcr.io/openzeppelin/guardian:${GUARDIAN_B_IMAGE_TAG:-${GUARDIAN_IMAGE_TAG}}
     pull_policy: if_not_present
     profiles: ["guardian-switch"]
     restart: on-failure

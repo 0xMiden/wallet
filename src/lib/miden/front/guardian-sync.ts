@@ -15,12 +15,18 @@ import {
   finalizeDirectGuardianSwitch,
   isGuardianAccountUnknown,
   isGuardianRegistrationPreflightError,
+  isGuardianStateOffChainRefusal,
   isGuardianUnreachableError,
   readDirectSwitchCommitState
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { readPostSwitchLocalGuardian } from 'lib/miden/guardian/post-switch-state';
-import { guardianRetryAfterSec, isGuardianRateLimited, isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
+import {
+  guardianRetryAfterSec,
+  isGuardianRateLimited,
+  isGuardianRequestTimeout,
+  isGuardianStateNotOnChain
+} from 'lib/miden/guardian/serialize';
 import type { TransactionCommitState } from 'lib/miden/sdk/miden-client-interface';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
@@ -1514,7 +1520,10 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       () => {
         registrationAttempted = true;
         pushAttempt.chargeEarly();
-      }
+      },
+      // One chain read, and a preflight refusal when the node does not hold this device's state: on a device whose
+      // copy is ahead of the chain, every lap would otherwise post a state a 0.19 Guardian refuses.
+      'require'
     );
     noteSyncSuccess(fuseKey);
     pushAttempt.settle('charged');
@@ -1557,8 +1566,21 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       // either way, so this does not re-read on every 3s tick.
       pushAttempt.settle('refunded');
       console.warn(
-        `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet — the local account state could ` +
-          `not be read completely enough to authorize the operator (no attempt spent):`,
+        isGuardianStateOffChainRefusal(e)
+          ? `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet: the chain does not hold this ` +
+              `device's state yet, so the registration waits for a later lap (no attempt spent):`
+          : `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet: the local account state could ` +
+              `not be read completely enough to authorize the operator (no attempt spent):`,
+        e
+      );
+      return false;
+    }
+    // The operator stored nothing: its node does not hold the state yet, which a later lap can find it does.
+    if (isGuardianStateNotOnChain(e)) {
+      pushAttempt.settle('refunded');
+      console.warn(
+        `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet: the operator's node does not ` +
+          `hold this state (no attempt spent):`,
         e
       );
       return false;
@@ -1702,6 +1724,8 @@ async function attemptColdReRegisterSelfHeal(
   let attempted = false;
   let rotation: OwnRotation | undefined;
   let verifiedSigners: readonly string[] | undefined;
+  // A 0.19 Guardian whose node lags refused the push and stored nothing, so it spends no attempt.
+  let stateNotOnChain = false;
   // What the heal's holds did, booked once on the heal fuse when the probe settles (#1233). A Guardian
   // request timeout books as an eviction: it is the same silent Guardian, cut off at 60 s before the
   // watchdog (#312). Poison is booked where it is caught instead, and the caller stops the pass.
@@ -1951,10 +1975,14 @@ async function attemptColdReRegisterSelfHeal(
     // an operator that had not been asked for anything. That is the exact mistake the
     // preflight/post split was introduced to fix, surviving one level down. The chain
     // guard's refusal (#1233) also arrives before it, and wrote nothing.
-    await coldService.reRegisterCurrentStateOnGuardian(signers => {
-      attempted = true;
-      verifiedSigners = signers;
-    }, GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS);
+    await coldService.reRegisterCurrentStateOnGuardian(
+      signers => {
+        attempted = true;
+        verifiedSigners = signers;
+      },
+      GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS,
+      true
+    );
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
     // AN EVICTION IS NOT A VERDICT ON THE OPERATOR, and this is the arm where
@@ -2003,9 +2031,17 @@ async function attemptColdReRegisterSelfHeal(
       );
       return 'refused-transiently';
     }
-    // A failed push (the guardian unreachable or rejecting cold) or a failed read: a later tick may
-    // retry per the bounded schedule (see `selfHealLedger`), and only a push spends an attempt.
-    console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
+    if (isGuardianStateNotOnChain(e)) {
+      stateNotOnChain = true;
+      console.warn(
+        `[Guardian Sync] not re-registering ${account.publicKey} yet: its Guardian's node does not hold this state`,
+        e
+      );
+    } else {
+      // A failed push (the guardian unreachable or rejecting cold) or a failed read: a later tick may
+      // retry per the bounded schedule (see `selfHealLedger`), and only a push spends an attempt.
+      console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
+    }
   } finally {
     if (!poisoned) {
       if (evicted) {
@@ -2021,9 +2057,10 @@ async function attemptColdReRegisterSelfHeal(
   // set still stands, as completion swaps when its re-register fails.
   const finishing = rotation;
   if (finishing && verifiedSigners?.some(signer => sameCommitment(signer, finishing.commitment))) {
-    return await finishOwnRotation(account, finishing);
+    const finished = await finishOwnRotation(account, finishing);
+    return stateNotOnChain && finished === 'attempted' ? 'refused-transiently' : finished;
   }
-  return attempted ? 'attempted' : 'refused-transiently';
+  return attempted && !stateNotOnChain ? 'attempted' : 'refused-transiently';
 }
 
 /**
