@@ -312,6 +312,10 @@ test.describe('API36 managed presentation gestures', () => {
         );
         await writeFile(testInfo.outputPath(`${name}-window-all.txt`), await adb('shell', 'dumpsys', 'window', '-a'));
         await writeFile(testInfo.outputPath(`${name}-package.txt`), await adb('shell', 'dumpsys', 'package', PACKAGE));
+        await writeFile(
+          testInfo.outputPath(`${name}-back-dispatcher-logcat.txt`),
+          await adb('logcat', '-d', '-v', 'epoch', 'WindowOnBackDispatcher:V', '*:S')
+        );
         nativeEvents.length = 0;
         rawNativeEvents.length = 0;
         // WAIT_FOR_FINISH is synchronous per sample; preserve the path with fewer redundant MOVE events.
