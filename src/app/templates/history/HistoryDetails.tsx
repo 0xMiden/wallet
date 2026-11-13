@@ -610,6 +610,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // strings. Shared with `SwapDetail`, which renders the swap branch of this same
   // page - see `useTransactionActions`.
   const actions = useTransactionActions(transactionId, entry, transaction, guardianHoldUntil);
+  const epochReturn = useEpochReturnState(
+    entry,
+    transaction?.accountId ?? account?.publicKey ?? '',
+    transaction?.restoredFromBackup === true
+  );
   const { canCancel, canRetry, earnRetryKind, acknowledgement } = actions;
   const heldByGuardian = guardianHoldUntil !== undefined;
 
@@ -658,11 +663,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     entry?.txType === 'bridged-send' && (!entry.isCancelled || entry.isUnconfirmed === true) && !transaction?.recovered;
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
-  const epochReturn = useEpochReturnState(
-    entry,
-    transaction?.accountId ?? account?.publicKey ?? '',
-    transaction?.restoredFromBackup === true
-  );
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   // The EVM links of an Earn row go to the chain of its market (Base, Arbitrum, Ethereum, or a testnet).
