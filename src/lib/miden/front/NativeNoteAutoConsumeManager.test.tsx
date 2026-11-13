@@ -27,6 +27,7 @@ jest.mock('lib/miden/assets', () => ({
     mockLegacyFeeIdentity === undefined ? mockGetFaucetIdSetting() : Promise.resolve(mockLegacyFeeIdentity)
 }));
 let mockBaseFee: number | null = 0;
+let mockFloorFee: number | null | undefined;
 // Runs as the tick reads the fee; a test lands the lock here, after the tick decided to claim.
 let mockOnFeeRead: () => void = () => undefined;
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -35,7 +36,11 @@ jest.mock('lib/miden-chain/native-asset', () => ({
     mockOnFeeRead();
     return Promise.resolve(mockBaseFee);
   },
-  refreshVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+  refreshVerificationBaseFee: () => Promise.resolve(mockBaseFee),
+  getClaimFloorBaseFee: () => {
+    mockOnFeeRead();
+    return Promise.resolve(mockFloorFee === undefined ? mockBaseFee : mockFloorFee);
+  }
 }));
 
 // The wallet store's lock state, as the claim guard reads it.
@@ -305,6 +310,23 @@ describe('NativeNoteAutoConsumeManager', () => {
     expect(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id)).toEqual(['a', 'b']);
   });
 
+  it('claims nothing while the fee is unknown', async () => {
+    mockBaseFee = 0;
+    mockFloorFee = null;
+    const feeRead = jest.fn();
+    mockOnFeeRead = feeRead;
+    mockClaimable = [note('a'), note('b')];
+
+    render(<NativeNoteAutoConsumeManager />);
+    await waitFor(() => expect(feeRead).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+  });
+
   it('claims exactly the eligible native notes, in one transaction, skipping the rest', async () => {
     mockClaimable = [
       note('n1'), // native ✓
@@ -410,4 +432,5 @@ describe('NativeNoteAutoConsumeManager', () => {
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
   mockBaseFee = 0;
+  mockFloorFee = undefined;
 });

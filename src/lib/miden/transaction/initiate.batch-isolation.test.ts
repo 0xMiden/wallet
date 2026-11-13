@@ -21,7 +21,7 @@ import Dexie from 'dexie';
 
 import * as Repo from 'lib/miden/repo';
 
-import { ConsumeTransaction, ITransaction, ITransactionStatus } from '../db/types';
+import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import * as SdkHelpers from '../sdk/helpers';
 import * as WasmClient from '../sdk/miden-client';
 import { ConsumableNote, NoteTypeEnum } from '../types';
@@ -74,6 +74,7 @@ jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const {
+  ClaimCohortRefusedError,
   ClaimInsertRefusedError,
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
@@ -145,6 +146,108 @@ describe('queueConsumeNotes — swap settlement link', () => {
     }
 
     expect(inserted).toEqual([{ swapOrderTxId: 'swap-row', swapSettleKind: 'settle' }]);
+  });
+});
+
+describe('queueConsumeNotes — settlement cohort', () => {
+  const notes = () => [note('backed-off'), note('fresh')];
+  const settlementCall = (cohort?: readonly string[]) =>
+    initiateConsumeNotesTransaction(
+      ACCOUNT,
+      notes(),
+      false,
+      undefined,
+      undefined,
+      undefined,
+      'swap_settlement',
+      undefined,
+      { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+      cohort
+    );
+
+  it('writes no row for a settlement cohort while one member is backing off', async () => {
+    // The coverage sum still counts the backed-off payback, so the fresh note must not be queued alone.
+    const failed = new ConsumeTransaction(ACCOUNT, [note('backed-off')], false);
+    failed.status = ITransactionStatus.Failed;
+    failed.completedAt = Math.floor(Date.now() / 1000);
+    await Repo.transactions.add(failed);
+
+    await expect(settlementCall(['backed-off', 'fresh'])).rejects.toBeInstanceOf(ClaimCohortRefusedError);
+    expect((await consumeRows()).map(row => row.id)).toEqual([failed.id]);
+
+    await settlementCall(undefined);
+    const queued = (await consumeRows()).filter(row => row.status === ITransactionStatus.Queued);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toEqual(['fresh']);
+  });
+
+  it('does not refuse a cohort note a live claim already covers', async () => {
+    const live = new ConsumeTransaction(ACCOUNT, [note('held')], false);
+    await Repo.transactions.add(live);
+
+    await initiateConsumeNotesTransaction(
+      ACCOUNT,
+      [note('fresh')],
+      false,
+      undefined,
+      undefined,
+      undefined,
+      'swap_settlement',
+      undefined,
+      { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+      ['held', 'fresh']
+    );
+
+    const queued = (await consumeRows()).filter(row => row.id !== live.id);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toEqual(['fresh']);
+  });
+
+  it('does not refuse a cohort note a live claim covers while an earlier claim of it backs off', async () => {
+    const failed = new ConsumeTransaction(ACCOUNT, [note('held')], false);
+    failed.status = ITransactionStatus.Failed;
+    failed.completedAt = Math.floor(Date.now() / 1000);
+    await Repo.transactions.add(failed);
+    const live = new ConsumeTransaction(ACCOUNT, [note('held')], false);
+    await Repo.transactions.add(live);
+
+    await initiateConsumeNotesTransaction(
+      ACCOUNT,
+      [note('fresh')],
+      false,
+      undefined,
+      undefined,
+      undefined,
+      'swap_settlement',
+      undefined,
+      { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+      ['held', 'fresh']
+    );
+
+    const queued = (await consumeRows()).filter(row => row.id !== live.id && row.id !== failed.id);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toEqual(['fresh']);
+  });
+
+  it('writes no row for a settlement cohort while a dApp transaction holds one member', async () => {
+    const dapp = new Transaction(ACCOUNT, new Uint8Array([1]));
+    await Repo.transactions.put({ ...dapp, heldNoteIds: ['held-by-dapp'], status: ITransactionStatus.Queued });
+
+    await expect(
+      initiateConsumeNotesTransaction(
+        ACCOUNT,
+        [note('fresh')],
+        false,
+        undefined,
+        undefined,
+        undefined,
+        'swap_settlement',
+        undefined,
+        { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+        ['held-by-dapp', 'fresh']
+      )
+    ).rejects.toBeInstanceOf(ClaimCohortRefusedError);
+    expect(await consumeRows()).toEqual([]);
   });
 });
 
@@ -364,8 +467,8 @@ describe('initiateConsumeNotesTransaction — poison-note isolation', () => {
   });
 
   it('isolates every candidate when no fee is supplied', async () => {
-    // A manual retry passes no fee: the user asked, so nothing is second-guessed. Same
-    // fail-open contract `isWorthClaiming` has on an unknown fee everywhere else.
+    // A manual retry passes no fee: the user asked, so nothing is second-guessed. The isolation
+    // compares against 0 then, not the unknown fee the claim floor refuses.
     await failedBatch(['poor', 'rich']);
 
     await initiateConsumeNotesTransaction(ACCOUNT, [note('poor', '1'), note('rich', '5000000')], false, false, true);
