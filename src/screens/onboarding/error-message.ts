@@ -1,5 +1,9 @@
 import { MAINNET_ACCESS_CODE_REJECTED } from 'lib/miden/back/defaults';
-import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
+import {
+  GUARDIAN_ACCOUNT_NOT_FOUND,
+  GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
+  GUARDIAN_RECOVERY_UNVERIFIED
+} from 'lib/miden/sdk/guardian-recovery-errors';
 
 /**
  * The text of a registration failure, for a screen that shows it verbatim.
@@ -34,6 +38,20 @@ export function errorToMessage(error: unknown): string | undefined {
  */
 export function isGuardianNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === GUARDIAN_ACCOUNT_NOT_FOUND;
+}
+
+/**
+ * Whether a seed recovery refused the accounts the Guardian served. The refusal travels as a
+ * string `code` on the flattened `PublicError`, and its message is already the text to show.
+ */
+export function isGuardianRecoveryRefusal(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof error.code === 'string' &&
+    (error.code === GUARDIAN_RECOVERY_UNVERIFIED || error.code === GUARDIAN_RECOVERY_NETWORK_UNREACHABLE)
+  );
 }
 
 /** Whether a wallet setup failed because the mainnet node refused its access code, by the same `code` route. */

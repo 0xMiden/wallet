@@ -4393,6 +4393,18 @@
     "message": "Ми не змогли знайти резервну копію на цьому Guardian. Перевірте URL-адресу або виберіть інший Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Ваші рахунки не можна було відновити: guardian повернув дані рахунку, які не збігаються з вашою фразою відновлення. Нічого не було відновлено.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Ваші рахунки не вдалося відновити: копія рахунку, що зберігається у guardian, ще не збігається з даними мережі Miden. Нічого не було відновлено. Спробуйте ще раз через кілька хвилин.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Не вдалося підключитися до мережі Miden для перевірки ваших рахунків. Ваша фраза відновлення правильна. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "Цей «guardian» працює в іншій мережі Miden, тому він не може відновити обліковий запис тут.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
