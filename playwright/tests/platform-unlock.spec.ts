@@ -57,10 +57,10 @@ async function simulateEligibleOs(context: BrowserContext) {
   });
 }
 
-async function request(page: Page, payload: { type: string; nonce?: string }): Promise<void> {
+async function request(page: Page, payload: { type: string; nonce?: string; command?: { action: 'state' } }): Promise<unknown> {
   await page.evaluate(
     data =>
-      new Promise<void>((resolve, reject) => {
+      new Promise<unknown>((resolve, reject) => {
         const port = chrome.runtime.connect({ name: 'INTERCOM' });
         const timeout = setTimeout(() => {
           port.disconnect();
@@ -73,7 +73,7 @@ async function request(page: Page, payload: { type: string; nonce?: string }): P
           clearTimeout(timeout);
           port.disconnect();
           if (type === 'INTERCOM_ERROR') reject(new Error('Extension request failed'));
-          else resolve();
+          else resolve(Reflect.get(message, 'data'));
         });
         port.postMessage({ type: 'INTERCOM_REQUEST', reqId: 1, data });
       }),
@@ -129,6 +129,24 @@ async function setup(context: BrowserContext, id: string) {
   await page.setViewportSize({ width: 360, height: 800 });
   // Drive the real side-panel entry document in a test tab, not native Chrome sidebar chrome.
   await page.goto(`chrome-extension://${id}/sidepanel.html#/settings/passkey-unlock`);
+  const evidence = async () => {
+    const data: unknown = Reflect.get(navigator, 'userAgentData');
+    const getValues: unknown = data && typeof data === 'object' ? Reflect.get(data, 'getHighEntropyValues') : null;
+    const values: unknown = typeof getValues === 'function' ? await getValues.call(data, ['platformVersion']) : null;
+    const stored = await chrome.storage.local.get('vault_key_password');
+    return { brands: data && typeof data === 'object' ? Reflect.get(data, 'brands') : null,
+      values, extensionRuntime: Boolean(chrome.runtime.id), scheme: location.protocol,
+      protectionApi: typeof Reflect.get(chrome.storage.local, 'setAccessLevel'),
+      passwordPresent: typeof stored.vault_key_password === 'string' && stored.vault_key_password.length > 0 };
+  };
+  const worker = context.serviceWorkers()[0];
+  const response = await request(page, { type: 'PLATFORM_UNLOCK_REQUEST', command: { action: 'state' } });
+  const result: unknown = response && typeof response === 'object' ? Reflect.get(response, 'result') : null;
+  const state: unknown = result && typeof result === 'object' ? Reflect.get(result, 'state') : null;
+  await test.info().attach('platform-boundaries', { contentType: 'application/json', body: JSON.stringify({
+    page: await page.evaluate(evidence), worker: worker ? await worker.evaluate(evidence) : null,
+    state: state && typeof state === 'object' ? { available: Reflect.get(state, 'available'), hasPassword: Reflect.get(state, 'hasPassword') } : null
+  }) });
   await expect(page.getByTestId('passkey-unlock-settings')).toBeVisible({ timeout: 30_000 });
   return page;
 }
