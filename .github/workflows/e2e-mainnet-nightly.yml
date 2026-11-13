@@ -26,6 +26,10 @@ on:
         description: Explicit first recovery-return grant for verified proceeds only; requires swaps_only and runs no fresh loops.
         type: boolean
         default: false
+      replace_unsubmitted_swap_return:
+        description: Explicit one-time replacement of an expired unsubmitted return; preserves its old authority and requires recovery-only.
+        type: boolean
+        default: false
       loss_budget_usd_micros:
         description: Remaining allowance for fresh loops after prior recovery costs, in micro-USD (maximum 2000000).
         type: string
@@ -52,6 +56,7 @@ jobs:
     env:
       E2E_NETWORK: mainnet
       MAINNET_SWAP_RECOVERY_RETURN_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_swap_recovery_return && 'true' || 'false' }}
+      MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.replace_unsubmitted_swap_return && 'true' || 'false' }}
       MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: ${{ github.event_name == 'schedule' && '2000000' || inputs.loss_budget_usd_micros }}
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
@@ -73,7 +78,10 @@ jobs:
           if [ "$SWAPS_ONLY" = true ] && [ "$LOOPS_ONLY" = true ]; then
             echo 'Choose swaps_only or loops_only, not both.' >&2; exit 1
           fi
-          if [ "$MAINNET_SWAP_RECOVERY_RETURN_APPROVED" = true ] && { [ "$SWAPS_ONLY" != true ] || [ "$LOOPS_ONLY" = true ]; }; then
+          if [ "$MAINNET_SWAP_RECOVERY_RETURN_APPROVED" = true ] && [ "$MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED" = true ]; then
+            echo 'Choose a first recovery grant or an explicit replacement, never both.' >&2; exit 1
+          fi
+          if { [ "$MAINNET_SWAP_RECOVERY_RETURN_APPROVED" = true ] || [ "$MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED" = true ]; } && { [ "$SWAPS_ONLY" != true ] || [ "$LOOPS_ONLY" = true ]; }; then
             echo 'Explicit first recovery return requires swaps_only and forbids fresh combined loops.' >&2; exit 1
           fi
       - uses: actions/checkout@v4
@@ -202,7 +210,9 @@ jobs:
       - name: Build the extension for mainnet
         run: yarn test:e2e:blockchain:build
       - name: Prepare explicitly approved first swap recovery return
-        if: github.event_name == 'workflow_dispatch' && inputs.authorize_swap_recovery_return
+        if: github.event_name == 'workflow_dispatch' && (inputs.authorize_swap_recovery_return || inputs.replace_unsubmitted_swap_return)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           umask 077
           MAINNET_SWAP_MODE=authorize-recovery-return E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-operator-prepare-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-operator-prepare.log" 2>&1 || { echo 'First recovery-return authorization blocked; original authority retained.' >&2; exit 1; }

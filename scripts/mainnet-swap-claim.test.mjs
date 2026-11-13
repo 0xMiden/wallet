@@ -192,7 +192,7 @@ function replacementFixture() {
     minimumReceive: '1009489', expiresAt: Date.parse(grant) + 300000
   };
   value.state.reverseOrderId = '9';
-  value.absence = { noteId: value.state.reverseRequestAuthority.noteId, atBlock: 200, previousRunId: '456', noteCount: 0 };
+  value.absence = { noteId: value.state.reverseRequestAuthority.noteId, atBlock: 200, atTime: Date.parse(grant) + 599000, previousRunId: '456', noteCount: 0 };
   value.at = '2026-11-13T16:10:00.000Z';
   return value;
 }
@@ -218,6 +218,8 @@ for (const [name, change] of [
   ['return already on-chain', value => { value.absence.noteCount = 1; }],
   ['unproved absence height', value => { value.absence.atBlock = 0; }],
   ['foreign prior run', value => { value.absence.previousRunId = '999'; }],
+  ['stale chain snapshot', value => { value.absence.atTime = Date.parse(grant); }],
+  ['outdated chain snapshot', value => { value.absence.atTime = Date.parse(grant) + 301000; }],
   ['old return already claimed', value => { value.state.reverseClaimAuthority = { nonce: 'used' }; }],
   ['old return already received', value => { value.state.reverseReceived = '1009489'; }],
   ['native balance changed', value => { value.balances.native -= 1n; value.balances.offer = value.balances.native; }],
@@ -227,6 +229,28 @@ for (const [name, change] of [
   const value = replacementFixture(); change(value);
   assert.throws(() => claims.authorizeMainnetSwapReturnReplacement(value.state, value.evidence, value.balances, '789', value.at, value.absence));
 });
+const failedReturnRun = () => ({ id: 456, workflow_id: 77, status: 'completed', conclusion: 'failure' });
+const failedReturnJobs = () => ({ jobs: [{ steps: [
+  { name: 'Upload recovered swap SDK return authority', status: 'completed', conclusion: 'failure' },
+  { name: 'Upload recovered swap SDK return claim authority', status: 'completed', conclusion: 'skipped' },
+  { name: 'Wait for recovered swap return', status: 'completed', conclusion: 'skipped' }
+] }] });
+test('accepts only the failed original create upload with no attempted claim or later submission stage', () => {
+  assert.doesNotThrow(() => claims.assertFailedMainnetSwapReturnUpload(failedReturnRun(), failedReturnJobs(), '456', 77));
+});
+for (const name of ['live run', 'foreign workflow', 'wrong run', 'create ACK succeeded', 'claim attempted', 'wait attempted', 'duplicate stage', 'missing jobs'])
+  test(`refuses ambiguous failed return provenance: ${name}`, () => {
+    const run = failedReturnRun(); const jobs = failedReturnJobs();
+    if (name === 'live run') run.status = 'in_progress';
+    if (name === 'foreign workflow') run.workflow_id = 78;
+    if (name === 'wrong run') run.id = 999;
+    if (name === 'create ACK succeeded') jobs.jobs[0].steps[0].conclusion = 'success';
+    if (name === 'claim attempted') jobs.jobs[0].steps[1].conclusion = 'failure';
+    if (name === 'wait attempted') jobs.jobs[0].steps[2].conclusion = 'failure';
+    if (name === 'duplicate stage') jobs.jobs[0].steps.push({ ...jobs.jobs[0].steps[0] });
+    if (name === 'missing jobs') jobs.jobs = [];
+    assert.throws(() => claims.assertFailedMainnetSwapReturnUpload(run, jobs, '456', 77));
+  });
 test('freezes only a first recovery return, retaining original expired bytes/nonce/prices and conservative aggregate costs', () => {
   const { state, evidence, balances } = recoveryFixture();
   const original = structuredClone(state);

@@ -1,4 +1,4 @@
-name: Replacement core GREEN and explicit permission RED
+name: Replacement workflow GREEN and source freshness RED
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -20,14 +20,14 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Replacement authority functional GREEN
+      - name: Failed-source and chain-freshness functional RED
         run: |
           yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
           node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs
       - name: Immutable replacement codec GREEN
         if: always()
         run: yarn jest scripts/mainnet-swap-checkpoint.test.ts --maxWorkers=2 --watch=false
-      - name: Explicit replacement permission RED
+      - name: Explicit replacement permission GREEN
         if: always()
         run: yarn jest scripts/mainnet-swap-workflow.test.ts --maxWorkers=2 --watch=false
       - name: Canonical types
