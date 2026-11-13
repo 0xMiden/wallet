@@ -327,13 +327,13 @@ const guardianRequestTimeout = () =>
     name: 'GuardianRequestTimeoutError'
   });
 
-// A 0.19 Guardian's refusal of a `/configure` state the chain does not hold yet, as a 0.18.1 client reports a code it
-// does not know (`code` null, the wire string on `rawCode`), wrapped as the registration retry loops throw it.
+// A 0.19 Guardian's refusal of a `/configure` state the chain does not hold yet, as the pinned client reports it,
+// wrapped as the registration retry loops throw it.
 const stateNotOnChainRefusal = (message: string) =>
   new Error(message, {
     cause: Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), {
       status: 409,
-      code: null,
+      code: 'state_not_on_chain',
       rawCode: 'state_not_on_chain'
     })
   });

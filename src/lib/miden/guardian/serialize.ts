@@ -157,15 +157,10 @@ const STATE_NOT_ON_CHAIN = 'state_not_on_chain';
 /**
  * A Guardian 0.19 refusal of a `/configure` state past nonce 0 that is not the account's current on-chain commitment
  * (`409 state_not_on_chain`). Retryable, and answered before anything is stored, so a registration it refuses was
- * never written. Matched anywhere in the cause chain, since the registration loops throw their last error as a cause,
- * and on `rawCode` too, which carries the wire code to a client whose vocabulary predates it.
+ * never written. Matched anywhere in the cause chain, since the registration loops throw their last error as a cause.
  */
 export function isGuardianStateNotOnChain(err: unknown): boolean {
-  return someInCauseChain(
-    err,
-    link =>
-      ('code' in link && link.code === STATE_NOT_ON_CHAIN) || ('rawCode' in link && link.rawCode === STATE_NOT_ON_CHAIN)
-  );
+  return someInCauseChain(err, link => 'code' in link && link.code === STATE_NOT_ON_CHAIN);
 }
 
 /**
