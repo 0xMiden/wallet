@@ -14,4 +14,4 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/lib/telemetry/redact.test.ts --maxWorkers=2
+      - run: yarn jest src/lib/platform-auth/crypto.test.ts src/lib/telemetry/redact.test.ts --maxWorkers=2
