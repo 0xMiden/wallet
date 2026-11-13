@@ -698,11 +698,10 @@ describe('actual Guardian request authorization boundary', () => {
       mockGuardianAuthorization.authorizeTestGuardianRequest.mockRejectedValue(
         new Error('Actual request not uploaded')
       );
-      await expect(
-        generateTransaction(buildTx('native-signed-upload', row) as never, signCallback, false, provider as never)
-      ).rejects.toThrow('Actual request not uploaded');
+      await generateTransaction(buildTx('native-signed-upload', row) as never, signCallback, false, provider as never);
       expect(inline.__executeRequest).not.toHaveBeenCalled();
       expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+      expect(txStore.find(item => item.id === 'native-signed-upload')?.status).toBe(ITransactionStatus.Failed);
     }
   );
   it('checks the spent signed authority after asynchronous executing-stage bookkeeping', async () => {
@@ -713,10 +712,9 @@ describe('actual Guardian request authorization boundary', () => {
       expect(txStore.find(item => item.id === 'native-signed-expiry')?.stage).toBe('executing');
       throw new Error('Signed authority expired during stage bookkeeping');
     });
-    await expect(
-      generateTransaction(buildTx('native-signed-expiry', row) as never, signCallback, false, provider as never)
-    ).rejects.toThrow('Signed authority expired during stage bookkeeping');
+    await generateTransaction(buildTx('native-signed-expiry', row) as never, signCallback, false, provider as never);
     expect(inline.__executeRequest).not.toHaveBeenCalled();
+    expect(txStore.find(item => item.id === 'native-signed-expiry')?.status).toBe(ITransactionStatus.Failed);
   });
 });
 

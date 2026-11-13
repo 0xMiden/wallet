@@ -3996,6 +3996,34 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect(env.argsB64[5]).toBe('s:false');
   });
 
+  it('keeps the explicit native authorization channel on the actual Guardian request wire', async () => {
+    const { dispatchGuardianPipeline } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from([9]).toString('base64'),
+      durationMs: 1
+    }));
+    const pending = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      'send'
+    );
+    await flush();
+    fireReady();
+    await pending;
+    const envelope = fakeChrome.runtime.sendMessage.mock.calls[0]?.[0];
+    expect(envelope.argsB64[6]).toBe('s:"send"');
+    expect(envelope.argsB64[1]).toBe('b:' + Buffer.from(trBytes()).toString('base64'));
+  });
+
   it('flag ON → an ApplyTransactionAfterSubmitFailed reply rejects with the errorCode the GUARDIAN classifier reads (Completed, not Failed → requeue)', async () => {
     const { dispatchGuardianPipeline } = await loadProxy(true);
     const { extractLanded, extractSdkErrorCode } = await import('../sdk/sdk-error-code');
