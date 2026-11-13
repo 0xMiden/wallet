@@ -265,6 +265,13 @@ export async function prepareMainnetSwapReview(
   await checkLiveSwapEta(service, offered, requested, actualOffer, actualMinimum);
   await page.getByTestId('swap-review-submit').click();
   await page.getByTestId('swap-submit').waitFor({ state: 'visible' });
+  const autoConsume = page.getByTestId('swap-auto-consume');
+  await autoConsume.waitFor({ state: 'visible' });
+  if (await autoConsume.evaluate(node => node.classList.contains('justify-end'))) await autoConsume.click();
+  await page.waitForFunction(() => {
+    const toggle = document.querySelector('[data-testid="swap-auto-consume"]');
+    return toggle?.classList.contains('justify-start') && !toggle.classList.contains('justify-end');
+  });
   return {
     minimumReceive: actualMinimum.toString(),
     submit: submitSwapOnce(async () => {
