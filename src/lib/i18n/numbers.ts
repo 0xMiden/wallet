@@ -8,8 +8,6 @@ import { getCurrentLocale, getNumberSymbols } from './core';
 
 export {
   getAdaptiveDecimalPlaces,
-  toAdaptiveFixed,
-  adaptiveFormatterFor,
   MAX_DISPLAY_DECIMAL_PLACES
 } from './adaptive-precision';
 

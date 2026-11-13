@@ -5,8 +5,6 @@ import { amountFormatterFor } from 'lib/i18n/amount-display';
 
 export {
   getAdaptiveDecimalPlaces,
-  toAdaptiveFixed,
-  adaptiveFormatterFor,
   MAX_DISPLAY_DECIMAL_PLACES
 } from 'lib/i18n/adaptive-precision';
 

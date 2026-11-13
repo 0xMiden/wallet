@@ -350,7 +350,6 @@ jest.mock('lib/epoch', () => ({
 
 jest.mock('lib/i18n/numbers', () => ({
   formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
-  toAdaptiveFixed: (v: number) => v.toFixed(2),
   stringToBigInt: jest.fn(),
   // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
   // return, so the guard has to call the real helper.

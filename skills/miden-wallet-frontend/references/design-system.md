@@ -377,7 +377,7 @@ callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
   counts behind the curtain and is already settled when it is shown.
 - **The formatter is the caller's** (`lib/i18n/numbers` and friends) and is called once per frame,
   so it must not change shape with magnitude or the row jitters. Where the rule is adaptive, bind it
-  to the destination: `adaptiveFormatterFor` (`lib/i18n`), `balanceFormatterFor` (send flow). A
+  to the destination: `amountFormatterFor` (`lib/i18n/amount-display`), which `TokenAmount`'s `animated` uses. A
   figure that sits inside a localized sentence calls `t()` from inside the formatter, so the line
   stays one string and one text node.
 - **Reduced motion**, and any realm that cannot report the preference (no `matchMedia` — which is

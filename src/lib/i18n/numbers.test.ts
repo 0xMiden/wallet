@@ -14,8 +14,6 @@ import {
   toShortened,
   toFixedRoundedDown,
   getAdaptiveDecimalPlaces,
-  toAdaptiveFixed,
-  adaptiveFormatterFor,
   formatUsd,
   usdFormatterFor,
   MAX_DISPLAY_DECIMAL_PLACES
@@ -107,30 +105,18 @@ describe('toLocalFormat', () => {
 describe('adaptive amount formatting', () => {
   it('keeps two decimal places for ordinary values and zero', () => {
     expect(getAdaptiveDecimalPlaces(12.345)).toBe(2);
-    expect(toAdaptiveFixed(12.345)).toBe('12.35');
-    expect(toAdaptiveFixed(0)).toBe('0.00');
   });
 
   it('shows the first two significant fractional places for small values', () => {
     expect(getAdaptiveDecimalPlaces('0.001234')).toBe(4);
-    expect(toAdaptiveFixed('0.001234')).toBe('0.0012');
-    expect(toAdaptiveFixed('-0.00005678')).toBe('-0.000057');
   });
 
   it('honours a larger normal precision before adapting', () => {
     // The first non-zero digit already fits inside the requested 4dp, so the
     // larger normal precision is kept as-is.
     expect(getAdaptiveDecimalPlaces('0.0001234', 4)).toBe(4);
-    expect(toAdaptiveFixed('1.23456', 4)).toBe('1.2346');
     // Only once the value is small enough to vanish at 4dp does it adapt.
     expect(getAdaptiveDecimalPlaces('0.00001234', 4)).toBe(6);
-    expect(toAdaptiveFixed('0.00001234', 4)).toBe('0.000012');
-  });
-
-  it('preserves non-finite BigNumber output', () => {
-    expect(toAdaptiveFixed(NaN)).toBe('NaN');
-    expect(toAdaptiveFixed(Infinity)).toBe('Infinity');
-    expect(toAdaptiveFixed(-Infinity)).toBe('-Infinity');
   });
 
   it('uses adaptive precision for small USD values while preserving grouping', () => {
@@ -145,13 +131,11 @@ describe('adaptive amount formatting', () => {
     expect(getAdaptiveDecimalPlaces(1e-30)).toBe(MAX_DISPLAY_DECIMAL_PLACES);
     expect(() => formatUsd(1e-30)).not.toThrow();
     expect(formatUsd(1e-30)).toBe('<$0.00000000000000000001');
-    expect(toAdaptiveFixed('0.000000000000000000000001')).toBe('0.00000000000000000000');
   });
 
   it('still expands fully for the deepest token precision we support', () => {
     // 18 decimals is the deepest real token, so the clamp never truncates one.
     expect(getAdaptiveDecimalPlaces('0.000000000000000001')).toBe(19);
-    expect(toAdaptiveFixed('0.000000000000000001')).toBe('0.0000000000000000010');
   });
 });
 
@@ -166,26 +150,6 @@ describe('isDisplayable', () => {
     ['NaN', false]
   ])('reads %s as displayable: %s', (value, displayable) => {
     expect(isDisplayable(new BigNumber(value))).toBe(displayable);
-  });
-});
-
-describe('adaptiveFormatterFor', () => {
-  it('formats the target exactly as toAdaptiveFixed does', () => {
-    expect(adaptiveFormatterFor(12.345)(12.345)).toBe(toAdaptiveFixed(12.345));
-    expect(adaptiveFormatterFor('0.001234')('0.001234')).toBe(toAdaptiveFixed('0.001234'));
-  });
-
-  it('holds the target precision for every value on the way to it', () => {
-    // Straight through toAdaptiveFixed, a frame near zero expands to four decimals on the way to a
-    // two-decimal destination, and the text changes width mid-count.
-    expect(toAdaptiveFixed(0.005)).toBe('0.0050');
-    expect(adaptiveFormatterFor(1)(0.005)).toBe('0.01');
-    expect(adaptiveFormatterFor(1)(0)).toBe('0.00');
-  });
-
-  it('takes the minimum places and rounding mode through to every value', () => {
-    expect(adaptiveFormatterFor(1, 4)(0.5)).toBe('0.5000');
-    expect(adaptiveFormatterFor(1, 2, BigNumber.ROUND_DOWN)(0.999)).toBe('0.99');
   });
 });
 

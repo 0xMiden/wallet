@@ -3,7 +3,6 @@ import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { UsdAmount } from 'components/ui/TokenAmount';
-import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import {
   createSpendingLimitAuthorization,
@@ -13,18 +12,6 @@ import { SpendingLimitAssessment, SpendingLimitAuthorization } from 'lib/miden/s
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 import { StrictActionAuthentication } from './StrictActionAuthentication';
-
-/** Round micro-dollars up to cents before display. */
-export function formatUsdMicroAmount(value: bigint): string {
-  if (value < 0n) throw new RangeError('Invalid USD amount');
-  return formatAmountDisplay(value, {
-    decimals: 6,
-    formatting: 'fixed',
-    rounding: 'up',
-    prefix: '$',
-    trimTrailingZeros: false
-  });
-}
 
 export interface SpendingLimitChallengeProps {
   /** `false` where the host's own back handler closes the challenge (the swap flow's). */

@@ -298,13 +298,6 @@
               "react-modal"
             ],
             "message": "Modals are sheets now: use the Drawer in lib/ui/drawer, or useConfirm / useAlert from lib/ui/dialog."
-          },
-          {
-            "group": [
-              "components/AmountLabel",
-              "**/components/AmountLabel"
-            ],
-            "message": "Use components/ui/TokenAmount. AmountLabel is a compatibility adapter."
           }
         ]
       }
