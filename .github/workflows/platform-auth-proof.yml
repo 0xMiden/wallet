@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  browser-fixture-format:
+  settings-route-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -14,11 +14,4 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn prettier --write playwright/tests/platform-startup.spec.ts
-      - run: yarn prettier --check playwright/tests/platform-startup.spec.ts
-      - uses: actions/upload-artifact@v4
-        with:
-          name: platform-startup-formatted-source
-          path: playwright/tests/platform-startup.spec.ts
-          if-no-files-found: error
-          retention-days: 3
+      - run: yarn jest src/app/pages/Settings.test.tsx --maxWorkers=2

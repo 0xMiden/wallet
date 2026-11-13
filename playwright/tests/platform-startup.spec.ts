@@ -6,7 +6,10 @@ import { expect, test } from '../fixtures/extension';
 
 async function controlPage(context: BrowserContext, extensionId: string, extensionPath: string) {
   // No app port/timer can wake the stopped worker before its protected intent is seeded.
-  await writeFile(join(extensionPath, 'platform-startup-fixture.html'), '<!doctype html><title>Startup fixture</title>');
+  await writeFile(
+    join(extensionPath, 'platform-startup-fixture.html'),
+    '<!doctype html><title>Startup fixture</title>'
+  );
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/platform-startup-fixture.html`);
   for (const other of context.pages()) {
