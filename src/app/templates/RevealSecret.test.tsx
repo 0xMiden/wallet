@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { SubPageHeaderConfig, SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
@@ -192,15 +193,17 @@ describe('RevealSecret', () => {
     }
   });
 
-  const renderReveal = async (reveal: Reveal) => {
+  // `header` stands in for the Settings route that hands the page its title and focus policy.
+  const renderReveal = async (reveal: Reveal, header?: SubPageHeaderConfig) => {
     testContainer = document.createElement('div');
     // Attached: a detached subtree cannot hold focus in jsdom, so `.focus()` is a
     // silent no-op there and `document.activeElement` stays on <body>. Every
     // focus assertion in this suite would pass or fail for that reason alone.
     document.body.appendChild(testContainer);
     testRoot = createRoot(testContainer);
+    const page = <RevealSecret reveal={reveal} />;
     await act(async () => {
-      testRoot!.render(<RevealSecret reveal={reveal} />);
+      testRoot!.render(header ? <SubPageHeaderProvider value={header}>{page}</SubPageHeaderProvider> : page);
     });
     // Flush the Vault.hasHardwareProtector() promise so the body mounts
     // (until hasHardwareProtector resolves, the component renders its header over an empty body).
@@ -662,6 +665,47 @@ describe('RevealSecret', () => {
 
       expect(container.querySelector('[role="img"]')).not.toBeNull();
       expect(toggleOf(container)).toBeNull();
+    });
+  });
+
+  // A reveal that starts masked leaves no field to focus and unmounts the control that held
+  // focus, so the page title takes it, as the recovery phrase's reveal does.
+  describe('focus after a masked reveal', () => {
+    const hotKeyPair = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+
+    it.each<[Reveal, string]>([
+      ['private-key', 'PRIVATE_KEY_HEX'],
+      ['hot-key', hotKeyPair],
+      ['seed-phrase', 'word1 word2 word3']
+    ])('moves focus to the page title once the %s is revealed', async (reveal, secret) => {
+      mockRevealHotKey.mockResolvedValue(hotKeyPair);
+      const container = await renderReveal(reveal, { title: 'Private key', focusTitleOnMount: true });
+      if (reveal === 'private-key') await acknowledge(container);
+      await typePassword(container, 'pass');
+      expect(document.activeElement).toBe(container.querySelector('input[name="password"]'));
+
+      await act(async () => {
+        buttonWithText(container, 'continue')!.click();
+      });
+      await flush();
+
+      expect(document.activeElement).toBe(container.querySelector('h1'));
+      expect(container.querySelector('[data-masked="true"]')).not.toBeNull();
+      expect(container.innerHTML).not.toContain(secret);
+    });
+
+    it('moves focus to the page title even under a host that does not focus it', async () => {
+      const container = await renderReveal('hot-key', { title: 'Private key', focusTitleOnMount: false });
+      mockRevealHotKey.mockResolvedValue(hotKeyPair);
+      await typePassword(container, 'pass');
+      expect(document.activeElement).toBe(container.querySelector('input[name="password"]'));
+
+      await act(async () => {
+        buttonWithText(container, 'continue')!.click();
+      });
+      await flush();
+
+      expect(document.activeElement).toBe(container.querySelector('h1'));
     });
   });
 

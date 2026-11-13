@@ -359,8 +359,12 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     return <SubPageLayout data-testid="reveal-secret">{null}</SubPageLayout>;
   }
 
+  // A revealed secret remounts the header so its title takes focus: off mobile the reveal starts
+  // masked, with no field to focus, and the submit control that held focus is gone.
   return (
     <SubPageLayout
+      key={secret ? 'revealed' : undefined}
+      focusTitleOnMount={secret ? true : undefined}
       data-testid="reveal-secret"
       footer={
         showButton &&
