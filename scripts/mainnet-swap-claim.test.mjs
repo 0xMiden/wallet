@@ -52,7 +52,7 @@ for (const [name, change] of [
   ['another protocol order', { serial1: 8n }],
   ['another serial component', { serial2: 12n }],
   ['a partial descendant', { serial3: 20n }],
-  ['another attachment scheme', { scheme: 0 }],
+  ['another attachment scheme', { scheme: 1 }],
   ['another attachment amount', { attachmentAmount: 1010889n }],
   ['another attachment order', { attachmentOrder: 8n }],
   ['another depth', { depth: 2n }],
