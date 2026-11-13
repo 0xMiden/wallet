@@ -6,7 +6,7 @@ import { readTransactionRows } from '../../helpers/history';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { loadMainnetSwapCheckpoint } from '../../helpers/mainnet-swap-checkpoint';
 import { readMainnetSwapPayback, prepareMainnetSwapClaimRecovery } from '../../helpers/mainnet-swap-claim';
-import { exportPublicInputNote } from '../../helpers/swap';
+import { exportPublicInputNote, swOf } from '../../helpers/swap';
 
 test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial', retries: 0 });
@@ -62,6 +62,16 @@ test('read-only replacement claim boundary; never arm or consume', async ({ wall
       const safe = ['Missing exact original public PSWAP','Invalid original recorded protocol identity','Multiple paybacks for the original full-fill order','Payback differs from the exact original full-fill protocol note'];
       report.publicProofError = error instanceof Error && safe.includes(error.message) ? error.message : error instanceof Error ? error.name : 'unknown';
     }
+    stage = 'sdk-view';
+    const readView = async (scope: {noteId:string;account:string}) => {
+      const hook=Reflect.get(globalThis,'__TEST_PUBLIC_CLAIM_STATUS__');
+      return typeof hook==='function'?await Reflect.apply(hook,globalThis,[scope]):{missingHook:true};
+    };
+    const viewScope={noteId:'0xd292c8cdd7086a2f9058ddb9f25532145e9698ff18a64f62d8c235dc713ee359',account:state.account};
+    report.pageClaimStatus=await walletB.page.evaluate(readView,viewScope);
+    report.workerClaimStatus=await swOf(walletB).evaluate(readView,viewScope);
+    report.currentHash=new URL(walletB.page.url()).hash;
+    report.expectedPendingCardCount=await walletB.page.locator(`[data-pending-note-id="${viewScope.noteId}"]`).count();
     stage = 'history';
     const rows = await readTransactionRows(walletB.page);
     report.unresolvedRows=rows.some(row=>row.status===0||row.status===1||row.status===4);
