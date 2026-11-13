@@ -1,27 +1,23 @@
-name: Original swap public receipt proof without keys
+name: Recovery authority contract proof
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
-concurrency:
-  group: mainnet-loop-regression-proof
-  cancel-in-progress: false
 jobs:
-  public-proof:
+  contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Verify immutable public-read source
-        run: |
-          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
-          printf 'Verified source %s\n' "$(git rev-parse HEAD^2)"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Original public note, payback, nullifier and historical vault reads only
-        run: node scripts/mainnet-original-swap-public-proof.mjs
+      - name: Frozen recovery contracts
+        run: |
+          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+          printf 'Verified source %s\n' "$(git rev-parse HEAD^2)"
+          yarn jest scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-consume-coordination.test.ts --maxWorkers=2 --watch=false

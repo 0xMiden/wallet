@@ -121,6 +121,31 @@ describe('durable nightly swap authorization', () => {
     saveMainnetSwapCheckpoint(path, returned);
     expect(loadMainnetSwapCheckpoint(path)).toMatchObject(returned);
   });
+  it('accepts a separately granted first recovery return without changing the original forward deadline', () => {
+    const state = withRequest();
+    state.phase = 'reverse-authorized';
+    state.forwardReceived = '33650';
+    state.returnAmount = '33650';
+    state.returnBaseline = { offer: '8990000', request: '33773', native: '8989999' };
+    const grant = '2026-11-13T14:20:00.000Z';
+    const recovered = {
+      ...state,
+      updatedAt: grant,
+      recoveryReturnAuthorizedAt: grant,
+      reverseOrderId: '43',
+      reverseRequestAuthority: {
+        ...state.forwardRequestAuthority,
+        nonce: '22222222-2222-4222-8222-222222222222',
+        orderId: '43',
+        minimumReceive: '1007001',
+        expiresAt: Date.parse(grant) + 60_000
+      }
+    };
+    const path = join(dir, 'recovery.json');
+    saveMainnetSwapCheckpoint(path, recovered);
+    expect(loadMainnetSwapCheckpoint(path)).toEqual(recovered);
+    expect(recovered.forwardRequestAuthority).toEqual(state.forwardRequestAuthority);
+  });
   it('matches the actual SDK order and exact reviewed request floor, never merely the older budget floor', () => {
     const state = withRequest();
     expect(matchAuthorizedSwap(state, [{ ...row(), orderId: '42' }], 'forward')).toBeUndefined();
