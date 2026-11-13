@@ -71,12 +71,18 @@ function fixture(change = {}) {
     actual.metadata(),
     new NoteRecipient(new Word(new BigUint64Array([43n, 1n, 2n, 3n])), script, storage)
   );
-  let builder = new TransactionRequestBuilder()
-    .withOwnOutputNotes(new NoteArray(change.extraOutput ? [actual, other] : [actual]))
-    .withExpirationDelta(change.expiration ?? 600);
+  let builder = new TransactionRequestBuilder().withOwnOutputNotes(
+    new NoteArray(change.extraOutput ? [actual, other] : [actual])
+  );
+  if (!change.guardian || change.expiration !== undefined)
+    builder = builder.withExpirationDelta(change.expiration ?? 600);
+  if (change.guardian) builder = builder.withBlockNumbers([321]);
   if (change.input) builder = builder.withInputNotes(new NoteAndArgsArray([new NoteAndArgs(actual, null)]));
   if (change.salt) builder = builder.withFeeConversionSalt(new Word(new BigUint64Array([1n, 0n, 0n, 0n])));
-  return { scope, noteId: actual.id().toString(), bytes: Uint8Array.from(builder.build().serialize()) };
+  let request = builder.build();
+  if (change.guardian)
+    request = request.withAuthArgs([321n, 501n, 0n, 0n, 1n, 2n, 3n, 4n, 0n, 1n, 1n, 0n].map(value => new Felt(value)));
+  return { scope, noteId: actual.id().toString(), bytes: Uint8Array.from(request.serialize()) };
 }
 
 test('inspects actual SDK PSWAP bytes and binds the live note and serial-derived order to the reviewed terms', () => {
@@ -87,6 +93,23 @@ test('inspects actual SDK PSWAP bytes and binds the live note and serial-derived
     orderId: '42'
   });
 });
+test('inspects actual SDK Guardian PSWAP auth bytes without regenerating its serial', () => {
+  const input = fixture({ guardian: true });
+  assert.deepEqual(requests.inspectTestMainnetSwapRequest(input.scope, input.bytes, true), {
+    noteId: input.noteId,
+    orderId: '42'
+  });
+});
+for (const [name, change] of [
+  ['another output', { extraOutput: true }],
+  ['another input', { input: true }],
+  ['weaker reviewed floor', { requestedAmount: 1000999n }],
+  ['unreviewed transaction expiry', { expiration: 600 }]
+])
+  test(`Guardian PSWAP rejects ${name} despite valid authentication layout`, () => {
+    const input = fixture({ guardian: true, ...change });
+    assert.throws(() => requests.inspectTestMainnetSwapRequest(input.scope, input.bytes, true));
+  });
 for (const [name, change] of [
   ['another payout creator', { creator: '0x593c167bec26769178dcbd1f9bcb40' }],
   ['another sender', { sender: '0x593c167bec26769178dcbd1f9bcb40' }],
