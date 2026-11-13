@@ -1,4 +1,4 @@
-name: Read-only replacement return readiness
+name: Read-only replacement claim boundary
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -30,9 +30,9 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
-          run-id: 43461752016
+          run-id: 43485129750
           github-token: ${{ github.token }}
-          name: mainnet-swap-final-43461752016
+          name: mainnet-swap-final-43485129750
           path: test-results/original-authority
       - uses: ./.github/actions/install-miden-client-cli
       - uses: ./.github/actions/apt-drop-unused-repos
@@ -46,13 +46,13 @@ jobs:
         run: |
           umask 077
           code=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/return-review-results" xvfb-run -a yarn playwright test mainnet-replacement-readiness.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/return-review.log" 2>&1 || code=$?
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/return-review-results" xvfb-run -a yarn playwright test mainnet-replacement-claim-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/return-review.log" 2>&1 || code=$?
           node --input-type=module <<'NODE'
           import { existsSync, readFileSync } from 'node:fs';
-          const path = 'test-results/read-only-replacement-readiness.json';
+          const path = 'test-results/read-only-claim-boundary.json';
           if (!existsSync(path)) { console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.'); process.exit(1); }
           const value = JSON.parse(readFileSync(path, 'utf8'));
-          const allowed = ['purpose','outcomeVerified','retainedReturnNonce','returnExpiresAt','before','after','first','last','errorStage','errorKind','freshProcessing','noLivePolicy','consumeBlocked','unresolvedRows','minimumReceive','autoConsumeOff','replacementReviewReady'];
+          const allowed = ['purpose','inspected','balances','payback','publicProofError','creationRows','consumeRows','noLivePolicy','consumeBlocked','errorStage','errorKind'];
           if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
           console.log(JSON.stringify(value));
           NODE
