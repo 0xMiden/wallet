@@ -631,6 +631,9 @@ test('accepts a claimed forward-settled checkpoint for its first recovery return
   assert.equal(result.paidFees,'266');
   assert.equal(result.recoveryReturnAuthorizedAt,grant);
   assert.deepEqual(result.forwardRequestAuthority,{...state.forwardRequestAuthority,orderId:evidence.orderId});
+  assert.equal(result.pricedAt,state.pricedAt);
+  assert.equal(result.forwardRequestAuthority.expiresAt,state.forwardRequestAuthority.expiresAt);
+  assert.throws(()=>claims.authorizeMainnetSwapRecoveryReturn(result,evidence,balances,'789',new Date(Date.parse(grant)+300001).toISOString()),/already prepared or issued/);
 });
 test('freezes only a first recovery return, retaining original expired bytes/nonce/prices and conservative aggregate costs', () => {
   const { state, evidence, balances } = recoveryFixture();
