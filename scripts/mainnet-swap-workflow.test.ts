@@ -112,7 +112,11 @@ describe('funded nightly swap workflow', () => {
     ['Upload recovered swap SDK return authority', 'Wait for recovered swap return', 'reverse-sdk-authorized'],
     ['Upload swap SDK forward claim authority', 'Wait for mainnet swap forward', 'forward-claim-sdk-authorized'],
     ['Upload swap SDK reverse claim authority', 'Wait for mainnet swap return', 'reverse-claim-sdk-authorized'],
-    ['Upload recovered swap SDK return claim authority', 'Wait for recovered swap return', 'reverse-claim-sdk-authorized']
+    [
+      'Upload recovered swap SDK return claim authority',
+      'Wait for recovered swap return',
+      'reverse-claim-sdk-authorized'
+    ]
   ])(
     'uploads and verifies the actual held PSWAP snapshot through %s before waiting for execution',
     (upload, wait, artifact) => {
@@ -136,11 +140,27 @@ describe('funded nightly swap workflow', () => {
     expect(prepare.if).toContain('inputs.authorize_swap_recovery_return');
     expect(prepare.run).toContain('MAINNET_SWAP_MODE=authorize-recovery-return');
     expect(prepare.run).toContain('$RUNNER_TEMP/swap-operator-prepare.log');
-    expect(index('Prepare explicitly approved first swap recovery return')).toBeLessThan(index('Recover prior mainnet swap'));
+    expect(index('Prepare explicitly approved first swap recovery return')).toBeLessThan(
+      index('Recover prior mainnet swap')
+    );
     expect(object(main.env).MAINNET_SWAP_RECOVERY_RETURN_APPROVED).toContain('workflow_dispatch');
     const guard = String(step('Require an original, unambiguous run').run);
-    for (const { swaps, loops, accepted } of [{ swaps: 'true', loops: 'false', accepted: true }, { swaps: 'false', loops: 'false', accepted: false }, { swaps: 'true', loops: 'true', accepted: false }]) {
-      const execute = () => execFileSync('bash', ['-c', guard], { env: { ...process.env, GITHUB_RUN_ATTEMPT: '1', SWAPS_ONLY: swaps, LOOPS_ONLY: loops, MAINNET_SWAP_RECOVERY_RETURN_APPROVED: 'true' }, stdio: 'pipe' });
+    for (const { swaps, loops, accepted } of [
+      { swaps: 'true', loops: 'false', accepted: true },
+      { swaps: 'false', loops: 'false', accepted: false },
+      { swaps: 'true', loops: 'true', accepted: false }
+    ]) {
+      const execute = () =>
+        execFileSync('bash', ['-c', guard], {
+          env: {
+            ...process.env,
+            GITHUB_RUN_ATTEMPT: '1',
+            SWAPS_ONLY: swaps,
+            LOOPS_ONLY: loops,
+            MAINNET_SWAP_RECOVERY_RETURN_APPROVED: 'true'
+          },
+          stdio: 'pipe'
+        });
       if (accepted) expect(execute).not.toThrow();
       else expect(execute).toThrow();
     }
@@ -152,8 +172,19 @@ describe('funded nightly swap workflow', () => {
   ])('requires claim fingerprints after %s, not merely the create ACK', (create, claim) => {
     expect(index(claim)).toBeGreaterThan(index(create));
     expect(object(step(claim).with).gate).toContain('.sdk.claim');
-    const runner = readFileSync(resolve(__dirname, '../playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts'), 'utf8');
-    for (const value of ['readMainnetSwapPayback', 'armMainnetConsumeAuthorization', 'releaseMainnetConsumeAuthorization', 'forwardClaimAuthority', 'reverseClaimAuthority', 'mainnetSwapRequestExpiresAt']) expect(runner).toContain(value);
+    const runner = readFileSync(
+      resolve(__dirname, '../playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts'),
+      'utf8'
+    );
+    for (const value of [
+      'readMainnetSwapPayback',
+      'armMainnetConsumeAuthorization',
+      'releaseMainnetConsumeAuthorization',
+      'forwardClaimAuthority',
+      'reverseClaimAuthority',
+      'mainnetSwapRequestExpiresAt'
+    ])
+      expect(runner).toContain(value);
     const ui = readFileSync(resolve(__dirname, '../playwright/e2e/helpers/mainnet-swap-ui.ts'), 'utf8');
     expect(ui).toContain('swap-auto-consume');
   });

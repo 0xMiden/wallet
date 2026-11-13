@@ -1,76 +1,59 @@
-name: Recovery authority contract proof
+name: Read-only original approved return review
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
+  actions: read
+concurrency:
+  group: mainnet-loop-regression-proof
+  cancel-in-progress: false
 jobs:
-  contracts:
+  readonly:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+      - name: Verify immutable read-only source
+        run: |
+          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+          printf 'Read-only source %s\n' "$(git rev-parse HEAD^2)"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Exact SDK payback contract regression
-        run: |
-          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
-          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
-      - name: Prove valid foreign-scheme fixture reaches the inspector
-        run: |
-          printf 'export function inspectMainnetSwapPayback(){return 0n}\n' > node_modules/.cache/nightly-swap-claim.mjs
-          code=0
-          node --test --test-name-pattern='another attachment scheme' scripts/mainnet-swap-claim.test.mjs > "$RUNNER_TEMP/scheme-red.log" 2>&1 || code=$?
-          test "$code" != 0
-          grep -q 'Missing expected exception' "$RUNNER_TEMP/scheme-red.log"
-          grep -q '# fail 1' "$RUNNER_TEMP/scheme-red.log"
-          echo 'Verified functional foreign-scheme RED with valid SDK fixture, not constructor/setup failure.'
-          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-      - name: Verify shared reader against original public payout without keys
-        run: |
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { Address } from '@miden-sdk/miden-sdk';
-          import { readMainnetSwapPayback } from './node_modules/.cache/nightly-swap-claim.mjs';
-          const scope = {
-            kind: 'swap', accountId: Address.fromBech32('mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5').accountId().toString(),
-            faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', amount: '1010428', requestedFaucetId: '0x5cb79d29507d3ad17bb6dc60279e89',
-            requestedAmount: '1010384', noteId: '0xa026c7215add3ace6074d40ee30735489ce414dc2925b899b5004e3390df7bfa', orderId: '15364527778395428152'
-          };
-          const result = await readMainnetSwapPayback('https://rpc.mainnet.miden.io', scope);
-          const legacy = await readMainnetSwapPayback('https://rpc.mainnet.miden.io', { ...scope, orderId: '4527770481039375833' });
-          assert.deepEqual(legacy, result);
-          assert.ok(result);
-          assert.equal(result.amount, 1010890n);
-          assert.equal(result.noteId, '0x0af2990993b966a96f809a0dace1a809148d254930c8948d53eb2880146bacf2');
-          assert.equal(result.originalCreatedAtBlock, 855895);
-          assert.equal(result.createdAtBlock, 855898);
-          assert.equal(result.claimedAtBlock, 855903);
-          console.log(JSON.stringify({ purpose: 'shared original public reader proof; no keys or writes', ...result, amount: result.amount.toString() }));
-          NODE
-      - name: Frozen recovery contracts
-        if: always()
-        run: |
-          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
-          printf 'Verified source %s\n' "$(git rev-parse HEAD^2)"
-          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts --maxWorkers=2 --watch=false
-          yarn lint:e2e
-      - name: Check connected types
-        if: always()
-        run: yarn ts
-      - name: Owned formatting patch
-        if: always()
-        run: |
-          yarn prettier --write .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/helpers/mainnet-swap-checkpoint.ts playwright/e2e/helpers/mainnet-consume-authorization.ts playwright/e2e/helpers/mainnet-loop-wallet.ts playwright/e2e/helpers/mainnet-swap-ui.ts playwright/e2e/helpers/mainnet-swap-claim.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-consume-coordination.test.ts scripts/mainnet-loop-wallet.test.ts scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-artifacts.mjs scripts/mainnet-swap-artifacts.test.ts scripts/mainnet-swap-workflow.test.ts
-          git diff --binary -- .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/helpers/mainnet-swap-checkpoint.ts playwright/e2e/helpers/mainnet-consume-authorization.ts playwright/e2e/helpers/mainnet-loop-wallet.ts playwright/e2e/helpers/mainnet-swap-ui.ts playwright/e2e/helpers/mainnet-swap-claim.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-consume-coordination.test.ts scripts/mainnet-loop-wallet.test.ts scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-artifacts.mjs scripts/mainnet-swap-artifacts.test.ts scripts/mainnet-swap-workflow.test.ts > recovery-owned-format.patch
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - uses: actions/download-artifact@v4
         with:
-          name: recovery-owned-format
-          path: recovery-owned-format.patch
-          retention-days: 2
+          run-id: 43427924008
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43427924008
+          path: test-results/original-authority
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install Chromium
+        timeout-minutes: 10
+        run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Build actual recovery mainnet extension without provider overlay
+        run: yarn test:e2e:blockchain:build
+      - name: Read-only review, never authorize or submit
+        run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/return-review-results" xvfb-run -a yarn playwright test mainnet-approved-return-review.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/return-review.log" 2>&1 || code=$?
+          node --input-type=module <<'NODE'
+          import { existsSync, readFileSync } from 'node:fs';
+          const path = 'test-results/read-only-approved-return.json';
+          if (!existsSync(path)) { console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.'); process.exit(1); }
+          const value = JSON.parse(readFileSync(path, 'utf8'));
+          const allowed = ['purpose','reviewReady','before','after','minimumReceive','autoConsumeOff','errorStage','errorKind','freshProcessing','noAuthority','consumeBlocked'];
+          if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
+          console.log(JSON.stringify(value));
+          NODE
+          exit "$code"

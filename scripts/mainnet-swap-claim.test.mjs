@@ -124,16 +124,62 @@ for (const [name, change] of [
 
 function recoveryFixture() {
   const { original, payback, scope } = fixture();
-  const holding = { faucetId: 'mm1a', hex: scope.faucetId, symbol: 'USDCX', decimals: 6, balance: '19998056', usdMicros: '999577' };
-  const state = {
-    version: 1, network: 'mainnet', account: 'mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5_qr7qqq9wr6w',
-    sourceRunId: '123', authorizationRunId: '123', phase: 'forward-authorized',
-    createdAt: '2026-11-13T12:49:42Z', pricedAt: '2026-11-13T12:49:33Z', updatedAt: '2026-11-13T12:50:16Z',
-    offer: { ...holding }, native: { ...holding }, request: { ...holding, faucetId: 'mm1b', hex: scope.requestedFaucetId, symbol: 'USDT', balance: '0', usdMicros: '999260' },
-    principal: '1010428', forwardMinimum: '1010384', reverseMinimum: '1009013', baseFee: '7', feeBudget: '1260', paidFees: '0', knownOrderIds: [], forwardOrderId: '42',
-    forwardRequestAuthority: { nonce: '11111111-1111-4111-8111-111111111111', noteId: original.id().toString(), sha256: 'a'.repeat(64), canonicalSha256: 'b'.repeat(64), orderId: '42', minimumReceive: '1010384', expiresAt: 1794574473000 }
+  const holding = {
+    faucetId: 'mm1a',
+    hex: scope.faucetId,
+    symbol: 'USDCX',
+    decimals: 6,
+    balance: '19998056',
+    usdMicros: '999577'
   };
-  const evidence = { originalNoteId: original.id().toString(), orderId: '7', serialZeroOrderId: '42', noteId: payback.id().toString(), amount: 1010890n, originalCreatedAtBlock: 100, createdAtBlock: 101, claimedAtBlock: 102 };
+  const state = {
+    version: 1,
+    network: 'mainnet',
+    account: 'mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5_qr7qqq9wr6w',
+    sourceRunId: '123',
+    authorizationRunId: '123',
+    phase: 'forward-authorized',
+    createdAt: '2026-11-13T12:49:42Z',
+    pricedAt: '2026-11-13T12:49:33Z',
+    updatedAt: '2026-11-13T12:50:16Z',
+    offer: { ...holding },
+    native: { ...holding },
+    request: {
+      ...holding,
+      faucetId: 'mm1b',
+      hex: scope.requestedFaucetId,
+      symbol: 'USDT',
+      balance: '0',
+      usdMicros: '999260'
+    },
+    principal: '1010428',
+    forwardMinimum: '1010384',
+    reverseMinimum: '1009013',
+    baseFee: '7',
+    feeBudget: '1260',
+    paidFees: '0',
+    knownOrderIds: [],
+    forwardOrderId: '42',
+    forwardRequestAuthority: {
+      nonce: '11111111-1111-4111-8111-111111111111',
+      noteId: original.id().toString(),
+      sha256: 'a'.repeat(64),
+      canonicalSha256: 'b'.repeat(64),
+      orderId: '42',
+      minimumReceive: '1010384',
+      expiresAt: 1794574473000
+    }
+  };
+  const evidence = {
+    originalNoteId: original.id().toString(),
+    orderId: '7',
+    serialZeroOrderId: '42',
+    noteId: payback.id().toString(),
+    amount: 1010890n,
+    originalCreatedAtBlock: 100,
+    createdAtBlock: 101,
+    claimedAtBlock: 102
+  };
   return { state, evidence, balances: { offer: 18987362n, native: 18987362n, request: 1010890n } };
 }
 const grant = '2026-11-13T16:00:00.000Z';
@@ -156,19 +202,80 @@ test('freezes only a first recovery return, retaining original expired bytes/non
   assert.deepEqual(state, original);
 });
 for (const [name, change] of [
-  ['previous first-return grant', value => { value.state.recoveryReturnAuthorizedAt = grant; }],
-  ['previous signed return', value => { value.state.reverseOrderId = '9'; }],
-  ['previous prepared return', value => { value.state.returnAmount = '1010890'; }],
-  ['unsettled payout', value => { delete value.evidence.claimedAtBlock; }],
-  ['another original note', value => { value.evidence.originalNoteId = `0x${'c'.repeat(64)}`; }],
-  ['unproved old derived identity', value => { value.evidence.serialZeroOrderId = '55'; }],
-  ['unrelated incoming credit', value => { value.balances.request += 1n; }],
-  ['unexplained native debit', value => { value.balances.native -= 2000n; value.balances.offer = value.balances.native; }],
-  ['inadequate remaining fee reserve', value => { value.state.feeBudget = '300'; }],
-  ['forgotten predecessor costs', value => { value.state.paidFees = '500'; }],
-  ['an unaffordable original price envelope', value => { value.state.native.usdMicros = '2000000000'; value.state.offer.usdMicros = '2000000000'; }]
-]) test(`refuses recovery authorization with ${name}`, () => {
-  const value = recoveryFixture();
-  change(value);
-  assert.throws(() => claims.authorizeMainnetSwapRecoveryReturn(value.state, value.evidence, value.balances, '456', grant), /recovery|authority|budget|proceeds|balance|grant|identity|cost|reserve/i);
-});
+  [
+    'previous first-return grant',
+    value => {
+      value.state.recoveryReturnAuthorizedAt = grant;
+    }
+  ],
+  [
+    'previous signed return',
+    value => {
+      value.state.reverseOrderId = '9';
+    }
+  ],
+  [
+    'previous prepared return',
+    value => {
+      value.state.returnAmount = '1010890';
+    }
+  ],
+  [
+    'unsettled payout',
+    value => {
+      delete value.evidence.claimedAtBlock;
+    }
+  ],
+  [
+    'another original note',
+    value => {
+      value.evidence.originalNoteId = `0x${'c'.repeat(64)}`;
+    }
+  ],
+  [
+    'unproved old derived identity',
+    value => {
+      value.evidence.serialZeroOrderId = '55';
+    }
+  ],
+  [
+    'unrelated incoming credit',
+    value => {
+      value.balances.request += 1n;
+    }
+  ],
+  [
+    'unexplained native debit',
+    value => {
+      value.balances.native -= 2000n;
+      value.balances.offer = value.balances.native;
+    }
+  ],
+  [
+    'inadequate remaining fee reserve',
+    value => {
+      value.state.feeBudget = '300';
+    }
+  ],
+  [
+    'forgotten predecessor costs',
+    value => {
+      value.state.paidFees = '500';
+    }
+  ],
+  [
+    'an unaffordable original price envelope',
+    value => {
+      value.state.native.usdMicros = '2000000000';
+      value.state.offer.usdMicros = '2000000000';
+    }
+  ]
+])
+  test(`refuses recovery authorization with ${name}`, () => {
+    const value = recoveryFixture();
+    change(value);
+    assert.throws(
+      () => claims.authorizeMainnetSwapRecoveryReturn(value.state, value.evidence, value.balances, '456', grant),
+      /recovery|authority|budget|proceeds|balance|grant|identity|cost|reserve/i
+    );
+  });

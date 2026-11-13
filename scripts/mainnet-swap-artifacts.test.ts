@@ -76,9 +76,12 @@ describe('mainnet swap recovery artifact discovery', () => {
   it.each(['forward', 'reverse'])('prefers the actual %s claim snapshot over earlier create authority', async leg => {
     const id = baseline + 1;
     const name = `mainnet-swap-${leg}-claim-sdk-authorized-${id}`;
-    const found = await chooseSwapCheckpoint([run(id)], async () => ({ artifacts: [
-      artifact(`mainnet-swap-${leg}-sdk-authorized-${id}`), artifact(name)
-    ] }), async () => steps(`Run mainnet swap ${leg}`), baseline);
+    const found = await chooseSwapCheckpoint(
+      [run(id)],
+      async () => ({ artifacts: [artifact(`mainnet-swap-${leg}-sdk-authorized-${id}`), artifact(name)] }),
+      async () => steps(`Run mainnet swap ${leg}`),
+      baseline
+    );
     expect(found).toEqual({ runId: id, name, bootstrap: false });
   });
   it.each([
@@ -87,15 +90,30 @@ describe('mainnet swap recovery artifact discovery', () => {
     ['Upload recovered swap SDK return claim authority', 'reverse']
   ])('never falls back to create-only evidence after %s', async (name, leg) => {
     const id = baseline + 1;
-    await expect(chooseSwapCheckpoint([run(id)], async () => ({ artifacts: [
-      artifact(`mainnet-swap-${leg}-sdk-authorized-${id}`)
-    ] }), async () => steps(name), baseline)).rejects.toThrow(/claim|missing|downgrade/i);
+    await expect(
+      chooseSwapCheckpoint(
+        [run(id)],
+        async () => ({ artifacts: [artifact(`mainnet-swap-${leg}-sdk-authorized-${id}`)] }),
+        async () => steps(name),
+        baseline
+      )
+    ).rejects.toThrow(/claim|missing|downgrade/i);
   });
   it.each(['forward', 'reverse'])('does not ignore an expired %s claim snapshot', async leg => {
     const id = baseline + 1;
-    await expect(chooseSwapCheckpoint([run(id)], async () => ({ artifacts: [
-      artifact(`mainnet-swap-${leg}-sdk-authorized-${id}`), artifact(`mainnet-swap-${leg}-claim-sdk-authorized-${id}`, true)
-    ] }), async () => steps(`Run mainnet swap ${leg}`), baseline)).rejects.toThrow(/expired/i);
+    await expect(
+      chooseSwapCheckpoint(
+        [run(id)],
+        async () => ({
+          artifacts: [
+            artifact(`mainnet-swap-${leg}-sdk-authorized-${id}`),
+            artifact(`mainnet-swap-${leg}-claim-sdk-authorized-${id}`, true)
+          ]
+        }),
+        async () => steps(`Run mainnet swap ${leg}`),
+        baseline
+      )
+    ).rejects.toThrow(/expired/i);
   });
   it('never downgrades an expired actual SDK snapshot to earlier symbolic terms', async () => {
     const id = baseline + 1;
