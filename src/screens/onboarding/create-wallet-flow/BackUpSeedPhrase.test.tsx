@@ -103,8 +103,13 @@ jest.mock('components/ui/Pill', () => ({
 // The copy goes through useClipboardCopy, which writes through @capacitor/clipboard, so that is the boundary to
 // assert.
 const mockClipboardWrite = jest.fn();
+const mockWriteSecret = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
+jest.mock('lib/ui/secret-clipboard', () => ({
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
 }));
 
 // ---------------------------------------------------------------------------
@@ -147,6 +152,7 @@ beforeEach(() => {
   // The clipboard mock is module-level, so a call-count assertion reads every
   // preceding case's clicks unless the count is reset per case.
   mockClipboardWrite.mockClear();
+  mockWriteSecret.mockReset();
 });
 
 afterEach(() => {
@@ -347,8 +353,9 @@ describe('BackUpSeedPhraseScreen', () => {
         fireEvent.click(copyBtn);
       });
 
-      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
-      expect(mockClipboardWrite).toHaveBeenCalledWith({ string: SEED.join(' ') });
+      expect(mockWriteSecret).toHaveBeenCalledTimes(1);
+      expect(mockWriteSecret).toHaveBeenCalledWith(SEED.join(' '));
+      expect(mockClipboardWrite).not.toHaveBeenCalled();
       expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
       expect(screen.getByTestId('copy-label')).toHaveTextContent('copied');
     });
@@ -356,7 +363,7 @@ describe('BackUpSeedPhraseScreen', () => {
     // The whole point of the shared implementation: the confirmation follows the WRITE. The screen
     // used to report success without awaiting it, on the one value where that costs the most.
     it('says nothing was copied when the write fails', async () => {
-      mockClipboardWrite.mockRejectedValueOnce(new Error('denied'));
+      mockWriteSecret.mockRejectedValueOnce(new Error('denied'));
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       try {
         renderComponent();
@@ -365,7 +372,7 @@ describe('BackUpSeedPhraseScreen', () => {
           fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
         });
 
-        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+        expect(mockWriteSecret).toHaveBeenCalledTimes(1);
         expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
         expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
         expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));

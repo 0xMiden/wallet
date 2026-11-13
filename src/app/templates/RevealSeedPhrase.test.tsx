@@ -35,6 +35,7 @@ const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 let mockHistoryPosition = 1;
 const mockClipboardWrite = jest.fn();
+const mockWriteSecret = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -189,6 +190,10 @@ jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
+jest.mock('lib/ui/secret-clipboard', () => ({
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
+}));
+
 // The warning's Close and back go through useBackWithFallback, which reads live
 // history: pop when there is an entry to pop, else route to the Settings root.
 jest.mock('lib/woozie', () => ({
@@ -227,6 +232,7 @@ describe('RevealSeedPhrase', () => {
     mockSecret = null;
     mockSeedStatus = 'stored';
     mockClipboardWrite.mockResolvedValue(undefined);
+    mockWriteSecret.mockResolvedValue(undefined);
     mockIsMobile = false;
     mockHistoryPosition = 1;
     mockHasHardwareProtector.mockResolvedValue(false);
@@ -964,7 +970,8 @@ describe('RevealSeedPhrase', () => {
       copyBtn.click();
     });
     expect(mockHapticLight).toHaveBeenCalled();
-    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'alpha beta gamma delta' });
+    expect(mockWriteSecret).toHaveBeenCalledWith('alpha beta gamma delta');
+    expect(mockClipboardWrite).not.toHaveBeenCalled();
   });
 
   it('shows the "copied" state once the write lands (the shared glyph morphed to a check + the label rolled to copied)', async () => {
@@ -984,14 +991,14 @@ describe('RevealSeedPhrase', () => {
   // 20s, and a user who read "Copied" believes they hold a backup.
   it('keeps the copy label when the clipboard write is refused', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
-    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    mockWriteSecret.mockRejectedValue(new Error('write refused'));
     const container = await renderAndView();
 
     await act(async () => {
       (buttonWithText(container, 'copyToClipboard') as HTMLButtonElement).click();
     });
 
-    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(mockWriteSecret).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[data-copy-label] [data-present="true"]')!.textContent).toBe('copyToClipboard');
     expect(container.querySelector('[data-copy-icon] [data-name="Checkmark"]')).toBeNull();
   });

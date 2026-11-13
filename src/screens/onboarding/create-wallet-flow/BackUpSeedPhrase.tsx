@@ -34,7 +34,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   // local version wrote without awaiting and reported success unconditionally - on the seed
   // phrase, where a silent failure costs the most - and armed a timeout it never cleared, so
   // tapping Continue inside the window left it firing into a dead tree.
-  const { copied: isCopied, copy: onCopyToClipboard } = useClipboardCopy(seedPhrase.join(' '));
+  const { copied: isCopied, copy: onCopyToClipboard } = useClipboardCopy(seedPhrase.join(' '), { secret: true });
 
   // Block screenshots/recordings while the backup phrase is on screen (#417).
   // The words are only rendered once the guard reports the screen is protected.

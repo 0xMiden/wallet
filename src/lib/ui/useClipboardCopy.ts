@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Clipboard } from '@capacitor/clipboard';
 
 import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
+import { writeSecretToClipboard } from 'lib/ui/secret-clipboard';
 
 export type ClipboardCopyStatus = 'idle' | 'success' | 'failure';
 
@@ -21,10 +22,15 @@ export type ClipboardCopyStatus = 'idle' | 'success' | 'failure';
  * ignored, and its latch released however that write settles, while a text rendered since writes
  * at once; an outcome is reported only while its own text is the one rendered.
  *
+ * `secret` is for the recovery-phrase Copy pills (`RevealSeedPhrase`, `VerifySeedPhraseFlow`,
+ * `BackUpSeedPhrase`): the write goes through `writeSecretToClipboard`, which on mobile marks the item
+ * sensitive and clears it after a delay. Everything else keeps the plain write.
+ *
  * Does not fire a haptic itself — callers differ on when: `CopyButton` fires it directly,
  * `CopyChip` gets it from `Pill`'s own tap handler, and firing it here too would double it.
  */
-export function useClipboardCopy(text: string) {
+export function useClipboardCopy(text: string, options?: { secret?: boolean }) {
+  const secret = options?.secret === true;
   const [outcome, setOutcome] = useState<{ status: 'success' | 'failure'; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   // The most recently started write and whether it has settled: `text` is a render argument, so a
@@ -57,7 +63,7 @@ export function useClipboardCopy(text: string) {
     lastWriteRef.current = write;
     let status: 'success' | 'failure';
     try {
-      await Clipboard.write({ string: text });
+      await (secret ? writeSecretToClipboard(text) : Clipboard.write({ string: text }));
       status = 'success';
     } catch (error) {
       console.error('[clipboard] failed to copy:', error);
@@ -70,7 +76,7 @@ export function useClipboardCopy(text: string) {
     setOutcome({ status, text });
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setOutcome(null), COPY_FEEDBACK_MS);
-  }, [text]);
+  }, [text, secret]);
 
   const status: ClipboardCopyStatus = outcome?.text === text ? outcome.status : 'idle';
   return { status, copied: status === 'success', copy };
