@@ -15,6 +15,7 @@ import {
   saveMainnetSwapCheckpoint,
   matchAuthorizedSwap,
   mainnetSwapNextAction,
+  mainnetSwapRequestExpiresAt,
   swapProceeds,
   type MainnetSwapCheckpoint,
   type SavedSwapHolding,
@@ -38,7 +39,11 @@ import {
   runPreparedSwap,
   cachedSolverRegistry
 } from '../../helpers/mainnet-swap-ui';
-import { readLineage } from '../../helpers/swap';
+import { exportMakerNote, readLineage } from '../../helpers/swap';
+import { getEnvironmentConfig } from '../../config/environments';
+import { authorizeMainnetSwapRecoveryReturn, readMainnetSwapPayback, type MainnetSwapPaybackEvidence, type MainnetSwapPaybackScope } from '../../helpers/mainnet-swap-claim';
+import { mainnetConsumeRequestHash } from '../../helpers/mainnet-epoch-request';
+import { armMainnetConsumeAuthorization, releaseMainnetConsumeAuthorization } from '../../helpers/mainnet-consume-authorization';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { armMainnetSendAuthorization, releaseMainnetSendAuthorization } from '../../helpers/mainnet-send-authorization';
 
@@ -302,7 +307,61 @@ async function settle(
   if (leg === 'forward') state.forwardOrderId = matched.orderId;
   else state.reverseOrderId = matched.orderId;
   persist(state);
-  if (recover) await recoveredSwapAutoAccept(wallet.page, matched);
+  const requestAuthority = leg === 'forward' ? state.forwardRequestAuthority : state.reverseRequestAuthority;
+  if (!requestAuthority) throw new Error('Missing original SDK identity for exact payback verification');
+  const scope: MainnetSwapPaybackScope = {
+    kind: 'swap', accountId: Address.fromBech32(state.account).accountId().toString(),
+    faucetId: (leg === 'forward' ? state.offer : state.request).hex,
+    amount: leg === 'forward' ? state.principal : state.returnAmount ?? '0',
+    requestedFaucetId: (leg === 'forward' ? state.request : state.offer).hex,
+    requestedAmount: requestAuthority.minimumReceive, noteId: requestAuthority.noteId, orderId: requestAuthority.orderId
+  };
+  let payback: MainnetSwapPaybackEvidence | undefined;
+  await expect.poll(async () => {
+    payback = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope);
+    return payback !== undefined;
+  }, { timeout: 300_000, intervals: [5_000], message: 'Exact original full-fill payback not proved' }).toBe(true);
+  if (!payback) throw new Error('Missing exact original payback');
+  const originalPayback = payback;
+  const priorClaim = leg === 'forward' ? state.forwardClaimAuthority : state.reverseClaimAuthority;
+  if (priorClaim) {
+    if (priorClaim.noteId !== payback.noteId || priorClaim.amount !== payback.amount.toString() || payback.claimedAtBlock === undefined)
+      throw new Error('Original claim outcome is unresolved; never rearm it');
+  } else if (payback.claimedAtBlock !== undefined) {
+    if (!recover) throw new Error('Payback already claimed without this run retained claim authority');
+  } else {
+    const gate = process.env.MAINNET_SWAP_SDK_GATE;
+    if (!gate) throw new Error('Missing immutable SDK payback claim gate');
+    const creation = (await readTransactionRows(wallet.page)).find(row => row.id === matched.id);
+    const feeFaucet = creation?.feeFaucetId?.startsWith('0x')
+      ? await hexFaucetToBech32(wallet, creation.feeFaucetId) : creation?.feeFaucetId;
+    if (!creation?.feeAmount || feeFaucet !== state.native.faucetId ||
+      BigInt(state.paidFees) + BigInt(creation.feeAmount) + SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee) > BigInt(state.feeBudget))
+      throw new Error('Exact payback claim exceeds the remaining native fee budget');
+    await wallet.triggerSync(true);
+    const file = await exportMakerNote(wallet, payback.noteId, 90_000);
+    const handle = await armMainnetConsumeAuthorization(wallet.page, {
+      accountId: scope.accountId, noteId: payback.noteId,
+      canonicalSha256: mainnetConsumeRequestHash(Buffer.from(file, 'hex'), true)
+    });
+    const controller = new AbortController();
+    try {
+      await recoveredSwapAutoAccept(wallet.page, matched);
+      await wallet.triggerSync(true);
+      await releaseMainnetConsumeAuthorization(wallet.page, handle, {
+        checkpointPath: STATE_PATH, gatePath: `${gate}.claim`, signal: controller.signal,
+        persist: async authority => {
+          const { requestCanonicalSha256, expiresAt } = authority;
+          if (requestCanonicalSha256 === undefined || expiresAt === undefined)
+            throw new Error('Missing final signed Guardian payback claim authority');
+          const claim = { ...authority, requestCanonicalSha256, expiresAt, noteId: originalPayback.noteId, amount: originalPayback.amount.toString() };
+          if (leg === 'forward') state.forwardClaimAuthority = claim;
+          else state.reverseClaimAuthority = claim;
+          persist(state);
+        }
+      });
+    } finally { controller.abort(); }
+  }
   await wallet.page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/history-details/${matched.id}`);
   const target = leg === 'forward' ? state.request : state.offer;
   let received = 0n;
@@ -470,7 +529,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   const runId = process.env.GITHUB_RUN_ID;
   const mode = process.env.MAINNET_SWAP_MODE;
   const key = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR;
-  if (!runId || !/^\d+$/.test(runId) || !key || !['recover', 'prepare', 'forward', 'reverse'].includes(mode ?? ''))
+  if (!runId || !/^\d+$/.test(runId) || !key || !['recover', 'prepare', 'forward', 'reverse', 'authorize-recovery-return'].includes(mode ?? ''))
     throw new Error('Missing explicit mainnet swap mode, workflow identity or Guardian key');
   if (process.env.GITHUB_RUN_ATTEMPT !== '1')
     throw new Error('Do not rerun funded workflow jobs; use a new serialized run to reconcile prior state');
@@ -479,6 +538,44 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   let state = loadMainnetSwapCheckpoint(STATE_PATH);
   const account = await walletB.getAccountAddress();
   if (state && state.account !== account) throw new Error('The checkpoint belongs to a different Guardian account');
+  if (mode === 'authorize-recovery-return') {
+    if (process.env.MAINNET_SWAP_RECOVERY_RETURN_APPROVED !== 'true' || !state?.forwardRequestAuthority)
+      throw new Error('Missing explicit first recovery-return approval or original signed checkpoint');
+    const original = state;
+    const authority = state.forwardRequestAuthority;
+    const scope: MainnetSwapPaybackScope = {
+      kind: 'swap', accountId: Address.fromBech32(state.account).accountId().toString(),
+      faucetId: state.offer.hex, amount: state.principal, requestedFaucetId: state.request.hex,
+      requestedAmount: authority.minimumReceive, noteId: authority.noteId, orderId: authority.orderId
+    };
+    const proof = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope);
+    if (!proof || proof.claimedAtBlock === undefined) throw new Error('Original return proceeds are not proved and claimed');
+    const live = await registry(walletB);
+    if (live.baseFee > BigInt(state.baseFee)) throw new Error('Native fee increased beyond the original recovery budget');
+    const before = await balances(walletB, state);
+    const quoted = await readLiveSwapLeg(live.service, state.request, state.offer, proof.amount);
+    if (quoted.minimumReceive < BigInt(state.reverseMinimum)) throw new Error('Recovery return quote weakened the original minimum');
+    state = authorizeMainnetSwapRecoveryReturn(state, proof, before, runId, new Date().toISOString());
+    persist(state);
+    writeFileSync('test-results/mainnet-swap-recovery-grant.json', JSON.stringify({
+      sourceRunId: original.sourceRunId, recoveryRunId: runId, originalNoteId: authority.noteId,
+      originalRequestSha256: authority.sha256, originalCanonicalSha256: authority.canonicalSha256,
+      originalExpiresAt: authority.expiresAt, originalPricedAt: original.pricedAt,
+      recordedOrderId: authority.orderId, verifiedProtocolOrderId: proof.orderId,
+      returnAmount: state.returnAmount, recoveryReturnAuthorizedAt: state.recoveryReturnAuthorizedAt,
+      returnExpiresAt: mainnetSwapRequestExpiresAt(state, 'reverse'),
+      aggregateNativeCosts: state.paidFees, originalFeeBudget: state.feeBudget,
+      paybackNoteId: proof.noteId, paybackCreatedAtBlock: proof.createdAtBlock, paybackClaimedAtBlock: proof.claimedAtBlock
+    }, null, 2));
+    return;
+  }
+  if (mode === 'recover' && state?.recoveryReturnAuthorizedAt !== undefined && state.recoveredRunId === runId && state.authorizationRunId === runId) {
+    if (process.env.MAINNET_SWAP_RECOVERY_RETURN_APPROVED !== 'true' || state.phase !== 'reverse-authorized' || state.reverseRequestAuthority || state.reverseOrderId || Date.now() >= mainnetSwapRequestExpiresAt(state, 'reverse'))
+      throw new Error('Fresh recovery grant changed, expired or already used; never renew it');
+    if (!process.env.GITHUB_OUTPUT) throw new Error('Missing workflow recovery output channel');
+    appendFileSync(process.env.GITHUB_OUTPUT, 'recovery_only=true\n');
+    return;
+  }
   if (mode === 'prepare') {
     if (
       state?.recoveredRunId === runId ||
@@ -592,7 +689,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
         amount: amount.toString(),
         requestedFaucetId: requested.hex,
         requestedAmount: reviewed.minimumReceive,
-        expiresAt: Date.parse(authorized.pricedAt) + (leg === 'forward' ? 300_000 : 600_000)
+        expiresAt: mainnetSwapRequestExpiresAt(authorized, leg)
       });
       return async () => {
         const controller = new AbortController();

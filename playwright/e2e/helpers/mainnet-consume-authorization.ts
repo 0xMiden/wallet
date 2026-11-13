@@ -17,8 +17,25 @@ export interface MainnetConsumeHandle {
   noteId: string;
   canonicalSha256: string;
 }
+export async function blockMainnetConsumeAuthorization(page: Pick<Page, 'evaluate'>): Promise<void> {
+  await page.evaluate(async key => {
+    const requiredKey = `${key}_required`;
+    const stored = await chrome.storage.local.get([key, requiredKey]);
+    const marker = stored[requiredKey];
+    const blocked =
+      marker &&
+      typeof marker === 'object' &&
+      !Array.isArray(marker) &&
+      Object.keys(marker).length === 1 &&
+      marker.status === 'blocked';
+    if (stored[key] !== undefined || (marker !== undefined && !blocked))
+      throw new Error('Unresolved existing native authorization');
+    await chrome.storage.local.set({ [requiredKey]: { status: 'blocked' } });
+  }, KEY);
+}
+
 export async function armMainnetConsumeAuthorization(
-  page: Page,
+  page: Pick<Page, 'evaluate'>,
   scope: Omit<MainnetConsumeHandle, 'nonce'>
 ): Promise<MainnetConsumeHandle> {
   if (
@@ -32,7 +49,14 @@ export async function armMainnetConsumeAuthorization(
     async ({ key, handle }) => {
       const requiredKey = `${key}_required`;
       const stored = await chrome.storage.local.get([key, requiredKey]);
-      if (stored[key] !== undefined || stored[requiredKey] !== undefined)
+      const marker = stored[requiredKey];
+      const blocked =
+        marker &&
+        typeof marker === 'object' &&
+        !Array.isArray(marker) &&
+        Object.keys(marker).length === 1 &&
+        marker.status === 'blocked';
+      if (stored[key] !== undefined || (marker !== undefined && !blocked))
         throw new Error('Unresolved existing native authorization');
       await chrome.storage.local.set({
         [key]: { ...handle, status: 'armed' },

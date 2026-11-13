@@ -22,6 +22,10 @@ on:
         description: Validate swap, Epoch and NEAR without the legacy send, USDCx or AggLayer loops.
         type: boolean
         default: false
+      authorize_swap_recovery_return:
+        description: Explicit first recovery-return grant for verified proceeds only; requires swaps_only and runs no fresh loops.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -43,6 +47,7 @@ jobs:
       legacy_cleared: ${{ steps.legacy-barrier.outputs.legacy_cleared }}
     env:
       E2E_NETWORK: mainnet
+      MAINNET_SWAP_RECOVERY_RETURN_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_swap_recovery_return && 'true' || 'false' }}
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
       E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
@@ -58,6 +63,9 @@ jobs:
           [ "$GITHUB_RUN_ATTEMPT" = 1 ]
           if [ "$SWAPS_ONLY" = true ] && [ "$LOOPS_ONLY" = true ]; then
             echo 'Choose swaps_only or loops_only, not both.' >&2; exit 1
+          fi
+          if [ "$MAINNET_SWAP_RECOVERY_RETURN_APPROVED" = true ] && { [ "$SWAPS_ONLY" != true ] || [ "$LOOPS_ONLY" = true ]; }; then
+            echo 'Explicit first recovery return requires swaps_only and forbids fresh combined loops.' >&2; exit 1
           fi
       - uses: actions/checkout@v4
         with:
@@ -184,6 +192,11 @@ jobs:
           echo 'Owned provider overlay did not become ready.' >&2; exit 1
       - name: Build the extension for mainnet
         run: yarn test:e2e:blockchain:build
+      - name: Prepare explicitly approved first swap recovery return
+        if: github.event_name == 'workflow_dispatch' && inputs.authorize_swap_recovery_return
+        run: |
+          umask 077
+          MAINNET_SWAP_MODE=authorize-recovery-return E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-operator-prepare-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-operator-prepare.log" 2>&1 || { echo 'First recovery-return authorization blocked; original authority retained.' >&2; exit 1; }
       - name: Recover prior mainnet swap
         id: swap-recover
         env:
@@ -225,6 +238,15 @@ jobs:
           artifact-name: mainnet-swap-reverse-sdk-authorized-${{ github.run_id }}
           process-id: ${{ runner.temp }}/swap-recovered-return.pid
           snapshot-directory: ${{ runner.temp }}/swap-recovered-return-auth
+      - name: Upload recovered swap SDK return claim authority
+        if: steps.swap-recovery-return.outputs.required == 'true'
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: test-results/mainnet-swap-state/roundtrip.json
+          gate: test-results/mainnet-swap-state/roundtrip.json.reverse.sdk.claim
+          artifact-name: mainnet-swap-reverse-claim-sdk-authorized-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/swap-recovered-return.pid
+          snapshot-directory: ${{ runner.temp }}/swap-recovered-return-claim-auth
       - name: Wait for recovered swap return
         if: steps.swap-recovery-return.outputs.required == 'true'
         timeout-minutes: 31
@@ -429,6 +451,15 @@ jobs:
           artifact-name: mainnet-swap-forward-sdk-authorized-${{ github.run_id }}
           process-id: ${{ runner.temp }}/swap-forward.pid
           snapshot-directory: ${{ runner.temp }}/swap-forward-auth
+      - name: Upload swap SDK forward claim authority
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: test-results/mainnet-swap-state/roundtrip.json
+          gate: test-results/mainnet-swap-state/roundtrip.json.forward.sdk.claim
+          artifact-name: mainnet-swap-forward-claim-sdk-authorized-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/swap-forward.pid
+          snapshot-directory: ${{ runner.temp }}/swap-forward-claim-auth
       - name: Wait for mainnet swap forward
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
         timeout-minutes: 31
@@ -458,6 +489,15 @@ jobs:
           artifact-name: mainnet-swap-reverse-sdk-authorized-${{ github.run_id }}
           process-id: ${{ runner.temp }}/swap-reverse.pid
           snapshot-directory: ${{ runner.temp }}/swap-reverse-auth
+      - name: Upload swap SDK reverse claim authority
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: test-results/mainnet-swap-state/roundtrip.json
+          gate: test-results/mainnet-swap-state/roundtrip.json.reverse.sdk.claim
+          artifact-name: mainnet-swap-reverse-claim-sdk-authorized-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/swap-reverse.pid
+          snapshot-directory: ${{ runner.temp }}/swap-reverse-claim-auth
       - name: Wait for mainnet swap return
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
         timeout-minutes: 31
@@ -696,6 +736,7 @@ jobs:
             test-results/mainnet-spend.json
             test-results/mainnet-swap-summary.json
             test-results/mainnet-swap-summary.md
+            test-results/mainnet-swap-recovery-grant.json
             test-results/mainnet-epoch-summary.json
             test-results/mainnet-near-summary.json
             test-results/mainnet-epoch-recovery.json
