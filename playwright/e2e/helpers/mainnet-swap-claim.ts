@@ -148,7 +148,10 @@ export function authorizeMainnetSwapRecoveryReturn(
   const loss = BigInt(state.principal) - BigInt(state.reverseMinimum);
   const projected =
     ((loss > 0n ? loss : 0n) * price + unit - 1n) / unit + (BigInt(state.feeBudget) * price + unit - 1n) / unit;
-  if (projected > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP) || (BigInt(state.reverseMinimum) * price) / unit < 1_000_000n)
+  if (
+    projected > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP) ||
+    (BigInt(state.reverseMinimum) * price) / unit < 1_000_000n
+  )
     throw new Error('Original recovery price envelope exceeds the loss budget or wallet minimum');
   return {
     ...state,

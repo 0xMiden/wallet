@@ -210,6 +210,7 @@ async function prepare(
           });
           // Bound even an unexpected zero-value fill, not just the quoted spread.
           if (
+            plan.worstCaseLossUsdMicros > allowance ||
             swapValue(holding(offer), amount) +
               swapValue(holding(live.native), 6n * SWAP_TX_FEE_MULTIPLE * live.baseFee) >
             allowance
