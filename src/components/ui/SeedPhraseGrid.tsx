@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Hero } from 'components/ui/Hero';
+import { Pill } from 'components/ui/Pill';
+import { revealMaskApplies } from 'lib/ui/useRevealMask';
 import { cn } from 'lib/ui/util';
 
 const WORD_COUNT = 12;
@@ -11,6 +13,11 @@ const WORD_COUNT = 12;
 export interface SeedPhraseGridProps {
   /** The words, in order. */
   words: string[];
+  /**
+   * Draw bars in place of the words. The words are left out of the DOM entirely, since a blurred
+   * word is still readable from the markup and recoverable by matching it against the word list.
+   */
+  masked?: boolean;
   /** Layout only (margins). */
   className?: string;
   'data-testid'?: string;
@@ -21,20 +28,42 @@ export interface SeedPhraseGridProps {
  * numbered columns. The number is part of the phrase — it is how the user checks they wrote it
  * down in order — so every screen that shows the words shows them the same way.
  */
-export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({ words, className, 'data-testid': dataTestId }) => (
-  <div data-testid={dataTestId} className={cn('rounded-2xl bg-fill p-5', className)}>
-    <div className="grid grid-cols-3 gap-x-4 gap-y-5">
-      {words.map((word, idx) => (
-        <div key={idx} className="flex min-w-0 items-center gap-2">
-          <span className="w-5 text-right text-caption text-muted">{idx + 1}.</span>
-          <span data-testid={`seed-word-${idx}`} className="text-value text-ink">
-            {word}
-          </span>
-        </div>
-      ))}
+export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({
+  words,
+  masked = false,
+  className,
+  'data-testid': dataTestId
+}) => {
+  const { t } = useTranslation();
+
+  return (
+    <div
+      data-testid={dataTestId}
+      className={cn('rounded-2xl bg-fill p-5', className)}
+      data-masked={masked ? 'true' : undefined}
+      role={masked ? 'group' : undefined}
+      aria-label={masked ? t('recoveryPhraseHidden') : undefined}
+    >
+      <div className="grid grid-cols-3 gap-x-4 gap-y-5">
+        {words.map((word, idx) => (
+          <div key={idx} className="flex min-w-0 items-center gap-2">
+            <span className="w-5 text-right text-caption text-muted">{idx + 1}.</span>
+            {masked ? (
+              // As tall as a word's 20px line, so Show and Hide do not move the grid.
+              <span aria-hidden="true" className="flex h-5 flex-1 items-center">
+                <span className="h-1.5 w-full rounded-full bg-fill-pressed" />
+              </span>
+            ) : (
+              <span data-testid={`seed-word-${idx}`} className="text-value text-ink">
+                {word}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export interface SeedPhrasePlaceholderProps {
   /** Layout only (margins). */
@@ -78,5 +107,30 @@ export const SeedPhrasePrivacyHero: React.FC<SeedPhrasePrivacyHeroProps> = ({ cl
       name={t('viewThisInPrivatePlace')}
       subtitle={t('anyoneWithRecoveryPhrase')}
     />
+  );
+};
+
+export interface SeedRevealToggleProps {
+  revealed: boolean;
+  onToggle: () => void;
+  /** Layout only (margins, alignment). */
+  className?: string;
+}
+
+/** Show/Hide for a masked phrase. Mobile shows the words at once, so it draws nothing there. */
+export const SeedRevealToggle: React.FC<SeedRevealToggleProps> = ({ revealed, onToggle, className }) => {
+  const { t } = useTranslation();
+  if (!revealMaskApplies()) return null;
+
+  return (
+    <Pill
+      className={className}
+      icon={<Icon name={revealed ? IconName.EyeOff : IconName.Eye} fill="currentColor" />}
+      selected={revealed}
+      onClick={onToggle}
+      data-testid="seed-reveal-toggle"
+    >
+      {t(revealed ? 'hide' : 'show')}
+    </Pill>
   );
 };

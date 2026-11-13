@@ -5,7 +5,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
-import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
+import {
+  GUARDIAN_ACCOUNT_NOT_FOUND,
+  GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
+  GUARDIAN_RECOVERY_UNVERIFIED
+} from 'lib/miden/sdk/guardian-recovery-errors';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import {
   type GuardianProbeState,
@@ -2557,6 +2561,32 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'confirmation' });
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
     expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianUrlUnreachable');
+  });
+
+  // The refusal text is already localized and says what to do; a network-sounding word in it must not route it to the
+  // operator notice.
+  it.each([
+    [
+      GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
+      'Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again.'
+    ],
+    [GUARDIAN_RECOVERY_UNVERIFIED, 'Your accounts could not be restored: the account check timed out.']
+  ])('keeps the %s recovery refusal message instead of the operator notice', async (code, message) => {
+    mockRegisterWallet.mockRejectedValue(Object.assign(new Error(message), { code }));
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe(message);
   });
 
   it('maps an RPC timeout to the guardianUrlUnreachable notice', async () => {

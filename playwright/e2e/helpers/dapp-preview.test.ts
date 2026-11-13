@@ -94,16 +94,14 @@ describe('expectVerifiedPreview', () => {
     ]);
   });
 
-  it('records a declared view as soft evidence for the cell, and asserts nothing more', async () => {
+  it('fails the cell when the popup has no simulated view, since its approval stays blocked', async () => {
     const softFail = jest.fn();
-    await expectVerifiedPreview(
-      fakePopup(0),
-      { amount: null, outputNotes: 0, storageChanged: false },
-      ctxWith(softFail)
-    );
+    const ctx = ctxWith(softFail);
+    await expect(
+      expectVerifiedPreview(fakePopup(0), { amount: null, outputNotes: 0, storageChanged: false }, ctx)
+    ).rejects.toThrow('no simulated view, so the approval stays blocked; simulation failed shown: true');
     expect(mockRecorded).toEqual([OUTCOME]);
-    expect(softFail).toHaveBeenCalledWith('preview-verified', 'declared view, simulation failed shown: true', {
-      previewSimulationFailed: true
-    });
+    expect(softFail).not.toHaveBeenCalled();
+    expect(ctx.evidence).toEqual({ previewSimulationFailed: true });
   });
 });

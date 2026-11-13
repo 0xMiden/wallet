@@ -12,7 +12,12 @@ import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
-import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
+import {
+  SeedPhraseGrid,
+  SeedPhrasePlaceholder,
+  SeedPhrasePrivacyHero,
+  SeedRevealToggle
+} from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
@@ -24,6 +29,7 @@ import { useWalletStore } from 'lib/store';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { useRevealMask } from 'lib/ui/useRevealMask';
 
 import { SEED_STATE_NOTICE } from './seed-state-notice';
 
@@ -53,7 +59,7 @@ const RevealSeedPhrase: FC = () => {
   // hook. `history.go(-1)` settles on a later task, so two exits in one visit would
   // each pop a page (Settings too); the hook fires once per location as a safety
   // net, and routes to the Settings root when the page was opened cold.
-  const popPage = useBackWithFallback('/settings');
+  const popPage = useBackWithFallback('/me');
   // Leaving must INVALIDATE an in-flight reveal, not merely navigate. Close and the
   // back arrow stay live while the biometric prompt is up, and `history.go(-1)`
   // settles on a later task, so a reveal that resolves in between would otherwise
@@ -81,6 +87,7 @@ const RevealSeedPhrase: FC = () => {
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard(secret !== null);
+  const mask = useRevealMask({ resetKey: secret });
 
   const {
     register,
@@ -347,7 +354,9 @@ const RevealSeedPhrase: FC = () => {
       >
         {isGuardReady && (
           <SubPageSection className="gap-3">
-            <SeedPhraseGrid words={words} />
+            <SeedPhraseGrid words={words} masked={mask.masked} />
+
+            <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />
 
             {/* Copy is the shared Pill, drawn with the copy glyph and label over useClipboardCopy. */}
             <Pill

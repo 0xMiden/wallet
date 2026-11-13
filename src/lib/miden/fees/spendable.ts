@@ -253,13 +253,17 @@ export function maxSendableNativeBaseUnits(balanceBaseUnits: bigint, verificatio
  *
  * Both arguments are in the asset's smallest unit -- note amounts arrive from the
  * chain unscaled, so unlike the send cap there is no decimals conversion here.
- * Fails open on an unknown fee: refusing to claim during startup strands value.
+ * The fee comes from `getClaimFloorBaseFee`/`useClaimFloorBaseFee`, which read 0 on a
+ * chain proven fee-free, so null means unknown and the unattended claim waits for it.
  */
 export function isWorthClaiming(
   amount: bigint | string | null | undefined,
   verificationBaseFee: number | null
 ): boolean {
-  if (verificationBaseFee === null || verificationBaseFee <= 0) {
+  if (verificationBaseFee === null) {
+    return false;
+  }
+  if (verificationBaseFee <= 0) {
     return true;
   }
   // Callers run this inside unattended loops over chain-supplied data, so an
@@ -278,6 +282,27 @@ export function isWorthClaiming(
   // `Math.trunc` before `BigInt`: a non-integral fee would throw a RangeError here,
   // and this expression sits OUTSIDE the try above.
   return parsed > BigInt(Math.trunc(verificationBaseFee)) * BigInt(CLAIM_COST_FEE_MULTIPLE);
+}
+
+/**
+ * Keys already logged for an unknown claim floor. One set for every unattended caller, so a shared key
+ * (Home and the mobile auto-consumer) logs once per realm. A non-null fee forgets its key.
+ */
+const unknownClaimFloorKeys = new Set<string>();
+
+/**
+ * One line the first time an unattended pass skips native notes because the claim floor is unknown.
+ * `hadNativeCandidate` is that pass's filtered native batch: empty stays silent, and so does a known
+ * fee, including one the batch does not clear. The next unknown stretch logs once more.
+ */
+export function noteUnknownClaimFloor(key: string, claimFloorFee: number | null, hadNativeCandidate: boolean): void {
+  if (claimFloorFee !== null) {
+    unknownClaimFloorKeys.delete(key);
+    return;
+  }
+  if (!hadNativeCandidate || unknownClaimFloorKeys.has(key)) return;
+  unknownClaimFloorKeys.add(key);
+  console.debug('[claim-floor] claim skipped, fee unknown', key);
 }
 
 /**

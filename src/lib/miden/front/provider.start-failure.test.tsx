@@ -6,7 +6,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('lib/platform', () => ({
   isExtension: () => false,
-  isMobile: () => false
+  isMobile: () => false,
+  isDesktop: () => false
 }));
 
 jest.mock('../sdk/miden-client', () => ({

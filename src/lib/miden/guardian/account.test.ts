@@ -10,11 +10,13 @@
 
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+import { isExtension } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import {
   assertGuardianKeyCommitment,
   createGuardianAccount,
+  deriveGuardianAccountSeed,
   fetchGuardianCreateKey,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
@@ -24,6 +26,7 @@ import {
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from './account';
+import { guardianAccountConfig } from './account-recipe';
 import { bindFeeFaucetClientScope } from '../sdk/sync-and-record-fee-faucet';
 jest.mock('lib/miden-chain/native-asset', () => ({
   cacheScope: () => 'rpc|testnet',
@@ -132,12 +135,13 @@ jest.mock('@miden-sdk/miden-sdk', () => {
 });
 
 // Only isExtension is steered; the rest of the module (isMobile for the native
-// HTTP origin) stays real.
-const mockIsExtension = jest.fn(() => false);
+// HTTP origin) stays real. The mock is created inside the factory because
+// lib/i18n reads it while the suite's imports load, before any const here exists.
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isExtension: () => mockIsExtension()
+  isExtension: jest.fn(() => false)
 }));
+const mockIsExtension = jest.mocked(isExtension);
 
 const mockAlarmsCreate = jest.fn(async (_name: string, _info: { periodInMinutes?: number }) => {});
 const mockAlarmsClear = jest.fn(async (_name: string) => true);
@@ -451,6 +455,39 @@ describe('guardianProviderFromEndpoint', () => {
   });
 });
 
+const HOT_COMMITMENT = `0x${'cd'.repeat(32)}`;
+const GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
+
+describe('deriveGuardianAccountSeed', () => {
+  const coldSeed = Uint8Array.from({ length: 32 }, (_, i) => i);
+
+  it('matches the pinned SHA-256 vector over the domain, the cold seed and the hot and guardian commitments', async () => {
+    const out = await deriveGuardianAccountSeed(coldSeed, HOT_COMMITMENT, GUARDIAN_COMMITMENT);
+    expect(out).toHaveLength(32);
+    expect(Buffer.from(out).toString('hex')).toBe('926d17625275c4cc9da1f472cf7094010e37cdb0da73e0e132dbfab1a24062c8');
+  });
+
+  it('reads a key commitment in any case or prefix', async () => {
+    const seed = await deriveGuardianAccountSeed(coldSeed, `0X${'CD'.repeat(32)}`, 'AB'.repeat(32));
+    expect(seed).toEqual(await deriveGuardianAccountSeed(coldSeed, HOT_COMMITMENT, GUARDIAN_COMMITMENT));
+  });
+
+  it('gives another seed for another hot or guardian key', async () => {
+    const seed = await deriveGuardianAccountSeed(coldSeed, HOT_COMMITMENT, GUARDIAN_COMMITMENT);
+    const other = `0x${'ef'.repeat(32)}`;
+    expect(await deriveGuardianAccountSeed(coldSeed, other, GUARDIAN_COMMITMENT)).not.toEqual(seed);
+    expect(await deriveGuardianAccountSeed(coldSeed, HOT_COMMITMENT, other)).not.toEqual(seed);
+  });
+
+  it.each(['0xhot-commit', 'cd'.repeat(31), `${'cd'.repeat(32)}00`])(
+    'refuses a key commitment that is not 32-byte hex: %s',
+    async bad => {
+      await expect(deriveGuardianAccountSeed(coldSeed, bad, GUARDIAN_COMMITMENT)).rejects.toThrow('32-byte hex');
+      await expect(deriveGuardianAccountSeed(coldSeed, HOT_COMMITMENT, bad)).rejects.toThrow('32-byte hex');
+    }
+  );
+});
+
 describe('createGuardianAccount', () => {
   const ACCOUNT_STATE = new Uint8Array([7, 8, 9]);
   const makeMultisig = () => ({
@@ -493,7 +530,7 @@ describe('createGuardianAccount', () => {
     mockGenerateHotKey.mockResolvedValue({
       ciphertext: 'hot-ciphertext-hex',
       publicKeyHex: 'hot-pubkey-hex',
-      commitmentHex: '0xhot-commit'
+      commitmentHex: HOT_COMMITMENT
     });
   });
 
@@ -511,12 +548,12 @@ describe('createGuardianAccount', () => {
       expect.objectContaining({
         threshold: 1,
         // Hot first, cold second — order is load-bearing for downstream role routing.
-        signerCommitments: ['0xhot-commit', '0xcommit-s1-2-3-4'],
-        guardianCommitment: `0x${'ab'.repeat(32)}`,
+        signerCommitments: [HOT_COMMITMENT, '0xcommit-s1-2-3-4'],
+        guardianCommitment: GUARDIAN_COMMITMENT,
         guardianPublicKey: 'g-pubkey',
         storageMode: 'private',
         signatureScheme: 'ecdsa',
-        seed
+        seed: await deriveGuardianAccountSeed(seed, HOT_COMMITMENT, GUARDIAN_COMMITMENT)
       }),
       expect.anything()
     );
@@ -542,6 +579,23 @@ describe('createGuardianAccount', () => {
     expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
+  it('createGuardianAccount builds from the config the recovery rebuild uses', async () => {
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+    const seed = new Uint8Array([1, 2, 3, 4]);
+
+    await createAndRegister(makeWebClient(), seed);
+
+    expect(multisigClientConfig.create.mock.calls[0]?.[0]).toEqual(
+      guardianAccountConfig({
+        hotCommitment: HOT_COMMITMENT,
+        coldCommitment: '0xcommit-s1-2-3-4',
+        guardianCommitment: GUARDIAN_COMMITMENT,
+        guardianPublicKey: 'g-pubkey',
+        initSeed: await deriveGuardianAccountSeed(seed, HOT_COMMITMENT, GUARDIAN_COMMITMENT)
+      })
+    );
+  });
+
   it('creates the account on the normalized commitment of an unprefixed uppercase Guardian key', async () => {
     multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: 'AB'.repeat(32), pubkey: 'g-pubkey' });
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
@@ -565,6 +619,118 @@ describe('createGuardianAccount', () => {
     const seedArg = ecdsaCall.mock.calls[0]?.[0];
     expect(seedArg).toBeInstanceOf(Uint8Array);
     expect((seedArg as Uint8Array).length).toBe(32);
+  });
+
+  it('passes the builder a derived seed, never the cold seed the cold key comes from', async () => {
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+    const coldSeed = Uint8Array.from({ length: 32 }, (_, i) => i);
+
+    await createAndRegister(makeWebClient(), coldSeed);
+
+    const config = multisigClientConfig.create.mock.calls[0]?.[0] as { seed: Uint8Array };
+    expect(Array.from(config.seed)).toEqual(
+      Array.from(await deriveGuardianAccountSeed(coldSeed, HOT_COMMITMENT, GUARDIAN_COMMITMENT))
+    );
+    expect(Array.from(config.seed)).not.toEqual(Array.from(coldSeed));
+    const ecdsaCall = jest.requireMock('@miden-sdk/miden-sdk/lazy').AuthSecretKey.ecdsaWithRNG;
+    expect(ecdsaCall).toHaveBeenCalledWith(coldSeed);
+  });
+
+  it('derives the builder seed from the random cold seed when none is provided', async () => {
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+
+    await createAndRegister(makeWebClient());
+
+    const ecdsaCall = jest.requireMock('@miden-sdk/miden-sdk/lazy').AuthSecretKey.ecdsaWithRNG;
+    const coldSeed = ecdsaCall.mock.calls[0]?.[0] as Uint8Array;
+    const config = multisigClientConfig.create.mock.calls[0]?.[0] as { seed: Uint8Array };
+    expect(Array.from(config.seed)).not.toEqual(Array.from(coldSeed));
+    expect(Array.from(config.seed)).toEqual(
+      Array.from(await deriveGuardianAccountSeed(coldSeed, HOT_COMMITMENT, GUARDIAN_COMMITMENT))
+    );
+  });
+
+  // The hold is re-checked before either key is minted, and the digest, which needs the hot key,
+  // runs after both keys and before the re-check that guards the build.
+  it('re-checks the hold before minting and derives the account seed from both keys before the build', async () => {
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+    const createKey = await fetchGuardianCreateKey();
+    const coldSeed = Uint8Array.from({ length: 32 }, (_, i) => i);
+    const order: string[] = [];
+    jest
+      .requireMock('@miden-sdk/miden-sdk/lazy')
+      .AuthSecretKey.ecdsaWithRNG.mockImplementationOnce((seed: Uint8Array) => {
+        order.push('cold');
+        return buildStubKey(`s${Array.from(seed).join('-')}`);
+      });
+    mockGenerateHotKey.mockImplementationOnce(async () => {
+      order.push('hot');
+      return { ciphertext: 'hot-ciphertext-hex', publicKeyHex: 'hot-pubkey-hex', commitmentHex: HOT_COMMITMENT };
+    });
+    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
+    const digest = jest.spyOn(crypto.subtle, 'digest').mockImplementation((algorithm, data) => {
+      order.push('digest');
+      return realDigest(algorithm, data);
+    });
+
+    try {
+      await createGuardianAccount(makeWebClient() as never, createKey, coldSeed, step => {
+        if (step === 'before the keys') order.push('keys');
+        if (step === 'before the account build') order.push('build');
+      });
+    } finally {
+      digest.mockRestore();
+    }
+
+    expect(order).toEqual(['keys', 'cold', 'hot', 'digest', 'build']);
+    const config = multisigClientConfig.create.mock.calls[0]?.[0] as { seed: Uint8Array };
+    expect(Array.from(config.seed)).toEqual(
+      Array.from(await deriveGuardianAccountSeed(coldSeed, HOT_COMMITMENT, GUARDIAN_COMMITMENT))
+    );
+  });
+
+  it('mints nothing when the hold is dead before the keys', async () => {
+    const createKey = await fetchGuardianCreateKey();
+    const poison = new WasmClientPoisonedError('watchdog', new Error('evicted before the keys'));
+
+    const outcome = await createGuardianAccount(makeWebClient() as never, createKey, new Uint8Array(32), step => {
+      if (step === 'before the keys') throw poison;
+    }).then(
+      () => 'resolved',
+      (error: unknown) => error
+    );
+
+    expect(mockGenerateHotKey).not.toHaveBeenCalled();
+    expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
+    expect(outcome).toBe(poison);
+  });
+
+  it('builds nothing when the account-seed digest rejects', async () => {
+    const createKey = await fetchGuardianCreateKey();
+    const digest = jest.spyOn(crypto.subtle, 'digest').mockRejectedValueOnce(new Error('digest failed'));
+
+    try {
+      await expect(createGuardianAccount(makeWebClient() as never, createKey, new Uint8Array(32))).rejects.toThrow(
+        'Failed to create Guardian account'
+      );
+    } finally {
+      digest.mockRestore();
+    }
+
+    expect(multisigClientConfig.create).not.toHaveBeenCalled();
+  });
+
+  it('builds nothing for a hot key whose commitment is not 32-byte hex', async () => {
+    mockGenerateHotKey.mockResolvedValueOnce({
+      ciphertext: 'hot-ciphertext-hex',
+      publicKeyHex: 'hot-pubkey-hex',
+      commitmentHex: '0xhot-commit'
+    });
+
+    await expect(createAndRegister(makeWebClient(), new Uint8Array(32))).rejects.toThrow(
+      'Failed to create Guardian account'
+    );
+    expect(multisigClientConfig.create).not.toHaveBeenCalled();
   });
 
   it('falls back to the effective network default when no override is supplied', async () => {
