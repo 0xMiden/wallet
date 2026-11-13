@@ -5,17 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  background-regression:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/background.test.ts --maxWorkers=2
-  chrome-build-inspection:
+  compiled-startup-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -25,9 +15,11 @@ jobs:
           node-version: 22
       - uses: ./.github/actions/yarn-install
       - run: MIDEN_E2E_TEST=true yarn build:chrome
+      - run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: passkey-worker-prebarrier
+          name: passkey-worker-prefix-proof
           path: |
             dist/chrome_unpacked/background.js
             dist/chrome_unpacked/background.js.map
