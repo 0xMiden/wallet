@@ -1,4 +1,4 @@
-import { buildSwapTag, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { buildSwapTag, NoteFile, NoteId, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteExportType } from 'lib/miden/sdk/constants';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
@@ -174,6 +174,28 @@ export function installSwapConsumeHooks(): void {
       );
     } catch (e) {
       return { ok: false, error: describeHookError(e) };
+    }
+  };
+
+  (globalThis as any).__TEST_IMPORT_PUBLIC_NOTE__ = async (requestedId: string) => {
+    try {
+      return await withWasmClientLock(
+        async hold => {
+          const mc = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'public input import after client build');
+          const id = NoteId.fromHex(requestedId);
+          const expected = id.toString();
+          const imported = await mc.importNoteBytes(NoteFile.fromNoteId(id).serialize(), hold);
+          assertWasmHoldCurrent(hold, 'public input import after RPC');
+          if (imported !== expected) throw new Error('Public note import identity changed');
+          await mc.syncState(() => assertWasmHoldCurrent(hold, 'public input import inside sync'));
+          assertWasmHoldCurrent(hold, 'public input import after sync');
+          return { ok: true, noteId: expected };
+        },
+        { label: 'public-input-note-import' }
+      );
+    } catch (error) {
+      return { ok: false, error: describeHookError(error) };
     }
   };
 

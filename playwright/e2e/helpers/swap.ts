@@ -361,6 +361,17 @@ export async function readMakerNoteId(maker: Wallet, orderId: string): Promise<s
   return sent.filter(s => s.fullId && s.fullId !== '?' && !s.isFee).find(s => s.orderId === orderId)?.fullId;
 }
 
+export async function exportPublicInputNote(wallet: Wallet, noteId: string): Promise<string> {
+  const result = await swOf(wallet).evaluate(async id => {
+    const hook = Reflect.get(globalThis, '__TEST_IMPORT_PUBLIC_NOTE__');
+    if (typeof hook !== 'function') throw new Error('Missing public input note discovery hook');
+    return (await Reflect.apply(hook, globalThis, [id])) as { ok: boolean; noteId?: string; error?: string };
+  }, noteId);
+  if (!result.ok || result.noteId !== noteId)
+    throw new Error(`Verified public claim note discovery failed (${result.error ?? 'identity mismatch'})`);
+  return await exportMakerNote(wallet, noteId);
+}
+
 /**
  * Export the maker's note as a Full NoteFile (hex) for a deterministic taker
  * handoff. A Full NoteFile needs the note COMMITTED (with an inclusion proof);
