@@ -46,19 +46,24 @@ it('renders an exact QR payload first, exposes no secret attribute, and switches
   expect(view.container.innerHTML).toBe('');
 });
 
-it('draws bars and neither the QR nor the keys while masked', () => {
+it('draws bars and neither the QR, the keys nor the view switch while masked', () => {
   const hot = 'ab'.repeat(32);
   const evm = 'cd'.repeat(32);
   const view = render(<PrivateKeyPair payload={`${hot}:${evm}`} masked />);
   expect(screen.queryByRole('img', { name: 'privateKeyPairQr' })).toBeNull();
   expect(view.container.querySelectorAll('canvas')).toHaveLength(0);
   expect(view.container.querySelector('[data-masked="true"]')).not.toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'showPrivateKeyText' }));
+  expect(screen.queryByRole('button', { name: 'showPrivateKeyText' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'showQrCode' })).toBeNull();
   expect(screen.queryAllByRole('textbox')).toHaveLength(0);
   expect(view.container.innerHTML).not.toContain(hot);
   expect(view.container.innerHTML).not.toContain(evm);
   view.rerender(<PrivateKeyPair payload={`${hot}:${evm}`} masked={false} />);
+  expect(screen.getByRole('img', { name: 'privateKeyPairQr' })).toBeInTheDocument();
+  expect(screen.queryAllByRole('textbox')).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: 'showPrivateKeyText' }));
   expect(screen.getByLabelText('midenHotPrivateKey')).toHaveValue(hot);
+  expect(screen.getByLabelText('evmPrivateKey')).toHaveValue(evm);
 });
 
 jest.mock('lib/telemetry/user-visible-error', () => ({

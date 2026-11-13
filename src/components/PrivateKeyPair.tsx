@@ -81,12 +81,14 @@ export function PrivateKeyPair({ payload, masked = false }: { payload: string; m
           className="bg-pure-white rounded-lg"
         />
       )}
-      <Button
-        variant={ButtonVariant.Secondary}
-        className="mt-auto w-full mb-6"
-        title={t(textMode ? 'showQrCode' : 'showPrivateKeyText')}
-        onClick={() => setTextMode(value => !value)}
-      />
+      {!masked && (
+        <Button
+          variant={ButtonVariant.Secondary}
+          className="mt-auto w-full mb-6"
+          title={t(textMode ? 'showQrCode' : 'showPrivateKeyText')}
+          onClick={() => setTextMode(value => !value)}
+        />
+      )}
     </div>
   );
 }
