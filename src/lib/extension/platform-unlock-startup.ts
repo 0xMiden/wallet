@@ -21,6 +21,10 @@ export function ensureTrustedPlatformStorage(): Promise<boolean> {
   return protection;
 }
 
+export async function ensurePlatformUnlockStartup(): Promise<void> {
+  await ensureTrustedPlatformStorage();
+}
+
 export async function getPlatformUnlockAvailability(): Promise<boolean> {
   return (await ensureTrustedPlatformStorage()) && getPlatformUnlockSupport();
 }

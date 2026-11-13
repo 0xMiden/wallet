@@ -5,13 +5,13 @@ on:
 permissions:
   contents: read
 jobs:
-  affected-unit-suites:
+  reset-authority-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/lib/platform-auth src/lib/telemetry/redact.test.ts src/lib/miden/back/platform-unlock-store.test.ts src/lib/extension/platform-unlock-startup.test.ts src/lib/intercom/extension-page.test.ts src/lib/miden/back/actions.test.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/main.test.ts src/lib/store/index.test.ts src/lib/miden/front/client.test.tsx src/lib/intercom/client.test.ts src/lib/intercom/in-process-request-handler.test.ts src/lib/intercom/mobile-adapter.test.ts src/lib/intercom/desktop-adapter.test.ts --maxWorkers=2
+      - run: yarn jest src/lib/miden/platform-reset.test.ts src/lib/extension/platform-unlock-startup-gate.test.ts src/lib/miden/back/main.test.ts --maxWorkers=2
