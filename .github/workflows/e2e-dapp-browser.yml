@@ -1,4 +1,4 @@
-name: Configuration-path regression (expected red)
+name: Configuration-path regression (expected green)
 
 # Diagnostic QA branch only; never a wallet merge gate or runtime adoption.
 on:
@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ripgrep
-      - name: Verify frozen source and run configuration-path regression (expected red)
+      - name: Verify frozen source and run configuration-path regression (expected green)
         shell: bash
         env:
           EXPECTED_SOURCE: ${{ inputs.expected_source }}
@@ -45,7 +45,7 @@ jobs:
           archive="$GITHUB_WORKSPACE/.github/qa/2027-timeout-origin-runtime.zip"
           sha256sum "$archive" | tee -a "$proof"
           printf '%s  %s\n' \
-            '01ac99de6bf93e86c7cb8156400ffc6a87d8eb1652712be44adafe8ef4746024' "$archive" \
+            'dba8a1b618194daf7e6c0581b834511cd49cd3af5f278e001fedb4c95b792912' "$archive" \
             | sha256sum --check --strict | tee -a "$proof"
           candidate=$(mktemp -d "$RUNNER_TEMP/2027-timeout-candidate.XXXXXX")
           # The hash-pinned archive has 171 regular files, all under runtime-0.9.0.
@@ -55,7 +55,7 @@ jobs:
             runtime-0.9.0/tests/test_prepare_timeout_origin.py \
             runtime-0.9.0/tests/test_source_config_paths.py | tee -a "$proof"
           printf '%s\n' \
-            'f8851ceb7a40053c194524162a6850beab6495d2002f0865149271daeddcd905  runtime-0.9.0/scripts/rev-evidence.py' \
+            '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620  runtime-0.9.0/scripts/rev-evidence.py' \
             'fe8a06df82c4e8e59824be83b6ae937d9c073157c2e23d81a74a6ff8c01d7158  runtime-0.9.0/tests/test_prepare_timeout_origin.py' \
             '60b1cc297d4ff50392095ab9f9eeb0ec9881630fcb8c380716ad40c0d5d8b578  runtime-0.9.0/tests/test_source_config_paths.py' \
             | sha256sum --check --strict | tee -a "$proof"
