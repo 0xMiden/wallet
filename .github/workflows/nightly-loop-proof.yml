@@ -1,59 +1,25 @@
-name: Read-only original recovery discovery
+name: Remaining recovery allowance regression RED
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
-  actions: read
 concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  discovery:
+  budget:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+      - name: Verify frozen source
+        run: test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify exact discovery without financial keys
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { chooseSwapCheckpoint } from './scripts/mainnet-swap-artifacts.mjs';
-          const get = async path => {
-            const response = await fetch(`https://api.github.com/repos/0xMiden/wallet/${path}`, {
-              headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(30000)
-            });
-            assert.ok(response.ok, `Read-only metadata HTTP ${response.status}`);
-            return response.json();
-          };
-          const original = await get('actions/runs/43427924008');
-          const baseline = await get('actions/runs/42966766471');
-          assert.equal(baseline.head_sha, '96a3228a181d050395241d00071c5863a1815ab5');
-          assert.equal(baseline.conclusion, 'success');
-          assert.equal(baseline.workflow_id, original.workflow_id);
-          const failed = await get('actions/runs/43460706791/jobs?per_page=100');
-          assert.equal(failed.jobs[0].steps.find(step => step.name === 'Find prior swap checkpoint').conclusion, 'failure');
-          for (const name of ['Prepare explicitly approved first swap recovery return', 'Recover prior mainnet swap', 'Upload recovered swap SDK return authority']) assert.equal(failed.jobs[0].steps.find(step => step.name === name).conclusion, 'skipped');
-          const runs = [];
-          for (let page=1;page<=10;page++) {
-            const result = await get(`actions/workflows/${original.workflow_id}/runs?per_page=100&page=${page}`);
-            runs.push(...result.workflow_runs);
-            if (result.workflow_runs.some(run=>run.id<=42966766471)||result.workflow_runs.length<100) break;
-          }
-          const artifacts = new Map(); const jobs = new Map();
-          const metadata = async (id, kind, cache) => { if (!cache.has(id)) cache.set(id, await get(`actions/runs/${id}/${kind}?per_page=100`)); return cache.get(id); };
-          for (const provider of ['swap','epoch','near']) {
-            const result = await chooseSwapCheckpoint(runs, id=>metadata(id,'artifacts',artifacts), id=>metadata(id,'jobs',jobs),42966766471,provider);
-            if(provider==='swap') assert.equal(result.runId,43427924008);
-            else assert.equal(result.bootstrap,true);
-            console.log(JSON.stringify({purpose:'read-only exact-source checkpoint discovery; no financial keys or writes',provider,...result}));
-          }
-          NODE
+      - uses: ./.github/actions/yarn-install
+      - name: Original recovery cost must reduce the next qualification allowance
+        run: yarn jest scripts/mainnet-loop-budget.test.ts --maxWorkers=2 --watch=false
