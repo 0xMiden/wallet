@@ -49,11 +49,11 @@ final class SecretClipboardTests: XCTestCase {
         XCTAssertEqual(options[.expirationDate] as? Date, t0.addingTimeInterval(60))
     }
 
-    func testValidClearAfterMsAcceptsOnlyTheSupportedRange() {
-        for raw in [nil, 0, 999, 600_001] as [Int?] {
+    func testValidClearAfterMsAcceptsAnyPositiveDelay() {
+        for raw in [nil, 0, -1] as [Int?] {
             XCTAssertNil(SecretClipboardPlugin.validClearAfterMs(raw), "clearAfterMs \(String(describing: raw))")
         }
-        for raw in [1_000, 60_000, 600_000] {
+        for raw in [999, 600_001, 1, 60_000] {
             XCTAssertEqual(SecretClipboardPlugin.validClearAfterMs(raw), raw)
         }
     }
@@ -62,7 +62,7 @@ final class SecretClipboardTests: XCTestCase {
         let cases: [([AnyHashable: Any], String)] = [
             (["clearAfterMs": 60_000], "Missing string"),
             (["string": "alpha beta"], "Invalid clearAfterMs"),
-            (["string": "alpha beta", "clearAfterMs": 999], "Invalid clearAfterMs")
+            (["string": "alpha beta", "clearAfterMs": 0], "Invalid clearAfterMs")
         ]
         for (options, message) in cases {
             let rejected = expectation(description: message)

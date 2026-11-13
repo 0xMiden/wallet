@@ -36,11 +36,11 @@ class SecretClipboardLogicTest {
     }
 
     @Test
-    fun validClearAfterMs_acceptsOnlyTheSupportedRange() {
-        for (raw in listOf(null, 0L, -1L, 999L, 600_001L)) {
+    fun validClearAfterMs_acceptsAnyPositiveDelay() {
+        for (raw in listOf(null, 0L, -1L)) {
             assertNull("$raw", SecretClipboardLogic.validClearAfterMs(raw))
         }
-        for (raw in listOf(1_000L, 60_000L, 600_000L)) {
+        for (raw in listOf(999L, 600_001L, 1L, 60_000L)) {
             assertEquals(raw, SecretClipboardLogic.validClearAfterMs(raw))
         }
     }
