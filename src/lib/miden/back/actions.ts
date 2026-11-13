@@ -516,13 +516,17 @@ export function lock() {
 }
 
 export function unlock(password?: string) {
+  return unlockUsing(() => Vault.setup(password));
+}
+
+function unlockUsing(createVault: () => Promise<Vault>) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
       // Constructed inside the try: the constructor installs the candidate's sink,
       // and the finally below is what puts the store's back if anything after the
       // construction throws (#878).
       try {
-        const vault = await Vault.setup(password);
+        const vault = await createVault();
         // Resuming an interrupted removal is best-effort. It reaches the keystore, a
         // client build and the offscreen document, and it throws seedRemovalFailed by
         // design; letting that escape would leave the wallet permanently unopenable,
@@ -565,7 +569,27 @@ export function unlock(password?: string) {
 export async function platformUnlock(
   command: PlatformUnlockCommand, owner: Runtime.Port, available: boolean
 ): Promise<PlatformUnlockResult> {
-  throw new Error('Platform authentication unavailable');
+  if (command.action === 'unlock') {
+    await unlockUsing(() => Vault.setupWithPlatformCredential(command.credentialId, command.prfSecret));
+    return { action: 'unlock' };
+  }
+  return withInited(() => getUnlockQueue().add(async (): Promise<PlatformUnlockResult> => {
+    if (['begin', 'commit', 'remove'].includes(command.action) && store.getState().vault === null) {
+      throw new PublicError(getMessage('passkeyUnlockUnavailable'));
+    }
+    switch (command.action) {
+      case 'state': return { action: 'state', state: await PlatformUnlock.readPlatformUnlockState(available) };
+      case 'begin': return { action: 'begin', enrollmentId:
+        await PlatformUnlock.beginPlatformEnrollment(owner, command.expectedCredentialId) };
+      case 'track': await PlatformUnlock.trackPlatformEnrollment(owner, command.enrollmentId, command.credential); break;
+      case 'commit': await PlatformUnlock.commitPlatformEnrollment(owner, command.enrollmentId, command.password, command.prfSecret); break;
+      case 'abandon': await PlatformUnlock.abandonPlatformEnrollments(owner, command.enrollmentId); break;
+      case 'remove': await PlatformUnlock.removePlatformUnlock(command.expectedCredentialId); break;
+      case 'pending-signals': return { action: 'pending-signals', credentialIds: await PlatformUnlock.getPendingPlatformSignals() };
+      case 'signal-complete': await PlatformUnlock.acknowledgePlatformSignal(command.credentialId); break;
+    }
+    return { action: command.action };
+  }));
 }
 
 export function updateCurrentAccount(accPublicKey: string) {

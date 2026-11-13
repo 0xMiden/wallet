@@ -660,7 +660,9 @@ export class Vault {
   }
 
   static async setupWithPlatformCredential(credentialId: string, prfSecret: string): Promise<Vault> {
-    throw new Error('Platform authentication unavailable');
+    return withError('Failed to unlock wallet', async () =>
+      new Vault(await getStoredPlatformVaultKey(credentialId, prfSecret))
+    );
   }
 
   static async exportWalletBackupMaterial(password?: string): Promise<WalletBackupMaterial> {
