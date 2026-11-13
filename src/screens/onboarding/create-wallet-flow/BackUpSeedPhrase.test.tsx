@@ -100,18 +100,17 @@ jest.mock('components/ui/Pill', () => ({
 // Environment stubs
 // ---------------------------------------------------------------------------
 
-// The Copy pill and the copy listener both write through lib/ui/secret-clipboard, so that module is the boundary to
-// assert; @capacitor/clipboard stays mocked to prove the plain write is not used.
+// The Copy pill writes through lib/ui/secret-clipboard, so that module is the boundary to assert; @capacitor/clipboard
+// stays mocked to prove the plain write is not used.
 const mockClipboardWrite = jest.fn();
 const mockWriteSecret = jest.fn();
-const mockHandleSecretCopy = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 jest.mock('lib/ui/secret-clipboard', () => ({
-  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args),
-  handleSecretCopyEvent: (...args: unknown[]) => mockHandleSecretCopy(...args)
+  ...jest.requireActual('lib/ui/secret-clipboard'),
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
 }));
 
 // ---------------------------------------------------------------------------
@@ -123,26 +122,12 @@ const SEED = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'];
 const renderComponent = (props: Partial<React.ComponentProps<typeof BackUpSeedPhraseScreen>> = {}) =>
   render(<BackUpSeedPhraseScreen seedPhrase={SEED} {...props} />);
 
-/**
- * Fire a synthetic `copy` event on `document`, temporarily swapping
- * `window.getSelection` for the given selection value.
- */
-const dispatchCopy = ({ selection }: { selection: { toString: () => string } | null }) => {
-  const event = new Event('copy', { cancelable: true, bubbles: true });
-
-  const originalGetSelection = window.getSelection;
-  (window as unknown as { getSelection: () => unknown }).getSelection = jest.fn(() => selection);
-  document.dispatchEvent(event);
-  (window as unknown as { getSelection: () => unknown }).getSelection = originalGetSelection;
-};
-
 beforeEach(() => {
   mockIsMobile = false;
   // The clipboard mock is module-level, so a call-count assertion reads every
   // preceding case's clicks unless the count is reset per case.
   mockClipboardWrite.mockClear();
   mockWriteSecret.mockReset();
-  mockHandleSecretCopy.mockReset();
 });
 
 afterEach(() => {
@@ -435,50 +420,10 @@ describe('BackUpSeedPhraseScreen', () => {
     });
   });
 
-  describe('document copy interception (useEffect)', () => {
-    it('sanitizes the selection to letters/spaces and routes it through the secret clipboard', () => {
-      renderComponent();
+  // The words are not selectable (main.css), so the screen has no copy of its own to handle.
+  it('leaves a document copy uncancelled', () => {
+    renderComponent();
 
-      dispatchCopy({ selection: { toString: () => 'Hello 123 World!!' } });
-
-      expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.objectContaining({ type: 'copy' }), 'Hello World');
-    });
-
-    it('routes an empty string when there is no active selection', () => {
-      renderComponent();
-
-      dispatchCopy({ selection: null });
-
-      expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.objectContaining({ type: 'copy' }), '');
-    });
-
-    it('removes the SAME copy listener it added, so the handler cannot outlive the screen', () => {
-      // `expect.any(Function)` used to sit in this slot, which is exactly the thing the bug changed:
-      // the old cleanup passed a freshly allocated `() => {}`, so removeEventListener was still
-      // called with a Function and the assertion passed while the real handler stayed on document
-      // for the life of the realm, rewriting every later copy.
-      const addSpy = jest.spyOn(document, 'addEventListener');
-      const removeSpy = jest.spyOn(document, 'removeEventListener');
-      const { unmount } = renderComponent();
-
-      const added = addSpy.mock.calls.find(([type]) => type === 'copy')?.[1];
-      expect(added).toBeInstanceOf(Function);
-
-      unmount();
-      expect(removeSpy).toHaveBeenCalledWith('copy', added);
-
-      addSpy.mockRestore();
-      removeSpy.mockRestore();
-    });
-
-    it('stops routing copies once unmounted', () => {
-      const { unmount } = renderComponent();
-      unmount();
-
-      dispatchCopy({ selection: { toString: () => 'Send 123 MIDEN to mtst1abc' } });
-
-      // A leaked handler would strip the digits from a copy that has nothing to do with this screen.
-      expect(mockHandleSecretCopy).not.toHaveBeenCalled();
-    });
+    expect(document.dispatchEvent(new Event('copy', { cancelable: true, bubbles: true }))).toBe(true);
   });
 });

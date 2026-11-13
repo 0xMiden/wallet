@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -9,7 +9,6 @@ import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { Pill } from 'components/ui/Pill';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
-import { handleSecretCopyEvent } from 'lib/ui/secret-clipboard';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { useRevealMask } from 'lib/ui/useRevealMask';
 
@@ -40,22 +39,6 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   // Block screenshots/recordings while the backup phrase is on screen (#417).
   // The words are only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard();
-
-  // The handler must be the SAME reference on the way out: the cleanup used to pass a freshly
-  // allocated arrow, which matches nothing, so this listener stayed on `document` for the life of
-  // the realm and one more was added per mount. Since it rewrites the clipboard payload to letters
-  // and spaces and calls preventDefault(), a leaked copy of it silently mangled every later
-  // select-and-copy in the app - an address or a transaction id included.
-  useEffect(() => {
-    const onDocumentCopy = (event: ClipboardEvent) => {
-      const selectedText = window.getSelection()?.toString();
-      const formattedText = selectedText?.replace(/[^a-zA-Z\s]/g, '').replace(/\s+/g, ' ');
-      handleSecretCopyEvent(event, formattedText || '');
-    };
-
-    document.addEventListener('copy', onDocumentCopy);
-    return () => document.removeEventListener('copy', onDocumentCopy);
-  }, []);
 
   return (
     <OnboardingStepLayout
