@@ -78,11 +78,33 @@ jobs:
               foreach ($element in $controls) {
                 if ($element.Current.Name -match 'PIN.*Windows Hello') {
                   $ui.pinExpanderFound = $true
+                  $ui['pinSupportedPatterns'] = @($element.GetSupportedPatterns() | ForEach-Object { $_.ProgrammaticName })
                   $pattern = $null
-                  if ($element.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) { $pattern.Expand() }
+                  if ($element.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) {
+                    $ui['pinPattern'] = 'ExpandCollapse'
+                    $pattern.Expand()
+                  } elseif ($element.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+                    $ui['pinPattern'] = 'Invoke'
+                    $pattern.Invoke()
+                  } else {
+                    $ui['pinPattern'] = 'No supported expansion or invocation pattern'
+                  }
                   break
                 }
               }
+              $setupDeadline = [DateTime]::UtcNow.AddSeconds(10)
+              $setupAvailable = $false
+              do {
+                $pinGroup = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SystemSettings_Users_EnrollmentPIN_EntityItem')))
+                if ($pinGroup) {
+                  $pinControls = $pinGroup.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+                  foreach ($item in $pinControls) {
+                    if ($item.Current.Name -eq 'Set up' -and $item.Current.IsEnabled) { $setupAvailable = $true; break }
+                  }
+                }
+                if (-not $setupAvailable) { Start-Sleep -Milliseconds 500 }
+              } while (-not $setupAvailable -and [DateTime]::UtcNow -lt $setupDeadline)
+              $ui['pinSetupAvailable'] = $setupAvailable
               $controls = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
               $rows = @()
               foreach ($element in $controls) {
@@ -99,6 +121,7 @@ jobs:
           } catch {
             $ui.status = 'settings-query-failed'
             $ui['errorType'] = $_.Exception.GetType().Name
+            $ui['errorMessage'] = $_.Exception.Message
           }
           $evidence['settingsUi'] = $ui
           $evidence['credentialWrites'] = 0
