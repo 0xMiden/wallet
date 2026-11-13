@@ -142,7 +142,15 @@ it('uploads final Epoch SDK authority without mistaking its kind for a PSWAP ord
   const original = { ...epoch, nonce: handle.nonce };
   data[KEY] = { ...original, ...authority, status: 'waiting' };
   const pending = releaseMainnetSendAuthorization(page, original, options());
-  expect(await Promise.race([uploaded.then(() => true), pending.then(() => false, () => false)])).toBe(true);
+  expect(
+    await Promise.race([
+      uploaded.then(() => true),
+      pending.then(
+        () => false,
+        () => false
+      )
+    ])
+  ).toBe(true);
   finish();
   await pending;
   expect(persist).toHaveBeenCalledWith(authority);

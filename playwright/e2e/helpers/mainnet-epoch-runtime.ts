@@ -633,7 +633,7 @@ async function settleEpochReturn(
   const consume = await armMainnetConsumeAuthorization(wallet.page, {
     accountId: state.accountHex,
     noteId,
-    canonicalSha256: mainnetConsumeRequestHash(bytes)
+    canonicalSha256: mainnetConsumeRequestHash(bytes, true)
   });
   await wallet.navigateTo(ACTIVITY_PENDING_PATH);
   const current = (await readTransactionRowsWithBytes(wallet.page, 'consume')).filter(row =>
@@ -877,7 +877,7 @@ export async function runEpochRefund(
     const consume = await armMainnetConsumeAuthorization(wallet.page, {
       accountId: state.accountHex,
       noteId,
-      canonicalSha256: mainnetConsumeRequestHash(bytes)
+      canonicalSha256: mainnetConsumeRequestHash(bytes, true)
     });
     await wallet.navigateTo(ACTIVITY_PENDING_PATH);
     await wallet.page

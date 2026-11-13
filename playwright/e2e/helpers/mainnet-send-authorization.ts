@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { isRecord } from '../../../src/lib/update/guards';
-import type { TestMainnetSendScope, TestMainnetSwapScope } from '../../../src/lib/miden/sdk/test-send-request';
+import type { TestMainnetEpochScope, TestMainnetSendScope, TestMainnetSwapScope } from '../../../src/lib/miden/sdk/test-send-request';
 import { TEST_SEND_AUTHORIZATION_KEY as KEY } from '../../../src/lib/miden/sdk/test-send-authorization';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 
-export type MainnetSendHandle = (TestMainnetSendScope | TestMainnetSwapScope) & {
+export type MainnetSendHandle = (TestMainnetSendScope | TestMainnetSwapScope | TestMainnetEpochScope) & {
   nonce: string;
   expiresAt: number;
 };
@@ -19,15 +19,17 @@ export interface MainnetSendAuthority {
 
 export async function armMainnetSendAuthorization(
   page: Pick<Page, 'evaluate'>,
-  scope: (TestMainnetSendScope | TestMainnetSwapScope) & { expiresAt: number }
+  scope: (TestMainnetSendScope | TestMainnetSwapScope | TestMainnetEpochScope) & { expiresAt: number }
 ): Promise<MainnetSendHandle> {
   if (
     ![scope.accountId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
     ('kind' in scope
-      ? scope.kind !== 'swap' ||
-        !/^0x[0-9a-f]{30}$/.test(scope.requestedFaucetId) ||
-        scope.requestedFaucetId === scope.faucetId ||
-        !/^[1-9]\d{0,18}$/.test(scope.requestedAmount)
+      ? scope.kind === 'epoch'
+        ? !/^0x[0-9a-f]{64}$/.test(scope.noteId)
+        : scope.kind !== 'swap' ||
+          !/^0x[0-9a-f]{30}$/.test(scope.requestedFaucetId) ||
+          scope.requestedFaucetId === scope.faucetId ||
+          !/^[1-9]\d{0,18}$/.test(scope.requestedAmount)
       : !/^0x[0-9a-f]{30}$/.test(scope.recipientId) || scope.accountId === scope.recipientId) ||
     !/^[1-9]\d{0,18}$/.test(scope.amount) ||
     !Number.isSafeInteger(scope.expiresAt) ||
@@ -86,7 +88,7 @@ export async function releaseMainnetSendAuthorization(
         sha256: value.sha256,
         canonicalSha256: value.canonicalSha256
       };
-      if ('kind' in expected) {
+      if ('kind' in expected && expected.kind === 'swap') {
         if (typeof value.orderId !== 'string' || !/^\d{1,20}$/.test(value.orderId))
           throw new Error('Missing actual PSWAP order identity');
         authority.orderId = value.orderId;

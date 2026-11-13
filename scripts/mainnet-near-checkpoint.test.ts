@@ -93,9 +93,12 @@ it.each([
   { requestCanonicalSha256: '6'.repeat(64), expiresAt: 0 }
 ])('rejects a detached or invalid signed Guardian consume fingerprint/deadline: %j', signed => {
   const state = complete();
-  expect(() => parseMainnetNearCheckpoint({
-    ...state, consumeAuthority: { ...state.consumeAuthority, ...signed }
-  })).toThrow();
+  expect(() =>
+    parseMainnetNearCheckpoint({
+      ...state,
+      consumeAuthority: { ...state.consumeAuthority, ...signed }
+    })
+  ).toThrow();
 });
 it('records a genuinely receipted provider native refund as cancelled, never as a successful round trip', () => {
   const state = complete();
