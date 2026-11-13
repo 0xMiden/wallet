@@ -24,6 +24,13 @@ jobs:
             [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
             public static extern int WebAuthNIsUserVerifyingPlatformAuthenticatorAvailable(
               [MarshalAs(UnmanagedType.Bool)] out bool available);
+            [DllImport("user32.dll", ExactSpelling = true)]
+            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool SetCursorPos(int x, int y);
+            [DllImport("user32.dll", EntryPoint = "mouse_event", ExactSpelling = true)]
+            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+            public static extern void MouseEvent(uint flags, uint x, uint y, uint data, UIntPtr extra);
           }
           '@
           $os = Get-CimInstance Win32_OperatingSystem
@@ -87,7 +94,13 @@ jobs:
                     $ui['pinPattern'] = 'Invoke'
                     $pattern.Invoke()
                   } else {
-                    $ui['pinPattern'] = 'No supported expansion or invocation pattern'
+                    $clickTarget = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SystemSettings_Users_EnrollmentPIN_EntityItem')))
+                    if (-not $clickTarget -or -not $clickTarget.Current.IsEnabled -or $clickTarget.Current.IsOffscreen -or $clickTarget.Current.Name -ne 'PIN (Windows Hello)') { throw 'Exact visible PIN settings target unavailable' }
+                    $point = $clickTarget.GetClickablePoint()
+                    if (-not [NativeHelloPreflight]::SetCursorPos([int]$point.X, [int]$point.Y)) { throw 'Native cursor placement unavailable' }
+                    [NativeHelloPreflight]::MouseEvent(2, 0, 0, 0, [UIntPtr]::Zero)
+                    [NativeHelloPreflight]::MouseEvent(4, 0, 0, 0, [UIntPtr]::Zero)
+                    $ui['pinPattern'] = 'Native mouse click on exact PIN group'
                   }
                   break
                 }
@@ -125,6 +138,25 @@ jobs:
           }
           $evidence['settingsUi'] = $ui
           $evidence['credentialWrites'] = 0
+          try {
+            Add-Type -AssemblyName System.Windows.Forms
+            Add-Type -AssemblyName System.Drawing
+            $bounds = [Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+            $graphics = [Drawing.Graphics]::FromImage($bitmap)
+            $graphics.CopyFromScreen($bounds.Location, [Drawing.Point]::Empty, $bounds.Size)
+            $factor = [Math]::Min(1.0, 1800.0 / [Math]::Max($bounds.Width, $bounds.Height))
+            $size = [System.Drawing.Size]::new([int]($bounds.Width * $factor), [int]($bounds.Height * $factor))
+            $small = [System.Drawing.Bitmap]::new($bitmap, $size)
+            if ([Math]::Max($small.Width, $small.Height) -gt 1800) { throw 'Screenshot exceeds ceiling' }
+            $small.Save("$env:RUNNER_TEMP/native-settings-no-secret-input.png", [Drawing.Imaging.ImageFormat]::Png)
+            $small.Dispose()
+            $graphics.Dispose()
+            $bitmap.Dispose()
+            $evidence['clearedScreenshot'] = 'Captured before any password/PIN/PRF input, max long side 1800'
+          } catch {
+            $evidence['screenshotErrorType'] = $_.Exception.GetType().Name
+          }
           $json = $evidence | ConvertTo-Json -Depth 7
           $json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/native-windows-preflight.json"
           Write-Output $json
@@ -138,5 +170,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: native-windows-environment-preflight
-          path: ${{ runner.temp }}/native-windows-preflight.json
+          path: |
+            ${{ runner.temp }}/native-windows-preflight.json
+            ${{ runner.temp }}/native-settings-no-secret-input.png
           if-no-files-found: error
