@@ -83,6 +83,11 @@ jest.mock('lib/usdcx/burn-fee', () => ({
 }));
 
 const mockedResolve = jest.mocked(resolveSpendsUsd);
+let mockOwnerConnected = true;
+jest.mock('lib/miden/back/defaults', () => ({
+  ...jest.requireActual('lib/miden/back/defaults'),
+  intercom: { isConnected: () => mockOwnerConnected }
+}));
 
 // Create mock vault instance
 const mockRedeemAccess = jest.fn<Promise<'granted' | 'rejected'>, [string, { accountId: string; rpcUrl: string }]>();
@@ -317,6 +322,7 @@ describe('actions', () => {
     mockAdmitted.mockReset();
     mockEndpointOverride = null;
     mockInited.mockClear();
+    mockOwnerConnected = true;
     mockLocked.mockClear();
     mockUnlocked.mockClear();
     mockAccountsUpdated.mockClear();
@@ -628,6 +634,27 @@ describe('actions', () => {
       await expect(unlock('pw')).rejects.toThrow('storage read failed');
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
     });
+
+    if (method === 'platform') {
+      it('does not publish an unlock whose page disconnected while hydration was pending', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        const candidate = unlockableVault();
+        candidate.fetchAccounts.mockImplementationOnce(async () => {
+          mockOwnerConnected = false;
+          return [];
+        });
+        Vault.setup.mockResolvedValueOnce(candidate);
+        await expect(unlock()).rejects.toThrow();
+        expect(mockUnlocked).not.toHaveBeenCalled();
+      });
+      it('does not construct a vault for a queued request from a disconnected page', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        Vault.setup.mockResolvedValueOnce(unlockableVault());
+        mockOwnerConnected = false;
+        await expect(unlock()).rejects.toThrow();
+        expect(Vault.setup).not.toHaveBeenCalled();
+      });
+    }
 
     it('uses the unlocked vault for recovery seed input without another password check', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');

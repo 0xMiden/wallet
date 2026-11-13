@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  gateway-regression:
+  stale-page-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -14,4 +14,4 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/lib/miden/back/main.test.ts src/lib/store/index.test.ts src/lib/intercom/in-process-request-handler.test.ts --maxWorkers=2
+      - run: yarn jest src/lib/miden/back/actions.test.ts src/lib/miden/back/main.test.ts src/lib/store/index.test.ts src/lib/intercom/in-process-request-handler.test.ts --maxWorkers=2
