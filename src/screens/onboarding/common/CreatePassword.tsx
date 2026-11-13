@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { MIN_PASSWORD_LENGTH, PRIVACY_POLICY_URL, STRONG_PASSWORD_LENGTH, TERMS_OF_USE_URL } from 'app/constants';
+import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from 'app/constants';
 import { IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { IconButton } from 'components/ui/IconButton';
@@ -11,18 +11,9 @@ import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { OnboardingStepLayout } from './OnboardingStepLayout';
+import { isAcceptableNewPassword, PasswordValidation, validateNewPassword } from './password-policy';
 
-export interface PasswordValidation {
-  minChar: boolean;
-  cases: boolean;
-  number: boolean;
-  specialChar: boolean;
-  strongPasswordLength?: boolean;
-}
-
-const uppercaseLowercaseMixtureRegx = /(?=.*[a-z])(?=.*[A-Z])/;
-const lettersNumbersMixtureRegx = /(?=.*\d)(?=.*[A-Za-z])/;
-const specialCharacterRegx = /[!@#$%^&*()_+\-=\]{};':"\\|,.<>?]/;
+export type { PasswordValidation };
 
 export interface CreatePasswordScreenProps {
   onSubmit?: (password: string) => void;
@@ -39,6 +30,9 @@ export const PasswordStrengthIndicator = ({
   const { t } = useTranslation();
   const validationChecks = useMemo(() => Object.values(validation).filter(Boolean).length, [validation]);
   const validationMessage = useMemo(() => {
+    if (!validation.minChar) {
+      return t('8chars1number');
+    }
     if (validationChecks === 5) {
       return t('veryStrong');
     }
@@ -46,14 +40,13 @@ export const PasswordStrengthIndicator = ({
       return t('medium');
     }
 
-    if (validationChecks === 2) {
-      return t('low');
-    }
-
-    return t('8chars1number');
-  }, [validationChecks, t]);
+    return t('low');
+  }, [validation.minChar, validationChecks, t]);
   // The bars take a status fill (never text): red, amber, then green as the password strengthens.
   const validationColor = useMemo(() => {
+    if (!validation.minChar) {
+      return 'bg-fill-pressed';
+    }
     if (validationChecks === 5) {
       return 'bg-status-positive';
     }
@@ -61,12 +54,8 @@ export const PasswordStrengthIndicator = ({
       return 'bg-status-pending';
     }
 
-    if (validationChecks === 2) {
-      return 'bg-status-negative';
-    }
-
-    return 'bg-fill-pressed';
-  }, [validationChecks]);
+    return 'bg-status-negative';
+  }, [validation.minChar, validationChecks]);
 
   return (
     <div className="min-h-[17px] px-1 font-sans text-[13px] leading-[17px] text-muted">
@@ -95,31 +84,16 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ onSu
   const [verifyPassword, setVerifyPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isVerifyPasswordVisible, setIsVerifyPasswordVisible] = useState(false);
-  const [passwordValidation, setPasswordValidation] = useState<PasswordValidation>({
-    minChar: false,
-    cases: false,
-    number: false,
-    specialChar: false,
-    strongPasswordLength: false
-  });
   const verifyPasswordRef = useRef<TextFieldElement>(null);
 
   const onPasswordChange = (e: React.ChangeEvent<TextFieldElement>) => {
     setPassword(e.target.value);
   };
 
-  useEffect(() => {
-    setPasswordValidation({
-      minChar: password.length >= MIN_PASSWORD_LENGTH,
-      cases: uppercaseLowercaseMixtureRegx.test(password),
-      number: lettersNumbersMixtureRegx.test(password),
-      specialChar: specialCharacterRegx.test(password),
-      strongPasswordLength: password.length >= STRONG_PASSWORD_LENGTH
-    });
-  }, [password]);
+  const passwordValidation = useMemo(() => validateNewPassword(password), [password]);
 
   const isValidPassword = useMemo(
-    () => Object.values(passwordValidation).filter(Boolean).length > 1 && password === verifyPassword,
+    () => isAcceptableNewPassword(passwordValidation) && password === verifyPassword,
     [passwordValidation, password, verifyPassword]
   );
 

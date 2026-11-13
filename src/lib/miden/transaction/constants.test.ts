@@ -69,6 +69,14 @@ describe('chunkAutoConsumeBatch', () => {
   it('keeps every chunk on a chain that charges no fee', () => {
     expect(chunkAutoConsumeBatch(notes(20, '1'), 0).map(chunk => chunk.length)).toEqual([8, 8, 4]);
   });
+
+  it('refuses every chunk of a split claim while the fee is unknown', () => {
+    expect(chunkAutoConsumeBatch(notes(9, '1000000000'), null)).toEqual([]);
+  });
+
+  it('refuses one chunk of eight notes while the fee is unknown', () => {
+    expect(chunkAutoConsumeBatch(notes(8, '1000000000'), null)).toEqual([]);
+  });
 });
 
 // The real native-prover error captured in #487.
