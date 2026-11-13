@@ -85,6 +85,11 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
     if (!has('final')) {
       if (provider === 'swap') {
         if (
+          stepAttempted(jobs, ['Upload original swap recovery claim authority']) &&
+          !['forward-claim-sdk-authorized', 'reverse-claim-sdk-authorized'].some(has)
+        )
+          throw new Error('Original swap recovery claim checkpoint missing; refusing an older authority');
+        if (
           stepAttempted(jobs, ['Upload swap SDK forward authority']) &&
           ![
             'forward-sdk-authorized',

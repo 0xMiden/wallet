@@ -85,6 +85,18 @@ describe('funded nightly swap workflow', () => {
       })
     ).toThrow();
   });
+  it('holds actual recovery consume bytes before accepting an already-funded swap payout', () => {
+    const upload = step('Upload original swap recovery claim authority');
+    expect(upload.uses).toBe('./.github/actions/mainnet-loop-upload');
+    expect(upload.if).toContain("needs_claim == 'true'");
+    expect(object(upload.with).gate).toContain('.recover.sdk.claim');
+    expect(object(upload.with)['alternative-gates']).toContain('.recover.done');
+    expect(String(step('Recover prior mainnet swap').run)).toContain('MAINNET_SWAP_SDK_GATE=');
+    expect(index('Wait for prior mainnet swap recovery')).toBeGreaterThan(
+      index('Upload original swap recovery claim authority')
+    );
+    expect(index('Wait for prior mainnet swap recovery')).toBeLessThan(index('Check original swap return disposition'));
+  });
   it('requires all three provider recoveries to finish before any new native or EVM spending', () => {
     const barrier = index('Clear all-provider recovery barrier');
     expect(barrier).toBeGreaterThan(index('Wait for original NEAR recovery'));

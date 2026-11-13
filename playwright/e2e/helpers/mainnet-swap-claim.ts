@@ -334,6 +334,64 @@ export async function readMainnetSwapReturnAbsence(
   };
 }
 
+export async function readMainnetSwapCommitHeight(
+  rpc: Pick<RpcClient, 'getNullifierCommitHeight'>,
+  note: Note,
+  fromBlock: number
+): Promise<number | undefined> {
+  const height = await withRpcTimeout(
+    () => rpc.getNullifierCommitHeight(note.nullifier(), fromBlock),
+    'swap note consumption',
+    { retries: 0 }
+  );
+  if (height === null || height === undefined) return undefined;
+  if (!Number.isSafeInteger(height) || height <= 0 || height < fromBlock)
+    throw new Error('Invalid swap nullifier commit height');
+  return height;
+}
+
+export function prepareMainnetSwapClaimRecovery(
+  state: MainnetSwapCheckpoint,
+  payback: MainnetSwapPaybackEvidence,
+  balances: MainnetSwapBalances
+): MainnetSwapCheckpoint {
+  const authority = state.reverseRequestAuthority;
+  const baseline = state.returnBaseline;
+  if (
+    state.phase !== 'reverse-authorized' ||
+    !authority ||
+    !baseline ||
+    state.reverseClaimAuthority !== undefined ||
+    state.offer.hex !== state.native.hex ||
+    state.request.hex === state.native.hex ||
+    balances.offer !== balances.native ||
+    state.reverseOrderId !== authority.orderId ||
+    payback.originalNoteId !== authority.noteId ||
+    payback.orderId !== authority.orderId ||
+    payback.claimedAtBlock !== undefined ||
+    payback.amount < BigInt(authority.minimumReceive) ||
+    balances.request !== BigInt(state.request.balance) ||
+    BigInt(baseline.request) - balances.request !== BigInt(state.returnAmount ?? '0') ||
+    balances.native > BigInt(baseline.native) ||
+    (state.recoveryClaimNativeBefore !== undefined && state.recoveryClaimNativeBefore !== balances.native.toString())
+  )
+    throw new Error('Existing swap payout, claim outcome or original portfolio is unresolved');
+  // A restored Guardian can omit swap rows; retain vault debits, never manufacture a receipt.
+  const costs = BigInt(state.native.balance) - balances.native - BigInt(state.principal);
+  const reserve = SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee);
+  if (costs < BigInt(state.paidFees) || costs + reserve > BigInt(state.feeBudget))
+    throw new Error('No original native claim fee reserve remains');
+  const finalNative = balances.native + payback.amount - reserve;
+  const loss = BigInt(state.native.balance) - finalNative;
+  const unit = 10n ** BigInt(state.native.decimals);
+  if (
+    ((loss > 0n ? loss : 0n) * BigInt(state.native.usdMicros) + unit - 1n) / unit >
+    BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP)
+  )
+    throw new Error('Existing payout claim exceeds the remaining original loss allowance');
+  return { ...state, paidFees: costs.toString(), recoveryClaimNativeBefore: balances.native.toString() };
+}
+
 export async function readMainnetSwapPayback(
   rpcUrl: string,
   scope: MainnetSwapPaybackScope
@@ -364,11 +422,7 @@ export async function readMainnetSwapPayback(
   const exactScope = { ...scope, orderId: protocolOrder.toString() };
   const originalHeight = original.inclusionProof.location().blockNum();
   await verifyMainnetMidenNoteInclusion(rpcUrl, scope.noteId, originalHeight, scope.accountId);
-  const consumedHeight = await withRpcTimeout(
-    () => rpc.getNullifierCommitHeight(originalNote.nullifier(), originalHeight),
-    'original PSWAP consumption',
-    { retries: 0 }
-  );
+  const consumedHeight = await readMainnetSwapCommitHeight(rpc, originalNote, originalHeight);
   if (consumedHeight === undefined) return undefined;
   if (!Number.isSafeInteger(consumedHeight) || consumedHeight < originalHeight)
     throw new Error('Invalid original PSWAP consumption block');
@@ -407,11 +461,7 @@ export async function readMainnetSwapPayback(
     throw new Error('Payback does not share the original consumption block');
   const noteId = candidate.noteId.toString();
   await verifyMainnetMidenNoteInclusion(rpcUrl, noteId, consumedHeight, candidate.metadata.sender().toString());
-  const claimedAtBlock = await withRpcTimeout(
-    () => rpc.getNullifierCommitHeight(candidateNote.nullifier(), consumedHeight),
-    'exact payback consumption',
-    { retries: 0 }
-  );
+  const claimedAtBlock = await readMainnetSwapCommitHeight(rpc, candidateNote, consumedHeight);
   const serialZeroOrderId = originalNote.recipient().serialNum().toU64s()[0]?.toString();
   if (serialZeroOrderId === undefined) throw new Error('Missing original serial identity');
   return {

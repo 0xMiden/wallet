@@ -223,8 +223,34 @@ jobs:
           MAINNET_SWAP_PRIOR_FORWARD_ATTEMPTED: ${{ steps.swap-attempts.outputs.forward_attempted }}
           MAINNET_SWAP_PRIOR_REVERSE_ATTEMPTED: ${{ steps.swap-attempts.outputs.reverse_attempted }}
         run: |
-          echo 'recovery_only=false' >> "$GITHUB_OUTPUT"
-          MAINNET_SWAP_MODE=recover E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-recover xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+          umask 077
+          mkdir -p test-results/mainnet-swap-state
+          node --input-type=module <<'NODE'
+          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+          const path='test-results/mainnet-swap-state/roundtrip.json';
+          const state=existsSync(path)?JSON.parse(readFileSync(path,'utf8')):undefined;
+          const active=state&&!['complete','cancelled','unspent'].includes(state.phase);
+          const leg=state?.phase==='reverse-authorized'?'reverse':'forward';
+          const needs=active&&['forward-authorized','reverse-authorized'].includes(state.phase)&&state[`${leg}RequestAuthority`]!==undefined;
+          appendFileSync(process.env.GITHUB_OUTPUT,`recovery_only=${Boolean(active)}\nneeds_claim=${Boolean(needs)}\nclaim_leg=${leg}\n`);
+          NODE
+          (code=0; GITHUB_OUTPUT="$RUNNER_TEMP/swap-recover.outputs" MAINNET_SWAP_MODE=recover MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.recover.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-recover-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-recover.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-recover.exit"; if [ "$code" = 0 ]; then touch test-results/mainnet-swap-state/roundtrip.json.recover.done.ready; fi) &
+          echo $! > "$RUNNER_TEMP/swap-recover.pid"
+      - name: Upload original swap recovery claim authority
+        if: steps.swap-recover.outputs.needs_claim == 'true'
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: test-results/mainnet-swap-state/roundtrip.json
+          gate: test-results/mainnet-swap-state/roundtrip.json.recover.sdk.claim
+          artifact-name: mainnet-swap-${{ steps.swap-recover.outputs.claim_leg }}-claim-sdk-authorized-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/swap-recover.pid
+          snapshot-directory: ${{ runner.temp }}/swap-recover-claim-auth
+          alternative-gates: test-results/mainnet-swap-state/roundtrip.json.recover.done
+      - name: Wait for prior mainnet swap recovery
+        timeout-minutes: 31
+        run: |
+          while [ ! -f "$RUNNER_TEMP/swap-recover.exit" ]; do read -r pid < "$RUNNER_TEMP/swap-recover.pid"; kill -0 "$pid"; sleep 1; done
+          read -r code < "$RUNNER_TEMP/swap-recover.exit"; [ "$code" = 0 ] || { echo 'Original swap recovery blocked; retain its authority.' >&2; exit 1; }
       - name: Check original swap return disposition
         id: swap-recovery-return
         if: steps.swap-recover.outputs.recovery_only == 'true'
@@ -756,6 +782,7 @@ jobs:
             test-results/mainnet-swap-summary.json
             test-results/mainnet-swap-summary.md
             test-results/mainnet-swap-recovery-grant.json
+            test-results/mainnet-swap-recovery-claim.json
             test-results/mainnet-epoch-summary.json
             test-results/mainnet-near-summary.json
             test-results/mainnet-epoch-recovery.json

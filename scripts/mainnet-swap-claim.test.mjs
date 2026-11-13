@@ -182,6 +182,43 @@ function recoveryFixture() {
   };
   return { state, evidence, balances: { offer: 18987362n, native: 18987362n, request: 1010890n } };
 }
+for (const value of [null, undefined])
+  test(`normalizes the SDK unspent nullifier ${value} to absent`, async () => {
+    const { original } = fixture();
+    assert.equal(
+      await claims.readMainnetSwapCommitHeight({ getNullifierCommitHeight: async () => value }, original, 100),
+      undefined
+    );
+  });
+for (const value of [0, -1, 99, 1.5, NaN])
+  test(`rejects invalid swap nullifier commit height ${value}`, async () => {
+    const { original } = fixture();
+    await assert.rejects(
+      claims.readMainnetSwapCommitHeight({ getNullifierCommitHeight: async () => value }, original, 100)
+    );
+  });
+test('keeps the inclusive search start and propagates RPC failure, not false unspent evidence', async () => {
+  const { original } = fixture();
+  const rpc = {
+    getNullifierCommitHeight: async (_nullifier, from) => {
+      assert.equal(from, 100);
+      return 102;
+    }
+  };
+  assert.equal(await claims.readMainnetSwapCommitHeight(rpc, original, 100), 102);
+  await assert.rejects(
+    claims.readMainnetSwapCommitHeight(
+      {
+        getNullifierCommitHeight: async () => {
+          throw new Error('RPC unavailable');
+        }
+      },
+      original,
+      100
+    ),
+    /RPC unavailable/
+  );
+});
 const grant = '2026-11-13T16:00:00.000Z';
 function replacementFixture() {
   const value = recoveryFixture();
@@ -328,6 +365,113 @@ for (const [name, change] of [
         value.absence
       )
     );
+  });
+function claimRecoveryFixture() {
+  const value = replacementFixture();
+  const old = value.state.reverseRequestAuthority;
+  value.state = claims.authorizeMainnetSwapReturnReplacement(
+    value.state,
+    value.evidence,
+    value.balances,
+    '789',
+    value.at,
+    value.absence
+  );
+  value.state.reverseRequestAuthority = {
+    ...old,
+    nonce: '33333333-3333-4333-8333-333333333333',
+    noteId: `0x${'1'.repeat(64)}`,
+    orderId: '10',
+    sha256: '2'.repeat(64),
+    canonicalSha256: '3'.repeat(64),
+    expiresAt: Date.parse(value.at) + 300000
+  };
+  value.state.reverseOrderId = '10';
+  value.payback = {
+    originalNoteId: value.state.reverseRequestAuthority.noteId,
+    orderId: '10',
+    serialZeroOrderId: '5',
+    noteId: `0x${'4'.repeat(64)}`,
+    amount: 1010066n,
+    originalCreatedAtBlock: 201,
+    createdAtBlock: 202
+  };
+  value.balances = { offer: 18987229n, native: 18987229n, request: 0n };
+  return value;
+}
+test('recovers only the existing proved payout without inventing parent history or resetting fees', () => {
+  const value = claimRecoveryFixture();
+  const before = structuredClone(value.state);
+  const result = claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances);
+  assert.equal(result.paidFees, '399');
+  assert.equal(result.recoveryClaimNativeBefore, '18987229');
+  assert.deepEqual(result.reverseRequestAuthority, before.reverseRequestAuthority);
+  assert.deepEqual(result.recoveryReturnReplacement, before.recoveryReturnReplacement);
+  assert.deepEqual(result.returnBaseline, before.returnBaseline);
+  assert.deepEqual(value.state, before);
+  assert.deepEqual(claims.prepareMainnetSwapClaimRecovery(result, value.payback, value.balances), result);
+});
+for (const [name, change] of [
+  [
+    'foreign original note',
+    value => {
+      value.payback.originalNoteId = `0x${'5'.repeat(64)}`;
+    }
+  ],
+  [
+    'foreign order',
+    value => {
+      value.payback.orderId = '11';
+    }
+  ],
+  [
+    'claimed payout',
+    value => {
+      value.payback.claimedAtBlock = 203;
+    }
+  ],
+  [
+    'issued claim',
+    value => {
+      value.state.reverseClaimAuthority = { nonce: 'issued' };
+    }
+  ],
+  [
+    'weak payout',
+    value => {
+      value.payback.amount = 1n;
+    }
+  ],
+  [
+    'unrelated token credit',
+    value => {
+      value.balances.request = 1n;
+    }
+  ],
+  [
+    'unexplained native credit',
+    value => {
+      value.balances.native += 1000n;
+      value.balances.offer = value.balances.native;
+    }
+  ],
+  [
+    'insufficient fee allowance',
+    value => {
+      value.state.feeBudget = '400';
+    }
+  ],
+  [
+    'remaining loss allowance',
+    value => {
+      value.state.lossBudgetUsdMicros = '1';
+    }
+  ]
+])
+  test(`refuses claim recovery with ${name}`, () => {
+    const value = claimRecoveryFixture();
+    change(value);
+    assert.throws(() => claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances));
   });
 const failedReturnRun = () => ({ id: 456, workflow_id: 77, status: 'completed', conclusion: 'failure' });
 const failedReturnJobs = () => ({
