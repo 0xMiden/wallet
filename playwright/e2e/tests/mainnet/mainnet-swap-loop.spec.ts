@@ -529,7 +529,10 @@ async function authorizeReturn(
   const remaining = BigInt(state.feeBudget) - result.fees;
   if (remaining < 2n * SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee))
     throw new Error('No fee budget remains for the return create and claim');
-  if (paidUsd + (loss > 0n ? loss : 0n) + swapValue(holding(state.native), remaining) > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP))
+  if (
+    paidUsd + (loss > 0n ? loss : 0n) + swapValue(holding(state.native), remaining) >
+    BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP)
+  )
     throw new Error('Return exceeds the remaining $2 loss budget');
   if (swapValue(holding(state.request), amount, false) < 1_000_000n)
     throw new Error('Actual return proceeds are below the wallet $1 minimum');

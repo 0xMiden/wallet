@@ -88,11 +88,14 @@ describe('durable nightly swap authorization', () => {
     saveMainnetSwapCheckpoint(path, limited);
     expect(loadMainnetSwapCheckpoint(path)).toMatchObject(limited);
   });
-  it.each(['0', '-1', '2000001', '01999500', '1.5'])('rejects an invalid retained loss allowance %s', lossBudgetUsdMicros => {
-    const path = join(dir, 'roundtrip.json');
-    writeFileSync(path, JSON.stringify({ ...checkpoint(), lossBudgetUsdMicros }));
-    expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
-  });
+  it.each(['0', '-1', '2000001', '01999500', '1.5'])(
+    'rejects an invalid retained loss allowance %s',
+    lossBudgetUsdMicros => {
+      const path = join(dir, 'roundtrip.json');
+      writeFileSync(path, JSON.stringify({ ...checkpoint(), lossBudgetUsdMicros }));
+      expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
+    }
+  );
   const withRequest = () => ({
     ...checkpoint(),
     forwardOrderId: '42',

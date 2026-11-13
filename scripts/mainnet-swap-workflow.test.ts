@@ -37,11 +37,24 @@ describe('funded nightly swap workflow', () => {
     expect(inputs.loss_budget_usd_micros).toMatchObject({ type: 'string', default: '2000000' });
     expect(object(main.env).MAINNET_LOOP_LOSS_BUDGET_USD_MICROS).toContain('inputs.loss_budget_usd_micros');
   });
-  it.each(['', '0', '-1', '2000001', '02000000', '1e6', '1.5', 'unknown'])('rejects unsafe remaining budget before wallet restoration: %s', value => {
-    expect(() => execFileSync('bash', ['-c', String(step('Require an original, unambiguous run').run)], {
-      env: { ...process.env, GITHUB_RUN_ATTEMPT: '1', SWAPS_ONLY: 'false', LOOPS_ONLY: 'true', MAINNET_SWAP_RECOVERY_RETURN_APPROVED: 'false', MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: value }, stdio: 'pipe'
-    })).toThrow();
-  });
+  it.each(['', '0', '-1', '2000001', '02000000', '1e6', '1.5', 'unknown'])(
+    'rejects unsafe remaining budget before wallet restoration: %s',
+    value => {
+      expect(() =>
+        execFileSync('bash', ['-c', String(step('Require an original, unambiguous run').run)], {
+          env: {
+            ...process.env,
+            GITHUB_RUN_ATTEMPT: '1',
+            SWAPS_ONLY: 'false',
+            LOOPS_ONLY: 'true',
+            MAINNET_SWAP_RECOVERY_RETURN_APPROVED: 'false',
+            MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: value
+          },
+          stdio: 'pipe'
+        })
+      ).toThrow();
+    }
+  );
   it('requires all three provider recoveries to finish before any new native or EVM spending', () => {
     const barrier = index('Clear all-provider recovery barrier');
     expect(barrier).toBeGreaterThan(index('Wait for original NEAR recovery'));

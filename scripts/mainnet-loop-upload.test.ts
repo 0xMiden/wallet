@@ -49,7 +49,13 @@ function actionScript(kind: 'snapshot' | 'download' = 'snapshot'): string {
   const runs = isRecord(document) ? document.runs : undefined;
   const steps = isRecord(runs) ? runs.steps : undefined;
   const snapshot = Array.isArray(steps)
-    ? steps.find(step => isRecord(step) && (kind === 'snapshot' ? step.id === 'snapshot' : typeof step.run === 'string' && step.run.includes('node scripts/mainnet-loop-upload.mjs release')))
+    ? steps.find(
+        step =>
+          isRecord(step) &&
+          (kind === 'snapshot'
+            ? step.id === 'snapshot'
+            : typeof step.run === 'string' && step.run.includes('node scripts/mainnet-loop-upload.mjs release'))
+      )
     : undefined;
   if (!isRecord(snapshot) || typeof snapshot.run !== 'string') throw new Error('Missing executable snapshot step');
   return snapshot.run;
@@ -120,7 +126,9 @@ it('does not wait or release when the held request process is already gone', () 
 function runDownload(input: ReturnType<typeof fixture>, failedEndpoint: string, permanent = false) {
   const bin = join(directory, 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'gh'), `#!/bin/bash
+  writeFileSync(
+    join(bin, 'gh'),
+    `#!/bin/bash
 set -eu
 endpoint="\${@: -1}"
 kind=metadata
@@ -133,17 +141,33 @@ if [ "$kind" = "$FAILED_ENDPOINT" ] && { [ "$PERMANENT" = true ] || [ "$count" =
   printf 'metadata service unavailable (HTTP 502)\\n' >&2; exit 1
 fi
 if [ "$kind" = zip ]; then printf '%s' "$FIXTURE_BYTES"; else printf '%s' "$FIXTURE_METADATA"; fi
-`, { mode: 0o700 });
+`,
+    { mode: 0o700 }
+  );
   writeFileSync(join(bin, 'unzip'), '#!/bin/sh\nprintf \'%s\' "$FIXTURE_BYTES"\n', { mode: 0o700 });
   writeFileSync(join(bin, 'sleep'), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
   return spawnSync('bash', ['-c', actionScript('download')], {
-    encoding: 'utf8', timeout: 10_000,
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, COUNTS: directory,
-      FAILED_ENDPOINT: failedEndpoint, PERMANENT: String(permanent),
-      FIXTURE_BYTES: readFileSync(input.snapshot, 'utf8'), FIXTURE_METADATA: JSON.stringify(input.artifact),
-      GITHUB_REPOSITORY: '0xMiden/wallet', GITHUB_RUN_ID: String(input.runId), GITHUB_SHA: input.headSha,
-      GH_TOKEN: 'test-only-metadata-token', ARTIFACT_ID: String(input.artifactId), ARTIFACT_NAME: input.artifactName,
-      CHECKPOINT: input.checkpoint, GATE: input.gate, SNAPSHOT: input.snapshot, SNAPSHOT_DIRECTORY: directory }
+    encoding: 'utf8',
+    timeout: 10_000,
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      COUNTS: directory,
+      FAILED_ENDPOINT: failedEndpoint,
+      PERMANENT: String(permanent),
+      FIXTURE_BYTES: readFileSync(input.snapshot, 'utf8'),
+      FIXTURE_METADATA: JSON.stringify(input.artifact),
+      GITHUB_REPOSITORY: '0xMiden/wallet',
+      GITHUB_RUN_ID: String(input.runId),
+      GITHUB_SHA: input.headSha,
+      GH_TOKEN: 'test-only-metadata-token',
+      ARTIFACT_ID: String(input.artifactId),
+      ARTIFACT_NAME: input.artifactName,
+      CHECKPOINT: input.checkpoint,
+      GATE: input.gate,
+      SNAPSHOT: input.snapshot,
+      SNAPSHOT_DIRECTORY: directory
+    }
   });
 }
 it.each(['metadata', 'zip'])('retries only the read-only %s download before a real byte-verified ACK', endpoint => {
@@ -151,7 +175,9 @@ it.each(['metadata', 'zip'])('retries only the read-only %s download before a re
   const result = runDownload(input, endpoint);
   expect(result.status).toBe(0);
   expect(readFileSync(join(directory, endpoint), 'utf8')).toBe('2\n');
-  expect(readFileSync(input.gate, 'utf8')).toBe(`${createHash('sha256').update(readFileSync(input.snapshot)).digest('hex')}\n`);
+  expect(readFileSync(input.gate, 'utf8')).toBe(
+    `${createHash('sha256').update(readFileSync(input.snapshot)).digest('hex')}\n`
+  );
 });
 it('bounds unavailable metadata reads and leaves the request held without an ACK', () => {
   const input = fixture();

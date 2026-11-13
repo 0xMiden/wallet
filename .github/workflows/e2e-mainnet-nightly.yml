@@ -27,7 +27,7 @@ on:
         type: boolean
         default: false
       loss_budget_usd_micros:
-        description: Remaining shared loss/fee allowance after prior recovery costs, in micro-USD (maximum 2000000).
+        description: Remaining allowance for fresh loops after prior recovery costs, in micro-USD (maximum 2000000).
         type: string
         default: '2000000'
 
