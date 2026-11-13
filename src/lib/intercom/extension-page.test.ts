@@ -18,6 +18,11 @@ it.each<[Runtime.MessageSender | undefined, boolean]>([
 });
 
 it('preserves Firefox page authorization without enabling passkeys there', () => {
-  expect(isExtensionPagePort({ sender: { id: 'wallet@example.com', url: 'moz-extension://uuid/options.html' } },
-    'moz-extension://uuid/', 'wallet@example.com')).toBe(true);
+  expect(
+    isExtensionPagePort(
+      { sender: { id: 'wallet@example.com', url: 'moz-extension://uuid/options.html' } },
+      'moz-extension://uuid/',
+      'wallet@example.com'
+    )
+  ).toBe(true);
 });

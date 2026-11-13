@@ -545,14 +545,21 @@ describe('actions', () => {
   const passwordUnlock = unlock;
   describe.each<['password' | 'platform']>([['password'], ['platform']])('unlock (%s)', method => {
     const port: Runtime.Port = {
-      name: 'intercom', sender: { id: 'wallet', url: 'chrome-extension://wallet/sidepanel.html' },
-      postMessage: jest.fn(), disconnect: jest.fn(),
+      name: 'intercom',
+      sender: { id: 'wallet', url: 'chrome-extension://wallet/sidepanel.html' },
+      postMessage: jest.fn(),
+      disconnect: jest.fn(),
       onDisconnect: { addListener: jest.fn(), removeListener: jest.fn(), hasListener: jest.fn(() => false) },
       onMessage: { addListener: jest.fn(), removeListener: jest.fn(), hasListener: jest.fn(() => false) }
     };
-    const unlock = (password?: string) => method === 'password' ? passwordUnlock(password) :
-      platformUnlock({ action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'E'.repeat(42) + 'A' }, port, true)
-        .then(() => undefined);
+    const unlock = (password?: string) =>
+      method === 'password'
+        ? passwordUnlock(password)
+        : platformUnlock(
+            { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'E'.repeat(42) + 'A' },
+            port,
+            true
+          ).then(() => undefined);
     beforeEach(() => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       Vault.setup.mockReset();
@@ -684,8 +691,9 @@ describe('actions', () => {
 
       await unlock('password123');
 
-      expect(Vault.setup).toHaveBeenCalledWith(...(method === 'password'
-        ? ['password123'] : ['AQIDBA', 'E'.repeat(42) + 'A']));
+      expect(Vault.setup).toHaveBeenCalledWith(
+        ...(method === 'password' ? ['password123'] : ['AQIDBA', 'E'.repeat(42) + 'A'])
+      );
       expect(mockVaultInstance.removeSeedPhrase).toHaveBeenCalledTimes(Number(status === 'removing'));
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();

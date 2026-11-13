@@ -16,11 +16,15 @@ export function parsePlatformUnlockCommand(value: unknown): PlatformUnlockComman
   const action: unknown = Reflect.get(value, 'action');
   const enrollmentId: unknown = Reflect.get(value, 'enrollmentId');
   switch (action) {
-    case 'state': case 'pending-signals': return { action };
-    case 'begin': case 'remove': {
+    case 'state':
+    case 'pending-signals':
+      return { action };
+    case 'begin':
+    case 'remove': {
       const expectedCredentialId: unknown = Reflect.get(value, 'expectedCredentialId');
       return expectedCredentialId === null || bytes(expectedCredentialId, null)
-        ? { action, expectedCredentialId } : null;
+        ? { action, expectedCredentialId }
+        : null;
     }
     case 'track': {
       const credential = parsePlatformCredentialMetadata(Reflect.get(value, 'credential'));
@@ -30,9 +34,11 @@ export function parsePlatformUnlockCommand(value: unknown): PlatformUnlockComman
       const password: unknown = Reflect.get(value, 'password');
       const prfSecret: unknown = Reflect.get(value, 'prfSecret');
       return bytes(enrollmentId, 32) && typeof password === 'string' && password.length > 0 && bytes(prfSecret, 32)
-        ? { action, enrollmentId, password, prfSecret } : null;
+        ? { action, enrollmentId, password, prfSecret }
+        : null;
     }
-    case 'abandon': return bytes(enrollmentId, 32) ? { action, enrollmentId } : null;
+    case 'abandon':
+      return bytes(enrollmentId, 32) ? { action, enrollmentId } : null;
     case 'unlock': {
       const credentialId: unknown = Reflect.get(value, 'credentialId');
       const prfSecret: unknown = Reflect.get(value, 'prfSecret');
@@ -42,6 +48,7 @@ export function parsePlatformUnlockCommand(value: unknown): PlatformUnlockComman
       const credentialId: unknown = Reflect.get(value, 'credentialId');
       return bytes(credentialId, null) ? { action, credentialId } : null;
     }
-    default: return null;
+    default:
+      return null;
   }
 }

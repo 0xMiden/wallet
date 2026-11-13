@@ -1070,12 +1070,17 @@ describe('useWalletStore', () => {
     });
 
     it('preserves the platform enrollment token returned by the worker', async () => {
-      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.PlatformUnlockResponse,
-        result: { action: 'begin', enrollmentId: 'token' } });
-      await expect(useWalletStore.getState().platformUnlock({ action: 'begin', expectedCredentialId: null }))
-        .resolves.toEqual({ action: 'begin', enrollmentId: 'token' });
-      expect(mockRequest).toHaveBeenCalledWith({ type: WalletMessageType.PlatformUnlockRequest,
-        command: { action: 'begin', expectedCredentialId: null } });
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.PlatformUnlockResponse,
+        result: { action: 'begin', enrollmentId: 'token' }
+      });
+      await expect(
+        useWalletStore.getState().platformUnlock({ action: 'begin', expectedCredentialId: null })
+      ).resolves.toEqual({ action: 'begin', enrollmentId: 'token' });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.PlatformUnlockRequest,
+        command: { action: 'begin', expectedCredentialId: null }
+      });
     });
 
     it('does not mistake another message response for platform unlock completion', async () => {
