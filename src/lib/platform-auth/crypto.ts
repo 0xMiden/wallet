@@ -2,7 +2,7 @@ import { Buffer } from 'buffer';
 
 import { importVaultKey } from 'lib/miden/passworder';
 
-import { PlatformUnlockRecord } from './types';
+import { PlatformCredentialMetadata, PlatformUnlockRecord } from './types';
 
 export function encodePlatformBytes(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -16,29 +16,29 @@ export function decodePlatformBytes(value: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-export function parsePlatformUnlockRecord(value: unknown): PlatformUnlockRecord | null {
+export function parsePlatformCredentialMetadata(value: unknown): PlatformCredentialMetadata | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  const version: unknown = Reflect.get(value, 'version');
   const credentialId: unknown = Reflect.get(value, 'credentialId');
   const prfSalt: unknown = Reflect.get(value, 'prfSalt');
-  const wrappedKey: unknown = Reflect.get(value, 'wrappedKey');
   const backupEligible: unknown = Reflect.get(value, 'backupEligible');
-  if (
-    version !== 1 ||
-    typeof credentialId !== 'string' ||
-    typeof prfSalt !== 'string' ||
-    typeof wrappedKey !== 'string' ||
-    typeof backupEligible !== 'boolean'
-  )
-    return null;
+  if (typeof credentialId !== 'string' || typeof prfSalt !== 'string' || typeof backupEligible !== 'boolean') return null;
   try {
-    if (
-      decodePlatformBytes(credentialId).length > 1023 ||
-      decodePlatformBytes(prfSalt).length !== 32 ||
-      decodePlatformBytes(wrappedKey).length !== 60
-    )
-      return null;
-    return { version, credentialId, prfSalt, wrappedKey, backupEligible };
+    if (decodePlatformBytes(credentialId).length > 1023 || decodePlatformBytes(prfSalt).length !== 32) return null;
+    return { credentialId, prfSalt, backupEligible };
+  } catch {
+    return null;
+  }
+}
+
+export function parsePlatformUnlockRecord(value: unknown): PlatformUnlockRecord | null {
+  if (value === null || typeof value !== 'object') return null;
+  const metadata = parsePlatformCredentialMetadata(value);
+  const version: unknown = Reflect.get(value, 'version');
+  const wrappedKey: unknown = Reflect.get(value, 'wrappedKey');
+  if (metadata === null || version !== 1 || typeof wrappedKey !== 'string') return null;
+  try {
+    if (decodePlatformBytes(wrappedKey).length !== 60) return null;
+    return { ...metadata, version, wrappedKey };
   } catch {
     return null;
   }

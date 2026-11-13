@@ -1,3 +1,4 @@
+export const VAULT_KEY_PASSWORD_STORAGE_KEY = 'vault_key_password';
 export const PLATFORM_UNLOCK_STORAGE_KEY = 'vault_key_platform';
 export const PLATFORM_CREDENTIALS_STORAGE_KEY = 'platform_credentials_to_signal';
 export const PLATFORM_RESET_STORAGE_KEY = 'platform_unlock_reset_request';

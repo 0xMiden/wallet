@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  privacy-regression:
+  worker-boundary-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -14,4 +14,4 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/lib/platform-auth/crypto.test.ts src/lib/platform-auth/capabilities.test.ts src/lib/platform-auth/webauthn.test.ts src/lib/telemetry/redact.test.ts --maxWorkers=2
+      - run: yarn jest src/lib/platform-auth/protocol.test.ts src/lib/intercom/extension-page.test.ts src/lib/miden/back/platform-unlock-store.test.ts --maxWorkers=2
