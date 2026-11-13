@@ -1,5 +1,7 @@
 import { Runtime } from 'webextension-polyfill';
 
+import { getPlatformUnlockAvailability } from 'lib/extension/platform-unlock-startup';
+import { isExtensionPagePort } from 'lib/intercom/extension-page';
 import { queueNoteImport } from 'lib/miden/activity';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import {
@@ -47,6 +49,8 @@ import {
   primeNativeAssetId,
   recordSyncedFeeFaucetId
 } from 'lib/miden-chain/native-asset';
+import { isExtension } from 'lib/platform';
+import { parsePlatformUnlockCommand } from 'lib/platform-auth/protocol';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
@@ -413,6 +417,24 @@ async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Pro
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
   switch (req?.type) {
+    case WalletMessageType.PlatformUnlockRequest: {
+      if (!isExtension()) throw new Error('Platform authentication unavailable');
+      const browser = (await import('webextension-polyfill')).default;
+      if (!isExtensionPagePort(_port, browser.runtime.getURL(''), browser.runtime.id)) {
+        throw new Error('Untrusted extension page');
+      }
+      const command = parsePlatformUnlockCommand(req.command);
+      if (command === null) throw new Error('Invalid platform request');
+      const available = await getPlatformUnlockAvailability();
+      if (!available && ['begin', 'commit', 'unlock'].includes(command.action)) {
+        throw new Error('Platform authentication unavailable');
+      }
+      const result = await Actions.platformUnlock(command, _port, available);
+      if (command.action === 'unlock') {
+        startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
+      }
+      return { type: WalletMessageType.PlatformUnlockResponse, result };
+    }
     case WalletMessageType.SyncRequest:
       if (req.force) {
         try {

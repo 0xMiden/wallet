@@ -445,7 +445,9 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     platformUnlock: async command => {
-      throw new Error('Platform authentication unavailable');
+      const res = await request({ type: WalletMessageType.PlatformUnlockRequest, command });
+      assertResponse(res.type === WalletMessageType.PlatformUnlockResponse);
+      return res.result;
     },
 
     // Account actions

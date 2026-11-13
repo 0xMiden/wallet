@@ -21,7 +21,8 @@ export function parsePlatformCredentialMetadata(value: unknown): PlatformCredent
   const credentialId: unknown = Reflect.get(value, 'credentialId');
   const prfSalt: unknown = Reflect.get(value, 'prfSalt');
   const backupEligible: unknown = Reflect.get(value, 'backupEligible');
-  if (typeof credentialId !== 'string' || typeof prfSalt !== 'string' || typeof backupEligible !== 'boolean') return null;
+  if (typeof credentialId !== 'string' || typeof prfSalt !== 'string' || typeof backupEligible !== 'boolean')
+    return null;
   try {
     if (decodePlatformBytes(credentialId).length > 1023 || decodePlatformBytes(prfSalt).length !== 32) return null;
     return { credentialId, prfSalt, backupEligible };

@@ -11,10 +11,10 @@ import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
-import { decodePlatformBytes, wrapPlatformVaultKey } from 'lib/platform-auth/crypto';
-import { PLATFORM_UNLOCK_STORAGE_KEY } from 'lib/platform-auth/types';
 import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transaction/cancel';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
+import { decodePlatformBytes, wrapPlatformVaultKey } from 'lib/platform-auth/crypto';
+import { PLATFORM_UNLOCK_STORAGE_KEY } from 'lib/platform-auth/types';
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -617,7 +617,11 @@ describe('Vault (static)', () => {
       const raw = await Passworder.decryptVaultKeyWithPassword(primary, 'pw-correct');
       const wrappedKey = await wrapPlatformVaultKey(raw, decodePlatformBytes(secret), decodePlatformBytes(id));
       await savePlain(PLATFORM_UNLOCK_STORAGE_KEY, {
-        version: 1, credentialId: id, prfSalt: 'A'.repeat(43), backupEligible: true, wrappedKey
+        version: 1,
+        credentialId: id,
+        prfSalt: 'A'.repeat(43),
+        backupEligible: true,
+        wrappedKey
       });
       return primary;
     }

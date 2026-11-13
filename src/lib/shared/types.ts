@@ -6,8 +6,8 @@ import type {
 } from 'lib/miden/spending-limits/types';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
-import { TelemetryEvent } from 'lib/telemetry/types';
 import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
+import { TelemetryEvent } from 'lib/telemetry/types';
 import type { BurnFeeFailure } from 'lib/usdcx/burn-fee-failure';
 import { WalletType } from 'screens/onboarding/types';
 

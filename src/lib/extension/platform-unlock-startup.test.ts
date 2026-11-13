@@ -7,7 +7,9 @@ jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
 jest.mock('lib/platform-auth/capabilities', () => ({ getPlatformUnlockSupport: () => mockSupport() }));
 
 beforeEach(() => {
-  jest.resetModules(); mockExtension = true; process.env.TARGET_BROWSER = 'chrome';
+  jest.resetModules();
+  mockExtension = true;
+  process.env.TARGET_BROWSER = 'chrome';
   mockSetAccessLevel.mockReset().mockResolvedValue(undefined);
   mockSupport.mockReset().mockResolvedValue(true);
   mockLocal.setAccessLevel = mockSetAccessLevel;

@@ -9,16 +9,15 @@ import { getMessage } from 'lib/i18n';
 import { isMainnetAccountAdmitted, redeemMainnetAccessCode } from 'lib/mainnet-access';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
-import { MAINNET_ACCESS_CODE_REJECTED, PublicError } from 'lib/miden/back/defaults';
+import { intercom, MAINNET_ACCESS_CODE_REJECTED, PublicError } from 'lib/miden/back/defaults';
 import { undoFailedSetup } from 'lib/miden/back/failed-setup';
-import * as PlatformUnlock from 'lib/miden/back/platform-unlock-store';
-import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift,
   revertGuardianEndpointAfterDiscard as revertDiscardedGuardianEndpoint
 } from 'lib/miden/back/guardian-drift';
 import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from 'lib/miden/back/guardian-recovery';
+import * as PlatformUnlock from 'lib/miden/back/platform-unlock-store';
 import {
   toFront,
   store,
@@ -63,6 +62,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import {
   GetStateResponse,
   GuardianRecoveryAction,
@@ -516,16 +516,20 @@ export function lock() {
 }
 
 export function unlock(password?: string) {
-  return unlockUsing(() => Vault.setup(password));
+  return unlockUsing(
+    () => Vault.setup(password),
+    () => true
+  );
 }
 
-function unlockUsing(createVault: () => Promise<Vault>) {
+function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
       // Constructed inside the try: the constructor installs the candidate's sink,
       // and the finally below is what puts the store's back if anything after the
       // construction throws (#878).
       try {
+        if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
         const vault = await createVault();
         // Resuming an interrupted removal is best-effort. It reaches the keystore, a
         // client build and the offscreen document, and it throws seedRemovalFailed by
@@ -551,13 +555,15 @@ function unlockUsing(createVault: () => Promise<Vault>) {
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonic = await vault.isOwnMnemonic();
+        const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
+        if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
         unlocked({
           vault,
           accounts,
           settings,
           currentAccount,
           ownMnemonic,
-          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+          seedPhraseStatus
         });
       } finally {
         syncRealmInsertKeySink();
@@ -567,29 +573,60 @@ function unlockUsing(createVault: () => Promise<Vault>) {
 }
 
 export async function platformUnlock(
-  command: PlatformUnlockCommand, owner: Runtime.Port, available: boolean
+  command: PlatformUnlockCommand,
+  owner: Runtime.Port,
+  available: boolean
 ): Promise<PlatformUnlockResult> {
   if (command.action === 'unlock') {
-    await unlockUsing(() => Vault.setupWithPlatformCredential(command.credentialId, command.prfSecret));
+    await unlockUsing(
+      () => Vault.setupWithPlatformCredential(command.credentialId, command.prfSecret),
+      () => intercom.isConnected(owner)
+    );
     return { action: 'unlock' };
   }
-  return withInited(() => getUnlockQueue().add(async (): Promise<PlatformUnlockResult> => {
-    if (['begin', 'commit', 'remove'].includes(command.action) && store.getState().vault === null) {
-      throw new PublicError(getMessage('passkeyUnlockUnavailable'));
-    }
-    switch (command.action) {
-      case 'state': return { action: 'state', state: await PlatformUnlock.readPlatformUnlockState(available) };
-      case 'begin': return { action: 'begin', enrollmentId:
-        await PlatformUnlock.beginPlatformEnrollment(owner, command.expectedCredentialId) };
-      case 'track': await PlatformUnlock.trackPlatformEnrollment(owner, command.enrollmentId, command.credential); break;
-      case 'commit': await PlatformUnlock.commitPlatformEnrollment(owner, command.enrollmentId, command.password, command.prfSecret); break;
-      case 'abandon': await PlatformUnlock.abandonPlatformEnrollments(owner, command.enrollmentId); break;
-      case 'remove': await PlatformUnlock.removePlatformUnlock(command.expectedCredentialId); break;
-      case 'pending-signals': return { action: 'pending-signals', credentialIds: await PlatformUnlock.getPendingPlatformSignals() };
-      case 'signal-complete': await PlatformUnlock.acknowledgePlatformSignal(command.credentialId); break;
-    }
-    return { action: command.action };
-  }));
+  return withInited(() =>
+    getUnlockQueue().add(async (): Promise<PlatformUnlockResult> => {
+      const current = store.getState();
+      if (
+        ['begin', 'commit', 'remove'].includes(command.action) &&
+        (current.status !== WalletStatus.Ready || current.vault === null || !intercom.isConnected(owner))
+      ) {
+        throw new PublicError(getMessage('passkeyUnlockUnavailable'));
+      }
+      switch (command.action) {
+        case 'state':
+          return { action: 'state', state: await PlatformUnlock.readPlatformUnlockState(available) };
+        case 'begin':
+          return {
+            action: 'begin',
+            enrollmentId: await PlatformUnlock.beginPlatformEnrollment(owner, command.expectedCredentialId)
+          };
+        case 'track':
+          await PlatformUnlock.trackPlatformEnrollment(owner, command.enrollmentId, command.credential);
+          break;
+        case 'commit':
+          await PlatformUnlock.commitPlatformEnrollment(
+            owner,
+            command.enrollmentId,
+            command.password,
+            command.prfSecret
+          );
+          break;
+        case 'abandon':
+          await PlatformUnlock.abandonPlatformEnrollments(owner, command.enrollmentId);
+          break;
+        case 'remove':
+          await PlatformUnlock.removePlatformUnlock(command.expectedCredentialId);
+          break;
+        case 'pending-signals':
+          return { action: 'pending-signals', credentialIds: await PlatformUnlock.getPendingPlatformSignals() };
+        case 'signal-complete':
+          await PlatformUnlock.acknowledgePlatformSignal(command.credentialId);
+          break;
+      }
+      return { action: command.action };
+    })
+  );
 }
 
 export function updateCurrentAccount(accPublicKey: string) {

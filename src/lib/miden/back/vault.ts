@@ -22,10 +22,9 @@ import { MidenDAppErrorType } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
-import { getStoredPlatformVaultKey } from 'lib/miden/back/platform-unlock-store';
-import { VAULT_KEY_PASSWORD_STORAGE_KEY } from 'lib/platform-auth/types';
 import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED, PublicError } from 'lib/miden/back/defaults';
 import { undoFailedSetup } from 'lib/miden/back/failed-setup';
+import { getStoredPlatformVaultKey } from 'lib/miden/back/platform-unlock-store';
 import {
   encryptAndSaveMany,
   fetchAndDecryptOne,
@@ -44,6 +43,7 @@ import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { signBytesInputs } from 'lib/miden/sign-bytes/domain';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
+import { VAULT_KEY_PASSWORD_STORAGE_KEY } from 'lib/platform-auth/types';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex, commitmentToHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
@@ -660,8 +660,9 @@ export class Vault {
   }
 
   static async setupWithPlatformCredential(credentialId: string, prfSecret: string): Promise<Vault> {
-    return withError('Failed to unlock wallet', async () =>
-      new Vault(await getStoredPlatformVaultKey(credentialId, prfSecret))
+    return withError(
+      'Failed to unlock wallet',
+      async () => new Vault(await getStoredPlatformVaultKey(credentialId, prfSecret))
     );
   }
 

@@ -409,33 +409,56 @@ describe('platform unlock authority', () => {
     const port = await ownPort();
     const state = { available: true, hasPassword: true, credential: null };
     Actions.platformUnlock.mockResolvedValueOnce({ action: 'state', state });
-    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
-      command: { action: 'state', password: 'must not forward' } }, port)).resolves.toEqual({
-        type: WalletMessageType.PlatformUnlockResponse, result: { action: 'state', state }
-      });
+    await expect(
+      dispatch(
+        { type: WalletMessageType.PlatformUnlockRequest, command: { action: 'state', password: 'must not forward' } },
+        port
+      )
+    ).resolves.toEqual({
+      type: WalletMessageType.PlatformUnlockResponse,
+      result: { action: 'state', state }
+    });
     expect(Actions.platformUnlock).toHaveBeenCalledWith({ action: 'state' }, port, true);
   });
   it('does not grant a content script the extension page authority of its sender ID', async () => {
     const port = await ownPort();
     port.sender.url = 'https://example.com/';
-    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
-      command: { action: 'remove', expectedCredentialId: null } }, port)).rejects.toThrow();
+    await expect(
+      dispatch(
+        { type: WalletMessageType.PlatformUnlockRequest, command: { action: 'remove', expectedCredentialId: null } },
+        port
+      )
+    ).rejects.toThrow();
     expect(Actions.platformUnlock).not.toHaveBeenCalled();
   });
   it('refuses ports without browser-supplied page metadata', async () => {
-    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
-      command: { action: 'state' } }, {})).rejects.toThrow();
+    await expect(
+      dispatch({ type: WalletMessageType.PlatformUnlockRequest, command: { action: 'state' } }, {})
+    ).rejects.toThrow();
   });
   it('refuses malformed PRF input before vault adoption', async () => {
-    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
-      command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: '' } }, await ownPort())).rejects.toThrow();
+    await expect(
+      dispatch(
+        {
+          type: WalletMessageType.PlatformUnlockRequest,
+          command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: '' }
+        },
+        await ownPort()
+      )
+    ).rejects.toThrow();
     expect(Actions.platformUnlock).not.toHaveBeenCalled();
   });
   it('does not unlock through an unavailable browser path', async () => {
     mockPlatformAvailability.mockResolvedValueOnce(false);
-    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
-      command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) } },
-      await ownPort())).rejects.toThrow();
+    await expect(
+      dispatch(
+        {
+          type: WalletMessageType.PlatformUnlockRequest,
+          command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) }
+        },
+        await ownPort()
+      )
+    ).rejects.toThrow();
     expect(Actions.platformUnlock).not.toHaveBeenCalled();
   });
   it('answers password-only availability without throwing', async () => {
@@ -443,15 +466,22 @@ describe('platform unlock authority', () => {
     const state = { available: false, hasPassword: true, credential: null };
     Actions.platformUnlock.mockResolvedValueOnce({ action: 'state', state });
     const port = await ownPort();
-    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
-      command: { action: 'state' } }, port)).resolves.toMatchObject({ result: { state } });
+    await expect(
+      dispatch({ type: WalletMessageType.PlatformUnlockRequest, command: { action: 'state' } }, port)
+    ).resolves.toMatchObject({ result: { state } });
     expect(Actions.platformUnlock).toHaveBeenCalledWith({ action: 'state' }, port, false);
   });
   it('resumes deferred processing after a platform unlock', async () => {
     Actions.platformUnlock.mockResolvedValueOnce({ action: 'unlock' });
-    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
-      command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) } },
-      await ownPort())).resolves.toMatchObject({ result: { action: 'unlock' } });
+    await expect(
+      dispatch(
+        {
+          type: WalletMessageType.PlatformUnlockRequest,
+          command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) }
+        },
+        await ownPort()
+      )
+    ).resolves.toMatchObject({ result: { action: 'unlock' } });
     expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(1);
   });
 });

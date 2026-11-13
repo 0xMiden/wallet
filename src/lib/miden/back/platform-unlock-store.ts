@@ -2,11 +2,22 @@ import type { Runtime } from 'webextension-polyfill';
 
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { decryptVaultKeyWithPassword } from 'lib/miden/passworder';
-import { decodePlatformBytes, encodePlatformBytes, parsePlatformCredentialMetadata, parsePlatformUnlockRecord,
-  unwrapPlatformVaultKey, wrapPlatformVaultKey } from 'lib/platform-auth/crypto';
-import { PLATFORM_CREDENTIALS_STORAGE_KEY, PLATFORM_UNLOCK_STORAGE_KEY, VAULT_KEY_PASSWORD_STORAGE_KEY,
-  type PlatformCredentialMetadata, type PlatformUnlockState } from 'lib/platform-auth/types';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import {
+  decodePlatformBytes,
+  encodePlatformBytes,
+  parsePlatformCredentialMetadata,
+  parsePlatformUnlockRecord,
+  unwrapPlatformVaultKey,
+  wrapPlatformVaultKey
+} from 'lib/platform-auth/crypto';
+import {
+  PLATFORM_CREDENTIALS_STORAGE_KEY,
+  PLATFORM_UNLOCK_STORAGE_KEY,
+  VAULT_KEY_PASSWORD_STORAGE_KEY,
+  type PlatformCredentialMetadata,
+  type PlatformUnlockState
+} from 'lib/platform-auth/types';
 
 import { getPlain, savePlain } from './safe-storage';
 
@@ -28,8 +39,11 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 function credentialId(value: unknown): string | null {
   if (!object(value) || typeof value.credentialId !== 'string') return null;
-  try { return decodePlatformBytes(value.credentialId).length <= 1023 ? value.credentialId : null; }
-  catch { return null; }
+  try {
+    return decodePlatformBytes(value.credentialId).length <= 1023 ? value.credentialId : null;
+  } catch {
+    return null;
+  }
 }
 function queueId(ledger: CredentialLedger, id: string | null) {
   if (id !== null && !ledger.toSignal.includes(id)) ledger.toSignal.push(id);
@@ -44,8 +58,11 @@ async function ledger(): Promise<CredentialLedger> {
   for (const entry of Array.isArray(value.pending) ? value.pending : []) {
     if (!object(entry)) continue;
     const metadata = parsePlatformCredentialMetadata(entry.credential);
-    if (typeof entry.enrollmentId === 'string' && typeof entry.binding === 'string' &&
-        (entry.credential === null || metadata !== null)) {
+    if (
+      typeof entry.enrollmentId === 'string' &&
+      typeof entry.binding === 'string' &&
+      (entry.credential === null || metadata !== null)
+    ) {
       result.pending.push({ enrollmentId: entry.enrollmentId, binding: entry.binding, credential: metadata });
     } else queueId(result, credentialId(entry.credential));
   }
@@ -55,8 +72,14 @@ async function snapshot() {
   const values = await getStorageProvider().get([PLATFORM_UNLOCK_STORAGE_KEY, VAULT_KEY_PASSWORD_STORAGE_KEY]);
   const raw: unknown = values[PLATFORM_UNLOCK_STORAGE_KEY];
   const password: unknown = values[VAULT_KEY_PASSWORD_STORAGE_KEY];
-  const binding = encodePlatformBytes(new Uint8Array(await crypto.subtle.digest('SHA-256',
-    new TextEncoder().encode(JSON.stringify({ record: raw ?? null, password: password ?? null })))));
+  const binding = encodePlatformBytes(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(JSON.stringify({ record: raw ?? null, password: password ?? null }))
+      )
+    )
+  );
   return { raw, password: typeof password === 'string' && password ? password : null, binding };
 }
 function isLive(token: string, owner: Runtime.Port) {
@@ -73,9 +96,13 @@ async function isProtected(id: string, state: CredentialLedger): Promise<boolean
 export async function readPlatformUnlockState(available: boolean): Promise<PlatformUnlockState> {
   const current = await snapshot();
   const record = parsePlatformUnlockRecord(current.raw);
-  return { available: available && current.password !== null, hasPassword: current.password !== null,
-    credential: record ? { credentialId: record.credentialId, prfSalt: record.prfSalt,
-      backupEligible: record.backupEligible } : null };
+  return {
+    available: available && current.password !== null,
+    hasPassword: current.password !== null,
+    credential: record
+      ? { credentialId: record.credentialId, prfSalt: record.prfSalt, backupEligible: record.backupEligible }
+      : null
+  };
 }
 
 // Call these mutations inside the accounts write queue; setup already holds that same queue.
@@ -85,7 +112,8 @@ export async function beginPlatformEnrollment(owner: Runtime.Port, previous: str
     watched.add(owner);
     owner.onDisconnect.addListener(() => {
       disconnected.add(owner);
-      void getAccountsWriteQueue().add(() => abandonPlatformEnrollments(owner))
+      void getAccountsWriteQueue()
+        .add(() => abandonPlatformEnrollments(owner))
         .catch(() => console.warn('Platform credential cleanup remains pending'));
     });
   }
@@ -103,7 +131,9 @@ export async function beginPlatformEnrollment(owner: Runtime.Port, previous: str
 }
 
 export async function trackPlatformEnrollment(
-  owner: Runtime.Port, token: string, value: PlatformCredentialMetadata
+  owner: Runtime.Port,
+  token: string,
+  value: PlatformCredentialMetadata
 ): Promise<void> {
   const state = await ledger();
   const pending = state.pending.find(entry => entry.enrollmentId === token);
@@ -122,7 +152,7 @@ export async function trackPlatformEnrollment(
     await savePlain(PLATFORM_CREDENTIALS_STORAGE_KEY, state);
     throw new Error('Platform enrollment expired');
   }
-  if (state.toSignal.includes(metadata.credentialId) || await isProtected(metadata.credentialId, state)) {
+  if (state.toSignal.includes(metadata.credentialId) || (await isProtected(metadata.credentialId, state))) {
     throw new Error('Platform credential is already in use');
   }
   pending.credential = metadata;
@@ -131,8 +161,9 @@ export async function trackPlatformEnrollment(
 
 export async function abandonPlatformEnrollments(owner: Runtime.Port, token?: string): Promise<void> {
   const state = await ledger();
-  const removed = state.pending.filter(entry => owners.get(entry.enrollmentId) === owner &&
-    (token === undefined || entry.enrollmentId === token));
+  const removed = state.pending.filter(
+    entry => owners.get(entry.enrollmentId) === owner && (token === undefined || entry.enrollmentId === token)
+  );
   state.pending = state.pending.filter(entry => !removed.includes(entry));
   for (const entry of removed) {
     const id = entry.credential?.credentialId;
@@ -143,7 +174,10 @@ export async function abandonPlatformEnrollments(owner: Runtime.Port, token?: st
 }
 
 export async function commitPlatformEnrollment(
-  owner: Runtime.Port, token: string, password: string, prfSecret: string
+  owner: Runtime.Port,
+  token: string,
+  password: string,
+  prfSecret: string
 ): Promise<void> {
   if (!isLive(token, owner)) throw new Error('Platform enrollment expired');
   const state = await ledger();
@@ -184,8 +218,11 @@ export async function getStoredPlatformVaultKey(id: string, prfSecret: string): 
   const record = parsePlatformUnlockRecord((await snapshot()).raw);
   if (record === null || record.credentialId !== id) throw new Error('Platform credential unavailable');
   const secret = decodePlatformBytes(prfSecret);
-  try { return await unwrapPlatformVaultKey(record.wrappedKey, secret, decodePlatformBytes(id)); }
-  finally { secret.fill(0); }
+  try {
+    return await unwrapPlatformVaultKey(record.wrappedKey, secret, decodePlatformBytes(id));
+  } finally {
+    secret.fill(0);
+  }
 }
 
 export async function recoverPlatformEnrollmentsInTurn(): Promise<void> {

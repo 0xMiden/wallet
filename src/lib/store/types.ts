@@ -12,8 +12,8 @@ import type {
   SpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
-import { type TokenPrices } from 'lib/prices/binance';
 import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
+import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
   GuardianSyncStatus,
