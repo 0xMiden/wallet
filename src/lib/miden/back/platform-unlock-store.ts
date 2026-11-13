@@ -201,6 +201,7 @@ export async function commitPlatformEnrollment(
     }
     queueId(state, credentialId(current.raw));
     await savePlain(PLATFORM_CREDENTIALS_STORAGE_KEY, state);
+    if (!isLive(token, owner)) throw new Error('Platform enrollment expired');
     await savePlain(PLATFORM_UNLOCK_STORAGE_KEY, { version: 1, ...metadata, wrappedKey });
     state.pending = state.pending.filter(entry => entry !== pending);
     await savePlain(PLATFORM_CREDENTIALS_STORAGE_KEY, state);
