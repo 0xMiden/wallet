@@ -747,7 +747,7 @@ describe('TextField - copy out of a secret', () => {
 
   it('routes a copy out of a secret field through the secret clipboard', () => {
     render(<TextField secret multiline readOnly value="abcdef" />);
-    const field = screen.getByRole('textbox') as HTMLTextAreaElement;
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox');
     field.focus();
     field.setSelectionRange(1, 4);
 
@@ -758,7 +758,7 @@ describe('TextField - copy out of a secret', () => {
 
   it('routes a copy out of a single-line secret field too', () => {
     render(<TextField secret readOnly value="abcdef" />);
-    const field = screen.getByRole('textbox') as HTMLInputElement;
+    const field = screen.getByRole<HTMLInputElement>('textbox');
     field.focus();
     field.setSelectionRange(0, 2);
 
@@ -769,7 +769,7 @@ describe('TextField - copy out of a secret', () => {
 
   it('leaves a copy out of an ordinary field alone', () => {
     render(<TextField multiline readOnly value="abcdef" />);
-    const field = screen.getByRole('textbox') as HTMLTextAreaElement;
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox');
     field.focus();
     field.setSelectionRange(1, 4);
 
@@ -781,7 +781,7 @@ describe('TextField - copy out of a secret', () => {
   it("still runs the caller's own onCopy on a secret field", () => {
     const onCopy = jest.fn();
     render(<TextField secret multiline readOnly value="abcdef" onCopy={onCopy} />);
-    const field = screen.getByRole('textbox') as HTMLTextAreaElement;
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox');
     field.focus();
     field.setSelectionRange(1, 4);
 

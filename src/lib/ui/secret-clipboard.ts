@@ -28,7 +28,10 @@ export function writeSecretToClipboard(text: string): Promise<void> {
   return Clipboard.write({ string: text });
 }
 
-export function handleSecretCopyEvent(event: ClipboardEvent, text: string): void {
+export function handleSecretCopyEvent(
+  event: { preventDefault(): void; clipboardData: Pick<DataTransfer, 'setData'> | null },
+  text: string
+): void {
   event.preventDefault();
   if (!isMobile()) {
     event.clipboardData?.setData('text/plain', text);

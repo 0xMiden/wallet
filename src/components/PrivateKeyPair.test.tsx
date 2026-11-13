@@ -106,7 +106,7 @@ it('routes a copy out of the key text through the secret clipboard', () => {
   const hot = 'ab'.repeat(32);
   render(<PrivateKeyPair payload={`${hot}:${'cd'.repeat(32)}`} />);
   fireEvent.click(screen.getByRole('button', { name: 'showPrivateKeyText' }));
-  const field = screen.getByLabelText('midenHotPrivateKey') as HTMLTextAreaElement;
+  const field = screen.getByLabelText<HTMLTextAreaElement>('midenHotPrivateKey');
   field.focus();
   field.setSelectionRange(2, 6);
 

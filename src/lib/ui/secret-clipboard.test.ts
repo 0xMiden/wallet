@@ -19,7 +19,7 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 function copyEvent() {
   const setData = jest.fn();
   const preventDefault = jest.fn();
-  const event = { clipboardData: { setData }, preventDefault } as unknown as ClipboardEvent;
+  const event = { clipboardData: { setData }, preventDefault };
   return { event, setData, preventDefault };
 }
 
