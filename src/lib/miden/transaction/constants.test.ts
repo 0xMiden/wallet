@@ -69,6 +69,14 @@ describe('chunkAutoConsumeBatch', () => {
   it('keeps every chunk on a chain that charges no fee', () => {
     expect(chunkAutoConsumeBatch(notes(20, '1'), 0).map(chunk => chunk.length)).toEqual([8, 8, 4]);
   });
+
+  it('refuses every chunk of a split claim while the fee is unknown', () => {
+    expect(chunkAutoConsumeBatch(notes(9, '1000000000'), null)).toEqual([]);
+  });
+
+  it('refuses one chunk of eight notes while the fee is unknown', () => {
+    expect(chunkAutoConsumeBatch(notes(8, '1000000000'), null)).toEqual([]);
+  });
 });
 
 // The real native-prover error captured in #487.
@@ -704,12 +712,30 @@ describe('ProposalEffectRefusedError', () => {
 
 describe('ProposalFeeUnknownError', () => {
   it('is an outage, and a kill wrapping it is not', () => {
-    const unknown = new ProposalFeeUnknownError();
+    const unknown = new ProposalFeeUnknownError('Localized');
     const wrapped = Object.assign(new Error('could not read the chain fee'), { cause: unknown });
     expect(isGuardianOutage(unknown)).toBe(true);
     expect(isGuardianOutage(wrapped)).toBe(true);
     expect(isGuardianOutage(new WasmClientPoisonedError('realm-error', unknown))).toBe(false);
   });
+});
+
+describe('the copy a row failed for an unknown chain fee shows', () => {
+  const unknown = () => new ProposalFeeUnknownError('Localized: nothing was sent, try again');
+
+  it.each(['sending', 'executing', 'proving', undefined] as const)(
+    "is the localized sentence outside a Guardian proposal stage (stage '%s')",
+    stage => {
+      expect(resolveTransactionErrorMessage(unknown(), stage, true)).toBe('Localized: nothing was sent, try again');
+    }
+  );
+
+  it.each(['creating-proposal', 'signing-proposal'] as const)(
+    "stays the Guardian outage copy at the Guardian proposal stage '%s'",
+    stage => {
+      expect(resolveTransactionErrorMessage(unknown(), stage, false)).toBe(GUARDIAN_UNREACHABLE_ERROR);
+    }
+  );
 });
 
 describe('a failed proposal chain sync as an outage (#1442)', () => {

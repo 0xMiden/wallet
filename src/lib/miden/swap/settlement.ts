@@ -5,6 +5,7 @@ import {
   isSwapTransaction,
   localSwapOrders,
   orderIdString,
+  settlesUnattended,
   type SwapOrder
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -25,6 +26,7 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { chunkNotesForClaim } from '../transaction/constants';
 import {
+  ClaimCohortRefusedError,
   initiateConsumeNotesTransaction,
   initiatePswapReclaimTransaction,
   noteClaimCoverage
@@ -135,6 +137,17 @@ export async function checkRefusedRecoveredOrders(orders: RecoveredSwapOrderRef[
 
 const outputNoteIdsOf = (row: ITransaction): string[] => row.outputNoteIds ?? [];
 
+/** Orders already logged for a short payback drop. A later snapshot that keeps the paybacks forgets the order. */
+const shortPaybackLogged = new Set<string>();
+
+/** Orders already logged for a payback cohort held back by one member. Admitting the cohort forgets the order. */
+const heldBackCohortLogged = new Set<string>();
+
+export function __resetShortPaybackLogsForTests(): void {
+  shortPaybackLogged.clear();
+  heldBackCohortLogged.clear();
+}
+
 /**
  * Read one lineage snapshot and prepare the one class of settlement request
  * that cannot be built from consumable input notes: an expired, still-active,
@@ -151,7 +164,27 @@ export async function classifySwapSettlementSnapshot(
   nowSeconds: number = Math.floor(Date.now() / 1000),
   prepareReclaims = true
 ): Promise<SwapSettlementSnapshot> {
+  // Both callers read the notes in the hold that reads the lineages, so the two agree on every fill.
   const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold);
+  // A shortfall marks each unheld payback and leaves it in the classifier map. Drop those marks before every return,
+  // so a locked lap and a settling lap both queue none of them. One line per order the first time, forgotten when
+  // a later snapshot keeps that order's paybacks.
+  const droppedOrders = new Set<string>();
+  const keptPaybackOrders = new Set<string>();
+  for (const [noteId, meta] of snapshot.notes) {
+    if (meta.role === 'payback' && !meta.coverageShort) keptPaybackOrders.add(meta.orderId);
+    if (!meta.coverageShort) continue;
+    droppedOrders.add(meta.orderId);
+    snapshot.notes.delete(noteId);
+  }
+  for (const orderId of droppedOrders) {
+    if (shortPaybackLogged.has(orderId)) continue;
+    shortPaybackLogged.add(orderId);
+    console.debug('[swap-settlement] paybacks fall short of the fill', orderId);
+  }
+  for (const orderId of keptPaybackOrders) {
+    if (!droppedOrders.has(orderId)) shortPaybackLogged.delete(orderId);
+  }
   const zeroFillReclaims = new Map<string, PreparedPswapReclaim>();
   const refusedRecoveredOrders: RecoveredSwapOrderRef[] = [];
   // A fused build leaves the orders to a later pass; the notes are classified all the same.
@@ -160,10 +193,9 @@ export async function classifySwapSettlementSnapshot(
   }
 
   for (const order of orders) {
-    // Recovery writes Auto accept off on every recovered order, so that setting is not the user's ask there.
     const recovered = isRecoveredReturnOrder(order);
     const recoveredRef = recovered ? recoveredSwapOrderRef(order) : undefined;
-    if (order.extraInputs.autoConsume === false && !recovered) continue;
+    if (!settlesUnattended(order)) continue;
     const expiresAt = order.extraInputs.expiresAt;
     if (!swapOrderExpired(expiresAt, nowSeconds)) continue;
     const orderId = orderIdString(order.extraInputs.orderId);
@@ -328,8 +360,7 @@ export async function reconcileSwapOrderNotes(
   const managedNoteIds = new Set(notes.filter(n => n.swapOrder).map(n => n.id));
 
   for (const order of orders) {
-    // A recovered order this wallet's Cancel stamped is let through: recovery, not the user, wrote its Auto accept.
-    if (order.extraInputs.autoConsume === false && !isRecoveredReturnOrder(order)) continue;
+    if (!settlesUnattended(order)) continue;
     const orderId = orderIdString(order.extraInputs.orderId);
     const orderNotes = notes.filter(note => note.swapOrder?.orderId === orderId);
     if (orderNotes.length === 0) {
@@ -437,18 +468,21 @@ export async function reconcileSwapOrderNotes(
     // for both kinds: a lone tip row that stamped Reclaimed would leave the order Reclaimed for good, since the
     // payback chunks never stamp and the repair runs only while both stamps are absent.
     const splitOrder = paybackChunks.length > 1 || reclaimChunks.length > 1;
+    // The coverage sum counted every payback still on the order, so this pass claims that set together. Each chunk
+    // is admitted with the whole cohort; after a refusal no later payback chunk is queued. The tip reclaim still runs,
+    // and once it lands the lineage no longer says what was filled, so the paybacks still unheld then are listed for a
+    // manual claim instead.
+    const paybackCohort = paybackNotes.map(note => note.id);
+    let stopPaybackChunks = false;
     for (const batch of [...paybackChunks, ...reclaimChunks]) {
       if (batch.length === 0) continue;
-      // No `verificationBaseFee`, so no claim floor, unlike the three native auto-consumers. A floor here would
-      // strand a small payback for good: the fee does not price the requested asset, and a swap-managed note never
-      // reaches the manual claim list.
-      //
-      // The floor's griefing vector, dust notes that each cost the victim a fee, is closed in classification
-      // instead. The order id is public, so anyone can copy a payback's attachment, but a note settles here only
-      // as a standard payment of exactly the order's requested asset, at a round a fill reached, and not at a round
-      // a claim of the order already holds (`swapPaybackDepths`). A pass admits at most one unnamed note of a round,
-      // and the other copies are ordinary incoming payments. Only a round no claim here holds (its payback settled on
-      // another device or before rounds were recorded) lets a copy buy one claim of its own.
+      // No `verificationBaseFee`, so no claim floor, unlike the three native auto-consumers: a payback settled here
+      // is one the order's lineage accounts for. Classification admits a note only as a standard payment of exactly
+      // the order's requested asset, at a round a fill reached, one note per round, and only while the rounds held
+      // here (`swapPaybackAmounts`) and the rounds claimable now pay at least what the lineage says was filled. A
+      // payback the order cannot account for is left out of the classification. On the extension it is claimed as an
+      // ordinary payment, under the native claim floor or by hand; on mobile and desktop it stays on its order
+      // flagged `coverageShort` and is claimed by hand.
       // A solver CAN partial-fill into many small paybacks, but every payback of one order goes into one consume,
       // so a trickle of fills costs one fee per lap rather than one per note. One lap's fee can still exceed a very
       // small fill, which is the price of settling promptly on funds the user is owed.
@@ -457,6 +491,7 @@ export async function reconcileSwapOrderNotes(
       // Partial fills stay lineage-'active' until expiry, so this same-tick pair
       // of consumes is their normal settlement path.
       const hasPayback = batch.some(note => note.swapOrder?.role === 'payback');
+      if (hasPayback && stopPaybackChunks) continue;
       // Link the consume row back to its swap order so history renders the
       // order as a single swap row (the linked consume is suppressed) and
       // `completeConsumeTransaction` can stamp the settlement on the swap row.
@@ -470,11 +505,16 @@ export async function reconcileSwapOrderNotes(
             note.swapOrder?.role === 'payback' ? [[note.id, note.swapOrder.depth]] : []
         )
       );
+      const paybackAmounts = Object.fromEntries(
+        batch.flatMap(
+          (note): Array<[string, string]> => (note.swapOrder?.role === 'payback' ? [[note.id, note.amount]] : [])
+        )
+      );
       const settlementLink: IConsumeSwapSettleExtraInputs = {
         swapOrderTxId: order.id,
         swapSettleKind: hasPayback ? 'settle' : 'reclaim',
         ...(splitOrder ? { swapSettlePartial: true } : {}),
-        ...(hasPayback ? { swapPaybackDepths: paybackDepths } : {})
+        ...(hasPayback ? { swapPaybackDepths: paybackDepths, swapPaybackAmounts: paybackAmounts } : {})
       };
       let txId: string;
       try {
@@ -487,10 +527,22 @@ export async function reconcileSwapOrderNotes(
           undefined,
           'swap_settlement',
           canSign,
-          settlementLink
+          settlementLink,
+          hasPayback ? paybackCohort : undefined
         );
       } catch (error) {
+        // A cohort that cannot be claimed together writes nothing, so there is no row to re-tag. A fee refusal of
+        // one payback chunk stops the later ones the same way: a later pass claims what is still unheld together.
+        if (error instanceof ClaimCohortRefusedError) {
+          stopPaybackChunks = true;
+          if (!heldBackCohortLogged.has(order.id)) {
+            heldBackCohortLogged.add(order.id);
+            console.debug('[swap-settlement] paybacks wait for a held-back payback of the order', order.id);
+          }
+          continue;
+        }
         if (!(error instanceof ClaimFeeRefusedError)) throw error;
+        if (hasPayback) stopPaybackChunks = true;
         continue;
       }
       // The id may be a dedup winner from an earlier tick, inserted before the
@@ -502,10 +554,14 @@ export async function reconcileSwapOrderNotes(
         if (tx.type !== 'consume') return false;
         // Rounds merged, not replaced: the winner may hold a note of an earlier batch whose round it must keep.
         const swapPaybackDepths = { ...tx.extraInputs?.swapPaybackDepths, ...settlementLink.swapPaybackDepths };
+        // Amounts merge the same way: the winner keeps the amounts of its earlier batch.
+        const swapPaybackAmounts = { ...tx.extraInputs?.swapPaybackAmounts, ...settlementLink.swapPaybackAmounts };
         tx.extraInputs = { ...(tx.extraInputs ?? {}), ...settlementLink };
         if (settlementLink.swapPaybackDepths) tx.extraInputs.swapPaybackDepths = swapPaybackDepths;
+        if (settlementLink.swapPaybackAmounts) tx.extraInputs.swapPaybackAmounts = swapPaybackAmounts;
         return undefined;
       });
+      if (hasPayback) heldBackCohortLogged.delete(order.id);
       queuedTransactionIds.push(txId);
     }
   }

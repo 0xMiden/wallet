@@ -21,6 +21,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ReownPlugin.class);
         registerPlugin(ScreenshotGuardPlugin.class);
         registerPlugin(SecretClipboardPlugin.class);
+        registerPlugin(GuardianProbeHttpPlugin.class);
         registerPlugin(SystemChromePlugin.class);
         registerPlugin(UpdateAvailabilityPlugin.class);
         registerPlugin(BreadConnectOpenerPlugin.class);

@@ -134,12 +134,14 @@ export function chunkNotesForClaim<T extends { id: string }>(notes: readonly T[]
  * The caller measured the whole batch against the claim floor, which only a single chunk inherits: over the cap each
  * chunk pays its own fee, so one not worth that fee is left out and waits for more notes, as the whole pile did below
  * the floor. Shared by every unattended native claimer (the service worker, Home, the mobile/desktop manager and the
- * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644).
+ * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644). An unknown
+ * fee refuses every chunk, a single one included, whatever the caller measured.
  */
 export function chunkAutoConsumeBatch<T extends { id: string; amount: string }>(
   notes: readonly T[],
   verificationBaseFee: number | null
 ): T[][] {
+  if (verificationBaseFee === null) return [];
   const chunks = chunkNotesForClaim(notes);
   if (chunks.length <= 1) return chunks;
   return chunks.filter(chunk =>
@@ -591,6 +593,25 @@ export class RotationGateConsumeRefusal extends Error {
   }
 }
 
+/** The text of a Failed `execute` row whose generation-time effects are not the approved effects. */
+export const CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR =
+  'The wallet stopped this transaction because its effects are not the ones you approved. No funds moved.';
+
+/**
+ * The wallet refuses to propose an `execute` row because the generation-time dry run does not give the effects that
+ * the user approved. The failure is before the proposal, so nothing moved. `difference` names the first field that
+ * is not equal, for the log only.
+ */
+export class CustomTransactionEffectsChangedError extends Error {
+  readonly difference: string;
+
+  constructor(difference: string) {
+    super(`Custom transaction effects changed after approval: ${difference}`);
+    this.name = 'CustomTransactionEffectsChangedError';
+    this.difference = difference;
+  }
+}
+
 /**
  * The signing-time guard refused a proposal before the hot key signed it (#2147): its executed effect moves assets the
  * row was not approved to move, or its summary could not be read. The message names the type and what would have left,
@@ -613,11 +634,12 @@ export class ProposalEffectRefusedError extends Error {
  * The signing-time guard stopped before reading the summary: this realm does not know the chain's verification fee
  * yet. Discovery failed, or the probe cooldown has not elapsed. A returned fee, 0 included, and a null the probe
  * found absent, are not this. The message avoids the words the transport reading matches on, so only this class
- * marks the failure an outage.
+ * marks the failure an outage. `displayMessage` is the localized sentence a row failed outside a Guardian proposal
+ * stage shows.
  */
 export class ProposalFeeUnknownError extends Error {
-  constructor() {
-    super('The chain fee is not known yet, so this proposal was not signed.');
+  constructor(readonly displayMessage: string) {
+    super('The chain fee is not known yet, so this transaction was not signed.');
     this.name = 'ProposalFeeUnknownError';
   }
 }
@@ -747,7 +769,16 @@ function classifyTransactionError(
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
   }
+  if ([...causeChain(error)].some(link => link instanceof CustomTransactionEffectsChangedError)) {
+    return CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR;
+  }
   if (error instanceof ProposalEffectRefusedError) {
+    return error.displayMessage;
+  }
+  // A single-key write's signer refused before anything was signed. A Guardian row meets this only at its proposal
+  // stages, which keep the outage copy below. Read before the stage: a delegated attempt's local fallback can be
+  // refused while the row still reads the 'proving' its failed prove left.
+  if (error instanceof ProposalFeeUnknownError && stage !== 'creating-proposal' && stage !== 'signing-proposal') {
     return error.displayMessage;
   }
   // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
