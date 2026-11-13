@@ -2472,7 +2472,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               outputFaucetId={outputFaucetId}
               deliveredSymbol={route === 'epoch' ? deliveredSymbol : undefined}
               route={route}
-              outputAmount={formatMoneyAmount(outputAmount, 'receives')}
+              outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               fee={usdcxQuotedFee}
               networkName={networkName}
               networkId={bridgeNetwork?.id}
