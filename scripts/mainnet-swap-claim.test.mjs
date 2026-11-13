@@ -403,13 +403,9 @@ test('recovers only the existing proved payout without inventing parent history 
   const value = claimRecoveryFixture();
   const before = structuredClone(value.state);
   const result = claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances);
-  assert.equal(result.paidFees, '399');
-  assert.equal(result.recoveryClaimNativeBefore, '18987229');
-  assert.deepEqual(result.reverseRequestAuthority, before.reverseRequestAuthority);
-  assert.deepEqual(result.recoveryReturnReplacement, before.recoveryReturnReplacement);
-  assert.deepEqual(result.returnBaseline, before.returnBaseline);
+  assert.equal(result, 133n);
   assert.deepEqual(value.state, before);
-  assert.deepEqual(claims.prepareMainnetSwapClaimRecovery(result, value.payback, value.balances), result);
+  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances), result);
 });
 for (const [name, change] of [
   [
@@ -473,6 +469,33 @@ for (const [name, change] of [
     change(value);
     assert.throws(() => claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances));
   });
+function forwardClaimFixture() {
+  const {state,evidence}=recoveryFixture();
+  state.forwardRequestAuthority.orderId=evidence.orderId;
+  state.forwardOrderId=evidence.orderId;
+  state.lossBudgetUsdMicros='1999106';
+  const payback={...evidence};delete payback.claimedAtBlock;
+  const native=BigInt(state.native.balance)-BigInt(state.principal)-133n;
+  return {state,payback,balances:{offer:native,native,request:0n}};
+}
+test('binds an unclaimed forward payout to original portfolio without a local parent or fee row',()=>{
+  const value=forwardClaimFixture();const before=structuredClone(value.state);
+  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state,value.payback,value.balances,'forward'),133n);
+  assert.deepEqual(value.state,before);
+});
+for(const [name,change] of [
+  ['wrong note',v=>{v.payback.originalNoteId=`0x${'0'.repeat(64)}`;}],
+  ['wrong order',v=>{v.payback.orderId='999';}],
+  ['already claimed',v=>{v.payback.claimedAtBlock=105;}],
+  ['issued claim',v=>{v.state.forwardClaimAuthority={nonce:'issued'};}],
+  ['unrelated target credit',v=>{v.balances.request=1n;}],
+  ['native credit',v=>{v.balances.native+=1000n;v.balances.offer=v.balances.native;}],
+  ['fee reserve',v=>{v.state.feeBudget='300';}],
+  ['reduced loss cap',v=>{v.state.lossBudgetUsdMicros='1';}]
+]) test(`refuses forward claim recovery with ${name}`,()=>{
+  const value=forwardClaimFixture();change(value);
+  assert.throws(()=>claims.prepareMainnetSwapClaimRecovery(value.state,value.payback,value.balances,'forward'));
+});
 const failedReturnRun = () => ({ id: 456, workflow_id: 77, status: 'completed', conclusion: 'failure' });
 const failedReturnJobs = () => ({
   jobs: [
