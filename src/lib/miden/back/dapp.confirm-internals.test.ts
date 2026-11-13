@@ -62,7 +62,9 @@ jest.mock('lib/miden/back/store', () => ({
       }
     }
   },
-  withUnlocked: jest.fn(async (fn: any) => fn({ vault: { signData: jest.fn(async () => 'sig') } }))
+  withUnlocked: jest.fn(async (fn: any) =>
+    fn({ vault: { signData: jest.fn(async () => ({ signature: 'sig', signedCommitment: 'commitment' })) } })
+  )
 }));
 
 jest.mock('lib/miden/transaction', () => ({
@@ -155,14 +157,24 @@ jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
 }));
 
-// A case that needs a decoded dry run supplies its view; every other case keeps the real decoder.
+// This suite supplies the dry-run view directly so fixture summary bytes are not decoded.
+const mockEmptySimulatedView = {
+  outgoing: [],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  inputNotesConsumed: 0,
+  outputNotesCreated: 0,
+  storageChanged: false
+};
 let mockSimulatedView: unknown;
 jest.mock('app/confirm/decode', () => {
   const actual = jest.requireActual('app/confirm/decode');
   return {
     ...actual,
-    simulatedBytesToView: (...args: unknown[]) =>
-      mockSimulatedView === undefined ? actual.simulatedBytesToView(...args) : mockSimulatedView
+    simulatedBytesToView: () => (mockSimulatedView === undefined ? mockEmptySimulatedView : mockSimulatedView),
+    simulatedOutputRecipients: () => []
   };
 });
 
@@ -925,7 +937,9 @@ describe('requestConfirm stops its auto-decline on the first payload request and
   };
   const unlock = () => {
     _g.__dappConfInternals.status = WalletStatus.Ready;
-    withUnlocked.mockImplementation(async (fn: any) => fn({ vault: { signData: jest.fn(async () => 'sig') } }));
+    withUnlocked.mockImplementation(async (fn: any) =>
+      fn({ vault: { signData: jest.fn(async () => ({ signature: 'sig', signedCommitment: 'commitment' })) } })
+    );
     for (const listener of [..._g.__dappConfInternals.storeListeners]) listener({ status: WalletStatus.Ready });
   };
   // `clearAllMocks` keeps implementations, so a locked gate would leak into the next test.

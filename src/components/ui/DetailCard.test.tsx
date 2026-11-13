@@ -36,6 +36,30 @@ describe('DetailCard', () => {
     expect(wrapper).toHaveClass('bg-fill', 'rounded-2xl', 'divide-y', 'divide-hairline');
   });
 
+  it('draws a badge on the label line, after the label', () => {
+    const { container } = render(
+      <DetailCard>
+        <DetailRow label="To" stacked badge={<span data-testid="tag">New</span>}>
+          addr
+        </DetailRow>
+      </DetailCard>
+    );
+
+    const label = container.querySelector('[data-slot="label"]') as HTMLElement;
+    expect(label).toContainElement(screen.getByTestId('tag'));
+    expect(label.textContent).toBe('ToNew');
+  });
+
+  it('draws no badge slot without a badge', () => {
+    const { container } = render(
+      <DetailCard>
+        <DetailRow label="To">addr</DetailRow>
+      </DetailCard>
+    );
+
+    expect(container.querySelector('[data-slot="badge"]')).toBeNull();
+  });
+
   it('forwards a caller className for margin/layout', () => {
     const { container } = render(<DetailCard className="mt-6">child</DetailCard>);
     expect(container.firstChild as HTMLElement).toHaveClass('mt-6');

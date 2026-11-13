@@ -189,6 +189,14 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
   prepareCustomRequestBytes: async (_client: unknown, _account: string, bytes: Uint8Array) => bytes
 }));
 
+// The effects check of an `execute` row is covered by `custom-effects.test.ts`. Here the generation-time dry run
+// gives the approved effects, so the row goes on to its proposal.
+const mockVerifyPreparedCustomRequest = jest.fn(async (..._args: unknown[]) => undefined);
+jest.mock('./custom-effects', () => ({
+  customEffectsCheckAccess: (...args: unknown[]) => ({ args }),
+  verifyPreparedCustomRequest: (...args: unknown[]) => mockVerifyPreparedCustomRequest(...args)
+}));
+
 jest.mock('lib/settings/constants', () => ({}));
 
 const mockIsGuardianAccount = jest.fn();
@@ -473,7 +481,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 const mockDeserializeSummary = jest.fn();
 const mockAssertProposalEffect = jest.fn(async (_transaction: ITransaction, _txSummary: string | undefined) => {});
 jest.mock('./proposal-effect-guard', () => ({
-  assertProposalEffectApproved: (...a: Parameters<typeof mockAssertProposalEffect>) => mockAssertProposalEffect(...a)
+  assertProposalEffectApproved: (...a: Parameters<typeof mockAssertProposalEffect>) => mockAssertProposalEffect(...a),
+  isEffectChecked: () => false
 }));
 
 jest.mock('../sdk/native-prover-mobile', () => ({
@@ -16217,12 +16226,64 @@ describe('Guardian proposal effect check', () => {
     expectAbandonMark('guardian-acc', { endpoint: 'https://old.guardian', nonce: 9 });
   });
 
-  it('leaves a send alone: its proposal is signed without a summary to check', async () => {
-    const service = { ...serviceWith({}), createSendProposal: jest.fn(async () => ({ id: 'prop-send', nonce: 3 })) };
+  it('signs a send whose summary moves its approved amount', async () => {
+    mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+    const service = {
+      ...serviceWith({}),
+      createSendProposal: jest.fn(async () => ({ id: 'prop-send', nonce: 3, txSummary: 'c2VuZA==' }))
+    };
     mockGetOrCreateMultisigService.mockResolvedValue(service);
 
     await run({
-      id: 'send-unchecked',
+      id: 'send-checked',
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'private',
+      amount: 1000n
+    });
+
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-send', undefined);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a send whose proposal carries no summary before it signs', async () => {
+    mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+    const service = {
+      ...serviceWith({}),
+      createSendProposal: jest.fn(async () => ({ id: 'prop-send', nonce: 3 }))
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(service);
+
+    const row = await run({
+      id: 'send-no-summary',
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'private',
+      amount: 1000n
+    });
+
+    expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).toHaveBeenCalledWith(3);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.rawError).toBe(
+      'ProposalEffectRefusedError: Refused to sign this send transaction: the proposal carries no transaction summary'
+    );
+  });
+
+  it('refuses a send whose amount is a string before it signs', async () => {
+    mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+    const service = {
+      ...serviceWith({}),
+      createSendProposal: jest.fn(async () => ({ id: 'prop-send', nonce: 3, txSummary: 'c2VuZA==' }))
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(service);
+
+    const row = await run({
+      id: 'send-string-amount',
       type: 'send',
       accountId: 'guardian-acc',
       secondaryAccountId: 'recipient',
@@ -16231,8 +16292,11 @@ describe('Guardian proposal effect check', () => {
       amount: '1000'
     });
 
-    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-send', undefined);
-    expect(service.abandonCandidate).not.toHaveBeenCalled();
-    expect(mockDeserializeSummary).not.toHaveBeenCalled();
+    expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).toHaveBeenCalledWith(3);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.rawError).toBe(
+      'ProposalEffectRefusedError: Refused to sign this send transaction: its approved amounts could not be read <- caused by Error: the transaction has no valid approved asset and amount'
+    );
   });
 });

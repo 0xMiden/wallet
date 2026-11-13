@@ -9,7 +9,7 @@ import {
 } from 'lib/miden-chain/native-asset';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
-import { assertProposalEffectApproved, proposalEffectRefusal } from './proposal-effect-guard';
+import { assertProposalEffectApproved, assertViewEffectApproved, proposalEffectRefusal } from './proposal-effect-guard';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -213,6 +213,56 @@ describe('consume', () => {
   });
 });
 
+describe.each(['send', 'swap', 'earn-deposit'] as const)('%s approved outflow', type => {
+  const approved = () =>
+    row({
+      type,
+      faucetId: 'hex:bech32:fA',
+      amount: 100n,
+      extraInputs: { requestedFaucetId: 'bech32:fB', requestedAmount: 1000n, sourceFaucetId: 'bech32:fA' }
+    });
+  const sends = (...assets: Asset[]) =>
+    summary({
+      removed: [...assets, fa('usdcx', 2n)],
+      outputs: [...assets.map(asset => note([asset])), feeNote(2n)]
+    });
+
+  it('permits only the persisted offered amount, with the kernel fee excluded', () => {
+    expect(refusalOf(approved(), sends(fa('fA', 100n)))).toBeUndefined();
+    expect(refusalOf(approved(), sends(fa('fA', 99n)))).toBeUndefined();
+  });
+
+  it('refuses one unit beyond the offered amount', () => {
+    expect(refusalOf(approved(), sends(fa('fA', 101n)))).toBe('101 of bech32:fA leaves (approved 100)');
+  });
+
+  it('never treats the requested or received asset as permission to spend it', () => {
+    expect(refusalOf(approved(), sends(fa('fA', 100n), fa('fB', 1n)))).toBe('1 of bech32:fB leaves (approved 0)');
+  });
+
+  it('refuses an outgoing NFT', () => {
+    const outgoing = summary({
+      removed: [fa('usdcx', 2n)],
+      outputs: [note([], [nft('fN', 'n1')]), feeNote(2n)],
+      unlisted: 1
+    });
+    expect(refusalOf(approved(), outgoing)).toContain('an unapproved NFT of bech32:fN leaves');
+  });
+
+  it('refuses effects the summary cannot list', () => {
+    expect(refusalOf(approved(), summary({ unlisted: 1 }))).toContain('vault change(s) the summary does not list');
+  });
+
+  it('does not sign a row with invalid persisted amount or faucet', async () => {
+    givenSummary(sends());
+    for (const missing of [{ amount: undefined }, { faucetId: undefined }, { amount: -1n }, { faucetId: '' }]) {
+      await expect(assertProposalEffectApproved({ ...approved(), ...missing }, 'sum')).rejects.toThrow(
+        ProposalEffectRefusedError
+      );
+    }
+  });
+});
+
 describe('execute', () => {
   const sends = (...assets: Asset[]) =>
     summary({
@@ -296,9 +346,13 @@ describe('execute', () => {
 
 describe('assertProposalEffectApproved', () => {
   it.each([
-    ['consume', claim],
-    ['execute', execute([{ faucetId: 'bech32:fA', amount: 100n }])]
-  ])('refuses a %s proposal with no summary to check', async (_type, transaction) => {
+    { type: 'consume', transaction: claim },
+    { type: 'execute', transaction: execute([{ faucetId: 'bech32:fA', amount: 100n }]) },
+    ...(['send', 'swap', 'earn-deposit'] as const).map(type => ({
+      type,
+      transaction: row({ type, faucetId: 'bech32:fA', amount: 100n })
+    }))
+  ])('refuses a $type proposal with no summary to check', async ({ transaction }) => {
     givenSummary(summary({}));
     await expect(assertProposalEffectApproved(transaction, undefined)).rejects.toThrow(ProposalEffectRefusedError);
     await expect(assertProposalEffectApproved(transaction, '')).rejects.toThrow('carries no transaction summary');
@@ -306,9 +360,13 @@ describe('assertProposalEffectApproved', () => {
   });
 
   it.each([
-    ['consume', claim],
-    ['execute', execute([{ faucetId: 'bech32:fA', amount: 100n }])]
-  ])('refuses a %s proposal whose summary does not decode, a trap included', async (_type, transaction) => {
+    { type: 'consume', transaction: claim },
+    { type: 'execute', transaction: execute([{ faucetId: 'bech32:fA', amount: 100n }]) },
+    ...(['send', 'swap', 'earn-deposit'] as const).map(type => ({
+      type,
+      transaction: row({ type, faucetId: 'bech32:fA', amount: 100n })
+    }))
+  ])('refuses a $type proposal whose summary does not decode, a trap included', async ({ transaction }) => {
     jest.mocked(TransactionSummary.deserialize).mockImplementation(() => {
       throw new Error('unexpected end of input');
     });
@@ -412,10 +470,76 @@ describe('assertProposalEffectApproved', () => {
 
   it('leaves an unchecked type alone without reading its summary', async () => {
     givenSummary(PSWAP_FILL);
-    const send = row({ type: 'send', faucetId: 'bech32:fA', amount: 500n });
-    await expect(assertProposalEffectApproved(send, undefined)).resolves.toBeUndefined();
-    await expect(assertProposalEffectApproved(send, 'sum')).resolves.toBeUndefined();
+    const unchecked = row({ type: 'bridged-receive', faucetId: 'bech32:fA', amount: 500n });
+    await expect(assertProposalEffectApproved(unchecked, undefined)).resolves.toBeUndefined();
+    await expect(assertProposalEffectApproved(unchecked, 'sum')).resolves.toBeUndefined();
     expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
+    expect(getVerificationBaseFee).not.toHaveBeenCalled();
+  });
+});
+
+describe('assertViewEffectApproved', () => {
+  it('refuses an execute whose view moves more than approved, after the fee lookup', async () => {
+    const order: string[] = [];
+    jest.mocked(getVerificationBaseFee).mockImplementationOnce(async () => {
+      order.push('fee');
+      return 2;
+    });
+    const decode = () => {
+      order.push('decode');
+      return summaryToView(PSWAP_FILL as never);
+    };
+    const transaction = execute([{ faucetId: 'bech32:fA', amount: 100n }]);
+    const refused = await assertViewEffectApproved(transaction, decode).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+    expect((refused as Error).message).toContain('500 of bech32:fA leaves (approved 100)');
+    expect(order).toEqual(['fee', 'decode']);
+  });
+
+  it('refuses when the decode fails', async () => {
+    const failure = new Error('unexpected end of input');
+    const refused = await assertViewEffectApproved(claim, () => {
+      throw failure;
+    }).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(refused).toMatchObject({
+      message: 'Refused to sign this consume transaction: the transaction summary could not be read',
+      cause: failure
+    });
+  });
+
+  it('passes a refusal from the decode through as the same error', async () => {
+    const inner = new ProposalEffectRefusedError('consume', 'the proposal summary could not be read', 'copy');
+    await expect(
+      assertViewEffectApproved(claim, () => {
+        throw inner;
+      })
+    ).rejects.toBe(inner);
+  });
+
+  it('passes a kill of the decoding hold through unchanged', async () => {
+    const kill = new WasmClientPoisonedError('watchdog');
+    await expect(
+      assertViewEffectApproved(claim, async () => {
+        throw kill;
+      })
+    ).rejects.toBe(kill);
+  });
+
+  it('rejects an unknown fee without calling the decode', async () => {
+    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(null);
+    const decode = jest.fn(() => summaryToView(PSWAP_FILL as never));
+    const refused = assertViewEffectApproved(claim, decode);
+    await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    await expect(refused).rejects.toMatchObject({ displayMessage: 'copy:chainFeeUnknown' });
+    expect(decode).not.toHaveBeenCalled();
+  });
+
+  it('leaves an unchecked type alone without calling the decode', async () => {
+    const decode = jest.fn(() => summaryToView(PSWAP_FILL as never));
+    const incoming = row({ type: 'bridged-receive', faucetId: 'bech32:fA', amount: 500n });
+    await expect(assertViewEffectApproved(incoming, decode)).resolves.toBeUndefined();
+    expect(decode).not.toHaveBeenCalled();
     expect(getVerificationBaseFee).not.toHaveBeenCalled();
   });
 });

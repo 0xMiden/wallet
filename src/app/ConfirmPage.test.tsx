@@ -148,10 +148,21 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
+  Button: ({
+    children,
+    onClick,
+    isLoading,
+    variant,
+    className,
+    type,
+    size,
+    disabled,
+    'data-testid': dataTestId
+  }: any) => (
     <button
       type={type ?? 'button'}
       onClick={onClick}
+      disabled={disabled}
       data-loading={String(!!isLoading)}
       data-variant={variant}
       data-size={size}
@@ -963,6 +974,7 @@ describe('sign payload — word', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     expect(screen.getByText('requestsYourSignature')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
@@ -978,6 +990,7 @@ describe('sign payload — word', () => {
 
     // Still renders the opaque-signature warning; the raw value is the invalid fallback.
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
 
     await act(async () => {
@@ -1108,6 +1121,9 @@ describe('sign payload — signingInputs', () => {
     const assetView = screen.getByTestId('asset-view');
     expect(assetView).toHaveAttribute('data-mode', 'verified');
     expect(assetView).toHaveAttribute('data-account', 'bech32:acc-id');
+    // A summary signature can authorize a transaction, so it never says it cannot.
+    expect(screen.queryByText('opaqueSignatureNotATransaction')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
 
     // The view handed to TransactionAssetView is the ground-truth mapping of
     // the executed TransactionSummary (summaryToView), not a re-derivation.
@@ -1171,6 +1187,7 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signArbitraryPayload')).toBeInTheDocument();
   });
@@ -1181,6 +1198,7 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signBlindCommitment')).toBeInTheDocument();
   });
@@ -1217,6 +1235,7 @@ describe('loginSign payload', () => {
     expect(screen.queryByText(ACCOUNT.publicKey)).not.toBeInTheDocument();
     expect(screen.queryByText('payload')).not.toBeInTheDocument();
     expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
+    expect(screen.queryByText('opaqueSignatureNotATransaction')).not.toBeInTheDocument();
     expect(screen.queryByTestId('alert')).not.toBeInTheDocument();
   });
 
@@ -1393,8 +1412,8 @@ describe('request origin banner', () => {
 });
 
 // ---------------------------------------------------------------------------
-// transaction payload — custom-tx state machine (declared -> verifying ->
-// verified | undecodable), driven by simulateCustomTransaction(id)
+// transaction payload — custom-tx state machine (verifying -> verified | not
+// simulated), driven by simulateCustomTransaction(id)
 // ---------------------------------------------------------------------------
 
 describe('ConfirmPage custom transaction', () => {
@@ -1421,7 +1440,7 @@ describe('ConfirmPage custom transaction', () => {
     storageChanged: false
   });
 
-  it('swaps the declared view for the verified view after simulation', async () => {
+  it('shows the verified view after simulation', async () => {
     const noteFlow: NoteFlow = { inputCount: 0, inputs: [], outputs: [] };
     (ctx as any).simulateCustomTransaction.mockResolvedValue({ view: verifiedView('mtst1acct'), noteFlow });
     setPayload(customPayload());
@@ -1447,50 +1466,74 @@ describe('ConfirmPage custom transaction', () => {
     expect(noteFlowFromSimulatedBytes).not.toHaveBeenCalled();
   });
 
-  it('keeps the declared view with a caveat when simulation errors', async () => {
+  // The user approves only the simulated view: the sheet never shows the declared view in its place.
+  const acceptButton = () => screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton);
+
+  it('blocks the approval until the simulated view is on the sheet', async () => {
+    let finish: (value: { view: TxAssetView }) => void = () => undefined;
+    (ctx as any).simulateCustomTransaction.mockReturnValue(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('tx-simulation-pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
+
+    await act(async () => {
+      finish({ view: verifiedView('mtst1acct') });
+    });
+
+    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(acceptButton()).not.toBeDisabled();
+    expect(mockDeclaredRequestToView).not.toHaveBeenCalled();
+  });
+
+  it('shows that the transaction cannot be approved when simulation errors, and no declared view', async () => {
     (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 1050));
     });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotVerifyBySimulation', 'inline');
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('customTransactionNotSimulated', 'inline');
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
+    expect(mockDeclaredRequestToView).not.toHaveBeenCalled();
   });
 
-  it('shows could-not-decode when requestBytes is absent', async () => {
+  it('shows that the transaction cannot be approved when requestBytes is absent', async () => {
     (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
     setPayload(customPayload({ requestBytes: undefined }));
     render(<ConfirmPage />);
 
-    expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument();
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 1050));
-    });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotDecodeTransaction', 'inline');
+    expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
   });
 
-  it('logs and falls back to could-not-decode when declaredRequestToView throws and simulation also fails', async () => {
-    mockDeclaredRequestToView.mockImplementationOnce(() => {
-      throw new Error('bad declared bytes');
-    });
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+  // A dry run the background could not decode answers with no view.
+  it('shows that the transaction cannot be approved when the background returns no view', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({});
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument());
-    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to decode declared custom transaction:', expect.any(Error));
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
   });
 
-  it('keeps the declared view with a caveat when simulation rejects', async () => {
+  it('shows that the transaction cannot be approved when simulation rejects', async () => {
     (ctx as any).simulateCustomTransaction.mockRejectedValue(new Error('service worker gone'));
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
   });
 
   it('marks the could-not-simulate line for E2E', async () => {
@@ -1499,7 +1542,7 @@ describe('ConfirmPage custom transaction', () => {
     render(<ConfirmPage />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('couldNotVerifyBySimulation')
+      expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('customTransactionNotSimulated')
     );
   });
 });
@@ -1518,5 +1561,6 @@ describe('ConfirmPage opaque signature', () => {
 
     // The Alert mock (top of file) renders its `description`; `t` echoes keys.
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
   });
 });

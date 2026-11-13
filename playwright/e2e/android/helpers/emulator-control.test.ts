@@ -97,7 +97,7 @@ describe('EmulatorControl', () => {
 
       await expect(ready).resolves.toBeUndefined();
       expect(calls.slice(0, 2).map(call => call.args.slice(2).join(' '))).toEqual(['reboot', 'wait-for-device']);
-      expect(calls[1].timeout).toBe(300_000);
+      expect(calls[1]?.timeout).toBe(300_000);
       expect(calls.some(call => call.args.slice(3).join(' ') === 'getprop sys.boot_completed')).toBe(true);
     });
   });

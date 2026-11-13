@@ -49,7 +49,7 @@ _g.__dappExtTestStoreListeners = new Set<(state: unknown) => void>();
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
     vault: {
-      signData: jest.fn(async () => 'fake-signature-base64')
+      signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' }))
     }
   })
 );
@@ -57,7 +57,7 @@ const mockFetchAccounts = jest.fn(async () => [] as unknown[]);
 // What an unlocked store hands `withUnlocked`'s callback here.
 const unlockedContext = () => ({
   vault: {
-    signData: jest.fn(async () => 'fake-signature-base64'),
+    signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' })),
     fetchAccounts: mockFetchAccounts
   }
 });
@@ -181,6 +181,29 @@ jest.mock('lib/miden/back/defaults', () => ({
     }),
     broadcast: jest.fn()
   }
+}));
+
+/**
+ * The approval of a custom transaction needs a dry run that succeeds. The dry run itself is covered by
+ * `simulate-custom-tx.test.ts`, so here it gives a result whose decoded view moves nothing.
+ */
+jest.mock('./simulate-custom-tx', () => ({
+  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
+}));
+
+jest.mock('app/confirm/decode', () => ({
+  ...jest.requireActual('app/confirm/decode'),
+  simulatedBytesToView: () => ({
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false
+  }),
+  simulatedOutputRecipients: () => []
 }));
 
 const mockGetCurrentAccountPublicKey = jest.fn();
@@ -774,7 +797,11 @@ describe('requestSign — extension flow', () => {
     );
     const res = await sigPromise;
     expect(res.type).toBe(MidenDAppMessageType.SignResponse);
-    expect((res as any).signature).toBe('fake-signature-base64');
+    expect(res).toEqual({
+      type: MidenDAppMessageType.SignResponse,
+      signature: 'fake-signature-base64',
+      signedCommitment: 'fake-commitment-b64'
+    });
   });
 
   it('rejects with NotGranted when the user declines', async () => {
@@ -1341,6 +1368,33 @@ describe('Full confirmation cycles in extension mode', () => {
     expect(notes[0].noteId).toBe('note-full');
   });
 
+  it('requestConsumableNotes marks each note with whether it is a standard payment', async () => {
+    const base = { noteType: 1, senderAccountId: 'sender-bech32', state: 2, assets: [], swapAttachment: null };
+    const partialNote = { ...base, noteId: null, nullifier: null, standardPayment: true };
+    const dtos = [
+      { ...base, noteId: 'pay', nullifier: 'n-1', standardPayment: true },
+      { ...base, noteId: 'other', nullifier: 'n-2', standardPayment: false },
+      { ...base, noteId: 'legacy', nullifier: 'n-3' },
+      partialNote
+    ];
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue(dtos);
+    _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+    const res = await driveConfirmation(
+      () =>
+        dapp.requestConsumableNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppConsumableNotesConfirmationRequest
+    );
+    const notes = (res as any).consumableNotes;
+    expect(notes.map((n: any) => [n.noteId, n.standardPayment])).toEqual([
+      ['pay', true],
+      ['other', false],
+      ['legacy', false]
+    ]);
+  });
+
   it('requestAssets resolves when confirmed', async () => {
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
       vault: () => ({
@@ -1798,11 +1852,22 @@ describe('Full confirmation cycles in extension mode', () => {
     it('accepts the b64 form the wallet itself handed out at connect', async () => {
       arrangeSignerAccount();
       mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
-        fn({ vault: { signData: jest.fn(async () => 'fake-signature-base64') } })
+        fn({
+          vault: {
+            signData: jest.fn(async () => ({
+              signature: 'fake-signature-base64',
+              signedCommitment: 'fake-commitment-b64'
+            }))
+          }
+        })
       );
 
       const res = await signWith(Buffer.from(SIGNER_COMMITMENT).toString('base64'));
-      expect((res as any).signature).toBe('fake-signature-base64');
+      expect(res).toEqual({
+        type: MidenDAppMessageType.SignResponse,
+        signature: 'fake-signature-base64',
+        signedCommitment: 'fake-commitment-b64'
+      });
     });
 
     it.each([
@@ -2744,40 +2809,19 @@ describe('a request that prompts, made while the wallet is locked (#1414)', () =
       );
     });
 
-    it('retires the client when the declared summary traps, and refuses before any popup', async () => {
-      const trap = new WebAssembly.RuntimeError('unreachable');
+    it('never reads the declared outputs of the request, so the sheet shows only the dry run', async () => {
+      const expectedOutputOwnNotes = jest.fn(() => []);
       await withRequest(
-        () => ({
-          expectedOutputOwnNotes: () => {
-            throw trap;
-          }
-        }),
-        async () => {
-          lockWallet();
-          const outcome = settle(startCustom());
-          await new Promise(resolve => setTimeout(resolve, 0));
-
-          expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
-          await expect(outcome).resolves.toEqual({ ok: false, message: expect.stringMatching(/^INVALID_PARAMS: /) });
-          expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
-        }
-      );
-    });
-
-    it('keeps the opaque warning, and retires nothing, when the summary fails without a trap', async () => {
-      await withRequest(
-        () => ({
-          expectedOutputOwnNotes: () => {
-            throw new Error('cannot summarise');
-          }
-        }),
+        () => ({ expectedOutputOwnNotes }),
         async () => {
           lockWallet();
           const popup = await openPopup(startCustom);
           unlockWallet();
           const payload = await popup.getPayload();
 
-          expect(JSON.stringify(payload)).toContain('Warning, the wallet could not decode this transaction request');
+          expect(expectedOutputOwnNotes).not.toHaveBeenCalled();
+          expect(JSON.stringify(payload)).toContain('Simulated effects:');
+          expect(JSON.stringify(payload)).not.toContain('Declared by the site');
           expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
         }
       );

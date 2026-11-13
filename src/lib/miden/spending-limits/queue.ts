@@ -1,3 +1,5 @@
+import { MidenDAppErrorType } from 'lib/adapter/types';
+
 import { canonicalSpendingLimitIdentity, sameSpendingLimitIdentity } from './identity';
 import { assessSpendingLimit, MAX_WINDOW_SECONDS } from './policy';
 import {
@@ -226,6 +228,37 @@ export const queueOutgoingTransaction = async (
   await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
     await beforeInsert?.();
     await Repo.transactions.add(await admitOutgoingTransaction(transaction, spends, price, authorization, now));
+  });
+};
+
+/**
+ * The locked recheck refuses with this name and a `NOT_GRANTED` message. An unattributable charge
+ * cannot be priced, so a policy present at insert is not an admission.
+ */
+export class UnattributableCustomSpendError extends Error {
+  constructor() {
+    super(MidenDAppErrorType.NotGranted);
+    this.name = 'UnattributableCustomSpendError';
+  }
+}
+
+/**
+ * Inserts an execute row whose dry run could not attribute the spend.
+ *
+ * One write over the spending-limit and transaction tables. A policy present in that transaction
+ * refuses with `NOT_GRANTED` and does not admit the row. With no policy the row is inserted and
+ * `spentAssetTotals` stays unset. `authorization` matches the priced chokepoint's call and is not
+ * consulted: admitting would price a charge the dry run could not measure.
+ */
+export const queueUnattributableCustomTransaction = async (
+  transaction: ITransaction,
+  authorization?: SpendingLimitAuthorization
+): Promise<void> => {
+  // The priced chokepoint's authorization is part of the call. It cannot admit this charge.
+  void authorization;
+  await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
+    if ((await readPolicy(transaction.accountId)) !== undefined) throw new UnattributableCustomSpendError();
+    await Repo.transactions.add(transaction);
   });
 };
 
