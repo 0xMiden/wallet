@@ -427,7 +427,8 @@ async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Pro
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
   if (req?.type === WalletMessageType.NewWalletRequest || req?.type === WalletMessageType.NewWalletFromHotKeyRequest ||
-      req?.type === WalletMessageType.ImportFromClientRequest || req?.type === WalletMessageType.PlatformUnlockRequest) {
+      req?.type === WalletMessageType.ImportFromClientRequest || req?.type === WalletMessageType.PlatformUnlockRequest ||
+      req?.type === WalletMessageType.PlatformResetRequest) {
     if (!isExtension()) throw new Error('Extension page required');
     const browser = (await import('webextension-polyfill')).default;
     if (!isExtensionPagePort(_port, browser.runtime.getURL(''), browser.runtime.id)) {
@@ -435,6 +436,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     }
   }
   switch (req?.type) {
+    case WalletMessageType.PlatformResetRequest: {
+      const { performAuthorizedExtensionReset } = await import('lib/miden/platform-reset');
+      await performAuthorizedExtensionReset(req.nonce);
+      if (!intercom.isConnected(_port)) (await import('webextension-polyfill')).default.runtime.reload();
+      return { type: WalletMessageType.PlatformResetResponse };
+    }
     case WalletMessageType.PlatformUnlockRequest: {
       const command = parsePlatformUnlockCommand(req.command);
       if (command === null) throw new Error('Invalid platform request');

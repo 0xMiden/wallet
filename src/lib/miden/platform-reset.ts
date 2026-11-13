@@ -1,6 +1,8 @@
 import Dexie, { type Table } from 'dexie';
 
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
+import { hasExtensionRuntime } from 'lib/platform';
+import { WalletMessageType } from 'lib/shared/types';
 import { decodePlatformBytes, encodePlatformBytes } from 'lib/platform-auth/crypto';
 import { PLATFORM_RESET_STORAGE_KEY } from 'lib/platform-auth/types';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -96,12 +98,29 @@ async function finishResetInTurn(expectedNonce?: string): Promise<void> {
   if (object(marker) && marker.nonce === nonce) await provider.remove([PLATFORM_RESET_STORAGE_KEY]);
 }
 
-export function performAuthorizedExtensionReset(nonce: string): Promise<void> {
+export async function performAuthorizedExtensionReset(nonce: string): Promise<void> {
+  if (typeof nonce !== 'string' || decodePlatformBytes(nonce).length !== 32) throw new Error('Invalid reset nonce');
   return getAccountsWriteQueue().add(() => finishResetInTurn(nonce));
 }
 export function resumeExtensionReset(): Promise<void> {
   return getAccountsWriteQueue().add(() => finishResetInTurn());
 }
 export async function requestExtensionReset(options: ExtensionResetOptions): Promise<void> {
-  throw new Error('Extension reset unavailable');
+  if (!['chrome-extension:', 'moz-extension:', 'safari-web-extension:'].includes(globalThis.location?.protocol ?? '')) {
+    throw new Error('Extension page required');
+  }
+  const nonce = await authorizeExtensionReset(options);
+  if (!hasExtensionRuntime()) return;
+  await getStorageProvider().set({ [PLATFORM_RESET_STORAGE_KEY]: { nonce } });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const sent = (async () => {
+    const { request } = await import('lib/miden/front/client');
+    const response = await request({ type: WalletMessageType.PlatformResetRequest, nonce });
+    if (response?.type !== WalletMessageType.PlatformResetResponse) throw new Error('Invalid reset response');
+  })();
+  try {
+    await Promise.race([sent, new Promise<void>(resolve => { timer = setTimeout(resolve, 3000); })]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }

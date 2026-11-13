@@ -135,6 +135,10 @@ const resetStorageDestructive = jest.fn();
 jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: (...args: unknown[]) => resetStorageDestructive(...args)
 }));
+const mockRequestReset = jest.fn(async (options: { keepEndpointOverride: boolean }) => resetStorageDestructive(options));
+jest.mock('lib/miden/platform-reset', () => ({
+  requestExtensionReset: (options: { keepEndpointOverride: boolean }) => mockRequestReset(options)
+}));
 
 // The other half of the endpoint-change contract. Clearing the fuse discards what the old
 // node taught us; this retires the passes still in flight AGAINST it, whose pending-rotation
@@ -839,6 +843,14 @@ describe('DeveloperSettings', () => {
     expect(runtimeReload).not.toHaveBeenCalled();
     expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('routes extension developer reset through the worker without keeping the override', async () => {
+    mockIsExtension.value = true;
+    mockRequestReset.mockClear();
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(mockRequestReset).toHaveBeenCalledWith({ keepEndpointOverride: false }));
   });
 
   it('confirming the reset on extension reloads via the dynamically-imported webextension-polyfill', async () => {

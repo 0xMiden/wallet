@@ -23,6 +23,7 @@ import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/typ
 export async function processInProcessRequest(req: WalletRequest, label: string): Promise<WalletResponse | void> {
   switch (req?.type) {
     case WalletMessageType.PlatformUnlockRequest:
+    case WalletMessageType.PlatformResetRequest:
       throw new Error('Platform authentication unavailable');
     case WalletMessageType.GetStateRequest: {
       const state = await Actions.getFrontState();
