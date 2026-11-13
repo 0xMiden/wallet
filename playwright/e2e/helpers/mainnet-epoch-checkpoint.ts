@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import type { MainnetConsumeAuthority } from './mainnet-consume-authorization';
+import type { MainnetSendAuthority } from './mainnet-send-authorization';
 import { MAINNET_LOOP_LOSS_CAP, realizedMainnetLoopLoss } from './mainnet-loop-budget';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
 import { holding, mainnetSwapNextAction, type SavedSwapHolding, type SwapLoopPhase } from './mainnet-swap-checkpoint';
@@ -39,6 +40,7 @@ export interface EpochReverseAuthority {
 }
 export interface MainnetEpochCheckpoint {
   forwardAuthority?: EpochForwardAuthority;
+  forwardRequestAuthority?: MainnetSendAuthority & { expiresAt: number };
   reverseAuthority?: EpochReverseAuthority;
   consumeAuthority?: MainnetConsumeAuthority;
   version: 1;
@@ -146,6 +148,7 @@ const ROOT_KEYS = [
   'after',
   'realizedCostUsdMicros',
   'forwardAuthority',
+  'forwardRequestAuthority',
   'consumeAuthority'
 ];
 
@@ -269,6 +272,29 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
       throw new Error('Invalid exact Epoch forward collateral authority');
     settlementMinimum = BigInt(authority.minimumOutput);
   }
+  if (value.forwardRequestAuthority !== undefined) {
+    const authority = value.forwardRequestAuthority;
+    if (
+      !record(authority) ||
+      !onlyKeys(authority, ['nonce', 'noteId', 'sha256', 'canonicalSha256', 'expiresAt']) ||
+      typeof authority.nonce !== 'string' ||
+      !/^[0-9a-f-]{36}$/.test(authority.nonce) ||
+      !hash(authority.noteId) ||
+      authority.noteId !== value.forwardNoteId ||
+      !value.forwardAuthority ||
+      typeof authority.sha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(authority.sha256) ||
+      typeof authority.canonicalSha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(authority.canonicalSha256) ||
+      typeof authority.expiresAt !== 'number' ||
+      !Number.isSafeInteger(authority.expiresAt) ||
+      authority.expiresAt <= Date.parse(value.createdAt) ||
+      authority.expiresAt > Math.min(Date.parse(value.createdAt), Date.parse(value.pricedAt)) + 600_000
+    )
+      throw new Error('Invalid original final Epoch SDK request authority');
+  }
+  if (value.forwardMidenTxId !== undefined && value.forwardRequestAuthority === undefined)
+    throw new Error('Missing original final Epoch SDK authority; retain original evidence without renewing it');
   if (value.reverseAuthority !== undefined) {
     const authority = value.reverseAuthority;
     if (

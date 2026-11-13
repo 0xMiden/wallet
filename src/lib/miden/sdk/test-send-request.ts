@@ -19,8 +19,8 @@ import {
   TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk/lazy';
 
-import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
 import { testRequestSha256 } from './test-request-sha256';
+import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
 
 export interface TestMainnetSendScope {
   accountId: string;

@@ -1,4 +1,5 @@
 import { getTestAuthorizationStorage, setTestAuthorizationStorage } from './test-authorization-storage';
+import { testRequestSha256 } from './test-request-sha256';
 import {
   inspectTestMainnetEpochRequest,
   inspectTestMainnetSendRequest,
@@ -8,7 +9,6 @@ import {
   type TestMainnetSwapScope
 } from './test-send-request';
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
-import { testRequestSha256 } from './test-request-sha256';
 import { isRecord } from '../../update/guards';
 
 export const TEST_SEND_AUTHORIZATION_KEY = 'e2e_mainnet_send_authorization';

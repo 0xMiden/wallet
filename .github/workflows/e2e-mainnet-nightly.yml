@@ -482,6 +482,15 @@ jobs:
           artifact-name: mainnet-epoch-forward-authorized-${{ github.run_id }}
           process-id: ${{ runner.temp }}/epoch-forward.pid
           snapshot-directory: ${{ runner.temp }}/epoch-forward-auth
+      - name: Upload Epoch SDK forward authority
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: test-results/mainnet-epoch-state/roundtrip.json
+          gate: test-results/mainnet-epoch-state/roundtrip.json.forward.sdk
+          artifact-name: mainnet-epoch-forward-sdk-authorized-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/epoch-forward.pid
+          snapshot-directory: ${{ runner.temp }}/epoch-forward-sdk-auth
       - name: Wait for mainnet Epoch forward
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         timeout-minutes: 21

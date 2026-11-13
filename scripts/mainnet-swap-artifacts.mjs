@@ -66,7 +66,7 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
     'final',
     ...(provider === 'swap' ? [] : ['refund-authorized']),
     ...reverseStages,
-    ...(provider === 'swap' ? ['forward-sdk-authorized'] : []),
+    ...(provider === 'near' ? [] : ['forward-sdk-authorized']),
     'forward-authorized'
   ];
   if (provider === 'near') stages.push('execute-started', 'preflight');
@@ -92,6 +92,12 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
         )
           throw new Error('Actual mainnet swap reverse SDK checkpoint missing; refusing a pre-SDK downgrade');
       }
+      if (
+        provider === 'epoch' &&
+        stepAttempted(jobs, ['Upload Epoch SDK forward authority']) &&
+        !['forward-sdk-authorized', 'refund-authorized', ...reverseStages].some(has)
+      )
+        throw new Error('Actual Epoch forward SDK checkpoint missing; refusing a pre-SDK downgrade');
       if (provider !== 'swap') {
         if (
           stepAttempted(jobs, [

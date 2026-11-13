@@ -1,5 +1,15 @@
 import type { MainnetEpochCheckpoint } from '../../playwright/e2e/helpers/mainnet-epoch-checkpoint';
 
+export function epochForwardRequestAuthorityFixture(noteId: string, createdAt: string) {
+  return {
+    nonce: '33333333-3333-4333-8333-333333333333',
+    noteId,
+    sha256: '3'.repeat(64),
+    canonicalSha256: '4'.repeat(64),
+    expiresAt: Date.parse(createdAt) + 600_000
+  };
+}
+
 export function epochReverseAuthorityFixture() {
   const minimumExpiry = BigInt(Date.parse('2026-11-11T13:00:00.000Z') / 1000);
   return {

@@ -46,6 +46,11 @@ import { readMainnetMidenBlock } from './mainnet-miden-read';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 import { armMainnetConsumeAuthorization, releaseMainnetConsumeAuthorization } from './mainnet-consume-authorization';
 import {
+  armMainnetSendAuthorization,
+  releaseMainnetSendAuthorization,
+  type MainnetSendHandle
+} from './mainnet-send-authorization';
+import {
   createEpochEvmSender,
   reconcileEpochEvmReceipts,
   inspectEpochForwardReceipt,
@@ -73,6 +78,8 @@ export async function runEpochForward(
     state.sourceRunId !== runId ||
     state.authorizationRunId !== runId ||
     state.forwardNoteId ||
+    state.forwardAuthority ||
+    state.forwardRequestAuthority ||
     state.forwardMidenTxId ||
     state.transactions?.length ||
     age < 0 ||
@@ -121,6 +128,7 @@ export async function runEpochForward(
   const blocker = await plantQueueBlocker(wallet.page);
   let queued: TransactionRowSnapshot | undefined;
   let authority: EpochForwardAuthority | undefined;
+  let sdkHandle: MainnetSendHandle | undefined;
   const persist = () => {
     state.updatedAt = new Date().toISOString();
     saveMainnetEpochCheckpoint(path, state);
@@ -225,7 +233,31 @@ export async function runEpochForward(
       });
       if ((await vaultBalanceByFaucetId(wallet.page, state.native.faucetId)) !== BigInt(state.native.balance))
         throw new Error('Epoch native portfolio changed while awaiting authorization upload');
+      if (!state.forwardNoteId) throw new Error('Missing original reviewed Epoch collateral identity');
+      sdkHandle = await armMainnetSendAuthorization(wallet.page, {
+        kind: 'epoch',
+        accountId: state.accountHex,
+        faucetId: state.native.hex,
+        amount: state.principal,
+        noteId: state.forwardNoteId,
+        expiresAt: Math.min(Date.parse(state.createdAt), Date.parse(state.pricedAt)) + 600_000
+      });
       await releaseQueueBlocker(wallet.page, blocker);
+    },
+    authorizeSigned: async () => {
+      const handle = sdkHandle;
+      if (!handle) throw new Error('Missing original Epoch SDK authorization handle');
+      await releaseMainnetSendAuthorization(wallet.page, handle, {
+        checkpointPath: path,
+        gatePath: `${gatePath}.sdk`,
+        signal,
+        persist: async request => {
+          if (request.noteId !== state.forwardNoteId || request.orderId !== undefined)
+            throw new Error('Final Epoch SDK authority changed its collateral identity');
+          state.forwardRequestAuthority = { ...request, expiresAt: handle.expiresAt };
+          persist();
+        }
+      });
     },
     settle: async () => {
       if (!queued) throw new Error('Lost Epoch queue identity after release');

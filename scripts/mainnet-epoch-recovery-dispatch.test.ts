@@ -1,5 +1,9 @@
 /** @jest-environment node */
-import { epochCheckpointFixture, epochReverseAuthorityFixture } from './helpers/mainnet-epoch-fixture';
+import {
+  epochCheckpointFixture,
+  epochForwardRequestAuthorityFixture,
+  epochReverseAuthorityFixture
+} from './helpers/mainnet-epoch-fixture';
 
 const hash = `0x${'a'.repeat(64)}`;
 const refund = jest.fn();
@@ -71,6 +75,7 @@ beforeEach(() => {
     forwardNoteId: hash,
     forwardMidenTxId: hash,
     forwardAuthority: { minimumOutput: '1000001', bindingHash: hash, reclaimHeight: 7200, mandateReclaimHeight: 2200 },
+    forwardRequestAuthority: epochForwardRequestAuthorityFixture(hash, epochCheckpointFixture().createdAt),
     paidMidenFees: '7'
   };
   account.mockResolvedValue(previous.account);
@@ -133,6 +138,7 @@ it.each(['forward', 'reverse'])(
           reclaimHeight: 7200,
           mandateReclaimHeight: 2200
         },
+        forwardRequestAuthority: epochForwardRequestAuthorityFixture(hash, previous.createdAt),
         forwardReceived: '1001000',
         forwardEvmTxHash: hash,
         paidMidenFees: '7'

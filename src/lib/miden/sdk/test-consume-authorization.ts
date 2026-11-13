@@ -1,7 +1,8 @@
 import type { Note } from '@miden-sdk/miden-sdk/lazy';
+
 import { getTestAuthorizationStorage, setTestAuthorizationStorage } from './test-authorization-storage';
-import { inspectTestMainnetGuardianConsumeRequest } from './test-send-request';
 import { testRequestSha256 } from './test-request-sha256';
+import { inspectTestMainnetGuardianConsumeRequest } from './test-send-request';
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
 import { isRecord } from '../../update/guards';
 

@@ -1,9 +1,10 @@
 import type { Note, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+
+import { walletAccountIdToSdk } from './helpers';
 import { getTestAuthorizationStorage } from './test-authorization-storage';
 import { awaitTestConsumeAuthorization } from './test-consume-authorization';
-import { awaitTestSendAuthorization } from './test-send-authorization';
-import { walletAccountIdToSdk } from './helpers';
 import { testRequestSha256 } from './test-request-sha256';
+import { awaitTestSendAuthorization } from './test-send-authorization';
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
 import { isRecord } from '../../update/guards';
 

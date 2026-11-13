@@ -211,11 +211,6 @@ import {
   withWasmLockWatchdogPaused
 } from '../sdk/miden-client';
 import { getRealmReaderClient, proveDelegated, type PswapConsumeRequestInputs } from '../sdk/miden-client-interface';
-import {
-  assertTestGuardianRequestAuthorization,
-  authorizeTestGuardianRequest,
-  type TestGuardianAuthorizationKind
-} from '../sdk/test-guardian-authorization';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { readChainTip } from '../sdk/pswap-order-note';
 import {
@@ -236,6 +231,11 @@ import {
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
 import { readSubmitEvidence } from '../sdk/submit-evidence';
+import {
+  assertTestGuardianRequestAuthorization,
+  authorizeTestGuardianRequest,
+  type TestGuardianAuthorizationKind
+} from '../sdk/test-guardian-authorization';
 import { observeTransactionExecutionRequest } from '../sdk/transaction-execution-diagnostics';
 import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { isRecoveredReturnOrder } from '../swap/recovered-order';
