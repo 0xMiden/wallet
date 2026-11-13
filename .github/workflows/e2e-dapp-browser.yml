@@ -56,7 +56,8 @@ jobs:
           test "$source" = "$EXPECTED_SOURCE"
           test "$source" = "$GITHUB_SHA"
           sha256sum .github/qa/source-quote-* .github/qa/required-source-quotes.patch \
-            .github/qa/test-required-source-quotes.py .github/workflows/e2e-dapp-browser.yml \
+            .github/qa/test-required-source-quotes.py .github/qa/test-runner-source-paths.py \
+            .github/workflows/e2e-dapp-browser.yml \
             | tee "$evidence/input-hashes.txt"
           python3 -B - <<'PY'
           import hashlib
@@ -242,6 +243,20 @@ jobs:
           patch --version
           printf '%s\n' 'Linux deterministic fixtures only; declared genuine local codex-cli 0.167.1 metadata.' \
             'No provider execution, model availability, macOS qualification, or runtime adoption is established.'
+      - name: Regress real runner discovery, filter and exact source-path origins
+        if: ${{ success() && steps.setup.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/source-quote-contract"
+          status=0
+          REVIEW_COUNCIL_HOST=pi python3 -B "$GITHUB_WORKSPACE/.github/qa/test-runner-source-paths.py" \
+            --runner "$QUOTES_RUNTIME/tests/run-tests.sh" --logs "$evidence/runner-source-paths" \
+            > "$evidence/runner-source-paths.stdout" 2> "$evidence/runner-source-paths.stderr" || status=$?
+          printf '%s\n' "$status" > "$evidence/runner-source-paths.status"
+          cat "$evidence/runner-source-paths.stdout"
+          cat "$evidence/runner-source-paths.stderr" >&2
+          exit "$status"
       - name: Canonical STATIC then unchanged receipt AUTHORITATIVE and verify-only
         if: ${{ success() && steps.setup.outcome == 'success' }}
         shell: bash
@@ -403,6 +418,7 @@ jobs:
             .github/qa/source-quote-*
             .github/qa/required-source-quotes.patch
             .github/qa/test-required-source-quotes.py
+            .github/qa/test-runner-source-paths.py
             ${{ runner.temp }}/source-quote-contract/
           include-hidden-files: true
           if-no-files-found: warn
