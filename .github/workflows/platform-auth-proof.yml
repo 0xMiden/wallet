@@ -77,13 +77,24 @@ jobs:
           try {
             Add-Type -AssemblyName UIAutomationClient
             Add-Type -AssemblyName UIAutomationTypes
+            Start-Process 'ms-settings:signinoptions'
             $privacy = [ordered]@{ pagesHandled = 0; status = 'not-observed' }
+            $ui['firstLoginPrivacy'] = $privacy
+            $privacyDeadline = [DateTime]::UtcNow.AddSeconds(30)
             for ($page = 0; $page -lt 4; $page++) {
-              $front = [Windows.Automation.AutomationElement]::FromHandle([NativeHelloPreflight]::GetForegroundWindow())
-              $nodes = $front.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
-              $isPrivacy = $false
-              foreach ($node in $nodes) { if ($node.Current.Name -like '*Choose privacy settings for your device*') { $isPrivacy = $true; break } }
+              do {
+                $isPrivacy = $false
+                $topWindows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.Condition]::TrueCondition)
+                $ui['topWindows'] = @($topWindows | ForEach-Object { $_.Current.Name })
+                foreach ($front in $topWindows) {
+                  $nodes = $front.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+                  foreach ($node in $nodes) { if ($node.Current.Name -like '*Choose privacy settings for your device*') { $isPrivacy = $true; break } }
+                  if ($isPrivacy) { break }
+                }
+                if (-not $isPrivacy) { Start-Sleep -Milliseconds 300 }
+              } while (-not $isPrivacy -and [DateTime]::UtcNow -lt $privacyDeadline)
               if (-not $isPrivacy) { break }
+              $privacyDeadline = [DateTime]::UtcNow.AddSeconds(8)
               $privacy.status = 'privacy-wizard-observed'
               foreach ($node in $nodes) {
                 $toggle = $null
@@ -121,7 +132,14 @@ jobs:
               if (-not $window) { Start-Sleep -Milliseconds 500 }
             } while (-not $window -and [DateTime]::UtcNow -lt $deadline)
             if ($window) {
-              $controls = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+              $pinDeadline = [DateTime]::UtcNow.AddSeconds(20)
+              do {
+                $controls = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+                $pinReady = $false
+                foreach ($candidate in $controls) { if ($candidate.Current.Name -eq 'PIN (Windows Hello)') { $pinReady = $true; break } }
+                if (-not $pinReady) { Start-Sleep -Milliseconds 300 }
+              } while (-not $pinReady -and [DateTime]::UtcNow -lt $pinDeadline)
+              if (-not $pinReady) { throw 'PIN controls never became ready' }
               foreach ($element in $controls) {
                 if ($element.Current.Name -match 'PIN.*Windows Hello') {
                   $ui.pinExpanderFound = $true
