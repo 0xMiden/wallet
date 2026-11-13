@@ -47,7 +47,7 @@ import {
   runPreparedSwap,
   cachedSolverRegistry
 } from '../../helpers/mainnet-swap-ui';
-import { exportMakerNote, readLineage } from '../../helpers/swap';
+import { exportPublicInputNote, readLineage } from '../../helpers/swap';
 import { getEnvironmentConfig } from '../../config/environments';
 import {
   authorizeMainnetSwapRecoveryReturn,
@@ -380,7 +380,7 @@ async function settle(
     )
       throw new Error('Exact payback claim exceeds the remaining native fee budget');
     await wallet.triggerSync(true);
-    const file = await exportMakerNote(wallet, payback.noteId, 90_000);
+    const file = await exportPublicInputNote(wallet, payback.noteId);
     const handle = await armMainnetConsumeAuthorization(wallet.page, {
       accountId: scope.accountId,
       noteId: payback.noteId,
@@ -613,7 +613,7 @@ async function recoverExistingSwapPayout(wallet: GuardianAwareWalletPage, state:
   if (creator.blockNumber !== payback.originalCreatedAtBlock)
     throw new Error('Original swap creator block differs from its inclusion proof');
   await wallet.triggerSync(true);
-  const file = await exportMakerNote(wallet, payback.noteId, 90_000);
+  const file = await exportPublicInputNote(wallet, payback.noteId);
   Object.assign(state, prepared);
   persist(state);
   const handle = await armMainnetConsumeAuthorization(wallet.page, {
