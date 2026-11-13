@@ -39,6 +39,7 @@ import {
   isGuardianStateNotOnChain,
   NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
 } from './serialize';
+import { WalletSigner } from './signer';
 import { withWasmClientLock, type WasmClientLockOptions } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -2694,7 +2695,7 @@ describe('MultisigService', () => {
 
   describe('guardian switch', () => {
     // finalizeGuardianSwitch signs the new Guardian's `/configure` with the service's request signer.
-    const REQUEST_SIGNER = { publicKey: '0x02aa' };
+    const REQUEST_SIGNER = new WalletSigner('0x02aa', '0xc0de', async () => '0xsig');
     // A real `GET /pubkey` commitment is a 32-byte word, and the switch path now
     // refuses anything else before it reaches the transaction script.
     const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
@@ -2995,8 +2996,8 @@ describe('MultisigService', () => {
 
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {
       const multisig = makeMultisig();
-      const signer = { publicKey: '0x02aa' };
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', signer as never);
+      const signer = REQUEST_SIGNER;
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', signer);
       mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
@@ -3012,8 +3013,8 @@ describe('MultisigService', () => {
     // `/configure` authenticates, so the client it posts on carries this service's signer itself.
     it('the new guardian client is signed before configure', async () => {
       const multisig = makeMultisig();
-      const signer = { publicKey: '0x02aa' };
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', signer as never);
+      const signer = REQUEST_SIGNER;
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', signer);
       mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
@@ -3041,12 +3042,7 @@ describe('MultisigService', () => {
     it('finalizeGuardianSwitch registers the cosigners read in its own hold on the new guardian', async () => {
       const multisig = makeMultisig({ signerCommitments: ['0xstale', '0xcold'] });
       const oldClient = serviceClient();
-      const service = new MultisigService(
-        multisig as never,
-        oldClient as never,
-        'https://old',
-        REQUEST_SIGNER as never
-      );
+      const service = new MultisigService(multisig as never, oldClient as never, 'https://old', REQUEST_SIGNER);
       const account = postSwitchAccount();
       mockGetAccount.mockResolvedValueOnce(account);
       const readInHold: boolean[] = [];
@@ -3085,12 +3081,7 @@ describe('MultisigService', () => {
       ['an unread guardian scheme', { ...ECDSA_READ, guardianScheme: null }]
     ])('finalizeGuardianSwitch refuses %s before any /configure', async (_label, read) => {
       const multisig = makeMultisig();
-      const service = new MultisigService(
-        multisig as never,
-        serviceClient() as never,
-        'https://old',
-        REQUEST_SIGNER as never
-      );
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://old', REQUEST_SIGNER);
       mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       mockAccountInspectorFromAccount.mockReturnValue(read);
 
@@ -3111,7 +3102,7 @@ describe('MultisigService', () => {
       ['a non-string body', 1234]
     ])('finalizeGuardianSwitch refuses %s from the new guardian', async (_label, commitment) => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER as never);
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment, pubkey: 'new-pubkey' });
 
@@ -3125,7 +3116,7 @@ describe('MultisigService', () => {
 
     it('finalizeGuardianSwitch throws when the SDK has no record of the switched account', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER as never);
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockGetAccount.mockResolvedValueOnce(null);
 
       await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow(
@@ -3140,7 +3131,7 @@ describe('MultisigService', () => {
     // an abandoned finalize is strictly cheaper than the double borrow.
     it('finalizeGuardianSwitch stops before the account read when the hold is evicted during the sync', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER as never);
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockSyncState.mockImplementationOnce(async () => {
         currentWasmHold = null;
       });
@@ -3155,7 +3146,7 @@ describe('MultisigService', () => {
 
     it('finalizeGuardianSwitch stops before serializing when the hold is evicted during the account read', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER as never);
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       const serialize = jest.fn(() => new Uint8Array([1]));
       mockGetAccount.mockImplementationOnce(async () => {
         currentWasmHold = null;
@@ -3175,7 +3166,7 @@ describe('MultisigService', () => {
 
       guardianConfig.configure.mockRejectedValueOnce(new Error('guardian down'));
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER as never);
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
@@ -3197,7 +3188,7 @@ describe('MultisigService', () => {
     // never written. F-144 bounded the endpoint persist beside it and left these.
     it('finalizeGuardianSwitch gives up on a new guardian whose /pubkey never answers', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER as never);
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockImplementationOnce(() => new Promise(() => {}));
 
@@ -3220,7 +3211,7 @@ describe('MultisigService', () => {
     it('finalizeGuardianSwitch gives up on a new guardian whose registration never answers', async () => {
       guardianConfig.configure.mockImplementation(() => new Promise(() => {}));
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER as never);
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
@@ -3247,7 +3238,7 @@ describe('MultisigService', () => {
       const alreadyThere = Object.assign(new Error('nope'), { code: 'account_already_exists' });
       guardianConfig.configure.mockRejectedValue(alreadyThere);
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER as never);
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
@@ -3261,7 +3252,7 @@ describe('MultisigService', () => {
 
       guardianConfig.configure.mockRejectedValue(new Error('guardian down'));
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER as never);
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
