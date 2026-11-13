@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { RpcClient, Endpoint, NoteId, Word, Address, NoteTag, NoteScript } from '@miden-sdk/miden-sdk';
+import { RpcClient, Endpoint, NoteId, Word, Address, NoteTag, NoteScript, Note, NoteAttachment, NoteAttachmentScheme } from '@miden-sdk/miden-sdk';
 
 const actorId = Address.fromBech32('mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5').accountId();
 const actor = actorId.toString();
@@ -54,8 +54,12 @@ for (const record of records) {
   assert.equal(note.assets().nonFungibleAssets().length, 0);
   assert.equal(assets[0].faucetId().toString(), requested);
   assert.notEqual(record.metadata.sender().toString(), actor, 'Self-funded output is not a solver fill');
-  const attachments = note.attachments().flatMap(attachment => attachment.toWords()).map(word => word.toU64s());
-  assert.ok(attachments.some(word => word[1] === serial[1] && word[2] === values[3] && word[3] === 0n), 'Missing protocol payback attachment');
+  // PSWAP payback serial[3] is original entropy + depth - 1, not the attachment's depth.
+  const depth = values[3] - serial[3] + 1n;
+  assert.ok(depth > 0n && depth <= 50n, 'Invalid bounded payback depth');
+  const attachment = NoteAttachment.fromWord(new NoteAttachmentScheme(3), new Word(new BigUint64Array([assets[0].amount(), serial[1], depth, 0n])));
+  const expected = Note.withAttachments(note.assets(), note.metadata(), note.recipient(), [attachment]);
+  assert.equal(expected.id().toString(), record.noteId.toString(), 'Exact standard PSWAP attachment does not match committed note');
   const createdAt = await verify(record);
   assert.equal(createdAt, consumedAt, 'Payback and original consumption must share the exact maker block');
   assert.equal(await rpc.getNullifierCommitHeight(note.nullifier(), createdAt), 855903);
