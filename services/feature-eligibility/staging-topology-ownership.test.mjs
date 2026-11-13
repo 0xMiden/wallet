@@ -206,6 +206,103 @@ test('provider read deadline stops before issuing another request', async () => 
   assert.equal(calls.length, 24);
 });
 
+test('cleanup remains available within its own deadline after preflight expires', async () => {
+  let clock = 0;
+  const calls = [];
+  const absentPath = `/workers/scripts/${manifest.scriptName}/settings`;
+  let absent = false;
+  const good = apiFixture();
+  const budget = topology.createTopologyApiBudget(
+    async (path, options) => {
+      calls.push({ path, phase: options.phase });
+      if (absent && path === absentPath) return { status: 404, body: { success: false, errors: [{ code: 10007 }] } };
+      return good(path);
+    },
+    { now: () => clock, startedAt: 0 }
+  );
+
+  clock = 120_000;
+  await assert.rejects(budget.preflight('/account'), /deadline/);
+  const result = await cleanup({
+    accountId,
+    manifest,
+    options,
+    api: budget.cleanup,
+    deleteScript: async name => {
+      assert.equal(name, manifest.scriptName);
+      absent = true;
+      return true;
+    }
+  });
+
+  assert.equal(result.cleanup, 'removed');
+  assert.ok(calls.length > 0);
+  assert.ok(calls.every(call => call.phase === 'cleanup'));
+  assert.deepEqual(budget.stats(), {
+    preflight: 0,
+    cleanup: calls.length,
+    total: calls.length,
+    elapsedMs: 120_000,
+    preflightStartedAt: 0,
+    preflightDeadlineAt: 120_000,
+    cleanupStartedAt: 120_000,
+    cleanupDeadlineAt: 240_000,
+    preflightElapsedMs: 120_000,
+    cleanupElapsedMs: 0
+  });
+});
+
+test('cleanup deadline blocks the next request after its bounded phase expires', async () => {
+  let clock = 120_000;
+  const calls = [];
+  const budget = topology.createTopologyApiBudget(
+    async path => {
+      calls.push(path);
+      clock = 240_000;
+      return {};
+    },
+    { now: () => clock, startedAt: 0, cleanupStartedAt: 120_000 }
+  );
+
+  await budget.cleanup('/account');
+  await assert.rejects(budget.cleanup('/account'), /deadline/);
+  assert.deepEqual(calls, ['/account']);
+  assert.equal(budget.stats().cleanup, 1);
+});
+
+test('recovery resumes the shared 500-read budget without resetting phase counts', async () => {
+  let clock = 240_000;
+  const calls = [];
+  const budget = topology.createTopologyApiBudget(
+    async path => {
+      calls.push(path);
+      return {};
+    },
+    {
+      now: () => clock,
+      startedAt: 0,
+      cleanupStartedAt: 240_000,
+      initialCalls: { preflight: 250, cleanup: 249 }
+    }
+  );
+
+  await budget.cleanup('/account');
+  await assert.rejects(budget.cleanup('/account'), /budget/);
+  assert.deepEqual(calls, ['/account']);
+  assert.deepEqual(budget.stats(), {
+    preflight: 250,
+    cleanup: 250,
+    total: 500,
+    elapsedMs: 240_000,
+    preflightStartedAt: 0,
+    preflightDeadlineAt: 120_000,
+    cleanupStartedAt: 240_000,
+    cleanupDeadlineAt: 360_000,
+    preflightElapsedMs: 240_000,
+    cleanupElapsedMs: 0
+  });
+});
+
 test('a privacy-unknown worker is not exercised but can be cleaned after positive ownership checks', async () => {
   const input = { accountId, manifest, options };
   const good = apiFixture();

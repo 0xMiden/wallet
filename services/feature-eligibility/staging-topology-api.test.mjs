@@ -25,6 +25,48 @@ test('read adapter calls only fixed account paths without returning credentials'
   assert.equal(JSON.stringify(response).includes(token), false);
 });
 
+test('read adapter returns only the account and script workers.dev settings', async () => {
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async url =>
+      Response.json(
+        new URL(url).pathname.endsWith('/workers/subdomain')
+          ? { success: true, errors: [], result: { subdomain: 'wallet-topology', private: 'sentinel' } }
+          : {
+              success: true,
+              errors: [],
+              result: { enabled: true, previews_enabled: false, private: 'sentinel' }
+            }
+      )
+  });
+  assert.deepEqual(await api('/workers/subdomain'), {
+    success: true,
+    errors: [],
+    result: { subdomain: 'wallet-topology' }
+  });
+  assert.deepEqual(await api('/workers/scripts/miden-elig-topology-12345-1/subdomain'), {
+    success: true,
+    errors: [],
+    result: { enabled: true, previews_enabled: false }
+  });
+  assert.equal(await api('/workers/scripts/production/subdomain'), null);
+});
+
+test('read adapter rejects malformed workers.dev settings', async () => {
+  const response = value => create({ accountId, token, fetchImpl: async () => Response.json(value) });
+  assert.equal(
+    await response({ success: true, errors: [], result: { subdomain: 'bad.example' } })('/workers/subdomain'),
+    null
+  );
+  assert.equal(
+    await response({ success: true, errors: [], result: { enabled: true } })(
+      '/workers/scripts/miden-elig-topology-12345-1/subdomain'
+    ),
+    null
+  );
+});
+
 test('read adapter rejects arbitrary paths before network access', async () => {
   let calls = 0;
   const api = create({
@@ -79,6 +121,11 @@ test('script deleter accepts only the exact topology worker path without force o
   assert.equal(Object.hasOwn(calls[0].init, 'body'), false);
 });
 
+test('script deleter accepts Cloudflare’s successful bodyless response', async () => {
+  const remove = deleteScript({ accountId, token, fetchImpl: async () => new Response(null, { status: 200 }) });
+  assert.equal(await remove('miden-elig-topology-12345-1'), true);
+});
+
 test('read adapter rejects oversized provider bodies', async () => {
   const api = create({ accountId, token, fetchImpl: async () => new Response(new Uint8Array(1_048_577)) });
   assert.equal(await api('/account'), null);
@@ -97,18 +144,46 @@ test('read adapter retains only a valid target-script absence receipt', async ()
 
 test('read adapter does not start a request after the total deadline', async () => {
   let calls = 0;
-  const times = [0, 119_999, 120_000];
+  let clock = 1_800_000_000_000;
   const api = create({
     accountId,
     token,
-    now: () => times.shift() ?? 120_000,
+    now: () => clock,
+    startedAt: clock,
     fetchImpl: async () => {
       calls++;
       return Response.json({ success: true });
     }
   });
+  clock += 120_000;
   assert.equal(await api('/account'), null);
   assert.equal(calls, 0);
+});
+
+test('read adapter gives cleanup its own bounded deadline after preflight expires', async () => {
+  let clock = 1_800_000_000_000;
+  let calls = 0;
+  const api = create({
+    accountId,
+    token,
+    now: () => clock,
+    startedAt: clock,
+    fetchImpl: async () => {
+      calls++;
+      return Response.json({ success: true, errors: [], result: { id: accountId } });
+    }
+  });
+
+  clock += 120_000;
+  assert.equal(await api('/account', { phase: 'preflight' }), null);
+  assert.deepEqual(await api('/account', { phase: 'cleanup' }), {
+    success: true,
+    errors: [],
+    result: { id: accountId }
+  });
+  clock += 120_000;
+  assert.equal(await api('/account', { phase: 'cleanup' }), null);
+  assert.equal(calls, 1);
 });
 
 test('read adapter caps both phases at 250 requests and the shared total at 500', async () => {

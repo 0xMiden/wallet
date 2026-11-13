@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][ci] Make staging topology cleanup a single-use continuation of its latest predecessor while preserving the original identity and cumulative cleanup budget (#1894).
 - [FIX][all] Cancel timed-out Guardian discovery reads so later recovery attempts can use shared permits (#2080).
 - [FIX][all] Keep a settled Guardian probe selectable when confirming chain read is unavailable (#2080).
 - [CHANGE][all] A dApp's consumable notes carry standardPayment, true only for a P2ID or P2IDE payment, so the dApp can leave other notes out.

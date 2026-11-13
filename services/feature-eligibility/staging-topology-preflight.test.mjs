@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as topology from './staging-topology-preflight.mjs';
 
 const prepare = topology.prepareTopologyInventory ?? (() => null);
+const observeWorkerUrl = topology.observeTopologyWorkerUrl ?? (async () => null);
 const identity = {
   repository: '0xMiden/wallet',
   workflowPath: '.github/workflows/feature-eligibility-topology.yml',
@@ -35,6 +36,7 @@ function provider({
 } = {}) {
   return async path => {
     if (path === '/account') return { success: true, errors: [], result: { id: account } };
+    if (path === '/workers/subdomain') return { success: true, errors: [], result: { subdomain: 'wallet-topology' } };
     if (path === '/workers/scripts?page=1&per_page=100') return page(scripts);
     if (path === '/workers/scripts/other-worker/settings')
       return { success: true, errors: [], result: { bindings: [] } };
@@ -60,7 +62,48 @@ test('account-bound inventory preparation produces only a local manifest', async
   const result = await prepare(options(provider()));
   assert.equal(result?.status, 'inventory_observed');
   assert.equal(result?.manifest?.scriptName, 'miden-elig-topology-12345-1');
+  assert.equal(result?.workersDevUrl, 'https://miden-elig-topology-12345-1.wallet-topology.workers.dev');
   assert.equal(result?.deploymentAuthorized, false);
+});
+
+test('workers.dev target is accepted only when its account host and route state are stable', async () => {
+  const script = 'miden-elig-topology-12345-1';
+  let accountReads = 0;
+  const api = async path => {
+    if (path === '/workers/subdomain') {
+      accountReads++;
+      return { success: true, errors: [], result: { subdomain: 'wallet-topology' } };
+    }
+    if (path === `/workers/scripts/${script}/subdomain`)
+      return { success: true, errors: [], result: { enabled: true, previews_enabled: false } };
+    return null;
+  };
+  assert.deepEqual(await observeWorkerUrl({ api, scriptName: script }), {
+    status: 'observed',
+    url: `https://${script}.wallet-topology.workers.dev`
+  });
+  assert.equal(accountReads, 2);
+  assert.equal(
+    await observeWorkerUrl({
+      api: async path =>
+        path === '/workers/subdomain'
+          ? { success: true, errors: [], result: { subdomain: 'wallet-topology' } }
+          : { success: true, errors: [], result: { enabled: true, previews_enabled: true } },
+      scriptName: script
+    }),
+    null
+  );
+  let changingReads = 0;
+  assert.equal(
+    await observeWorkerUrl({
+      api: async path =>
+        path === '/workers/subdomain'
+          ? { success: true, errors: [], result: { subdomain: changingReads++ ? 'other-host' : 'wallet-topology' } }
+          : { success: true, errors: [], result: { enabled: true, previews_enabled: false } },
+      scriptName: script
+    }),
+    null
+  );
 });
 
 test('account-bound preparation rejects a mismatched or malformed account', async () => {

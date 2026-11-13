@@ -27,6 +27,8 @@ function fixture({ collision = false } = {}) {
     const parsed = new URL(url);
     const base = `/client/v4/accounts/${accountId}`;
     if (parsed.pathname === base) return Response.json({ success: true, errors: [], result: { id: accountId } });
+    if (parsed.pathname === `${base}/workers/subdomain`)
+      return Response.json({ success: true, errors: [], result: { subdomain: 'wallet-topology' } });
     if (parsed.pathname === `${base}/workers/scripts` && parsed.search === '?page=1&per_page=100')
       return Response.json(page([{ id: 'other-worker' }], 100));
     if (parsed.pathname === `${base}/workers/durable_objects/namespaces` && parsed.search === '?page=1&per_page=1000')
@@ -57,7 +59,8 @@ test('read-only topology preflight composes bounded provider reads without deplo
   const result = await prepareTopologyInventory(options);
   assert.equal(result?.status, 'inventory_observed');
   assert.equal(result?.deploymentAuthorized, false);
-  assert.equal(calls.length, 10);
+  assert.equal(result?.workersDevUrl, 'https://miden-elig-topology-12345-1.wallet-topology.workers.dev');
+  assert.equal(calls.length, 11);
   assert.ok(calls.every(call => call.method === 'GET'));
   assert.equal(JSON.stringify(result).includes(token), false);
 });

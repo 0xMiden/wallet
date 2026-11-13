@@ -11,6 +11,8 @@ const MAX_PROVIDER_READS = 500;
 const MAX_PHASE_READS = 250;
 const PROVIDER_DEADLINE_MS = 120_000;
 const PROVIDER_READ_TIMEOUT_MS = 5_000;
+const WORKER = /^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/;
+const SUBDOMAIN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 function mismatch(record, key, expected, gate) {
   if (!isRecord(record)) return { gate, form: record === null ? 'null' : 'unexpected_type' };
@@ -20,6 +22,25 @@ function mismatch(record, key, expected, gate) {
   if (value !== expected)
     return { gate, form: typeof value === typeof expected ? 'different_value' : 'unexpected_type' };
   return null;
+}
+
+function workersSubdomain(value) {
+  const result = value?.result;
+  return value?.success === true && Array.isArray(value.errors) && value.errors.length === 0 &&
+    result && typeof result === 'object' && !Array.isArray(result) && Reflect.ownKeys(result).length === 1 &&
+    typeof result.subdomain === 'string' && SUBDOMAIN.test(result.subdomain)
+    ? result.subdomain
+    : null;
+}
+
+function workerSubdomainSettings(value) {
+  const result = value?.result;
+  return value?.success === true && Array.isArray(value.errors) && value.errors.length === 0 &&
+    result && typeof result === 'object' && !Array.isArray(result) &&
+    Reflect.ownKeys(result).length === 2 && typeof result.enabled === 'boolean' &&
+    typeof result.previews_enabled === 'boolean'
+    ? { enabled: result.enabled, previews_enabled: result.previews_enabled }
+    : null;
 }
 
 export function topologyScriptSettingsMismatch(script) {
@@ -62,20 +83,67 @@ export function topologyScriptSettingsMismatch(script) {
   return null;
 }
 
-export function createTopologyApiBudget(api, { now = () => performance.now(), setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout } = {}) {
-  if (typeof api !== 'function' || typeof now !== 'function') throw new TypeError('invalid provider API');
-  const startedAt = now();
-  const calls = { preflight: 0, cleanup: 0 };
+export function createTopologyApiBudget(
+  api,
+  {
+    now = () => performance.now(),
+    setTimeoutFn = setTimeout,
+    clearTimeoutFn = clearTimeout,
+    startedAt,
+    cleanupStartedAt,
+    initialCalls = { preflight: 0, cleanup: 0 },
+    onRequest
+  } = {}
+) {
+  if (typeof api !== 'function' || typeof now !== 'function' || (onRequest !== undefined && typeof onRequest !== 'function'))
+    throw new TypeError('invalid provider API');
+  const starts = { preflight: startedAt ?? now(), cleanup: cleanupStartedAt };
+  const preflight = Object.getOwnPropertyDescriptor(initialCalls, 'preflight');
+  const cleanup = Object.getOwnPropertyDescriptor(initialCalls, 'cleanup');
+  if (
+    !Number.isFinite(starts.preflight) ||
+    (starts.cleanup !== undefined && !Number.isFinite(starts.cleanup)) ||
+    !isRecord(initialCalls) ||
+    Reflect.ownKeys(initialCalls).length !== 2 ||
+    !preflight || !Object.hasOwn(preflight, 'value') ||
+    !cleanup || !Object.hasOwn(cleanup, 'value') ||
+    !Number.isSafeInteger(preflight.value) ||
+    preflight.value < 0 ||
+    preflight.value > MAX_PHASE_READS ||
+    !Number.isSafeInteger(cleanup.value) ||
+    cleanup.value < 0 ||
+    cleanup.value > MAX_PHASE_READS ||
+    preflight.value + cleanup.value > MAX_PROVIDER_READS
+  )
+    throw new TypeError('invalid provider budget state');
+  const calls = { preflight: preflight.value, cleanup: cleanup.value };
+  const stats = () => {
+    const current = now();
+    return Object.freeze({
+      ...calls,
+      total: calls.preflight + calls.cleanup,
+      elapsedMs: current - starts.preflight,
+      preflightStartedAt: starts.preflight,
+      preflightDeadlineAt: starts.preflight + PROVIDER_DEADLINE_MS,
+      cleanupStartedAt: starts.cleanup ?? null,
+      cleanupDeadlineAt: starts.cleanup === undefined ? null : starts.cleanup + PROVIDER_DEADLINE_MS,
+      preflightElapsedMs: current - starts.preflight,
+      cleanupElapsedMs: starts.cleanup === undefined ? null : current - starts.cleanup
+    });
+  };
   const request = phase => async path => {
     if (calls[phase] >= MAX_PHASE_READS || calls.preflight + calls.cleanup >= MAX_PROVIDER_READS)
       throw new Error('provider read budget exhausted');
-    const elapsed = now() - startedAt;
-    const remaining = PROVIDER_DEADLINE_MS - elapsed;
+    if (starts[phase] === undefined) starts[phase] = now();
+    let remaining = starts[phase] + PROVIDER_DEADLINE_MS - now();
+    if (!Number.isFinite(remaining) || remaining <= 0) throw new Error('provider read deadline exhausted');
+    calls[phase]++;
+    if (onRequest) await onRequest(stats());
+    remaining = starts[phase] + PROVIDER_DEADLINE_MS - now();
     if (!Number.isFinite(remaining) || remaining <= 0) throw new Error('provider read deadline exhausted');
     const controller = new AbortController();
     const timeoutMs = Math.min(PROVIDER_READ_TIMEOUT_MS, remaining);
     let timer;
-    calls[phase]++;
     try {
       return await Promise.race([
         Promise.resolve().then(() => api(path, { signal: controller.signal, phase })),
@@ -93,7 +161,7 @@ export function createTopologyApiBudget(api, { now = () => performance.now(), se
   return Object.freeze({
     preflight: request('preflight'),
     cleanup: request('cleanup'),
-    stats: () => Object.freeze({ ...calls, total: calls.preflight + calls.cleanup, elapsedMs: now() - startedAt })
+    stats
   });
 }
 
@@ -199,6 +267,26 @@ export async function observeTopologyOwnership({ api, accountId, manifest, optio
   return Object.freeze({ status: 'observed', deploymentAuthorized: false, cleanupAuthorized: false });
 }
 
+export async function observeTopologyWorkerUrl({ api, scriptName } = {}) {
+  try {
+    if (typeof api !== 'function' || typeof scriptName !== 'string' || !WORKER.test(scriptName)) return null;
+    const read = path => api(path, { phase: 'preflight' });
+    const routePath = `/workers/scripts/${scriptName}/subdomain`;
+    const accountSubdomain = workersSubdomain(await read('/workers/subdomain'));
+    const route = workerSubdomainSettings(await read(routePath));
+    if (!accountSubdomain || route?.enabled !== true || route.previews_enabled !== false) return null;
+    if (workersSubdomain(await read('/workers/subdomain')) !== accountSubdomain) return null;
+    const repeatedRoute = workerSubdomainSettings(await read(routePath));
+    if (JSON.stringify(repeatedRoute) !== JSON.stringify(route)) return null;
+    return Object.freeze({
+      status: 'observed',
+      url: `https://${scriptName}.${accountSubdomain}.workers.dev`
+    });
+  } catch {
+    return null;
+  }
+}
+
 function isTargetAbsent(value) {
   const body = value?.body;
   const errors = body?.errors;
@@ -258,6 +346,8 @@ export async function prepareTopologyInventory({ api, accountId, identity, bundl
       account.result?.id !== accountId
     )
       return null;
+    const subdomain = workersSubdomain(await read('/workers/subdomain'));
+    if (!subdomain) return null;
     const scripts = await collectTopologyScriptInventory(read);
     if (scripts === null) return null;
     const manifest = buildTopologyManifest({
@@ -289,7 +379,12 @@ export async function prepareTopologyInventory({ api, accountId, identity, bundl
       target.body.errors[0]?.code !== 10007
     )
       return null;
-    return Object.freeze({ status: 'inventory_observed', manifest, deploymentAuthorized: false });
+    return Object.freeze({
+      status: 'inventory_observed',
+      manifest,
+      workersDevUrl: `https://${manifest.scriptName}.${subdomain}.workers.dev`,
+      deploymentAuthorized: false
+    });
   } catch {
     return null;
   }
