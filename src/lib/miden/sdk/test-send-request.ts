@@ -4,6 +4,8 @@ import {
   FeltArray,
   FungibleAsset,
   Note,
+  NoteAndArgs,
+  NoteAndArgsArray,
   NoteArray,
   NoteAssets,
   NoteAttachment,
@@ -18,6 +20,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
+import { testRequestSha256 } from './test-request-sha256';
 
 export interface TestMainnetSendScope {
   accountId: string;
@@ -151,4 +154,88 @@ export function inspectTestMainnetSwapRequest(
   const orderId = note.recipient().serialNum().toU64s()[0];
   if (orderId === undefined) throw new Error('Missing actual PSWAP order serial');
   return { noteId: note.id().toString(), orderId: orderId.toString() };
+}
+
+export interface TestMainnetEpochScope {
+  kind: 'epoch';
+  accountId: string;
+  faucetId: string;
+  amount: string;
+  noteId: string;
+  noteSha256: string;
+}
+
+export async function inspectTestMainnetEpochRequest(
+  scope: TestMainnetEpochScope,
+  bytes: Uint8Array
+): Promise<{ noteId: string }> {
+  if (
+    scope.kind !== 'epoch' ||
+    ![scope.accountId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
+    !/^[1-9]\d{0,18}$/.test(scope.amount) ||
+    !/^0x[0-9a-f]{64}$/.test(scope.noteId) ||
+    !/^[0-9a-f]{64}$/.test(scope.noteSha256) ||
+    !(bytes instanceof Uint8Array) ||
+    bytes.length < 1 ||
+    bytes.length > 1_048_576
+  )
+    throw new Error('Invalid final Epoch request scope');
+  const request = TransactionRequest.deserialize(bytes);
+  const notes = request.expectedOutputOwnNotes();
+  const note = notes[0];
+  if (
+    notes.length !== 1 ||
+    !note ||
+    note.id().toString() !== scope.noteId ||
+    note.metadata().sender().toString() !== scope.accountId ||
+    (await testRequestSha256(note.serialize())) !== scope.noteSha256
+  )
+    throw new Error('Final Epoch collateral differs from the entire reviewed note');
+  const assets = note.assets().fungibleAssets();
+  const asset = assets[0];
+  if (
+    note.assets().assets().length !== 1 ||
+    assets.length !== 1 ||
+    !asset ||
+    asset.faucetId().toString() !== scope.faucetId ||
+    asset.amount() !== BigInt(scope.amount)
+  )
+    throw new Error('Final Epoch asset or principal differs from its reviewed scope');
+  const builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+  const expected = withTestGuardianAuthentication(builder, request).build();
+  const actualBytes = canonicalRequestBytes(bytes);
+  const expectedBytes = canonicalRequestBytes(expected.serialize());
+  if (actualBytes.length !== expectedBytes.length || actualBytes.some((value, index) => value !== expectedBytes[index]))
+    throw new Error('Final Epoch request contains unreviewed execution fields');
+  return { noteId: scope.noteId };
+}
+
+export async function inspectTestMainnetGuardianConsumeRequest(
+  scope: { noteId: string; canonicalSha256: string },
+  bytes: Uint8Array,
+  note: Note
+): Promise<string> {
+  if (
+    !/^0x[0-9a-f]{64}$/.test(scope.noteId) ||
+    !/^[0-9a-f]{64}$/.test(scope.canonicalSha256) ||
+    note.id().toString() !== scope.noteId ||
+    !(bytes instanceof Uint8Array) ||
+    bytes.length < 1 ||
+    bytes.length > 1_048_576
+  )
+    throw new Error('Invalid final Guardian consume scope');
+  const noteBytes = note.serialize();
+  const builder = () =>
+    new TransactionRequestBuilder().withInputNotes(
+      new NoteAndArgsArray([new NoteAndArgs(Note.deserialize(noteBytes), null)])
+    );
+  if ((await testRequestSha256(canonicalRequestBytes(builder().build().serialize()))) !== scope.canonicalSha256)
+    throw new Error('Guardian consume note differs from its original canonical reference');
+  const request = TransactionRequest.deserialize(bytes);
+  const expected = withTestGuardianAuthentication(builder(), request).build();
+  const actualBytes = canonicalRequestBytes(bytes);
+  const expectedBytes = canonicalRequestBytes(expected.serialize());
+  if (actualBytes.length !== expectedBytes.length || actualBytes.some((value, index) => value !== expectedBytes[index]))
+    throw new Error('Final Guardian consume contains unreviewed execution fields');
+  return testRequestSha256(actualBytes);
 }
