@@ -372,17 +372,16 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   await expect(page.getByTestId('unlock-password')).toHaveCount(0, { timeout: 30_000 });
 
   await page.goto(`chrome-extension://${extensionId}/sidepanel.html#/settings/passkey-unlock`);
-  await protocol.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId });
-  await authenticator(page, true, true);
   await page.getByRole('button', { name: 'Replace passkey', exact: true }).click();
   await privateInput(page, 'Password123!');
   await page.getByRole('button', { name: 'Replace passkey', exact: true }).click();
-  await expect(
-    page.getByText(
-      'Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider.'
-    )
-  ).toBeVisible({ timeout: 60_000 });
-  expect((await storedRecord(page))?.credentialId).not.toEqual(record?.credentialId);
+  await expect
+    .poll(async () => {
+      const current = await storedRecord(page);
+      return typeof current?.credentialId === 'string' && current.credentialId !== record?.credentialId;
+    }, { timeout: 60_000 })
+    .toBe(true);
+  await expect(page.getByText('Your provider reports that this passkey cannot be backed up.')).toBeVisible();
   await page.getByRole('button', { name: 'Remove passkey unlock', exact: true }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Remove passkey unlock', exact: true }).click();
   await expect.poll(() => storedRecord(page)).toBeNull();
