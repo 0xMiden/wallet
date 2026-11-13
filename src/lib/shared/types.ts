@@ -7,6 +7,7 @@ import type {
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { TelemetryEvent } from 'lib/telemetry/types';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import type { BurnFeeFailure } from 'lib/usdcx/burn-fee-failure';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -28,6 +29,8 @@ export enum WalletMessageType {
   ImportFromClientResponse = 'IMPORT_FROM_CLIENT_RESPONSE',
   UnlockRequest = 'UNLOCK_REQUEST',
   UnlockResponse = 'UNLOCK_RESPONSE',
+  PlatformUnlockRequest = 'PLATFORM_UNLOCK_REQUEST',
+  PlatformUnlockResponse = 'PLATFORM_UNLOCK_RESPONSE',
   LockRequest = 'LOCK_REQUEST',
   LockResponse = 'LOCK_RESPONSE',
   CreateAccountRequest = 'CREATE_ACCOUNT_REQUEST',
@@ -661,6 +664,16 @@ export interface UnlockRequest extends WalletMessageBase {
 
 export interface UnlockResponse extends WalletMessageBase {
   type: WalletMessageType.UnlockResponse;
+}
+
+export interface PlatformUnlockRequest extends WalletMessageBase {
+  type: WalletMessageType.PlatformUnlockRequest;
+  command: PlatformUnlockCommand;
+}
+
+export interface PlatformUnlockResponse extends WalletMessageBase {
+  type: WalletMessageType.PlatformUnlockResponse;
+  result: PlatformUnlockResult;
 }
 
 export interface LockRequest extends WalletMessageBase {
@@ -1347,6 +1360,7 @@ export type WalletRequest =
   | NewWalletRequest
   | NewWalletFromHotKeyRequest
   | UnlockRequest
+  | PlatformUnlockRequest
   | LockRequest
   | CreateAccountRequest
   | UpdateCurrentAccountRequest
@@ -1425,6 +1439,7 @@ export type WalletResponse =
   | NewWalletResponse
   | NewWalletFromHotKeyResponse
   | UnlockResponse
+  | PlatformUnlockResponse
   | LockResponse
   | CreateAccountResponse
   | UpdateCurrentAccountResponse
