@@ -13,7 +13,7 @@ import { CheckboxConsent } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
-import { SeedRevealToggle } from 'components/ui/SeedPhraseGrid';
+import { MaskedSecretBox, SeedRevealToggle } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
@@ -199,6 +199,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       case 'private-key':
         return {
           name: t('privateKey'),
+          hiddenLabel: t('privateKeyHidden'),
           // Which account's key this is: a plain row, like every other account row.
           accountBanner: (
             <ListGroup>
@@ -216,6 +217,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       case 'seed-phrase':
         return {
           name: t('seedPhrase'),
+          hiddenLabel: t('recoveryPhraseHidden'),
           accountBanner: null,
           fieldDesc: (
             <div className="flex flex-col gap-3">
@@ -231,6 +233,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       case 'hot-key':
         return {
           name: t('privateKey'),
+          hiddenLabel: t('privateKeyHidden'),
           accountBanner: null,
           fieldDesc: t('revealHotKeyDescription')
         };
@@ -254,15 +257,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         <SubPageSection description={texts.fieldDesc}>
           <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />
           {mask.masked ? (
-            <div
-              data-testid="reveal-secret-mask"
-              data-masked="true"
-              role="group"
-              aria-label={t('privateKeyHidden')}
-              className="flex h-[108px] items-center rounded-lg-token bg-fill px-4"
-            >
-              <span aria-hidden="true" className="h-1.5 w-full rounded-full bg-fill-pressed" />
-            </div>
+            <MaskedSecretBox label={texts.hiddenLabel} className="h-[108px]" data-testid="reveal-secret-mask" />
           ) : (
             <TextField
               ref={secretFieldRef}

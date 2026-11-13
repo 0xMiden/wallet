@@ -4,6 +4,7 @@ import QRCodeStyling from 'qr-code-styling';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { MaskedSecretBox } from 'components/ui/SeedPhraseGrid';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
@@ -44,16 +45,7 @@ export function PrivateKeyPair({ payload, masked = false }: { payload: string; m
       <p className="text-sm text-text-secondary-token">{t('privateKeyPairWarning')}</p>
       {masked ? (
         // The keys and the QR are left out of the DOM entirely, as the masked recovery phrase is.
-        <div
-          data-masked="true"
-          role="group"
-          aria-label={t('privateKeyHidden')}
-          className="flex h-[260px] w-full flex-col justify-center gap-6 rounded-2xl bg-fill p-5"
-        >
-          {fields.map(field => (
-            <div key={field.id} aria-hidden="true" className="h-1.5 w-full rounded-full bg-fill-pressed" />
-          ))}
-        </div>
+        <MaskedSecretBox label={t('privateKeyHidden')} className="h-[260px]" />
       ) : textMode ? (
         <div key="text" className="flex w-full flex-col gap-4">
           {fields.map(field => (

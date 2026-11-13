@@ -310,6 +310,9 @@ describe('RevealSecret', () => {
     });
     await flush();
 
+    const mask = container.querySelector('[data-testid="reveal-secret-mask"]')!;
+    expect(mask).toHaveAttribute('data-slot', 'masked-secret');
+    expect(mask).toHaveAttribute('aria-label', 'recoveryPhraseHidden');
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-testid="seed-reveal-toggle"]')!.click();
     });
@@ -601,7 +604,11 @@ describe('RevealSecret', () => {
 
       expect(container.querySelector('#reveal-secret-secret')).toBeNull();
       expect(container.innerHTML).not.toContain('PRIVATE_KEY_HEX');
-      expect(container.querySelector('[data-testid="reveal-secret-mask"]')).toHaveAttribute('data-masked', 'true');
+      const mask = container.querySelector('[data-testid="reveal-secret-mask"]')!;
+      expect(mask).toHaveAttribute('data-masked', 'true');
+      expect(mask).toHaveAttribute('data-slot', 'masked-secret');
+      expect(mask).toHaveAttribute('aria-label', 'privateKeyHidden');
+      expect(mask.querySelectorAll('[aria-hidden="true"]')).toHaveLength(1);
       expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'false');
 
       await pressShow(container);

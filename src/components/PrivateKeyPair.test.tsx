@@ -52,7 +52,10 @@ it('draws bars and neither the QR, the keys nor the view switch while masked', (
   const view = render(<PrivateKeyPair payload={`${hot}:${evm}`} masked />);
   expect(screen.queryByRole('img', { name: 'privateKeyPairQr' })).toBeNull();
   expect(view.container.querySelectorAll('canvas')).toHaveLength(0);
-  expect(view.container.querySelector('[data-masked="true"]')).not.toBeNull();
+  const mask = view.container.querySelector('[data-masked="true"]')!;
+  expect(mask.querySelectorAll('[aria-hidden="true"]')).toHaveLength(1);
+  expect(mask).toHaveAttribute('data-slot', 'masked-secret');
+  expect(mask).toHaveAttribute('aria-label', 'privateKeyHidden');
   expect(screen.queryByRole('button', { name: 'showPrivateKeyText' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'showQrCode' })).toBeNull();
   expect(screen.queryAllByRole('textbox')).toHaveLength(0);
