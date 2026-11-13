@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { planEpochRoundTrip } from '../playwright/e2e/helpers/mainnet-epoch-ui';
-import { epochCheckpointFixture } from './helpers/mainnet-epoch-fixture';
+import { epochCheckpointFixture, epochForwardRequestAuthorityFixture } from './helpers/mainnet-epoch-fixture';
 
 const candidate = () => ({ ...epochCheckpointFixture(), forwardMinimum: '1001000' });
 
@@ -26,6 +26,8 @@ it('uses settled receipt proceeds without charging already-paid fees a second ti
       phase: 'forward-settled',
       forwardNoteId: hash,
       forwardMidenTxId: hash,
+      forwardAuthority: { minimumOutput: '1000001', bindingHash: hash, reclaimHeight: 7200, mandateReclaimHeight: 2200 },
+      forwardRequestAuthority: epochForwardRequestAuthorityFixture(hash, epochCheckpointFixture().createdAt),
       forwardEvmTxHash: hash,
       forwardReceived: '1001000',
       paidMidenFees: '266'

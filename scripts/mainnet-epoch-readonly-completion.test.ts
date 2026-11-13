@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { GuardianAwareWalletPage } from '../playwright/e2e/fixtures/two-wallets';
 import type { MainnetEpochCheckpoint } from '../playwright/e2e/helpers/mainnet-epoch-checkpoint';
-import { epochCheckpointFixture, epochReverseAuthorityFixture } from './helpers/mainnet-epoch-fixture';
+import {
+  epochCheckpointFixture,
+  epochForwardRequestAuthorityFixture,
+  epochReverseAuthorityFixture
+} from './helpers/mainnet-epoch-fixture';
 
 const mockClient = {
   readContract: jest.fn(),
@@ -56,6 +60,7 @@ const refundState = () => ({
   forwardNoteId: hash,
   forwardMidenTxId: hash,
   forwardAuthority: { minimumOutput: '1000001', bindingHash: hash, reclaimHeight: 7200, mandateReclaimHeight: 2200 },
+  forwardRequestAuthority: epochForwardRequestAuthorityFixture(hash, epochCheckpointFixture().createdAt),
   returnNoteId: hash,
   returnMidenTxId: `0x${'b'.repeat(64)}`,
   consumeAuthority: authority
@@ -100,6 +105,8 @@ function pendingEvmState(): MainnetEpochCheckpoint {
     phase: 'reverse-authorized',
     forwardNoteId: hash,
     forwardMidenTxId: hash,
+    forwardAuthority: { minimumOutput: '1000001', bindingHash: hash, reclaimHeight: 7200, mandateReclaimHeight: 2200 },
+    forwardRequestAuthority: epochForwardRequestAuthorityFixture(hash, epochCheckpointFixture().createdAt),
     forwardEvmTxHash: hash,
     forwardReceived: '1001000',
     reverseNonce: '10',

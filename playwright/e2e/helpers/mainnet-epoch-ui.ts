@@ -11,6 +11,7 @@ export interface EpochForwardHooks<T> {
   inspect: () => Promise<EpochInspectedCollateral>;
   persist: (inspection: EpochInspectedCollateral) => Promise<void>;
   release: () => Promise<void>;
+  authorizeSigned: () => Promise<void>;
   settle: () => Promise<T>;
   cancelQueued: () => Promise<boolean>;
   unspent: () => Promise<void>;
@@ -24,6 +25,7 @@ export async function runGuardedEpochForward<T>(hooks: EpochForwardHooks<T>): Pr
     await hooks.persist(inspected);
     mayHaveSubmitted = true;
     await hooks.release();
+    await hooks.authorizeSigned();
     return await hooks.settle();
   } catch (error) {
     if (mayHaveSubmitted) {

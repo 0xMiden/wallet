@@ -12,7 +12,11 @@ import {
   type EpochIntentEvidence
 } from '../playwright/e2e/helpers/mainnet-epoch-checkpoint';
 import { planEpochRoundTrip } from '../playwright/e2e/helpers/mainnet-epoch-ui';
-import { epochCheckpointFixture, epochReverseAuthorityFixture } from './helpers/mainnet-epoch-fixture';
+import {
+  epochCheckpointFixture,
+  epochForwardRequestAuthorityFixture,
+  epochReverseAuthorityFixture
+} from './helpers/mainnet-epoch-fixture';
 
 const hash = `0x${'a'.repeat(64)}`;
 const nativeHex = '0xe69e6ca6e39df1b10c1e5399399feb';
@@ -26,6 +30,8 @@ function settled(): MainnetEpochCheckpoint {
     phase: 'forward-settled',
     forwardNoteId: hash,
     forwardMidenTxId: hash,
+    forwardAuthority: forwardAuthority(),
+    forwardRequestAuthority: forwardRequestAuthority(),
     forwardEvmTxHash: hash,
     forwardReceived: '1001000'
   };
@@ -50,13 +56,7 @@ const forwardAuthority = () => ({
   reclaimHeight: 7200,
   mandateReclaimHeight: 2200
 });
-const forwardRequestAuthority = () => ({
-  nonce: '33333333-3333-4333-8333-333333333333',
-  noteId: hash,
-  sha256: '3'.repeat(64),
-  canonicalSha256: '4'.repeat(64),
-  expiresAt: Date.parse(fixture().createdAt) + 600_000
-});
+const forwardRequestAuthority = () => epochForwardRequestAuthorityFixture(hash, fixture().createdAt);
 it('persists exact final Epoch SDK fingerprints alongside the original collateral binding', () => {
   const state = {
     ...fixture(), forwardNoteId: hash, forwardAuthority: forwardAuthority(),

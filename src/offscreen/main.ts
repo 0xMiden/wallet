@@ -82,7 +82,6 @@ import type {
 } from 'lib/miden/db/types';
 import { OFFSCREEN_PROOF_BUDGET_MS, type ProofPass, withFreshProof } from 'lib/miden/guardian/proof-freshness';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
-import { assertTestGuardianRequestAuthorization } from '../lib/miden/sdk/test-guardian-authorization';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
 import { dryRunRequest } from 'lib/miden/sdk/dry-run-request';
@@ -136,6 +135,7 @@ import {
 
 import { ProveWorkerClient } from './prove-worker-client';
 import { proveThreadCount } from './prove-worker-protocol';
+import { assertTestGuardianRequestAuthorization } from '../lib/miden/sdk/test-guardian-authorization';
 
 const TAG = '[offscreen-prover]';
 
