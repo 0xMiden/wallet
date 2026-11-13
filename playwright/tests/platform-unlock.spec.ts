@@ -376,10 +376,13 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   await privateInput(page, 'Password123!');
   await page.getByRole('button', { name: 'Replace passkey', exact: true }).click();
   await expect
-    .poll(async () => {
-      const current = await storedRecord(page);
-      return typeof current?.credentialId === 'string' && current.credentialId !== record?.credentialId;
-    }, { timeout: 60_000 })
+    .poll(
+      async () => {
+        const current = await storedRecord(page);
+        return typeof current?.credentialId === 'string' && current.credentialId !== record?.credentialId;
+      },
+      { timeout: 60_000 }
+    )
     .toBe(true);
   await expect(page.getByText('Your provider reports that this passkey cannot be backed up.')).toBeVisible();
   await page.getByRole('button', { name: 'Remove passkey unlock', exact: true }).click();

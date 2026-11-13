@@ -71,7 +71,6 @@ function prfExtensions(salt: Uint8Array<ArrayBuffer>): AuthenticationExtensionsC
 }
 
 export async function createPlatformCredential(
-  previousCredentialId: string | null,
   onCreated: (id: string, prfSalt: string, backupEligible: boolean) => Promise<void>,
   signal?: AbortSignal
 ): Promise<{ credentialId: string; prfSecret: string }> {
@@ -95,8 +94,6 @@ export async function createPlatformCredential(
     },
     hints: ['client-device'],
     timeout: 60_000,
-    excludeCredentials:
-      previousCredentialId === null ? [] : [{ type: 'public-key', id: decodePlatformBytes(previousCredentialId) }],
     extensions: prfExtensions(salt)
   };
   signal?.throwIfAborted();
