@@ -33,7 +33,12 @@ import {
   type AbandonTicket,
   type ProposalSyncPhase
 } from './index';
-import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import {
+  GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS,
+  GUARDIAN_RETRY_MAX_ATTEMPTS,
+  isGuardianStateNotOnChain,
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
+} from './serialize';
 import { withWasmClientLock, type WasmClientLockOptions } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -2103,6 +2108,30 @@ describe('MultisigService', () => {
       }
     });
 
+    // The guardian sync laps again, so a Guardian whose node lags ends the last-resort push at its first refusal.
+    it('stops the last-resort push at the first state_not_on_chain', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const syncState = jest.fn(async () => {
+        throw new Error('Refusing to overwrite local state');
+      });
+      const multisig = makeMultisig({ syncState, signerCommitments: CACHED_SIGNERS });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+      mockAccountInspectorFromAccount.mockReturnValue(ECDSA_READ);
+      guardianConfig.configure.mockRejectedValue(
+        Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), { status: 409, code: 'state_not_on_chain' })
+      );
+
+      try {
+        await expect(service.sync()).rejects.toThrow('Refusing to overwrite local state');
+        expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+        restoreTimers();
+      }
+    });
+
     // #1233: Stage 2 pushes local state only when it IS the chain's. Each refusal below persists
     // against a local copy that is not the on-chain state, or a chain that cannot be read, so
     // nothing is pushed and the run ends on the original refusal: form 2 is the common real trigger
@@ -2291,6 +2320,36 @@ describe('MultisigService', () => {
       await service.reRegisterCurrentStateOnGuardian();
 
       expect(wasmLockOptionsSeen).toEqual([options, undefined]);
+    });
+
+    // A cadence caller's next lap asks again, so it stops at the first refusal from a Guardian whose node lags.
+    it.each([
+      ['stops at the first refusal when the caller asks', true, 1],
+      ['retries the refusal through the whole budget otherwise', false, GUARDIAN_RETRY_MAX_ATTEMPTS]
+    ])('state_not_on_chain %s', async (_label, stopAtStateNotOnChain, posts) => {
+      const restoreTimers = skipRetryBackoffs();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const service = new MultisigService(
+        makeMultisig({ signerCommitments: CACHED_SIGNERS }) as never,
+        serviceClient() as never,
+        'https://x'
+      );
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+      guardianConfig.configure.mockRejectedValue(
+        Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), { status: 409, code: 'state_not_on_chain' })
+      );
+
+      try {
+        const error = await service
+          .reRegisterCurrentStateOnGuardian(undefined, undefined, stopAtStateNotOnChain)
+          .catch((e: unknown) => e);
+
+        expect(isGuardianStateNotOnChain(error)).toBe(true);
+        expect(guardianConfig.configure).toHaveBeenCalledTimes(posts);
+      } finally {
+        warn.mockRestore();
+        restoreTimers();
+      }
     });
 
     /**

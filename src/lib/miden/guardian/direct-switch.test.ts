@@ -19,7 +19,7 @@ import {
   STATE_ON_CHAIN_WAIT_MS,
   waitForStateOnChain
 } from './direct-switch';
-import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import { GUARDIAN_RETRY_MAX_ATTEMPTS, isGuardianStateNotOnChain, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 
 // ---------------------------------------------------------------------------
@@ -1817,6 +1817,43 @@ describe('finalizeDirectGuardianSwitch', () => {
       );
       expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
       expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    // The Guardian's node lags ours: the self-heal's next lap asks again, so one refusal ends this lap.
+    const stateNotOnChain = () =>
+      Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), { status: 409, code: 'state_not_on_chain' });
+
+    it("'require' stops at the first state_not_on_chain", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockGuardianConfigure.mockRejectedValue(stateNotOnChain());
+
+      const error = await finalizeDirectGuardianSwitch(
+        '0xacct',
+        'https://new.guardian.test',
+        typedProvider(),
+        undefined,
+        undefined,
+        'require'
+      ).catch((e: unknown) => e);
+
+      expect(isGuardianStateNotOnChain(error)).toBe(true);
+      expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
+      expect(mockRegisterBackoffMs).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("'await' retries a state_not_on_chain refusal through the whole budget", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockGuardianConfigure.mockRejectedValue(stateNotOnChain());
+
+      const error = await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', typedProvider()).catch(
+        (e: unknown) => e
+      );
+
+      expect(isGuardianStateNotOnChain(error)).toBe(true);
+      expect(mockGuardianConfigure).toHaveBeenCalledTimes(GUARDIAN_RETRY_MAX_ATTEMPTS);
+      expect(mockRegisterBackoffMs).toHaveBeenCalledTimes(GUARDIAN_RETRY_MAX_ATTEMPTS - 1);
       warn.mockRestore();
     });
 

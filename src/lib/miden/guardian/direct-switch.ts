@@ -27,7 +27,12 @@ import { configureGuardianAccount, ecdsaCosigners } from './configure';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { checkEndpointCommitment, type EndpointCommitmentCheck } from './operator-map';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import {
+  GUARDIAN_RETRY_MAX_ATTEMPTS,
+  guardianRegisterBackoffMs,
+  isGuardianStateNotOnChain,
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
+} from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { requireRequestBoundBlockNum } from './tip-execution';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -1083,6 +1088,8 @@ export const finalizeDirectGuardianSwitch = async (
       }
       lastError = error;
       console.warn(`Direct guardian registration failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
+      // The Guardian stored nothing, and the self-heal's next lap asks again.
+      if (stateOnChain === 'require' && isGuardianStateNotOnChain(error)) break;
       if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
         await delay(guardianRegisterBackoffMs(error, attempt));
       }

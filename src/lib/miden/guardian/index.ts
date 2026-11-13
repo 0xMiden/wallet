@@ -46,6 +46,7 @@ import {
   GUARDIAN_RETRY_MAX_ATTEMPTS,
   guardianRegisterBackoffMs,
   isGuardianPendingConflict,
+  isGuardianStateNotOnChain,
   NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
 } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -1218,7 +1219,7 @@ export class MultisigService {
               console.warn(
                 'Guardian still lagging after canonicalization window; re-registering current state as a last resort'
               );
-              await this.reRegisterCurrentStateOnGuardian(undefined, GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS);
+              await this.reRegisterCurrentStateOnGuardian(undefined, GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS, true);
               continue;
             } catch (realignError) {
               // AN EVICTION IS NOT "non-fatal", AND IT IS NOT ABOUT THE GUARDIAN.
@@ -1580,9 +1581,12 @@ export class MultisigService {
   }
 
   // Never through `multisig.registerOnGuardian`, which reads the WASM client store first from multisig-client 0.19.
+  // `stopAtStateNotOnChain`: a caller whose next lap asks again ends at the first `state_not_on_chain`, which stored
+  // nothing.
   private async registerOnGuardianWithRetry(
     guardian: GuardianHttpClient,
-    registration: GuardianRegistration
+    registration: GuardianRegistration,
+    stopAtStateNotOnChain = false
   ): Promise<void> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= GUARDIAN_RETRY_MAX_ATTEMPTS; attempt++) {
@@ -1607,6 +1611,7 @@ export class MultisigService {
         }
         lastError = error;
         console.warn(`Guardian registration failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
+        if (stopAtStateNotOnChain && isGuardianStateNotOnChain(error)) break;
         if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
           // #619 — on a 429 this honours the guardian's own Retry-After instead
           // of the blind exponential backoff (which just earns another 429).
@@ -1657,10 +1662,14 @@ export class MultisigService {
    * stage-2 last resort, which the ~3 s guardian sync drives - left on the default
    * five-minute backstop that was a frozen wallet per lap, and unlabelled the eviction
    * record could not say which of the loop's holds it was.
+   *
+   * `stopAtStateNotOnChain` is for those cadence callers too: their next lap asks
+   * again, so the push ends at a Guardian's first `state_not_on_chain`.
    */
   async reRegisterCurrentStateOnGuardian(
     onBeforeRegister?: (signerCommitments: readonly string[]) => void,
-    lockOptions?: WasmClientLockOptions
+    lockOptions?: WasmClientLockOptions,
+    stopAtStateNotOnChain = false
   ): Promise<void> {
     const { stateBase64, signerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
@@ -1712,11 +1721,11 @@ export class MultisigService {
     // The POST is now unavoidable from the caller's point of view: past this line a
     // `/configure` may land even if the retry loop then throws or is torn down.
     onBeforeRegister?.(signerCommitments);
-    await this.registerOnGuardianWithRetry(this.registrationGuardian, {
-      accountIdHex: this.accountId,
-      stateBase64,
-      signerCommitments
-    });
+    await this.registerOnGuardianWithRetry(
+      this.registrationGuardian,
+      { accountIdHex: this.accountId, stateBase64, signerCommitments },
+      stopAtStateNotOnChain
+    );
   }
 }
 

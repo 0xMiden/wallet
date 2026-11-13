@@ -1973,10 +1973,14 @@ async function attemptColdReRegisterSelfHeal(
     // an operator that had not been asked for anything. That is the exact mistake the
     // preflight/post split was introduced to fix, surviving one level down. The chain
     // guard's refusal (#1233) also arrives before it, and wrote nothing.
-    await coldService.reRegisterCurrentStateOnGuardian(signers => {
-      attempted = true;
-      verifiedSigners = signers;
-    }, GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS);
+    await coldService.reRegisterCurrentStateOnGuardian(
+      signers => {
+        attempted = true;
+        verifiedSigners = signers;
+      },
+      GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS,
+      true
+    );
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
     // AN EVICTION IS NOT A VERDICT ON THE OPERATOR, and this is the arm where

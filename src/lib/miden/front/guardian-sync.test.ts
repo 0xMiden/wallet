@@ -1063,11 +1063,12 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       // and fires the callback (with the signer set it pushes) when the push starts.
       reRegisterCurrentStateOnGuardian: async (
         onBeforeRegister?: (signerCommitments: readonly string[]) => void,
-        lockOptions?: unknown
+        lockOptions?: unknown,
+        stopAtStateNotOnChain?: boolean
       ) => {
         await mockPreRegisterHold();
         // `mockReRegister` is the rest of the method: it decides whether the push starts.
-        return mockReRegister(lockOptions, onBeforeRegister);
+        return mockReRegister(lockOptions, onBeforeRegister, stopAtStateNotOnChain);
       },
       adoptGuardianStateOnce: mockAdoptGuardianState
     });
@@ -1134,7 +1135,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
         label: 'guardian-self-heal-reregister'
       },
-      expect.any(Function)
+      expect.any(Function),
+      true
     );
   });
 
@@ -1678,6 +1680,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     expect(mockReRegister.mock.calls.length).toBeGreaterThan(SELF_HEAL_MAX_ATTEMPTS);
     expect(isGuardianUnrepairable('acct-not-on-chain')).toBe(false);
+    // The next lap asks again, so the push stops at the Guardian's first refusal.
+    expect(mockReRegister.mock.calls.every(call => call[2] === true)).toBe(true);
 
     clock.restore();
   });
@@ -4948,11 +4952,12 @@ describe('syncGuardianAccounts - guards a mutation probe found unexercised', () 
     mockBuildColdMultisigService.mockResolvedValue({
       reRegisterCurrentStateOnGuardian: async (
         onBeforeRegister?: (signerCommitments: readonly string[]) => void,
-        lockOptions?: unknown
+        lockOptions?: unknown,
+        stopAtStateNotOnChain?: boolean
       ) => {
         await mockPreRegisterHold();
         // `mockReRegister` is the rest of the method: it decides whether the push starts.
-        return mockReRegister(lockOptions, onBeforeRegister);
+        return mockReRegister(lockOptions, onBeforeRegister, stopAtStateNotOnChain);
       },
       adoptGuardianStateOnce: mockAdoptGuardianState
     });
