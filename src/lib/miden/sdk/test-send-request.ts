@@ -26,7 +26,27 @@ export interface TestMainnetSendScope {
   amount: string;
 }
 
-export function inspectTestMainnetSendRequest(scope: TestMainnetSendScope, bytes: Uint8Array): string {
+export function withTestGuardianAuthentication(
+  builder: TransactionRequestBuilder,
+  request: TransactionRequest
+): TransactionRequestBuilder {
+  const auth = request.authArg();
+  const blocks = request.blockNumbers();
+  if (
+    !auth ||
+    request.feeConversionSalt() ||
+    blocks.length > 8 ||
+    blocks.some(block => !Number.isSafeInteger(block) || block < 0)
+  )
+    throw new Error('Invalid final Guardian authentication metadata');
+  return builder.withAuthArg(auth).withBlockNumbers(blocks).extendAdviceMap(request.adviceMap());
+}
+
+export function inspectTestMainnetSendRequest(
+  scope: TestMainnetSendScope,
+  bytes: Uint8Array,
+  guardian = false
+): string {
   if (
     ![scope.accountId, scope.recipientId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
     scope.accountId === scope.recipientId ||
@@ -54,10 +74,10 @@ export function inspectTestMainnetSendRequest(scope: TestMainnetSendScope, bytes
     new NoteRecipient(note.recipient().serialNum(), template.script(), template.recipient().storage()),
     template.attachments()
   );
-  const expected = new TransactionRequestBuilder()
-    .withOwnOutputNotes(new NoteArray([expectedNote]))
-    .withExpirationDelta(600)
-    .build();
+  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([expectedNote]));
+  // Guardian rebasing keeps the note and binds expiration in auth args, not a tip-relative request delta.
+  builder = guardian ? withTestGuardianAuthentication(builder, request) : builder.withExpirationDelta(600);
+  const expected = builder.build();
   const actualBytes = canonicalRequestBytes(bytes);
   const expectedBytes = canonicalRequestBytes(Uint8Array.from(expected.serialize()));
   if (actualBytes.length !== expectedBytes.length || actualBytes.some((value, index) => value !== expectedBytes[index]))
@@ -76,7 +96,8 @@ export interface TestMainnetSwapScope {
 
 export function inspectTestMainnetSwapRequest(
   scope: TestMainnetSwapScope,
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  guardian = false
 ): { noteId: string; orderId: string } {
   if (
     scope.kind !== 'swap' ||
@@ -120,10 +141,9 @@ export function inspectTestMainnetSwapRequest(
     new NoteMetadata(creator, NoteType.Public, new NoteTag(Number(tag))),
     new NoteRecipient(note.recipient().serialNum(), script, storage)
   );
-  const expected = new TransactionRequestBuilder()
-    .withOwnOutputNotes(new NoteArray([expectedNote]))
-    .withExpirationDelta(600)
-    .build();
+  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([expectedNote]));
+  builder = guardian ? withTestGuardianAuthentication(builder, request) : builder.withExpirationDelta(600);
+  const expected = builder.build();
   const actualBytes = canonicalRequestBytes(bytes);
   const expectedBytes = canonicalRequestBytes(Uint8Array.from(expected.serialize()));
   if (actualBytes.length !== expectedBytes.length || actualBytes.some((value, index) => value !== expectedBytes[index]))
