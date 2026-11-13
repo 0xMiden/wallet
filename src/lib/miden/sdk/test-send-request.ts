@@ -151,7 +151,7 @@ export function inspectTestMainnetSwapRequest(
   const expectedBytes = canonicalRequestBytes(Uint8Array.from(expected.serialize()));
   if (actualBytes.length !== expectedBytes.length || actualBytes.some((value, index) => value !== expectedBytes[index]))
     throw new Error('Actual PSWAP bytes differ from the exact reviewed request');
-  const orderId = note.recipient().serialNum().toU64s()[0];
+  const orderId = note.recipient().serialNum().toU64s()[1];
   if (orderId === undefined) throw new Error('Missing actual PSWAP order serial');
   return { noteId: note.id().toString(), orderId: orderId.toString() };
 }
