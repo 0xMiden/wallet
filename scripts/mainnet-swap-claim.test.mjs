@@ -483,6 +483,21 @@ test('binds an unclaimed forward payout to original portfolio without a local pa
   assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state,value.payback,value.balances,'forward'),133n);
   assert.deepEqual(value.state,before);
 });
+test('preserves a non-native offer returning the native fee asset',()=>{
+  const value=forwardClaimFixture();
+  const originalOffer=value.state.offer;
+  value.state.offer={...value.state.request,balance:'20000000'};
+  value.state.request={...originalOffer};
+  value.balances={offer:20000000n-BigInt(value.state.principal),request:BigInt(value.state.native.balance)-133n,native:BigInt(value.state.native.balance)-133n};
+  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state,value.payback,value.balances,'forward'),133n);
+});
+test('preserves a pair whose fee asset is separate from both traded assets',()=>{
+  const value=forwardClaimFixture();
+  value.state.native={...value.state.native,hex:'0xfee',faucetId:'mm1fee'};
+  value.balances.offer=BigInt(value.state.offer.balance)-BigInt(value.state.principal);
+  value.balances.native=BigInt(value.state.native.balance)-133n;
+  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state,value.payback,value.balances,'forward'),133n);
+});
 for(const [name,change] of [
   ['wrong note',v=>{v.payback.originalNoteId=`0x${'0'.repeat(64)}`;}],
   ['wrong order',v=>{v.payback.orderId='999';}],
