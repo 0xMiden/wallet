@@ -4,6 +4,7 @@ import { createEvent, fireEvent, render, screen, waitFor } from '@testing-librar
 
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { PlatformUnlockState } from 'lib/platform-auth/types';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -28,6 +29,24 @@ const mockWalletState: {
 let mockIsMobile = false;
 let mockHistoryPosition = 1;
 let mockReduceMotion: boolean | null = false;
+let mockPlatformState: PlatformUnlockState = { available: false, hasPassword: false, credential: null };
+let mockPlatformLoading = false;
+
+jest.mock(
+  'app/hooks/usePlatformUnlock',
+  () => ({
+    usePlatformUnlock: () => ({ state: mockPlatformState, loading: mockPlatformLoading, refresh: jest.fn() })
+  }),
+  { virtual: true }
+);
+jest.mock(
+  'app/templates/PasskeyUnlockSettings',
+  () => ({
+    __esModule: true,
+    default: mockLayoutPage('passkey-settings')
+  }),
+  { virtual: true }
+);
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -305,6 +324,8 @@ beforeEach(() => {
   mockHistoryPosition = 1;
   mockReduceMotion = false;
   mockShowDevEndpoints.value = false;
+  mockPlatformState = { available: false, hasPassword: false, credential: null };
+  mockPlatformLoading = false;
   mockWalletState.seedPhraseStatus = 'stored';
   setAccount({ type: 'on-chain' });
   mockGetCurrentLocale.mockReturnValue('en-US');
@@ -317,7 +338,46 @@ afterEach(() => {
   document.body.removeAttribute('data-edge-to-edge');
 });
 
-describe('Settings page — root menu (non-guardian)', () => {
+describe('Settings passkey availability', () => {
+  it('offers the passkey settings route for an eligible password wallet', () => {
+    mockPlatformState = { available: true, hasPassword: true, credential: null };
+    render(<Settings />);
+    expect(screen.getByRole('button', { name: 'passkeyUnlock' })).toHaveAttribute(
+      'data-slug',
+      '/settings/passkey-unlock'
+    );
+  });
+
+  it('resolves an eligible direct route with its shared page header', () => {
+    mockPlatformState = { available: true, hasPassword: true, credential: null };
+    render(<Settings tabSlug="passkey-unlock" />);
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('passkeyUnlock');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it.each<PlatformUnlockState>([
+    { available: false, hasPassword: true, credential: null },
+    { available: true, hasPassword: false, credential: null }
+  ])('hides both the row and direct route when unavailable: %j', state => {
+    mockPlatformState = state;
+    const view = render(<Settings />);
+    expect(screen.queryByRole('button', { name: 'passkeyUnlock' })).not.toBeInTheDocument();
+    view.rerender(<Settings tabSlug="passkey-unlock" />);
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
+  });
+
+  it('does not discard a direct route while eligibility is still loading', () => {
+    mockPlatformLoading = true;
+    const view = render(<Settings tabSlug="passkey-unlock" />);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    mockPlatformLoading = false;
+    mockPlatformState = { available: true, hasPassword: true, credential: null };
+    view.rerender(<Settings tabSlug="passkey-unlock" />);
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('passkeyUnlock');
+  });
+});
+
+describe('Settings page - root menu (non-guardian)', () => {
   it.each<SeedPhraseStatus | undefined>(['removing', 'removed', 'unavailable', undefined])(
     'hides recovery phrase settings when seed status is %s',
     status => {
