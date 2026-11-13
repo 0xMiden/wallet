@@ -8,7 +8,8 @@ import {
   walletDiscoveredNativeFaucetId
 } from '../../helpers/balance-truth';
 import { hexFaucetToBech32 } from '../../helpers/faucet-address';
-import { readTransactionRows, type TransactionRowSnapshot } from '../../helpers/history';
+import { readTransactionRows, readTransactionRowsWithBytes, waitForTransactionRow, TxStatus, type TransactionRowSnapshot } from '../../helpers/history';
+import { readMainnetMidenOwnNoteCreator } from '../../helpers/mainnet-miden-indexer';
 import { fetchMainnetOneClickUsdPrices } from '../../helpers/mainnet-one-click-prices';
 import { remainingMainnetLoopBudget } from '../../helpers/mainnet-loop-budget';
 import {
@@ -45,6 +46,7 @@ import { getEnvironmentConfig } from '../../config/environments';
 import {
   authorizeMainnetSwapRecoveryReturn,
   authorizeMainnetSwapReturnReplacement,
+  prepareMainnetSwapClaimRecovery,
   readMainnetSwapReturnAbsence,
   readMainnetSwapPayback,
   type MainnetSwapPaybackEvidence,
@@ -570,6 +572,72 @@ function completeReturn(state: MainnetSwapCheckpoint, result: Awaited<ReturnType
     throw new Error('Partial forward fill was safely recovered, not a passing full-fill acceptance');
 }
 
+async function recoverExistingSwapPayout(wallet: GuardianAwareWalletPage, state: MainnetSwapCheckpoint): Promise<void> {
+  const authority = state.reverseRequestAuthority;
+  const gate = process.env.MAINNET_SWAP_SDK_GATE;
+  if (!authority || !gate) throw new Error('Missing original swap or immutable recovery claim gate');
+  const scope: MainnetSwapPaybackScope = { kind: 'swap', accountId: Address.fromBech32(state.account).accountId().toString(),
+    faucetId: state.request.hex, amount: state.returnAmount ?? '0', requestedFaucetId: state.offer.hex,
+    requestedAmount: authority.minimumReceive, noteId: authority.noteId, orderId: authority.orderId };
+  const payback = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope);
+  if (!payback) throw new Error('Original funded swap payout is unresolved; never resubmit');
+  const before = await balances(wallet, state);
+  const prepared = prepareMainnetSwapClaimRecovery(state, payback, before);
+  const existing = (await readTransactionRowsWithBytes(wallet.page, 'consume')).filter(row => row.noteIds?.includes(payback.noteId));
+  if (existing.length || (await readTransactionRows(wallet.page)).some(row => row.status === TxStatus.Queued || row.status === TxStatus.GeneratingTransaction || row.status === TxStatus.Unconfirmed))
+    throw new Error('Existing claim or unrelated wallet activity prevents native claim');
+  const creator = await readMainnetMidenOwnNoteCreator(authority.noteId, scope.accountId);
+  if (creator.blockNumber !== payback.originalCreatedAtBlock) throw new Error('Original swap creator block differs from its inclusion proof');
+  await wallet.triggerSync(true);
+  const file = await exportMakerNote(wallet, payback.noteId, 90_000);
+  Object.assign(state, prepared);
+  persist(state);
+  const handle = await armMainnetConsumeAuthorization(wallet.page, {
+    accountId: scope.accountId, noteId: payback.noteId, canonicalSha256: mainnetConsumeRequestHash(Buffer.from(file, 'hex'), true)
+  });
+  const controller = new AbortController();
+  let queued: TransactionRowSnapshot | undefined;
+  try {
+    await wallet.page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/`);
+    await wallet.page.locator(`[data-pending-note-id="${payback.noteId}"]`).getByRole('button', { name: /^Accept$/ }).click();
+    await expect.poll(async () => {
+      const rows = (await readTransactionRowsWithBytes(wallet.page, 'consume')).filter(row => row.noteIds?.includes(payback.noteId));
+      if (rows.length > 1) throw new Error('Ambiguous original payout claim rows');
+      queued = rows[0]; return queued?.id;
+    }, { timeout: 60_000 }).toBeTruthy();
+    if (!queued || queued.noteIds?.length !== 1) throw new Error('Claim includes unrelated notes');
+    await releaseMainnetConsumeAuthorization(wallet.page, handle, {
+      checkpointPath: STATE_PATH, gatePath: `${gate}.claim`, signal: controller.signal,
+      persist: async captured => {
+        if (captured.requestCanonicalSha256 === undefined || captured.expiresAt === undefined) throw new Error('Missing actual signed native claim authority');
+        state.reverseClaimAuthority = { ...captured, requestCanonicalSha256: captured.requestCanonicalSha256, expiresAt: captured.expiresAt,
+          noteId: payback.noteId, amount: payback.amount.toString() };
+        persist(state);
+      }
+    });
+    const receipt = await waitForTransactionRow(wallet.page, queued.id, row => row?.status === TxStatus.Completed || row?.status === TxStatus.Failed, { what: 'the exact recovered swap claim', timeoutMs: 300_000 });
+    const feeFaucet = receipt.feeFaucetId?.startsWith('0x') ? await hexFaucetToBech32(wallet, receipt.feeFaucetId) : receipt.feeFaucetId;
+    if (receipt.status !== TxStatus.Completed || !receipt.transactionId || !/^0x[0-9a-f]{64}$/.test(receipt.transactionId) ||
+      !receipt.feeAmount || !/^[1-9]\d*$/.test(receipt.feeAmount) || feeFaucet !== state.native.faucetId || BigInt(receipt.feeAmount) > SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee))
+      throw new Error('Missing exact recovered consume receipt or authorized native fee');
+    await wallet.refreshBalancesLanded(90_000);
+    const now = await balances(wallet, state);
+    const fees = BigInt(receipt.feeAmount);
+    expect(now.request).toBe(before.request);
+    expect(now.native).toBe(before.native + payback.amount - fees);
+    let claimed: MainnetSwapPaybackEvidence | undefined;
+    await expect.poll(async () => { claimed = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope); return claimed?.claimedAtBlock !== undefined; }, { timeout: 90_000 }).toBe(true);
+    completeReturn(state, { received: payback.amount, refunded: 0n, fees, now });
+    writeFileSync('test-results/mainnet-swap-recovery-claim.json', JSON.stringify({ sourceRunId: state.sourceRunId,
+      authorityRunId: state.authorizationRunId, claimRunId: process.env.GITHUB_RUN_ID,
+      originalNoteId: authority.noteId, creationTransactionId: creator.transactionId, creationAtBlock: creator.blockNumber,
+      paybackNoteId: payback.noteId, paybackAmount: payback.amount.toString(), paybackCreatedAtBlock: payback.createdAtBlock,
+      claimTransactionId: receipt.transactionId, claimedAtBlock: claimed?.claimedAtBlock, claimFee: receipt.feeAmount,
+      aggregateNativeCosts: state.paidFees, nativeFinal: now.native.toString(), requestFinal: now.request.toString(),
+      realizedCostUsdMicros: state.realizedCostUsdMicros }, null, 2));
+  } finally { controller.abort(); }
+}
+
 test('real Guardian mainnet solver swaps out and back with recycled principal', async ({ walletB }) => {
   test.setTimeout(1_800_000);
   if (process.env.E2E_NETWORK !== 'mainnet') throw new Error('The funded swap loop requires mainnet');
@@ -724,6 +792,10 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
         fees: BigInt(state.paidFees),
         now: await balances(walletB, state)
       });
+      return;
+    }
+    if (state.phase === 'reverse-authorized' && state.reverseRequestAuthority && state.recoveryReturnReplacement) {
+      await recoverExistingSwapPayout(walletB, state);
       return;
     }
     const leg = state.phase === 'reverse-authorized' ? 'reverse' : 'forward';

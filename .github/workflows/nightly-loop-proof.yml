@@ -1,16 +1,17 @@
-name: Actual unclaimed swap payout recovery RED
+name: Existing funded swap payout claim integration GREEN
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
   contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,13 +21,49 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: SDK nullifier and claim recovery functional RED
+      - name: Actual SDK nullifier and existing payout claim contracts
         run: |
           yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs
-      - name: Durable claim recovery and workflow RED
+          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
+          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
+      - name: All connected mainnet contracts and lint
         if: always()
-        run: yarn jest scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-workflow.test.ts scripts/mainnet-swap-artifacts.test.ts --maxWorkers=2 --watch=false
+        run: |
+          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts --maxWorkers=2 --watch=false
+          yarn lint:e2e
       - name: Canonical types
         if: always()
         run: yarn ts
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43485129750
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43485129750
+          path: test-results/original-authority
+      - name: Actual unclaimed payout normalization and bounded planning without keys
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { Address } from '@miden-sdk/miden-sdk';
+          import { readMainnetSwapPayback,prepareMainnetSwapClaimRecovery } from './node_modules/.cache/nightly-swap-claim.mjs';
+          const state=JSON.parse(readFileSync('test-results/original-authority/roundtrip.json','utf8'));
+          const authority=state.reverseRequestAuthority;
+          const proof=await readMainnetSwapPayback('https://rpc.mainnet.miden.io',{kind:'swap',accountId:Address.fromBech32(state.account).accountId().toString(),faucetId:state.request.hex,amount:state.returnAmount,requestedFaucetId:state.offer.hex,requestedAmount:authority.minimumReceive,noteId:authority.noteId,orderId:authority.orderId});
+          assert.ok(proof);assert.equal(proof.claimedAtBlock,undefined);
+          assert.equal(proof.noteId,'0xd292c8cdd7086a2f9058ddb9f25532145e9698ff18a64f62d8c235dc713ee359');assert.equal(proof.amount,1010066n);
+          const prepared=prepareMainnetSwapClaimRecovery(state,proof,{offer:18987229n,native:18987229n,request:0n});
+          assert.equal(prepared.paidFees,'399');assert.equal(prepared.recoveryClaimNativeBefore,'18987229');
+          console.log(JSON.stringify({purpose:'keyless exact unclaimed payout proof and last-readonly-vault planning; no signatures or writes',...proof,amount:proof.amount.toString(),aggregateNativeCosts:prepared.paidFees}));
+          NODE
+      - name: Owned format patch
+        if: always()
+        run: |
+          yarn prettier --write .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/helpers/mainnet-swap-claim.ts playwright/e2e/helpers/mainnet-swap-checkpoint.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-workflow.test.ts scripts/mainnet-swap-artifacts.mjs scripts/mainnet-swap-artifacts.test.ts
+          git diff --binary -- .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/helpers/mainnet-swap-claim.ts playwright/e2e/helpers/mainnet-swap-checkpoint.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-workflow.test.ts scripts/mainnet-swap-artifacts.mjs scripts/mainnet-swap-artifacts.test.ts > existing-payout-owned-format.patch
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: existing-payout-owned-format
+          path: existing-payout-owned-format.patch
+          if-no-files-found: error
