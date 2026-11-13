@@ -3223,6 +3223,10 @@
     "message": "ウォレットのバックアップを取る",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "リカバリーフレーズは非表示",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "表示",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8文字、1つの数字",
-    "englishSource": "8 characters, 1 number"
+    "message": "12文字以上",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "8文字以上で、数字を1つ以上含めること",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "12文字以上を使用してください。数字、記号、大文字と小文字を混ぜることで、セキュリティが強化されます。",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "この12語を書き留めて、安全な場所に保管してください。",

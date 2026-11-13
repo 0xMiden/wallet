@@ -3223,6 +3223,10 @@
     "message": "备份您的钱包",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "恢复短语已隐藏",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "显示",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8个字符，1个数字",
-    "englishSource": "8 characters, 1 number"
+    "message": "至少 12 个字符",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "至少8个字符，其中至少包含1个数字",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "密码长度至少为12个字符。使用数字、符号及大小写混合可增强安全性。",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "请将这12个词保存下来，并存放在安全的地方。",

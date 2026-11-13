@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getClaimFloorBaseFee, getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -60,8 +60,8 @@ export function NativeNoteAutoConsumeManager(): null {
         // A claim worth no more than its own fee makes the balance go DOWN. This runs
         // unattended, so the wallet must not collect on the user's behalf at a loss, nor
         // start a claim from the cache-first list; `selectAutoConsumeBatch` judges the batch
-        // total, fails open on an unknown fee and never takes a `fromCache` entry.
-        const baseFee = await getVerificationBaseFee();
+        // total, claims nothing while the fee is unknown and never takes a `fromCache` entry.
+        const baseFee = await getClaimFloorBaseFee();
         if (disposed) return;
         const nativeNotes: ConsumableNote[] = selectAutoConsumeBatch(notes, nativeFaucetId, baseFee);
         if (nativeNotes.length === 0) return;

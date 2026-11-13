@@ -1,4 +1,4 @@
-export const MIN_PASSWORD_LENGTH = 8;
+export const MIN_PASSWORD_LENGTH = 12;
 export const STRONG_PASSWORD_LENGTH = 12;
 
 // Canonical legal page URLs, hosted on the wallet's GitHub Pages site.
