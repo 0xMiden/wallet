@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 
 import { TokenAmount, UsdAmount } from './TokenAmount';
 
@@ -35,11 +35,28 @@ describe('shared amount components', () => {
     expect(screen.getByText('1.234')).toHaveAttribute('title', 'Exact');
   });
 
-  it('supports animated USD values and translation text', () => {
-    const { rerender } = render(<UsdAmount amount={1234.5} animated renderText={text => `≈ ${text}`} />);
-    expect(screen.getByText('≈ $1,234.50')).toBeInTheDocument();
-    rerender(<UsdAmount amount={2345.6} animated renderText={text => `≈ ${text}`} />);
-    expect(screen.getByText('≈ $2,345.60')).toBeInTheDocument();
+  it('supports animated USD values and translation text', async () => {
+    // jsdom has no matchMedia, where AnimatedNumber refuses to animate; install one so the value travels.
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+    });
+    try {
+      const { rerender } = render(
+        <UsdAmount amount={1234.5} animated renderText={text => `≈ ${text}`} data-testid="usd" />
+      );
+      expect(screen.getByTestId('usd')).toHaveTextContent('≈ $1,234.50');
+      rerender(<UsdAmount amount={2345.6} animated renderText={text => `≈ ${text}`} data-testid="usd" />);
+      await waitFor(() => {
+        const shown = Number((screen.getByTestId('usd').textContent ?? '').replace(/[^0-9.]/g, ''));
+        expect(shown).toBeGreaterThan(1234.5);
+        expect(shown).toBeLessThan(2345.6);
+      });
+      await waitFor(() => expect(screen.getByTestId('usd')).toHaveTextContent('≈ $2,345.60'));
+    } finally {
+      Reflect.deleteProperty(window, 'matchMedia');
+    }
   });
 
   it('does not convert bigint amounts to numbers for animation', () => {
