@@ -8748,6 +8748,10 @@
     "message": "수취인에게 자금이 송금되었습니다.",
     "englishSource": "Funds sent to your destination."
   },
+  "epochReturnSpent": {
+    "message": "이 note는 사용되었으나, 지급은 아직 확인되지 않았습니다. 수취처와 Miden 잔액을 확인해 주십시오.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
   "epochReturnUnavailable": {
     "message": "자금 상태를 확인할 수 없습니다. 다시 시도해 주십시오.",
     "englishSource": "Unable to check the funds status. Try again."

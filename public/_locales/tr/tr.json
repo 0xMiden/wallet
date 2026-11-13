@@ -1918,5 +1918,6 @@
   "epochReturnPending": "Paralarınız cüzdanınıza iade ediliyor.",
   "epochReturnDone": "Paralarınız cüzdanınıza geri döndü.",
   "epochReturnPaid": "Hedef adresinize gönderilen fonlar.",
+  "epochReturnSpent": "Bu note kullanıldı, ancak ödeme henüz onaylanmadı. Hedefinizi ve Miden bakiyenizi kontrol edin.",
   "epochReturnUnavailable": "Para durumunu kontrol edilemiyor. Lütfen tekrar deneyin."
 }

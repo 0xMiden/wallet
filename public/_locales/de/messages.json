@@ -8758,6 +8758,10 @@
     "message": "An Ihren Empfänger gesendete Gelder.",
     "englishSource": "Funds sent to your destination."
   },
+  "epochReturnSpent": {
+    "message": "Diese note wurde verwendet, die Auszahlung ist jedoch noch nicht bestätigt. Überprüfen Sie Ihr Ziel und Ihren Miden-Kontostand.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
   "epochReturnUnavailable": {
     "message": "Der Kontostand kann nicht überprüft werden. Bitte versuchen Sie es erneut.",
     "englishSource": "Unable to check the funds status. Try again."

@@ -1917,5 +1917,6 @@
   "epochReturnPending": "Vos fonds sont en cours de restitution sur votre portefeuille.",
   "epochReturnDone": "Vos fonds ont été reversés sur votre portefeuille.",
   "epochReturnPaid": "Fonds envoyés à votre destinataire.",
+  "epochReturnSpent": "Cette note a été utilisée, mais le paiement n’est pas confirmé. Vérifiez votre destination et votre solde Miden.",
   "epochReturnUnavailable": "Impossible de vérifier l’état des fonds. Veuillez réessayer."
 }

@@ -8750,6 +8750,10 @@
     "message": "Кошти, надіслані на ваш рахунок.",
     "englishSource": "Funds sent to your destination."
   },
+  "epochReturnSpent": {
+    "message": "Ця note була використана, але виплата не підтверджена. Перевірте пункт призначення та свій баланс у Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
   "epochReturnUnavailable": {
     "message": "Не вдалося перевірити стан коштів. Спробуйте ще раз.",
     "englishSource": "Unable to check the funds status. Try again."

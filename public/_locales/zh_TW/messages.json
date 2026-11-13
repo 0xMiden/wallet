@@ -8748,6 +8748,10 @@
     "message": "資金已發送至您的目的地。",
     "englishSource": "Funds sent to your destination."
   },
+  "epochReturnSpent": {
+    "message": "此note已使用，但付款尚未確認。請檢查您的收款地址及 Miden 餘額。",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
   "epochReturnUnavailable": {
     "message": "無法檢查資金狀態。請重試。",
     "englishSource": "Unable to check the funds status. Try again."

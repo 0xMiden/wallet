@@ -8750,6 +8750,10 @@
     "message": "Hedef adresinize gönderilen fonlar.",
     "englishSource": "Funds sent to your destination."
   },
+  "epochReturnSpent": {
+    "message": "Bu note kullanıldı, ancak ödeme henüz onaylanmadı. Hedefinizi ve Miden bakiyenizi kontrol edin.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
   "epochReturnUnavailable": {
     "message": "Para durumunu kontrol edilemiyor. Lütfen tekrar deneyin.",
     "englishSource": "Unable to check the funds status. Try again."

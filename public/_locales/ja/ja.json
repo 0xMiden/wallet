@@ -1920,5 +1920,6 @@
   "epochReturnPending": "お客様の資金は、ウォレットに返還されています。",
   "epochReturnDone": "お客様の資金はウォレットに戻りました。",
   "epochReturnPaid": "資金が送金先に送金されました。",
+  "epochReturnSpent": "このnoteは使用されましたが、支払いは確認されていません。送金先とMidenの残高を確認してください。",
   "epochReturnUnavailable": "資金の状況を確認できません。もう一度お試しください。"
 }

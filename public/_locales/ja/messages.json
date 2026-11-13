@@ -8748,6 +8748,10 @@
     "message": "資金が送金先に送金されました。",
     "englishSource": "Funds sent to your destination."
   },
+  "epochReturnSpent": {
+    "message": "このnoteは使用されましたが、支払いは確認されていません。送金先とMidenの残高を確認してください。",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
   "epochReturnUnavailable": {
     "message": "資金の状況を確認できません。もう一度お試しください。",
     "englishSource": "Unable to check the funds status. Try again."

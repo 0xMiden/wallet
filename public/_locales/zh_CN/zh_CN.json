@@ -1920,5 +1920,6 @@
   "epochReturnPending": "您的资金正在返还至您的钱包。",
   "epochReturnDone": "您的资金已返还至您的钱包。",
   "epochReturnPaid": "资金已发送至您的目的地。",
+  "epochReturnSpent": "该note已被使用，但支付尚未确认。请检查您的收款地址和Miden余额。",
   "epochReturnUnavailable": "无法查询资金状态。请重试。"
 }

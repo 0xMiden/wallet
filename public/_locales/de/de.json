@@ -1910,5 +1910,6 @@
   "epochReturnPending": "Ihr Guthaben wird auf Ihre Wallet zurücküberwiesen.",
   "epochReturnDone": "Ihr Guthaben ist wieder in Ihrer Wallet.",
   "epochReturnPaid": "An Ihren Empfänger gesendete Gelder.",
+  "epochReturnSpent": "Diese note wurde verwendet, die Auszahlung ist jedoch noch nicht bestätigt. Überprüfen Sie Ihr Ziel und Ihren Miden-Kontostand.",
   "epochReturnUnavailable": "Der Kontostand kann nicht überprüft werden. Bitte versuchen Sie es erneut."
 }

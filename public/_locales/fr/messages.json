@@ -8751,6 +8751,10 @@
     "message": "Fonds envoyés à votre destinataire.",
     "englishSource": "Funds sent to your destination."
   },
+  "epochReturnSpent": {
+    "message": "Cette note a été utilisée, mais le paiement n’est pas confirmé. Vérifiez votre destination et votre solde Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
   "epochReturnUnavailable": {
     "message": "Impossible de vérifier l’état des fonds. Veuillez réessayer.",
     "englishSource": "Unable to check the funds status. Try again."
