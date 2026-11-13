@@ -1202,18 +1202,6 @@ describe('useWalletStore', () => {
   });
 
   describe('Signing actions', () => {
-    it('signData returns signature', async () => {
-      mockRequest.mockResolvedValueOnce({
-        type: WalletMessageType.SignDataResponse,
-        signature: 'sig123'
-      });
-
-      const { signData } = useWalletStore.getState();
-      const result = await signData('pk1', 'data-to-sign');
-
-      expect(result).toBe('sig123');
-    });
-
     it('signTransaction returns Uint8Array from hex', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SignTransactionResponse,
@@ -2314,15 +2302,6 @@ describe('useWalletStore', () => {
   });
 
   describe('signing actions', () => {
-    it('signData returns signature', async () => {
-      mockRequest.mockResolvedValueOnce({
-        type: WalletMessageType.SignDataResponse,
-        signature: 'sig-base64'
-      });
-      const sig = await useWalletStore.getState().signData('pk', 'inputs');
-      expect(sig).toBe('sig-base64');
-    });
-
     it('signTransaction returns signature as Uint8Array from hex', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SignTransactionResponse,
@@ -2452,11 +2431,14 @@ describe('useWalletStore', () => {
         balances: { 'addr-1': [row as any], 'addr-2': [row as any] },
         balancesLoading: { 'addr-1': false, 'addr-2': true },
         balancesLastFetched: { 'addr-1': 1, 'addr-2': 2 },
+        balanceReadFailed: { 'addr-1': true, 'addr-2': true },
+        balanceReadInFlight: { 'addr-1': true, 'addr-2': false },
         assetsMetadata: { 'asset-1': row.metadata },
         tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0 } } as any,
         accounts: [{ publicKey: 'addr-1', name: 'One' } as any]
       });
-      const { balances, balancesLoading, balancesLastFetched, ...others } = useWalletStore.getState();
+      const { balances, balancesLoading, balancesLastFetched, balanceReadFailed, balanceReadInFlight, ...others } =
+        useWalletStore.getState();
 
       useWalletStore.getState().clearBalances();
 
@@ -2464,7 +2446,16 @@ describe('useWalletStore', () => {
       expect(after.balances).toEqual({});
       expect(after.balancesLoading).toEqual({});
       expect(after.balancesLastFetched).toEqual({});
-      const { balances: _b, balancesLoading: _l, balancesLastFetched: _f, ...othersAfter } = after;
+      expect(after.balanceReadFailed).toEqual({});
+      expect(after.balanceReadInFlight).toEqual({});
+      const {
+        balances: _b,
+        balancesLoading: _l,
+        balancesLastFetched: _f,
+        balanceReadFailed: _rf,
+        balanceReadInFlight: _ri,
+        ...othersAfter
+      } = after;
       expect(othersAfter).toEqual(others);
       expect(othersAfter.assetsMetadata).toBe(others.assetsMetadata);
       expect(othersAfter.tokenPrices).toBe(others.tokenPrices);

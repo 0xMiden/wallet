@@ -10,7 +10,7 @@ import { PASSWORD } from '../helpers/wallet-page';
 
 // Primary guardian operator for the selected network (E2E_NETWORK).
 const A = getEnvironmentConfig().guardianUrl;
-const FILE_PASSWORD = 'Backup1234!';
+const FILE_PASSWORD = 'Backup1234!File';
 const RESTORED_PASSWORD = 'Restored1234!';
 const IMPORTED_ACCOUNT_NAME = 'Imported signer';
 // Vault.spawnFromHotKey names the first adopted account "Account $accountNumber$".

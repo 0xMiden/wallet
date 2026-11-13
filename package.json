@@ -66,7 +66,7 @@
     "test": "jest",
     "test-debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
     "test:coverage": "jest --coverage",
-    "test:custom-request": "node --test test/guardian-custom-request.node.test.mjs test/dapp-custom-request.node.test.mjs test/custom-request-diagnostics.node.test.mjs",
+    "test:custom-request": "node --test test/guardian-custom-request.node.test.mjs test/dapp-custom-request.node.test.mjs test/custom-request-diagnostics.node.test.mjs scripts/dev/guardian/proposal-id-dry-run-lib.test.mjs test/guardian-account-recipe.node.test.mjs test/sign-bytes-domain.node.test.mjs",
     "test:oneclick-service": "node --test services/one-click/worker.test.mjs",
     "test:smoke": "jest src/lib/miden/smoke.integration.test.ts",
     "test:store-listing": "jest scripts/store-listing --runInBand",

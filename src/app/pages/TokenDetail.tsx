@@ -97,7 +97,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const account = useAccount();
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const allTokensMetadata = useAllTokensBaseMetadata();
-  const { data: balances } = useAllBalances(account.publicKey, allTokensMetadata);
+  const { data: balances, isLoading: balancesLoading } = useAllBalances(account.publicKey, allTokensMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
@@ -107,7 +107,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const title = midenTokenLabel(bridgeConfig, tokenId, symbol);
   // No figure until the balances have been read: the page shows the placeholder, not a made-up
   // 0.00. Once read, a token with no entry holds nothing.
-  const balance = balances ? (token?.balance ?? 0) : null;
+  const balance = !balancesLoading && balances ? (token?.balance ?? 0) : null;
   // The quote of the symbol the feed prices this token under (IETH at ETH), or the nominal $1 a
   // unit `quotedPrice` gives a token the feed does not quote while the switch is on. A token
   // without one has no dollar figure and no price section.
@@ -145,7 +145,6 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             valueClassName="font-extrabold"
             visual={
               <TokenLogo
-                symbol={symbol}
                 faucetId={tokenId}
                 size="2xl"
                 // An unverified token carries the warning on its own mark, where the eye already is.

@@ -52,7 +52,9 @@ export function buildSignCallbackError(err: unknown): SignCallbackError {
 
 /**
  * Wrap a raw `(publicKeyHex, signingInputsHex)` signer into the byte-shaped SDK
- * keystore callback, tagging any thrown value via {@link buildSignCallbackError}.
+ * keystore callback, tagging a failure via {@link buildSignCallbackError}. A
+ * `WebAssembly.RuntimeError` is rethrown as that same error: the keystore
+ * trampoline retires the client for it, and a wrapper would hide the object.
  * `Actions.init` installs it once per realm as the realm signer
  * (`installRealmKeystore`, #878); the offscreen document wraps its reverse-IPC
  * signer the same way, so both paths classify a failure identically.
@@ -66,6 +68,7 @@ export function buildSdkSignCallback(
     try {
       return await signCallback(keyString, signingInputsString);
     } catch (err) {
+      if (err instanceof WebAssembly.RuntimeError) throw err;
       // Classified here, on the wallet's side of the boundary: the client's sign
       // trampoline records the reason for the hold that asked, and the message
       // carries it too. Callers that catch the eventual executeTransaction failure

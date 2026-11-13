@@ -1,14 +1,13 @@
-import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
-import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
-
 import { importedNoteAssets, type AssetAmount } from 'app/confirm/decode';
-import { importedNoteIds, type NoteDecodeOptions, quarantineNoteIds } from 'lib/miden/note-quarantine';
-import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import {
-  isAlreadyAuthorizedError,
-  isSummaryFeeFaucetMissing,
-  isSummarySigningUnavailable
-} from 'lib/miden/sdk/dry-run-request';
+  abandonQuarantineAttempt,
+  beginQuarantineAttempt,
+  importedNoteIds,
+  type NoteDecodeOptions,
+  quarantineNoteIds
+} from 'lib/miden/note-quarantine';
+import { dryRunPreparedCustomRequest } from 'lib/miden/sdk/custom-dry-run';
+import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -17,7 +16,9 @@ import {
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
-import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
+import { b64ToU8 } from 'lib/shared/helpers';
+
+import { CustomSimulationTimeoutError } from './public-error';
 
 export interface SimulateCustomTxInput {
   /** Bech32 sending account address (the custom-tx `address` field). */
@@ -120,8 +121,9 @@ async function idsNotAlreadyHeld(
  * describe the same executed transaction; the confirm UI decodes whichever
  * arrives.
  * All WASM work runs inside a single `withWasmClientLock` scope (the client is
- * single-threaded). Never throws: failures are returned as `{ error }` so the
- * confirm UI can fall back to the declared view.
+ * single-threaded). Never throws: failures are returned as `{ error }`. The dApp
+ * approval refuses a request whose dry run gives `{ error }`, before any prompt
+ * (see `generatePromisifyTransaction` in `dapp.ts`).
  *
  * The whole locked operation races against `SIMULATION_TIMEOUT_MS` so a slow
  * import/sync/execute can never hang the confirm screen's "verifying…" state
@@ -143,6 +145,7 @@ async function idsNotAlreadyHeld(
  * as a follow-up.
  */
 export async function simulateCustomTransaction(input: SimulateCustomTxInput): Promise<SimulateCustomTxResult> {
+  const attempt = beginQuarantineAttempt();
   const work: Promise<SimulateCustomTxResult> = (async () => {
     // Captured inside the lock and returned with whichever shape the dry run produced, so the
     // spending-limit policy always receives the provenance verdict alongside the effects.
@@ -182,17 +185,25 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // write, so a trap while decoding the bytes fails the dry run before it writes anything.
         introducedCredit = introducedAssets(input.importNotes, introducedIds);
         introducedCount = introducedIds.length;
-        await quarantineNoteIds(introducedIds);
+        await quarantineNoteIds(introducedIds, attempt);
         // The quarantine write is Dexie, not WASM — but it is still an await,
         // and the watchdog does not pause for it, so the check has to sit
         // between it and the next WASM call rather than before it (same
         // precedent as the sync-manager's quarantine read).
         assertWasmHoldCurrent(hold, 'after the quarantine write');
 
+        // Import a carried note only when its decoded id is one this dry run introduced.
+        // Re-importing a note the wallet already holds fails with "import produced no note
+        // commitment" before any approval prompt. An id whose lookup failed closed is absent
+        // from that set and is not imported. A carried note whose id does not decode was never
+        // classified and is still imported.
+        const introduced = new Set(introducedIds);
         for (const noteB64 of input.importNotes ?? []) {
           // Per-iteration, and the count is dApp-controlled — one guard before
           // the loop only covers the first import.
           assertWasmHoldCurrent(hold, 'before the note import');
+          const [id] = importedNoteIds([noteB64], IN_HOLD);
+          if (id !== undefined && !introduced.has(id)) continue;
           await client.importNoteBytes(b64ToU8(noteB64), hold);
         }
         assertWasmHoldCurrent(hold, 'after the note imports');
@@ -213,63 +224,9 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
           hold
         );
         assertWasmHoldCurrent(hold, 'after custom request preparation');
-        const request = TransactionRequest.deserialize(preparedBytes);
-        // ONLY the summary execution is caught here. A guard's own throw must never reach the
-        // fallback below: `assertWasmHoldCurrent` fires when the mutex is already a successor's,
-        // and retrying under it is the double borrow every guard in this callback exists to stop.
-        let summary: Awaited<ReturnType<typeof executeForSummaryAtTip>> | undefined;
-        let summaryFailure: unknown;
-        try {
-          // The summary binds the block the request's auth args name, which the dApp's own client
-          // chose and the sync above has moved this one past, so it executes at the tip like every
-          // other execution of a Guardian proposal.
-          summary = await executeForSummaryAtTip(client.client, accountIdHex, request);
-        } catch (e) {
-          summaryFailure = e;
-        }
-
-        if (summary !== undefined) {
-          // `summary.serialize()` borrows the client, so an evicted hold must not reach it.
-          assertWasmHoldCurrent(hold, 'before the summary serialize');
-          return { summaryBytes: u8ToB64(summary.serialize()), introducedCredit, introducedCount };
-        }
-
-        // Only two summary failures are retryable locally: the account was already fully
-        // authorized, and the summary client could not sign for it. Anything else - a genuine
-        // execution failure, an eviction, an abort - is reported as it stands, because retrying it
-        // would either mask the real error or borrow a client a successor already owns.
-        if (
-          !isAlreadyAuthorizedError(summaryFailure) &&
-          !isSummarySigningUnavailable(summaryFailure) &&
-          !isSummaryFeeFaucetMissing(summaryFailure)
-        ) {
-          throw summaryFailure;
-        }
-        if (isSummarySigningUnavailable(summaryFailure) || isSummaryFeeFaucetMissing(summaryFailure)) {
-          console.warn('[simulate-custom-tx] the summary client cannot execute; falling back to local execution');
-        }
-        // The rejection still ends the executeForSummaryAtTip parking await, so re-check before the
-        // fallback executes anything.
-        assertWasmHoldCurrent(hold, 'before the local execution fallback');
-        // Ordinary (non-guardian) account: nothing is pending authorization, so
-        // there is no summary — but the dry run itself is still available and is
-        // the same ground truth. `executeRequest` executes locally and submits,
-        // proves and persists NOTHING (SDK: "does not submit it to the network
-        // nor update the local database"), so it stays a dry run. Without this
-        // the verified asset view — the anti-phishing control that shows what the
-        // transaction really moves — was unreachable for every ordinary account
-        // on the 0.16 line.
-        //
-        // A fresh deserialization: the first request handle was consumed by
-        // `executeForSummaryAtTip` (wasm-bindgen moves it).
-        const executed = await client.client.transactions.executeRequest(
-          accountIdHex,
-          TransactionRequest.deserialize(preparedBytes)
-        );
-        // `result.serialize()` borrows the same client — same rule as the
-        // summary above. Still pre-submit: executeRequest broadcasts nothing.
-        assertWasmHoldCurrent(hold, 'before the result serialize');
-        return { executedBytes: u8ToB64(executed.result.serialize()), introducedCredit, introducedCount };
+        // The same dry run that the generation check of the queued row executes, so the two decode identically.
+        const dryRun = await dryRunPreparedCustomRequest(client.client, accountIdHex, preparedBytes, hold);
+        return { ...dryRun, introducedCredit, introducedCount };
       });
     } catch (e: any) {
       // An abandonment is reported as an interruption, not as its internal
@@ -280,15 +237,28 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
       // also only ever test this field for presence. The real error keeps its
       // identity on the console via the recovery log.
       if (isPipelineKillLink(e)) {
-        return { error: 'the simulation was interrupted before it finished' };
+        // Settle before returning so an in-flight quarantine write cannot land after the caller releases.
+        await abandonQuarantineAttempt(attempt);
+        throw e;
       }
       return { error: e?.message ?? String(e) };
     }
   })();
 
+  // The same object the race returns, so a slow dry run that later fails with the same text is not
+  // this timeout. The text itself stays "Simulation timed out".
+  const timedOut: SimulateCustomTxResult = { error: 'Simulation timed out' };
   const timeout: Promise<SimulateCustomTxResult> = new Promise(resolve =>
-    setTimeout(() => resolve({ error: 'Simulation timed out' }), SIMULATION_TIMEOUT_MS)
+    setTimeout(() => resolve(timedOut), SIMULATION_TIMEOUT_MS)
   );
 
-  return Promise.race([work, timeout]);
+  const result = await Promise.race([work, timeout]);
+  // The timeout does not cancel the locked work. Abandon the attempt and let a quarantine write
+  // already in the queue finish before rejecting, or the lookup still in flight quarantines the
+  // ids again after the caller releases them.
+  if (result === timedOut) {
+    await abandonQuarantineAttempt(attempt);
+    throw new CustomSimulationTimeoutError();
+  }
+  return result;
 }

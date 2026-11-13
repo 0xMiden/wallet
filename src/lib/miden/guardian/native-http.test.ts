@@ -5,6 +5,8 @@
  * only probed routes while its probe is in flight. On every platform a routed request is cut off at
  * GUARDIAN_REQUEST_TIMEOUT_MS (#312).
  */
+import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
+
 import { isGuardianRequestTimeout } from './serialize';
 
 const mockIsMobile = jest.fn(() => true);
@@ -13,8 +15,15 @@ jest.mock('lib/platform', () => ({
 }));
 
 const mockNativeRequest = jest.fn();
+const mockProbeRequest = jest.fn();
+const mockProbeCancel = jest.fn();
+const mockRegisterPlugin = jest.fn((..._args: unknown[]) => ({
+  request: (...args: unknown[]) => mockProbeRequest(...args),
+  cancel: (...args: unknown[]) => mockProbeCancel(...args)
+}));
 jest.mock('@capacitor/core', () => ({
-  CapacitorHttp: { request: (...args: unknown[]) => mockNativeRequest(...args) }
+  CapacitorHttp: { request: (...args: unknown[]) => mockNativeRequest(...args) },
+  registerPlugin: (...args: unknown[]) => mockRegisterPlugin(...args)
 }));
 
 // The operators the wallet's configuration names. A test adds one and tells the listeners, as a config document does.
@@ -79,6 +88,8 @@ beforeEach(() => {
   mockNoteTransportUrl = 'https://transport.test';
   mockWebFetch.mockResolvedValue('web answer');
   mockNativeRequest.mockResolvedValue({ status: 200, headers: {}, data: '{}' });
+  mockProbeRequest.mockResolvedValue({ status: 200, headers: {}, data: '{}' });
+  mockProbeCancel.mockResolvedValue(undefined);
   globalThis.fetch = mockWebFetch;
   mockGuardianListeners.clear();
   nativeHttp = loadNativeHttp();
@@ -126,6 +137,31 @@ function track(promise: Promise<unknown>): { settled: boolean; error: unknown } 
 }
 
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
+function startedProbeRequestId(): string {
+  const started: unknown = mockProbeRequest.mock.calls[0]?.[0];
+  if (
+    typeof started !== 'object' ||
+    started === null ||
+    !('requestId' in started) ||
+    typeof started.requestId !== 'string'
+  ) {
+    throw new Error('expected a GuardianProbeHttp request');
+  }
+  return started.requestId;
+}
+
+function expectProbeCancelled(): void {
+  expect(mockProbeCancel).toHaveBeenCalledWith({ requestId: startedProbeRequestId() });
+}
+
+function registerProbeRequestBudget(signal: AbortSignal, timeoutMs: number): () => void {
+  const register = Reflect.get(nativeHttp, 'registerGuardianProbeRequestBudget');
+  if (typeof register !== 'function') throw new Error('Guardian probe request budgets are unavailable');
+  const unregister: unknown = Reflect.apply(register, nativeHttp, [signal, timeoutMs]);
+  if (typeof unregister !== 'function') throw new Error('Guardian probe request budget did not return cleanup');
+  return () => Reflect.apply(unregister, undefined, []);
+}
 
 describe('installGuardianFetchBoundary', () => {
   it.each([
@@ -520,12 +556,429 @@ describe('the Guardian request deadline (#312)', () => {
 
     await globalThis.fetch(`${CUSTOM}/pubkey`);
 
+    expect(mockRegisterPlugin).not.toHaveBeenCalled();
+    expect(mockProbeRequest).not.toHaveBeenCalled();
     expect(mockNativeRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         connectTimeout: nativeHttp.GUARDIAN_REQUEST_TIMEOUT_MS,
         readTimeout: nativeHttp.GUARDIAN_REQUEST_TIMEOUT_MS
       })
     );
+  });
+
+  it('cancels a probe read when the caller aborts and keeps the late body as that error', async () => {
+    let settleNative: (value: unknown) => void = () => undefined;
+    mockProbeRequest.mockReturnValue(
+      new Promise(resolve => {
+        settleNative = resolve;
+      })
+    );
+    nativeHttp.registerGuardianOrigin(CUSTOM);
+    const controller = new AbortController();
+    const reason = new Error('the probe attempt expired');
+    const unregister = registerProbeRequestBudget(controller.signal, 2_000);
+    const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+    const settlement = track(nativeHttp.guardianNativeProbeSettlement(controller.signal));
+
+    try {
+      expect(mockRegisterPlugin).toHaveBeenCalledWith('GuardianProbeHttp');
+      expect(mockNativeRequest).not.toHaveBeenCalled();
+      expect(mockProbeRequest).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 2_000 }));
+      controller.abort(reason);
+      await flush();
+
+      expect(request.error).toBe(reason);
+      expectProbeCancelled();
+      expect(settlement.settled).toBe(false);
+      settleNative({ status: 200, headers: {}, data: '{}' });
+      await flush();
+      expect(request.error).toBe(reason);
+      expect(settlement.settled).toBe(true);
+    } finally {
+      settleNative({ status: 200, headers: {}, data: '{}' });
+      unregister();
+    }
+  });
+
+  it('does not send a probe-budget native read whose attempt signal already aborted', async () => {
+    nativeHttp.registerGuardianOrigin(CUSTOM);
+    const controller = new AbortController();
+    const reason = new Error('the probe attempt already expired');
+    controller.abort(reason);
+    const unregister = registerProbeRequestBudget(controller.signal, 2_000);
+
+    try {
+      await expect(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal })).rejects.toBe(reason);
+      expect(mockProbeRequest).not.toHaveBeenCalled();
+      expect(mockNativeRequest).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
+  });
+
+  describe('the registered native probe ceiling', () => {
+    let now = 0;
+    let nowSpy: jest.SpyInstance<number, []>;
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      now = 0;
+      nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+    });
+
+    afterEach(() => {
+      nowSpy.mockRestore();
+      jest.useRealTimers();
+    });
+
+    it('rejects a pending native read at the probe ceiling', async () => {
+      let settleNative: (value: unknown) => void = () => undefined;
+      mockProbeRequest.mockReturnValue(new Promise(resolve => (settleNative = resolve)));
+      mockProbeCancel.mockRejectedValue(new Error('cancel failed'));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const unregister = registerProbeRequestBudget(controller.signal, 2_000);
+      const unhandled: unknown[] = [];
+      const onUnhandled = (error: unknown) => unhandled.push(error);
+      process.on('unhandledRejection', onUnhandled);
+
+      try {
+        const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+        const settlement = track(nativeHttp.guardianNativeProbeSettlement(controller.signal));
+        await jest.advanceTimersByTimeAsync(1_999);
+        expect(request.settled).toBe(false);
+        expect(mockProbeCancel).not.toHaveBeenCalled();
+
+        await jest.advanceTimersByTimeAsync(1);
+        expect(request.error).toBeInstanceOf(nativeHttp.GuardianRequestTimeoutError);
+        expect(request.error).toMatchObject({ timeoutMs: 2_000 });
+        expectProbeCancelled();
+        expect(mockNativeRequest).not.toHaveBeenCalled();
+        expect(settlement.settled).toBe(false);
+
+        settleNative({ status: 200, headers: {}, data: '{}' });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(request.error).toBeInstanceOf(nativeHttp.GuardianRequestTimeoutError);
+        expect(settlement.settled).toBe(true);
+        expect(unhandled).toEqual([]);
+      } finally {
+        settleNative({ status: 200, headers: {}, data: '{}' });
+        process.removeListener('unhandledRejection', onUnhandled);
+        unregister();
+      }
+    });
+
+    it('cancels when the caller aborts and keeps that reason through the ceiling', async () => {
+      mockProbeRequest.mockReturnValue(new Promise(() => undefined));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const reason = new Error('the probe attempt expired');
+      const unregister = registerProbeRequestBudget(controller.signal, 2_000);
+
+      try {
+        const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+        controller.abort(reason);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(request.error).toBe(reason);
+        expectProbeCancelled();
+
+        await jest.advanceTimersByTimeAsync(2_000);
+        expect(request.error).toBe(reason);
+        expect(mockProbeCancel).toHaveBeenCalledTimes(1);
+      } finally {
+        unregister();
+      }
+    });
+
+    it('uses only the remaining probe budget for the native timeout', async () => {
+      mockProbeRequest.mockReturnValue(new Promise(() => undefined));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const unregister = registerProbeRequestBudget(controller.signal, 100);
+      now = 90;
+
+      try {
+        const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+        expect(mockProbeRequest).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 10 }));
+        expect(mockNativeRequest).not.toHaveBeenCalled();
+        await jest.advanceTimersByTimeAsync(9);
+        expect(request.settled).toBe(false);
+
+        await jest.advanceTimersByTimeAsync(1);
+        expect(request.error).toBeInstanceOf(nativeHttp.GuardianRequestTimeoutError);
+        expect(request.error).toMatchObject({ timeoutMs: 10 });
+        expectProbeCancelled();
+      } finally {
+        unregister();
+      }
+    });
+
+    it('does not start a native read with zero timeout when the deadline expires between clock reads', async () => {
+      mockProbeRequest.mockReturnValue(new Promise(() => undefined));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const unregister = registerProbeRequestBudget(controller.signal, 100);
+      const clockReads = [99, 99, 100];
+      nowSpy.mockImplementation(() => clockReads.shift() ?? 100);
+
+      try {
+        const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+        expect(mockProbeRequest).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 1 }));
+        expect(mockNativeRequest).not.toHaveBeenCalled();
+
+        await jest.advanceTimersByTimeAsync(1);
+        expect(request.error).toMatchObject({ name: 'GuardianRequestTimeoutError', timeoutMs: 1 });
+        expectProbeCancelled();
+      } finally {
+        unregister();
+      }
+    });
+
+    it('does not send a native read after the probe budget has elapsed', async () => {
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const expired = new AbortController();
+      const unregisterExpired = registerProbeRequestBudget(expired.signal, 100);
+      now = 100;
+
+      try {
+        await expect(globalThis.fetch(`${CUSTOM}/state`, { signal: expired.signal })).rejects.toMatchObject({
+          name: 'GuardianRequestTimeoutError',
+          timeoutMs: 100
+        });
+        expect(mockProbeRequest).not.toHaveBeenCalled();
+        expect(mockNativeRequest).not.toHaveBeenCalled();
+      } finally {
+        unregisterExpired();
+      }
+
+      const aborted = new AbortController();
+      const reason = new Error('caller stopped the probe');
+      aborted.abort(reason);
+      const unregisterAborted = registerProbeRequestBudget(aborted.signal, 100);
+
+      try {
+        await expect(globalThis.fetch(`${CUSTOM}/state`, { signal: aborted.signal })).rejects.toBe(reason);
+        expect(mockProbeRequest).not.toHaveBeenCalled();
+        expect(mockNativeRequest).not.toHaveBeenCalled();
+      } finally {
+        unregisterAborted();
+      }
+    });
+
+    it('returns a native read that settles before the probe ceiling', async () => {
+      mockProbeRequest.mockResolvedValue({ status: 200, headers: {}, data: '{}' });
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const unregister = registerProbeRequestBudget(controller.signal, 100);
+
+      try {
+        await expect(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal })).resolves.toMatchObject({
+          body: '{}'
+        });
+        await jest.advanceTimersByTimeAsync(100);
+        expect(mockProbeCancel).not.toHaveBeenCalled();
+        expect(mockNativeRequest).not.toHaveBeenCalled();
+      } finally {
+        unregister();
+      }
+    });
+
+    it('preserves the native error when a registered read rejects before its ceiling', async () => {
+      const nativeError = new Error('native transport failed');
+      mockProbeRequest.mockRejectedValue(nativeError);
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const unregister = registerProbeRequestBudget(controller.signal, 100);
+
+      try {
+        await expect(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal })).rejects.toBe(nativeError);
+        await jest.advanceTimersByTimeAsync(100);
+        expect(mockProbeCancel).not.toHaveBeenCalled();
+      } finally {
+        unregister();
+      }
+    });
+
+    it('prefers the caller reason when the native read rejects after abort', async () => {
+      let rejectNative: (error: unknown) => void = () => undefined;
+      mockProbeRequest.mockReturnValue(new Promise((_resolve, reject) => (rejectNative = reject)));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const reason = new Error('the probe attempt expired');
+      const unregister = registerProbeRequestBudget(controller.signal, 100);
+
+      try {
+        const request = globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal });
+        controller.abort(reason);
+        rejectNative(new Error('late native failure'));
+        await expect(request).rejects.toBe(reason);
+        expectProbeCancelled();
+      } finally {
+        unregister();
+      }
+    });
+
+    it('keeps a probe budget that is longer than the non-probe timeout', async () => {
+      mockProbeRequest.mockReturnValue(new Promise(() => undefined));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const timeoutMs = nativeHttp.GUARDIAN_REQUEST_TIMEOUT_MS + 1_000;
+      const unregister = registerProbeRequestBudget(controller.signal, timeoutMs);
+
+      try {
+        const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+        expect(mockNativeRequest).not.toHaveBeenCalled();
+        expect(mockProbeRequest).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs }));
+        await jest.advanceTimersByTimeAsync(nativeHttp.GUARDIAN_REQUEST_TIMEOUT_MS);
+        expect(request.settled).toBe(false);
+        await jest.advanceTimersByTimeAsync(1_000);
+        expect(request.error).toBeInstanceOf(nativeHttp.GuardianRequestTimeoutError);
+        expect(request.error).toMatchObject({ timeoutMs });
+        expectProbeCancelled();
+      } finally {
+        unregister();
+      }
+    });
+
+    it('classifies a native failure at the registered ceiling as a probe timeout', async () => {
+      const nativeError = new Error('native transport failed');
+      let rejectNative: (error: unknown) => void = () => undefined;
+      mockProbeRequest.mockReturnValue(new Promise((_resolve, reject) => (rejectNative = reject)));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const unregister = registerProbeRequestBudget(controller.signal, 100);
+      const request = globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal });
+      now = 100;
+
+      try {
+        rejectNative(nativeError);
+        await expect(request).rejects.toMatchObject({ name: 'GuardianRequestTimeoutError', timeoutMs: 100 });
+      } finally {
+        unregister();
+      }
+    });
+
+    it('rejects a registered native fulfillment that arrives after the probe deadline before the timer runs', async () => {
+      let settleNative: (value: unknown) => void = () => undefined;
+      mockProbeRequest.mockReturnValue(new Promise(resolve => (settleNative = resolve)));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const unregister = registerProbeRequestBudget(controller.signal, 100);
+      const unhandled: unknown[] = [];
+      const onUnhandled = (error: unknown) => unhandled.push(error);
+      process.on('unhandledRejection', onUnhandled);
+
+      try {
+        const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+        now = 100;
+        settleNative({ status: 200, headers: {}, data: '{}' });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(request.settled).toBe(true);
+        expect(request.error).toBeInstanceOf(nativeHttp.GuardianRequestTimeoutError);
+        expect(request.error).toMatchObject({ timeoutMs: 100 });
+        const timeoutError = request.error;
+
+        await jest.advanceTimersByTimeAsync(100);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(request.error).toBe(timeoutError);
+        expect(mockProbeCancel).not.toHaveBeenCalled();
+        expect(unhandled).toEqual([]);
+      } finally {
+        settleNative({ status: 200, headers: {}, data: '{}' });
+        process.removeListener('unhandledRejection', onUnhandled);
+        unregister();
+      }
+    });
+
+    it('keeps the caller reason when a registered fulfillment arrives after abort and after the deadline before the timer runs', async () => {
+      let settleNative: (value: unknown) => void = () => undefined;
+      mockProbeRequest.mockReturnValue(new Promise(resolve => (settleNative = resolve)));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const reason = new Error('caller stopped the probe');
+      const unregister = registerProbeRequestBudget(controller.signal, 100);
+      const unhandled: unknown[] = [];
+      const onUnhandled = (error: unknown) => unhandled.push(error);
+      process.on('unhandledRejection', onUnhandled);
+
+      try {
+        const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+        controller.abort(reason);
+        now = 100;
+        settleNative({ status: 200, headers: {}, data: '{}' });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(request.settled).toBe(true);
+        expect(request.error).toBe(reason);
+        expectProbeCancelled();
+
+        await jest.advanceTimersByTimeAsync(100);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(request.error).toBe(reason);
+        expect(mockProbeCancel).toHaveBeenCalledTimes(1);
+        expect(unhandled).toEqual([]);
+      } finally {
+        settleNative({ status: 200, headers: {}, data: '{}' });
+        process.removeListener('unhandledRejection', onUnhandled);
+        unregister();
+      }
+    });
+
+    it('absorbs a native rejection after the probe timeout has settled', async () => {
+      let rejectNative: (error: unknown) => void = () => undefined;
+      mockProbeRequest.mockReturnValue(new Promise((_resolve, reject) => (rejectNative = reject)));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const unregister = registerProbeRequestBudget(controller.signal, 2_000);
+      const unhandled: unknown[] = [];
+      const onUnhandled = (error: unknown) => unhandled.push(error);
+      process.on('unhandledRejection', onUnhandled);
+
+      try {
+        const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+        await jest.advanceTimersByTimeAsync(2_000);
+        expect(request.error).toBeInstanceOf(nativeHttp.GuardianRequestTimeoutError);
+        expectProbeCancelled();
+        rejectNative(new Error('late native failure'));
+        await Promise.resolve();
+        await jest.advanceTimersByTimeAsync(0);
+        expect(request.error).toBeInstanceOf(nativeHttp.GuardianRequestTimeoutError);
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.removeListener('unhandledRejection', onUnhandled);
+        unregister();
+      }
+    });
+
+    it('keeps the caller reason when the native read rejects after its abort ceiling', async () => {
+      let rejectNative: (error: unknown) => void = () => undefined;
+      mockProbeRequest.mockReturnValue(new Promise((_resolve, reject) => (rejectNative = reject)));
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+      const controller = new AbortController();
+      const reason = new Error('the caller gave up');
+      const unregister = registerProbeRequestBudget(controller.signal, 2_000);
+      const unhandled: unknown[] = [];
+      const onUnhandled = (error: unknown) => unhandled.push(error);
+      process.on('unhandledRejection', onUnhandled);
+
+      try {
+        const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
+        controller.abort(reason);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(request.error).toBe(reason);
+        expectProbeCancelled();
+        await jest.advanceTimersByTimeAsync(2_000);
+        expect(request.error).toBe(reason);
+        expect(mockProbeCancel).toHaveBeenCalledTimes(1);
+        rejectNative(new Error('late native failure'));
+        await Promise.resolve();
+        await jest.advanceTimersByTimeAsync(0);
+        expect(request.error).toBe(reason);
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.removeListener('unhandledRejection', onUnhandled);
+        unregister();
+      }
+    });
   });
 
   it('drops a native answer that arrives after the deadline cut the request off', async () => {
@@ -629,6 +1082,167 @@ describe('the Guardian request deadline (#312)', () => {
     await expect(globalThis.fetch(`${CUSTOM}/state`, { signal: caller.signal })).rejects.toBe(reason);
     expect(mockNativeRequest).not.toHaveBeenCalled();
     expect(mockWebFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('the Guardian request deadline across a freeze (#2060)', () => {
+  const FROZEN_MS = 80_000;
+  // The running clock keeps one 5 s pulse of a measured freeze, so that much of the deadline is spent.
+  const LEFT_AFTER_FREEZE_MS = 55_000;
+
+  let doc: HiddenDocument;
+  let resetClock: () => void = () => undefined;
+
+  /**
+   * A fresh boundary with the running clock of that same module registry, as mobile startup initialises it. Returns
+   * only once the transport is parked, so a test decides when and how the request ends.
+   */
+  function loadBoundary(mobile: boolean, { tracked = true }: { tracked?: boolean } = {}) {
+    mockIsMobile.mockReturnValue(mobile);
+    globalThis.fetch = mockWebFetch;
+    let boundary!: typeof import('./native-http');
+    jest.isolateModules(() => {
+      boundary = require('./native-http');
+      const clock: typeof import('lib/mobile/background-time') = require('lib/mobile/background-time');
+      resetClock = clock.__resetBackgroundTimeForTest;
+      if (tracked) clock.initBackgroundTimeTracking();
+    });
+    let answer: (value: unknown) => void = () => undefined;
+    let fail: (error: unknown) => void = () => undefined;
+    const transport = new Promise((resolve, reject) => {
+      answer = resolve;
+      fail = reject;
+    });
+    mockNativeRequest.mockReturnValue(transport);
+    mockWebFetch.mockReturnValue(transport);
+    boundary.registerGuardianOrigin(CUSTOM);
+    const request = track(globalThis.fetch(`${CUSTOM}/delta/proposal`, { method: 'POST' }));
+    return { boundary, request, answer: (value: unknown) => answer(value), fail: (error: unknown) => fail(error) };
+  }
+
+  const nativeAnswer = { status: 200, headers: {}, data: '{}' };
+  const answers: [string, boolean, unknown][] = [
+    ['on mobile', true, nativeAnswer],
+    ['off mobile', false, webResponse(200, '{}')]
+  ];
+
+  const freeze = async () => {
+    doc.setHidden(true);
+    doc.freezeFor(FROZEN_MS);
+    await jest.advanceTimersByTimeAsync(0);
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    doc = installHiddenDocument();
+  });
+
+  afterEach(() => {
+    resetClock();
+    doc.restore();
+    jest.useRealTimers();
+  });
+
+  it.each(answers)('keeps a request an 80 s freeze crosses and uses its answer, %s', async (_label, mobile, reply) => {
+    const { request, answer } = loadBoundary(mobile);
+
+    await freeze();
+    doc.setHidden(false);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(request.settled).toBe(false);
+
+    answer(reply);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(request.settled).toBe(true);
+    expect(request.error).toBeUndefined();
+    // The timer the fire re-armed goes with the answer.
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it.each(answers)('cuts a request a freeze crossed off once its running time is spent, %s', async (_label, mobile) => {
+    const { boundary, request } = loadBoundary(mobile);
+
+    await freeze();
+    doc.setHidden(false);
+    await jest.advanceTimersByTimeAsync(LEFT_AFTER_FREEZE_MS - 1);
+    expect(request.settled).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  it.each(answers)('still cuts a foreground request off at 60 s, %s', async (_label, mobile) => {
+    const { boundary, request } = loadBoundary(mobile);
+
+    await jest.advanceTimersByTimeAsync(boundary.GUARDIAN_REQUEST_TIMEOUT_MS - 1);
+    expect(request.settled).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  it.each(answers)('still cuts a request off at 60 s while hidden JS keeps running, %s', async (_label, mobile) => {
+    const { boundary, request } = loadBoundary(mobile);
+
+    doc.setHidden(true);
+    await jest.advanceTimersByTimeAsync(boundary.GUARDIAN_REQUEST_TIMEOUT_MS - 1);
+    expect(request.settled).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  // The texts the native layers give for a request that cannot reach the Guardian. Most read as neither unreachable nor
+  // an outage, while the cut-off is both, so this decides whether a row goes back to the queue or ends.
+  it.each([
+    'The network connection was lost.',
+    'Could not connect to the server.',
+    'A server with the specified hostname could not be found.',
+    'Failed to connect to guardian.example/1.2.3.4:443',
+    'Unable to resolve host "guardian.example": No address associated with hostname'
+  ])('reads a failure a freeze carried past the deadline as the cut-off: %s', async message => {
+    const { boundary, request, fail } = loadBoundary(true);
+
+    await freeze();
+    fail(new Error(message));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  it("keeps a failure inside the deadline as the transport's own, a freeze or not", async () => {
+    const { request, fail } = loadBoundary(true);
+    const dropped = new Error('The network connection was lost.');
+
+    doc.setHidden(true);
+    doc.freezeFor(20_000);
+    fail(dropped);
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(request.error).toBe(dropped);
+  });
+
+  it('still reads a failure past the deadline as the cut-off, whatever the timer did', async () => {
+    const { boundary, request, fail } = loadBoundary(true);
+
+    // Past the deadline with the timer still to fire, as a late timer leaves it.
+    const lateClock = jest
+      .spyOn(performance, 'now')
+      .mockReturnValue(performance.now() + boundary.GUARDIAN_REQUEST_TIMEOUT_MS);
+    fail(new Error('The request timed out.'));
+    await jest.advanceTimersByTimeAsync(0);
+    lateClock.mockRestore();
+
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  // Desktop, the extension's service worker and its offscreen document never initialise tracking.
+  it.each(answers)('counts a freeze as elapsed where tracking never started, %s', async (_label, mobile) => {
+    const { boundary, request } = loadBoundary(mobile, { tracked: false });
+
+    await freeze();
+
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
   });
 });
 

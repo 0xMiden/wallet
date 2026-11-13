@@ -5,17 +5,22 @@ import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mo
 import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { isMobile } from 'lib/platform';
 import { captureCrash } from 'lib/telemetry/crash';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
 import {
   cancelStaleQueuedTransactions,
+  cancelStuckTransactions,
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
+  cancelTransactionById,
+  failInterruptedTransactions,
+  forceCaneclAllInProgressTransactions,
   markTransactionUnconfirmed,
   MAX_QUEUED_AGE
 } from './cancel';
 import { resolveUnconfirmedSwitch } from './complete';
 import { USER_CANCELLED_TRANSACTION_REASON } from './constants';
-import { updateTransactionStatus } from './helper';
+import { markAttemptPreSubmitEnd, updateTransactionStatus } from './helper';
 import { AccountState, NodeReads } from './reconcile-reads';
 import { judgeAndWrite } from './reconcile-unconfirmed';
 import { OperationAbortedError } from '../back/offscreen-codec';
@@ -780,6 +785,206 @@ describe('the queue expiry', () => {
       ITransactionStatus.Failed,
       ITransactionStatus.Failed
     ]);
+  });
+});
+
+describe('the way to a failed submit', () => {
+  const PROPOSAL_AT_MS = 1_800_000_000_000;
+  const SUBMITTED_AT_MS = PROPOSAL_AT_MS + 80_000;
+  const AMOUNT = '1250000';
+  let doc: HiddenDocument;
+  let clock: jest.SpyInstance;
+
+  const refused = () =>
+    new Error(
+      'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: ' +
+        `invalid request parameters (transaction expired): status: 'invalid request parameters (transaction expired)', ` +
+        `self: "tx ${TRANSACTION} of ${AMOUNT} for ${ACCOUNT} note ${NOTE}"`
+    );
+
+  const unknownOutcome = () =>
+    new Error(
+      `failed to submit proven transaction: submission of transaction ${TRANSACTION} came back without a definite ` +
+        'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+        'submit_proven_transaction: operation was cancelled'
+    );
+
+  // The mainnet window: a 20 block expiry, whatever delta the wallet asks for.
+  const submitted = (status = ITransactionStatus.GeneratingTransaction): ITransaction => ({
+    id: 'tx-1',
+    type: 'send',
+    accountId: ACCOUNT,
+    status,
+    initiatedAt: PROPOSAL_AT_MS / 1000 - 5,
+    attemptId: 'a1',
+    stage: 'submitting',
+    stageTimestamps: { 'creating-proposal': PROPOSAL_AT_MS, submitting: SUBMITTED_AT_MS },
+    submitEvidence: [
+      {
+        attemptId: 'a1',
+        capturedAt: NOW,
+        source: 'stage',
+        transactionId: TRANSACTION,
+        initialCommitment: INITIAL,
+        finalCommitment: FINAL,
+        initialNonce: '5',
+        outputNoteIds: [NOTE],
+        nullifiers: [NULLIFIER],
+        refBlock: 1_000,
+        refBlockCommitment: HEADER,
+        expirationBlock: 1_020
+      }
+    ],
+    delegateTransaction: true,
+    displayIcon: 'SEND'
+  });
+
+  const diagnostics = () => snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0]);
+
+  const expectOnlyClosedValues = () => {
+    const sent = JSON.stringify(diagnostics());
+    for (const leak of [ACCOUNT, TRANSACTION, NOTE, AMOUNT, INITIAL, NULLIFIER, '1020', '1000', 'a1"']) {
+      expect(sent).not.toContain(leak);
+    }
+  };
+
+  beforeEach(() => {
+    __resetBackgroundTimeForTest();
+    jest.mocked(isMobile).mockReturnValue(true);
+    doc = installHiddenDocument();
+    clock = jest.spyOn(Date, 'now').mockReturnValue(PROPOSAL_AT_MS - 1_000);
+    initBackgroundTimeTracking();
+    clock.mockReturnValue(PROPOSAL_AT_MS + 1_000);
+    doc.setHidden(true);
+    clock.mockReturnValue(PROPOSAL_AT_MS + 71_000);
+    doc.setHidden(false);
+    clock.mockReturnValue(SUBMITTED_AT_MS + 2_000);
+  });
+
+  afterEach(() => {
+    clock.mockRestore();
+    doc.restore();
+    __resetBackgroundTimeForTest();
+    jest.mocked(isMobile).mockReturnValue(false);
+  });
+
+  it('reports the approach, the window, the hidden answer and the leg of a refusal, off the message', async () => {
+    await Repo.transactions.put(submitted());
+    expect(await cancelTransaction(submitted(), refused())).toBe(true);
+    expect(diagnostics()).toMatchObject({
+      submitApproachHidden: 'half_or_more',
+      proofWindow: 'under_30_blocks',
+      submitHidden: 'no',
+      submitLeg: 'under_9s'
+    });
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain(
+      '; point pipeline; submit_rejected; endpoint submit_proven_transaction; grpc invalid_argument; node expired; proof wait unavailable. authentication'
+    );
+    for (const field of ['half_or_more', 'under_30_blocks']) expect(report?.message).not.toContain(field);
+    expectNoTransactionData(report?.message ?? '');
+    expectOnlyClosedValues();
+  });
+
+  it('reports the approach and the window on the Unconfirmed write', async () => {
+    await Repo.transactions.put(submitted());
+    await markTransactionUnconfirmed(submitted(), unknownOutcome());
+    expect(diagnostics()).toMatchObject({ submitApproachHidden: 'half_or_more', proofWindow: 'under_30_blocks' });
+    expect(diagnostics()).not.toHaveProperty('submitHidden');
+    expect(diagnostics()).not.toHaveProperty('submitLeg');
+    expectOnlyClosedValues();
+  });
+
+  it('reports the approach and the window on the never-committed verdict', async () => {
+    await Repo.transactions.put({
+      ...submitted(ITransactionStatus.Unconfirmed),
+      completedAt: NOW - 100,
+      mayHaveSubmitted: true,
+      error: 'not confirmed'
+    });
+    const outcome = await judgeAndWrite('tx-1', {
+      node: {
+        blockCommitment: async () => HEADER,
+        account: async (_id, atBlock) =>
+          atBlock === undefined
+            ? { ok: true, state: { blockNum: 1_100, commitment: INITIAL } }
+            : { ok: false, pruned: true, timedOut: false },
+        noteInclusions: async () => new Map(),
+        nullifierHeight: async () => null
+      },
+      nowSec: NOW,
+      cadenceMs: 3_000
+    });
+    expect(outcome.kind).toBe('never-committed');
+    expect(diagnostics()).toMatchObject({ submitApproachHidden: 'half_or_more', proofWindow: 'under_30_blocks' });
+    expectOnlyClosedValues();
+  });
+
+  it('reports neither for a row that never reached its submit', async () => {
+    const preparing: ITransaction = {
+      ...submitted(),
+      stage: 'proving',
+      stageTimestamps: { 'creating-proposal': PROPOSAL_AT_MS },
+      submitEvidence: undefined
+    };
+    await Repo.transactions.put(preparing);
+    expect(await cancelTransaction(preparing, new Error(`opaque ${ACCOUNT}`))).toBe(true);
+    expect(diagnostics()).not.toHaveProperty('submitApproachHidden');
+    expect(diagnostics()).not.toHaveProperty('proofWindow');
+  });
+
+  describe.each([
+    ['mobile', true],
+    ['off mobile', false]
+  ])('an attempt ended from outside its pipeline, %s', (_platform, mobile) => {
+    const ends: [string, (tx: ITransaction) => Promise<unknown>][] = [
+      ['the cold-start sweep', () => failInterruptedTransactions()],
+      ['the stuck reaper', () => cancelStuckTransactions()],
+      ['a user cancel', tx => cancelTransactionById(tx.id, USER_CANCELLED_TRANSACTION_REASON)],
+      ['a force cancel', () => forceCaneclAllInProgressTransactions()],
+      ['a kill', tx => cancelTransactionAfterPipelineStopped(tx, new OperationAbortedError('op', 'deadline'))]
+    ];
+
+    const ended = async (row: ITransaction, end: (tx: ITransaction) => Promise<unknown>) => {
+      jest.mocked(isMobile).mockReturnValue(mobile);
+      await Repo.transactions.put({ ...row, processingStartedAt: 1 });
+      await end(row);
+      expect(captured()).toHaveLength(1);
+    };
+
+    it.each(ends)('reports neither when %s meets an attempt short of its submit', async (_name, end) => {
+      await ended(
+        {
+          ...submitted(),
+          stage: 'proving',
+          stageTimestamps: { 'creating-proposal': PROPOSAL_AT_MS },
+          submitEvidence: undefined
+        },
+        end
+      );
+      expect(captured()[0]?.message).toContain('submit crossing unavailable');
+      expect(diagnostics()).not.toHaveProperty('submitApproachHidden');
+      expect(diagnostics()).not.toHaveProperty('proofWindow');
+    });
+
+    it.each(ends)('reports both when %s meets a crossed attempt that lost its stamp', async (_name, end) => {
+      await ended({ ...submitted(), stageTimestamps: { 'creating-proposal': PROPOSAL_AT_MS } }, end);
+      expect(captured()[0]?.message).toContain('submit crossing crossed');
+      expect(diagnostics()).toMatchObject({
+        submitApproachHidden: mobile ? 'unavailable' : 'not_measured',
+        proofWindow: 'under_30_blocks'
+      });
+    });
+  });
+
+  it('reports neither for a stamped attempt the leaf proved ended before its submit', async () => {
+    await Repo.transactions.put(submitted());
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    expect(await cancelTransaction(submitted(), new Error(`opaque ${ACCOUNT}`))).toBe(true);
+    expect(captured()[0]?.message).toContain('submit crossing not_crossed');
+    expect(diagnostics()).not.toHaveProperty('submitApproachHidden');
+    expect(diagnostics()).not.toHaveProperty('proofWindow');
   });
 });
 

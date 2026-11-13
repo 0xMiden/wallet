@@ -864,6 +864,10 @@
     "message": "Não foi possível verificar seu saldo com a Epoch. Tente novamente.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Não foi possível carregar seu saldo. Verifique sua conexão e tente novamente.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "O recurso “Earn” não está disponível nesta rede",
     "englishSource": "Earn is not available on this network"
@@ -1251,6 +1255,32 @@
   "submissionRejectedByNetwork": {
     "message": "A rede rejeitou este envio. Tente novamente.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Seu “Guardian” ainda está retendo essa transação, portanto ela ainda não pode ser repetida.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "A rede confirmou que essa transação nunca foi concluída, portanto nada foi movimentado. Seu “Guardian” ainda está retendo a transação, por isso ainda não é possível tentar novamente.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Seu Guardian ainda está retendo essa transação. Você pode tentar novamente após $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Você pode tentar novamente após $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Não houve resposta a este envio. A carteira não pode confirmar se ele foi processado. Ele ainda pode ser concluído, portanto, verifique antes de tentar novamente.",
@@ -3193,6 +3223,10 @@
     "message": "Faça backup da sua carteira",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Frase de recuperação oculta",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Mostrar",
     "englishSource": "Show"
@@ -3334,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 caracteres, 1 número",
-    "englishSource": "8 characters, 1 number"
+    "message": "Pelo menos 12 caracteres",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Mínimo de 8 caracteres, incluindo pelo menos 1 número",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Use pelo menos 12 caracteres. Números, símbolos e letras maiúsculas e minúsculas tornam a senha mais segura.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Anote essas 12 palavras e guarde-as em um local seguro.",
@@ -3996,6 +4030,10 @@
     "message": "Você não pode enviar para o seu próprio endereço",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Novo destinatário",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4027,6 +4065,14 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
+  },
+  "proposalEffectRefused": {
+    "message": "A carteira interrompeu essa transação antes de assiná-la, pois não conseguiu confirmar que a transação movimentava apenas o que você aprovou. Nenhum valor foi movimentado.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "A carteira não conseguiu ler a taxa de rede, por isso não assinou esta transação. Nada foi enviado. Tente novamente daqui a pouco.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "O valor deve ser inferior ao saldo",
@@ -4350,6 +4396,18 @@
   "guardianAccountNotFound": {
     "message": "Não foi possível encontrar um backup neste Guardian. Verifique a URL ou escolha outro Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "Suas contas não puderam ser restauradas: o guardian devolveu dados da conta que não correspondem à sua frase de recuperação. Nada foi restaurado.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Suas contas não puderam ser restauradas: a cópia da conta do guardian ainda não está sincronizada com a rede Miden. Nada foi restaurado. Tente novamente em alguns minutos.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Não foi possível acessar a rede Miden para verificar suas contas. Sua frase de recuperação está correta. Verifique sua conexão e tente novamente.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "Este “guardian” opera em outra rede Miden, portanto não pode recuperar uma conta aqui.",
@@ -4694,6 +4752,14 @@
   "unavailable": {
     "message": "Indisponível",
     "englishSource": "Unavailable"
+  },
+  "assetPriceUnsupported": {
+    "message": "Não suportado",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Escala desconhecida",
+    "englishSource": "Unknown scale"
   },
   "bridgeFeatureUnavailableTitle": {
     "message": "Temporariamente indisponível",
@@ -5899,6 +5965,10 @@
     "message": "Falha no depósito da ponte",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Sua carteira conectada não possui tokens com saldo positivo nesta rede.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "Sua carteira conectada possui $balance$ $token$ na $network$, valor inferior ao necessário para este depósito. Nada foi enviado.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
@@ -6311,6 +6381,10 @@
     "message": "Este dApp está solicitando uma transação personalizada. A carteira não conseguiu decodificar os detalhes da transação — só continue se você souber exatamente o que ela faz.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "A carteira não conseguiu simular essa transação, portanto não pode mostrar o que ela faz. Você não pode aprová-la.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Valor bruto",
     "englishSource": "Raw value"
@@ -6318,6 +6392,10 @@
   "opaqueSignatureTitle": {
     "message": "Solicitação de assinatura opaca",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Essa assinatura não pode autorizar uma transação a partir da sua conta.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Este site solicitou que você assinasse um valor bruto. A carteira não pode mostrar o que está sendo autorizado. Só continue se confiar plenamente neste site.",
@@ -8620,5 +8698,22 @@
   "arcadePostingPolicy": {
     "message": "Cada jogo define suas próprias apostas, pagamentos e reembolsos. Consulte as regras antes de aprovar uma transação.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Bloqueio automático",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Bloqueia a carteira depois de permanecer inativa por tanto tempo.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

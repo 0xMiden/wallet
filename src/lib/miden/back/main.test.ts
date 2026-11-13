@@ -222,16 +222,17 @@ jest.mock('lib/miden/back/actions', () => ({
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
+import type { MessageSenderLike } from 'lib/intercom/sender';
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { WalletMessageType } from 'lib/shared/types';
 
+import { start } from './main';
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
 import { ICON_BY_TYPE, ITransaction, ITransactionStatus, TRANSACTION_STAGES } from '../db/types';
 import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { MidenMessageType, NoteTypeEnum } from '../types';
-import { start } from './main';
 
 let dispatch: (req: any, port?: any) => Promise<any>;
 
@@ -393,7 +394,8 @@ describe('main.start', () => {
 });
 
 describe('processRequest', () => {
-  it('SyncRequest → SyncResponse and triggers doSync', async () => {
+  it('returns an unforced SyncResponse without waiting for doSync', async () => {
+    mockDoSync.mockImplementationOnce(() => new Promise(() => {}));
     const res = await dispatch({ type: WalletMessageType.SyncRequest });
     expect(res.type).toBe(WalletMessageType.SyncResponse);
     expect(mockDoSync).toHaveBeenCalledWith(undefined);
@@ -412,9 +414,48 @@ describe('processRequest', () => {
     expect(Actions.estimateUsdcxBurnFee).toHaveBeenCalledWith(req);
   });
 
-  it('forwards a forced SyncRequest', async () => {
-    await dispatch({ type: WalletMessageType.SyncRequest, force: true });
+  it('answers a forced sync when that sync settles', async () => {
+    let settleSync!: () => void;
+    let syncStarted!: () => void;
+    const started = new Promise<void>(resolve => {
+      syncStarted = resolve;
+    });
+    mockDoSync.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          settleSync = resolve;
+          syncStarted();
+        })
+    );
+    let requestSettled = false;
+    const request = dispatch({ type: WalletMessageType.SyncRequest, force: true }).then(response => {
+      requestSettled = true;
+      return response;
+    });
+
+    await started;
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(mockDoSync).toHaveBeenCalledWith(true);
+    expect(requestSettled).toBe(false);
+
+    settleSync();
+    await expect(request).resolves.toEqual({ type: WalletMessageType.SyncResponse });
+    expect(requestSettled).toBe(true);
+  });
+
+  it('answers a forced sync after logging a sync failure', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = new Error('sync failed');
+    mockDoSync.mockRejectedValueOnce(error);
+
+    try {
+      await expect(dispatch({ type: WalletMessageType.SyncRequest, force: true })).resolves.toEqual({
+        type: WalletMessageType.SyncResponse
+      });
+      expect(warning).toHaveBeenCalledWith('[SyncManager] Error:', error);
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it('NoteClaimStarted broadcasts the note id and returns ack', async () => {
@@ -1157,17 +1198,20 @@ describe('a delivery write a page reports', () => {
 const capturedRuntimeListeners: Array<(m: any, s: any, r: (x?: any) => void) => any> = [];
 
 /**
- * The listener refuses any sender that is not this extension, so every fixture
- * has to name one. Shared rather than inlined so the identity check has one
- * place to be wrong in, and so a test about routing is not silently also a test
- * about identity.
+ * The listener refuses any sender that is not this extension's offscreen
+ * document, so every fixture has to name one. Shared rather than inlined so the
+ * identity check has one place to be wrong in, and so a test about routing is
+ * not silently also a test about identity.
  */
 const OWN_EXTENSION_ID = 'this-extension';
-const ownSender = { id: OWN_EXTENSION_ID };
+const ownSender = { id: OWN_EXTENSION_ID, url: 'chrome-extension://this-extension/offscreen.html' };
 
 beforeAll(() => {
   const chromeAny = (globalThis as any).chrome;
-  if (chromeAny?.runtime) chromeAny.runtime.id = OWN_EXTENSION_ID;
+  if (chromeAny?.runtime) {
+    chromeAny.runtime.id = OWN_EXTENSION_ID;
+    chromeAny.runtime.getURL = (p: string) => `chrome-extension://${OWN_EXTENSION_ID}/${p}`;
+  }
   if (chromeAny?.runtime?.onMessage) {
     chromeAny.runtime.onMessage.addListener = (l: any) => capturedRuntimeListeners.push(l);
   }
@@ -1189,6 +1233,8 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
 
   it('answers an OFFSCREEN_SIGN_REQUEST via handleOffscreenSignRequest → swSignCallback (bytes only)', async () => {
     _g.__mainTest.swSignCallback.mockResolvedValue(new Uint8Array([0xab, 0xcd]));
+    // The default signer serves only an op this worker runs that signs with it, such as a dry run.
+    const release = proxyMock.__test.allowDefaultSigner('op-x');
     const sendResponse = jest.fn();
     const ret = signListener()(
       {
@@ -1205,6 +1251,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     // Returning true keeps the message port open for the async sendResponse.
     expect(ret).toBe(true);
     await flushMicro();
+    release();
     // The fallback signer was called with HEX-converted pubkey / signing inputs.
     expect(_g.__mainTest.swSignCallback).toHaveBeenCalledWith('0102', '0304');
     // And the signature bytes flowed back base64-encoded.
@@ -1215,6 +1262,29 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
         signatureB64: Buffer.from([0xab, 0xcd]).toString('base64')
       })
     );
+  });
+
+  it('refuses an OFFSCREEN_SIGN_REQUEST for an op this worker is not running', async () => {
+    _g.__mainTest.swSignCallback.mockResolvedValue(new Uint8Array([0xab, 0xcd]));
+    const sendResponse = jest.fn();
+
+    const ret = signListener()(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_SIGN_REQUEST',
+        op_id: 'op-not-running',
+        sign_id: 'sign-z',
+        publicKeyB64: Buffer.from([0x01, 0x02]).toString('base64'),
+        signingInputsB64: Buffer.from([0x03, 0x04]).toString('base64')
+      },
+      ownSender,
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flushMicro();
+
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: false, sign_id: 'sign-z' }));
+    expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
   });
 
   it('routes an OFFSCREEN_OP_STARTED signal to markOpStarted (arms the deadline at execution start) and returns false', () => {
@@ -1287,6 +1357,74 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
       const ret = signListener()(
         { target: 'sw', type: 'OFFSCREEN_SIGN_REQUEST', op_id: 'op-x', sign_id: 'sign-x', messageB64: 'AA==' },
         foreign,
+        sendResponse
+      );
+
+      expect(ret).toBe(false);
+      expect(sendResponse).not.toHaveBeenCalled();
+      expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+    });
+
+    it('refuses a sign request from a content script of this extension', () => {
+      const sendResponse = jest.fn();
+      const contentScript = { id: OWN_EXTENSION_ID, url: 'https://dapp.example/', tab: { id: 1 } };
+
+      const ret = signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SIGN_REQUEST', op_id: 'op-x', sign_id: 'sign-x', messageB64: 'AA==' },
+        contentScript,
+        sendResponse
+      );
+
+      expect(ret).toBe(false);
+      expect(sendResponse).not.toHaveBeenCalled();
+      expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+    });
+
+    it('refuses an op-started signal and a telemetry event from an extension page that is not the offscreen document', () => {
+      Actions.handleReportTelemetryEvent.mockResolvedValue({ type: 'x' });
+      const popup = { id: OWN_EXTENSION_ID, url: 'chrome-extension://this-extension/popup.html' };
+      const event = { phase: 'settled', operation: 'prove', runId: 'r', result: 'completed' };
+
+      expect(signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED', op_id: 'op-p' }, popup, jest.fn())).toBe(
+        false
+      );
+      expect(signListener()({ target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event }, popup, jest.fn())).toBe(false);
+
+      expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
+      expect(Actions.handleReportTelemetryEvent).not.toHaveBeenCalled();
+    });
+
+    it('refuses a sender that carries our id but no url', () => {
+      // The op may sign, so only the sender check stands between this message and the vault.
+      const release = proxyMock.__test.allowDefaultSigner('op-x');
+      const sendResponse = jest.fn();
+
+      const ret = signListener()(
+        {
+          target: 'sw',
+          type: 'OFFSCREEN_SIGN_REQUEST',
+          op_id: 'op-x',
+          sign_id: 'sign-x',
+          publicKeyB64: Buffer.from([0x01]).toString('base64'),
+          signingInputsB64: Buffer.from([0x02]).toString('base64')
+        },
+        { id: OWN_EXTENSION_ID },
+        sendResponse
+      );
+      release();
+
+      expect(ret).toBe(false);
+      expect(sendResponse).not.toHaveBeenCalled();
+      expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+    });
+
+    it('refuses a sender with a tab even at the offscreen url', () => {
+      const sendResponse = jest.fn();
+      const inTab = { ...ownSender, tab: { id: 2 } };
+
+      const ret = signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SIGN_REQUEST', op_id: 'op-x', sign_id: 'sign-x', messageB64: 'AA==' },
+        inTab,
         sendResponse
       );
 
@@ -1560,6 +1698,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     // malformed base64 that b64ToBytes/Buffer will still process but the signer
     // rejects — simplest: make the fallback signer throw a non-classified error.
     _g.__mainTest.swSignCallback.mockRejectedValueOnce(new Error('keystore exploded'));
+    const release = proxyMock.__test.allowDefaultSigner('op-y');
     const sendResponse = jest.fn();
     signListener()(
       {
@@ -1574,6 +1713,8 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
       sendResponse
     );
     await flushMicro();
+    release();
+    expect(_g.__mainTest.swSignCallback).toHaveBeenCalledTimes(1);
     // A thrown signer is classified (internal) and returned as ok:false — the
     // offscreen stub then rejects, failing the write rather than hanging.
     const resp = sendResponse.mock.calls[0][0];
@@ -1585,7 +1726,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
 describe('scoped offscreen native identity relay', () => {
   const id = '0x817edea77acc5d71616e493afecea3';
   const publication = () => jest.requireMock('lib/miden-chain/native-asset').recordSyncedFeeFaucetId;
-  const invoke = (message: unknown, sender = ownSender, reply = jest.fn()) =>
+  const invoke = (message: unknown, sender: MessageSenderLike = ownSender, reply = jest.fn()) =>
     capturedRuntimeListeners[0]?.(message, sender, reply);
   it.each([
     {

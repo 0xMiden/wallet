@@ -32,7 +32,6 @@ type SwapToken = {
   symbol: string;
   faucetId: string;
   decimals: number;
-  logoSymbol: string;
   priceSymbol?: string;
 };
 const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
@@ -65,7 +64,13 @@ jest.mock('lib/miden/front', () => ({
 
 // `lib/store` is the zustand wallet store; the sheet only reads `tokenPrices`
 // through a selector, so run the selector against a controllable slice.
-let mockStoreState: { tokenPrices: Record<string, { price: number }> } = { tokenPrices: {} };
+let mockStoreState: {
+  tokenPrices: Record<string, { price: number }>;
+  tokenPricesStatus?: 'loading' | 'ready' | 'error';
+} = {
+  tokenPrices: {},
+  tokenPricesStatus: 'loading'
+};
 // Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different. As
 // the SDK's re-encode does, an id already in that form maps to itself.
 jest.mock('lib/miden/sdk/helpers', () => ({
@@ -95,24 +100,8 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
 // surfaces the `symbol`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({
-    symbol,
-    faucetId,
-    fallbackSymbol,
-    size
-  }: {
-    symbol: string;
-    faucetId?: string;
-    fallbackSymbol?: string;
-    size?: string;
-  }) => (
-    <span
-      data-testid="token-logo"
-      data-symbol={symbol}
-      data-faucet-id={faucetId}
-      data-fallback-symbol={fallbackSymbol}
-      data-size={size}
-    />
+  TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} />
   )
 }));
 
@@ -142,11 +131,11 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2 data-testid="drawer-title">{children}</h2>
 }));
 
-const IMIDEN: SwapToken = { symbol: 'IMIDEN', faucetId: 'fid-miden', decimals: 8, logoSymbol: 'MIDEN' };
-const IETH: SwapToken = { symbol: 'IETH', faucetId: 'fid-eth', decimals: 8, logoSymbol: 'ETH', priceSymbol: 'ETH' };
-const IBTC: SwapToken = { symbol: 'IBTC', faucetId: 'fid-btc', decimals: 8, logoSymbol: 'BTC', priceSymbol: 'BTC' };
-// Drawn with the USDC logo, but the feed has no USDT price: its logo is no price.
-const IUSDT: SwapToken = { symbol: 'IUSDT', faucetId: 'fid-usdt', decimals: 8, logoSymbol: 'USDC' };
+const IMIDEN: SwapToken = { symbol: 'IMIDEN', faucetId: 'fid-miden', decimals: 8 };
+const IETH: SwapToken = { symbol: 'IETH', faucetId: 'fid-eth', decimals: 8, priceSymbol: 'ETH' };
+const IBTC: SwapToken = { symbol: 'IBTC', faucetId: 'fid-btc', decimals: 8, priceSymbol: 'BTC' };
+// The feed has no USDT price, so the token is unpriced.
+const IUSDT: SwapToken = { symbol: 'IUSDT', faucetId: 'fid-usdt', decimals: 8 };
 
 type Balance = {
   tokenId: string;
@@ -180,13 +169,32 @@ beforeEach(() => {
   mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
-  mockStoreState = { tokenPrices: {} };
+  mockStoreState = { tokenPrices: {}, tokenPricesStatus: 'loading' };
 });
 
 afterEach(() => {
   mockedHasUnquotedDefaultPrice.mockReturnValue(false);
   mockBridgeSnapshot = undefined;
 });
+
+it.each([undefined, IETH.faucetId])(
+  'shows no $0.00 while the balance read is unresolved and the BTC quote is ready (partnersOf=%s)',
+  partnersOf => {
+    mockStoreState = { tokenPrices: { BTC: { price: 50000 } }, tokenPricesStatus: 'ready' };
+    const unread = { data: [], isLoading: true, isValidating: true, mutate: jest.fn() };
+    mockUseAllBalances.mockReturnValue(unread);
+    const { onSelect } = renderDrawer({ partnersOf });
+
+    const row = tokenButton('IBTC');
+    expect(within(row).queryByText('$0.00')).not.toBeInTheDocument();
+    expect(within(row).getByText('loading')).toBeInTheDocument();
+    expect(within(row).queryByText('0.00 IBTC')).not.toBeInTheDocument();
+    expect(within(tokenButton('IMIDEN')).getByText('assetPriceUnsupported')).toBeInTheDocument();
+
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledWith(IBTC);
+  }
+);
 
 describe('SelectSwapTokenDrawer', () => {
   it("leaves mobile back to SwapManager's handler, which closes the sheet", () => {
@@ -211,16 +219,14 @@ describe('SelectSwapTokenDrawer', () => {
     expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'false');
   });
 
-  it('renders each row with its logo symbol and label', () => {
+  it('renders each row with its faucet logo and label', () => {
     renderDrawer();
 
     const row = tokenButton('IETH');
     expect(within(row).getByText('IETH')).toBeInTheDocument();
     const logo = within(row).getByTestId('token-logo');
-    // The token's own symbol keys the logo, as on Home, at the home asset row's 36px default size.
-    expect(logo).toHaveAttribute('data-symbol', 'IETH');
+    // The token's faucet keys the logo, as on Home, at the home asset row's 36px default size.
     expect(logo).toHaveAttribute('data-faucet-id', 'fid-eth');
-    expect(logo).toHaveAttribute('data-fallback-symbol', 'ETH');
     expect(logo).not.toHaveAttribute('data-size');
   });
 
@@ -267,6 +273,7 @@ describe('SelectSwapTokenDrawer', () => {
 
       const row = tokenButton('IETH');
       expect(within(row).queryByText('1.25 IETH')).not.toBeInTheDocument();
+      expect(within(row).getByText('assetValueUnknownScale')).toBeInTheDocument();
       // Symbol twice: the row title and the amount line that stands in for the quantity.
       expect(within(row).getAllByText('IETH')).toHaveLength(2);
     });
@@ -353,11 +360,24 @@ describe('SelectSwapTokenDrawer', () => {
       mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
       renderDrawer();
 
-      expect(within(tokenButton('IBTC')).queryByText('$0.00')).not.toBeInTheDocument();
+      expect(within(tokenButton('IBTC')).getByText('$0.00')).toBeInTheDocument();
+    });
+
+    it('shows loading separately from unavailable and unsupported quotes', () => {
+      setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1 }]);
+      const first = renderDrawer();
+      expect(within(tokenButton('IETH')).getByText('loading')).toBeInTheDocument();
+      expect(within(tokenButton('IMIDEN')).getByText('assetPriceUnsupported')).toBeInTheDocument();
+      first.unmount();
+
+      mockStoreState = { ...mockStoreState, tokenPricesStatus: 'ready' };
+      const { unmount } = renderDrawer();
+      expect(within(tokenButton('IETH')).getByText('unavailable')).toBeInTheDocument();
+      unmount();
     });
   });
 
-  it('names the registry iETH "Test iETH" in its row and balance line, keeping the symbol for the logo (#477)', () => {
+  it('names the registry iETH "Test iETH" in its row and balance line, keeping its faucet for the logo (#477)', () => {
     const iEth: SwapToken = { ...IETH, faucetId: REGISTRY_IETH.faucetId };
     setTokens([IMIDEN, iEth]);
     setBalances([{ tokenId: REGISTRY_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2 }]);
@@ -366,7 +386,7 @@ describe('SelectSwapTokenDrawer', () => {
     const row = tokenButton('IETH');
     expect(within(row).getByText('Test iETH')).toBeInTheDocument();
     expect(within(row).getByText('2.00 Test iETH')).toBeInTheDocument();
-    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'IETH');
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-faucet-id', REGISTRY_IETH.faucetId);
   });
 
   it('marks only the row matching currentFaucetId as selected', () => {
@@ -393,7 +413,7 @@ describe('SelectSwapTokenDrawer', () => {
     expect(document.querySelector('[data-slot="check"]')).toBeNull();
   });
 
-  it('draws the rows like the home assets list: unboxed, 72px, divided by a hairline', () => {
+  it('draws the rows like the home assets list: unboxed, a 72px floor, divided by a hairline', () => {
     renderDrawer();
 
     const list = tokenButton('IMIDEN').parentElement!;
@@ -402,7 +422,9 @@ describe('SelectSwapTokenDrawer', () => {
     // Not the boxed list group: no fill card, no 16px radius around the rows.
     expect(list.className).not.toContain('bg-fill');
     expect(list.className).not.toContain('rounded-2xl');
-    expect(tokenButton('IETH').className).toContain('h-18');
+    const rowClasses = tokenButton('IETH').className.split(/\s+/);
+    expect(rowClasses).toContain('min-h-18');
+    expect(rowClasses).not.toContain('h-18');
   });
 
   it('fires haptics, forwards the token and closes the drawer on select', () => {

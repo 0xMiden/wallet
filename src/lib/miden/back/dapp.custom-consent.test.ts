@@ -111,6 +111,7 @@ jest.mock('./simulate-custom-tx', () => ({
  * reaches the user, so the view is supplied directly.
  */
 const mockSummaryBytesToView = jest.fn();
+const mockExecutedBytesToView = jest.fn();
 const mockNoteFlowFromBytes = jest.fn();
 jest.mock('app/confirm/note-flow', () => ({
   noteFlowFromSimulatedBytes: (...args: unknown[]) => mockNoteFlowFromBytes(...args)
@@ -122,8 +123,27 @@ jest.mock('app/confirm/decode', () => {
     // The dry run's shape selector is stubbed to the summary decoder this suite already drives:
     // WHICH shape arrives is decode.test.ts's subject, and what reaches the user is this file's.
     // `netOutflowByFaucet` stays real so the per-faucet netting is exercised here too.
-    simulatedBytesToView: (result: { summaryBytes?: string }) =>
-      result.summaryBytes === undefined ? undefined : mockSummaryBytesToView(result.summaryBytes)
+    simulatedBytesToView: (result: { summaryBytes?: string; executedBytes?: string }) =>
+      result.summaryBytes !== undefined
+        ? mockSummaryBytesToView(result.summaryBytes)
+        : result.executedBytes !== undefined
+          ? mockExecutedBytesToView(result.executedBytes)
+          : undefined,
+    simulatedOutputRecipients: (result: { summaryBytes?: string; executedBytes?: string }) =>
+      result.summaryBytes !== undefined || result.executedBytes !== undefined ? ['0xrecipient'] : undefined
+  };
+});
+
+// Real by default, recording what the custom request's policy assessment is charged.
+const mockAssessOutgoing = jest.fn();
+jest.mock('lib/miden/spending-limits/queue', () => {
+  const actual = jest.requireActual('lib/miden/spending-limits/queue');
+  return {
+    ...actual,
+    assessOutgoingSpendingLimitDetails: (...args: unknown[]) => {
+      mockAssessOutgoing(...args);
+      return actual.assessOutgoingSpendingLimitDetails(...args);
+    }
   };
 });
 
@@ -138,6 +158,7 @@ jest.unmock('lib/i18n/numbers');
 
 // ── Imports under test ─────────────────────────────────────────────
 import { requestTransaction } from './dapp';
+import { CustomSimulationTimeoutError } from './public-error';
 
 const DAPP_ORIGIN = 'https://miden.xyz';
 
@@ -311,68 +332,85 @@ describe('the mobile/desktop custom-transaction sheet states the simulated effec
   });
 });
 
-// A dry run that could not be produced must not look like a transaction that
-// moves nothing: that is the reading most likely to get an approval.
-describe('a dry run that could not be produced is stated, not omitted', () => {
-  it('reports the failure and its reason when the simulation errors', async () => {
+/**
+ * The approval needs a dry run that succeeds. A request that the wallet cannot simulate is refused before any
+ * prompt, with a refusal that says so and gives the reason; the carried notes go back to the claimable list.
+ */
+const refusedBeforePrompt = async (): Promise<string> => {
+  const errSpy = jest.spyOn(console, 'error').mockImplementation();
+  let message = '';
+  try {
+    await requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+      () => {
+        throw new Error('the request was not refused');
+      },
+      (error: Error) => {
+        message = error.message;
+      }
+    );
+  } finally {
+    errSpy.mockRestore();
+  }
+  expect(message).toMatch(new RegExp(`^${MidenDAppErrorType.NotGranted}: The transaction could not be simulated`));
+  expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+  return message;
+};
+
+describe('a request that cannot be simulated is refused before any prompt', () => {
+  it('refuses with the reason when the simulation errors', async () => {
     mockSimulate.mockResolvedValue({ error: 'note not found' });
 
-    await raiseSheet(false);
-
-    const messages = sheetMessages();
-    expect(messages).toContain('This transaction could not be simulated, so its effects are unknown.');
-    expect(messages).toContain('Reason, note not found');
-    expect(messages).not.toContain('No assets move');
+    expect(await refusedBeforePrompt()).toContain('Reason: note not found');
   });
 
-  it('reports it when the summary comes back undecodable', async () => {
+  it('refuses when the dry run gives no result', async () => {
+    mockSimulate.mockResolvedValue({});
+
+    expect(await refusedBeforePrompt()).toContain('Reason: the simulation gave no result');
+  });
+
+  it('refuses when the summary comes back undecodable', async () => {
     mockSummaryBytesToView.mockImplementation(() => {
       throw new Error('bad summary bytes');
     });
-    const errSpy = jest.spyOn(console, 'error').mockImplementation();
 
-    try {
-      await raiseSheet(false);
-    } finally {
-      errSpy.mockRestore();
-    }
-
-    expect(sheetMessages()).toContain('Reason, bad summary bytes');
+    expect(await refusedBeforePrompt()).toContain('Reason: bad summary bytes');
   });
 
-  it('names a terminated client as an interruption, not by its internal text', async () => {
+  it('rethrows a terminated client from the summary decoder before any prompt', async () => {
+    const terminated = new Error('WebClient terminated');
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
     mockSummaryBytesToView.mockImplementation(() => {
-      throw new Error('WebClient terminated');
+      throw terminated;
     });
-    const errSpy = jest.spyOn(console, 'error').mockImplementation();
 
     try {
-      await raiseSheet(false);
+      await expect(requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1')).rejects.toBe(terminated);
     } finally {
-      errSpy.mockRestore();
+      errorSpy.mockRestore();
     }
 
-    expect(sheetMessages()).toContain('Reason, the simulation was interrupted before it finished');
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
   });
 
-  // The user can still decline, and that is the whole point of the sheet: a
-  // preview that throws must not take the request down with it.
-  it('still raises the sheet, and still executes on approval', async () => {
+  it('refuses a dry run whose error text is Simulation timed out', async () => {
+    mockSimulate.mockResolvedValue({ error: 'Simulation timed out' });
+
+    expect(await refusedBeforePrompt()).toContain('Reason: Simulation timed out');
+  });
+
+  it('refuses when the dry run throws', async () => {
     mockSimulate.mockRejectedValue(new Error('client unavailable'));
-    const errSpy = jest.spyOn(console, 'error').mockImplementation();
 
-    try {
-      await raiseSheet(true);
-    } finally {
-      errSpy.mockRestore();
-    }
-
-    expect(sheetMessages()).toContain('Reason, client unavailable');
-    expect(mockRequestCustomTransaction).toHaveBeenCalledTimes(1);
+    expect(await refusedBeforePrompt()).toContain('Reason: client unavailable');
   });
 
   // The dry run executes the bytes the write would, so a deterministic kernel code it fails with reads as the copy the
-  // Failed row gets: the hashed code tells the signer nothing (#1475).
+  // Failed row gets: the hashed code tells the dApp nothing (#1475).
   describe.each([
     ['missing fee conversion info', '14712559985122731094', TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR],
     ["dApp's fee commitment mismatch", '15404814807981965102', TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR],
@@ -380,38 +418,106 @@ describe('a dry run that could not be produced is stated, not omitted', () => {
   ])('a dry run failing with the %s code', (_name, code, copy) => {
     const kernelLine = `failed to execute transaction kernel program: assertion failed with error code: ${code}`;
 
-    it('shows the Failed row copy on the Reason line, never the code', async () => {
+    it('gives the Failed row copy as the reason, never the code', async () => {
       mockSimulate.mockResolvedValue({ error: kernelLine });
 
-      await raiseSheet(false);
-
-      const messages = sheetMessages();
-      expect(messages).toContain(`Reason, ${copy}`);
-      expect(messages.join('\n')).not.toContain(code);
+      const message = await refusedBeforePrompt();
+      expect(message).toContain(`Reason: ${copy}`);
+      expect(message).not.toContain(code);
     });
 
-    it('shows the same copy when the dry run throws', async () => {
+    it('gives the same copy when the dry run throws', async () => {
       mockSimulate.mockRejectedValue(new Error(kernelLine));
-      const errSpy = jest.spyOn(console, 'error').mockImplementation();
 
-      try {
-        await raiseSheet(false);
-      } finally {
-        errSpy.mockRestore();
-      }
-
-      const messages = sheetMessages();
-      expect(messages).toContain(`Reason, ${copy}`);
-      expect(messages.join('\n')).not.toContain(code);
+      const message = await refusedBeforePrompt();
+      expect(message).toContain(`Reason: ${copy}`);
+      expect(message).not.toContain(code);
     });
   });
 
   it('keeps the text of a kernel failure whose code the wallet does not name', async () => {
     mockSimulate.mockResolvedValue({ error: 'assertion failed with error code: 9876543210' });
 
-    await raiseSheet(false);
+    expect(await refusedBeforePrompt()).toContain('Reason: assertion failed with error code: 9876543210');
+  });
 
-    expect(sheetMessages()).toContain('Reason, assertion failed with error code: 9876543210');
+  it('never shows the effects that the dApp declares in place of a dry run', async () => {
+    mockSimulate.mockResolvedValue({ error: 'note not found' });
+
+    await refusedBeforePrompt();
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe('a terminated simulation remains retryable', () => {
+  it('rethrows the kill and releases the imported note ids before any prompt', async () => {
+    const terminated = new Error('Client terminated');
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSimulate.mockRejectedValueOnce(terminated);
+
+    try {
+      await expect(requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1')).rejects.toBe(terminated);
+    } finally {
+      errorSpy.mockRestore();
+    }
+
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a simulation timeout and releases the imported note ids before any prompt', async () => {
+    const timeout = new CustomSimulationTimeoutError();
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSimulate.mockRejectedValueOnce(timeout);
+
+    try {
+      await expect(requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1')).rejects.toBe(timeout);
+    } finally {
+      errorSpy.mockRestore();
+    }
+
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('the approved effects are recorded on the queued row', () => {
+  it('passes the effects of the approval dry run to the initiator', async () => {
+    mockSimulate.mockResolvedValue({
+      summaryBytes: 'sumB64',
+      introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
+      introducedCount: 1
+    });
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      outgoing: [{ faucetId: 'faucet-a', amount: 10n }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1
+    });
+
+    await raiseSheet(true);
+
+    expect(mockRequestCustomTransaction).toHaveBeenCalledTimes(1);
+    const args = mockRequestCustomTransaction.mock.calls[0] as unknown[];
+    // The summary already includes consumed notes, so the carried note is not credited twice.
+    expect(args[6]).toEqual([{ faucetId: 'faucet-a', amount: 10n }]);
+    expect(args[11]).toEqual({
+      shape: 'summary',
+      outgoing: [{ faucetId: 'faucet-a', amount: 10n }],
+      incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
+      recipients: ['0xrecipient'],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1,
+      storageChanged: false,
+      introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
+      introducedCount: 1
+    });
   });
 });
 
@@ -445,5 +551,98 @@ describe('the quarantine the dry run placed is lifted on approval only', () => {
     );
 
     expect(mockReleaseNoteIds).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * What the approval records as leaving, which both the spending limit and the signing-time check read (#2147). A
+ * summary's vault change is already net of the notes the request consumed, so only an executed view's gross output is
+ * credited with the notes the request brought in.
+ */
+describe('the outflow an approval records', () => {
+  // The request carries a 50 X note and sends 100 X: 50 X of the user's own leaves.
+  const carried = { introducedCredit: [{ faucetId: 'faucet-x', amount: 50n }], introducedCount: 1 };
+  const recorded = () => {
+    expect(mockRequestCustomTransaction).toHaveBeenCalledTimes(1);
+    const args = mockRequestCustomTransaction.mock.calls[0] as unknown[];
+    return { spentAssetTotals: args[6], approvedNftOutflow: args[9], approvedOutflow: args[10] };
+  };
+
+  it('records a summary view’s net outflow as the sheet shows it, without crediting the carried note again', async () => {
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', ...carried });
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1
+    });
+
+    await raiseSheet(true);
+
+    expect(sheetMessages()).toContain('Leaves this account, -0.00005 MIDEN');
+    expect(recorded().spentAssetTotals).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    // The spending-limit admission is charged the same net outflow.
+    expect(mockAssessOutgoing).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: [{ faucetId: 'faucet-x', amount: 50n }]
+    });
+  });
+
+  it('credits an executed view’s gross output with the note the request brought in', async () => {
+    mockSimulate.mockResolvedValue({ executedBytes: 'execB64', ...carried });
+    mockExecutedBytesToView.mockReturnValue({
+      ...emptyView,
+      outgoing: [{ faucetId: 'faucet-x', amount: 100n }],
+      incoming: [{ faucetId: 'faucet-x', amount: 50n }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1
+    });
+
+    await raiseSheet(true);
+
+    expect(recorded().spentAssetTotals).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    expect(mockAssessOutgoing).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: [{ faucetId: 'faucet-x', amount: 50n }]
+    });
+  });
+
+  // The request consumes a note the wallet already held besides the one it carries, so the policy cannot attribute
+  // the net figure and withholds it, as before; signing still gets the outflow the sheet showed.
+  it('leaves a summary that consumed a held note unattributable to the spending limit', async () => {
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', ...carried });
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+      inputNotesConsumed: 2,
+      outputNotesCreated: 1
+    });
+
+    await raiseSheet(true);
+
+    expect(sheetMessages()).toContain('Leaves this account, -0.00005 MIDEN');
+    expect(recorded().spentAssetTotals).toBeUndefined();
+    expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    expect(mockAssessOutgoing).not.toHaveBeenCalled();
+  });
+
+  it('records each NFT the sheet lists as leaving by its complete key', async () => {
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      outgoingNfts: [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaaaaaaaa', assetId: '0xaa…dd', key: 'nft-key-1' }],
+      incomingNfts: [{ faucetId: 'mtst1otherfaucetbbbbbbbbbbbbbbbbbbbbbb', assetId: '0x01…07', key: 'nft-key-2' }]
+    });
+
+    await raiseSheet(true);
+
+    expect(recorded().approvedNftOutflow).toEqual(['nft-key-1']);
+  });
+
+  it('refuses a failed dry run before recording an approved outflow', async () => {
+    mockSimulate.mockResolvedValue({ error: 'note not found' });
+
+    expect(await refusedBeforePrompt()).toContain('Reason: note not found');
   });
 });

@@ -226,6 +226,52 @@ export interface IConsumedAssetTotal {
   amount: bigint;
 }
 
+/**
+ * Execute (dApp custom) only: the asset movement of one dry run of a custom request.
+ *
+ * The network fee is the canonical faucet and amount reported by this dry run. This record does not contain the
+ * fee salt, the account commitment, or any other value that changes with the block or the salt.
+ */
+export interface ICustomTransactionEffects {
+  /**
+   * The dry-run result: the summary of a proposal that is not yet signed, or a local execution. The two results
+   * count assets in different ways, so a change of result is a change of effects.
+   */
+  shape: 'summary' | 'executed';
+  /** Gross value that leaves the account. One entry for each canonical faucet, sorted by faucet. */
+  outgoing: IConsumedAssetTotal[];
+  /** Gross value that comes into the account. One entry for each canonical faucet, sorted by faucet. */
+  incoming: IConsumedAssetTotal[];
+  /** NFTs that leave the account, as `faucet|asset id`, sorted. */
+  outgoingNfts: string[];
+  /** NFTs that come into the account, as `faucet|asset id`, sorted. */
+  incomingNfts: string[];
+  /** Vault changes that the dry run cannot list. */
+  unlistedAssets: number;
+  /** The recipient digest of each note that the request creates (not the fee note), sorted. */
+  recipients: string[];
+  inputNotesConsumed: number;
+  outputNotesCreated: number;
+  /** The network fee, as the canonical faucet and amount. Absent when the dry run reports none. */
+  fee?: IConsumedAssetTotal;
+  storageChanged: boolean;
+}
+
+/**
+ * Execute (dApp custom) only: the effects that the user approved, from the approval-time dry run.
+ *
+ * The wallet proposes the row only when the generation-time dry run gives the same effects.
+ */
+export interface IApprovedCustomEffects extends ICustomTransactionEffects {
+  /**
+   * The assets of the notes that the request introduced at approval. The spending-limit charge subtracts only this
+   * value. The wallet cannot calculate it again at generation, because the approval dry run imported those notes.
+   */
+  introducedCredit: IConsumedAssetTotal[];
+  /** How many of the consumed notes the request introduced at approval. */
+  introducedCount: number;
+}
+
 /** One note a consume claimed, as it was queued. */
 export interface IConsumedNote {
   id: string;
@@ -673,6 +719,17 @@ export interface IConsumeSwapSettleExtraInputs {
    * the order is left to claim.
    */
   swapSettlePartial?: boolean;
+  /**
+   * The fill round of each payback this claim covers, by note id. One fill pays one payback, so classification
+   * refuses a further note at a round such a claim holds: a copied payback attachment never buys a claim of its own.
+   * A pass admits at most one unnamed note of a round, and the other copies are ordinary incoming payments.
+   */
+  swapPaybackDepths?: Record<string, number>;
+  /**
+   * The requested-asset amount each payback this claim covers carries, by note id, in base units as a decimal string.
+   * Classification sums the amounts of the rounds held here against the fill the order's lineage shows.
+   */
+  swapPaybackAmounts?: Record<string, string>;
 }
 
 /**
@@ -794,8 +851,13 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  */
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
-/** A guardian arm whose repeated requeues of one row back that row off; see `ITransaction.requeueStreak`. */
-export type IRequeueStreakArm = 'guardian-unreachable' | 'guardian-pending-conflict' | 'guardian-rate-limited';
+/** A requeue arm whose repeated requeues of one row back that row off; see `ITransaction.requeueStreak`. */
+export type IRequeueStreakArm =
+  | 'guardian-unreachable'
+  | 'guardian-pending-conflict'
+  | 'guardian-rate-limited'
+  | 'node-unreachable'
+  | 'chain-fee-unknown';
 
 export interface IRequeueStreak {
   arm: IRequeueStreakArm;
@@ -806,6 +868,10 @@ export interface IRequeueStreak {
 export interface ITransaction {
   /** Origin network stamped at queue time for private badge evidence. Legacy/imported rows cannot earn credit. */
   badgeNetwork?: string;
+  /** Network used when recovered history was freshly read through canonical endpoints. */
+  recoveredBadgeNetwork?: string;
+  /** Local revision used to detect changed badge evidence; backups cannot supply it. */
+  badgeEvidenceRevision?: string;
   /**
    * Set on a row rebuilt from a Guardian operator's retained history, and the
    * only field that means so; `recovery` is the data such a row, or a local row
@@ -875,6 +941,25 @@ export interface ITransaction {
    * the policy counts instead.
    */
   spentAssetTotals?: IConsumedAssetTotal[];
+  /**
+   * Execute (dApp custom) only: the effects that the user approved. See `IApprovedCustomEffects`. A row without this
+   * value is not proposed.
+   */
+  approvedEffects?: IApprovedCustomEffects;
+  /**
+   * Execute only: the per-faucet outflow the approval-time dry run showed, recorded for every decoded dry run,
+   * including one whose `spentAssetTotals` the spending-limit policy withheld because the request consumed notes the
+   * wallet already held. Signing lets at most this leave (`proposal-effect-guard.ts`); a row without it falls back to
+   * `spentAssetTotals`.
+   */
+  approvedOutflow?: IConsumedAssetTotal[];
+  /**
+   * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving. Signing lets
+   * exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry run, may send none.
+   */
+  approvedNftOutflow?: string[];
+  /** Set when signing refused the proposal for moving more than was approved (#2147). A retry would refuse again. */
+  proposalEffectRefused?: true;
   /**
    * What this row sent, in micro-dollars, as valued when it was queued.
    *
@@ -1032,11 +1117,11 @@ export interface ITransaction {
    */
   unauthorizedRetryUntil?: number;
   /**
-   * The guardian arm that last requeued this row, and how many times in a row it has (#1223). Each repeat doubles
-   * that arm's cooldown, up to a cap: the loop takes the oldest eligible row, so a guardian that fails every attempt
-   * slowly would otherwise keep one of its rows eligible, and oldest, at every lap, and another account's transaction
-   * would wait until those rows expire. Any other requeue, and a user's retry, clears it. Absent: the row's last
-   * requeue, if any, was not a guardian arm's.
+   * The backing-off arm that last requeued this row, and how many times in a row it has (#1223). Each repeat doubles
+   * that arm's cooldown, up to a cap: the loop takes the oldest eligible row, so a guardian or node that fails every
+   * attempt slowly would otherwise keep one of its rows eligible, and oldest, at every lap, and another account's
+   * transaction would wait until those rows expire. Any other requeue, and a user's retry, clears it. Absent: the
+   * row's last requeue, if any, was not such an arm's.
    */
   requeueStreak?: IRequeueStreak;
   /**
@@ -1162,8 +1247,8 @@ export interface ITransaction {
   /**
    * The candidate a Guardian attempt's proposal left on its Guardian, written once the proposal exists (#1666): its
    * Guardian as the service spells it, its nonce, the wall-clock stamp taken before the proposal and the attempt it
-   * belongs to. The in-memory record that abandons a failed write's candidate dies with its process; only the
-   * startup sweep reads this, for an attempt a dead process left before its submit.
+   * belongs to. The in-memory record that abandons a failed write's candidate dies with its process, so the startup
+   * sweep reads this for the attempt a dead process left, and an end from outside the pipeline reads its nonce.
    */
   guardianCandidate?: { endpoint: string; nonce: number; proposedAt: number; attemptId: string };
 }
@@ -1216,6 +1301,12 @@ export class Transaction implements ITransaction {
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
+  /** The effects that the user approved. See `ITransaction.approvedEffects`. */
+  approvedEffects?: IApprovedCustomEffects;
+  /** See `ITransaction.approvedOutflow`. */
+  approvedOutflow?: IConsumedAssetTotal[];
+  /** See `ITransaction.approvedNftOutflow`. */
+  approvedNftOutflow?: string[];
   spentUsd?: bigint;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -1233,7 +1324,8 @@ export class Transaction implements ITransaction {
     inputNoteIds?: string[],
     delegateTransaction?: boolean,
     recipientAccountId?: string,
-    spentAssetTotals?: IConsumedAssetTotal[]
+    spentAssetTotals?: IConsumedAssetTotal[],
+    approvedEffects?: IApprovedCustomEffects
   ) {
     this.id = uuid();
     this.type = 'execute';
@@ -1243,6 +1335,7 @@ export class Transaction implements ITransaction {
     this.delegateTransaction = delegateTransaction;
     this.secondaryAccountId = recipientAccountId;
     this.spentAssetTotals = spentAssetTotals;
+    this.approvedEffects = approvedEffects;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();
