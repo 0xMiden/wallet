@@ -149,7 +149,7 @@ describe('queueConsumeNotes — swap settlement link', () => {
   });
 });
 
-describe('queueConsumeNotes — settlement cohort', () => {
+describe('queueConsumeNotes: settlement cohort', () => {
   const notes = () => [note('backed-off'), note('fresh')];
   const settlementCall = (cohort?: readonly string[]) =>
     initiateConsumeNotesTransaction(
