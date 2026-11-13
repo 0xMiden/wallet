@@ -79,7 +79,7 @@ test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial', retries: 0 });
 let claimStage = 'before-claim';
 let claimLeg: 'forward' | 'reverse' | undefined;
-test.afterEach(async (_fixtures, info) => {
+test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return;
   mkdirSync('test-results', { recursive: true });
   writeFileSync(
