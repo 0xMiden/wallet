@@ -375,6 +375,11 @@ export function prepareMainnetSwapClaimRecovery(
     state.recoveryClaimNativeBefore !== undefined
   ) throw new Error('Existing swap payout, claim outcome or original portfolio is unresolved');
   const principal = BigInt(forward ? state.principal : state.returnAmount ?? '0');
+  const priorCosts = forward ? 0n : BigInt(state.native.balance) - BigInt(baseline.native)
+    - (offerNative ? BigInt(state.principal) : 0n)
+    + (requestNative ? BigInt(state.forwardReceived ?? '0') : 0n);
+  if (priorCosts < 0n || BigInt(state.paidFees) !== priorCosts)
+    throw new Error('Previously paid native fees differ from the immutable portfolio');
   // A missing local parent does not erase an actual vault debit or license a fabricated receipt.
   const offeredNative = forward ? offerNative : requestNative;
   const costs = BigInt(baseline.native) - balances.native - (offeredNative ? principal : 0n);

@@ -783,6 +783,9 @@ jobs:
             test-results/mainnet-swap-summary.md
             test-results/mainnet-swap-recovery-grant.json
             test-results/mainnet-swap-recovery-claim.json
+            test-results/mainnet-swap-forward-claim.json
+            test-results/mainnet-swap-reverse-claim.json
+            test-results/mainnet-swap-claim-failure.json
             test-results/mainnet-epoch-summary.json
             test-results/mainnet-near-summary.json
             test-results/mainnet-epoch-recovery.json
