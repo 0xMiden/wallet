@@ -1,5 +1,8 @@
+import { createElement, ReactNode } from 'react';
+
 import { act, renderHook } from '@testing-library/react';
 
+import { PageActiveContext } from 'app/layouts/page-active';
 import { readEpochNoteState } from 'lib/epoch/return-state';
 import { ITransactionStatus } from 'lib/miden/db/types';
 
@@ -91,5 +94,24 @@ describe('useEpochReturnState note reads', () => {
     renderHook(() => useEpochReturnState(bridgeEntry({ status: ITransactionStatus.Completed }), 'acct-1', false));
     await act(async () => undefined);
     expect(mockRead).toHaveBeenCalledWith('note-1', 1000);
+  });
+});
+
+describe('useEpochReturnState page visibility', () => {
+  beforeEach(() => {
+    mockRead.mockReset().mockResolvedValue('waiting');
+  });
+
+  it('reads the node only while its page is on screen', async () => {
+    let active = false;
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(PageActiveContext.Provider, { value: active }, children);
+    const { rerender } = renderHook(() => useEpochReturnState(bridgeEntry(), 'acct-1', false), { wrapper });
+    await act(async () => undefined);
+    expect(mockRead).not.toHaveBeenCalled();
+    active = true;
+    rerender();
+    await act(async () => undefined);
+    expect(mockRead).toHaveBeenCalledTimes(1);
   });
 });

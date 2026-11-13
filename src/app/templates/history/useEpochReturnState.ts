@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { usePageActive } from 'app/layouts/page-active';
 import { Status } from 'components/ui/StatusBadge';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { EpochNoteState, readEpochNoteState } from 'lib/epoch/return-state';
@@ -76,6 +77,7 @@ export function useEpochReturnState(
   accountId: string,
   restored: boolean
 ): EpochReturnState {
+  const pageActive = usePageActive();
   const candidate = entry?.txType === 'bridged-send' ? epochReturnNote(entry, restored) : undefined;
   const noteId = accountId ? candidate?.noteId : undefined;
   const height = candidate?.height;
@@ -83,7 +85,7 @@ export function useEpochReturnState(
   const [claims, setClaims] = useState<{ noteId: string; rows: ITransaction[] }>();
 
   useEffect(() => {
-    if (!noteId || height == null) return;
+    if (!noteId || height == null || !pageActive) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
@@ -101,7 +103,7 @@ export function useEpochReturnState(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [noteId, height]);
+  }, [noteId, height, pageActive]);
 
   useEffect(() => {
     if (!noteId) return;
