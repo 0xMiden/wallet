@@ -8710,5 +8710,54 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "В ожидании возврата",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Готовы к получению",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Возврат средств",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Возвращённые средства",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Ваши средства остаются на Miden. Вы сможете получить их после блока $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Запросите свои средства, чтобы вернуть их в свой кошелек.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Ваши средства возвращаются в ваш кошелек.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Ваши средства вернулись в ваш кошелек.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Средства, отправленные по назначению.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Эта note была использована, но выплата не подтверждена. Проверьте адрес назначения и свой баланс в Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Не удалось проверить состояние средств. Попытайтесь ещё раз.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

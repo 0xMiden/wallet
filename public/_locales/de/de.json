@@ -1900,5 +1900,16 @@
   "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
   "autoLock": "Automatische Sperre",
   "autoLockDescription": "Sperrt die Wallet, sobald sie so lange im Hintergrund war.",
-  "autoLockMinutes": "$minutes$ min"
+  "autoLockMinutes": "$minutes$ min",
+  "epochAwaitingReturn": "Warten auf Rückgabe",
+  "epochReadyToClaim": "Bereit zur Inanspruchnahme",
+  "epochReturningFunds": "Rückgabe von Geldern",
+  "epochFundsReturned": "Zurückerstattete Gelder",
+  "epochReturnWaiting": "Ihr Guthaben verbleibt bei Miden. Sie können es nach Block $block$ abrufen.",
+  "epochReturnReady": "Fordern Sie Ihre Guthaben an, um sie in Ihre Wallet zurückzuführen.",
+  "epochReturnPending": "Ihr Guthaben wird auf Ihre Wallet zurücküberwiesen.",
+  "epochReturnDone": "Ihr Guthaben ist wieder in Ihrer Wallet.",
+  "epochReturnPaid": "An Ihren Empfänger gesendete Gelder.",
+  "epochReturnSpent": "Diese note wurde verwendet, die Auszahlung ist jedoch noch nicht bestätigt. Überprüfen Sie Ihr Ziel und Ihren Miden-Kontostand.",
+  "epochReturnUnavailable": "Der Kontostand kann nicht überprüft werden. Bitte versuchen Sie es erneut."
 }

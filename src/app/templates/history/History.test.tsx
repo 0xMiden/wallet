@@ -30,8 +30,8 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 // Imported AFTER the mocks are registered.
 
 import { groupActivityEntries } from './activityGroups';
-import History from './History';
-import { HistoryEntryType } from './IHistoryEntry';
+import History, { patchLoadedActivityStatus } from './History';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 
@@ -4562,5 +4562,40 @@ describe('History on the real SWR cache', () => {
       await act(() => new Promise(resolve => setTimeout(resolve, 0)));
       expect(shownSince(from, 'completed-attempt')).toBe(false);
     });
+  });
+});
+
+describe('patchLoadedActivityStatus', () => {
+  it('keeps the loaded rows when a refresh reads an unchanged bridge row with output notes', () => {
+    const row = {
+      id: 'bridge-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Failed,
+      type: 'bridged-send',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'FAILED',
+      outputNoteIds: ['n1'],
+      extraInputs: { provider: 'epoch', epochStatus: 'failed', reclaimHeight: 1200 }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-bridge-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    expect(loaded.entries[0]?.outputNoteIds).toEqual(['n1']);
+    // IndexedDB hands back a fresh copy of the same row on every read.
+    const refreshed = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, outputNoteIds: ['n1'] }]])
+    );
+    expect(refreshed).toBe(loaded);
   });
 });

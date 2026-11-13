@@ -39,11 +39,15 @@ test('read-only replacement claim boundary; never arm or consume', async ({ wall
       const prepared=prepareMainnetSwapClaimRecovery(state,proof,current);
       report.aggregateNativeCosts=prepared.paidFees;
       report.claimNativeBefore=prepared.recoveryClaimNativeBefore;
-      await walletB.page.goto(`chrome-extension://${walletB.extensionId}/fullpage.html#/`);
-      await expect(walletB.page.locator(`[data-pending-note-id="${proof.noteId}"]`).getByRole('button',{name:/^Accept$/})).toBeVisible({timeout:60000});
+      report.claimReadinessStage='export-note';
       const file=await exportMakerNote(walletB,proof.noteId,90000);
       expect(file.length).toBeGreaterThan(0);
+      report.claimExportReady=true;
+      report.claimReadinessStage='pending-accept';
+      await walletB.page.goto(`chrome-extension://${walletB.extensionId}/fullpage.html#/`);
+      await expect(walletB.page.locator(`[data-pending-note-id="${proof.noteId}"]`).getByRole('button',{name:/^Accept$/})).toBeVisible({timeout:15000});
       report.claimUIReady=true;
+      report.claimReadinessStage='complete';
       expect(await vaultBalanceByFaucetId(walletB.page,state.native.faucetId)).toBe(current.native);
     } catch(error) {
       const safe = ['Missing exact original public PSWAP','Invalid original recorded protocol identity','Multiple paybacks for the original full-fill order','Payback differs from the exact original full-fill protocol note'];
