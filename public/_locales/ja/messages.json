@@ -8706,5 +8706,54 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "返却待ち",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "請求の準備完了",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "資金の返還",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "返還された資金",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "お客様の資金はMidenに残っています。ブロック$block$以降に、それらを引き出すことができます。",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "資金を引き出して、ウォレットに戻してください。",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "お客様の資金は、ウォレットに返還されています。",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "お客様の資金はウォレットに戻りました。",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "資金が送金先に送金されました。",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "このnoteは使用されましたが、支払いは確認されていません。送金先とMidenの残高を確認してください。",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "資金の状況を確認できません。もう一度お試しください。",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

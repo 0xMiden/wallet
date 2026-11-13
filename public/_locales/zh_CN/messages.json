@@ -8706,5 +8706,54 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "等待返还",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "准备申领",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "退还资金",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "资金退回",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "您的资金仍保留在 Miden 上。您可以在区块 $block$ 之后提取这些资金。",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "申领您的资金，将其退回您的钱包。",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "您的资金正在返还至您的钱包。",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "您的资金已返还至您的钱包。",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "资金已发送至您的目的地。",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "该note已被使用，但支付尚未确认。请检查您的收款地址和Miden余额。",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "无法查询资金状态。请重试。",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }
