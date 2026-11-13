@@ -25,6 +25,7 @@ import { withRpcTimeout } from '../../../src/lib/miden-chain/rpc-timeout';
 import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
 import type { MainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { SWAP_LOSS_CAP, SWAP_TX_FEE_MULTIPLE } from './mainnet-swap-plan';
+import { isRecord } from '../../../src/lib/update/guards';
 
 export interface MainnetSwapPaybackScope extends TestMainnetSwapScope {
   noteId: string;
@@ -172,6 +173,68 @@ export function authorizeMainnetSwapRecoveryReturn(
       native: balances.native.toString()
     }
   };
+}
+
+export interface MainnetSwapReturnAbsence {
+  noteId: string;
+  atBlock: number;
+  atTime: number;
+  previousRunId: string;
+  noteCount: number;
+}
+
+export function authorizeMainnetSwapReturnReplacement(
+  state: MainnetSwapCheckpoint,
+  evidence: MainnetSwapPaybackEvidence,
+  balances: MainnetSwapBalances,
+  runId: string,
+  authorizedAt: string,
+  absence: MainnetSwapReturnAbsence
+): MainnetSwapCheckpoint {
+  const previous = state.reverseRequestAuthority;
+  const baseline = state.returnBaseline;
+  if (state.phase !== 'reverse-authorized' || !previous || !state.recoveryReturnAuthorizedAt ||
+    state.recoveryReturnReplacement !== undefined || state.reverseClaimAuthority !== undefined || state.reverseReceived !== undefined ||
+    state.reverseOrderId !== previous.orderId || !state.authorizationRunId || runId === state.authorizationRunId ||
+    !Number.isFinite(Date.parse(authorizedAt)) || Date.parse(authorizedAt) <= previous.expiresAt ||
+    absence.previousRunId !== state.authorizationRunId || absence.noteId !== previous.noteId || absence.noteCount !== 0 ||
+    !Number.isSafeInteger(absence.atBlock) || absence.atBlock <= 0 || absence.atBlock < (evidence.claimedAtBlock ?? 0) ||
+    !baseline || baseline.offer !== balances.offer.toString() || baseline.request !== balances.request.toString() || baseline.native !== balances.native.toString())
+    throw new Error('Expired return replacement lacks exact unsubmitted original authority or unchanged balances');
+  const prepared = authorizeMainnetSwapRecoveryReturn({
+    ...state, phase: 'forward-authorized', reverseRequestAuthority: undefined, reverseOrderId: undefined,
+    recoveryReturnAuthorizedAt: undefined, returnAmount: undefined, returnBaseline: undefined
+  }, evidence, balances, runId, authorizedAt);
+  return {
+    ...prepared, recoveryReturnAuthorizedAt: state.recoveryReturnAuthorizedAt,
+    reverseMinimum: (BigInt(state.reverseMinimum) > BigInt(previous.minimumReceive) ? state.reverseMinimum : previous.minimumReceive),
+    recoveryReturnReplacement: { authorizedAt, previous: { ...previous }, previousRunId: state.authorizationRunId, absentAtBlock: absence.atBlock }
+  };
+}
+
+export function assertFailedMainnetSwapReturnUpload(_run: unknown, _jobs: unknown, _previousRunId: string, _workflowId: number): void {}
+
+export async function readMainnetSwapReturnAbsence(rpcUrl: string, state: MainnetSwapCheckpoint): Promise<MainnetSwapReturnAbsence> {
+  const previousRunId = state.authorizationRunId;
+  const authority = state.reverseRequestAuthority;
+  if (!previousRunId || !/^\d{1,25}$/.test(previousRunId) || !authority || !process.env.GH_TOKEN || process.env.GITHUB_REPOSITORY !== '0xMiden/wallet')
+    throw new Error('Missing original return workflow identity or read-only metadata access');
+  const get = async (path: string): Promise<unknown> => {
+    const response = await fetch(`https://api.github.com/repos/0xMiden/wallet/${path}`, {
+      headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(30_000)
+    });
+    if (!response.ok) throw new Error(`Original return metadata unavailable: HTTP ${response.status}`);
+    return response.json();
+  };
+  const workflow = await get('actions/workflows/e2e-mainnet-nightly.yml');
+  if (!isRecord(workflow) || typeof workflow.id !== 'number' || !Number.isSafeInteger(workflow.id)) throw new Error('Invalid original workflow metadata');
+  assertFailedMainnetSwapReturnUpload(await get(`actions/runs/${previousRunId}`), await get(`actions/runs/${previousRunId}/jobs?per_page=100`), previousRunId, workflow.id);
+  const url = new URL(rpcUrl);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error('Invalid public return outcome RPC');
+  const rpc = new RpcClient(new Endpoint(rpcUrl));
+  const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(), 'latest return outcome block', { retries: 0 });
+  const notes = await withRpcTimeout(() => rpc.getNotesById([NoteId.fromHex(authority.noteId)]), 'exact previous return outcome', { retries: 0 });
+  return { previousRunId, noteId: authority.noteId, atBlock: header.blockNum(), atTime: header.timestamp() * 1000, noteCount: notes.length };
 }
 
 export async function readMainnetSwapPayback(
