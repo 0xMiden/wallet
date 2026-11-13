@@ -117,15 +117,14 @@ it('arms the exact reviewed PSWAP as a distinct request kind', async () => {
   expect(data[KEY]).toEqual({ ...actual, status: 'armed' });
   expect(data[`${KEY}_required`]).toEqual({ accountId: actual.accountId, nonce: actual.nonce });
 });
-it('arms Epoch with the entire reviewed collateral note fingerprint rather than a recipient label', async () => {
+it('arms Epoch with the exact reviewed collateral note identity rather than a recipient label', async () => {
   const epoch: TestMainnetEpochScope & { expiresAt: number } = {
     kind: 'epoch',
     accountId: scope.accountId,
     faucetId: scope.faucetId,
     amount: scope.amount,
     expiresAt: scope.expiresAt,
-    noteId: authority.noteId,
-    noteSha256: '6'.repeat(64)
+    noteId: authority.noteId
   };
   const armed = await armMainnetSendAuthorization(page, epoch);
   expect(data[KEY]).toEqual({ ...armed, status: 'armed' });
@@ -138,8 +137,7 @@ it('uploads final Epoch SDK authority without mistaking its kind for a PSWAP ord
     faucetId: scope.faucetId,
     amount: scope.amount,
     expiresAt: scope.expiresAt,
-    noteId: authority.noteId,
-    noteSha256: '6'.repeat(64)
+    noteId: authority.noteId
   };
   const original = { ...epoch, nonce: handle.nonce };
   data[KEY] = { ...original, ...authority, status: 'waiting' };

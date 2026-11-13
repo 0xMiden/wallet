@@ -335,7 +335,7 @@ function request(options = {}) {
   return { state: snapshot, bytes: builder.build().serialize(), noteId };
 }
 
-test('binds the final Guardian Epoch request to the whole reviewed collateral note, not only its note ID', async () => {
+test('binds the final Guardian Epoch request to its reviewed collateral identity and all non-auth fields', async () => {
   const input = request();
   const note = sdk.TransactionRequest.deserialize(input.bytes).expectedOutputOwnNotes()[0];
   const scope = {
@@ -343,12 +343,15 @@ test('binds the final Guardian Epoch request to the whole reviewed collateral no
     accountId: input.state.accountHex,
     faucetId: input.state.native.hex,
     amount: input.state.principal,
-    noteId: input.noteId,
-    noteSha256: createHash('sha256').update(note.serialize()).digest('hex')
+    noteId: input.noteId
   };
   const signed = guardianBytes(new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([note])));
   assert.equal(typeof nativeRequests.inspectTestMainnetEpochRequest, 'function', 'Missing final Epoch SDK inspection');
   assert.deepEqual(await nativeRequests.inspectTestMainnetEpochRequest(scope, signed), { noteId: input.noteId });
+  await assert.rejects(() => nativeRequests.inspectTestMainnetEpochRequest(
+    scope,
+    guardianBytes(new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([note])).withExpirationDelta(600))
+  ));
   await assert.rejects(() => nativeRequests.inspectTestMainnetEpochRequest({ ...scope, amount: '1' }, signed));
   await assert.rejects(() => nativeRequests.inspectTestMainnetEpochRequest(
     { ...scope, faucetId: '0x5cb79d29507d3ad17bb6dc60279e89' }, signed
@@ -356,7 +359,7 @@ test('binds the final Guardian Epoch request to the whole reviewed collateral no
   const changed = sdk.Note.withAttachments(note.assets(), note.metadata(), note.recipient(), [
     new sdk.NoteAttachment()
   ]);
-  assert.equal(changed.id().toString(), input.noteId, 'Attachment is not bound by the note ID alone');
+  assert.notEqual(changed.id().toString(), input.noteId, 'The SDK note ID commits to attachment metadata');
   await assert.rejects(() =>
     nativeRequests.inspectTestMainnetEpochRequest(
       scope,

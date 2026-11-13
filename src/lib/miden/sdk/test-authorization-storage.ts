@@ -15,7 +15,6 @@ const publicFields = new Set([
   'requestedFaucetId',
   'requestedAmount',
   'noteId',
-  'noteSha256',
   'orderId',
   'sha256',
   'canonicalSha256',

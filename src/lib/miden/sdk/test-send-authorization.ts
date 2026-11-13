@@ -70,12 +70,10 @@ export async function awaitTestSendAuthorization(
       !guardian ||
       policy.kind !== 'epoch' ||
       typeof policy.noteId !== 'string' ||
-      !/^0x[0-9a-f]{64}$/.test(policy.noteId) ||
-      typeof policy.noteSha256 !== 'string' ||
-      !/^[0-9a-f]{64}$/.test(policy.noteSha256)
+      !/^0x[0-9a-f]{64}$/.test(policy.noteId)
     )
       throw new Error('Invalid final Epoch authorization scope');
-    route = { ...common, kind: 'epoch', noteId: policy.noteId, noteSha256: policy.noteSha256 };
+    route = { ...common, kind: 'epoch', noteId: policy.noteId };
   } else {
     if (
       policy.kind !== undefined ||

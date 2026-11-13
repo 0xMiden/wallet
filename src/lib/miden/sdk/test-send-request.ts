@@ -162,7 +162,6 @@ export interface TestMainnetEpochScope {
   faucetId: string;
   amount: string;
   noteId: string;
-  noteSha256: string;
 }
 
 export async function inspectTestMainnetEpochRequest(
@@ -174,7 +173,6 @@ export async function inspectTestMainnetEpochRequest(
     ![scope.accountId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
     !/^[1-9]\d{0,18}$/.test(scope.amount) ||
     !/^0x[0-9a-f]{64}$/.test(scope.noteId) ||
-    !/^[0-9a-f]{64}$/.test(scope.noteSha256) ||
     !(bytes instanceof Uint8Array) ||
     bytes.length < 1 ||
     bytes.length > 1_048_576
@@ -187,8 +185,7 @@ export async function inspectTestMainnetEpochRequest(
     notes.length !== 1 ||
     !note ||
     note.id().toString() !== scope.noteId ||
-    note.metadata().sender().toString() !== scope.accountId ||
-    (await testRequestSha256(note.serialize())) !== scope.noteSha256
+    note.metadata().sender().toString() !== scope.accountId
   )
     throw new Error('Final Epoch collateral differs from the entire reviewed note');
   const assets = note.assets().fungibleAssets();
