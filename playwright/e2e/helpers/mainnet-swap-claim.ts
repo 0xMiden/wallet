@@ -24,7 +24,7 @@ import { inspectTestMainnetSwapRequest, type TestMainnetSwapScope } from '../../
 import { withRpcTimeout } from '../../../src/lib/miden-chain/rpc-timeout';
 import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
 import type { MainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
-import { SWAP_LOSS_CAP, SWAP_TX_FEE_MULTIPLE } from './mainnet-swap-plan';
+import { realizedSwapLoss, SWAP_LOSS_CAP, SWAP_TX_FEE_MULTIPLE } from './mainnet-swap-plan';
 import { isRecord } from '../../../src/lib/update/guards';
 
 export interface MainnetSwapPaybackScope extends TestMainnetSwapScope {
@@ -353,43 +353,51 @@ export async function readMainnetSwapCommitHeight(
 export function prepareMainnetSwapClaimRecovery(
   state: MainnetSwapCheckpoint,
   payback: MainnetSwapPaybackEvidence,
-  balances: MainnetSwapBalances
-): MainnetSwapCheckpoint {
-  const authority = state.reverseRequestAuthority;
-  const baseline = state.returnBaseline;
+  balances: MainnetSwapBalances,
+  leg: 'forward' | 'reverse' = 'reverse'
+): bigint {
+  const forward = leg === 'forward';
+  const offerNative = state.offer.hex === state.native.hex;
+  const requestNative = state.request.hex === state.native.hex;
+  const authority = forward ? state.forwardRequestAuthority : state.reverseRequestAuthority;
+  const baseline = forward
+    ? { offer: state.offer.balance, request: state.request.balance, native: state.native.balance }
+    : state.returnBaseline;
   if (
-    state.phase !== 'reverse-authorized' ||
-    !authority ||
-    !baseline ||
-    state.reverseClaimAuthority !== undefined ||
-    state.offer.hex !== state.native.hex ||
-    state.request.hex === state.native.hex ||
-    balances.offer !== balances.native ||
-    state.reverseOrderId !== authority.orderId ||
-    payback.originalNoteId !== authority.noteId ||
-    payback.orderId !== authority.orderId ||
-    payback.claimedAtBlock !== undefined ||
-    payback.amount < BigInt(authority.minimumReceive) ||
-    balances.request !== BigInt(state.request.balance) ||
-    BigInt(baseline.request) - balances.request !== BigInt(state.returnAmount ?? '0') ||
-    balances.native > BigInt(baseline.native) ||
-    (state.recoveryClaimNativeBefore !== undefined && state.recoveryClaimNativeBefore !== balances.native.toString())
-  )
-    throw new Error('Existing swap payout, claim outcome or original portfolio is unresolved');
-  // A restored Guardian can omit swap rows; retain vault debits, never manufacture a receipt.
-  const costs = BigInt(state.native.balance) - balances.native - BigInt(state.principal);
+    state.phase !== `${leg}-authorized` || !authority || !baseline ||
+    (forward ? state.forwardClaimAuthority : state.reverseClaimAuthority) !== undefined ||
+    (offerNative && (state.offer.faucetId !== state.native.faucetId || balances.offer !== balances.native)) ||
+    (requestNative && (state.request.faucetId !== state.native.faucetId || balances.request !== balances.native)) ||
+    balances.offer < 0n || balances.native < 0n || balances.request < 0n ||
+    (forward ? state.forwardOrderId : state.reverseOrderId) !== authority.orderId ||
+    payback.originalNoteId !== authority.noteId || payback.orderId !== authority.orderId ||
+    payback.claimedAtBlock !== undefined || payback.amount < BigInt(authority.minimumReceive) ||
+    state.recoveryClaimNativeBefore !== undefined
+  ) throw new Error('Existing swap payout, claim outcome or original portfolio is unresolved');
+  const principal = BigInt(forward ? state.principal : state.returnAmount ?? '0');
+  // A missing local parent does not erase an actual vault debit or license a fabricated receipt.
+  const offeredNative = forward ? offerNative : requestNative;
+  const costs = BigInt(baseline.native) - balances.native - (offeredNative ? principal : 0n);
   const reserve = SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee);
-  if (costs < BigInt(state.paidFees) || costs + reserve > BigInt(state.feeBudget))
-    throw new Error('No original native claim fee reserve remains');
-  const finalNative = balances.native + payback.amount - reserve;
-  const loss = BigInt(state.native.balance) - finalNative;
-  const unit = 10n ** BigInt(state.native.decimals);
   if (
-    ((loss > 0n ? loss : 0n) * BigInt(state.native.usdMicros) + unit - 1n) / unit >
-    BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP)
-  )
+    costs <= 0n || costs > reserve ||
+    balances.offer !== BigInt(baseline.offer) - (forward ? principal : 0n) - (offerNative ? costs : 0n) ||
+    balances.request !== BigInt(baseline.request) - (forward ? 0n : principal) - (requestNative ? costs : 0n) ||
+    BigInt(state.paidFees) + costs + reserve > BigInt(state.feeBudget)
+  ) throw new Error('No attributable native debit or original claim fee reserve remains');
+  const after = {
+    offer: balances.offer - (offerNative ? reserve : 0n) + (forward ? 0n : payback.amount),
+    request: balances.request - (requestNative ? reserve : 0n) + (forward ? payback.amount : 0n),
+    native: balances.native - reserve + ((forward ? requestNative : offerNative) ? payback.amount : 0n)
+  };
+  const loss = realizedSwapLoss(([
+    [state.offer, after.offer], [state.request, after.request], [state.native, after.native]
+  ] as const).map(([saved, amount]) => ({
+    before: { ...saved, balance: BigInt(saved.balance), usdMicros: BigInt(saved.usdMicros) }, after: amount
+  })));
+  if (loss > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP))
     throw new Error('Existing payout claim exceeds the remaining original loss allowance');
-  return { ...state, paidFees: costs.toString(), recoveryClaimNativeBefore: balances.native.toString() };
+  return costs;
 }
 
 export async function readMainnetSwapPayback(
