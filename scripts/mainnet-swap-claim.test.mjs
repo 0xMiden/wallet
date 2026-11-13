@@ -264,6 +264,12 @@ for (const [name, change] of [
     }
   ],
   [
+    'a frozen reduced task allowance',
+    value => {
+      value.state.lossBudgetUsdMicros = '1';
+    }
+  ],
+  [
     'an unaffordable original price envelope',
     value => {
       value.state.native.usdMicros = '2000000000';

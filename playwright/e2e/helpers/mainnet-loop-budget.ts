@@ -22,6 +22,10 @@ export function remainingMainnetLoopBudget(
   provider: MainnetLoopProvider,
   completed: readonly unknown[]
 ): bigint {
+  const configured = process.env.MAINNET_LOOP_LOSS_BUDGET_USD_MICROS ?? MAINNET_LOOP_LOSS_CAP.toString();
+  if (!/^[1-9]\d{0,6}$/.test(configured) || BigInt(configured) > MAINNET_LOOP_LOSS_CAP)
+    throw new Error('Invalid remaining mainnet task loss allowance');
+  const allowance = BigInt(configured);
   const expected = PRECEDING[provider];
   if (
     typeof runId !== 'string' ||
@@ -63,9 +67,9 @@ export function remainingMainnetLoopBudget(
     seen.add(entry.provider);
     account = state.account;
     spent += BigInt(state.realizedCostUsdMicros);
-    if (spent > MAINNET_LOOP_LOSS_CAP) throw new Error('Combined mainnet loop loss exceeds $2');
+    if (spent > allowance) throw new Error('Combined mainnet loop loss exceeds the remaining allowance');
   }
-  return MAINNET_LOOP_LOSS_CAP - spent;
+  return allowance - spent;
 }
 
 export function realizedMainnetLoopLoss(samples: readonly PortfolioSample[]): bigint {
