@@ -1,63 +1,69 @@
-name: PSWAP protocol order regression proof
+name: Read-only proven original PSWAP protocol correlation
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  protocol:
+  review:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 25
+    env:
+      E2E_NETWORK: mainnet
+      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Verify immutable source
+      - name: Verify immutable diagnostic source
         run: |
           test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
-          printf 'Verified source %s\n' "$(git rev-parse HEAD^2)"
+          printf 'Read-only source %s\n' "$(git rev-parse HEAD^2)"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Build exact actual SDK inspector
-        run: yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
-      - name: Actual SDK protocol order regression
-        run: node --test --test-concurrency=2 scripts/mainnet-swap-request.test.mjs
-      - name: Connected authorization and checkpoint regressions
-        run: yarn jest src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/transaction/transactions.guardian-offscreen.test.ts src/offscreen/main.test.ts scripts/mainnet-send-authorization.test.ts scripts/mainnet-guardian-authorization.test.ts scripts/mainnet-swap-checkpoint.test.ts --maxWorkers=2 --watch=false
-      - name: Owned formatting
-        run: yarn prettier --check src/lib/miden/sdk/test-send-request.ts scripts/mainnet-swap-request.test.mjs
-      - name: Verify original public note without wallet keys or writes
-        if: always()
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43427924008
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43427924008
+          path: test-results/original-authority
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install Chromium
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Reuse the exact owned provider overlay
         run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/mainnet-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/mainnet-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          echo 'Read-only overlay unavailable'; exit 1
+      - name: Build the same mainnet extension
+        run: yarn test:e2e:blockchain:build
+      - name: Read original authority only, deny all sends and consumes
+        run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/authority-results" xvfb-run -a yarn playwright test mainnet-swap-authority-probe.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/read-only-authority.log" 2>&1 || code=$?
           node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { RpcClient, Endpoint, NoteId, Word, Address, NoteArray, TransactionRequestBuilder } from '@miden-sdk/miden-sdk';
-          import { inspectTestMainnetSwapRequest } from './node_modules/.cache/nightly-send-request.mjs';
-          const noteId = '0xa026c7215add3ace6074d40ee30735489ce414dc2925b899b5004e3390df7bfa';
-          const actor = Address.fromBech32('mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5').accountId().toString();
-          const rpc = new RpcClient(new Endpoint('https://rpc.mainnet.miden.io'));
-          const fetched = await rpc.getNotesById([NoteId.fromHex(noteId)]);
-          assert.equal(fetched.length, 1);
-          const record = fetched[0];
-          assert.equal(record.noteId.toString(), noteId);
-          assert.equal(record.metadata.sender().toString(), actor);
-          const proof = record.inclusionProof;
-          const header = await rpc.getBlockHeaderByNumber(855895);
-          assert.equal(proof.location().blockNum(), 855895);
-          assert.equal(header.blockNum(), 855895);
-          assert.equal(proof.notePath().verify(BigInt(proof.location().blockNoteTreeIndex()), Word.fromHex(noteId), header.noteRoot()), true);
-          const note = record.note;
-          assert.ok(note, 'Original public body unavailable; do not infer an order identity');
-          const request = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).withExpirationDelta(600).build();
-          const scope = { kind: 'swap', accountId: actor, faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', amount: '1010428', requestedFaucetId: '0x5cb79d29507d3ad17bb6dc60279e89', requestedAmount: '1010384' };
-          assert.equal(inspectTestMainnetSwapRequest(scope, Uint8Array.from(request.serialize())).noteId, noteId);
-          const serial = note.recipient().serialNum().toU64s();
-          assert.equal(serial[0].toString(), '4527770481039375833');
-          assert.notEqual(serial[1], serial[0]);
-          console.log(JSON.stringify({ purpose: 'Original public note historical SDK proof; no wallet keys, signatures or writes', noteId, blockNumber: 855895, verified: true, exactReviewedNote: true, recordedIdMatchesSerial0: true, protocolOrderId: serial[1].toString() }));
+          import { existsSync, readFileSync } from 'node:fs';
+          const path = 'test-results/read-only-swap-authority.json';
+          if (!existsSync(path)) { console.log('Read-only probe stopped before approved diagnostics; private process logs remain private.'); process.exit(1); }
+          const value = JSON.parse(readFileSync(path, 'utf8'));
+          const allowed = ['purpose','sourceRunId','before','after','lineage','candidates','exactMatcherFound','matcherAmbiguous','claims','confirmedProtocolOrderId','recordedMatcherFound','returnWindowExpired','freshProcessing','noAuthority','denyAll'];
+          if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
+          console.log(JSON.stringify(value));
           NODE
+          exit "$code"
