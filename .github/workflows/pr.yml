@@ -438,7 +438,7 @@ jobs:
           trap stop_sampler EXIT
           trap 'exit 130' INT
           trap 'exit 143' TERM
-          yarn test:coverage --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+          yarn test:coverage --maxWorkers=2 --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
 
       # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
       # A missing count only makes the gate's record step skip the badge artifact.

@@ -482,7 +482,10 @@
           payload: uint8ArrayToBase64(data),
           kind: kind,
         });
-        return { signature: base64ToUint8Array(res.signature) };
+        const signature = base64ToUint8Array(res.signature);
+        return typeof res.signedCommitment === 'string'
+          ? { signature, signedCommitment: base64ToUint8Array(res.signedCommitment) }
+          : { signature };
       }
 
       async requestLoginKey() {

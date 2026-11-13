@@ -11,13 +11,24 @@ import type * as NativeHttp from '../native-http';
 export const mockProbedEndpoints: string[] = [];
 /** Each probe's verdict as `[endpoint, isGuardian]`. The first settle decides, as in native-http. */
 export const mockProbeVerdicts: [string, boolean][] = [];
+export const mockGuardianProbeRequestBudgets: { signal: AbortSignal; timeoutMs: number }[] = [];
 
 export function resetMockProbes(): void {
   mockProbedEndpoints.length = 0;
   mockProbeVerdicts.length = 0;
+  mockGuardianProbeRequestBudgets.length = 0;
 }
 
 export const registerGuardianOrigin = jest.fn<void, [string]>();
+
+export function registerGuardianProbeRequestBudget(signal: AbortSignal, timeoutMs: number): () => void {
+  mockGuardianProbeRequestBudgets.push({ signal, timeoutMs });
+  return () => {};
+}
+
+export function guardianNativeProbeSettlement(_signal: AbortSignal): Promise<void> {
+  return Promise.resolve();
+}
 
 export const probeGuardianOrigin: typeof NativeHttp.probeGuardianOrigin = endpoint => {
   mockProbedEndpoints.push(endpoint);

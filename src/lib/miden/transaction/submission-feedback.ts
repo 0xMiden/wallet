@@ -1,7 +1,11 @@
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { carriesIndefiniteSubmitOutcome, isApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
-import { SUBMIT_UNKNOWN_OUTCOME_STATUSES, submitGrpcFailure } from 'lib/telemetry/transaction-failure';
-import type { SubmissionFeedbackBranch } from 'lib/telemetry/ui-producer-diagnostics';
+import {
+  SUBMIT_UNKNOWN_OUTCOME_STATUSES,
+  submitGrpcFailure,
+  type SubmitGrpcFailure
+} from 'lib/telemetry/transaction-failure';
+import type { SubmissionFeedbackBranch, UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
   hasUnresolvedAttempt,
@@ -28,6 +32,7 @@ export type SubmissionMessageKey =
   | 'submissionUnanswered';
 
 export interface SubmissionFeedback {
+  errorDiagnostics?: UiEvidenceInput;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
   kind: SubmissionFeedbackKind;
   messageKey: SubmissionMessageKey;
@@ -45,11 +50,15 @@ const NETWORK_DROP =
 const UNKNOWN_OUTCOME: ReadonlySet<string> = new Set(SUBMIT_UNKNOWN_OUTCOME_STATUSES);
 
 // Telemetry's submit-request extraction and gRPC table, so the miden-client prefixes are listed once.
-const grpcKind = (text: string): 'refused' | 'unknown' | 'pre-submit' | undefined => {
+const grpcKind = (
+  text: string
+): { kind: 'refused' | 'unknown' | 'pre-submit'; failure: SubmitGrpcFailure } | undefined => {
   const failure = submitGrpcFailure(text);
   if (failure === undefined) return undefined;
-  if (failure.endpoint === 'get_transaction_encryption_key' && UNKNOWN_OUTCOME.has(failure.status)) return 'pre-submit';
-  return UNKNOWN_OUTCOME.has(failure.status) ? 'unknown' : 'refused';
+  if (failure.endpoint === 'get_transaction_encryption_key' && UNKNOWN_OUTCOME.has(failure.status)) {
+    return { kind: 'pre-submit', failure };
+  }
+  return { kind: UNKNOWN_OUTCOME.has(failure.status) ? 'unknown' : 'refused', failure };
 };
 
 const guardianKind = (text: string): 'rejected' | 'unanswered' | undefined => {
@@ -107,10 +116,19 @@ export function submissionFeedback(row: FeedbackRow | undefined): SubmissionFeed
   if (guardian === 'rejected') return pack('rejected', 'submissionRejectedByGuardian', raw);
   if (guardian === 'unanswered')
     return { ...pack('unanswered', 'submissionUnanswered', raw), submissionFeedbackBranch: 'guardian_unanswered' };
-  if (classified === 'refused') return pack('rejected', 'submissionRejectedByNetwork', raw);
-  if (classified === 'unknown')
+  if (classified !== undefined && classified.kind === 'refused') {
+    return {
+      ...pack('rejected', 'submissionRejectedByNetwork', raw),
+      errorDiagnostics: {
+        kind: 'submission_rejected',
+        submissionRejectedEndpoint: classified.failure.endpoint,
+        submissionRejectedStatus: classified.failure.status
+      }
+    };
+  }
+  if (classified !== undefined && classified.kind === 'unknown')
     return { ...pack('unanswered', 'submissionUnanswered', raw), submissionFeedbackBranch: 'grpc_unknown' };
-  if (classified === 'pre-submit') return undefined;
+  if (classified !== undefined && classified.kind === 'pre-submit') return undefined;
 
   const dropped = NETWORK_DROP.test(prose);
   const noAnswer = isNoAnswer(raw) || isNoAnswer(display);

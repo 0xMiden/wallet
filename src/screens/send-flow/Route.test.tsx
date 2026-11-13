@@ -555,3 +555,20 @@ describe('provider route labels', () => {
     }
   });
 });
+
+it('omits the AggLayer card when the destination has no AggLayer route', () => {
+  render(
+    <RouteOptions
+      {...UP}
+      route="epoch"
+      onRouteChange={jest.fn()}
+      fastQuoteLoading={false}
+      slowStatus="error"
+      showSlowRoute={false}
+    />
+  );
+  expect(screen.getByTestId('bridge-route-fast')).toBeInTheDocument();
+  expect(screen.queryByTestId('bridge-route-slow')).not.toBeInTheDocument();
+
+  expect(screen.queryByText('agglayerTokenCheckFailed')).not.toBeInTheDocument();
+});

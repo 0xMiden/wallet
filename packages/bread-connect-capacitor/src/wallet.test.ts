@@ -1,6 +1,7 @@
 import { NoteFilterTypes } from '@miden-sdk/miden-sdk';
 import {
   AllowedPrivateData,
+  type InputNoteDetails,
   MidenConsumeTransaction,
   MidenSendTransaction,
   PrivateDataPermission,
@@ -268,6 +269,29 @@ describe('BreadConnectWallet', () => {
     });
   });
 
+  it('returns the signed commitment beside the signature', async () => {
+    const { request, wallet } = await connected();
+    request.mockResolvedValueOnce({ type: 'SIGN_RESPONSE', signature: 'BAUG', signedCommitment: 'AQID' });
+    await expect(wallet.signBytes(new Uint8Array([1]), 'word')).resolves.toStrictEqual({
+      signature: new Uint8Array([4, 5, 6]),
+      signedCommitment: new Uint8Array([1, 2, 3])
+    });
+  });
+
+  it('omits signedCommitment when the wallet sends none', async () => {
+    const { request, wallet } = await connected();
+    request.mockResolvedValueOnce({ type: 'SIGN_RESPONSE', signature: 'BAUG' });
+    await expect(wallet.signBytes(new Uint8Array([1]), 'word')).resolves.toStrictEqual({
+      signature: new Uint8Array([4, 5, 6])
+    });
+  });
+
+  it('refuses a signedCommitment that is not a string', async () => {
+    const { request, wallet } = await connected();
+    request.mockResolvedValueOnce({ type: 'SIGN_RESPONSE', signature: 'BAUG', signedCommitment: 7 });
+    await expect(wallet.signBytes(new Uint8Array([1]), 'word')).rejects.toThrow('signedCommitment');
+  });
+
   it("signs bytes as Bread's own provider does", async () => {
     const { request, wallet } = await connected();
     request.mockResolvedValueOnce({ type: 'SIGN_RESPONSE', signature: 'BAUG' });
@@ -435,5 +459,20 @@ describe('BreadConnectWallet', () => {
 
   it('does not create accounts', async () => {
     await expect(setup().wallet.createAccount()).rejects.toBeInstanceOf(WalletError);
+  });
+});
+
+// Checked by `yarn ts`: the notes may carry standardPayment, and a note from an older Bread without it still fits.
+type BreadNote = Awaited<ReturnType<BreadConnectWallet['requestConsumableNotes']>>['consumableNotes'][number];
+type HasStandardPayment<T> = 'standardPayment' extends keyof T ? true : false;
+type OlderNoteFits<T> = [InputNoteDetails] extends [T] ? true : false;
+type FlaggedNoteFits<T> = [InputNoteDetails & { standardPayment: boolean }] extends [T] ? true : false;
+
+describe('consumable note type', () => {
+  it('carries an optional standardPayment', () => {
+    const hasFlag: HasStandardPayment<BreadNote> = true;
+    const olderFits: OlderNoteFits<BreadNote> = true;
+    const flaggedFits: FlaggedNoteFits<BreadNote> = true;
+    for (const value of [hasFlag, olderFits, flaggedFits]) expect(value).toBe(true);
   });
 });

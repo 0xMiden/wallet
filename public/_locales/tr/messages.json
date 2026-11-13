@@ -4030,6 +4030,10 @@
     "message": "Kendi adresinize gönderim yapamazsınız",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Yeni alıcı",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4065,6 +4069,10 @@
   "proposalEffectRefused": {
     "message": "Cüzdan, işlemin yalnızca sizin onayladığınız tutarı aktardığını doğrulayamadığı için, imzalamadan önce bu işlemi durdurdu. Hiçbir fon aktarılmadı.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "Cüzdan ağ ücretini okuyamadı, bu nedenle bu işlemi imzalamadı. Hiçbir şey gönderilmedi. Bir süre sonra tekrar deneyin.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "Tutar, bakiyeden az olmalıdır",
@@ -4388,6 +4396,18 @@
   "guardianAccountNotFound": {
     "message": "Bu Guardian'da bir yedek bulamadık. URL'yi kontrol edin veya başka bir Guardian seçin.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "Hesaplarınız geri yüklenemedi: guardian, kurtarma ifadenizle eşleşmeyen hesap verilerini geri gönderdi. Hiçbir şey geri yüklenmedi.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Hesaplarınız geri yüklenemedi: guardian'ın elindeki hesap kopyası henüz Miden ağıyla eşleşmiyor. Hiçbir şey geri yüklenmedi. Birkaç dakika sonra tekrar deneyin.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Hesaplarınızı kontrol etmek için Miden ağına bağlanılamadı. Kurtarma ifadeniz doğru. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "Bu guardian, başka bir Miden ağında çalışır; bu nedenle buradaki bir hesabı kurtaramaz.",
@@ -6353,6 +6373,10 @@
     "message": "Bu dApp, özel bir işlem talep ediyor. Cüzdan, işlemin ayrıntılarını çözemedi — ne işe yaradığını tam olarak biliyorsanız devam edin.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "Cüzdan bu işlemi simüle edemediğinden, ne yaptığını gösteremez. Bu işlemi onaylayamazsınız.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Ham değer",
     "englishSource": "Raw value"
@@ -6360,6 +6384,10 @@
   "opaqueSignatureTitle": {
     "message": "Gizli imza talebi",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Bu imza, hesabınızdan bir işlemin gerçekleştirilmesine yetki vermez.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Bu site sizden bir ham değeri imzalamanızı istedi. Cüzdan, neye yetki verdiğini gösteremiyor. Yalnızca bu siteye tam olarak güveniyorsanız devam edin.",

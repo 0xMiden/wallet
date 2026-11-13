@@ -1408,6 +1408,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       senderAddress: 'sender-1',
       isBeingClaimed: false,
       type: 'public',
+      standardPayment: true,
       receivedAt,
       metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
     };
@@ -1424,6 +1425,34 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(result.current.data?.map((n: any) => n.id)).toEqual(['cached-1', 'cached-2']);
+    });
+  });
+
+  it('drops a cached entry that is no payment to the account and no note of its own swap order (#2118)', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [
+      makeCachedNote('pay'),
+      { ...makeCachedNote('foreign'), standardPayment: false },
+      { ...makeCachedNote('legacy'), standardPayment: undefined }
+    ];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['pay']);
+    });
+  });
+
+  it("keeps a cached note of the account's own swap order", async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [
+      {
+        ...makeCachedNote('tip'),
+        standardPayment: false,
+        swapOrder: { orderId: '7', depth: 1, role: 'tip', lineageState: 'active', expiresAt: 220, autoConsume: false }
+      }
+    ];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['tip']);
     });
   });
 

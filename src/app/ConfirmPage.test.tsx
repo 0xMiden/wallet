@@ -14,7 +14,8 @@ import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import * as userVisibleErrors from 'lib/telemetry/user-visible-error';
 import { useLocation } from 'lib/woozie';
 
-import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
+import { declaredRequestToView, simulatedBytesToView, type TxAssetView } from './confirm/decode';
+import { noteFlowFromSimulatedBytes, type NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
@@ -147,10 +148,21 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
+  Button: ({
+    children,
+    onClick,
+    isLoading,
+    variant,
+    className,
+    type,
+    size,
+    disabled,
+    'data-testid': dataTestId
+  }: any) => (
     <button
       type={type ?? 'button'}
       onClick={onClick}
+      disabled={disabled}
       data-loading={String(!!isLoading)}
       data-variant={variant}
       data-size={size}
@@ -194,50 +206,27 @@ jest.mock('./confirm/TransactionAssetView', () => ({
 
 jest.mock('./confirm/note-flow', () => ({
   ...jest.requireActual('./confirm/note-flow'),
-  noteFlowFromSimulatedBytes: jest.fn(() => ({ inputCount: 0, inputs: [], outputs: [] }))
+  noteFlowFromSimulatedBytes: jest.fn()
 }));
 
 // Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
-// below assert on its actual mapping); only the custom-tx decode entry points
-// are stubbed so these UI tests don't touch the WASM SDK.
-jest.mock('./confirm/decode', () => {
-  const view = (account: string, incoming: { faucetId: string; amount: bigint }[] = []) => ({
-    account,
+// below assert on its actual mapping); the declared decode is stubbed so these
+// UI tests don't touch the WASM SDK, and the dry-run decode is stubbed only to
+// prove the window never calls it.
+jest.mock('./confirm/decode', () => ({
+  ...jest.requireActual('./confirm/decode'),
+  declaredRequestToView: jest.fn(() => ({
     outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming,
+    incoming: [],
     outgoingNfts: [],
     incomingNfts: [],
     unlistedAssets: 0,
-    inputNotesConsumed: incoming.length,
+    inputNotesConsumed: 0,
     outputNotesCreated: 1,
     storageChanged: false
-  });
-  const summaryBytesToView = jest.fn(() => view('mtst1acct', [{ faucetId: 'fB', amount: 3n }]));
-  const executedBytesToView = jest.fn(() => view('mtst1executed'));
-  return {
-    ...jest.requireActual('./confirm/decode'),
-    declaredRequestToView: jest.fn(() => ({
-      outgoing: [{ faucetId: 'fA', amount: 10n }],
-      incoming: [],
-      outgoingNfts: [],
-      incomingNfts: [],
-      unlistedAssets: 0,
-      inputNotesConsumed: 0,
-      outputNotesCreated: 1,
-      storageChanged: false
-    })),
-    summaryBytesToView,
-    executedBytesToView,
-    // Dispatches to the two stubs above. The real selector calls its builders module-internally,
-    // where a jest.mock override cannot reach them, so without this the page would decode these
-    // fixture strings for real.
-    simulatedBytesToView: jest.fn((result: { summaryBytes?: string; executedBytes?: string }) => {
-      if (result.summaryBytes) return summaryBytesToView();
-      if (result.executedBytes) return executedBytesToView();
-      return undefined;
-    })
-  };
-});
+  })),
+  simulatedBytesToView: jest.fn()
+}));
 
 jest.mock('./atoms/Alert', () => {
   const actual = jest.requireActual<typeof import('./atoms/Alert')>('./atoms/Alert');
@@ -286,7 +275,6 @@ const mockSigningInputs = SigningInputs as unknown as { deserialize: jest.Mock }
 const mockAddress = Address as unknown as { fromAccountId: jest.Mock };
 const mockTransactionAssetView = TransactionAssetView as unknown as jest.Mock;
 const mockDeclaredRequestToView = declaredRequestToView as unknown as jest.Mock;
-const mockSummaryBytesToView = summaryBytesToView as unknown as jest.Mock;
 
 const UPON_REQUEST = 'UPON_REQUEST';
 const AUTO = 'AUTO';
@@ -986,6 +974,7 @@ describe('sign payload — word', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     expect(screen.getByText('requestsYourSignature')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
@@ -1001,6 +990,7 @@ describe('sign payload — word', () => {
 
     // Still renders the opaque-signature warning; the raw value is the invalid fallback.
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
 
     await act(async () => {
@@ -1131,6 +1121,9 @@ describe('sign payload — signingInputs', () => {
     const assetView = screen.getByTestId('asset-view');
     expect(assetView).toHaveAttribute('data-mode', 'verified');
     expect(assetView).toHaveAttribute('data-account', 'bech32:acc-id');
+    // A summary signature can authorize a transaction, so it never says it cannot.
+    expect(screen.queryByText('opaqueSignatureNotATransaction')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
 
     // The view handed to TransactionAssetView is the ground-truth mapping of
     // the executed TransactionSummary (summaryToView), not a re-derivation.
@@ -1194,6 +1187,7 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signArbitraryPayload')).toBeInTheDocument();
   });
@@ -1204,6 +1198,7 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signBlindCommitment')).toBeInTheDocument();
   });
@@ -1240,6 +1235,7 @@ describe('loginSign payload', () => {
     expect(screen.queryByText(ACCOUNT.publicKey)).not.toBeInTheDocument();
     expect(screen.queryByText('payload')).not.toBeInTheDocument();
     expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
+    expect(screen.queryByText('opaqueSignatureNotATransaction')).not.toBeInTheDocument();
     expect(screen.queryByTestId('alert')).not.toBeInTheDocument();
   });
 
@@ -1416,8 +1412,8 @@ describe('request origin banner', () => {
 });
 
 // ---------------------------------------------------------------------------
-// transaction payload — custom-tx state machine (declared -> verifying ->
-// verified | undecodable), driven by simulateCustomTransaction(id)
+// transaction payload — custom-tx state machine (verifying -> verified | not
+// simulated), driven by simulateCustomTransaction(id)
 // ---------------------------------------------------------------------------
 
 describe('ConfirmPage custom transaction', () => {
@@ -1432,92 +1428,112 @@ describe('ConfirmPage custom transaction', () => {
     ...over
   });
 
-  it('swaps the declared view for the verified view after simulation', async () => {
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
+  const verifiedView = (account: string): TxAssetView => ({
+    account,
+    outgoing: [{ faucetId: 'fA', amount: 10n }],
+    incoming: [{ faucetId: 'fB', amount: 3n }],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 1,
+    outputNotesCreated: 1,
+    storageChanged: false
+  });
+
+  it('shows the verified view after simulation', async () => {
+    const noteFlow: NoteFlow = { inputCount: 0, inputs: [], outputs: [] };
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ view: verifiedView('mtst1acct'), noteFlow });
     setPayload(customPayload());
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1acct');
     expect((ctx as any).simulateCustomTransaction).toHaveBeenCalledWith('req-1');
+    expect(mockTransactionAssetView.mock.calls.at(-1)?.[0]).toMatchObject({ mode: 'verified', noteFlow });
   });
 
-  // Regression: on web-sdk 0.16 an ordinary single-sig account produces NO
-  // TransactionSummary (executeForSummary rejects TRANSACTION_ALREADY_AUTHORIZED),
-  // so the dry run returns the executed transaction instead. Ignoring it left the
-  // verified asset view unreachable for every such account, with the loss shown as
-  // a transient "could not verify by simulation".
-  it('shows the verified view from the executed transaction when no summary is produced', async () => {
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ executedBytes: 'execB64' });
+  // The executed dry run of a fully authorized account stays in the background; the window renders only the view
+  // the background decoded from it, so it has nothing of its own to decode.
+  it('renders the verified view the background decoded, whatever the account kind', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ view: verifiedView('mtst1executed') });
     setPayload(customPayload());
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1executed');
     expect(screen.queryByText('couldNotVerifyBySimulation')).not.toBeInTheDocument();
+    expect(simulatedBytesToView).not.toHaveBeenCalled();
+    expect(noteFlowFromSimulatedBytes).not.toHaveBeenCalled();
   });
 
-  it('keeps the declared view with a caveat when simulation errors', async () => {
+  // The user approves only the simulated view: the sheet never shows the declared view in its place.
+  const acceptButton = () => screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton);
+
+  it('blocks the approval until the simulated view is on the sheet', async () => {
+    let finish: (value: { view: TxAssetView }) => void = () => undefined;
+    (ctx as any).simulateCustomTransaction.mockReturnValue(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('tx-simulation-pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
+
+    await act(async () => {
+      finish({ view: verifiedView('mtst1acct') });
+    });
+
+    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(acceptButton()).not.toBeDisabled();
+    expect(mockDeclaredRequestToView).not.toHaveBeenCalled();
+  });
+
+  it('shows that the transaction cannot be approved when simulation errors, and no declared view', async () => {
     (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 1050));
     });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotVerifyBySimulation', 'inline');
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('customTransactionNotSimulated', 'inline');
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
+    expect(mockDeclaredRequestToView).not.toHaveBeenCalled();
   });
 
-  it('shows could-not-decode when requestBytes is absent', async () => {
+  it('shows that the transaction cannot be approved when requestBytes is absent', async () => {
     (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
     setPayload(customPayload({ requestBytes: undefined }));
     render(<ConfirmPage />);
 
-    expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument();
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 1050));
-    });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotDecodeTransaction', 'inline');
+    expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
   });
 
-  it('logs and falls back to could-not-decode when declaredRequestToView throws and simulation also fails', async () => {
-    mockDeclaredRequestToView.mockImplementationOnce(() => {
-      throw new Error('bad declared bytes');
-    });
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+  // A dry run the background could not decode answers with no view.
+  it('shows that the transaction cannot be approved when the background returns no view', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({});
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument());
-    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to decode declared custom transaction:', expect.any(Error));
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
   });
 
-  it('logs and shows the caveat when summaryBytesToView throws for the simulated summary', async () => {
-    mockSummaryBytesToView.mockImplementationOnce(() => {
-      throw new Error('bad summary bytes');
-    });
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
-    setPayload(customPayload());
-    render(<ConfirmPage />);
-
-    await waitFor(() =>
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Custom transaction simulation failed:', expect.any(Error))
-    );
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
-    // A decode failure on an otherwise-successful simulation now surfaces the
-    // same "could not verify" caveat as any other simulation failure mode.
-    expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument();
-  });
-
-  it('keeps the declared view with a caveat when simulation rejects', async () => {
+  it('shows that the transaction cannot be approved when simulation rejects', async () => {
     (ctx as any).simulateCustomTransaction.mockRejectedValue(new Error('service worker gone'));
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
   });
 
   it('marks the could-not-simulate line for E2E', async () => {
@@ -1526,7 +1542,7 @@ describe('ConfirmPage custom transaction', () => {
     render(<ConfirmPage />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('couldNotVerifyBySimulation')
+      expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('customTransactionNotSimulated')
     );
   });
 });
@@ -1545,5 +1561,6 @@ describe('ConfirmPage opaque signature', () => {
 
     // The Alert mock (top of file) renders its `description`; `t` echoes keys.
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
   });
 });

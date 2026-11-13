@@ -5,9 +5,10 @@ import type { ConfirmKind } from '../../helpers/confirm-actions';
 import {
   captureBaseline,
   expectCancelledWhileQueued,
-  expectFailedAfterEnqueue,
   expectNoNewRows,
   expectReceivedByRecipient,
+  NOT_SIMULATED_REFUSAL,
+  notSimulatedFor,
   pollUntil,
   refusal
 } from '../../helpers/dapp-assertions';
@@ -51,12 +52,13 @@ import {
   answerPrompt,
   bytesArg,
   callDapp,
+  expectDomainSignature,
   expectNoPrompt,
   pendingNoteIds,
   popupBlock,
   unwrap
 } from '../../helpers/test-dapp';
-import type { ConnectedView, RawArg } from '../../test-dapp/protocol';
+import type { ConnectedView, RawArg, VerifyInput } from '../../test-dapp/protocol';
 
 // The first limb is below the modulus only in little-endian order; the real SDK must accept the wallet's gate.
 const WORD = `0xffffffffffffff00${'11'.repeat(24)}`;
@@ -65,6 +67,8 @@ const SUMMARY_AMOUNT = tst(0.5);
 // en.json's `opaqueSignatureTitle`, rendered by OpaqueSignatureWarning in ConfirmPage.tsx for Arbitrary and Blind
 // inputs.
 const OPAQUE_WARNING = 'Opaque signature request';
+// en.json's `opaqueSignatureNotATransaction`, shown beside it.
+const OPAQUE_NOT_A_TRANSACTION = 'This signature cannot authorize a transaction from your account.';
 // en.json's `confirmLoginSignature` up to the domain it names: the `loginSign` title in ConfirmPage.tsx, which has no
 // test id.
 const LOGIN_TITLE = 'Sign in to ';
@@ -104,23 +108,27 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
       );
       // Q2: a Guardian account signs with its hot key, so both kinds expect the same verifiable signature.
       const signed = unwrap(result, `signBytes(signingInputs, ${variant})`, ctx);
-      expect(
-        await callDapp(
-          dapp,
-          'verifySignature',
-          {
-            kind: 'signingInputs',
-            payloadB64: signed.payloadB64,
-            signatureB64: signed.signatureB64,
-            publicKeyB64: recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
-          },
-          ctx.deadline
-        )
-      ).toEqual({ verifies: true, commitmentHex: me.publicKeyHex });
+      const publicKeyB64 = recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64);
+      const verify = (input: VerifyInput) => callDapp(dapp, 'verifySignature', input, ctx.deadline);
+      // A summary is signed as before, so only the raw check applies; Blind and Arbitrary sign the domain commitment.
+      const verdict =
+        variant === 'summary'
+          ? await verify({
+              kind: 'signingInputs',
+              payloadB64: signed.payloadB64,
+              signatureB64: signed.signatureB64,
+              publicKeyB64
+            })
+          : await expectDomainSignature(verify, signed, 'signingInputs', publicKeyB64);
+      expect(verdict).toEqual({
+        verifies: true,
+        commitmentHex: me.publicKeyHex
+      });
     }
   });
   const opaque = async (popup: Page) => {
     await expect(popup.getByText(OPAQUE_WARNING)).toBeVisible();
+    await expect(popup.getByText(OPAQUE_NOT_A_TRANSACTION)).toBeVisible();
   };
   return {
     G1: {
@@ -137,16 +145,11 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
         // Rk3: on Guardian the key behind the signature must be the one connect handed the dApp.
         expect(
-          await callDapp(
-            dapp,
-            'verifySignature',
-            {
-              kind: 'word',
-              payloadB64: signed.payloadB64,
-              signatureB64: signed.signatureB64,
-              publicKeyB64: recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
-            },
-            ctx.deadline
+          await expectDomainSignature(
+            input => callDapp(dapp, 'verifySignature', input, ctx.deadline),
+            signed,
+            'word',
+            recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
           )
         ).toEqual({ verifies: true, commitmentHex: me.publicKeyHex });
       }
@@ -370,9 +373,10 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         const built = await callDapp(
           dapp,
           'buildCustom',
-          // The new note first: the dry run imports carried notes in order and stops at the one A already holds, whose
-          // re-import fails with "import produced no note commitment" (simulate-custom-tx.ts:221-226).
-          { shape: 'p2id', outputs: [output], carryNoteBytesB64: [fx.proofB64.newA1, fx.heldBytesB64] },
+          // The held note rides along with the new one. The dry run imports a carried note only when this request
+          // introduced it, so a request that also carries the note A already holds still reaches the decline, and
+          // that held note stays claimable.
+          { shape: 'p2id', outputs: [output], carryNoteBytesB64: [fx.heldBytesB64, fx.proofB64.newA1] },
           ctx.deadline
         );
         const { result } = await answerPrompt(
@@ -391,7 +395,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         await expectNoNewRows(side, baseline);
         // Only the approve branch releases the dry run's quarantine (dapp.ts:1990-1995): the new note never shows...
         expect(await noteIdsSeenOver(j, 2, ctx)).not.toContain(normalizeHex(fx.newA1.noteId));
-        // ...while the note A already held was never quarantined and stays claimable (simulate-custom-tx.ts:197-205).
+        // ...while the note A already held stays claimable.
         expect((await pendingNoteIds(j.walletA.page)).map(normalizeHex)).toContain(normalizeHex(fx.heldNoteId));
         for (const nullifierHex of [fx.newA1.nullifierHex, fx.heldNullifierHex]) {
           expect((await callDapp(dapp, 'chainNullifier', { nullifierHex }, ctx.deadline)).committedAt).toBeNull();
@@ -594,7 +598,9 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
           ctx.deadline
         );
         await advanceChain(j.walletA, dapp, built.boundBlockNum + 3, ctx);
-        const { result } = await answerPrompt(
+        // The approval needs a simulation that succeeds. This request cannot run, so the wallet refuses it before any
+        // prompt (CustomTransactionNotSimulatedError) and queues nothing.
+        const result = await expectNoPrompt(
           dapp,
           () =>
             callDapp(
@@ -603,20 +609,15 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
               { requestId: built.requestId, recipientAddress: j.addressB, importNotes: true },
               ctx.deadline
             ),
-          {
-            kind: 'transaction',
-            decision: 'approve',
-            origin: dapp.origin,
-            whileOpen: async popup => {
-              await expect(popup.getByTestId('tx-simulation-failed')).toBeVisible({ timeout: 60_000 });
-              await popupBlock(dapp, ctx);
-            }
-          },
-          ctx
+          ctx,
+          { refusal: true }
         );
-        const { txId } = unwrap(result, 'an overspending custom request is still queued', ctx);
-        await expectFailedAfterEnqueue(side, baseline, txId, pinned.texts.R5[j.axis.label], ctx);
-        // The approval released the dry run's quarantine (dapp.ts:1990-1995), so the failure leaves the note claimable.
+        expect(result).toEqual(refusal('WalletTransactionError', NOT_SIMULATED_REFUSAL, 'NotGrantedMidenWalletError'));
+        if (!result.ok && !notSimulatedFor(result.error.message, pinned.texts.R5[j.axis.label].error)) {
+          ctx.softFail('refusal-reason', `the refusal gave ${JSON.stringify(result.error.message)}`);
+        }
+        await expectNoNewRows(side, baseline);
+        // The refusal is the wallet's, so it released the dry run's quarantine and the carried note stays claimable.
         await pollUntil(
           () => pendingNote(j.walletA.page, fx.carry.noteId),
           note => note !== null,

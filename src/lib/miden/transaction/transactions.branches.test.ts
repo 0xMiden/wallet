@@ -211,6 +211,12 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
+// A checked write decides the chain fee before it runs.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFee: jest.fn(async () => 0)
+}));
+
 jest.mock('lib/miden/swap/fee-context', () => ({
   readSwapFeeContext: jest.fn(async () => ({
     scope: 'testnet|rpc',
