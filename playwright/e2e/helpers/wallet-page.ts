@@ -397,7 +397,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * Reveal the current Guardian account's hot and EVM private keys through
    * Settings → Keys → Reveal private key, returning the hot:evm payload.
    * Extension builds authenticate with the
-   * onboarding password.
+   * onboarding password; off mobile the keys then stay masked until Show is pressed.
    */
   revealHotKey(password?: string): Promise<string>;
   /**
@@ -1391,6 +1391,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await passwordField.fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
+    // Off mobile the keys stay masked, with the QR unmounted, until Show is pressed.
+    await this.page.getByTestId('seed-reveal-toggle').click({ timeout: 30_000 });
     await this.page.getByRole('img', { name: 'Private keys QR code' }).waitFor({ timeout: 30_000 });
     await this.page.getByRole('button', { name: 'Show keys as text' }).click();
     const hot = await this.page.getByLabel('Miden everyday private key').inputValue();
