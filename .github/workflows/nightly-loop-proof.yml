@@ -1,50 +1,59 @@
-name: Keyless original recovery outcome
+name: Read-only issued return outcome
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  outcome:
+  readonly:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+      - name: Verify immutable read-only source
+        run: |
+          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+          printf 'Read-only source %s\n' "$(git rev-parse HEAD^2)"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Read exact return note and latest proved vault without financial keys
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43461752016
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43461752016
+          path: test-results/original-authority
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install Chromium
+        timeout-minutes: 10
+        run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Build actual recovery mainnet extension without provider overlay
+        run: yarn test:e2e:blockchain:build
+      - name: Read-only issued return outcome, never replace authority
         run: |
-          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/return-review-results" xvfb-run -a yarn playwright test mainnet-return-outcome-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/return-review.log" 2>&1 || code=$?
           node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { RpcClient, Endpoint, NoteId, Address, Word } from '@miden-sdk/miden-sdk';
-          const rpc = new RpcClient(new Endpoint('https://rpc.mainnet.miden.io'));
-          const actor = Address.fromBech32('mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5').accountId();
-          const noteId = '0x444d415a106341d4b7005bdb41c8af3f87d97ee49cc1010e420297632621cb1e';
-          for (let sample=0;sample<2;sample++) {
-            const tip = await rpc.getBlockHeaderByNumber();
-            const height = tip.blockNum();
-            assert.ok(height>855903);
-            const proof = await rpc.getAccountProof(actor, undefined, height, new Word(new BigUint64Array([0n,0n,0n,0n])));
-            assert.equal(proof.accountId().toString(),actor.toString());
-            assert.equal(proof.blockNum(),height);
-            const assets = proof.vaultFungibleAssets();
-            assert.ok(assets,'Latest public vault details unavailable');
-            const amount = faucet => (assets.find(asset=>asset.faucetId().toString()===faucet)?.amount()??0n).toString();
-            const native = amount('0xe69e6ca6e39df1b10c1e5399399feb');
-            const usdt = amount('0x5cb79d29507d3ad17bb6dc60279e89');
-            const notes = await rpc.getNotesById([NoteId.fromHex(noteId)]);
-            console.log(JSON.stringify({purpose:'keyless latest return outcome; no request bytes, signatures or writes',sample,height,returnNoteId:noteId,returnNoteCount:notes.length,native,usdt}));
-            assert.equal(notes.length,0,'A return submission exists; never reissue it');
-            assert.equal(native,'18987362');
-            assert.equal(usdt,'1010890');
-            if (sample===0) await new Promise(resolve=>setTimeout(resolve,5000));
-          }
+          import { existsSync, readFileSync } from 'node:fs';
+          const path = 'test-results/read-only-return-outcome.json';
+          if (!existsSync(path)) { console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.'); process.exit(1); }
+          const value = JSON.parse(readFileSync(path, 'utf8'));
+          const allowed = ['purpose','outcomeVerified','retainedReturnNonce','returnExpiresAt','before','after','first','last','errorStage','errorKind','freshProcessing','noLivePolicy','consumeBlocked'];
+          if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
+          console.log(JSON.stringify(value));
           NODE
+          exit "$code"
