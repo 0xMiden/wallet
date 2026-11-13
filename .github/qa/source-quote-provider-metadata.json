@@ -1,0 +1,23 @@
+{
+  "capture_time": "2026-11-13T10:07:59.838748+00:00",
+  "host": "localmacOS genuinecodex--version metadata only",
+  "cli_path": "/Users/celrisen/.pi/agent/bin/codex",
+  "resolved_cli_path": "/Users/celrisen/.nvm/versions/node/v20.19.6/lib/node_modules/@openai/codex/bin/codex.js",
+  "raw_version_output": "codex-cli 0.167.1\n",
+  "versions": {
+    "codex": "codex-cli 0.167.1"
+  },
+  "roster_source": "/Volumes/X10 Pro/walletissues-storage-20261112/reviews/rev-1818-window-all-1dryq30o/roster.json",
+  "roster_sha256": "f9eb285287ee49a27c1000c9b614ec3e9bbbf8de35464e26c3f53df19a3161ec",
+  "core_count": 4,
+  "policy": {
+    "REVIEW_COUNCIL_CONTRACT_WORKERS": "4",
+    "REVIEW_COUNCIL_CONTRACT_DEADLINE_SECONDS": "300",
+    "REVIEW_COUNCIL_CONTRACT_OUTPUT_BYTES": "4194304",
+    "REVIEW_COUNCIL_CONTRACT_DIAGNOSTIC_BYTES": "8192",
+    "REVIEW_COUNCIL_CONTRACT_TERM_GRACE_SECONDS": "2"
+  },
+  "no_paid_provider_calls": true,
+  "no_model_roster_change": true,
+  "ci_usage_label": "declared genuine local version metadata, NOTproviderexecutioninCI"
+}
