@@ -163,6 +163,13 @@ function attachMetadataToNotes(
     }));
 }
 
+/**
+ * Whether the claim list shows a note: every note but a swap note settlement claims unattended. A payback marked
+ * `coverageShort` is listed for a manual claim, and settlement may still claim it on its own read of notes and lineages.
+ */
+const isListedClaimableNote = (note: { swapOrder?: { autoConsume?: boolean; coverageShort?: true } }): boolean =>
+  !note.swapOrder || note.swapOrder.autoConsume === false || note.swapOrder.coverageShort === true;
+
 // -------------------- Side-effect helpers --------------------
 
 async function persistMetadataIfAny(
@@ -239,6 +246,7 @@ async function fetchNotesFromLocalClient(
   let swapOrders;
   try {
     swapOrders = await withWasmClientLock(
+      // Two holds read notes and lineages, so a fill can show before its payback: a short one is marked, not dropped.
       async hold => classifySwapOrderNotes(rawNotes, publicAddress, undefined, hold),
       {
         watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -594,7 +602,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         // The service worker already drops other accounts' notes; a list it stored
         // before that rule existed may still hold them (#2118).
         .filter(isOwnClaimableNote)
-        .filter(n => !n.swapOrder || n.swapOrder.autoConsume === false)
+        .filter(isListedClaimableNote)
         .filter(n => n.metadata || assetsMetadata[n.faucetId])
         .map(n => ({
           id: n.id,
@@ -664,9 +672,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     // Every read, the 5s SWR poll's included, takes the WASM lock and re-renders the list; let a
     // moving pager finish first (capped). Gating the fetcher keeps SWR's dedupe and visibility rules.
     await whenInteractionIdle();
-    const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(
-      note => !note.swapOrder || note.swapOrder.autoConsume === false
-    );
+    const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(isListedClaimableNote);
 
     // 2) Seed metadata map from cache (and baked-in MIDEN)
     const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);

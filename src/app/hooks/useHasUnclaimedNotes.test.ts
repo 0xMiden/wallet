@@ -21,6 +21,7 @@ jest.mock('lib/miden/front/claimable-notes', () => ({
 // faucet id, the chain fee and the auto-consume toggle to drop auto-managed notes (#811).
 let mockFaucetId: string | null = 'faucet-native';
 let mockBaseFee: number | null = null;
+let mockFloorFee: number | null | undefined;
 let mockAutoConsume = false;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
@@ -32,7 +33,9 @@ jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
 }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => mockBaseFee
+  default: () => mockBaseFee,
+  // An unset floor passes the raw fee through, so a null raw fee stays null.
+  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => mockAutoConsume
@@ -46,11 +49,14 @@ describe('useHasUnclaimedNotes', () => {
     mockUseClaimableNotes.mockReturnValue({ data: [] });
     mockFaucetId = 'faucet-native';
     mockBaseFee = null;
+    mockFloorFee = undefined;
     mockAutoConsume = false;
   });
 
   it('ignores native notes the wallet will auto-consume (#811)', () => {
     mockAutoConsume = true;
+    // Fee-free chain and no amount: the floor is 0, so auto-consume hides the note.
+    mockFloorFee = 0;
     mockUseClaimableNotes.mockReturnValue({
       data: [{ id: 'note-1', faucetId: 'faucet-native', standardPayment: true }]
     });
@@ -58,6 +64,19 @@ describe('useHasUnclaimedNotes', () => {
     const { result } = renderHook(() => useHasUnclaimedNotes());
 
     expect(result.current).toBe(false);
+  });
+
+  it('counts a native note while the claim floor is unknown', () => {
+    mockAutoConsume = true;
+    mockBaseFee = null;
+    mockFloorFee = undefined;
+    mockUseClaimableNotes.mockReturnValue({
+      data: [{ id: 'worth', faucetId: 'faucet-native', amount: '1000000', standardPayment: true }]
+    });
+
+    const { result } = renderHook(() => useHasUnclaimedNotes());
+
+    expect(result.current).toBe(true);
   });
 
   it('still counts a native note worth too little for auto-consume to claim', () => {

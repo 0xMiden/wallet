@@ -3223,6 +3223,10 @@
     "message": "ウォレットのバックアップを取る",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "リカバリーフレーズは非表示",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "表示",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8文字、1つの数字",
-    "englishSource": "8 characters, 1 number"
+    "message": "12文字以上",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "8文字以上で、数字を1つ以上含めること",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "12文字以上を使用してください。数字、記号、大文字と小文字を混ぜることで、セキュリティが強化されます。",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "この12語を書き留めて、安全な場所に保管してください。",
@@ -8685,5 +8689,71 @@
   "arcadePostingPolicy": {
     "message": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "自動ロック",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "これほど長い間バックグラウンド状態が続くと、ウォレットがロックされます。",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$分",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "返却待ち",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "請求の準備完了",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "資金の返還",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "返還された資金",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "お客様の資金はMidenに残っています。ブロック$block$以降に、それらを引き出すことができます。",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "資金を引き出して、ウォレットに戻してください。",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "お客様の資金は、ウォレットに返還されています。",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "お客様の資金はウォレットに戻りました。",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "資金が送金先に送金されました。",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "このnoteは使用されましたが、支払いは確認されていません。送金先とMidenの残高を確認してください。",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "資金の状況を確認できません。もう一度お試しください。",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

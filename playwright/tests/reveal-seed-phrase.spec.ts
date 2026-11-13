@@ -6,7 +6,7 @@ import { expect, test } from '../fixtures/extension';
 /**
  * The recovery-phrase reveal, driven through the real Settings UI in a Chromium MV3
  * extension: bottom-nav Profile -> Recovery Phrase -> "Reveal recovery phrase" -> View
- * -> password -> Continue -> the word grid -> Hide -> Reveal again, once in light mode
+ * -> password -> Continue -> Show -> the word grid -> Hide -> Reveal again, once in light mode
  * and once in dark.
  *
  * Pins #1122: `revealMnemonic()` runs a real PBKDF2 decrypt client-side, taking several
@@ -43,11 +43,11 @@ test.describe('reveal recovery phrase', () => {
   // Itemised so a stuck step reports its own diagnostic instead of a bare "Test timeout"
   // (dapp-provider.spec.ts does the same): onboarding 420s, goto 30s, Settings tab 30s,
   // Profile legacy-route checks 60s, Recovery Phrase row+page 20s, Reveal+warning 20s,
-  // View+auth page 30s, password+Continue+pending 30s, word grid 20s, Hide 10s, Reveal
-  // again 15s, warning View <=10s, View+auth page (dark) 30s, password+Continue+pending
-  // (dark) 30s = 755s.
+  // View+auth page 30s, password+Continue+pending 30s, word grid 20s, Show 10s, re-mask 10s,
+  // Show 10s, Hide 10s, Reveal again 15s, warning View <=10s, View+auth page (dark) 30s,
+  // password+Continue+pending (dark) 30s, Show 30s = 815s.
   test('through the real UI, twice, and once in dark mode', async ({ extensionContext, extensionId }, testInfo) => {
-    test.setTimeout(810_000);
+    test.setTimeout(870_000);
 
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const walletPage = await extensionContext.newPage();
@@ -91,7 +91,29 @@ test.describe('reveal recovery phrase', () => {
     await submitPasswordAndAssertNotBlank(walletPage);
 
     const reviewPage = walletPage.getByTestId('reveal-seed-review');
-    await reviewPage.getByTestId('seed-word-0').waitFor({ state: 'visible', timeout: 20_000 });
+    const revealToggle = reviewPage.getByTestId('seed-reveal-toggle');
+    await revealToggle.waitFor({ state: 'visible', timeout: 20_000 });
+
+    // Masked until Show: no word is in the DOM.
+    await expect(reviewPage.getByTestId('seed-word-0')).toHaveCount(0);
+    await walletPage.screenshot({ path: testInfo.outputPath('posture-reveal-masked.png') });
+
+    await revealToggle.click({ timeout: 10_000 });
+    await reviewPage.getByTestId('seed-word-0').waitFor({ state: 'visible', timeout: 10_000 });
+    await walletPage.screenshot({ path: testInfo.outputPath('posture-reveal-shown.png') });
+
+    // Leaving the window masks it again.
+    const otherPage = await extensionContext.newPage();
+    await otherPage.bringToFront();
+    await walletPage.bringToFront();
+    // Playwright emulates focus, so switching pages need not fire a real blur on the wallet page.
+    await walletPage.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await expect(reviewPage.getByTestId('seed-word-0')).toHaveCount(0, { timeout: 10_000 });
+    await walletPage.screenshot({ path: testInfo.outputPath('posture-reveal-remasked.png') });
+    await otherPage.close();
+
+    await revealToggle.click({ timeout: 10_000 });
+    await reviewPage.getByTestId('seed-word-0').waitFor({ state: 'visible', timeout: 10_000 });
     await walletPage.screenshot({ path: testInfo.outputPath('reveal-seed-phrase-light.png') });
 
     // Hide, then reveal again: the page opens on its warning.
@@ -107,6 +129,8 @@ test.describe('reveal recovery phrase', () => {
       .toBe(true);
     await viewButton.click({ timeout: 15_000 });
     await submitPasswordAndAssertNotBlank(walletPage);
+    await revealToggle.click({ timeout: 20_000 });
+    await reviewPage.getByTestId('seed-word-0').waitFor({ state: 'visible', timeout: 10_000 });
     await walletPage.screenshot({ path: testInfo.outputPath('reveal-seed-phrase-dark.png') });
   });
 });

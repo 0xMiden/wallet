@@ -83,6 +83,7 @@ let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
 let mockBalancesLoading = false;
 let mockBaseFee: number | null = 0;
+let mockFloorFee: number | null | undefined;
 
 const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
@@ -111,7 +112,8 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => mockBaseFee
+  default: () => mockBaseFee,
+  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 
 // Balance is a render-prop that hands its child the total fiat BigNumber; the child converts it
@@ -369,6 +371,7 @@ describe('Explore', () => {
     mockTokenPrices = {};
     mockBalancesLoading = false;
     mockBaseFee = 0;
+    mockFloorFee = undefined;
     resetHiddenTokens();
     mockStoredHiddenTokens = null;
     mockReadStorage.mockReset();
@@ -1355,6 +1358,20 @@ describe('Explore', () => {
 
       await renderExplore();
 
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
+    it('auto-claims nothing on Home while the fee is unknown', async () => {
+      mockAutoConsume = true;
+      mockBaseFee = 0;
+      mockFloorFee = null;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native'), makeNote('n2', 'faucet-native')];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).not.toHaveBeenCalled();
       expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();

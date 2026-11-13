@@ -1,17 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { MIN_PASSWORD_LENGTH, STRONG_PASSWORD_LENGTH } from 'app/constants';
-import { lettersNumbersMixtureRegx, specialCharacterRegx, uppercaseLowercaseMixtureRegx } from 'app/defaults';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { IconButton } from 'components/ui/IconButton';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
-import { PasswordStrengthIndicator, PasswordValidation } from 'screens/onboarding/common/CreatePassword';
+import { PasswordStrengthIndicator } from 'screens/onboarding/common/CreatePassword';
+import { isAcceptableNewPassword, validateNewPassword } from 'screens/onboarding/common/password-policy';
 
 export interface ExportFilePasswordProps {
   onGoNext: () => void;
@@ -57,26 +56,10 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
     }
   }, []);
 
-  const [passwordValidation, setPasswordValidation] = useState<PasswordValidation>({
-    minChar: false,
-    cases: false,
-    number: false,
-    specialChar: false,
-    strongPasswordLength: passwordValue.length >= STRONG_PASSWORD_LENGTH
-  });
-
-  useEffect(() => {
-    setPasswordValidation({
-      minChar: passwordValue.length >= MIN_PASSWORD_LENGTH,
-      cases: uppercaseLowercaseMixtureRegx.test(passwordValue),
-      number: lettersNumbersMixtureRegx.test(passwordValue),
-      specialChar: specialCharacterRegx.test(passwordValue),
-      strongPasswordLength: passwordValue.length >= STRONG_PASSWORD_LENGTH
-    });
-  }, [passwordValue]);
+  const passwordValidation = useMemo(() => validateNewPassword(passwordValue), [passwordValue]);
 
   const isValidPassword = useMemo(
-    () => Object.values(passwordValidation).filter(Boolean).length > 1 && passwordValue === verifyPassword,
+    () => isAcceptableNewPassword(passwordValidation) && passwordValue === verifyPassword,
     [passwordValidation, passwordValue, verifyPassword]
   );
 

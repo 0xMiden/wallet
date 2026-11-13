@@ -3223,6 +3223,10 @@
     "message": "Cüzdanınızı yedekleyin",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Gizlenmiş kurtarma ifadesi",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Göster",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 harf, 1 rakam",
-    "englishSource": "8 characters, 1 number"
+    "message": "En az 12 karakter",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "En az 8 karakter ve en az 1 rakam içermelidir",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "En az 12 karakter kullanın. Rakamlar, semboller ve büyük/küçük harf karışımı şifrenizi daha güçlü hale getirir.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Bu 12 kelimeyi not alın ve güvenli bir yerde saklayın.",
@@ -8687,5 +8691,71 @@
   "arcadePostingPolicy": {
     "message": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Otomatik kilitleme",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Cüzdan bu kadar uzun süre arka planda kaldığında kilitlenir.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ dakika",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "Geri Dönüş Bekleniyor",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Talep Etmeye Hazır",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Fonların İadesi",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "İade Edilen Fonlar",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Paralarınız Miden'de kalır. $block$ blokundan sonra bu paraları talep edebilirsiniz.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Paralarınızı geri almak için talepte bulunun ve cüzdanınıza aktarın.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Paralarınız cüzdanınıza iade ediliyor.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Paralarınız cüzdanınıza geri döndü.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Hedef adresinize gönderilen fonlar.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Bu note kullanıldı, ancak ödeme henüz onaylanmadı. Hedefinizi ve Miden bakiyenizi kontrol edin.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Para durumunu kontrol edilemiyor. Lütfen tekrar deneyin.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

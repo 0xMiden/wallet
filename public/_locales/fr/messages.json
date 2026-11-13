@@ -3223,6 +3223,10 @@
     "message": "Sauvegardez votre portefeuille",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Phrase de récupération masquée",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Afficher",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 caractères, 1 chiffre",
-    "englishSource": "8 characters, 1 number"
+    "message": "Au moins 12 caractères",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Au moins 8 caractères, dont au moins 1 chiffre",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Utilisez au moins 12 caractères. Les chiffres, les symboles et l’utilisation de majuscules et de minuscules renforcent la sécurité.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Notez ces 12 mots et conservez-les dans un endroit sûr.",
@@ -8688,5 +8692,71 @@
   "arcadePostingPolicy": {
     "message": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Verrouillage automatique",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Verrouille le portefeuille dès qu’il est resté inactif en arrière-plan pendant cette durée.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "En attente de retour",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Prêt à réclamer",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Remboursement des fonds",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Fonds restitués",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Vos fonds restent sur Miden. Vous pourrez les récupérer après le bloc $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Récupérez vos fonds pour les transférer vers votre portefeuille.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Vos fonds sont en cours de restitution sur votre portefeuille.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Vos fonds ont été reversés sur votre portefeuille.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Fonds envoyés à votre destinataire.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Cette note a été utilisée, mais le paiement n’est pas confirmé. Vérifiez votre destination et votre solde Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Impossible de vérifier l’état des fonds. Veuillez réessayer.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }
