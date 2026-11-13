@@ -8,6 +8,9 @@ import { expect, test } from '../fixtures/extension';
 // Only cleared Settings/Unlock screens are retained, never private inputs or ceremony results.
 test.use({ trace: 'off', video: 'off', screenshot: 'off' });
 
+// Runner-only observations survive page reloads and never enter artifacts or wallet state.
+const prfObservations = new WeakMap<BrowserContext, { secrets: Set<string>; count: number }>();
+
 function overrideOs() {
   const data: unknown = Reflect.get(navigator, 'userAgentData');
   if (!data || typeof data !== 'object') throw new Error('Browser UA-CH unavailable');
@@ -30,10 +33,22 @@ async function simulateEligibleOs(context: BrowserContext) {
   await context.addInitScript(overrideOs);
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
   await worker.evaluate(overrideOs);
+  const observations = { secrets: new Set<string>(), count: 0 };
+  prfObservations.set(context, observations);
+  await context.exposeBinding('__platformCapturePrf', (_source, value: unknown) => {
+    if (typeof value !== 'string' || value.length !== 44) throw new Error('Invalid private PRF observation');
+    const bytes = Buffer.from(value, 'base64');
+    if (bytes.length !== 32) throw new Error('Invalid private PRF observation');
+    observations.count += 1;
+    observations.secrets.add(value);
+    observations.secrets.add(bytes.toString('base64url'));
+    observations.secrets.add(bytes.toString('hex'));
+    bytes.fill(0);
+  });
   await context.addInitScript(() => {
-    const secrets = new Set<string>();
     let ceremonies = 0;
-    const observe = (credential: Credential | null) => {
+    let settled = 0;
+    const observe = async (credential: Credential | null) => {
       if (credential instanceof PublicKeyCredential) {
         const extensions: unknown = credential.getClientExtensionResults();
         const prf: unknown = extensions && typeof extensions === 'object' ? Reflect.get(extensions, 'prf') : null;
@@ -42,30 +57,28 @@ async function simulateEligibleOs(context: BrowserContext) {
         if (first instanceof ArrayBuffer) {
           const bytes = new Uint8Array(first);
           const base64 = btoa(String.fromCharCode(...bytes));
-          secrets.add(base64);
-          secrets.add(base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''));
-          secrets.add(Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join(''));
+          const capture: unknown = Reflect.get(window, '__platformCapturePrf');
+          if (typeof capture !== 'function') throw new Error('Private PRF observer unavailable');
+          await capture(base64);
         }
       }
       return credential;
     };
     const create = navigator.credentials.create.bind(navigator.credentials);
     const get = navigator.credentials.get.bind(navigator.credentials);
-    navigator.credentials.create = async options => {
+    const invoke = async (ceremony: () => Promise<Credential | null>) => {
+      const result = ceremony();
       ceremonies += 1;
-      return observe(await create(options));
+      try {
+        return await observe(await result);
+      } finally {
+        settled += 1;
+      }
     };
-    navigator.credentials.get = async options => {
-      ceremonies += 1;
-      return observe(await get(options));
-    };
+    navigator.credentials.create = options => invoke(() => create(options));
+    navigator.credentials.get = options => invoke(() => get(options));
     Reflect.set(window, '__platformCalls', () => ceremonies);
-    Reflect.set(window, '__platformLeaks', async (messages: string[]) => {
-      const persisted = JSON.stringify(await chrome.storage.local.get(null));
-      return [...secrets].some(
-        secret => persisted.includes(secret) || messages.some(message => message.includes(secret))
-      );
-    });
+    Reflect.set(window, '__platformSettled', () => settled);
   });
 }
 
@@ -215,12 +228,28 @@ async function setup(context: BrowserContext, id: string) {
 }
 
 async function privacy(page: Page, messages: string[]) {
-  const leaks = await page.evaluate(async lines => {
-    const check: unknown = Reflect.get(window, '__platformLeaks');
-    if (typeof check !== 'function') throw new Error('Privacy instrumentation unavailable');
-    return Boolean(await check(lines));
-  }, messages);
-  expect(leaks, 'No PRF output may enter durable storage or console messages').toBe(false);
+  const observations = prfObservations.get(page.context());
+  if (!observations) throw new Error('Private PRF observations unavailable');
+  const persisted = await page.evaluate(async () => JSON.stringify(await chrome.storage.local.get(null)));
+  const containsPrf = (text: string) => [...observations.secrets].some(secret => text.includes(secret));
+  expect(containsPrf(persisted) || messages.some(containsPrf), 'No PRF output may enter storage or logs').toBe(false);
+  if (observations.count !== 0) {
+    const secret = observations.secrets.values().next().value;
+    if (typeof secret !== 'string') throw new Error('Private PRF observation missing');
+    expect(containsPrf(JSON.stringify({ privateReadProbe: secret })), 'A memory-only leaked read must be detected').toBe(true);
+  }
+}
+
+async function ceremonyCounts(page: Page) {
+  return page.evaluate(() => {
+    const calls: unknown = Reflect.get(window, '__platformCalls');
+    const completed: unknown = Reflect.get(window, '__platformSettled');
+    if (typeof calls !== 'function' || typeof completed !== 'function') throw new Error('Ceremony observer unavailable');
+    const started: unknown = calls();
+    const settled: unknown = completed();
+    if (typeof started !== 'number' || typeof settled !== 'number') throw new Error('Invalid ceremony counts');
+    return { started, settled };
+  });
 }
 
 async function storedRecord(page: Page) {
@@ -243,6 +272,8 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
 }, info) => {
   test.setTimeout(360_000);
   const page = await setup(extensionContext, extensionId);
+  const observations = prfObservations.get(extensionContext);
+  if (!observations) throw new Error('Private PRF observer unavailable');
   const messages: string[] = [];
   page.on('console', message => messages.push(message.text()));
   const { protocol, authenticatorId } = await authenticator(page);
@@ -256,6 +287,7 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   await privateInput(page, 'Password123!');
   await page.getByRole('button', { name: 'Enable passkey unlock', exact: true }).click();
   await expect(page.getByText('Passkey unlock is enabled for this wallet.')).toBeVisible({ timeout: 60_000 });
+  expect(observations.count).toBe(1);
   const record = await storedRecord(page);
   expect(record?.keys).toEqual(['backupEligible', 'credentialId', 'prfSalt', 'version', 'wrappedKey']);
   expect(record?.version).toBe(1);
@@ -324,9 +356,11 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   await expect(page.getByRole('button', { name: 'Unlock with passkey', exact: true })).toBeVisible();
   expect(assertions).toBe(priorAssertions);
   await snapshot(page, info, 'locked-sidebar-dark');
+  const prfsBeforeUnlock = observations.count;
   await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
   await expect(page.getByTestId('unlock-password')).toHaveCount(0, { timeout: 30_000 });
-  expect(assertions).toBeGreaterThan(priorAssertions);
+  expect(assertions).toBe(priorAssertions + 1);
+  expect(observations.count).toBe(prfsBeforeUnlock + 1);
   await privacy(page, messages);
 
   await request(page, { type: 'LOCK_REQUEST' });
@@ -342,15 +376,10 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
 
   await request(page, { type: 'LOCK_REQUEST' });
   await protocol.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
+  const beforeCancellation = await ceremonyCounts(page);
   await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const calls: unknown = Reflect.get(window, '__platformCalls');
-        return typeof calls === 'function' ? calls() : -1;
-      })
-    )
-    .toBeGreaterThan(0);
+  await expect.poll(async () => (await ceremonyCounts(page)).started).toBe(beforeCancellation.started + 1);
+  expect((await ceremonyCounts(page)).settled).toBe(beforeCancellation.settled);
   await page.reload();
   await expect(page.getByTestId('unlock-password')).toBeVisible();
   await protocol.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
@@ -414,6 +443,7 @@ test('browser capability true does not enroll a virtual provider without actual 
   await page.getByRole('button', { name: 'Enable passkey unlock', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible({ timeout: 70_000 });
   expect(await storedRecord(page)).toBeNull();
+  expect(prfObservations.get(extensionContext)?.count).toBe(0);
   await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
   await privacy(page, messages);
 });
@@ -424,10 +454,35 @@ test('an authorized reset during a native ceremony cannot publish a new protecto
 }) => {
   test.setTimeout(240_000);
   const page = await setup(extensionContext, extensionId);
+  const messages: string[] = [];
+  page.on('console', message => messages.push(message.text()));
+  await page.evaluate(() => {
+    const intercom: unknown = Reflect.get(window, '__TEST_INTERCOM__');
+    if (!intercom || typeof intercom !== 'object') throw new Error('Existing test intercom unavailable');
+    const send: unknown = Reflect.get(intercom, 'request');
+    if (typeof send !== 'function') throw new Error('Existing test request unavailable');
+    let abandoned = 0;
+    const observe = async (payload: unknown, ...options: unknown[]) => {
+      const command: unknown = payload && typeof payload === 'object' ? Reflect.get(payload, 'command') : null;
+      const isAbandon = payload && typeof payload === 'object' &&
+        Reflect.get(payload, 'type') === 'PLATFORM_UNLOCK_REQUEST' &&
+        command && typeof command === 'object' && Reflect.get(command, 'action') === 'abandon';
+      try {
+        return await send.call(intercom, payload, ...options);
+      } finally {
+        if (isAbandon) abandoned += 1;
+      }
+    };
+    if (!Reflect.set(intercom, 'request', observe)) throw new Error('Test request observer unavailable');
+    Reflect.set(window, '__platformAbandoned', () => abandoned);
+  });
   const { protocol, authenticatorId } = await authenticator(page);
   await protocol.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
   await privateInput(page, 'Password123!');
+  const beforeReset = await ceremonyCounts(page);
   await page.getByRole('button', { name: 'Enable passkey unlock', exact: true }).click();
+  await expect.poll(async () => (await ceremonyCounts(page)).started).toBe(beforeReset.started + 1);
+  expect((await ceremonyCounts(page)).settled).toBe(beforeReset.settled);
   await expect
     .poll(() =>
       page.evaluate(async () => {
@@ -471,6 +526,12 @@ test('an authorized reset during a native ceremony cannot publish a new protecto
   });
   await request(page, { type: 'PLATFORM_RESET_REQUEST', nonce });
   await protocol.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
+  await expect.poll(async () => (await ceremonyCounts(page)).settled).toBe(beforeReset.settled + 1);
+  await expect.poll(() => page.evaluate(() => {
+    const completed: unknown = Reflect.get(window, '__platformAbandoned');
+    if (typeof completed !== 'function') throw new Error('Abandonment observer unavailable');
+    return completed();
+  })).toBe(1);
   await expect.poll(() => storedRecord(page)).toBeNull();
   expect(
     await page.evaluate(
@@ -487,4 +548,5 @@ test('an authorized reset during a native ceremony cannot publish a new protecto
       })
     )
     .toBe(true);
+  await privacy(page, messages);
 });

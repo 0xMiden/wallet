@@ -17,55 +17,27 @@ jobs:
       - uses: ./.github/actions/inject-linked-web-sdk-pr
       - uses: ./.github/actions/inject-linked-guardian-pr
       - uses: ./.github/actions/yarn-install
-      - run: yarn prettier --write src/lib/platform-auth/webauthn.ts src/lib/platform-auth/webauthn.test.ts src/app/templates/PasskeyUnlockSettings.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/lib/miden/platform-reset.test.ts
+      - run: yarn prettier --write src/lib/platform-auth/webauthn.ts src/lib/platform-auth/webauthn.test.ts src/app/templates/PasskeyUnlockSettings.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/lib/miden/platform-reset.test.ts playwright/tests/platform-unlock.spec.ts playwright/tests/platform-startup.spec.ts
       - run: yarn tsc --noEmit --pretty false
       - run: yarn eslint src/lib/platform-auth/webauthn.ts src/lib/platform-auth/webauthn.test.ts src/app/templates/PasskeyUnlockSettings.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/lib/miden/platform-reset.test.ts
+      - run: yarn lint:e2e
       - run: yarn jest src/lib/platform-auth/webauthn.test.ts src/lib/miden/platform-reset.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/user-visible-error.guard.test.ts src/app/templates/PasskeyUnlockSettings.test.tsx src/app/pages/Unlock.test.tsx src/lib/i18n/locale-bundle-parity.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --maxWorkers=2
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: platform-fix-source-formatted
+          name: platform-private-proof-formatted
           path: |
             src/lib/platform-auth/webauthn.ts
             src/lib/platform-auth/webauthn.test.ts
             src/app/templates/PasskeyUnlockSettings.tsx
             src/app/templates/PasskeyUnlockSettings.test.tsx
             src/lib/miden/platform-reset.test.ts
-          retention-days: 3
-      - name: Prove the held-writer assertion detects a missing queue
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('src/lib/miden/platform-reset.ts')
-          text = p.read_text()
-          old = 'return getAccountsWriteQueue().add(() => finishResetInTurn(nonce));'
-          assert text.count(old) == 1
-          p.write_text(text.replace(old, 'return finishResetInTurn(nonce);'))
-          PY
-          set +e
-          yarn jest src/lib/miden/platform-reset.test.ts --testNamePattern='does not clear before an existing account-writer turn ends' --maxWorkers=2 --json --outputFile=reset-proof-counterfactual.json
-          result=$?
-          set -e
-          test "$result" -eq 1
-          python3 - <<'PY'
-          import json, re
-          data = json.load(open('reset-proof-counterfactual.json'))
-          assert data['numFailedTests'] == 1 and data['numPassedTests'] == 0
-          failures = [test for suite in data['testResults'] for test in suite['assertionResults'] if test['status'] == 'failed']
-          assert len(failures) == 1 and 'existing account-writer turn ends' in failures[0]['fullName']
-          message = re.sub(r'\x1b\[[0-9;]*m', '', '\n'.join(failures[0]['failureMessages']))
-          assert 'Expected: 1' in message and 'Received: 0' in message
-          print('Counterfactual caught: an unqueued reset fails the held-writer assertion')
-          PY
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: reset-serialization-counterfactual
-          path: reset-proof-counterfactual.json
+            playwright/tests/platform-unlock.spec.ts
+            playwright/tests/platform-startup.spec.ts
           retention-days: 3
   virtual-prf-integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -87,52 +59,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: platform-replacement-and-startup-green
+          name: platform-private-proof-browser
           path: |
             test-results/
             playwright/tests/platform-unlock.spec.ts
             playwright/tests/platform-startup.spec.ts
             dist/chrome_unpacked/manifest.json
           if-no-files-found: error
-          retention-days: 3
-      - name: Inject a delayed unauthorized marker-only wipe
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('src/lib/miden/platform-reset.ts')
-          text = p.read_text()
-          old = 'if (authorization === null) return;'
-          assert text.count(old) == 1
-          bad = '''if (authorization === null) {
-              const provider = getStorageProvider();
-              const marker = (await provider.get([PLATFORM_RESET_STORAGE_KEY]))[PLATFORM_RESET_STORAGE_KEY];
-              if (marker !== undefined) {
-                await new Promise<void>(resolve => setTimeout(resolve, 5000));
-                await provider.remove(['vault_key_password']);
-              }
-              return;
-            }'''
-          p.write_text(text.replace(old, bad))
-          PY
-      - run: MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MIDEN_E2E_DISABLE_SIDEPANEL=false yarn build:chrome
-      - name: Prove negative startup waits for reset settlement
-        run: |
-          set +e
-          SKIP_EXTENSION_BUILD=true xvfb-run -a yarn test:e2e platform-startup.spec.ts --grep='an editable reset marker cannot authorize a cold-start wipe' --workers=1 --retries=0 > startup-proof-counterfactual.log 2>&1
-          result=$?
-          set -e
-          test "$result" -eq 1
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          text = re.sub(r'\x1b\[[0-9;]*m', '', Path('startup-proof-counterfactual.log').read_text())
-          assert '1 failed' in text and 'an editable reset marker cannot authorize a cold-start wipe' in text
-          assert 'Expected: "fixture protector"' in text and 'Received: undefined' in text
-          print('Counterfactual caught: a delayed marker-authorized wipe fails after startup settlement')
-          PY
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: startup-readiness-counterfactual
-          path: startup-proof-counterfactual.log
           retention-days: 3
