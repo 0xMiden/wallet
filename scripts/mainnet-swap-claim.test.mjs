@@ -452,6 +452,12 @@ for (const [name, change] of [
     }
   ],
   [
+    'inconsistent previously paid fees',
+    value => {
+      value.state.paidFees = '1';
+    }
+  ],
+  [
     'insufficient fee allowance',
     value => {
       value.state.feeBudget = '400';
@@ -505,6 +511,8 @@ for(const [name,change] of [
   ['issued claim',v=>{v.state.forwardClaimAuthority={nonce:'issued'};}],
   ['unrelated target credit',v=>{v.balances.request=1n;}],
   ['native credit',v=>{v.balances.native+=1000n;v.balances.offer=v.balances.native;}],
+  ['prepaid forward fees',v=>{v.state.paidFees='1';}],
+  ['creation debit above frozen bound',v=>{v.balances.native-=211n;v.balances.offer=v.balances.native;}],
   ['fee reserve',v=>{v.state.feeBudget='300';}],
   ['reduced loss cap',v=>{v.state.lossBudgetUsdMicros='1';}]
 ]) test(`refuses forward claim recovery with ${name}`,()=>{
