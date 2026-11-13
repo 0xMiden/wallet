@@ -115,3 +115,34 @@ test_mutate_qualification_selector_noise_regression_red() {
     assert_nogrep "console noise is not the summary" "$T/mq-selector-noise.out" \
       '^rev-mutate: PINNED .*console\.error' )
 }
+
+test_mutate_qualification_retains_opening_and_closing_diagnostics() {
+  ( local arm cmd out rc
+    for arm in opening closing closing-pinned; do
+      mq_prepare "$arm-diagnostics" || exit 1
+      if [ "$arm" = opening ]; then
+        cmd='echo "opening diagnostic stdout"; echo "opening diagnostic stderr" >&2; false'
+      elif [ "$arm" = closing-pinned ]; then
+        cmd="n=\$(cat '$T/mq-pinned-diagnostics-counter' 2>/dev/null || echo 0); n=\$((n+1)); echo \$n > '$T/mq-pinned-diagnostics-counter'; if [ \$n -lt 3 ]; then grep -q B f.txt || { echo 'FAIL f.txt keeps the uppercase B'; exit 1; }; else echo 'closing-pinned diagnostic stdout'; echo 'closing-pinned diagnostic stderr' >&2; false; fi"
+      else
+        cmd="n=\$(cat '$T/mq-diagnostics-counter' 2>/dev/null || echo 0); n=\$((n+1)); echo \$n > '$T/mq-diagnostics-counter'; [ \$n -lt 3 ] && exit 0; echo 'closing diagnostic stdout'; echo 'closing diagnostic stderr' >&2; false"
+      fi
+      out="$T/mq-$arm-diagnostics.out"
+      cp f.txt "$T/mq-$arm-expected" || exit 1
+      "$MUTATE_SRC" "$T/mq-$arm-diagnostics-session" "$cmd" > "$out" 2>&1; rc=$?
+      assert_eq "$arm failure measures nothing" "$rc" 4
+      assert_grep "$arm stdout retained" "$out" "^$arm diagnostic stdout$"
+      assert_grep "$arm stderr retained" "$out" "^$arm diagnostic stderr$"
+      assert_grep "$arm output labeled untrusted" "$out" \
+        "BEGIN DIAGNOSTIC ${arm%%-*} command .*untrusted command output; not a verdict"
+      assert_exit "$arm leaves complete fix bytes" 0 cmp -s "$T/mq-$arm-expected" f.txt
+      if [ "$arm" = closing ]; then
+        assert_grep "closing failure outranks an unpinned hunk" "$out" 'UNPINNED f\.txt hunk 1'
+      elif [ "$arm" = closing-pinned ]; then
+        assert_grep "closing failure follows genuine mutant pin" "$out" \
+          '^rev-mutate: PINNED f\.txt hunk 1 - FAIL f\.txt keeps the uppercase B$'
+      else
+        assert_nogrep "opening failure makes no pin" "$out" 'rev-mutate: PINNED'
+      fi
+    done )
+}

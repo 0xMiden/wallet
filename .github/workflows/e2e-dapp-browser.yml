@@ -1,4 +1,4 @@
-name: Mutation reporter additional regression RED
+name: Mutation reporter qualification GREEN
 on:
   workflow_dispatch:
     inputs:
@@ -9,56 +9,48 @@ on:
 permissions:
   contents: read
 jobs:
-  reporter-red:
+  reporter-green:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - lane: original-full-output
-            payload: mutation-reporter-qualification
-            selector: mutate_qualification_full_output_red
-          - lane: selector-noise
-            payload: mutation-reporter-selector-noise-red
-            selector: mutate_qualification_selector_noise_regression_red
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Bind immutable source and selected payload
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bind immutable source and complete candidate
         env:
           EXPECTED_SOURCE: ${{ inputs.expected_source }}
-          PAYLOAD: ${{ matrix.payload }}
-          LANE: ${{ matrix.lane }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           test "$GITHUB_SHA" = "$EXPECTED_SOURCE"
+          test "$(id -u)" -ne 0
           mkdir -p "$RUNNER_TEMP/reporter-proof"
-          printf 'source=%s\nrun=%s\nattempt=%s\nlane=%s\npurpose=expected functional RED, no adoption\n' \
-            "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$LANE" > "$RUNNER_TEMP/reporter-proof/provenance.txt"
-          cd ".github/qa/$PAYLOAD"
+          printf 'source=%s\nrun=%s\nattempt=%s\npurpose=reporter-only qualification, no semantic adoption\n' \
+            "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/reporter-proof/provenance.txt"
+          node --version > "$RUNNER_TEMP/reporter-proof/node-version.txt"
+          id > "$RUNNER_TEMP/reporter-proof/runner-identity.txt"
+          cd .github/qa/mutation-reporter-selector-noise-red
           sha256sum -c SHA256SUMS | tee "$RUNNER_TEMP/reporter-proof/source-checksums.txt"
           cp SHA256SUMS "$RUNNER_TEMP/reporter-proof/SHA256SUMS"
-      - name: Observe the predicted functional failure
-        env:
-          PAYLOAD: ${{ matrix.payload }}
-          SELECTOR: ${{ matrix.selector }}
+          grep -h '^test_mutate_.*()' baseline/tests/t-mutate*.sh > "$RUNNER_TEMP/reporter-proof/function-inventory.txt"
+      - name: Run all qualification and original mutation controls
         run: |
           set -uo pipefail
-          cd ".github/qa/$PAYLOAD"
+          cd .github/qa/mutation-reporter-selector-noise-red
           set +e
-          bash baseline/tests/run-tests.sh "$SELECTOR" 2>&1 | tee "$RUNNER_TEMP/reporter-proof/functional-red.log"
+          bash baseline/tests/run-tests.sh mutate_ 2>&1 | tee "$RUNNER_TEMP/reporter-proof/qualification-green.log"
           rc=${PIPESTATUS[0]}
           printf '%s\n' "$rc" > "$RUNNER_TEMP/reporter-proof/actual-test-exit.txt"
           exit "$rc"
-      - name: Preserve actual regression evidence
+      - name: Preserve source-bound qualification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mutation-reporter-red-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: mutation-reporter-green-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/reporter-proof
           if-no-files-found: error
           retention-days: 14

@@ -80,7 +80,7 @@ unmeasurable() { echo "rev-mutate: UNMEASURED $*" >&2; unmeasured=1; }
 # comparison is possible at all. This script never makes it: it has no prediction to read.
 failure_line() {
   local line
-  line=$(tr -d '\r' < "$1" | grep -m1 -E -i 'syntaxerror|typeerror|referenceerror|rangeerror|expression expected|ts[0-9]{4}:|assertionerror|assertion failed|expected(:| the )|received:|panic:')
+  line=$(tr -d '\r' < "$1" | grep -m1 -E -i '^[[:space:]]*(syntaxerror:|typeerror:|referenceerror:|rangeerror:|expression expected|ts[0-9]{4}:|assertionerror:|assertion failed|expected(:| the )|received:|panic:)')
   [ -n "$line" ] || line=$(tr -d '\r' < "$1" | grep -m1 -E -i '^[[:space:]]*fail([[:space:]:]|$)|^[[:space:]]*not ok([[:space:]]|$)')
   [ -n "$line" ] || line=$(tr -d '\r' < "$1" | grep -m1 -E -i 'fail|error|assert|expect|panic|not ok')
   [ -n "$line" ] || line=$(tr -d '\r' < "$1" | grep -v '^[[:space:]]*$' | tail -1)
