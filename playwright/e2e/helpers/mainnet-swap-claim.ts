@@ -174,6 +174,24 @@ export function authorizeMainnetSwapRecoveryReturn(
   };
 }
 
+export interface MainnetSwapReturnAbsence {
+  noteId: string;
+  atBlock: number;
+  previousRunId: string;
+  noteCount: number;
+}
+
+export function authorizeMainnetSwapReturnReplacement(
+  state: MainnetSwapCheckpoint,
+  _evidence: MainnetSwapPaybackEvidence,
+  _balances: MainnetSwapBalances,
+  _runId: string,
+  _authorizedAt: string,
+  _absence: MainnetSwapReturnAbsence
+): MainnetSwapCheckpoint {
+  return state;
+}
+
 export async function readMainnetSwapPayback(
   rpcUrl: string,
   scope: MainnetSwapPaybackScope
