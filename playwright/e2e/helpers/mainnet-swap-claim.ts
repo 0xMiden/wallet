@@ -24,6 +24,7 @@ import { inspectTestMainnetSwapRequest, type TestMainnetSwapScope } from '../../
 import { withRpcTimeout } from '../../../src/lib/miden-chain/rpc-timeout';
 import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
 import type { MainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
+import { SWAP_LOSS_CAP, SWAP_TX_FEE_MULTIPLE } from './mainnet-swap-plan';
 
 export interface MainnetSwapPaybackScope extends TestMainnetSwapScope {
   noteId: string;
@@ -82,12 +83,48 @@ export interface MainnetSwapBalances { offer: bigint; request: bigint; native: b
 
 export function authorizeMainnetSwapRecoveryReturn(
   state: MainnetSwapCheckpoint,
-  _evidence: MainnetSwapPaybackEvidence,
-  _balances: MainnetSwapBalances,
-  _runId: string,
-  _authorizedAt: string
+  evidence: MainnetSwapPaybackEvidence,
+  balances: MainnetSwapBalances,
+  runId: string,
+  authorizedAt: string
 ): MainnetSwapCheckpoint {
-  return state;
+  const original = state.forwardRequestAuthority;
+  if (state.phase !== 'forward-authorized' || !original || state.recoveryReturnAuthorizedAt !== undefined ||
+    state.reverseRequestAuthority !== undefined || state.reverseOrderId !== undefined || state.returnAmount !== undefined || state.returnBaseline !== undefined)
+    throw new Error('Recovery return already prepared or issued; never renew its authority');
+  if (!/^\d{1,25}$/.test(runId) || runId === state.sourceRunId || !Number.isFinite(Date.parse(authorizedAt)) || Date.parse(authorizedAt) < Date.parse(state.updatedAt))
+    throw new Error('Invalid first recovery grant identity or time');
+  if (evidence.originalNoteId !== original.noteId ||
+    ![evidence.orderId, evidence.serialZeroOrderId].includes(original.orderId) ||
+    state.forwardOrderId !== original.orderId || evidence.claimedAtBlock === undefined ||
+    ![evidence.originalCreatedAtBlock, evidence.createdAtBlock, evidence.claimedAtBlock].every(height => Number.isSafeInteger(height) && height > 0) ||
+    evidence.createdAtBlock < evidence.originalCreatedAtBlock || evidence.claimedAtBlock < evidence.createdAtBlock ||
+    evidence.amount < BigInt(original.minimumReceive))
+    throw new Error('Original recovery proceeds or protocol identity are not proved');
+  if (state.offer.hex !== state.native.hex || state.request.hex === state.native.hex || state.offer.balance !== state.native.balance ||
+    state.offer.usdMicros !== state.native.usdMicros || state.offer.decimals !== state.native.decimals ||
+    balances.offer !== balances.native || balances.request - BigInt(state.request.balance) !== evidence.amount ||
+    (state.forwardRefunded !== undefined && state.forwardRefunded !== '0') ||
+    (state.forwardReceived !== undefined && state.forwardReceived !== evidence.amount.toString()))
+    throw new Error('Original recovery vault balances contain unrelated proceeds or debits');
+  const costs = BigInt(state.native.balance) - balances.native - BigInt(state.principal);
+  if (costs < 0n || costs < BigInt(state.paidFees) || costs > BigInt(state.feeBudget) ||
+    BigInt(state.feeBudget) - costs < 2n * SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee))
+    throw new Error('Original recovery cost or remaining native fee reserve is unsafe');
+  const unit = 10n ** BigInt(state.native.decimals);
+  const price = BigInt(state.native.usdMicros);
+  const loss = BigInt(state.principal) - BigInt(state.reverseMinimum);
+  const projected = ((loss > 0n ? loss : 0n) * price + unit - 1n) / unit + (BigInt(state.feeBudget) * price + unit - 1n) / unit;
+  if (projected > SWAP_LOSS_CAP || BigInt(state.reverseMinimum) * price / unit < 1_000_000n)
+    throw new Error('Original recovery price envelope exceeds the loss budget or wallet minimum');
+  return {
+    ...state, phase: 'reverse-authorized', authorizationRunId: runId, recoveredRunId: runId,
+    recoveryReturnAuthorizedAt: authorizedAt, updatedAt: authorizedAt,
+    forwardOrderId: evidence.orderId, forwardRequestAuthority: { ...original, orderId: evidence.orderId },
+    forwardReceived: evidence.amount.toString(), forwardRefunded: '0', paidFees: costs.toString(),
+    returnAmount: evidence.amount.toString(),
+    returnBaseline: { offer: balances.offer.toString(), request: balances.request.toString(), native: balances.native.toString() }
+  };
 }
 
 export async function readMainnetSwapPayback(
@@ -110,6 +147,10 @@ export async function readMainnetSwapPayback(
   )
     throw new Error('Missing exact original public PSWAP');
   const originalNote = original.note;
+  const [serialZero, protocolOrder] = originalNote.recipient().serialNum().toU64s();
+  if (serialZero === undefined || protocolOrder === undefined || ![serialZero.toString(), protocolOrder.toString()].includes(scope.orderId))
+    throw new Error('Original recorded protocol identity is not committed by its exact note');
+  const exactScope = { ...scope, orderId: protocolOrder.toString() };
   const originalHeight = original.inclusionProof.location().blockNum();
   await verifyMainnetMidenNoteInclusion(rpcUrl, scope.noteId, originalHeight, scope.accountId);
   const consumedHeight = await withRpcTimeout(
@@ -142,7 +183,7 @@ export async function readMainnetSwapPayback(
   )
     throw new Error('Maker-block public note identities changed');
   const candidates = fetched.filter(
-    note => note.note?.recipient().serialNum().toU64s()[1]?.toString() === scope.orderId
+    note => note.note?.recipient().serialNum().toU64s()[1]?.toString() === exactScope.orderId
   );
   if (candidates.length > 1) throw new Error('Multiple paybacks for the original full-fill order');
   const candidate = candidates[0];
@@ -150,7 +191,7 @@ export async function readMainnetSwapPayback(
   const candidateNote = candidate.note;
   if (candidateNote.id().toString() !== candidate.noteId.toString())
     throw new Error('Public payback body differs from its committed identity');
-  const amount = inspectMainnetSwapPayback(originalNote, candidateNote, scope);
+  const amount = inspectMainnetSwapPayback(originalNote, candidateNote, exactScope);
   if (candidate.inclusionProof.location().blockNum() !== consumedHeight)
     throw new Error('Payback does not share the original consumption block');
   const noteId = candidate.noteId.toString();
@@ -164,7 +205,7 @@ export async function readMainnetSwapPayback(
   if (serialZeroOrderId === undefined) throw new Error('Missing original serial identity');
   return {
     originalNoteId: scope.noteId,
-    orderId: scope.orderId,
+    orderId: exactScope.orderId,
     serialZeroOrderId,
     noteId,
     amount,
