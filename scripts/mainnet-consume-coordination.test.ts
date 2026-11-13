@@ -79,6 +79,16 @@ it('arms one actual account/note/canonical-byte scope with a fresh nonce and no 
   expect(data[KEY]).toEqual({ ...armed, status: 'armed' });
   expect(data[`${KEY}_required`]).toEqual({ accountId: armed.accountId, nonce: armed.nonce });
 });
+it('atomically replaces only an explicit denial marker with the first exact claim authority', async () => {
+  data[`${KEY}_required`] = { status: 'blocked' };
+  const armed = await armMainnetConsumeAuthorization(page, scope);
+  expect(data[KEY]).toEqual({ ...armed, status: 'armed' });
+  expect(data[`${KEY}_required`]).toEqual({ accountId: armed.accountId, nonce: armed.nonce });
+});
+it('never treats a prior real marker disguised with blocked status as a fresh denial', async () => {
+  data[`${KEY}_required`] = { status: 'blocked', accountId: handle.accountId, nonce: handle.nonce };
+  await expect(armMainnetConsumeAuthorization(page, scope)).rejects.toThrow(/unresolved|existing|authorization/i);
+});
 it('never renews original claim authority when only its policy disappeared', async () => {
   data[`${KEY}_required`] = { accountId: handle.accountId, nonce: handle.nonce };
   await expect(armMainnetConsumeAuthorization(page, scope)).rejects.toThrow(/unresolved|existing|authorization/i);
