@@ -170,7 +170,8 @@ describe('durable nightly swap authorization', () => {
     const state = withReplacement();
     const path = join(dir, 'replacement.json');
     saveMainnetSwapCheckpoint(path, state);
-    expect(loadMainnetSwapCheckpoint(path)).toMatchObject(state);
+    expect(loadMainnetSwapCheckpoint(path)).toMatchObject({ recoveryReturnReplacement: state.recoveryReturnReplacement, recoveryReturnAuthorizedAt: state.recoveryReturnAuthorizedAt, forwardRequestAuthority: state.forwardRequestAuthority });
+    expect(loadMainnetSwapCheckpoint(path)?.reverseRequestAuthority).toBeUndefined();
     expect(mainnetSwapRequestExpiresAt(state, 'reverse')).toBe(Date.parse(state.recoveryReturnReplacement.authorizedAt) + 300_000);
     expect(mainnetSwapRequestExpiresAt(state, 'forward')).toBe(mainnetSwapRequestExpiresAt(withRequest(), 'forward'));
     expect(state.recoveryReturnAuthorizedAt).toBe(withGrantedReturn().recoveryReturnAuthorizedAt);
@@ -187,6 +188,19 @@ describe('durable nightly swap authorization', () => {
       expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
     }
   );
+  it.each(['distinct replacement', 'reused expired nonce', 'weakened previous minimum'])('validates active replacement bytes: %s', kind => {
+    const state = withReplacement();
+    const previous = state.recoveryReturnReplacement.previous;
+    const active = { ...state, reverseOrderId: '99', reverseRequestAuthority: {
+      ...previous, nonce: '33333333-3333-4333-8333-333333333333', noteId: `0x${'d'.repeat(64)}`,
+      sha256: 'e'.repeat(64), canonicalSha256: 'f'.repeat(64), orderId: '99', expiresAt: Date.parse(state.updatedAt) + 60_000
+    } };
+    if (kind === 'reused expired nonce') active.reverseRequestAuthority.nonce = previous.nonce;
+    if (kind === 'weakened previous minimum') active.reverseRequestAuthority.minimumReceive = state.reverseMinimum;
+    const path = join(dir, 'active-replacement.json'); writeFileSync(path, JSON.stringify(active));
+    if (kind === 'distinct replacement') expect(loadMainnetSwapCheckpoint(path)?.reverseRequestAuthority).toEqual(active.reverseRequestAuthority);
+    else expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
+  });
   it('accepts a separately granted first recovery return without changing the original forward deadline', () => {
     const recovered = withGrantedReturn();
     const path = join(dir, 'recovery.json');

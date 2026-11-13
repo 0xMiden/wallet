@@ -183,13 +183,31 @@ export interface MainnetSwapReturnAbsence {
 
 export function authorizeMainnetSwapReturnReplacement(
   state: MainnetSwapCheckpoint,
-  _evidence: MainnetSwapPaybackEvidence,
-  _balances: MainnetSwapBalances,
-  _runId: string,
-  _authorizedAt: string,
-  _absence: MainnetSwapReturnAbsence
+  evidence: MainnetSwapPaybackEvidence,
+  balances: MainnetSwapBalances,
+  runId: string,
+  authorizedAt: string,
+  absence: MainnetSwapReturnAbsence
 ): MainnetSwapCheckpoint {
-  return state;
+  const previous = state.reverseRequestAuthority;
+  const baseline = state.returnBaseline;
+  if (state.phase !== 'reverse-authorized' || !previous || !state.recoveryReturnAuthorizedAt ||
+    state.recoveryReturnReplacement !== undefined || state.reverseClaimAuthority !== undefined || state.reverseReceived !== undefined ||
+    state.reverseOrderId !== previous.orderId || !state.authorizationRunId || runId === state.authorizationRunId ||
+    !Number.isFinite(Date.parse(authorizedAt)) || Date.parse(authorizedAt) <= previous.expiresAt ||
+    absence.previousRunId !== state.authorizationRunId || absence.noteId !== previous.noteId || absence.noteCount !== 0 ||
+    !Number.isSafeInteger(absence.atBlock) || absence.atBlock <= 0 || absence.atBlock < (evidence.claimedAtBlock ?? 0) ||
+    !baseline || baseline.offer !== balances.offer.toString() || baseline.request !== balances.request.toString() || baseline.native !== balances.native.toString())
+    throw new Error('Expired return replacement lacks exact unsubmitted original authority or unchanged balances');
+  const prepared = authorizeMainnetSwapRecoveryReturn({
+    ...state, phase: 'forward-authorized', reverseRequestAuthority: undefined, reverseOrderId: undefined,
+    recoveryReturnAuthorizedAt: undefined, returnAmount: undefined, returnBaseline: undefined
+  }, evidence, balances, runId, authorizedAt);
+  return {
+    ...prepared, recoveryReturnAuthorizedAt: state.recoveryReturnAuthorizedAt,
+    reverseMinimum: (BigInt(state.reverseMinimum) > BigInt(previous.minimumReceive) ? state.reverseMinimum : previous.minimumReceive),
+    recoveryReturnReplacement: { authorizedAt, previous: { ...previous }, previousRunId: state.authorizationRunId, absentAtBlock: absence.atBlock }
+  };
 }
 
 export async function readMainnetSwapPayback(
