@@ -15,7 +15,7 @@ import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
 import { MaskedSecretBox, SeedRevealToggle } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
-import { TextField } from 'components/ui/TextField';
+import { SECRET_REVEAL_MS, TextField } from 'components/ui/TextField';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
@@ -24,7 +24,7 @@ import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileO
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
-import { useRevealMask } from 'lib/ui/useRevealMask';
+import { revealMaskApplies, useRevealMask } from 'lib/ui/useRevealMask';
 import { truncateAddress } from 'utils/string';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
@@ -84,7 +84,13 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // captures. The hook withholds `true` until the native guard is actually
   // enabled, so the unprotected first frames are never rendered.
   const isGuardReady = useScreenshotGuard(secret !== null);
-  const mask = useRevealMask({ resetKey: secret });
+  // Off mobile the mask is a revealed key's only visibility state, so it carries the 30 s window the
+  // field cover gave the private key on main. A recovery phrase is written down and keeps no timer, and
+  // the hot-key view never had a cover.
+  const mask = useRevealMask({
+    resetKey: secret,
+    autoHideMs: reveal === 'private-key' ? SECRET_REVEAL_MS : undefined
+  });
   const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   // Keep parked dApp trays out of the way while the reveal screen is mounted.
   useHideDappBubblesWhileOpen(true);
@@ -262,6 +268,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             <TextField
               ref={secretFieldRef}
               secret
+              secretCover={!revealMaskApplies()}
               multiline
               rows={4}
               readOnly

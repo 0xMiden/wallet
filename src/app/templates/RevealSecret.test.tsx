@@ -5,6 +5,7 @@ import { act } from 'react-dom/test-utils';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SubPageHeaderConfig, SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
@@ -302,7 +303,7 @@ describe('RevealSecret', () => {
     expect(check).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('covers a revealed secret in the shared field until it is looked at', async () => {
+  it('shows a revealed secret in the shared field and leaves it legible when focus leaves', async () => {
     const container = await renderReveal('seed-phrase');
     await typePassword(container, 'pass');
     await act(async () => {
@@ -317,8 +318,8 @@ describe('RevealSecret', () => {
       container.querySelector<HTMLButtonElement>('[data-testid="seed-reveal-toggle"]')!.click();
     });
     const field = container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!;
-    // The shared multi-line field on `fill`. Off mobile the page focuses it on reveal, so the
-    // words are readable; they go back behind the design system's cover the moment focus leaves.
+    // The shared multi-line field on `fill`, focused and selected on Show. Off mobile the mask is
+    // its only visibility state, so focus leaving the field does not frost it.
     expect(field.tagName).toBe('TEXTAREA');
     expect(field.closest('div.bg-fill')).not.toBeNull();
     expect(document.activeElement).toBe(field);
@@ -327,7 +328,8 @@ describe('RevealSecret', () => {
     await act(async () => {
       field.blur();
     });
-    expect(container.querySelector('[data-slot="secret-cover"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="secret-cover"]')).toBeNull();
+    expect(container.querySelector('#reveal-secret-secret')).toBe(field);
   });
 
   it('keeps the header frame while the protector check is pending, with no body or footer yet', async () => {
@@ -635,6 +637,61 @@ describe('RevealSecret', () => {
         Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
       }
       expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+    });
+
+    it('keeps a shown private key legible when focus leaves the field', async () => {
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+      await pressShow(container);
+      const field = container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!;
+      expect(document.activeElement).toBe(field);
+
+      await act(async () => {
+        field.blur();
+      });
+      expect(container.querySelector('[data-slot="secret-cover"]')).toBeNull();
+      expect(container.querySelector('#reveal-secret-secret')).toBe(field);
+      expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('masks the private key again SECRET_REVEAL_MS after Show', async () => {
+      jest.useFakeTimers();
+      try {
+        mockSecret = 'PRIVATE_KEY_HEX';
+        const container = await renderReveal('private-key');
+        await pressShow(container);
+        act(() => {
+          jest.advanceTimersByTime(SECRET_REVEAL_MS - 1);
+        });
+        expect(container.querySelector('#reveal-secret-secret')).not.toBeNull();
+        expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'true');
+
+        act(() => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+        expect(container.querySelector('[data-testid="reveal-secret-mask"]')).not.toBeNull();
+        expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'false');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps the field cover for a private key on mobile, where no mask applies', async () => {
+      mockIsMobile = true;
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+      const field = container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!;
+
+      expect(container.querySelector('[data-slot="secret-cover"]')).not.toBeNull();
+      await act(async () => {
+        field.focus();
+      });
+      expect(container.querySelector('[data-slot="secret-cover"]')).toBeNull();
+      await act(async () => {
+        field.blur();
+      });
+      expect(container.querySelector('[data-slot="secret-cover"]')).not.toBeNull();
     });
 
     it('shows a private key at once with no Show control on mobile', async () => {

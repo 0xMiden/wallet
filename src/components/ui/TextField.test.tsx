@@ -550,6 +550,30 @@ describe('TextField — secret', () => {
     render(<TextField value="not a secret" onChange={jest.fn()} />);
     expect(cover()).toBeNull();
   });
+
+  // For a caller whose own mask decides when the value is on screen: the field keeps every other
+  // secret guard, and only its cover and reveal timer step aside.
+  it('with secretCover off, never covers and keeps focus past the reveal window, still as a secret', () => {
+    jest.useFakeTimers();
+    try {
+      render(<TextField secret secretCover={false} multiline value="my private key" onChange={jest.fn()} />);
+      const field = screen.getByRole('textbox');
+      expect(cover()).toBeNull();
+
+      act(() => field.focus());
+      act(() => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS);
+      });
+      expect(field).toHaveFocus();
+      act(() => field.blur());
+      expect(cover()).toBeNull();
+      expect(field).toHaveAttribute('autocomplete', 'off');
+      expect(field).toHaveAttribute('spellcheck', 'false');
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('TextField: placeholder on focus (#503)', () => {
