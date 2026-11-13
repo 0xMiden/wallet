@@ -619,6 +619,19 @@ for (const name of [
     if (name === 'missing jobs') jobs.jobs = [];
     assert.throws(() => claims.assertFailedMainnetSwapReturnUpload(run, jobs, '456', 77));
   });
+test('accepts a claimed forward-settled checkpoint for its first recovery return', () => {
+  const {state,evidence,balances}=recoveryFixture();
+  state.phase='forward-settled';
+  state.forwardReceived=evidence.amount.toString();
+  state.forwardRefunded='0';
+  state.paidFees='266';
+  const result=claims.authorizeMainnetSwapRecoveryReturn(state,evidence,balances,'456',grant);
+  assert.equal(result.phase,'reverse-authorized');
+  assert.equal(result.returnAmount,'1010890');
+  assert.equal(result.paidFees,'266');
+  assert.equal(result.recoveryReturnAuthorizedAt,grant);
+  assert.deepEqual(result.forwardRequestAuthority,{...state.forwardRequestAuthority,orderId:evidence.orderId});
+});
 test('freezes only a first recovery return, retaining original expired bytes/nonce/prices and conservative aggregate costs', () => {
   const { state, evidence, balances } = recoveryFixture();
   const original = structuredClone(state);
