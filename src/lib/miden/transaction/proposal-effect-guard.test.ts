@@ -186,6 +186,22 @@ const execute = (
 /** A custom transaction row queued before approvals recorded any note. */
 const legacy = (spentAssetTotals?: { faucetId: string; amount: bigint }[]) =>
   row({ type: 'execute', requestBytes: new Uint8Array([1]), spentAssetTotals });
+/**
+ * A row queued with an approval record but before the record listed notes: it carries the spending-limit provenance,
+ * here a 100 fB note the approval brought in, and no note ids.
+ */
+const queuedWithEffects = (spentAssetTotals?: { faucetId: string; amount: bigint }[]) =>
+  row({
+    ...legacy(spentAssetTotals),
+    approvedEffects: {
+      ...approvedEffects({}),
+      recipients: ['recipient-digest'],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1,
+      introducedCredit: [{ faucetId: 'bech32:fB', amount: 100n }],
+      introducedCount: 1
+    }
+  });
 
 const givenSummary = (ts: Summary) => jest.mocked(TransactionSummary.deserialize).mockReturnValue(ts as never);
 
@@ -411,31 +427,51 @@ describe('execute', () => {
   });
 
   // Review Focus 1: a row queued before this build recorded no note, so it may create only notes that carry nothing.
-  it('refuses a row queued before notes were recorded when it creates a note carrying assets or passes a carried note through, and passes one creating an empty note', () => {
-    const queued = legacy([{ faucetId: 'bech32:fA', amount: 50n }]);
-    expect(queued.approvedEffects).toBeUndefined();
-    const paying = summary({
-      removed: [fa('fA', 50n), fa('usdcx', 2n)],
-      outputs: [note([fa('fA', 50n)], [], 'pay'), feeNote(2n)]
-    });
-    expect(refusalOf(queued, paying)).toBe('creates a note that was not approved (pay)');
-    const passThrough = summary({
-      removed: [fa('usdcx', 2n)],
-      inputs: [note([fa('fB', 100n)], [], 'carried')],
-      outputs: [note([fa('fB', 100n)], [], 'onward'), feeNote(2n)]
-    });
-    expect(refusalOf(queued, passThrough)).toBe(
-      '100 of bech32:fB leaves (approved 0); creates a note that was not approved (onward)'
-    );
-    const withNft = summary({ removed: [fa('usdcx', 2n)], outputs: [note([], [nft('fN', 'n1')], 'nft'), feeNote(2n)] });
-    expect(refusalOf({ ...queued, approvedNftOutflow: ['fN|n1'] }, withNft)).toBe(
-      'creates a note that was not approved (nft)'
-    );
-    const unreadable = summary({ removed: [fa('usdcx', 2n)], outputs: [opaqueNote('opaque'), feeNote(2n)] });
-    expect(refusalOf(queued, unreadable)).toBe('creates a note that was not approved (opaque)');
-    const empty = summary({ removed: [fa('usdcx', 2n)], outputs: [note([], [], 'empty'), feeNote(2n)] });
-    expect(refusalOf(queued, empty)).toBeUndefined();
-  });
+  // Rows in queues today have both shapes: no approval record, or one without the note ids.
+  it.each([
+    ['no approval record', legacy],
+    ['an approval record without note ids', queuedWithEffects]
+  ])(
+    'refuses a row queued before notes were recorded when it creates a note carrying assets or passes a carried note through, and passes one creating an empty note (%s)',
+    (_shape, queuedRow) => {
+      const queued = queuedRow([{ faucetId: 'bech32:fA', amount: 50n }]);
+      expect(queued.approvedEffects?.approvedOutputNoteIds).toBeUndefined();
+      expect(queued.approvedEffects?.introducedNoteIds).toBeUndefined();
+      const paying = summary({
+        removed: [fa('fA', 50n), fa('usdcx', 2n)],
+        outputs: [note([fa('fA', 50n)], [], 'pay'), feeNote(2n)]
+      });
+      expect(refusalOf(queued, paying)).toBe('creates a note that was not approved (pay)');
+      const passThrough = summary({
+        removed: [fa('usdcx', 2n)],
+        inputs: [note([fa('fB', 100n)], [], 'carried')],
+        outputs: [note([fa('fB', 100n)], [], 'onward'), feeNote(2n)]
+      });
+      expect(refusalOf(queued, passThrough)).toBe(
+        '100 of bech32:fB leaves (approved 0); creates a note that was not approved (onward)'
+      );
+      const withNft = summary({
+        removed: [fa('usdcx', 2n)],
+        outputs: [note([], [nft('fN', 'n1')], 'nft'), feeNote(2n)]
+      });
+      expect(refusalOf({ ...queued, approvedNftOutflow: ['fN|n1'] }, withNft)).toBe(
+        'creates a note that was not approved (nft)'
+      );
+      const unreadable = summary({ removed: [fa('usdcx', 2n)], outputs: [opaqueNote('opaque'), feeNote(2n)] });
+      expect(refusalOf(queued, unreadable)).toBe('creates a note that was not approved (opaque)');
+      const empty = summary({ removed: [fa('usdcx', 2n)], outputs: [note([], [], 'empty'), feeNote(2n)] });
+      expect(refusalOf(queued, empty)).toBeUndefined();
+      // Every consumed note counts as held: the 1000 fA note is spent, so 1050 leaves, not the vault's net 50.
+      const spending = summary({
+        removed: [fa('fA', 50n), fa('usdcx', 2n)],
+        inputs: [note([fa('fA', 1000n)], [], 'consumed')],
+        outputs: [note([], [], 'marker'), note([fa('fA', 1050n)], [], 'sent'), feeNote(2n)]
+      });
+      expect(refusalOf(queued, spending)).toBe(
+        '1050 of bech32:fA leaves (approved 50); creates a note that was not approved (sent)'
+      );
+    }
+  );
 
   it('reads the policy totals on a row queued before the approved outflow was recorded', () => {
     const queued = legacy([{ faucetId: 'bech32:fA', amount: 50n }]);

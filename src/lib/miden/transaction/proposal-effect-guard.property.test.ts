@@ -285,17 +285,31 @@ describe('proposal effect guard: properties over conservation-respecting transac
         // A record can name fewer brought-in notes than there were, never a held one.
         introducedNoteIds: fc.subarray(w.inputs.filter(n => !n.held).map(n => n.id)),
         outputNoteIds: fc.subarray([...created(w).map(n => n.id), 'kernel-fee']).map(ids => [...ids, 'unrelated']),
-        viaFallback: fc.boolean()
+        viaFallback: fc.boolean(),
+        withRecord: fc.boolean()
       });
     });
     fc.assert(
-      fc.property(scenario, ({ w, totals, nfts, introducedNoteIds, outputNoteIds, viaFallback }) => {
-        // The fallback arm is a row queued before approvals recorded any note.
+      fc.property(scenario, ({ w, totals, nfts, introducedNoteIds, outputNoteIds, viaFallback, withRecord }) => {
+        // The fallback arm is a row queued before approvals recorded any note, with or without an approval record.
         const transaction = row({
           type: 'execute',
           requestBytes: new Uint8Array([1]),
           ...(viaFallback
-            ? { spentAssetTotals: totals }
+            ? {
+                spentAssetTotals: totals,
+                ...(withRecord
+                  ? {
+                      approvedEffects: {
+                        ...approvedEffects({}),
+                        introducedCredit: w.inputs
+                          .filter(n => !n.held)
+                          .flatMap(n => n.fungible.map(a => ({ faucetId: `bech32:${a.faucet}`, amount: a.amount }))),
+                        introducedCount: w.inputs.filter(n => !n.held).length
+                      }
+                    }
+                  : {})
+              }
             : {
                 approvedOutflow: totals,
                 approvedNftOutflow: nfts,
