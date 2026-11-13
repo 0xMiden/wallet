@@ -12,15 +12,13 @@ import {
 } from '@miden-sdk/miden-sdk';
 import { canonicalRequestBytes } from '../../../scripts/canonical-request-bytes.mjs';
 
-export function mainnetConsumeRequestHash(noteFile: Uint8Array): string {
+export function mainnetConsumeRequestHash(noteFile: Uint8Array, guardian = false): string {
   if (noteFile.length < 1 || noteFile.length > 1_048_576) throw new Error('Invalid mainnet consume note size');
   const note = NoteFile.deserialize(noteFile).note();
   if (!note) throw new Error('Missing full note for exact mainnet consume inspection');
-  const expected = new TransactionRequestBuilder()
-    .withInputNotes(new NoteAndArgsArray([new NoteAndArgs(note, null)]))
-    .withExpirationDelta(600)
-    .build();
-  return createHash('sha256').update(canonicalRequestBytes(expected.serialize())).digest('hex');
+  let builder = new TransactionRequestBuilder().withInputNotes(new NoteAndArgsArray([new NoteAndArgs(note, null)]));
+  if (!guardian) builder = builder.withExpirationDelta(600);
+  return createHash('sha256').update(canonicalRequestBytes(builder.build().serialize())).digest('hex');
 }
 
 export interface MainnetReturnNoteScope {

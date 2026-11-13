@@ -1,24 +1,24 @@
 import { getTestAuthorizationStorage, setTestAuthorizationStorage } from './test-authorization-storage';
 import {
+  inspectTestMainnetEpochRequest,
   inspectTestMainnetSendRequest,
   inspectTestMainnetSwapRequest,
+  type TestMainnetEpochScope,
   type TestMainnetSendScope,
   type TestMainnetSwapScope
 } from './test-send-request';
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
+import { testRequestSha256 } from './test-request-sha256';
 import { isRecord } from '../../update/guards';
 
 export const TEST_SEND_AUTHORIZATION_KEY = 'e2e_mainnet_send_authorization';
 const KEY = TEST_SEND_AUTHORIZATION_KEY;
-async function sha256(bytes: Uint8Array): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes));
-  return Array.from(new Uint8Array(hash), value => value.toString(16).padStart(2, '0')).join('');
-}
 
 export async function awaitTestSendAuthorization(
   accountId: string,
   request: { serialize(): Uint8Array },
-  kind: 'send' | 'swap' = 'send'
+  kind: 'send' | 'swap' | 'epoch' = 'send',
+  guardian = false
 ): Promise<void> {
   if (process.env.MIDEN_E2E_TEST !== 'true') return;
   const stored = await getTestAuthorizationStorage([KEY, `${KEY}_required`]);
@@ -48,7 +48,7 @@ export async function awaitTestSendAuthorization(
   )
     throw new Error('Invalid or already used native send authorization');
   const common = { accountId: policy.accountId, faucetId: policy.faucetId, amount: policy.amount };
-  let route: TestMainnetSendScope | TestMainnetSwapScope;
+  let route: TestMainnetSendScope | TestMainnetSwapScope | TestMainnetEpochScope;
   if (kind === 'swap') {
     if (
       policy.kind !== 'swap' ||
@@ -65,6 +65,17 @@ export async function awaitTestSendAuthorization(
       requestedFaucetId: policy.requestedFaucetId,
       requestedAmount: policy.requestedAmount
     };
+  } else if (kind === 'epoch') {
+    if (
+      !guardian ||
+      policy.kind !== 'epoch' ||
+      typeof policy.noteId !== 'string' ||
+      !/^0x[0-9a-f]{64}$/.test(policy.noteId) ||
+      typeof policy.noteSha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(policy.noteSha256)
+    )
+      throw new Error('Invalid final Epoch authorization scope');
+    route = { ...common, kind: 'epoch', noteId: policy.noteId, noteSha256: policy.noteSha256 };
   } else {
     if (
       policy.kind !== undefined ||
@@ -84,10 +95,12 @@ export async function awaitTestSendAuthorization(
   const bytes = request.serialize();
   const identity =
     'kind' in scope
-      ? inspectTestMainnetSwapRequest(scope, bytes)
-      : { noteId: inspectTestMainnetSendRequest(scope, bytes) };
-  const sha = await sha256(bytes);
-  const canonicalSha256 = await sha256(canonicalRequestBytes(bytes));
+      ? scope.kind === 'epoch'
+        ? await inspectTestMainnetEpochRequest(scope, bytes)
+        : inspectTestMainnetSwapRequest(scope, bytes, guardian)
+      : { noteId: inspectTestMainnetSendRequest(scope, bytes, guardian) };
+  const sha = await testRequestSha256(bytes);
+  const canonicalSha256 = await testRequestSha256(canonicalRequestBytes(bytes));
   const same = (value: unknown, expected: Record<string, string | number>): boolean =>
     isRecord(value) && Object.entries(expected).every(([key, entry]) => value[key] === entry);
   if (!same((await getTestAuthorizationStorage(KEY))[KEY], { ...scope, status: 'armed' }))
@@ -102,7 +115,7 @@ export async function awaitTestSendAuthorization(
     if (!same(live, held) || !isRecord(live) || (live.status !== 'waiting' && live.status !== 'released'))
       throw new Error('Native send authority changed during the request hold');
     if (live.status === 'released') {
-      if ((await sha256(request.serialize())) !== sha)
+      if ((await testRequestSha256(request.serialize())) !== sha)
         throw new Error('Actual native send bytes changed during upload');
       active();
       if (!same((await getTestAuthorizationStorage(KEY))[KEY], { ...held, status: 'released' }))

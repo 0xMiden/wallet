@@ -167,7 +167,7 @@ it('holds exact PSWAP bytes and their actual serial-derived order, without reint
   data[`${KEY}_required`] = { accountId: account, nonce: swap.nonce };
   const promise = awaitTestSendAuthorization(account, { serialize }, 'swap');
   await held(promise);
-  expect(mockInspectSwap).toHaveBeenCalledWith(swap, bytes);
+  expect(mockInspectSwap).toHaveBeenCalledWith(swap, bytes, false);
   expect(mockInspect).not.toHaveBeenCalled();
   expect(data[KEY]).toMatchObject({ ...swap, noteId, orderId: '42', status: 'waiting' });
   patch({ status: 'released' });
