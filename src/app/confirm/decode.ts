@@ -319,6 +319,8 @@ export function netOutflowByFaucet(view: TxAssetView, credit: readonly AssetAmou
  * Per canonical faucet, `signed = outgoing - incoming + held`, where `held` sums the consumed notes the request did
  * not introduce. The summary view's `outgoing` is the vault's net change and the executed view's is the gross output
  * notes, and this formula gives both the same answer. Positive goes to `outgoing`, negative (negated) to `incoming`.
+ * A held note whose assets cannot be read cannot be measured, so the call throws; an introduced one is credited
+ * nothing, which can only overstate what leaves.
  * NFTs follow the same rule: one created from an introduced note passes through, any other created NFT leaves.
  */
 export function toHoldingsView(view: TxAssetView, introducedNoteIds: readonly string[]): TxAssetView {
@@ -328,6 +330,7 @@ export function toHoldingsView(view: TxAssetView, introducedNoteIds: readonly st
   const introduced = new Set(introducedNoteIds.map(id => id.toLowerCase()));
   const held = consumed.filter(note => !introduced.has(note.id));
   const carried = consumed.filter(note => introduced.has(note.id));
+  if (held.some(note => note.opaque)) throw new Error('a held note does not list its assets');
 
   const signed = new Map<string, bigint>();
   const spelling = new Map<string, string>();

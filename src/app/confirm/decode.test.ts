@@ -974,6 +974,18 @@ describe('the notes a verified view lists', () => {
       expect(view.outgoingNfts).toHaveLength(1);
     });
 
+    it('throws when a held consumed note does not list its assets', () => {
+      const view = executedView([input({ assets: () => undefined }, 'held-opaque')], [note([fa('X', 1050n)], [], 'o')]);
+
+      expect(() => toHoldingsView(view, [])).toThrow('a held note does not list its assets');
+    });
+
+    it('does not throw for an introduced consumed note that does not list its assets', () => {
+      const view = executedView([input({ assets: () => undefined }, 'intro-opaque')], [note([fa('X', 50n)], [], 'o')]);
+
+      expect(toHoldingsView(view, ['intro-opaque']).outgoing).toEqual([{ faucetId: 'bech32:X', amount: 50n }]);
+    });
+
     it('throws for a view that lists no notes', () => {
       (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
       const declared = declaredRequestToView('reqB64');
