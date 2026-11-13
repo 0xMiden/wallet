@@ -10,6 +10,7 @@ import {
 import { hexFaucetToBech32 } from '../../helpers/faucet-address';
 import { readTransactionRows, type TransactionRowSnapshot } from '../../helpers/history';
 import { fetchMainnetOneClickUsdPrices } from '../../helpers/mainnet-one-click-prices';
+import { remainingMainnetLoopBudget } from '../../helpers/mainnet-loop-budget';
 import {
   loadMainnetSwapCheckpoint,
   saveMainnetSwapCheckpoint,
@@ -182,6 +183,7 @@ async function prepare(
   runId: string,
   live: Awaited<ReturnType<typeof registry>>
 ): Promise<MainnetSwapCheckpoint> {
+  const allowance = remainingMainnetLoopBudget(runId, 'swap', []);
   const candidates: Array<{ plan: SwapLoopPlan; offer: SavedSwapHolding; request: SavedSwapHolding }> = [];
   for (const pair of live.pairs) {
     for (const direction of [pair.faucetIds, [...pair.faucetIds].reverse()]) {
@@ -210,7 +212,7 @@ async function prepare(
           if (
             swapValue(holding(offer), amount) +
               swapValue(holding(live.native), 6n * SWAP_TX_FEE_MULTIPLE * live.baseFee) >
-            SWAP_LOSS_CAP
+            allowance
           )
             continue;
           candidates.push({ plan, offer, request });
@@ -252,7 +254,8 @@ async function prepare(
       row.type === 'swap' && row.extraInputs?.orderId !== undefined ? [String(row.extraInputs.orderId)] : []
     ),
     feeBudget: (6n * SWAP_TX_FEE_MULTIPLE * live.baseFee).toString(),
-    paidFees: '0'
+    paidFees: '0',
+    lossBudgetUsdMicros: allowance.toString()
   };
 }
 
@@ -526,7 +529,7 @@ async function authorizeReturn(
   const remaining = BigInt(state.feeBudget) - result.fees;
   if (remaining < 2n * SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee))
     throw new Error('No fee budget remains for the return create and claim');
-  if (paidUsd + (loss > 0n ? loss : 0n) + swapValue(holding(state.native), remaining) > SWAP_LOSS_CAP)
+  if (paidUsd + (loss > 0n ? loss : 0n) + swapValue(holding(state.native), remaining) > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP))
     throw new Error('Return exceeds the remaining $2 loss budget');
   if (swapValue(holding(state.request), amount, false) < 1_000_000n)
     throw new Error('Actual return proceeds are below the wallet $1 minimum');
@@ -550,7 +553,7 @@ function completeReturn(state: MainnetSwapCheckpoint, result: Awaited<ReturnType
     { before: holding(state.native), after: result.now.native }
   ]);
   if (result.refunded > 0n) throw new Error('Return was partially reclaimed; intermediate principal is unresolved');
-  if (loss > SWAP_LOSS_CAP || totalFees > BigInt(state.feeBudget))
+  if (loss > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP) || totalFees > BigInt(state.feeBudget))
     throw new Error('Realized round-trip loss or network fees exceeded the authorized budget');
   state.reverseReceived = result.received.toString();
   state.paidFees = totalFees.toString();
