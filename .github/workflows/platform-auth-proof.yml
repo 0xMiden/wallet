@@ -5,13 +5,13 @@ on:
 permissions:
   contents: read
 jobs:
-  adoption-regression:
+  gateway-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/lib/platform-auth/protocol.test.ts src/lib/intercom/extension-page.test.ts src/lib/miden/back/platform-unlock-store.test.ts src/lib/extension/platform-unlock-startup.test.ts src/lib/miden/back/actions.test.ts src/lib/miden/back/vault.test.ts --maxWorkers=2
+      - run: yarn jest src/lib/miden/back/main.test.ts src/lib/store/index.test.ts src/lib/intercom/in-process-request-handler.test.ts --maxWorkers=2

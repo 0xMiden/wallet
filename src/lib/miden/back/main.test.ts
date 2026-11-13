@@ -181,12 +181,19 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   recordSyncedFeeFaucetId: jest.fn(async () => true)
 }));
 
+const mockPlatformAvailability = jest.fn(async () => true);
+jest.mock('lib/extension/platform-unlock-startup', () => ({
+  getPlatformUnlockAvailability: () => mockPlatformAvailability(),
+  ensureTrustedPlatformStorage: async () => true
+}));
+
 jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn(),
   getFrontState: jest.fn(),
   registerNewWallet: jest.fn(),
   registerImportedWallet: jest.fn(),
   unlock: jest.fn(),
+  platformUnlock: jest.fn(),
   lock: jest.fn(),
   createHDAccount: jest.fn(),
   updateCurrentAccount: jest.fn(),
@@ -240,6 +247,7 @@ const flushStorage = () => new Promise(resolve => setTimeout(resolve, 0));
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockPlatformAvailability.mockReset().mockResolvedValue(true);
   _g.__mainTest.nativeScope = 'rpc|devnet';
   _g.__mainTest.nativeRevision = 0;
   for (const k of Object.keys(_g.__mainConnStore)) delete _g.__mainConnStore[k];
@@ -389,6 +397,62 @@ describe('main.start', () => {
     await start();
 
     expect(connectivityMock.getConnectivityState().node).toEqual({ active: false, since: null });
+  });
+});
+
+describe('platform unlock authority', () => {
+  async function ownPort() {
+    const browser = (await import('webextension-polyfill')).default;
+    return { sender: { id: browser.runtime.id, url: browser.runtime.getURL('sidepanel.html') } };
+  }
+  it('dispatches only validated commands from extension pages', async () => {
+    const port = await ownPort();
+    const state = { available: true, hasPassword: true, credential: null };
+    Actions.platformUnlock.mockResolvedValueOnce({ action: 'state', state });
+    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
+      command: { action: 'state', password: 'must not forward' } }, port)).resolves.toEqual({
+        type: WalletMessageType.PlatformUnlockResponse, result: { action: 'state', state }
+      });
+    expect(Actions.platformUnlock).toHaveBeenCalledWith({ action: 'state' }, port, true);
+  });
+  it('does not grant a content script the extension page authority of its sender ID', async () => {
+    const port = await ownPort();
+    port.sender.url = 'https://example.com/';
+    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
+      command: { action: 'remove', expectedCredentialId: null } }, port)).rejects.toThrow();
+    expect(Actions.platformUnlock).not.toHaveBeenCalled();
+  });
+  it('refuses ports without browser-supplied page metadata', async () => {
+    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
+      command: { action: 'state' } }, {})).rejects.toThrow();
+  });
+  it('refuses malformed PRF input before vault adoption', async () => {
+    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
+      command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: '' } }, await ownPort())).rejects.toThrow();
+    expect(Actions.platformUnlock).not.toHaveBeenCalled();
+  });
+  it('does not unlock through an unavailable browser path', async () => {
+    mockPlatformAvailability.mockResolvedValueOnce(false);
+    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
+      command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) } },
+      await ownPort())).rejects.toThrow();
+    expect(Actions.platformUnlock).not.toHaveBeenCalled();
+  });
+  it('answers password-only availability without throwing', async () => {
+    mockPlatformAvailability.mockResolvedValueOnce(false);
+    const state = { available: false, hasPassword: true, credential: null };
+    Actions.platformUnlock.mockResolvedValueOnce({ action: 'state', state });
+    const port = await ownPort();
+    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
+      command: { action: 'state' } }, port)).resolves.toMatchObject({ result: { state } });
+    expect(Actions.platformUnlock).toHaveBeenCalledWith({ action: 'state' }, port, false);
+  });
+  it('resumes deferred processing after a platform unlock', async () => {
+    Actions.platformUnlock.mockResolvedValueOnce({ action: 'unlock' });
+    await expect(dispatch({ type: WalletMessageType.PlatformUnlockRequest,
+      command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) } },
+      await ownPort())).resolves.toMatchObject({ result: { action: 'unlock' } });
+    expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(1);
   });
 });
 
