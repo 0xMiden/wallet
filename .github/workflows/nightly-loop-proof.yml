@@ -1,59 +1,69 @@
-name: Nightly Guardian mock identity proof
+name: Read-only original mainnet signed swap correlation
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
+  actions: read
+concurrency:
+  group: mainnet-loop-regression-proof
+  cancel-in-progress: false
 jobs:
-  verify:
+  review:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    env:
+      E2E_NETWORK: mainnet
+      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+      - name: Verify immutable diagnostic source
+        run: |
+          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+          printf 'Read-only source %s\n' "$(git rev-parse HEAD^2)"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify immutable source
-        run: |
-          SOURCE=$(git rev-parse HEAD^2)
-          test "$(git diff --name-only "$SOURCE" HEAD)" = .github/workflows/nightly-loop-proof.yml
-          printf 'Verified source %s\n' "$SOURCE"
       - uses: ./.github/actions/yarn-install
-      - name: Prove warm resolver mock identity
-        run: |
-          node <<'NODE'
-          const assert = require('node:assert/strict');
-          const path = require('node:path');
-          const Resolver = require('jest-resolve').default;
-          const root = process.cwd();
-          const moduleMap = { getModule: () => null, getPackage: () => null, getMockModule: () => null };
-          const options = { rootDir: root, extensions: ['.ts', '.tsx', '.js', '.json', '.node'], moduleDirectories: ['node_modules'], hasCoreModules: true };
-          const importer = path.join(root, 'src/lib/miden/transaction/index.ts');
-          const fixture = path.join(root, 'src/lib/miden/transaction/transactions.guardian-offscreen.test.ts');
-          const name = '../sdk/test-guardian-authorization';
-          const resolver = new Resolver(moduleMap, options);
-          resolver.getModuleID(new Map(), importer, name);
-          const virtual = new Map([[resolver.getModulePath(fixture, name), true]]);
-          assert.notEqual(resolver.getModuleID(virtual, fixture, name), resolver.getModuleID(virtual, importer, name), 'virtual fixture and warm actual import split identity');
-          const fixed = new Resolver(moduleMap, options);
-          fixed.getModuleID(new Map(), importer, name);
-          assert.equal(fixed.getModuleID(new Map(), fixture, name), fixed.getModuleID(new Map(), importer, name), 'ordinary mock retains actual module identity');
-          console.log('Verified actual Jest resolver: warm virtual mock splits identity; ordinary existing-module mock preserves identity.');
-          NODE
-      - name: Guardian execution boundary regressions
-        run: yarn jest src/lib/miden/transaction/transactions.guardian-offscreen.test.ts src/offscreen/main.test.ts scripts/mainnet-guardian-authorization.test.ts --maxWorkers=2 --watch=false
-      - name: Owned formatting
-        if: always()
-        run: |
-          yarn prettier --write src/lib/miden/transaction/transactions.guardian-offscreen.test.ts src/offscreen/main.test.ts playwright/e2e/helpers/mainnet-swap-ui.ts
-          git diff --binary -- src/lib/miden/transaction/transactions.guardian-offscreen.test.ts src/offscreen/main.test.ts playwright/e2e/helpers/mainnet-swap-ui.ts > guardian-owned-format.patch
-          test ! -s guardian-owned-format.patch
-      - name: Retain owned formatting correction
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: guardian-owned-format
-          path: guardian-owned-format.patch
-          if-no-files-found: ignore
+          run-id: 43427924008
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43427924008
+          path: test-results/original-authority
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install Chromium
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Reuse the exact owned provider overlay
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/mainnet-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/mainnet-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          echo 'Read-only overlay unavailable'; exit 1
+      - name: Build the same mainnet extension
+        run: yarn test:e2e:blockchain:build
+      - name: Read original authority only, deny all sends and consumes
+        run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/authority-results" xvfb-run -a yarn playwright test mainnet-swap-authority-probe.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/read-only-authority.log" 2>&1 || code=$?
+          node --input-type=module <<'NODE'
+          import { existsSync, readFileSync } from 'node:fs';
+          const path = 'test-results/read-only-swap-authority.json';
+          if (!existsSync(path)) { console.log('Read-only probe stopped before approved diagnostics; private process logs remain private.'); process.exit(1); }
+          const value = JSON.parse(readFileSync(path, 'utf8'));
+          const allowed = ['purpose','sourceRunId','before','after','lineage','candidates','exactMatcherFound','matcherAmbiguous','freshProcessing','noAuthority','denyAll'];
+          if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
+          console.log(JSON.stringify(value));
+          NODE
+          exit "$code"
