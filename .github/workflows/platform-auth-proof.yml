@@ -1,0 +1,17 @@
+name: Platform auth proof
+on:
+  push:
+    branches: [ci/846-platform-auth-proof]
+permissions:
+  contents: read
+jobs:
+  privacy-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - run: yarn jest src/lib/telemetry/redact.test.ts --maxWorkers=2
