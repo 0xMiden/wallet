@@ -65,6 +65,13 @@ jobs:
             | sha256sum --check --strict | tee -a "$proof"
           cp "$runtime/scripts/lib/review-read-audit.py" "$RUNNER_TEMP/required-source-quotes-final-auditor.py"
           printf 'QUOTES_RUNTIME=%s\nQUOTES_CANDIDATE=%s\n' "$runtime" "$candidate" >> "$GITHUB_ENV"
+      - name: Install ripgrep prerequisite for read-bound tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+          rg --version
       - name: Run nine real permission regressions
         shell: bash
         run: |
