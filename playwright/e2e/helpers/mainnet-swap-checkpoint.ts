@@ -26,6 +26,15 @@ export interface MainnetSwapRequestAuthority {
   minimumReceive: string;
   expiresAt: number;
 }
+export interface MainnetSwapClaimAuthority {
+  nonce: string;
+  noteId: string;
+  amount: string;
+  sha256: string;
+  canonicalSha256: string;
+  requestCanonicalSha256: string;
+  expiresAt: number;
+}
 export interface MainnetSwapCheckpoint {
   version: 1;
   network: 'mainnet';
@@ -33,6 +42,7 @@ export interface MainnetSwapCheckpoint {
   sourceRunId: string;
   authorizationRunId?: string;
   recoveredRunId?: string;
+  recoveryReturnAuthorizedAt?: string;
   phase: SwapLoopPhase;
   createdAt: string;
   pricedAt: string;
@@ -52,6 +62,8 @@ export interface MainnetSwapCheckpoint {
   reverseOrderId?: string;
   forwardRequestAuthority?: MainnetSwapRequestAuthority;
   reverseRequestAuthority?: MainnetSwapRequestAuthority;
+  forwardClaimAuthority?: MainnetSwapClaimAuthority;
+  reverseClaimAuthority?: MainnetSwapClaimAuthority;
   forwardReceived?: string;
   forwardRefunded?: string;
   reverseReceived?: string;
@@ -112,6 +124,25 @@ function requestAuthority(value: unknown): value is MainnetSwapRequestAuthority 
     Number.isSafeInteger(value.expiresAt) &&
     Object.keys(value).every(key =>
       ['nonce', 'noteId', 'sha256', 'canonicalSha256', 'orderId', 'minimumReceive', 'expiresAt'].includes(key)
+    )
+  );
+}
+function claimAuthority(value: unknown): value is MainnetSwapClaimAuthority {
+  return (
+    record(value) &&
+    typeof value.nonce === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.nonce) &&
+    typeof value.noteId === 'string' &&
+    /^0x[0-9a-f]{64}$/.test(value.noteId) &&
+    amount(value.amount) &&
+    BigInt(value.amount) > 0n &&
+    [value.sha256, value.canonicalSha256, value.requestCanonicalSha256].every(
+      item => typeof item === 'string' && /^[0-9a-f]{64}$/.test(item)
+    ) &&
+    typeof value.expiresAt === 'number' &&
+    Number.isSafeInteger(value.expiresAt) &&
+    Object.keys(value).every(key =>
+      ['nonce', 'noteId', 'amount', 'sha256', 'canonicalSha256', 'requestCanonicalSha256', 'expiresAt'].includes(key)
     )
   );
 }
@@ -193,9 +224,23 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
   )
     return false;
   if (value.phase === 'complete' && (!amount(value.reverseOrderId) || !amount(value.reverseReceived))) return false;
+  if (
+    value.recoveryReturnAuthorizedAt !== undefined &&
+    (!timestamp(value.recoveryReturnAuthorizedAt) ||
+      Date.parse(value.recoveryReturnAuthorizedAt) < Date.parse(value.createdAt) ||
+      Date.parse(value.recoveryReturnAuthorizedAt) > Date.parse(value.updatedAt) ||
+      !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)) ||
+      !amount(value.forwardReceived) ||
+      !amount(value.returnAmount) ||
+      !record(value.returnBaseline))
+  )
+    return false;
   const forward = value.forwardRequestAuthority;
   const reverse = value.reverseRequestAuthority;
   const pricedAt = Date.parse(value.pricedAt);
+  const returnStart =
+    value.recoveryReturnAuthorizedAt === undefined ? pricedAt : Date.parse(value.recoveryReturnAuthorizedAt);
+  const returnDeadline = returnStart + (value.recoveryReturnAuthorizedAt === undefined ? 600_000 : 300_000);
   if (
     forward !== undefined &&
     (!requestAuthority(forward) ||
@@ -211,8 +256,8 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
     (!requestAuthority(reverse) ||
       reverse.orderId !== value.reverseOrderId ||
       BigInt(reverse.minimumReceive) < BigInt(value.reverseMinimum) ||
-      reverse.expiresAt <= pricedAt ||
-      reverse.expiresAt > pricedAt + 600_000 ||
+      reverse.expiresAt <= returnStart ||
+      reverse.expiresAt > returnDeadline ||
       value.knownOrderIds.includes(reverse.orderId) ||
       !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))
   )
@@ -223,6 +268,23 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
     (forward.nonce === reverse.nonce || forward.orderId === reverse.orderId)
   )
     return false;
+  for (const [claim, source] of [
+    [value.forwardClaimAuthority, forward],
+    [value.reverseClaimAuthority, reverse]
+  ]) {
+    if (claim === undefined) continue;
+    if (
+      !claimAuthority(claim) ||
+      !requestAuthority(source) ||
+      claim.noteId === source.noteId ||
+      claim.nonce === source.nonce ||
+      BigInt(claim.amount) < BigInt(source.minimumReceive) ||
+      claim.expiresAt <= Date.parse(value.createdAt) ||
+      claim.expiresAt > Date.parse(value.updatedAt) + 300_000 ||
+      ['unspent', 'cancelled'].includes(String(value.phase))
+    )
+      return false;
+  }
   if (value.phase === 'unspent' && (forward !== undefined || reverse !== undefined)) return false;
   if (value.phase === 'complete' && forward !== undefined && reverse === undefined) return false;
   return Object.keys(value).every(key =>
@@ -233,6 +295,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       'sourceRunId',
       'authorizationRunId',
       'recoveredRunId',
+      'recoveryReturnAuthorizedAt',
       'phase',
       'createdAt',
       'pricedAt',
@@ -252,6 +315,8 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       'reverseOrderId',
       'forwardRequestAuthority',
       'reverseRequestAuthority',
+      'forwardClaimAuthority',
+      'reverseClaimAuthority',
       'forwardReceived',
       'forwardRefunded',
       'reverseReceived',
@@ -278,6 +343,15 @@ export function saveMainnetSwapCheckpoint(path: string, state: MainnetSwapCheckp
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(`${path}.tmp`, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
   renameSync(`${path}.tmp`, path);
+}
+export function mainnetSwapRequestExpiresAt(
+  state: Pick<MainnetSwapCheckpoint, 'pricedAt' | 'recoveryReturnAuthorizedAt'>,
+  leg: 'forward' | 'reverse'
+): number {
+  if (leg === 'forward') return Date.parse(state.pricedAt) + 300_000;
+  return state.recoveryReturnAuthorizedAt === undefined
+    ? Date.parse(state.pricedAt) + 600_000
+    : Date.parse(state.recoveryReturnAuthorizedAt) + 300_000;
 }
 export function mainnetSwapNextAction(
   state: Pick<MainnetSwapCheckpoint, 'phase'> | undefined
