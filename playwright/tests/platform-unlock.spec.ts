@@ -9,26 +9,26 @@ import { expect, test } from '../fixtures/extension';
 test.use({ trace: 'off', video: 'off', screenshot: 'off' });
 
 function overrideOs() {
-    const data: unknown = Reflect.get(navigator, 'userAgentData');
-    if (!data || typeof data !== 'object') throw new Error('Browser UA-CH unavailable');
-    const getValues: unknown = Reflect.get(data, 'getHighEntropyValues');
-    if (typeof getValues !== 'function') throw new Error('Browser UA-CH versions unavailable');
-    Reflect.set(globalThis, '__platformOriginalUaDataStable', Reflect.get(navigator, 'userAgentData') === data);
-    Object.defineProperty(data, 'getHighEntropyValues', {
-      configurable: true,
-      value: async (hints: string[]) => {
-        const original: unknown = await getValues.call(data, hints);
-        if (!original || typeof original !== 'object') throw new Error('Invalid browser UA-CH evidence');
-        // Preserve the real browser brand/version. Only OS evidence is simulated on Linux CI.
-        return { ...original, platform: 'Windows', platformVersion: '13.0.0' };
-      }
-    });
-    Object.defineProperty(navigator, 'userAgentData', { configurable: true, value: data });
+  const data: unknown = Reflect.get(navigator, 'userAgentData');
+  if (!data || typeof data !== 'object') throw new Error('Browser UA-CH unavailable');
+  const getValues: unknown = Reflect.get(data, 'getHighEntropyValues');
+  if (typeof getValues !== 'function') throw new Error('Browser UA-CH versions unavailable');
+  Reflect.set(globalThis, '__platformOriginalUaDataStable', Reflect.get(navigator, 'userAgentData') === data);
+  Object.defineProperty(data, 'getHighEntropyValues', {
+    configurable: true,
+    value: async (hints: string[]) => {
+      const original: unknown = await getValues.call(data, hints);
+      if (!original || typeof original !== 'object') throw new Error('Invalid browser UA-CH evidence');
+      // Preserve the real browser brand/version. Only OS evidence is simulated on Linux CI.
+      return { ...original, platform: 'Windows', platformVersion: '13.0.0' };
+    }
+  });
+  Object.defineProperty(navigator, 'userAgentData', { configurable: true, value: data });
 }
 
 async function simulateEligibleOs(context: BrowserContext) {
   await context.addInitScript(overrideOs);
-  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+  const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
   await worker.evaluate(overrideOs);
   await context.addInitScript(() => {
     const secrets = new Set<string>();
@@ -51,8 +51,14 @@ async function simulateEligibleOs(context: BrowserContext) {
     };
     const create = navigator.credentials.create.bind(navigator.credentials);
     const get = navigator.credentials.get.bind(navigator.credentials);
-    navigator.credentials.create = async options => { ceremonies += 1; return observe(await create(options)); };
-    navigator.credentials.get = async options => { ceremonies += 1; return observe(await get(options)); };
+    navigator.credentials.create = async options => {
+      ceremonies += 1;
+      return observe(await create(options));
+    };
+    navigator.credentials.get = async options => {
+      ceremonies += 1;
+      return observe(await get(options));
+    };
     Reflect.set(window, '__platformCalls', () => ceremonies);
     Reflect.set(window, '__platformLeaks', async (messages: string[]) => {
       const persisted = JSON.stringify(await chrome.storage.local.get(null));
@@ -63,7 +69,10 @@ async function simulateEligibleOs(context: BrowserContext) {
   });
 }
 
-async function request(page: Page, payload: { type: string; nonce?: string; command?: { action: 'state' } }): Promise<unknown> {
+async function request(
+  page: Page,
+  payload: { type: string; nonce?: string; command?: { action: 'state' } }
+): Promise<unknown> {
   return page.evaluate(
     data =>
       new Promise<unknown>((resolve, reject) => {
@@ -166,20 +175,32 @@ async function setup(context: BrowserContext, id: string) {
     const getValues: unknown = data && typeof data === 'object' ? Reflect.get(data, 'getHighEntropyValues') : null;
     const values: unknown = typeof getValues === 'function' ? await getValues.call(data, ['platformVersion']) : null;
     const stored = await chrome.storage.local.get('vault_key_password');
-    return { brands: data && typeof data === 'object' ? Reflect.get(data, 'brands') : null,
-      values, extensionRuntime: Boolean(chrome.runtime.id), scheme: location.protocol,
+    return {
+      brands: data && typeof data === 'object' ? Reflect.get(data, 'brands') : null,
+      values,
+      extensionRuntime: Boolean(chrome.runtime.id),
+      scheme: location.protocol,
       protectionApi: typeof Reflect.get(chrome.storage.local, 'setAccessLevel'),
       originalUaDataStable: Reflect.get(globalThis, '__platformOriginalUaDataStable'),
-      passwordPresent: typeof stored.vault_key_password === 'string' && stored.vault_key_password.length > 0 };
+      passwordPresent: typeof stored.vault_key_password === 'string' && stored.vault_key_password.length > 0
+    };
   };
   const worker = context.serviceWorkers()[0];
   const response = await request(page, { type: 'PLATFORM_UNLOCK_REQUEST', command: { action: 'state' } });
   const result: unknown = response && typeof response === 'object' ? Reflect.get(response, 'result') : null;
   const state: unknown = result && typeof result === 'object' ? Reflect.get(result, 'state') : null;
-  const diagnostic = JSON.stringify({
-    page: await page.evaluate(evidence), worker: worker ? await worker.evaluate(evidence) : null,
-    state: state && typeof state === 'object' ? { available: Reflect.get(state, 'available'), hasPassword: Reflect.get(state, 'hasPassword') } : null
-  }, null, 2);
+  const diagnostic = JSON.stringify(
+    {
+      page: await page.evaluate(evidence),
+      worker: worker ? await worker.evaluate(evidence) : null,
+      state:
+        state && typeof state === 'object'
+          ? { available: Reflect.get(state, 'available'), hasPassword: Reflect.get(state, 'hasPassword') }
+          : null
+    },
+    null,
+    2
+  );
   const diagnosticPath = test.info().outputPath('platform-boundaries.json');
   await writeFile(diagnosticPath, diagnostic);
   await test.info().attach('platform-boundaries', { contentType: 'application/json', path: diagnosticPath });
@@ -239,23 +260,29 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   ).toEqual(passwordBefore);
   for (const shell of ['popup.html', 'fullpage.html']) {
     const outside = await extensionContext.newPage();
-    await outside.setViewportSize({ width: shell === 'popup.html' ? 360 : 600, height: 640 });
-    if (shell === 'popup.html') await outside.addInitScript(() => {
-      const getViews = chrome.extension.getViews.bind(chrome.extension);
-      chrome.extension.getViews = (properties?: chrome.extension.FetchProperties) =>
-        properties?.type === 'popup' ? [window] : getViews(properties);
-    });
+    await outside.setViewportSize({ width: shell === 'popup.html' ? 360 : 640, height: 640 });
+    if (shell === 'popup.html')
+      await outside.addInitScript(() => {
+        const getViews = chrome.extension.getViews.bind(chrome.extension);
+        chrome.extension.getViews = (properties?: chrome.extension.FetchProperties) =>
+          properties?.type === 'popup' ? [window] : getViews(properties);
+      });
     await outside.goto(`chrome-extension://${extensionId}/${shell}#/settings/passkey-unlock`);
+    await expect.poll(() => outside.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expect(outside.getByText('Passkey unlock is enabled for this wallet.')).toBeVisible();
     await expect(outside.getByRole('button', { name: 'Open wallet', exact: true })).toBeVisible();
     await expect(outside.getByLabel('Password', { exact: true })).toHaveCount(0);
-    expect(await outside.evaluate(() => {
-      const calls: unknown = Reflect.get(window, '__platformCalls');
-      return typeof calls === 'function' ? calls() : -1;
-    })).toBe(0);
+    expect(
+      await outside.evaluate(() => {
+        const calls: unknown = Reflect.get(window, '__platformCalls');
+        return typeof calls === 'function' ? calls() : -1;
+      })
+    ).toBe(0);
     for (const theme of ['light', 'dark']) {
       await outside.emulateMedia({ colorScheme: theme === 'dark' ? 'dark' : 'light' });
-      await expect.poll(() => outside.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(theme === 'dark');
+      await expect
+        .poll(() => outside.evaluate(() => document.documentElement.classList.contains('dark')))
+        .toBe(theme === 'dark');
       await snapshot(outside, info, `readonly-${shell}-${theme}`);
     }
     await outside.close();
@@ -275,10 +302,12 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   await confirmation.goto(`chrome-extension://${extensionId}/confirm.html#?id=platform-acceptance`);
   await expect(confirmation.getByRole('button', { name: 'Unlock with passkey', exact: true })).toBeVisible();
   await expect(confirmation.getByLabel('Password', { exact: true })).toBeVisible();
-  expect(await confirmation.evaluate(() => {
-    const calls: unknown = Reflect.get(window, '__platformCalls');
-    return typeof calls === 'function' ? calls() : -1;
-  })).toBe(0);
+  expect(
+    await confirmation.evaluate(() => {
+      const calls: unknown = Reflect.get(window, '__platformCalls');
+      return typeof calls === 'function' ? calls() : -1;
+    })
+  ).toBe(0);
   await snapshot(confirmation, info, 'locked-confirmation');
   await confirmation.close();
   await restartBackend(extensionContext, protocol, page);
@@ -306,10 +335,14 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   await request(page, { type: 'LOCK_REQUEST' });
   await protocol.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
   await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => {
-    const calls: unknown = Reflect.get(window, '__platformCalls');
-    return typeof calls === 'function' ? calls() : -1;
-  })).toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls: unknown = Reflect.get(window, '__platformCalls');
+        return typeof calls === 'function' ? calls() : -1;
+      })
+    )
+    .toBeGreaterThan(0);
   await page.reload();
   await expect(page.getByTestId('unlock-password')).toBeVisible();
   await protocol.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
@@ -336,16 +369,25 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   await page.getByRole('button', { name: 'Replace passkey', exact: true }).click();
   await privateInput(page, 'Password123!');
   await page.getByRole('button', { name: 'Replace passkey', exact: true }).click();
-  await expect(page.getByText('Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider.')).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page.getByText(
+      'Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider.'
+    )
+  ).toBeVisible({ timeout: 60_000 });
   expect((await storedRecord(page))?.credentialId).not.toEqual(record?.credentialId);
   await page.getByRole('button', { name: 'Remove passkey unlock', exact: true }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Remove passkey unlock', exact: true }).click();
   await expect.poll(() => storedRecord(page)).toBeNull();
-  expect(await page.evaluate(async () => (await chrome.storage.local.get('vault_key_password')).vault_key_password)).toEqual(passwordBefore);
+  expect(
+    await page.evaluate(async () => (await chrome.storage.local.get('vault_key_password')).vault_key_password)
+  ).toEqual(passwordBefore);
   await privacy(page, messages);
 });
 
-test('browser capability true does not enroll a virtual provider without actual PRF', async ({ extensionContext, extensionId }) => {
+test('browser capability true does not enroll a virtual provider without actual PRF', async ({
+  extensionContext,
+  extensionId
+}) => {
   test.setTimeout(240_000);
   const page = await setup(extensionContext, extensionId);
   const messages: string[] = [];
@@ -366,22 +408,31 @@ test('browser capability true does not enroll a virtual provider without actual 
   await privacy(page, messages);
 });
 
-test('an authorized reset during a native ceremony cannot publish a new protector', async ({ extensionContext, extensionId }) => {
+test('an authorized reset during a native ceremony cannot publish a new protector', async ({
+  extensionContext,
+  extensionId
+}) => {
   test.setTimeout(240_000);
   const page = await setup(extensionContext, extensionId);
   const { protocol, authenticatorId } = await authenticator(page);
   await protocol.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: false });
   await privateInput(page, 'Password123!');
   await page.getByRole('button', { name: 'Enable passkey unlock', exact: true }).click();
-  await expect.poll(() => page.evaluate(async () => {
-    const values = await chrome.storage.local.get('platform_credentials_to_signal');
-    const ledger: unknown = values.platform_credentials_to_signal;
-    const pending: unknown = ledger && typeof ledger === 'object' ? Reflect.get(ledger, 'pending') : null;
-    return Array.isArray(pending) && pending.length === 1;
-  })).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const values = await chrome.storage.local.get('platform_credentials_to_signal');
+        const ledger: unknown = values.platform_credentials_to_signal;
+        const pending: unknown = ledger && typeof ledger === 'object' ? Reflect.get(ledger, 'pending') : null;
+        return Array.isArray(pending) && pending.length === 1;
+      })
+    )
+    .toBe(true);
   const nonce = await page.evaluate(async () => {
     const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
     const opened = indexedDB.open('miden-platform-unlock-reset');
     opened.onupgradeneeded = () => opened.result.createObjectStore('authorization', { keyPath: 'id' });
     await new Promise<void>((resolve, reject) => {
@@ -389,10 +440,21 @@ test('an authorized reset during a native ceremony cannot publish a new protecto
       opened.onsuccess = () => {
         const db = opened.result;
         const tx = db.transaction('authorization', 'readwrite');
-        tx.objectStore('authorization').put({ id: 'reset', version: 1, phase: 'pending', nonce,
-          options: { keepEndpointOverride: true } });
-        tx.onerror = () => { db.close(); reject(new Error('Could not authorize acceptance reset')); };
-        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.objectStore('authorization').put({
+          id: 'reset',
+          version: 1,
+          phase: 'pending',
+          nonce,
+          options: { keepEndpointOverride: true }
+        });
+        tx.onerror = () => {
+          db.close();
+          reject(new Error('Could not authorize acceptance reset'));
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
       };
     });
     return nonce;
@@ -400,11 +462,19 @@ test('an authorized reset during a native ceremony cannot publish a new protecto
   await request(page, { type: 'PLATFORM_RESET_REQUEST', nonce });
   await protocol.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled: true });
   await expect.poll(() => storedRecord(page)).toBeNull();
-  expect(await page.evaluate(async () => (await chrome.storage.local.get('vault_key_password')).vault_key_password === undefined)).toBe(true);
-  await expect.poll(() => page.evaluate(async () => {
-    const values = await chrome.storage.local.get('platform_credentials_to_signal');
-    const ledger: unknown = values.platform_credentials_to_signal;
-    const pending: unknown = ledger && typeof ledger === 'object' ? Reflect.get(ledger, 'pending') : null;
-    return Array.isArray(pending) && pending.length === 0;
-  })).toBe(true);
+  expect(
+    await page.evaluate(
+      async () => (await chrome.storage.local.get('vault_key_password')).vault_key_password === undefined
+    )
+  ).toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const values = await chrome.storage.local.get('platform_credentials_to_signal');
+        const ledger: unknown = values.platform_credentials_to_signal;
+        const pending: unknown = ledger && typeof ledger === 'object' ? Reflect.get(ledger, 'pending') : null;
+        return Array.isArray(pending) && pending.length === 0;
+      })
+    )
+    .toBe(true);
 });

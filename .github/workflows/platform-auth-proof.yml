@@ -4,8 +4,70 @@ on:
     branches: [ci/846-platform-auth-proof]
 permissions:
   contents: read
+  actions: read
 jobs:
-  password-label-regression:
+  frontend-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/inject-linked-web-sdk-pr
+      - uses: ./.github/actions/inject-linked-guardian-pr
+      - uses: ./.github/actions/yarn-install
+      - run: yarn prettier --write src/app/pages/Unlock.tsx src/app/templates/PasskeyUnlockSettings.tsx src/lib/telemetry/user-visible-error-contract.ts src/components/Input.tsx src/components/Input.test.tsx src/app/pages/Settings.selectors.test.ts public/_locales/en/messages.json
+      - run: yarn tsc --noEmit --pretty false
+      - run: yarn eslint src/app/pages/Unlock.tsx src/app/templates/PasskeyUnlockSettings.tsx src/lib/telemetry/user-visible-error-contract.ts src/components/Input.tsx src/components/Input.test.tsx src/app/pages/Settings.selectors.test.ts
+      - run: yarn jest src/components/Input.test.tsx src/app/pages/Unlock.test.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/lib/telemetry/user-visible-error.guard.test.ts src/lib/telemetry/user-visible-error.test.ts src/app/pages/Settings.selectors.test.ts src/lib/i18n/locale-bundle-parity.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --maxWorkers=2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-source-formatted
+          path: |
+            src/app/pages/Unlock.tsx
+            src/app/templates/PasskeyUnlockSettings.tsx
+            src/lib/telemetry/user-visible-error-contract.ts
+            src/components/Input.tsx
+            src/components/Input.test.tsx
+            src/app/pages/Settings.selectors.test.ts
+            public/_locales/en/messages.json
+          if-no-files-found: error
+          retention-days: 3
+  virtual-prf-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/inject-linked-web-sdk-pr
+      - uses: ./.github/actions/inject-linked-guardian-pr
+      - uses: ./.github/actions/yarn-install
+      - run: yarn prettier --write playwright/tests/platform-unlock.spec.ts
+      - uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
+      - run: MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MIDEN_E2E_DISABLE_SIDEPANEL=false yarn build:chrome
+      - run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+        timeout-minutes: 12
+      - run: SKIP_EXTENSION_BUILD=true xvfb-run -a yarn test:e2e platform-unlock.spec.ts --workers=1 --retries=0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-prf-frontend-fixed
+          path: |
+            test-results/
+            playwright/tests/platform-unlock.spec.ts
+            dist/chrome_unpacked/manifest.json
+          if-no-files-found: error
+          retention-days: 3
+  coverage-baseline-metrics:
+    name: Prior failed-suite coverage metrics (not a passing gate)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -13,13 +75,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: ./.github/actions/yarn-install
-      - run: yarn prettier --write playwright/tests/platform-unlock.spec.ts
-      - run: yarn jest src/components/Input.test.tsx --maxWorkers=2
+      - name: Install original coverage reporters outside the repo
+        run: |
+          mkdir -p "$RUNNER_TEMP/covtools"
+          cd "$RUNNER_TEMP/covtools"
+          npm init -y
+          npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 43379725097
+          pattern: coverage-shard-*
+          path: coverage-shards
+      - name: Diagnose old complete maps with the unchanged canonical gate
+        env:
+          NODE_PATH: ${{ runner.temp }}/covtools/node_modules
+        run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: platform-unlock-formatted-candidate
-          path: playwright/tests/platform-unlock.spec.ts
-          if-no-files-found: error
+          name: platform-coverage-baseline-metrics
+          path: coverage/
+          if-no-files-found: warn
           retention-days: 3

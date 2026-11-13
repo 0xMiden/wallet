@@ -109,7 +109,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const { unlock, platformUnlock } = useMidenContext();
   const { compact, sidePanel, confirmWindow } = useAppEnv();
   const { state: platformState } = usePlatformUnlock();
-  const [platformError, setPlatformError] = useState<string | null>(null);
+  const [platformError, setPlatformError] = useState<'passkeyCanceled' | 'passkeyUnlockFailed' | null>(null);
   const platformController = useRef<AbortController | null>(null);
   const mounted = useRef(true);
   const canUsePlatform =
@@ -648,7 +648,9 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
               className="mt-3"
             />
           )}
-          <ErrorLine className="mt-3">{platformError && t(platformError)}</ErrorLine>
+          <ErrorLine errorId={platformError === 'passkeyCanceled' ? null : platformError} className="mt-3">
+            {platformError && t(platformError)}
+          </ErrorLine>
 
           <button
             id="forgot-password"

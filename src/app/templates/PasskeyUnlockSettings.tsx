@@ -24,7 +24,9 @@ const PasskeyUnlockSettings = () => {
   const [password, setPassword] = useState('');
   const [editing, setEditing] = useState(false);
   const [mode, setMode] = useState<'enrolling' | 'saving' | 'removing' | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<
+    'passkeyCanceled' | 'passkeySetupFailed' | 'passkeyRemoveFailed' | 'passkeySidePanelFailed' | null
+  >(null);
   const mounted = useRef(true);
   const flight = useRef(false);
   const controller = useRef<AbortController | null>(null);
@@ -187,7 +189,7 @@ const PasskeyUnlockSettings = () => {
       footer={footer}
       footerLayout="stack"
     >
-      <Notice role="status" tone={available && state.credential ? 'positive' : 'neutral'}>
+      <Notice errorId={null} role="status" tone={available && state.credential ? 'positive' : 'neutral'}>
         {t(
           !available
             ? 'passkeyUnlockUnavailable'
@@ -213,7 +215,7 @@ const PasskeyUnlockSettings = () => {
       )}
       {available && !canManage && <Notice>{t('passkeySidePanelOnly')}</Notice>}
       <Notice>{t('passkeyProviderRemoval')}</Notice>
-      <ErrorLine>{error && t(error)}</ErrorLine>
+      <ErrorLine errorId={error === 'passkeyCanceled' ? null : error}>{error && t(error)}</ErrorLine>
     </SubPageLayout>
   );
 };
