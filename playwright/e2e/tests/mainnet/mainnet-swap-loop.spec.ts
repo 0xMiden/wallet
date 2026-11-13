@@ -615,10 +615,13 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       throw new Error('Native fee increased beyond the original recovery budget');
     const before = await balances(walletB, state);
     const quoted = await readLiveSwapLeg(live.service, state.request, state.offer, proof.amount);
-    const floor = replacement && state.reverseRequestAuthority && BigInt(state.reverseRequestAuthority.minimumReceive) > BigInt(state.reverseMinimum)
-      ? state.reverseRequestAuthority.minimumReceive : state.reverseMinimum;
-    if (quoted.minimumReceive < BigInt(floor))
-      throw new Error('Recovery return quote weakened the original minimum');
+    const floor =
+      replacement &&
+      state.reverseRequestAuthority &&
+      BigInt(state.reverseRequestAuthority.minimumReceive) > BigInt(state.reverseMinimum)
+        ? state.reverseRequestAuthority.minimumReceive
+        : state.reverseMinimum;
+    if (quoted.minimumReceive < BigInt(floor)) throw new Error('Recovery return quote weakened the original minimum');
     if (replacement) {
       if ((await readTransactionRows(walletB.page)).some(row => row.status === 0 || row.status === 1))
         throw new Error('Unresolved wallet activity prevents replacement authority');
@@ -664,7 +667,8 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
     const replacement = process.env.MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED === 'true';
     const first = process.env.MAINNET_SWAP_RECOVERY_RETURN_APPROVED === 'true';
     if (
-      first === replacement || Boolean(state.recoveryReturnReplacement) !== replacement ||
+      first === replacement ||
+      Boolean(state.recoveryReturnReplacement) !== replacement ||
       state.phase !== 'reverse-authorized' ||
       state.reverseRequestAuthority ||
       state.reverseOrderId ||

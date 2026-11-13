@@ -254,19 +254,36 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
   const reverse = value.reverseRequestAuthority;
   const pricedAt = Date.parse(value.pricedAt);
   const replacement = value.recoveryReturnReplacement;
-  if (replacement !== undefined && (!record(replacement) ||
-    !timestamp(replacement.authorizedAt) || !timestamp(value.recoveryReturnAuthorizedAt) ||
-    !requestAuthority(replacement.previous) || !requestAuthority(forward) ||
-    Date.parse(replacement.authorizedAt) <= replacement.previous.expiresAt || Date.parse(replacement.authorizedAt) > Date.parse(value.updatedAt) ||
-    replacement.previous.expiresAt <= Date.parse(value.recoveryReturnAuthorizedAt) || replacement.previous.expiresAt > Date.parse(value.recoveryReturnAuthorizedAt) + 300_000 ||
-    typeof replacement.previousRunId !== 'string' || !/^\d{1,25}$/.test(replacement.previousRunId) ||
-    typeof value.authorizationRunId !== 'string' || replacement.previousRunId === value.authorizationRunId ||
-    typeof replacement.absentAtBlock !== 'number' || !Number.isSafeInteger(replacement.absentAtBlock) || replacement.absentAtBlock <= 0 ||
-    !Object.keys(replacement).every(key => ['authorizedAt', 'previous', 'previousRunId', 'absentAtBlock'].includes(key)) ||
-    !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))) return false;
-  const returnStart = record(replacement) && timestamp(replacement.authorizedAt)
-    ? Date.parse(replacement.authorizedAt)
-    : value.recoveryReturnAuthorizedAt === undefined ? pricedAt : Date.parse(value.recoveryReturnAuthorizedAt);
+  if (
+    replacement !== undefined &&
+    (!record(replacement) ||
+      !timestamp(replacement.authorizedAt) ||
+      !timestamp(value.recoveryReturnAuthorizedAt) ||
+      !requestAuthority(replacement.previous) ||
+      !requestAuthority(forward) ||
+      Date.parse(replacement.authorizedAt) <= replacement.previous.expiresAt ||
+      Date.parse(replacement.authorizedAt) > Date.parse(value.updatedAt) ||
+      replacement.previous.expiresAt <= Date.parse(value.recoveryReturnAuthorizedAt) ||
+      replacement.previous.expiresAt > Date.parse(value.recoveryReturnAuthorizedAt) + 300_000 ||
+      typeof replacement.previousRunId !== 'string' ||
+      !/^\d{1,25}$/.test(replacement.previousRunId) ||
+      typeof value.authorizationRunId !== 'string' ||
+      replacement.previousRunId === value.authorizationRunId ||
+      typeof replacement.absentAtBlock !== 'number' ||
+      !Number.isSafeInteger(replacement.absentAtBlock) ||
+      replacement.absentAtBlock <= 0 ||
+      !Object.keys(replacement).every(key =>
+        ['authorizedAt', 'previous', 'previousRunId', 'absentAtBlock'].includes(key)
+      ) ||
+      !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))
+  )
+    return false;
+  const returnStart =
+    record(replacement) && timestamp(replacement.authorizedAt)
+      ? Date.parse(replacement.authorizedAt)
+      : value.recoveryReturnAuthorizedAt === undefined
+        ? pricedAt
+        : Date.parse(value.recoveryReturnAuthorizedAt);
   const returnDeadline = returnStart + (value.recoveryReturnAuthorizedAt === undefined ? 600_000 : 300_000);
   if (
     forward !== undefined &&
@@ -291,9 +308,17 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
     return false;
   if (record(replacement) && requestAuthority(replacement.previous) && requestAuthority(reverse)) {
     const previous = replacement.previous;
-    if ([[reverse.nonce, previous.nonce], [reverse.noteId, previous.noteId], [reverse.orderId, previous.orderId],
-      [reverse.sha256, previous.sha256], [reverse.canonicalSha256, previous.canonicalSha256]].some(([current, old]) => current === old) ||
-      BigInt(reverse.minimumReceive) < BigInt(previous.minimumReceive)) return false;
+    if (
+      [
+        [reverse.nonce, previous.nonce],
+        [reverse.noteId, previous.noteId],
+        [reverse.orderId, previous.orderId],
+        [reverse.sha256, previous.sha256],
+        [reverse.canonicalSha256, previous.canonicalSha256]
+      ].some(([current, old]) => current === old) ||
+      BigInt(reverse.minimumReceive) < BigInt(previous.minimumReceive)
+    )
+      return false;
   }
   if (
     requestAuthority(forward) &&

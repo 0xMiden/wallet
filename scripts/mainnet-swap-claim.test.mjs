@@ -187,60 +187,178 @@ function replacementFixture() {
   const value = recoveryFixture();
   value.state = claims.authorizeMainnetSwapRecoveryReturn(value.state, value.evidence, value.balances, '456', grant);
   value.state.reverseRequestAuthority = {
-    nonce: '22222222-2222-4222-8222-222222222222', noteId: `0x${'d'.repeat(64)}`,
-    sha256: 'e'.repeat(64), canonicalSha256: 'f'.repeat(64), orderId: '9',
-    minimumReceive: '1009489', expiresAt: Date.parse(grant) + 300000
+    nonce: '22222222-2222-4222-8222-222222222222',
+    noteId: `0x${'d'.repeat(64)}`,
+    sha256: 'e'.repeat(64),
+    canonicalSha256: 'f'.repeat(64),
+    orderId: '9',
+    minimumReceive: '1009489',
+    expiresAt: Date.parse(grant) + 300000
   };
   value.state.reverseOrderId = '9';
-  value.absence = { noteId: value.state.reverseRequestAuthority.noteId, atBlock: 200, atTime: Date.parse(grant) + 599000, previousRunId: '456', noteCount: 0 };
+  value.absence = {
+    noteId: value.state.reverseRequestAuthority.noteId,
+    atBlock: 200,
+    atTime: Date.parse(grant) + 599000,
+    previousRunId: '456',
+    noteCount: 0
+  };
   value.at = '2026-11-13T16:10:00.000Z';
   return value;
 }
 test('freezes one explicitly approved replacement while retaining both old authorities and first grant', () => {
   const value = replacementFixture();
   const before = structuredClone(value.state);
-  const result = claims.authorizeMainnetSwapReturnReplacement(value.state, value.evidence, value.balances, '789', value.at, value.absence);
+  const result = claims.authorizeMainnetSwapReturnReplacement(
+    value.state,
+    value.evidence,
+    value.balances,
+    '789',
+    value.at,
+    value.absence
+  );
   assert.equal(result.authorizationRunId, '789');
   assert.equal(result.recoveredRunId, '789');
   assert.equal(result.recoveryReturnAuthorizedAt, before.recoveryReturnAuthorizedAt);
-  assert.deepEqual(result.recoveryReturnReplacement, { authorizedAt: value.at, previous: before.reverseRequestAuthority, previousRunId: '456', absentAtBlock: 200 });
+  assert.deepEqual(result.recoveryReturnReplacement, {
+    authorizedAt: value.at,
+    previous: before.reverseRequestAuthority,
+    previousRunId: '456',
+    absentAtBlock: 200
+  });
   assert.deepEqual(result.forwardRequestAuthority, before.forwardRequestAuthority);
-  for (const key of ['pricedAt', 'principal', 'feeBudget', 'paidFees', 'returnAmount', 'returnBaseline']) assert.deepEqual(result[key], before[key]);
+  for (const key of ['pricedAt', 'principal', 'feeBudget', 'paidFees', 'returnAmount', 'returnBaseline'])
+    assert.deepEqual(result[key], before[key]);
   assert.equal(result.reverseMinimum, '1009489');
   assert.equal(result.reverseRequestAuthority, undefined);
   assert.equal(result.reverseOrderId, undefined);
   assert.deepEqual(value.state, before);
 });
 for (const [name, change] of [
-  ['already replaced', value => { value.state.recoveryReturnReplacement = { authorizedAt: value.at }; }],
-  ['still live', value => { value.at = '2026-11-13T16:01:00Z'; }],
-  ['another old note', value => { value.absence.noteId = `0x${'c'.repeat(64)}`; }],
-  ['return already on-chain', value => { value.absence.noteCount = 1; }],
-  ['unproved absence height', value => { value.absence.atBlock = 0; }],
-  ['foreign prior run', value => { value.absence.previousRunId = '999'; }],
-  ['stale chain snapshot', value => { value.absence.atTime = Date.parse(grant); }],
-  ['outdated chain snapshot', value => { value.absence.atTime = Date.parse(grant) + 301000; }],
-  ['old return already claimed', value => { value.state.reverseClaimAuthority = { nonce: 'used' }; }],
-  ['old return already received', value => { value.state.reverseReceived = '1009489'; }],
-  ['native balance changed', value => { value.balances.native -= 1n; value.balances.offer = value.balances.native; }],
-  ['proceeds changed', value => { value.balances.request += 1n; }],
-  ['frozen remaining cap exceeded', value => { value.state.lossBudgetUsdMicros = '1'; }]
-]) test(`refuses replacement when ${name}`, () => {
-  const value = replacementFixture(); change(value);
-  assert.throws(() => claims.authorizeMainnetSwapReturnReplacement(value.state, value.evidence, value.balances, '789', value.at, value.absence));
-});
+  [
+    'already replaced',
+    value => {
+      value.state.recoveryReturnReplacement = { authorizedAt: value.at };
+    }
+  ],
+  [
+    'still live',
+    value => {
+      value.at = '2026-11-13T16:01:00Z';
+    }
+  ],
+  [
+    'another old note',
+    value => {
+      value.absence.noteId = `0x${'c'.repeat(64)}`;
+    }
+  ],
+  [
+    'return already on-chain',
+    value => {
+      value.absence.noteCount = 1;
+    }
+  ],
+  [
+    'unproved absence height',
+    value => {
+      value.absence.atBlock = 0;
+    }
+  ],
+  [
+    'foreign prior run',
+    value => {
+      value.absence.previousRunId = '999';
+    }
+  ],
+  [
+    'stale chain snapshot',
+    value => {
+      value.absence.atTime = Date.parse(grant);
+    }
+  ],
+  [
+    'outdated chain snapshot',
+    value => {
+      value.absence.atTime = Date.parse(grant) + 301000;
+    }
+  ],
+  [
+    'old return already claimed',
+    value => {
+      value.state.reverseClaimAuthority = { nonce: 'used' };
+    }
+  ],
+  [
+    'old return already received',
+    value => {
+      value.state.reverseReceived = '1009489';
+    }
+  ],
+  [
+    'native balance changed',
+    value => {
+      value.balances.native -= 1n;
+      value.balances.offer = value.balances.native;
+    }
+  ],
+  [
+    'proceeds changed',
+    value => {
+      value.balances.request += 1n;
+    }
+  ],
+  [
+    'frozen remaining cap exceeded',
+    value => {
+      value.state.lossBudgetUsdMicros = '1';
+    }
+  ]
+])
+  test(`refuses replacement when ${name}`, () => {
+    const value = replacementFixture();
+    change(value);
+    assert.throws(() =>
+      claims.authorizeMainnetSwapReturnReplacement(
+        value.state,
+        value.evidence,
+        value.balances,
+        '789',
+        value.at,
+        value.absence
+      )
+    );
+  });
 const failedReturnRun = () => ({ id: 456, workflow_id: 77, status: 'completed', conclusion: 'failure' });
-const failedReturnJobs = () => ({ jobs: [{ steps: [
-  { name: 'Upload recovered swap SDK return authority', status: 'completed', conclusion: 'failure' },
-  { name: 'Upload recovered swap SDK return claim authority', status: 'completed', conclusion: 'skipped' },
-  { name: 'Wait for recovered swap return', status: 'completed', conclusion: 'skipped' }
-] }] });
-test('accepts only the failed original create upload with no attempted claim or later submission stage', () => {
-  assert.doesNotThrow(() => claims.assertFailedMainnetSwapReturnUpload(failedReturnRun(), failedReturnJobs(), '456', 77));
+const failedReturnJobs = () => ({
+  jobs: [
+    {
+      steps: [
+        { name: 'Upload recovered swap SDK return authority', status: 'completed', conclusion: 'failure' },
+        { name: 'Upload recovered swap SDK return claim authority', status: 'completed', conclusion: 'skipped' },
+        { name: 'Wait for recovered swap return', status: 'completed', conclusion: 'skipped' }
+      ]
+    }
+  ]
 });
-for (const name of ['live run', 'foreign workflow', 'wrong run', 'create ACK succeeded', 'claim attempted', 'wait attempted', 'duplicate stage', 'missing jobs'])
+test('accepts only the failed original create upload with no attempted claim or later submission stage', () => {
+  assert.doesNotThrow(() =>
+    claims.assertFailedMainnetSwapReturnUpload(failedReturnRun(), failedReturnJobs(), '456', 77)
+  );
+});
+for (const name of [
+  'live run',
+  'foreign workflow',
+  'wrong run',
+  'create ACK succeeded',
+  'claim attempted',
+  'wait attempted',
+  'duplicate stage',
+  'missing jobs'
+])
   test(`refuses ambiguous failed return provenance: ${name}`, () => {
-    const run = failedReturnRun(); const jobs = failedReturnJobs();
+    const run = failedReturnRun();
+    const jobs = failedReturnJobs();
     if (name === 'live run') run.status = 'in_progress';
     if (name === 'foreign workflow') run.workflow_id = 78;
     if (name === 'wrong run') run.id = 999;

@@ -1,4 +1,4 @@
-name: Explicit retained return replacement integration GREEN
+name: Read-only replacement return readiness
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -9,62 +9,51 @@ concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  contracts:
+  readonly:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - run: test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+      - name: Verify immutable read-only source
+        run: |
+          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+          printf 'Read-only source %s\n' "$(git rev-parse HEAD^2)"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Actual SDK retained replacement and original request contracts
-        run: |
-          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
-          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
-      - name: All connected mainnet contracts and lint
-        if: always()
-        run: |
-          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts --maxWorkers=2 --watch=false
-          yarn lint:e2e
-      - name: Canonical connected types
-        if: always()
-        run: yarn ts
       - uses: actions/download-artifact@v4
         with:
           run-id: 43461752016
           github-token: ${{ github.token }}
           name: mainnet-swap-final-43461752016
-          path: test-results/previous-return
-      - name: Actual failed-source and current absence reader without financial keys
-        env:
-          GH_TOKEN: ${{ github.token }}
+          path: test-results/original-authority
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install Chromium
+        timeout-minutes: 10
+        run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Build actual recovery mainnet extension without provider overlay
+        run: yarn test:e2e:blockchain:build
+      - name: Read-only issued return outcome, never replace authority
         run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/return-review-results" xvfb-run -a yarn playwright test mainnet-replacement-readiness.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/return-review.log" 2>&1 || code=$?
           node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { readFileSync } from 'node:fs';
-          import { readMainnetSwapReturnAbsence } from './node_modules/.cache/nightly-swap-claim.mjs';
-          const state = JSON.parse(readFileSync('test-results/previous-return/roundtrip.json','utf8'));
-          const result = await readMainnetSwapReturnAbsence('https://rpc.mainnet.miden.io',state);
-          assert.equal(result.previousRunId,'43461752016');
-          assert.equal(result.noteId,state.reverseRequestAuthority.noteId);
-          assert.equal(result.noteCount,0);
-          assert.ok(result.atTime>state.reverseRequestAuthority.expiresAt);
-          assert.ok(Date.now()-result.atTime>=0&&Date.now()-result.atTime<120000);
-          console.log(JSON.stringify({purpose:'read-only failed source and fresh absence; no keys, authority or writes',...result}));
+          import { existsSync, readFileSync } from 'node:fs';
+          const path = 'test-results/read-only-replacement-readiness.json';
+          if (!existsSync(path)) { console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.'); process.exit(1); }
+          const value = JSON.parse(readFileSync(path, 'utf8'));
+          const allowed = ['purpose','outcomeVerified','retainedReturnNonce','returnExpiresAt','before','after','first','last','errorStage','errorKind','freshProcessing','noLivePolicy','consumeBlocked','unresolvedRows','minimumReceive','autoConsumeOff','replacementReviewReady'];
+          if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
+          console.log(JSON.stringify(value));
           NODE
-      - name: Owned format patch
-        if: always()
-        run: |
-          yarn prettier --write .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/helpers/mainnet-swap-claim.ts playwright/e2e/helpers/mainnet-swap-checkpoint.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-workflow.test.ts
-          git diff --binary -- .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/helpers/mainnet-swap-claim.ts playwright/e2e/helpers/mainnet-swap-checkpoint.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-workflow.test.ts > replacement-owned-format.patch
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: replacement-owned-format
-          path: replacement-owned-format.patch
-          if-no-files-found: error
+          exit "$code"
