@@ -1497,6 +1497,10 @@ export class MultisigService {
     const recorded = this.recordCommittedGuardianSwitch();
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
+      const signer = this.requestSigner;
+      if (signer === undefined) {
+        throw new Error(`No request signer to register account ${this.accountId} on ${newGuardianEndpoint}`);
+      }
       const { registration, stateCommitment } = await withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
         // The sync is the canonical parking await (a node that never answers),
@@ -1544,6 +1548,9 @@ export class MultisigService {
       const commitment = assertGuardianKeyCommitment(pubkeyResponse?.commitment, newGuardianEndpoint);
 
       this.multisig.setGuardianClient(nextGuardian);
+      // `/configure` authenticates, so the client it posts on carries this service's signer, whatever else
+      // `setGuardianClient` does with it.
+      nextGuardian.setSigner(signer);
       this.registrationGuardian = nextGuardian;
       this.multisig.guardianPublicKey = commitment;
       this.guardianEndpoint = newGuardianEndpoint;
