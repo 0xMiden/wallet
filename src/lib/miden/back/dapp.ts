@@ -21,7 +21,7 @@ import {
 import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
-import { simulatedBytesToView, summaryToView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
+import { summaryToView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
 import { noteFlowFromSimulatedBytes, type NoteFlow } from 'app/confirm/note-flow';
 import { toSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import {
@@ -165,7 +165,11 @@ import {
 } from '../transaction';
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { deterministicKernelFailureCopy } from '../transaction/constants';
-import { approveCustomSimulation, type ApprovedCustomSimulation } from '../transaction/custom-effects';
+import {
+  approveCustomSimulation,
+  type ApprovedCustomSimulation,
+  type CustomDryRunResult
+} from '../transaction/custom-effects';
 import { TransactionQueuedError } from '../transaction/initiate';
 
 /**
@@ -1655,57 +1659,40 @@ export function buildCustomTxConfirmPayload(args: {
 }
 
 /**
- * Builds the intercom handler that answers a `DAppSimulateTransactionRequest`
- * for THIS confirm popup (matched by id) with the dry run's decoded effects. Returns
- * `undefined` for non-matching requests so the caller keeps dispatching.
+ * Builds the intercom handler that answers a `DAppSimulateTransactionRequest` for THIS confirm popup (matched by id)
+ * with the approval's view. Returns `undefined` for non-matching requests so the caller keeps dispatching.
  */
 export function makeSimulateHandler(
   id: string,
-  tx: MidenCustomTransaction,
   /**
-   * The dry run the caller already performed for this confirm id. Answering from it keeps the
-   * request simulated once: the sheet renders the same execution the spending-limit policy
-   * assessed, and the WASM lock is taken once rather than twice per approval.
+   * The approval's view, measured from the holdings: what the spending limit charges and signing allows. The sheet
+   * shows this object rather than a decode of its own, so the two cannot differ.
    */
-  simulated?: { summaryBytes?: string; executedBytes?: string; error?: string }
+  approvedView: TxAssetView | undefined,
+  /** The dry run the approval measured; only its note flow is read here. */
+  simulated?: CustomDryRunResult
 ) {
   return async (req: MidenRequest): Promise<MidenDAppSimulateTransactionResponse | undefined> => {
     if (req?.type !== MidenMessageType.DAppSimulateTransactionRequest || (req as any).id !== id) {
       return undefined;
     }
-    // Only a SUCCESSFUL dry run is reusable. A timeout or a WASM-lock eviction resolves as
-    // `{ error }`, and caching that would leave the sheet's verified asset view - an anti-phishing
-    // control - permanently unavailable for this confirm id, even once the lock frees.
-    const reusable = simulated?.summaryBytes !== undefined || simulated?.executedBytes !== undefined;
-    const result =
-      reusable && simulated
-        ? simulated
-        : await simulateCustomTransaction({
-            address: tx.address,
-            transactionRequest: tx.transactionRequest,
-            importNotes: tx.importNotes
-          });
-    // The executed transaction is already authorized, so only its decoded view leaves the service worker.
-    let view: TxAssetView | undefined;
-    try {
-      view = simulatedBytesToView(result);
-    } catch (e) {
-      console.error('Failed to decode the dry run for the approval window', e);
-    }
-    if (!view) {
+    if (!approvedView) {
       return {
         type: MidenMessageType.DAppSimulateTransactionResponse,
-        error:
-          result.error === undefined ? 'the simulated transaction could not be read' : dryRunFailureReason(result.error)
+        error: 'the request has no approved effects to show'
       };
     }
     let noteFlow: NoteFlow | undefined;
     try {
-      noteFlow = noteFlowFromSimulatedBytes(result);
+      noteFlow = simulated && noteFlowFromSimulatedBytes(simulated);
     } catch (e) {
       console.error('Custom transaction note details unavailable:', e);
     }
-    return { type: MidenMessageType.DAppSimulateTransactionResponse, effects: toSimulatedEffectsWire(view, noteFlow) };
+    // The executed transaction is already authorized, so only the view leaves the service worker.
+    return {
+      type: MidenMessageType.DAppSimulateTransactionResponse,
+      effects: toSimulatedEffectsWire(approvedView, noteFlow)
+    };
   };
 }
 
@@ -2415,6 +2402,7 @@ const generatePromisifyTransaction = async (
         transactionMessages: [...formatCustomTransactionPreview(customTransaction), ...effectLines],
         simulated,
         customLimit,
+        approvedView: approval.view,
         approvedEffects: approval.effects,
         approvedOutflow: approval.signing.approvedOutflow,
         approvedNftOutflow: approval.signing.approvedNftOutflow
@@ -2533,9 +2521,11 @@ const generatePromisifyTransaction = async (
         spendingLimitDetails: customLimit.details
       });
     },
-    // The sheet's own simulate request reuses the build's dry run, so it shows what the policy assessed.
-    handleSimulate: async simulateReq =>
-      makeSimulateHandler(id, customTransaction, (await sheet.data()).simulated)(simulateReq),
+    // The sheet shows the approval this request queues with, so it shows what the policy charges and signing allows.
+    handleSimulate: async simulateReq => {
+      const { approvedView, simulated } = await sheet.data();
+      return makeSimulateHandler(id, approvedView, simulated)(simulateReq);
+    },
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
