@@ -1,4 +1,4 @@
-name: Read-only public payout active SDK view diagnostics
+name: Public input discovery and received export GREEN
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -9,6 +9,39 @@ concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: All connected SDK, offscreen and mainnet claim contracts
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
+          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
+          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/offscreen/main.test.ts src/lib/miden/swap/test-hooks.test.ts --maxWorkers=2 --watch=false
+          yarn lint:e2e
+      - name: Canonical types
+        if: always()
+        run: yarn ts
+      - name: Owned formatter patch
+        if: always()
+        run: |
+          yarn prettier --write src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/swap/test-hooks.ts src/lib/miden/swap/test-hooks.test.ts playwright/e2e/helpers/swap.ts playwright/e2e/helpers/mainnet-epoch-runtime.ts playwright/e2e/helpers/mainnet-near-runtime.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-epoch-readonly-completion.test.ts
+          git diff --binary -- src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/swap/test-hooks.ts src/lib/miden/swap/test-hooks.test.ts playwright/e2e/helpers/swap.ts playwright/e2e/helpers/mainnet-epoch-runtime.ts playwright/e2e/helpers/mainnet-near-runtime.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts scripts/mainnet-epoch-readonly-completion.test.ts > input-export-owned-format.patch
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: input-export-owned-format
+          path: input-export-owned-format.patch
+          if-no-files-found: error
   readonly:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -52,7 +85,7 @@ jobs:
           const path = 'test-results/read-only-existing-payout-ready.json';
           if (!existsSync(path)) { console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.'); process.exit(1); }
           const value = JSON.parse(readFileSync(path, 'utf8'));
-          const allowed = ['purpose','inspected','balances','payback','publicProofError','creationRows','consumeRows','noLivePolicy','consumeBlocked','errorStage','errorKind','aggregateNativeCosts','claimNativeBefore','claimUIReady','unresolvedRows','claimReadinessStage','claimExportReady','exportErrorKind','exportErrorText','pageClaimStatus','workerClaimStatus','currentHash','expectedPendingCardCount'];
+          const allowed = ['purpose','inspected','balances','payback','publicProofError','creationRows','consumeRows','noLivePolicy','consumeBlocked','errorStage','errorKind','aggregateNativeCosts','claimNativeBefore','claimUIReady','unresolvedRows','claimReadinessStage','claimExportReady','exportErrorKind','exportErrorText'];
           if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
           console.log(JSON.stringify(value));
           NODE

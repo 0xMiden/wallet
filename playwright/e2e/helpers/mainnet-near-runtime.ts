@@ -644,7 +644,7 @@ export async function claimMainnetNearNote(
   });
   await wallet.page
     .locator(`[data-pending-note-id="${selected.noteId}"]`)
-    .getByRole('button', { name: /^Accept$/ })
+    .getByRole('button', { name: /^Accept Transfer$/ })
     .click();
   let claim: TransactionRowSnapshot | undefined;
   await expect

@@ -1,7 +1,6 @@
 import { buildSwapTag, NoteFile, NoteId, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteExportType } from 'lib/miden/sdk/constants';
-import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { remoteProver } from 'lib/miden/sdk/miden-client-interface';
@@ -89,30 +88,13 @@ const safe = (fn: () => any) => {
   }
 };
 
-function installPublicClaimStatus(): void {
-  (globalThis as any).__TEST_PUBLIC_CLAIM_STATUS__ = async (scope: {noteId: string; account: string}) => {
-    try {
-      return await withWasmClientLock(async hold => {
-        const summary = await midenClientProxy.getInputNoteSummary(scope.noteId);
-        assertWasmHoldCurrent(hold, 'public claim status after summary');
-        const notes = await midenClientProxy.getConsumableNotes(scope.account, () => assertWasmHoldCurrent(hold, 'public claim status inside read'));
-        assertWasmHoldCurrent(hold, 'public claim status after consumable read');
-        const found = notes.find(note => note.noteId === scope.noteId);
-        return { present: summary !== null, consumable: found !== undefined, standardPayment: found?.standardPayment };
-      }, { label: 'read-only-public-claim-status' });
-    } catch (error) { return { errorKind: error instanceof Error ? error.name : 'unknown' }; }
-  };
-}
-
 /** PAGE hooks: the token-registry override read by the swap-create UI. */
 export function installSwapTestHooks(): void {
-  installPublicClaimStatus();
   (globalThis as any).__TEST_SET_SWAP_TOKENS__ = (tokens: SwapToken[]) => _setSwapTokensForTest(tokens);
 }
 
 /** SERVICE-WORKER hooks: taker discovery + fill, signed by the realm signer (#878). */
 export function installSwapConsumeHooks(): void {
-  installPublicClaimStatus();
   // Report this client's sent (output) notes with their tags (maker reads its own note tag).
   (globalThis as any).__TEST_PSWAP_ORDER_INFO__ = async () => {
     try {

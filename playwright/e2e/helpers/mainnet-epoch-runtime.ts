@@ -674,7 +674,7 @@ async function settleEpochReturn(
   if (!current.length)
     await wallet.page
       .locator(`[data-pending-note-id="${noteId}"]`)
-      .getByRole('button', { name: /^Accept$/ })
+      .getByRole('button', { name: /^Accept Transfer$/ })
       .click();
   let claim: TransactionRowSnapshot | undefined;
   await expect
@@ -914,7 +914,7 @@ export async function runEpochRefund(
     await wallet.navigateTo(ACTIVITY_PENDING_PATH);
     await wallet.page
       .locator(`[data-pending-note-id="${noteId}"]`)
-      .getByRole('button', { name: /^Accept$/ })
+      .getByRole('button', { name: /^Accept Transfer$/ })
       .click();
     let claim: TransactionRowSnapshot | undefined;
     await expect
