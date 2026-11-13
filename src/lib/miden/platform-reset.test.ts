@@ -16,19 +16,31 @@ const mockWipe = jest.fn(async (_options: { keepEndpointOverride: boolean }) => 
     if (![PLATFORM_CREDENTIALS_STORAGE_KEY, PLATFORM_RESET_STORAGE_KEY].includes(key)) mockData.delete(key);
   }
 });
-const mockLock = jest.fn(async () => { mockSteps.push('lock'); });
-const mockApplyNetwork = jest.fn(async () => { mockSteps.push('network'); });
-const mockCarry = jest.fn(async (_code: string) => { mockSteps.push('code'); });
+const mockLock = jest.fn(async () => {
+  mockSteps.push('lock');
+});
+const mockApplyNetwork = jest.fn(async () => {
+  mockSteps.push('network');
+});
+const mockCarry = jest.fn(async (_code: string) => {
+  mockSteps.push('code');
+});
 let mockMarkerRemovalFailure = false;
-jest.mock('lib/platform/storage-adapter', () => ({ getStorageProvider: () => ({
-  get: async (keys: string[]) => Object.fromEntries(keys.map(key => [key, mockData.get(key)])),
-  set: async (items: Record<string, unknown>) => { for (const [key,value] of Object.entries(items)) mockData.set(key,value); },
-  remove: async (keys: string[]) => {
-    if (mockMarkerRemovalFailure && keys.includes(PLATFORM_RESET_STORAGE_KEY)) throw new Error('marker retained');
-    for (const key of keys) mockData.delete(key);
-  }
-}) }));
-jest.mock('lib/miden/reset', () => ({ resetStorageDestructive: (options: { keepEndpointOverride: boolean }) => mockWipe(options) }));
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => ({
+    get: async (keys: string[]) => Object.fromEntries(keys.map(key => [key, mockData.get(key)])),
+    set: async (items: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(items)) mockData.set(key, value);
+    },
+    remove: async (keys: string[]) => {
+      if (mockMarkerRemovalFailure && keys.includes(PLATFORM_RESET_STORAGE_KEY)) throw new Error('marker retained');
+      for (const key of keys) mockData.delete(key);
+    }
+  })
+}));
+jest.mock('lib/miden/reset', () => ({
+  resetStorageDestructive: (options: { keepEndpointOverride: boolean }) => mockWipe(options)
+}));
 jest.mock('lib/miden/back/actions', () => ({ lockForResetInTurn: () => mockLock() }));
 jest.mock('lib/carried-mainnet-code', () => ({ carryMainnetAccessCode: (code: string) => mockCarry(code) }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -38,9 +50,15 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 
 beforeEach(async () => {
   await Dexie.delete('miden-platform-unlock-reset');
-  mockData.clear(); mockData.set('vault_key_password', 'fixture protector');
-  mockSteps.length = 0; mockWipeFailure = false; mockMarkerRemovalFailure = false;
-  mockWipe.mockClear(); mockLock.mockClear(); mockApplyNetwork.mockClear(); mockCarry.mockClear();
+  mockData.clear();
+  mockData.set('vault_key_password', 'fixture protector');
+  mockSteps.length = 0;
+  mockWipeFailure = false;
+  mockMarkerRemovalFailure = false;
+  mockWipe.mockClear();
+  mockLock.mockClear();
+  mockApplyNetwork.mockClear();
+  mockCarry.mockClear();
 });
 afterEach(async () => {
   await getAccountsWriteQueue().onIdle();
@@ -54,8 +72,11 @@ it('does not authorize a wipe from an editable marker alone', async () => {
   expect(mockWipe).not.toHaveBeenCalled();
 });
 it('uses the protected full request rather than altered marker fields', async () => {
-  const nonce = await authorizeExtensionReset({ keepEndpointOverride: true,
-    targetNetwork: MIDEN_NETWORK_NAME.MAINNET, accessCode: 'fixture code' });
+  const nonce = await authorizeExtensionReset({
+    keepEndpointOverride: true,
+    targetNetwork: MIDEN_NETWORK_NAME.MAINNET,
+    accessCode: 'fixture code'
+  });
   mockData.set(PLATFORM_RESET_STORAGE_KEY, { nonce, options: { keepEndpointOverride: false } });
   await performAuthorizedExtensionReset(nonce);
   expect(mockWipe).toHaveBeenCalledWith({ keepEndpointOverride: true });
@@ -104,8 +125,13 @@ it('retries marker removal without wiping a later wallet', async () => {
 it('does not clear before an existing account-writer turn ends', async () => {
   const nonce = await authorizeExtensionReset({ keepEndpointOverride: true });
   let release: () => void = () => undefined;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  const blocker = getAccountsWriteQueue().add(async () => { await gate; mockSteps.push('writer'); });
+  const gate = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const blocker = getAccountsWriteQueue().add(async () => {
+    await gate;
+    mockSteps.push('writer');
+  });
   const resetting = performAuthorizedExtensionReset(nonce);
   release();
   await Promise.all([blocker, resetting]);

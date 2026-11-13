@@ -135,7 +135,9 @@ const resetStorageDestructive = jest.fn();
 jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: (...args: unknown[]) => resetStorageDestructive(...args)
 }));
-const mockRequestReset = jest.fn(async (options: { keepEndpointOverride: boolean }) => resetStorageDestructive(options));
+const mockRequestReset = jest.fn(async (options: { keepEndpointOverride: boolean }) =>
+  resetStorageDestructive(options)
+);
 jest.mock('lib/miden/platform-reset', () => ({
   requestExtensionReset: (options: { keepEndpointOverride: boolean }) => mockRequestReset(options)
 }));

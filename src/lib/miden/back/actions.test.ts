@@ -363,6 +363,19 @@ describe('actions', () => {
   });
 
   describe('init', () => {
+    it('keeps startup admission cleanup in the same account-writer turn as resets', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const order: string[] = [];
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const writer = getAccountsWriteQueue().add(async () => { await gate; order.push('writer'); });
+      Vault.isExist.mockImplementationOnce(async () => { order.push('init'); return false; });
+      const starting = init();
+      release();
+      await Promise.all([writer, starting]);
+      expect(order).toEqual(['writer', 'init']);
+    });
+
     it('installs the vault signer as the realm signer, before anything can ask the SDK client to sign (#878)', async () => {
       mockInstallRealmKeystore.mockClear();
       await init();

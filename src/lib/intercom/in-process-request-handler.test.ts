@@ -43,8 +43,12 @@ describe('processInProcessRequest', () => {
   );
 
   it('does not treat an extension reset nonce as native reset authority', async () => {
-    await expect(processInProcessRequest({ type: WalletMessageType.PlatformResetRequest,
-      nonce: 'A'.repeat(43) }, 'DesktopIntercomAdapter')).rejects.toThrow();
+    await expect(
+      processInProcessRequest(
+        { type: WalletMessageType.PlatformResetRequest, nonce: 'A'.repeat(43) },
+        'DesktopIntercomAdapter'
+      )
+    ).rejects.toThrow();
   });
 
   // #788 follow-up: the dead-letter drain must work on mobile/desktop, where

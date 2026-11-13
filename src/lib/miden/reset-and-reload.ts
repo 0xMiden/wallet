@@ -1,6 +1,6 @@
 import { carryMainnetAccessCode } from 'lib/carried-mainnet-code';
-import { resetStorageDestructive } from 'lib/miden/reset';
 import { requestExtensionReset } from 'lib/miden/platform-reset';
+import { resetStorageDestructive } from 'lib/miden/reset';
 import { applyEndpointOverride, buildNetworkChoiceOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { hasExtensionRuntime, isExtension, reloadInPlace } from 'lib/platform';

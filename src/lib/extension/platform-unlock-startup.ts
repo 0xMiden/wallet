@@ -38,7 +38,11 @@ export function ensurePlatformUnlockStartup(): Promise<void> {
       throw error;
     });
     const current = startupCheck;
-    void current.finally(() => { if (startupCheck === current) startupCheck = undefined; }).catch(() => undefined);
+    void current
+      .finally(() => {
+        if (startupCheck === current) startupCheck = undefined;
+      })
+      .catch(() => undefined);
   }
   return startupCheck;
 }

@@ -10,15 +10,22 @@ const mockData = new Map<string, unknown>();
 const mockRequest = jest.fn<Promise<WalletResponse>, [WalletRequest]>();
 jest.mock('lib/miden/front/client', () => ({ request: (req: WalletRequest) => mockRequest(req) }));
 jest.mock('lib/platform', () => ({ hasExtensionRuntime: () => true }));
-jest.mock('lib/platform/storage-adapter', () => ({ getStorageProvider: () => ({
-  set: async (values: Record<string, unknown>) => { for (const [key,value] of Object.entries(values)) mockData.set(key,value); }
-}) }));
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => ({
+    set: async (values: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(values)) mockData.set(key, value);
+    }
+  })
+}));
 
 beforeEach(async () => {
   await Dexie.delete('miden-platform-unlock-reset');
-  mockData.clear(); mockRequest.mockReset();
-  Object.defineProperty(globalThis, 'location', { configurable: true,
-    value: new URL('chrome-extension://test-extension-id/options.html') });
+  mockData.clear();
+  mockRequest.mockReset();
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: new URL('chrome-extension://test-extension-id/options.html')
+  });
 });
 afterEach(async () => {
   jest.useRealTimers();
@@ -36,15 +43,25 @@ it('sends only the protected nonce after persisting the complete reset intent', 
   const db = new Dexie('miden-platform-unlock-reset');
   try {
     await db.open();
-    expect(await db.table('authorization').get('reset')).toMatchObject({ phase: 'pending',
-      nonce: sent.nonce, options: { keepEndpointOverride: false } });
-  } finally { db.close(); }
+    expect(await db.table('authorization').get('reset')).toMatchObject({
+      phase: 'pending',
+      nonce: sent.nonce,
+      options: { keepEndpointOverride: false }
+    });
+  } finally {
+    db.close();
+  }
 });
 it('returns after a bounded unanswered worker while retaining restart authorization', async () => {
   jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] });
   let entered: () => void = () => undefined;
-  const sent = new Promise<void>(resolve => { entered = resolve; });
-  mockRequest.mockImplementationOnce(() => { entered(); return new Promise<WalletResponse>(() => undefined); });
+  const sent = new Promise<void>(resolve => {
+    entered = resolve;
+  });
+  mockRequest.mockImplementationOnce(() => {
+    entered();
+    return new Promise<WalletResponse>(() => undefined);
+  });
   const resetting = requestExtensionReset({ keepEndpointOverride: true });
   await Promise.race([sent, resetting.catch(() => undefined)]);
   await jest.advanceTimersByTimeAsync(3000);

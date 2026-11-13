@@ -185,7 +185,9 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 const mockPlatformAvailability = jest.fn(async () => true);
 const mockPlatformStartup = jest.fn(async () => undefined);
 const mockPerformReset = jest.fn<Promise<void>, [string]>(async () => undefined);
-jest.mock('lib/miden/platform-reset', () => ({ performAuthorizedExtensionReset: (nonce: string) => mockPerformReset(nonce) }));
+jest.mock('lib/miden/platform-reset', () => ({
+  performAuthorizedExtensionReset: (nonce: string) => mockPerformReset(nonce)
+}));
 jest.mock('lib/extension/platform-unlock-startup', () => ({
   getPlatformUnlockAvailability: () => mockPlatformAvailability(),
   ensureTrustedPlatformStorage: async () => true,
@@ -304,20 +306,31 @@ beforeEach(async () => {
 describe('main.start', () => {
   it('registers listeners immediately but reads no wallet configuration before reset readiness', async () => {
     let release: () => void = () => undefined;
-    mockPlatformStartup.mockImplementationOnce(() => new Promise<undefined>(resolve => { release = () => resolve(undefined); }));
-    mockOnRequest.mockClear(); mockLoadEndpointOverrides.mockClear(); Actions.init.mockClear();
+    mockPlatformStartup.mockImplementationOnce(
+      () =>
+        new Promise<undefined>(resolve => {
+          release = () => resolve(undefined);
+        })
+    );
+    mockOnRequest.mockClear();
+    mockLoadEndpointOverrides.mockClear();
+    Actions.init.mockClear();
     const starting = start();
     try {
       expect(mockOnRequest).toHaveBeenCalledTimes(1);
       await flushStorage();
       expect(mockLoadEndpointOverrides).not.toHaveBeenCalled();
       expect(Actions.init).not.toHaveBeenCalled();
-    } finally { release(); await starting; }
+    } finally {
+      release();
+      await starting;
+    }
   });
 
   it('rejects waiting requests after reset readiness fails instead of exposing the old wallet', async () => {
     mockPlatformStartup.mockRejectedValueOnce(new Error('reset pending'));
-    mockOnRequest.mockClear(); Actions.getFrontState.mockClear();
+    mockOnRequest.mockClear();
+    Actions.getFrontState.mockClear();
     await expect(start()).rejects.toThrow('reset pending');
     const handler = mockOnRequest.mock.calls[0]![0];
     await expect(handler({ type: WalletMessageType.GetStateRequest })).rejects.toThrow('reset pending');
@@ -433,32 +446,61 @@ describe('main.start', () => {
 
 describe('reset transport authority', () => {
   it('executes the protected nonce rather than trusting a wire reset payload', async () => {
-    await expect(dispatch({ type: WalletMessageType.PlatformResetRequest, nonce: 'A'.repeat(43),
-      options: { keepEndpointOverride: false } })).resolves.toEqual({ type: WalletMessageType.PlatformResetResponse });
+    await expect(
+      dispatch({
+        type: WalletMessageType.PlatformResetRequest,
+        nonce: 'A'.repeat(43),
+        options: { keepEndpointOverride: false }
+      })
+    ).resolves.toEqual({ type: WalletMessageType.PlatformResetResponse });
     expect(mockPerformReset).toHaveBeenCalledWith('A'.repeat(43));
   });
   it('does not accept a reset nonce from a content script', async () => {
     const browser = (await import('webextension-polyfill')).default;
-    await expect(dispatch({ type: WalletMessageType.PlatformResetRequest, nonce: 'A'.repeat(43) },
-      { sender: { id: browser.runtime.id, url: 'https://example.com/' } })).rejects.toThrow();
+    await expect(
+      dispatch(
+        { type: WalletMessageType.PlatformResetRequest, nonce: 'A'.repeat(43) },
+        { sender: { id: browser.runtime.id, url: 'https://example.com/' } }
+      )
+    ).rejects.toThrow();
     expect(mockPerformReset).not.toHaveBeenCalled();
   });
 });
 
 describe('wallet setup authority', () => {
-  it.each([WalletMessageType.NewWalletRequest, WalletMessageType.NewWalletFromHotKeyRequest,
-    WalletMessageType.ImportFromClientRequest])('refuses content-script setup %s', async type => {
+  it.each([
+    WalletMessageType.NewWalletRequest,
+    WalletMessageType.NewWalletFromHotKeyRequest,
+    WalletMessageType.ImportFromClientRequest
+  ])('refuses content-script setup %s', async type => {
     const browser = (await import('webextension-polyfill')).default;
-    await expect(dispatch({ type, walletType: 'guardian', password: 'pw', mnemonic: 'fixture', ownMnemonic: false,
-      keyPairPayload: 'fixture', walletAccounts: [], importedAccounts: [] },
-      { sender: { id: browser.runtime.id, url: 'https://example.com/' } })).rejects.toThrow();
+    await expect(
+      dispatch(
+        {
+          type,
+          walletType: 'guardian',
+          password: 'pw',
+          mnemonic: 'fixture',
+          ownMnemonic: false,
+          keyPairPayload: 'fixture',
+          walletAccounts: [],
+          importedAccounts: []
+        },
+        { sender: { id: browser.runtime.id, url: 'https://example.com/' } }
+      )
+    ).rejects.toThrow();
   });
   it('keeps legitimate content-script dApp traffic outside the private setup gate', async () => {
     const browser = (await import('webextension-polyfill')).default;
-    await expect(dispatch({ type: MidenMessageType.PageRequest, origin: 'https://example.com', payload: 'PING' },
-      { sender: { id: browser.runtime.id, url: 'https://example.com/' } })).resolves.toEqual({
-        type: MidenMessageType.PageResponse, payload: 'PONG'
-      });
+    await expect(
+      dispatch(
+        { type: MidenMessageType.PageRequest, origin: 'https://example.com', payload: 'PING' },
+        { sender: { id: browser.runtime.id, url: 'https://example.com/' } }
+      )
+    ).resolves.toEqual({
+      type: MidenMessageType.PageResponse,
+      payload: 'PONG'
+    });
   });
 });
 
@@ -1377,19 +1419,35 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
   const signListener = () => capturedRuntimeListeners[0]!;
 
   it('does not accept a content-script connectivity write from the same extension ID', () => {
-    signListener()({ target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'node', active: true },
-      { id: OWN_EXTENSION_ID, url: 'https://example.com/' }, jest.fn());
+    signListener()(
+      { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'node', active: true },
+      { id: OWN_EXTENSION_ID, url: 'https://example.com/' },
+      jest.fn()
+    );
     expect(connectivityMock.getConnectivityState().node.active).toBe(false);
   });
 
   it('defers reverse-IPC storage publication until initial reset readiness settles', async () => {
     let release: () => void = () => undefined;
-    mockPlatformStartup.mockImplementationOnce(() => new Promise<undefined>(resolve => { release = () => resolve(undefined); }));
+    mockPlatformStartup.mockImplementationOnce(
+      () =>
+        new Promise<undefined>(resolve => {
+          release = () => resolve(undefined);
+        })
+    );
     const starting = start();
     try {
-      signListener()({ target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'node', active: true }, ownSender, jest.fn());
+      signListener()(
+        { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'node', active: true },
+        ownSender,
+        jest.fn()
+      );
       expect(connectivityMock.getConnectivityState().node.active).toBe(false);
-    } finally { release(); await starting; await flushMicro(); }
+    } finally {
+      release();
+      await starting;
+      await flushMicro();
+    }
     expect(connectivityMock.getConnectivityState().node.active).toBe(true);
   });
 
@@ -1801,7 +1859,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
 describe('scoped offscreen native identity relay', () => {
   const id = '0x817edea77acc5d71616e493afecea3';
   const publication = () => jest.requireMock('lib/miden-chain/native-asset').recordSyncedFeeFaucetId;
-  const invoke = (message: unknown, sender = ownSender, reply = jest.fn()) =>
+  const invoke = (message: unknown, sender: { id?: string; url?: string } = ownSender, reply = jest.fn()) =>
     capturedRuntimeListeners[0]?.(message, sender, reply);
   it.each([
     {
