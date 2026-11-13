@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  reset-caller-regression:
+  background-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -14,4 +14,24 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/lib/miden/reset.test.ts src/lib/miden/reset-and-reload.test.ts src/options.test.tsx src/screens/developer-settings/DeveloperSettings.test.tsx --maxWorkers=2
+      - run: yarn jest src/background.test.ts --maxWorkers=2
+  chrome-build-inspection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - run: MIDEN_E2E_TEST=true yarn build:chrome
+      - uses: actions/upload-artifact@v4
+        with:
+          name: passkey-worker-prebarrier
+          path: |
+            dist/chrome_unpacked/background.js
+            dist/chrome_unpacked/background.js.map
+            dist/chrome_unpacked/sw.js
+            dist/chrome_unpacked/manifest.json
+          if-no-files-found: error
+          retention-days: 3

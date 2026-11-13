@@ -3,6 +3,8 @@ import { BREAD_CONNECT_QUEUE_KEY, BREAD_CONNECT_SESSION_KEYS } from 'lib/bread-c
 import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
 import { inStorageTurn, rereadStorageCache } from 'lib/miden/front/storage';
+import { preparePlatformCredentialWipeInTurn } from 'lib/miden/back/platform-unlock-store';
+import { PLATFORM_CREDENTIALS_STORAGE_KEY, PLATFORM_RESET_STORAGE_KEY } from 'lib/platform-auth/types';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY, forgetDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
@@ -31,6 +33,8 @@ export const PRESERVED_STORAGE_KEYS: readonly string[] = [
   ENDPOINT_OVERRIDE_STORAGE_KEY,
   BRIDGE_CONFIG_FLOOR_KEY,
   EXPLORE_CONFIG_FLOOR_KEY,
+  PLATFORM_CREDENTIALS_STORAGE_KEY,
+  PLATFORM_RESET_STORAGE_KEY,
   ...BRIDGE_CONFIG_DOCUMENT_KEYS
 ];
 
@@ -58,6 +62,7 @@ const DEVELOPER_RESET_KEPT_KEYS: readonly string[] = PRESERVED_STORAGE_KEYS.filt
 async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<void> {
   await inStorageTurn(BADGE_STORAGE_KEY, async () => {
     try {
+      if (isExtension()) await preparePlatformCredentialWipeInTurn();
       if (isMobile()) {
         const { Preferences } = await import('@capacitor/preferences');
         const { keys } = await Preferences.keys();

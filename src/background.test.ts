@@ -30,6 +30,10 @@ const mockSetupSyncManager = jest.fn();
 const mockSetupTransactionProcessor = jest.fn();
 const mockFailInterruptedTransactions = jest.fn(() => Promise.resolve());
 const mockRegisterChromeUpdateListener = jest.fn();
+const mockPlatformStartup = jest.fn<Promise<void>, []>(async () => undefined);
+jest.mock('lib/extension/platform-unlock-startup', () => ({
+  ensurePlatformUnlockStartup: () => mockPlatformStartup()
+}));
 
 jest.mock('./xhr-shim', () => ({}));
 
@@ -176,6 +180,7 @@ let warnSpy: jest.SpyInstance;
 let logSpy: jest.SpyInstance;
 
 beforeEach(() => {
+  mockPlatformStartup.mockReset().mockResolvedValue(undefined);
   warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
   logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 });
@@ -251,6 +256,18 @@ describe('background toolbar fallback and recovery', () => {
 // ── Always-registered listeners (target-independent) ────────────────────────
 
 describe('background.ts — core service-worker listeners', () => {
+  it.each(['alarm', 'startup'])('holds the %s callback behind protected reset readiness', async event => {
+    let release: () => void = () => undefined;
+    mockPlatformStartup.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+    const wep = loadBackground({ target: 'firefox' });
+    const operation = event === 'alarm' ? mockDoSync : mockFailInterruptedTransactions;
+    try {
+      if (event === 'alarm') fire(wep.alarms.onAlarm, { name: 'miden-sync' });
+      else fire(wep.runtime.onStartup);
+      expect(operation).not.toHaveBeenCalled();
+    } finally { release(); await flush(); }
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
   it('registers the passive update listener only for Chrome', () => {
     loadBackground({ target: 'chrome', chrome: makeChromeStub({}, 'resolve') });
     expect(mockRegisterChromeUpdateListener).toHaveBeenCalledTimes(1);
