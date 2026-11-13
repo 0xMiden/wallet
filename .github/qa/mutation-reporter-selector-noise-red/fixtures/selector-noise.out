@@ -1,0 +1,5 @@
+FAIL f.txt keeps the uppercase B
+console.error: expected the SVG warning
+AssertionError: expected uppercase B, received lowercase b
+Expected: uppercase B
+Received: lowercase b

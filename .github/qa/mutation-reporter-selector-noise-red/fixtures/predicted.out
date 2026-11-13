@@ -1,0 +1,7 @@
+test rejects invalid callbackTimeoutMs in the constructor
+expect(mock).toBeInTheDocument();
+console.error: expected SVG warning
+FAIL f.txt keeps the uppercase B
+AssertionError: expected uppercase B, received lowercase b
+Expected: uppercase B
+Received: lowercase b
