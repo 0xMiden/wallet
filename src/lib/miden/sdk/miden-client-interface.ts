@@ -1701,6 +1701,14 @@ export class MidenClientInterface {
       [NoteExportType.FULL]: NoteExportFormat.Full,
       [NoteExportType.DETAILS]: NoteExportFormat.Details
     };
+    if (exportType === NoteExportType.FULL) {
+      const input = await this.client.notes.get(noteId);
+      assertLive();
+      if (input) {
+        if (!input.isAuthenticated()) throw new Error('Input note is not authenticated');
+        return NoteFile.fromInputNote(input.toInputNote()).serialize();
+      }
+    }
     const result = await this.client.notes.export(noteId, { format: formatMap[exportType] ?? NoteExportFormat.Full });
     assertLive();
     return result.serialize();

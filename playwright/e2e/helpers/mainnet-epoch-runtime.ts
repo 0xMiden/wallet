@@ -59,7 +59,7 @@ import {
 import { planEpochRoundTrip } from './mainnet-epoch-ui';
 import { realizedMainnetLoopLoss } from './mainnet-loop-budget';
 import { fetchMainnetOneClickUsdPrices } from './mainnet-one-click-prices';
-import { exportMakerNote } from './swap';
+import { exportPublicInputNote } from './swap';
 import { BRIDGE_DEPOSIT_LAYER } from './send-flow-scripts';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
 
@@ -651,7 +651,7 @@ async function settleEpochReturn(
     .toBe(true);
   if (!noteId || !isHash(noteId)) throw new Error('Missing exact Epoch return note');
   await wallet.triggerSync(true);
-  const file = await exportMakerNote(wallet, noteId, 90_000);
+  const file = await exportPublicInputNote(wallet, noteId);
   const bytes = Buffer.from(file, 'hex');
   const amount = inspectEpochReturnNote(state, noteId, bytes);
   const rpc = new RpcClient(new Endpoint(getEnvironmentConfig().rpcUrl));
@@ -883,7 +883,7 @@ export async function runEpochRefund(
   };
   try {
     await wallet.triggerSync(true);
-    const file = await exportMakerNote(wallet, noteId, 90_000);
+    const file = await exportPublicInputNote(wallet, noteId);
     const bytes = Buffer.from(file, 'hex');
     const amount = inspectEpochRefundNote(state, bytes, await readMainnetMidenBlock(getEnvironmentConfig().rpcUrl));
     const rows = await readTransactionRowsWithBytes(wallet.page, 'bridged-send');

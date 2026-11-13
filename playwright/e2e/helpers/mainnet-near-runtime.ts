@@ -69,7 +69,7 @@ import { getEnvironmentConfig } from '../config/environments';
 import { mainnetChain, mainnetRpc } from './mainnet-bridge-sources';
 import { inspectMainnetReturnNote, mainnetConsumeRequestHash } from './mainnet-miden-request';
 import { armMainnetConsumeAuthorization, releaseMainnetConsumeAuthorization } from './mainnet-consume-authorization';
-import { exportMakerNote } from './swap';
+import { exportPublicInputNote } from './swap';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
 import { WcCounterparty } from '../ios/helpers/wc-counterparty';
@@ -604,7 +604,7 @@ export async function claimMainnetNearNote(
     .toBe(true);
   const valid: { noteId: string; bytes: Uint8Array; amount: bigint }[] = [];
   for (const noteId of creator.noteIds.filter(id => own.includes(id))) {
-    const bytes = Buffer.from(await exportMakerNote(wallet, noteId, 90_000), 'hex');
+    const bytes = Buffer.from(await exportPublicInputNote(wallet, noteId), 'hex');
     let amount: bigint;
     try {
       amount = inspectMainnetReturnNote(
