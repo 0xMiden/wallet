@@ -6,8 +6,6 @@ object SecretClipboardLogic {
     /// ClipDescription.EXTRA_IS_SENSITIVE, spelled out so it is usable below API 33, where it is ignored.
     const val EXTRA_IS_SENSITIVE = "android.content.extra.IS_SENSITIVE"
     const val EXTRA_SECRET_MARKER = "com.miden.wallet.extra.SECRET_CLIP"
-    const val MIN_CLEAR_AFTER_MS = 1_000L
-    const val MAX_CLEAR_AFTER_MS = 600_000L
 
     enum class Decision { CLEAR, DROP, WAIT }
 
@@ -20,7 +18,7 @@ object SecretClipboardLogic {
         else -> Decision.DROP
     }
 
-    /// The delay itself when it is within the supported bounds, else null.
+    /// The delay itself when it is positive, else null.
     @JvmStatic
-    fun validClearAfterMs(raw: Long?): Long? = raw?.takeIf { it in MIN_CLEAR_AFTER_MS..MAX_CLEAR_AFTER_MS }
+    fun validClearAfterMs(raw: Long?): Long? = raw?.takeIf { it > 0 }
 }

@@ -13,9 +13,6 @@ public class SecretClipboardPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "write", returnType: CAPPluginReturnPromise)
     ]
 
-    static let minClearAfterMs = 1_000
-    static let maxClearAfterMs = 600_000
-
     private let pasteboard: UIPasteboard
 
     init(pasteboard: UIPasteboard = .general) {
@@ -43,7 +40,7 @@ public class SecretClipboardPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     static func validClearAfterMs(_ raw: Int?) -> Int? {
-        guard let raw, (minClearAfterMs...maxClearAfterMs).contains(raw) else { return nil }
+        guard let raw, raw > 0 else { return nil }
         return raw
     }
 
