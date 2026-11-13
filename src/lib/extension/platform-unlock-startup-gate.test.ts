@@ -1,8 +1,7 @@
 const mockResume = jest.fn<Promise<void>, []>(async () => undefined);
 jest.mock('lib/miden/platform-reset', () => ({ resumeExtensionReset: () => mockResume() }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
-jest.mock('webextension-polyfill', () => ({ __esModule: true,
-  default: { storage: { local: {} } } }));
+jest.mock('webextension-polyfill', () => ({ __esModule: true, default: { storage: { local: {} } } }));
 
 beforeEach(() => {
   jest.resetModules();
@@ -12,17 +11,27 @@ beforeEach(() => {
 it('waits for the authorized wipe even when old Chrome cannot restrict local storage', async () => {
   let release: () => void = () => undefined;
   let entered: () => void = () => undefined;
-  const reached = new Promise<void>(resolve => { entered = resolve; });
+  const reached = new Promise<void>(resolve => {
+    entered = resolve;
+  });
   mockResume.mockImplementationOnce(() => {
     entered();
-    return new Promise<void>(resolve => { release = resolve; });
+    return new Promise<void>(resolve => {
+      release = resolve;
+    });
   });
   const { ensurePlatformUnlockStartup } = await import('./platform-unlock-startup');
   let ready = false;
-  const starting = ensurePlatformUnlockStartup().then(() => { ready = true; });
+  const starting = ensurePlatformUnlockStartup().then(() => {
+    ready = true;
+  });
   await Promise.race([reached, starting]);
-  try { expect(ready).toBe(false); }
-  finally { release(); await starting; }
+  try {
+    expect(ready).toBe(false);
+  } finally {
+    release();
+    await starting;
+  }
 });
 it('propagates pending-reset failure and rechecks the protected intent on the next wake', async () => {
   mockResume.mockRejectedValueOnce(new Error('reset pending'));

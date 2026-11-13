@@ -29,7 +29,8 @@ if (process.env.TARGET_BROWSER === 'chrome') registerChromeUpdateListener();
 // up to 30 min waiting on the age-based reaper (issue #282). Registered
 // synchronously at the top level so it survives MV3 SW eviction.
 runtime.onStartup.addListener(() => {
-  ensurePlatformUnlockStartup().then(() => failInterruptedTransactions())
+  ensurePlatformUnlockStartup()
+    .then(() => failInterruptedTransactions())
     .catch(err => console.warn('[Background] Interrupted-transaction sweep error:', err));
 });
 
@@ -40,17 +41,20 @@ runtime.onStartup.addListener(() => {
 // init factory, so the cold-start race documented in #212 is handled there.
 browser.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === 'miden-sync') {
-    ensurePlatformUnlockStartup().then(() => doSync())
+    ensurePlatformUnlockStartup()
+      .then(() => doSync())
       .catch(err => console.warn('[SyncManager] Alarm sync error:', err));
   }
   // 'miden-tx-processor' and 'miden-guardian-wait-keepalive' are keepalives only: no action needed
 });
 
 // Chain sync manager + transaction processor setup after start() to ensure Actions.init() completes first
-start().then(() => {
-  setupSyncManager();
-  setupTransactionProcessor();
-}).catch(err => console.warn('[Background] Startup remains blocked:', err));
+start()
+  .then(() => {
+    setupSyncManager();
+    setupTransactionProcessor();
+  })
+  .catch(err => console.warn('[Background] Startup remains blocked:', err));
 
 if (process.env.TARGET_BROWSER === 'safari') {
   browser.browserAction.onClicked.addListener(() => {

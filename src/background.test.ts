@@ -258,14 +258,22 @@ describe('background toolbar fallback and recovery', () => {
 describe('background.ts — core service-worker listeners', () => {
   it.each(['alarm', 'startup'])('holds the %s callback behind protected reset readiness', async event => {
     let release: () => void = () => undefined;
-    mockPlatformStartup.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+    mockPlatformStartup.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          release = resolve;
+        })
+    );
     const wep = loadBackground({ target: 'firefox' });
     const operation = event === 'alarm' ? mockDoSync : mockFailInterruptedTransactions;
     try {
       if (event === 'alarm') fire(wep.alarms.onAlarm, { name: 'miden-sync' });
       else fire(wep.runtime.onStartup);
       expect(operation).not.toHaveBeenCalled();
-    } finally { release(); await flush(); }
+    } finally {
+      release();
+      await flush();
+    }
     expect(operation).toHaveBeenCalledTimes(1);
   });
   it('registers the passive update listener only for Chrome', () => {

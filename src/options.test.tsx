@@ -125,7 +125,9 @@ describe('src/options.tsx', () => {
     mockRequestReset.mockClear();
     mockConfirm.mockResolvedValue(true);
     mockResetStorage.mockResolvedValue(undefined);
-    await act(async () => { fireEvent.click(getResetButton()); });
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
     expect(mockRequestReset).toHaveBeenCalledWith({ keepEndpointOverride: true });
   });
   it('mounts the Options page into #root with heading + reset button', () => {

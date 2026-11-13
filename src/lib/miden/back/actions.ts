@@ -500,21 +500,21 @@ export function lock() {
 }
 
 export async function lockForResetInTurn() {
-    // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
-    // consume loop) to drain before clearing the vault key. If we lock while
-    // the kernel is mid-`miden::protocol::auth::request`, the signing
-    // callback has no key → executeTransaction fails → notes can end up
-    // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
-    // coincided with LOCK_REQUEST arriving while a consume loop was active.
-    await withWasmClientLock(async () => {
-      const { vault } = store.getState();
-      clearRecoveryAuthorizations();
-      releaseGuardianRecoveriesOnLock();
-      locked();
-      // Only the vault being locked gives up its insert-key sink; one an unlock in
-      // flight just installed stays (#878).
-      vault?.retire();
-    });
+  // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
+  // consume loop) to drain before clearing the vault key. If we lock while
+  // the kernel is mid-`miden::protocol::auth::request`, the signing
+  // callback has no key → executeTransaction fails → notes can end up
+  // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
+  // coincided with LOCK_REQUEST arriving while a consume loop was active.
+  await withWasmClientLock(async () => {
+    const { vault } = store.getState();
+    clearRecoveryAuthorizations();
+    releaseGuardianRecoveriesOnLock();
+    locked();
+    // Only the vault being locked gives up its insert-key sink; one an unlock in
+    // flight just installed stays (#878).
+    vault?.retire();
+  });
 }
 
 export function unlock(password?: string) {

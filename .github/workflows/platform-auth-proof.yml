@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  reverse-ipc-regression:
+  init-writer-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -14,25 +14,35 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/lib/miden/back/main.test.ts --maxWorkers=2
-  compiled-startup-gate:
+      - run: yarn jest src/lib/miden/back/actions.test.ts --maxWorkers=2
+  startup-browser-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: MIDEN_E2E_TEST=true yarn build:chrome
+      - uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
+      - run: MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MIDEN_E2E_DISABLE_SIDEPANEL=false yarn build:chrome
       - run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+        timeout-minutes: 12
+      - run: SKIP_EXTENSION_BUILD=true xvfb-run -a yarn test:e2e platform-startup.spec.ts --workers=1 --retries=0
+      - name: Format the new browser fixture for local adoption
+        if: always()
+        run: yarn prettier --write playwright/tests/platform-startup.spec.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: passkey-worker-startup-proof
+          name: passkey-startup-browser-proof
           path: |
-            dist/chrome_unpacked/background.js
-            dist/chrome_unpacked/sw.js
+            test-results/
+            playwright/tests/platform-startup.spec.ts
             dist/chrome_unpacked/manifest.json
           if-no-files-found: error
           retention-days: 3

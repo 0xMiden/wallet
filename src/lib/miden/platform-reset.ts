@@ -1,12 +1,12 @@
 import Dexie, { type Table } from 'dexie';
 
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { hasExtensionRuntime } from 'lib/platform';
-import { WalletMessageType } from 'lib/shared/types';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { decodePlatformBytes, encodePlatformBytes } from 'lib/platform-auth/crypto';
 import { PLATFORM_RESET_STORAGE_KEY } from 'lib/platform-auth/types';
-import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { WalletMessageType } from 'lib/shared/types';
 
 export interface ExtensionResetOptions {
   keepEndpointOverride: boolean;
@@ -23,8 +23,11 @@ function object(value: unknown): value is Record<string, unknown> {
 function optionsFrom(value: unknown): ExtensionResetOptions {
   if (!object(value) || typeof value.keepEndpointOverride !== 'boolean') throw new Error('Invalid reset options');
   const network = Object.values(MIDEN_NETWORK_NAME).find(item => item === value.targetNetwork);
-  if ((value.targetNetwork !== undefined && network === undefined) ||
-      (value.accessCode !== undefined && typeof value.accessCode !== 'string')) throw new Error('Invalid reset options');
+  if (
+    (value.targetNetwork !== undefined && network === undefined) ||
+    (value.accessCode !== undefined && typeof value.accessCode !== 'string')
+  )
+    throw new Error('Invalid reset options');
   const result: ExtensionResetOptions = { keepEndpointOverride: value.keepEndpointOverride };
   if (network !== undefined) result.targetNetwork = network;
   if (typeof value.accessCode === 'string') result.accessCode = value.accessCode;
@@ -32,8 +35,14 @@ function optionsFrom(value: unknown): ExtensionResetOptions {
 }
 function authorizationFrom(value: unknown): ResetAuthorization | null {
   if (value === undefined) return null;
-  if (!object(value) || value.id !== 'reset' || value.version !== 1 || typeof value.nonce !== 'string' ||
-      decodePlatformBytes(value.nonce).length !== 32) throw new Error('Invalid reset authorization');
+  if (
+    !object(value) ||
+    value.id !== 'reset' ||
+    value.version !== 1 ||
+    typeof value.nonce !== 'string' ||
+    decodePlatformBytes(value.nonce).length !== 32
+  )
+    throw new Error('Invalid reset authorization');
   const { nonce } = value;
   if (value.phase === 'complete') return { id: 'reset', version: 1, nonce, phase: 'complete' };
   if (value.phase !== 'pending') throw new Error('Invalid reset authorization');
@@ -43,8 +52,11 @@ async function authorizationTurn<T>(action: (table: Table<unknown, string>) => P
   const db = new Dexie('miden-platform-unlock-reset');
   db.version(1).stores({ authorization: 'id' });
   const table = db.table<unknown, string>('authorization');
-  try { return await db.transaction('rw', table, () => action(table)); }
-  finally { db.close(); }
+  try {
+    return await db.transaction('rw', table, () => action(table));
+  } finally {
+    db.close();
+  }
 }
 
 export async function authorizeExtensionReset(options: ExtensionResetOptions): Promise<string> {
@@ -67,7 +79,8 @@ async function finishResetInTurn(expectedNonce?: string): Promise<void> {
     if (expectedNonce !== undefined) throw new Error('Reset authorization unavailable');
     return;
   }
-  if (expectedNonce !== undefined && expectedNonce !== authorization.nonce) throw new Error('Reset authorization changed');
+  if (expectedNonce !== undefined && expectedNonce !== authorization.nonce)
+    throw new Error('Reset authorization changed');
   const { nonce } = authorization;
   if (authorization.phase === 'pending') {
     const provider = getStorageProvider();
@@ -126,7 +139,12 @@ export async function requestExtensionReset(options: ExtensionResetOptions): Pro
     if (response?.type !== WalletMessageType.PlatformResetResponse) throw new Error('Invalid reset response');
   })();
   try {
-    await Promise.race([sent, new Promise<void>(resolve => { timer = setTimeout(resolve, 3000); })]);
+    await Promise.race([
+      sent,
+      new Promise<void>(resolve => {
+        timer = setTimeout(resolve, 3000);
+      })
+    ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
