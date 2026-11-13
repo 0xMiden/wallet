@@ -1,4 +1,4 @@
-name: Remaining allowance GREEN and frozen codec RED
+name: Read-only transport and remaining-budget regression RED
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -8,9 +8,9 @@ concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  budget:
+  contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,7 +21,8 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Lower remaining allowance regression GREEN
-        run: yarn jest scripts/mainnet-loop-budget.test.ts --maxWorkers=2 --watch=false
-      - name: Frozen loss allowance codec regression RED
-        run: yarn jest scripts/mainnet-swap-checkpoint.test.ts --maxWorkers=2 --watch=false
+      - name: Functional transport and workflow RED with budget and codec GREEN
+        run: yarn jest scripts/mainnet-loop-upload.test.ts scripts/mainnet-swap-workflow.test.ts scripts/mainnet-loop-budget.test.ts scripts/mainnet-swap-checkpoint.test.ts --maxWorkers=2 --watch=false
+      - name: Connected types
+        if: always()
+        run: yarn ts && yarn tsc --project playwright.mainnet.tsconfig.json
