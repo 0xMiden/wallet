@@ -189,7 +189,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
                   <TokenAmount
                     amount={amount.value}
                     minimumFractionDigits={DISPLAY_DECIMAL_PLACES}
-                    rounding="down"
+                    rounding={amount.direction === 'negative' ? 'up' : 'down'}
                     preserveSign
                     className={AMOUNT_COLOR[amount.direction ?? 'neutral']}
                   />
@@ -215,7 +215,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
                       <TokenAmount
                         amount={line.value}
                         minimumFractionDigits={DISPLAY_DECIMAL_PLACES}
-                        rounding="down"
+                        rounding={amount.direction === 'negative' ? 'up' : 'down'}
                         preserveSign
                         className={AMOUNT_COLOR[amount.direction ?? 'neutral']}
                       />

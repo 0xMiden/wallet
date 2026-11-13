@@ -1591,16 +1591,25 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
     });
 
-    // The estimate prices the figure the hero prints, rounded down to 1234.567, not the unrounded amount.
+    // The estimate prices the figure the hero prints, a payment rounded up to 1234.568, not the unrounded amount.
     it('prices a send at the amount its hero shows', async () => {
       const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
       setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET, amount: 1_234_567_891n }); // 1234.567891 at 6 decimals.
       await renderAndLoad();
 
-      expect(screen.getByText('1234.567 MID')).toBeInTheDocument();
-      expect(screen.getByText('historyDetailsFiatApprox_$2,469.13')).toBeInTheDocument();
-      expect(screen.queryByText('historyDetailsFiatApprox_$2,469.14')).not.toBeInTheDocument();
+      expect(screen.getByText('1234.568 MID')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2,469.14')).toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$2,469.13')).not.toBeInTheDocument();
+    });
+
+    it('rounds an outgoing amount up in the hero', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET, amount: 1_234_500n }); // 1.2345 at 6 decimals.
+      await renderAndLoad();
+
+      expect(screen.getByText('1.235 MID')).toBeInTheDocument();
     });
 
     it('estimates IETH at the ETH price, the symbol the feed quotes it under', async () => {

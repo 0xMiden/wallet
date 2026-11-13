@@ -178,6 +178,22 @@ describe('ActivityRow', () => {
       expect(screen.getByText('MIDEN')).toBeTruthy();
     });
 
+    it('rounds negative amounts up and positive amounts down', () => {
+      const { rerender } = renderRow({ amount: { value: '1.2345', direction: 'negative' } });
+
+      expect(screen.getByText('1.235')).toBeTruthy();
+      rerender(
+        <ActivityRow
+          icon={<svg data-testid="glyph" />}
+          title="Sent MIDEN"
+          status={baseStatus}
+          amount={{ value: '1.2345', direction: 'positive' }}
+        />
+      );
+
+      expect(screen.getByText('1.234')).toBeTruthy();
+    });
+
     it('expands precision instead of truncating a small non-zero amount to zero', () => {
       renderRow({ amount: { value: '0.00012345', symbol: 'MIDEN' } });
 

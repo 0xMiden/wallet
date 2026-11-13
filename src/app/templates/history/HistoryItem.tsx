@@ -121,7 +121,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
           <TokenAmount
             amount={entry.amount.toString()}
             prefix={isReceive ? '+' : '-'}
-            rounding="down"
+            rounding={isReceive ? 'down' : 'up'}
             className={classNames(
               'max-w-full truncate font-heading text-sm font-medium leading-tight',
               isReceive ? 'text-positive-tint-ink' : 'text-negative-tint-ink'

@@ -99,6 +99,7 @@ import {
   formatDate,
   formatMoneyAmount,
   isBridgeInEntry,
+  isReceiveEntry,
   labelHistoryEntry,
   swapSettlementOf
 } from './transactionUtils';
@@ -769,7 +770,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           ? formatMoneyAmount(entry.amount, 'typed')
           : formatAmountDisplay(entry.amount.toString(), {
               minimumFractionDigits: DISPLAY_DECIMAL_PLACES,
-              rounding: 'down'
+              rounding: isReceiveEntry(entry) ? 'down' : 'up'
             });
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
