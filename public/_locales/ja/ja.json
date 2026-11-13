@@ -1910,5 +1910,16 @@
   "arcadePostingPolicy": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
   "autoLock": "自動ロック",
   "autoLockDescription": "これほど長い間バックグラウンド状態が続くと、ウォレットがロックされます。",
-  "autoLockMinutes": "$minutes$分"
+  "autoLockMinutes": "$minutes$分",
+  "epochAwaitingReturn": "返却待ち",
+  "epochReadyToClaim": "請求の準備完了",
+  "epochReturningFunds": "資金の返還",
+  "epochFundsReturned": "返還された資金",
+  "epochReturnWaiting": "お客様の資金はMidenに残っています。ブロック$block$以降に、それらを引き出すことができます。",
+  "epochReturnReady": "資金を引き出して、ウォレットに戻してください。",
+  "epochReturnPending": "お客様の資金は、ウォレットに返還されています。",
+  "epochReturnDone": "お客様の資金はウォレットに戻りました。",
+  "epochReturnPaid": "資金が送金先に送金されました。",
+  "epochReturnSpent": "このnoteは使用されましたが、支払いは確認されていません。送金先とMidenの残高を確認してください。",
+  "epochReturnUnavailable": "資金の状況を確認できません。もう一度お試しください。"
 }

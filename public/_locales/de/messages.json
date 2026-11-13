@@ -8716,5 +8716,54 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "Warten auf Rückgabe",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Bereit zur Inanspruchnahme",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Rückgabe von Geldern",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Zurückerstattete Gelder",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Ihr Guthaben verbleibt bei Miden. Sie können es nach Block $block$ abrufen.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Fordern Sie Ihre Guthaben an, um sie in Ihre Wallet zurückzuführen.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Ihr Guthaben wird auf Ihre Wallet zurücküberwiesen.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Ihr Guthaben ist wieder in Ihrer Wallet.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "An Ihren Empfänger gesendete Gelder.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Diese note wurde verwendet, die Auszahlung ist jedoch noch nicht bestätigt. Überprüfen Sie Ihr Ziel und Ihren Miden-Kontostand.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Der Kontostand kann nicht überprüft werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }
