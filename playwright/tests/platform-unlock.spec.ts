@@ -169,7 +169,7 @@ async function privateInput(page: Page, value: string) {
 
 async function snapshot(page: Page, info: TestInfo, name: string) {
   const file = info.outputPath(`profile-settings-passkey-${name}.png`);
-  const png = await page.screenshot({ scale: 'css' });
+  const png = await page.screenshot({ scale: 'css', animations: 'disabled' });
   await writeFile(
     file,
     await sharp(png).resize({ width: 1800, height: 1800, fit: 'inside', withoutEnlargement: true }).toBuffer()
@@ -329,6 +329,8 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
     await expect
       .poll(() => page.evaluate(() => document.documentElement.classList.contains('dark')))
       .toBe(theme === 'dark');
+    await expect(page.getByRole('button', { name: 'Replace passkey', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Remove passkey unlock', exact: true })).toBeEnabled();
     await snapshot(page, info, `enabled-sidebar-${theme}`);
   }
   await privacy(page, messages);
