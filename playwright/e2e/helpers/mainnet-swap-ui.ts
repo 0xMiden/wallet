@@ -213,6 +213,12 @@ export async function prepareMainnetSwapReview(
   const page = wallet.page;
   await page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/swap`);
   await page.getByTestId('swap-flow').waitFor({ state: 'visible', timeout: 60_000 });
+  const nearEnabled = await page.evaluate(async () =>
+    (await chrome.storage.local.get('bridge_config_v1:mainnet'))['bridge_config_v1:mainnet']?.body?.features?.nearIntents === true
+  );
+  // Catalogue hydration remounts the idle flow; finish it before opening the token drawer.
+  if (nearEnabled)
+    await page.getByTestId('one-click-pay-network-picker').waitFor({ state: 'visible', timeout: 60_000 });
   await page.getByTestId('send-token-selector').first().click();
   await page.getByTestId(`swap-token-${offered.symbol}`).click();
   await page.getByTestId('send-token-selector').nth(1).click();
