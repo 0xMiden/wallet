@@ -3224,6 +3224,10 @@
     "message": "Erstellen Sie ein Backup Ihrer Wallet",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Wiederherstellungsphrase verborgen",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Anzeigen",
     "englishSource": "Show"
@@ -3365,12 +3369,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 Zeichen, 1 Ziffer",
-    "englishSource": "8 characters, 1 number"
+    "message": "Mindestens 12 Zeichen",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Mindestens 8 Zeichen, darunter mindestens 1 Ziffer",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Verwenden Sie mindestens 12 Zeichen. Zahlen, Sonderzeichen und die Mischung aus Groß- und Kleinbuchstaben erhöhen die Sicherheit.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Merken Sie sich diese 12 Wörter und bewahren Sie sie an einem sicheren Ort auf.",
@@ -4393,6 +4397,18 @@
   "guardianAccountNotFound": {
     "message": "Wir konnten kein Backup für diesen Guardian finden. Überprüfen Sie die URL oder wählen Sie einen anderen Guardian aus.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "Ihre Konten konnten nicht wiederhergestellt werden: Der guardian hat Kontodaten zurückgegeben, die nicht mit Ihrer Wiederherstellungsphrase übereinstimmen. Es wurde nichts wiederhergestellt.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Ihre Konten konnten nicht wiederhergestellt werden: Die Kopie eines Kontos beim guardian stimmt noch nicht mit dem Miden-Netzwerk überein. Es wurde nichts wiederhergestellt. Versuchen Sie es in einigen Minuten erneut.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Das Miden-Netzwerk konnte nicht erreicht werden, um Ihre Konten zu überprüfen. Ihre Wiederherstellungsphrase ist in Ordnung. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "Dieser „guardian“ läuft in einem anderen Miden-Netzwerk, daher kann er hier kein Konto wiederherstellen.",
@@ -8683,5 +8699,22 @@
   "arcadePostingPolicy": {
     "message": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Automatische Sperre",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Sperrt die Wallet, sobald sie so lange im Hintergrund war.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

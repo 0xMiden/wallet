@@ -690,6 +690,7 @@
   "guardianInfoSwitchingIsEasyDescription": "您可以随时使用恢复短语切换至另一位Guardian。仅确认您交易的对象发生变化；您的账户和资金保持不变。",
   "gotIt": "明白了",
   "backUpYourWallet": "备份您的钱包",
+  "recoveryPhraseHidden": "恢复短语已隐藏",
   "show": "显示",
   "hide": "隐藏",
   "copied": "已复制",
@@ -725,8 +726,8 @@
   "veryStrong": "非常强！",
   "medium": "中",
   "low": "低",
-  "8chars1number": "8个字符，1个数字",
-  "minimumCharsWithAtLeast": "至少8个字符，其中至少包含1个数字",
+  "8chars1number": "至少 12 个字符",
+  "minimumCharsWithAtLeast": "密码长度至少为12个字符。使用数字、符号及大小写混合可增强安全性。",
   "backUpWalletInstructions": "请将这12个词保存下来，并存放在安全的地方。",
   "doNotShareWithAnywone": "请勿与任何人分享。",
   "seedPhraseRecoveryCaption": "您的恢复短语用于恢复您的密钥。它用于轮换您的日常密钥，而非用于日常交易。",
@@ -971,6 +972,9 @@
   "publicImportMayCreate": "如果该短语尚无公开账户，导入操作将据此创建一个新账户。",
   "retryGuardianDetection": "请尝试再次检测",
   "guardianAccountNotFound": "我们无法在此Guardian上找到备份。请检查URL或选择另一个Guardian。",
+  "guardianRecoveryUnverified": "您的账户无法恢复：该guardian返回的账户数据与您的恢复短语不匹配。没有任何数据被恢复。",
+  "guardianRecoveryBehindNetwork": "您的账户无法恢复：该账户的guardian副本尚未与Miden网络匹配。没有任何内容被恢复。请几分钟后重试。",
+  "guardianRecoveryNetworkUnreachable": "无法连接到 Miden 网络以核查您的账户。您的恢复短语没有问题。请检查网络连接并重试。",
   "guardianOtherNetwork": "该“guardian”运行在另一个 Miden 网络上，因此无法在此处恢复账户。",
   "useCustomGuardianUrl": "请使用自定义的 Guardian 链接",
   "default": "默认",
@@ -1903,5 +1907,8 @@
   "arcadeBalanceUnknown": "余额不可用",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "游戏币",
-  "arcadePostingPolicy": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。"
+  "arcadePostingPolicy": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
+  "autoLock": "自动锁定",
+  "autoLockDescription": "当钱包在后台处于闲置状态达到一定时间后，系统将自动锁定该钱包。",
+  "autoLockMinutes": "$minutes$分钟"
 }

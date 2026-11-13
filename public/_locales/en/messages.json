@@ -3223,6 +3223,10 @@
     "message": "Back up your wallet",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Recovery phrase hidden",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Show",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 characters, 1 number",
-    "englishSource": "8 characters, 1 number"
+    "message": "At least 12 characters",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Minimum 8 characters with at least 1 number",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Save these 12 words and store in a secure place.",
@@ -4392,6 +4396,18 @@
   "guardianAccountNotFound": {
     "message": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "This guardian runs on another Miden network, so it cannot recover an account here.",
@@ -8673,5 +8689,22 @@
   "arcadePostingPolicy": {
     "message": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Auto-lock",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Locks the wallet once it has been in the background this long.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

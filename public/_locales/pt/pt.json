@@ -690,6 +690,7 @@
   "guardianInfoSwitchingIsEasyDescription": "Você pode mudar para um Guardian diferente a qualquer momento usando sua frase de recuperação. Apenas quem confirma suas transações muda; sua conta e seus fundos permanecem os mesmos.",
   "gotIt": "Entendi",
   "backUpYourWallet": "Faça backup da sua carteira",
+  "recoveryPhraseHidden": "Frase de recuperação oculta",
   "show": "Mostrar",
   "hide": "Ocultar",
   "copied": "Copiado",
@@ -725,8 +726,8 @@
   "veryStrong": "Muito forte!",
   "medium": "Médio",
   "low": "Baixo",
-  "8chars1number": "8 caracteres, 1 número",
-  "minimumCharsWithAtLeast": "Mínimo de 8 caracteres, incluindo pelo menos 1 número",
+  "8chars1number": "Pelo menos 12 caracteres",
+  "minimumCharsWithAtLeast": "Use pelo menos 12 caracteres. Números, símbolos e letras maiúsculas e minúsculas tornam a senha mais segura.",
   "backUpWalletInstructions": "Anote essas 12 palavras e guarde-as em um local seguro.",
   "doNotShareWithAnywone": "Não compartilhe com ninguém.",
   "seedPhraseRecoveryCaption": "Sua frase de recuperação restaura suas chaves. Ela é usada para rodar sua chave de uso diário, não para transações cotidianas.",
@@ -971,6 +972,9 @@
   "publicImportMayCreate": "Se ainda não houver uma conta pública para essa expressão, a importação criará uma nova a partir dela.",
   "retryGuardianDetection": "Tente fazer a detecção novamente",
   "guardianAccountNotFound": "Não foi possível encontrar um backup neste Guardian. Verifique a URL ou escolha outro Guardian.",
+  "guardianRecoveryUnverified": "Suas contas não puderam ser restauradas: o guardian devolveu dados da conta que não correspondem à sua frase de recuperação. Nada foi restaurado.",
+  "guardianRecoveryBehindNetwork": "Suas contas não puderam ser restauradas: a cópia da conta do guardian ainda não está sincronizada com a rede Miden. Nada foi restaurado. Tente novamente em alguns minutos.",
+  "guardianRecoveryNetworkUnreachable": "Não foi possível acessar a rede Miden para verificar suas contas. Sua frase de recuperação está correta. Verifique sua conexão e tente novamente.",
   "guardianOtherNetwork": "Este “guardian” opera em outra rede Miden, portanto não pode recuperar uma conta aqui.",
   "useCustomGuardianUrl": "Use uma URL personalizada do tipo Guardian",
   "default": "Padrão",
@@ -1898,5 +1902,8 @@
   "arcadeBalanceUnknown": "Saldo indisponível",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Moedas do jogo",
-  "arcadePostingPolicy": "Cada jogo define suas próprias apostas, pagamentos e reembolsos. Consulte as regras antes de aprovar uma transação."
+  "arcadePostingPolicy": "Cada jogo define suas próprias apostas, pagamentos e reembolsos. Consulte as regras antes de aprovar uma transação.",
+  "autoLock": "Bloqueio automático",
+  "autoLockDescription": "Bloqueia a carteira depois de permanecer inativa por tanto tempo.",
+  "autoLockMinutes": "$minutes$ min"
 }

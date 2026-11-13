@@ -15,7 +15,7 @@ const mockPort = {
     removeListener: jest.fn()
   },
   postMessage: mockPostMessage,
-  sender: { id: 'test-extension-id' }
+  sender: { id: 'test-extension-id', url: 'chrome-extension://test-extension-id/popup.html' }
 };
 
 let connectListener: (port: any) => void;
@@ -23,6 +23,7 @@ let connectListener: (port: any) => void;
 jest.mock('webextension-polyfill', () => ({
   runtime: {
     id: 'test-extension-id',
+    getURL: (p: string) => `chrome-extension://test-extension-id/${p}`,
     onConnect: {
       addListener: (fn: (port: any) => void) => {
         connectListener = fn;
@@ -272,6 +273,149 @@ describe('IntercomServer', () => {
         reqId: 'req-8',
         data: ['Not Found', undefined, 'Error', undefined]
       });
+    });
+  });
+
+  describe('a content script', () => {
+    const NOT_FOUND = ['Not Found', undefined, 'Error', undefined];
+    const SIGN_WORD = { type: 'SIGN_WORD_REQUEST', publicKey: 'pk', wordHex: '0x1' };
+    const contentPort = {
+      ...mockPort,
+      sender: { id: 'test-extension-id', url: 'https://dapp.example/app', tab: { id: 7 } }
+    };
+
+    const deliverFrom = async (port: object, reqId: string, data: unknown) => {
+      connectListener(port);
+      const messageHandler = mockAddListener.mock.calls[0][0];
+      await messageHandler({ type: MessageType.Req, reqId, data }, port);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    };
+
+    beforeEach(() => {
+      server = new IntercomServer({ contentScriptRequestTypes: new Set(['MIDEN_PAGE_REQUEST']) });
+    });
+
+    it('serves a content script its page request', async () => {
+      const pageRequest = { type: 'MIDEN_PAGE_REQUEST', origin: 'https://dapp.example', payload: { type: 'X' } };
+      const handler = jest.fn().mockResolvedValue({ type: 'MIDEN_PAGE_RESPONSE' });
+      server.onRequest(handler);
+
+      await deliverFrom(contentPort, 'req-c1', pageRequest);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(pageRequest, contentPort);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: MessageType.Res,
+        reqId: 'req-c1',
+        data: { type: 'MIDEN_PAGE_RESPONSE' }
+      });
+    });
+
+    it('answers any other request from a content script with Not Found and never runs a handler', async () => {
+      // Answers the sign request and declines the payload one, so without the gate the first is served and the
+      // second reaches the fallback.
+      const handler = jest.fn(async (data: { type: string }) =>
+        data.type === SIGN_WORD.type ? { ok: true } : undefined
+      );
+      const fallback = jest.fn(() => Object.assign(new Error('Not Found'), { code: 'confirmation_unknown' }));
+      server.onRequest(handler);
+      server.onNotFound(fallback);
+
+      await deliverFrom(contentPort, 'req-c2', SIGN_WORD);
+      await deliverFrom(contentPort, 'req-c3', { type: 'MIDEN_DAPP_GET_PAYLOAD_REQUEST', id: ['c-1'] });
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(fallback).not.toHaveBeenCalled();
+      expect(mockPostMessage.mock.calls).toEqual([
+        [{ type: MessageType.Err, reqId: 'req-c2', data: NOT_FOUND }],
+        [{ type: MessageType.Err, reqId: 'req-c3', data: NOT_FOUND }]
+      ]);
+    });
+
+    it('refuses a content script before handlers register too', async () => {
+      await deliverFrom(contentPort, 'req-c4', { type: 'GET_STATE_REQUEST' });
+      await deliverFrom(contentPort, 'req-c5', SIGN_WORD);
+
+      expect(mockPostMessage.mock.calls).toEqual([
+        [{ type: MessageType.Err, reqId: 'req-c4', data: NOT_FOUND }],
+        [{ type: MessageType.Err, reqId: 'req-c5', data: NOT_FOUND }]
+      ]);
+
+      const handler = jest.fn().mockResolvedValue({ ok: true });
+      server.onRequest(handler);
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(mockPostMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('queues a page request that arrives before handlers register and replays it once they do', async () => {
+      const pageRequest = { type: 'MIDEN_PAGE_REQUEST', origin: 'https://dapp.example', payload: { type: 'X' } };
+
+      await deliverFrom(contentPort, 'req-c8', pageRequest);
+      expect(mockPostMessage).not.toHaveBeenCalled();
+
+      const handler = jest.fn().mockResolvedValue({ type: 'MIDEN_PAGE_RESPONSE' });
+      server.onRequest(handler);
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(pageRequest, contentPort);
+      expect(mockPostMessage.mock.calls).toEqual([
+        [{ type: MessageType.Res, reqId: 'req-c8', data: { type: 'MIDEN_PAGE_RESPONSE' } }]
+      ]);
+    });
+
+    it('serves every request type to an extension page running in a tab', async () => {
+      const tabPage = {
+        ...mockPort,
+        sender: { id: 'test-extension-id', url: 'chrome-extension://test-extension-id/fullpage.html', tab: { id: 3 } }
+      };
+      const handler = jest.fn().mockResolvedValue({ type: 'SIGN_WORD_RESPONSE' });
+      server.onRequest(handler);
+
+      await deliverFrom(tabPage, 'req-c6', SIGN_WORD);
+
+      expect(handler).toHaveBeenCalledWith(SIGN_WORD, tabPage);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: MessageType.Res,
+        reqId: 'req-c6',
+        data: { type: 'SIGN_WORD_RESPONSE' }
+      });
+    });
+
+    it('does not count as a client and receives no broadcast', () => {
+      const content = { ...contentPort, name: 'INTERCOM', postMessage: jest.fn() };
+      connectListener(content);
+
+      server.broadcast({ type: 'STATE_UPDATED' });
+
+      expect(server.hasClients()).toBe(false);
+      expect(content.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('leaves an extension page counted as a client and broadcast to', () => {
+      const content = { ...contentPort, name: 'INTERCOM', postMessage: jest.fn() };
+      const page = { ...mockPort, name: 'INTERCOM', postMessage: jest.fn() };
+      connectListener(content);
+      connectListener(page);
+
+      server.broadcast({ type: 'STATE_UPDATED' });
+
+      expect(server.hasClients()).toBe(true);
+      expect(page.postMessage).toHaveBeenCalledWith({ type: MessageType.Sub, data: { type: 'STATE_UPDATED' } });
+      expect(content.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('treats a sender with no url as a content script', async () => {
+      const noUrl = { ...mockPort, sender: { id: 'test-extension-id' } };
+      const handler = jest.fn().mockResolvedValue({ type: 'SIGN_WORD_RESPONSE' });
+      server.onRequest(handler);
+
+      await deliverFrom(noUrl, 'req-c7', SIGN_WORD);
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(mockPostMessage).toHaveBeenCalledWith({ type: MessageType.Err, reqId: 'req-c7', data: NOT_FOUND });
     });
   });
 

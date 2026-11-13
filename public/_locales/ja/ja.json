@@ -690,6 +690,7 @@
   "guardianInfoSwitchingIsEasyDescription": "リカバリーフレーズがあれば、いつでも別のGuardianに切り替えることができます。変更されるのは、あなたの取引を承認する相手のみであり、アカウントや資金は変わりません。",
   "gotIt": "了解しました",
   "backUpYourWallet": "ウォレットのバックアップを取る",
+  "recoveryPhraseHidden": "リカバリーフレーズは非表示",
   "show": "表示",
   "hide": "非表示",
   "copied": "コピーしました",
@@ -725,8 +726,8 @@
   "veryStrong": "すごく強い！",
   "medium": "中",
   "low": "低",
-  "8chars1number": "8文字、1つの数字",
-  "minimumCharsWithAtLeast": "8文字以上で、数字を1つ以上含めること",
+  "8chars1number": "12文字以上",
+  "minimumCharsWithAtLeast": "12文字以上を使用してください。数字、記号、大文字と小文字を混ぜることで、セキュリティが強化されます。",
   "backUpWalletInstructions": "この12語を書き留めて、安全な場所に保管してください。",
   "doNotShareWithAnywone": "誰にも教えないでください。",
   "seedPhraseRecoveryCaption": "リカバリーフレーズは鍵を復元するものです。これは日常的に使用する鍵をローテーションするために使用されるものであり、日々の取引には使用されません。",
@@ -971,6 +972,9 @@
   "publicImportMayCreate": "このフレーズに対応する公開アカウントがまだ存在しない場合、インポートを行うと、それに基づいて新しいアカウントが作成されます。",
   "retryGuardianDetection": "もう一度検出してみてください",
   "guardianAccountNotFound": "このGuardianのバックアップが見つかりませんでした。URLを確認するか、別のGuardianを選択してください。",
+  "guardianRecoveryUnverified": "アカウントは復元できませんでした。guardianが返したアカウントデータが、あなたのリカバリーフレーズと一致しなかったためです。何も復元されていません。",
+  "guardianRecoveryBehindNetwork": "アカウントは復元できませんでした。guardianが保持するアカウントのコピーは、まだMidenネットワークと一致していません。何も復元されていません。数分後に再度お試しください。",
+  "guardianRecoveryNetworkUnreachable": "Midenネットワークに接続できず、アカウントを確認できませんでした。リカバリーフレーズに問題はありません。接続状態を確認し、もう一度お試しください。",
   "guardianOtherNetwork": "このguardianは別のMidenネットワーク上で稼働しているため、こちらのアカウントを復旧することはできません。",
   "useCustomGuardianUrl": "GuardianのカスタムURLを使用してください",
   "default": "デフォルト",
@@ -1903,5 +1907,8 @@
   "arcadeBalanceUnknown": "残高利用不可",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "ゲームコイン",
-  "arcadePostingPolicy": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。"
+  "arcadePostingPolicy": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
+  "autoLock": "自動ロック",
+  "autoLockDescription": "これほど長い間バックグラウンド状態が続くと、ウォレットがロックされます。",
+  "autoLockMinutes": "$minutes$分"
 }

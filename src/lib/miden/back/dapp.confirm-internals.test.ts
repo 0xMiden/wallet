@@ -731,8 +731,25 @@ describe('requestPermission (extension) — public-key fetch failure', () => {
   });
 });
 
+const simulatedViewFixture = {
+  account: 'a1',
+  outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  inputNotesConsumed: 0,
+  outputNotesCreated: 1,
+  storageChanged: false
+};
+
 describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
+  afterEach(() => {
+    mockSimulatedView = undefined;
+  });
+
   it('answers a matching simulate request without closing the popup', async () => {
+    mockSimulatedView = simulatedViewFixture;
     const p = dapp.requestTransaction('https://test.xyz', {
       type: MidenDAppMessageType.TransactionRequest,
       sourcePublicKey: 'a1',
@@ -761,9 +778,11 @@ describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
 
     expect(result).toEqual({
       type: MidenMessageType.DAppSimulateTransactionResponse,
-      summaryBytes: 'confirm-sim-sum',
-      error: undefined
+      effects: expect.objectContaining({
+        view: expect.objectContaining({ outgoing: [{ faucetId: 'faucet-x', amount: '50' }] })
+      })
     });
+    expect(JSON.stringify(result)).not.toContain('confirm-sim-sum');
     // Critical: the popup must stay open after a simulate round-trip.
     expect(browser.windows.remove).not.toHaveBeenCalled();
 
@@ -774,7 +793,12 @@ describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
 });
 
 describe('a custom request made while locked (#1414)', () => {
+  afterEach(() => {
+    mockSimulatedView = undefined;
+  });
+
   it("answers the sheet's simulate request from the dry run built after the unlock", async () => {
+    mockSimulatedView = simulatedViewFixture;
     const { withUnlocked } = jest.requireMock('lib/miden/back/store');
     const simulate = jest.requireMock('./simulate-custom-tx').simulateCustomTransaction;
     withUnlocked.mockImplementationOnce(async () => {
@@ -797,7 +821,13 @@ describe('a custom request made while locked (#1414)', () => {
     expect(simulate).toHaveBeenCalledTimes(1);
 
     const result = await listener({ type: MidenMessageType.DAppSimulateTransactionRequest, id }, port);
-    expect(result).toEqual(expect.objectContaining({ summaryBytes: 'confirm-sim-sum' }));
+    expect(result).toEqual(
+      expect.objectContaining({
+        effects: expect.objectContaining({
+          view: expect.objectContaining({ outgoing: [{ faucetId: 'faucet-x', amount: '50' }] })
+        })
+      })
+    );
     expect(simulate).toHaveBeenCalledTimes(1);
     jest.advanceTimersByTime(121_000);
   });

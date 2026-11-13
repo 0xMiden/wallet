@@ -690,6 +690,7 @@
   "guardianInfoSwitchingIsEasyDescription": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian'a geçebilirsiniz. Yalnızca işlemlerinizi onaylayan kişi değişir; hesabınız ve varlıklarınız aynı kalır.",
   "gotIt": "Anladım",
   "backUpYourWallet": "Cüzdanınızı yedekleyin",
+  "recoveryPhraseHidden": "Gizlenmiş kurtarma ifadesi",
   "show": "Göster",
   "hide": "Gizle",
   "copied": "Kopyalandı",
@@ -725,8 +726,8 @@
   "veryStrong": "Çok güçlü!",
   "medium": "Orta",
   "low": "Düşük",
-  "8chars1number": "8 harf, 1 rakam",
-  "minimumCharsWithAtLeast": "En az 8 karakter ve en az 1 rakam içermelidir",
+  "8chars1number": "En az 12 karakter",
+  "minimumCharsWithAtLeast": "En az 12 karakter kullanın. Rakamlar, semboller ve büyük/küçük harf karışımı şifrenizi daha güçlü hale getirir.",
   "backUpWalletInstructions": "Bu 12 kelimeyi not alın ve güvenli bir yerde saklayın.",
   "doNotShareWithAnywone": "Bunu kimseyle paylaşmayın.",
   "seedPhraseRecoveryCaption": "Kurtarma ifadeniz, anahtarlarınızı geri yükler. Bu ifade, günlük işlemler için değil, günlük anahtarınızı değiştirmek için kullanılır.",
@@ -971,6 +972,9 @@
   "publicImportMayCreate": "Bu ifade için henüz halka açık bir hesap yoksa, içe aktarma işlemi bu ifadeden yeni bir hesap oluşturur.",
   "retryGuardianDetection": "Tekrar algılamayı deneyin",
   "guardianAccountNotFound": "Bu Guardian'da bir yedek bulamadık. URL'yi kontrol edin veya başka bir Guardian seçin.",
+  "guardianRecoveryUnverified": "Hesaplarınız geri yüklenemedi: guardian, kurtarma ifadenizle eşleşmeyen hesap verilerini geri gönderdi. Hiçbir şey geri yüklenmedi.",
+  "guardianRecoveryBehindNetwork": "Hesaplarınız geri yüklenemedi: guardian'ın elindeki hesap kopyası henüz Miden ağıyla eşleşmiyor. Hiçbir şey geri yüklenmedi. Birkaç dakika sonra tekrar deneyin.",
+  "guardianRecoveryNetworkUnreachable": "Hesaplarınızı kontrol etmek için Miden ağına bağlanılamadı. Kurtarma ifadeniz doğru. Bağlantınızı kontrol edin ve tekrar deneyin.",
   "guardianOtherNetwork": "Bu guardian, başka bir Miden ağında çalışır; bu nedenle buradaki bir hesabı kurtaramaz.",
   "useCustomGuardianUrl": "Guardian'da özel bir URL kullanın",
   "default": "Varsayılan",
@@ -1901,5 +1905,8 @@
   "arcadeBalanceUnknown": "Bakiye mevcut değil",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Oyun Paraları",
-  "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin."
+  "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin.",
+  "autoLock": "Otomatik kilitleme",
+  "autoLockDescription": "Cüzdan bu kadar uzun süre arka planda kaldığında kilitlenir.",
+  "autoLockMinutes": "$minutes$ dakika"
 }

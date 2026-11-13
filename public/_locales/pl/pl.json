@@ -690,6 +690,7 @@
   "guardianInfoSwitchingIsEasyDescription": "W dowolnym momencie możesz przejść na innego „Guardiana”, korzystając z frazy odzyskiwania. Zmienia się jedynie osoba zatwierdzająca Twoje transakcje; Twoje konto i środki pozostają bez zmian.",
   "gotIt": "Rozumiem",
   "backUpYourWallet": "Utwórz kopię zapasową portfela",
+  "recoveryPhraseHidden": "Ukryta fraza odzyskiwania",
   "show": "Pokaż",
   "hide": "Ukryj",
   "copied": "Skopiowano",
@@ -725,8 +726,8 @@
   "veryStrong": "Naprawdę mocne!",
   "medium": "Średni",
   "low": "Niski",
-  "8chars1number": "8 znaków, 1 cyfra",
-  "minimumCharsWithAtLeast": "Co najmniej 8 znaków, w tym co najmniej 1 cyfra",
+  "8chars1number": "Co najmniej 12 znaków",
+  "minimumCharsWithAtLeast": "Używaj co najmniej 12 znaków. Cyfry, symbole i mieszana wielkość liter zwiększają bezpieczeństwo hasła.",
   "backUpWalletInstructions": "Zapisz te 12 słów i przechowuj je w bezpiecznym miejscu.",
   "doNotShareWithAnywone": "Nie udostępniaj tego nikomu.",
   "seedPhraseRecoveryCaption": "Twoja fraza odzyskiwania pozwala przywrócić klucze. Służy ona do rotacji klucza codziennego, a nie do codziennych transakcji.",
@@ -970,6 +971,9 @@
   "reusedPhraseAcknowledge": "Rozumiem ryzyko i chcę użyć tego wyrażenia w odniesieniu do nowego konta",
   "publicImportMayCreate": "Jeśli dla tego wyrażenia nie istnieje jeszcze żadne konto publiczne, podczas importowania zostanie utworzone nowe na jego podstawie.",
   "retryGuardianDetection": "Spróbuj wykryć ponownie",
+  "guardianRecoveryUnverified": "Twoje konta nie mogły zostać przywrócone: guardiana zwrócił dane konta, które nie pasują do Twojej frazy odzyskiwania. Nic nie zostało przywrócone.",
+  "guardianRecoveryBehindNetwork": "Twoje konta nie mogły zostać przywrócone: kopia konta przechowywana przez „guardiana” nie jest jeszcze zgodna z siecią Miden. Nic nie zostało przywrócone. Spróbuj ponownie za kilka minut.",
+  "guardianRecoveryNetworkUnreachable": "Nie udało się połączyć z siecią Miden w celu sprawdzenia Twoich kont. Twoja fraza odzyskiwania jest prawidłowa. Sprawdź połączenie i spróbuj ponownie.",
   "guardianOtherNetwork": "Ten guardian działa w innej sieci Miden, więc nie może odzyskać konta tutaj.",
   "useCustomGuardianUrl": "Użyj niestandardowego adresu URL typu Guardian",
   "default": "Domyślnie",
@@ -1901,5 +1905,8 @@
   "arcadeBalanceUnknown": "Saldo niedostępne",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Monety w grach",
-  "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji."
+  "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji.",
+  "autoLock": "Automatyczna blokada",
+  "autoLockDescription": "Blokuje portfel, gdy pozostaje on w tle przez tak długi czas.",
+  "autoLockMinutes": "$minutes$ min"
 }

@@ -690,6 +690,7 @@
   "guardianInfoSwitchingIsEasyDescription": "복구 문구를 사용하면 언제든지 다른 Guardian으로 전환할 수 있습니다. 변경되는 것은 귀하의 거래를 승인하는 주체뿐이며, 귀하의 계정과 자금은 그대로 유지됩니다.",
   "gotIt": "알겠습니다",
   "backUpYourWallet": "지갑을 백업하세요",
+  "recoveryPhraseHidden": "복구 문구 숨김",
   "show": "표시",
   "hide": "숨기기",
   "copied": "복사됨",
@@ -725,8 +726,8 @@
   "veryStrong": "정말 강력하네요!",
   "medium": "중간",
   "low": "낮음",
-  "8chars1number": "문자 8개, 숫자 1개",
-  "minimumCharsWithAtLeast": "최소 8자 이상이며, 그중 숫자가 1개 이상 포함되어야 합니다.",
+  "8chars1number": "최소 12자",
+  "minimumCharsWithAtLeast": "최소 12자 이상을 사용하십시오. 숫자, 기호 및 대소문자를 혼합하면 보안성이 강화됩니다.",
   "backUpWalletInstructions": "이 12개의 단어를 잘 간직하여 안전한 곳에 보관하세요.",
   "doNotShareWithAnywone": "누구에게도 알려주지 마세요.",
   "seedPhraseRecoveryCaption": "복구 문구를 사용하면 키를 복원할 수 있습니다. 이 문구는 일상적인 키를 교체하는 데 사용되며, 일상적인 거래에는 사용되지 않습니다.",
@@ -971,6 +972,9 @@
   "publicImportMayCreate": "이 문구에 대한 공개 계정이 아직 존재하지 않는 경우, 가져오기 작업을 통해 이를 기반으로 새로운 계정이 생성됩니다.",
   "retryGuardianDetection": "다시 감지해 보세요",
   "guardianAccountNotFound": "이 Guardian에 대한 백업을 찾을 수 없습니다. URL을 확인하거나 다른 Guardian을 선택하십시오.",
+  "guardianRecoveryUnverified": "귀하의 계정은 복구될 수 없었습니다: guardian가 귀하의 복구 문구와 일치하지 않는 계정 데이터를 반환했기 때문입니다. 복구된 내용은 전혀 없습니다.",
+  "guardianRecoveryBehindNetwork": "계정을 복구할 수 없습니다. 가디언(guardian)이 보유한 계정 사본이 아직 Miden 네트워크와 일치하지 않습니다. 복구된 내용은 없습니다. 몇 분 후에 다시 시도해 주십시오.",
+  "guardianRecoveryNetworkUnreachable": "계정을 확인하기 위해 Miden 네트워크에 연결할 수 없습니다. 복구 문구는 정상입니다. 연결 상태를 확인하고 다시 시도해 주십시오.",
   "guardianOtherNetwork": "이 guardian는 다른 Miden 네트워크에서 운영되므로, 이곳의 계정을 복구할 수 없습니다.",
   "useCustomGuardianUrl": "Guardian 맞춤 URL을 사용하세요",
   "default": "기본값",
@@ -1903,5 +1907,8 @@
   "arcadeBalanceUnknown": "잔액 조회 불가",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "게임 코인",
-  "arcadePostingPolicy": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요."
+  "arcadePostingPolicy": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요.",
+  "autoLock": "자동 잠금",
+  "autoLockDescription": "이 정도 시간 동안 백그라운드 상태로 있으면 지갑을 잠급니다.",
+  "autoLockMinutes": "$minutes$분"
 }

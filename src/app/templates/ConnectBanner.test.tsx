@@ -32,6 +32,15 @@ jest.mock('app/icons/v2', () => ({
 const appMeta = { name: 'Test dApp' } as unknown as DappMetadata;
 
 describe('ConnectBanner', () => {
+  it('names a non-ASCII host with its ASCII form', () => {
+    const origin = `https://${String.fromCharCode(0x430)}pple.example`;
+    render(<ConnectBanner type="connect" origin={origin} appMeta={appMeta} />);
+
+    expect(within(screen.getByTestId('connect-origin')).getByTestId('dapp-origin-ascii')).toHaveTextContent(
+      'xn--pple-43d.example'
+    );
+  });
+
   it('keeps a long origin whole on the connect prompt, with its registrable domain never truncated', () => {
     const origin = 'https://login.secure.account-verify.wallet.example.co.uk';
     const { container } = render(<ConnectBanner type="connect" origin={origin} appMeta={appMeta} />);

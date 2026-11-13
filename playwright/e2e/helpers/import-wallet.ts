@@ -1,4 +1,4 @@
-import { expect, type BrowserContext } from '@playwright/test';
+import { expect, type BrowserContext, type Page } from '@playwright/test';
 
 import { openImportTypeScreen } from './onboarding-entry';
 import { passImportConfirmation } from './onboarding-confirmation';
@@ -6,6 +6,18 @@ import { dismissTelemetryConsent } from './telemetry-consent';
 
 export const IMPORTED_WALLET_PASSWORD = 'Password123!';
 const SEED = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(' ');
+
+/** Drive onboarding from a fullpage onto the create-password screen of a seed-phrase import. */
+export async function openCreatePasswordForImport(page: Page): Promise<void> {
+  await openImportTypeScreen(page, 30_000, 15_000);
+  await page.getByTestId('import-type-seed-phrase').click();
+  await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
+  for (let i = 0; i < SEED.length; i++) {
+    await page.locator(`#seed-phrase-input-${i}`).fill(SEED[i]!);
+  }
+  await page.getByRole('button', { name: /continue/i }).click();
+  await expect(page).toHaveURL(/create-password/);
+}
 
 /**
  * Import a public wallet through fullpage onboarding and close the page once the wallet is Ready.
@@ -15,14 +27,7 @@ const SEED = 'abandon abandon abandon abandon abandon abandon abandon abandon ab
 export async function importWallet(extensionContext: BrowserContext, extensionId: string): Promise<void> {
   const page = await extensionContext.newPage();
   await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
-  await openImportTypeScreen(page, 30_000, 15_000);
-  await page.getByTestId('import-type-seed-phrase').click();
-  await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
-  for (let i = 0; i < SEED.length; i++) {
-    await page.locator(`#seed-phrase-input-${i}`).fill(SEED[i]!);
-  }
-  await page.getByRole('button', { name: /continue/i }).click();
-  await expect(page).toHaveURL(/create-password/);
+  await openCreatePasswordForImport(page);
   await page.locator('input[placeholder="Enter password"]').first().fill(IMPORTED_WALLET_PASSWORD);
   await page.locator('input[placeholder="Enter password again"]').first().fill(IMPORTED_WALLET_PASSWORD);
   await page.getByRole('button', { name: /continue/i }).click();

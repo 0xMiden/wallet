@@ -26,6 +26,11 @@ import type { NoteType } from '../types';
  * ignores anything whose `target` is not this. */
 export const OFFSCREEN_TARGET = 'offscreen' as const;
 
+/** The offscreen document's page, relative to the extension root. Here rather than in
+ * `offscreen-prover`, which suites replace with partial factories, because the service
+ * worker's sender check compares every `target: 'sw'` sender against it. */
+export const OFFSCREEN_URL = 'offscreen.html';
+
 /** Discriminator for the REVERSE direction (offscreen → SW). The offscreen
  * keystore's `sign` stub cannot reach the SW-resident vault directly, so a
  * mid-op sign reverses across the bus: the offscreen doc posts an

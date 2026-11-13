@@ -134,12 +134,14 @@ export function chunkNotesForClaim<T extends { id: string }>(notes: readonly T[]
  * The caller measured the whole batch against the claim floor, which only a single chunk inherits: over the cap each
  * chunk pays its own fee, so one not worth that fee is left out and waits for more notes, as the whole pile did below
  * the floor. Shared by every unattended native claimer (the service worker, Home, the mobile/desktop manager and the
- * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644).
+ * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644). An unknown
+ * fee refuses every chunk, a single one included, whatever the caller measured.
  */
 export function chunkAutoConsumeBatch<T extends { id: string; amount: string }>(
   notes: readonly T[],
   verificationBaseFee: number | null
 ): T[][] {
+  if (verificationBaseFee === null) return [];
   const chunks = chunkNotesForClaim(notes);
   if (chunks.length <= 1) return chunks;
   return chunks.filter(chunk =>
