@@ -199,6 +199,7 @@ export function authorizeMainnetSwapReturnReplacement(
     !Number.isFinite(Date.parse(authorizedAt)) || Date.parse(authorizedAt) <= previous.expiresAt ||
     absence.previousRunId !== state.authorizationRunId || absence.noteId !== previous.noteId || absence.noteCount !== 0 ||
     !Number.isSafeInteger(absence.atBlock) || absence.atBlock <= 0 || absence.atBlock < (evidence.claimedAtBlock ?? 0) ||
+    !Number.isSafeInteger(absence.atTime) || absence.atTime <= previous.expiresAt || absence.atTime > Date.parse(authorizedAt) || Date.parse(authorizedAt) - absence.atTime > 120_000 ||
     !baseline || baseline.offer !== balances.offer.toString() || baseline.request !== balances.request.toString() || baseline.native !== balances.native.toString())
     throw new Error('Expired return replacement lacks exact unsubmitted original authority or unchanged balances');
   const prepared = authorizeMainnetSwapRecoveryReturn({
@@ -212,7 +213,22 @@ export function authorizeMainnetSwapReturnReplacement(
   };
 }
 
-export function assertFailedMainnetSwapReturnUpload(_run: unknown, _jobs: unknown, _previousRunId: string, _workflowId: number): void {}
+export function assertFailedMainnetSwapReturnUpload(run: unknown, jobs: unknown, previousRunId: string, workflowId: number): void {
+  if (!/^\d{1,25}$/.test(previousRunId) || !Number.isSafeInteger(Number(previousRunId)) ||
+    !isRecord(run) || run.id !== Number(previousRunId) || run.workflow_id !== workflowId || run.status !== 'completed' || run.conclusion !== 'failure' ||
+    !isRecord(jobs) || !Array.isArray(jobs.jobs) || jobs.jobs.length < 1 || jobs.jobs.length > 100)
+    throw new Error('Original return workflow is unresolved or foreign');
+  const steps = jobs.jobs.flatMap(job => isRecord(job) && Array.isArray(job.steps) ? job.steps.filter(isRecord) : []);
+  for (const [name, conclusion] of [
+    ['Upload recovered swap SDK return authority', 'failure'],
+    ['Upload recovered swap SDK return claim authority', 'skipped'],
+    ['Wait for recovered swap return', 'skipped']
+  ]) {
+    const matches = steps.filter(step => step.name === name);
+    if (matches.length !== 1 || matches[0]?.status !== 'completed' || matches[0]?.conclusion !== conclusion)
+      throw new Error('Original return upload or execution outcome is ambiguous');
+  }
+}
 
 export async function readMainnetSwapReturnAbsence(rpcUrl: string, state: MainnetSwapCheckpoint): Promise<MainnetSwapReturnAbsence> {
   const previousRunId = state.authorizationRunId;
