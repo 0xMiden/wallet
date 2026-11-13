@@ -40,9 +40,14 @@ test('read-only replacement claim boundary; never arm or consume', async ({ wall
       report.aggregateNativeCosts=prepared.paidFees;
       report.claimNativeBefore=prepared.recoveryClaimNativeBefore;
       report.claimReadinessStage='export-note';
-      const file=await exportMakerNote(walletB,proof.noteId,90000);
-      expect(file.length).toBeGreaterThan(0);
-      report.claimExportReady=true;
+      try {
+        const file=await exportMakerNote(walletB,proof.noteId,15000);
+        expect(file.length).toBeGreaterThan(0);
+        report.claimExportReady=true;
+      } catch(error) {
+        const message=error instanceof Error?error.message:'';
+        report.exportErrorKind=/not found|not exist|missing note/i.test(message)?'note-not-found':/proof|commitment|not committed/i.test(message)?'inclusion-proof':/unsupported|format/i.test(message)?'unsupported-format':/lock|deadlock/i.test(message)?'client-lock':/network|fetch|rpc|transport/i.test(message)?'rpc':'unclassified';
+      }
       report.claimReadinessStage='pending-accept';
       await walletB.page.goto(`chrome-extension://${walletB.extensionId}/fullpage.html#/`);
       await expect(walletB.page.locator(`[data-pending-note-id="${proof.noteId}"]`).getByRole('button',{name:/^Accept$/})).toBeVisible({timeout:15000});
@@ -58,7 +63,7 @@ test('read-only replacement claim boundary; never arm or consume', async ({ wall
     report.unresolvedRows=rows.some(row=>row.status===0||row.status===1||row.status===4);
     expect(report.unresolvedRows).toBe(false);
     const parents = rows.filter(row => row.type==='swap' && String(row.extraInputs?.orderId)===authority.orderId);
-    report.creationRows = parents.map(row=>({id:row.id,type:row.type,status:row.status,amount:row.amount,faucetId:row.faucetId,feeAmount:row.feeAmount,feeFaucetId:row.feeFaucetId,completedAt:row.completedAt}));
+    report.creationRows = parents.map(row=>({id:row.id,type:row.type,status:row.status,amount:row.amount,faucetId:row.faucetId,feeAmount:row.feeAmount,feeFaucetId:row.feeFaucetId,completedAt:row.completedAt,minimumReceive:String(row.extraInputs?.requestedAmount),requestedFaucetId:row.extraInputs?.requestedFaucetId,autoConsume:row.extraInputs?.autoConsume}));
     report.consumeRows = rows.filter(row=>row.type==='consume'&&parents.some(parent=>row.extraInputs?.swapOrderTxId===parent.id)).map(row=>({id:row.id,status:row.status,amount:row.amount,faucetId:row.faucetId,feeAmount:row.feeAmount,feeFaucetId:row.feeFaucetId}));
     const policyKeys = ['e2e_mainnet_send_authorization','e2e_mainnet_consume_authorization'];
     const stored = await walletB.page.evaluate(async keys=>chrome.storage.local.get(keys),[...policyKeys,'e2e_mainnet_consume_authorization_required']);
@@ -71,4 +76,5 @@ test('read-only replacement claim boundary; never arm or consume', async ({ wall
   finally { writeFileSync('test-results/read-only-existing-payout-ready.json',JSON.stringify(report,null,2)); }
   expect(report.inspected).toBe(true);
   expect(report.claimUIReady).toBe(true);
+  expect(report.claimExportReady).toBe(true);
 });
