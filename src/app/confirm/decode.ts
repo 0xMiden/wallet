@@ -27,6 +27,14 @@ export interface AssetAmount {
   amount: bigint;
 }
 
+/** One note a verified transaction consumes or creates. `opaque` when its assets cannot be read (amounts and nfts are then empty). */
+export interface ViewNote {
+  id: string;
+  amounts: AssetAmount[];
+  nfts: ViewNft[];
+  opaque?: true;
+}
+
 export interface TxAssetView {
   /** Bech32 account address; only known on the verified (executed) path. */
   account?: string;
@@ -61,6 +69,12 @@ export interface TxAssetView {
    */
   fee?: AssetAmount;
   storageChanged: boolean;
+  /** Every input note, with its id. Set by the verified builders only. */
+  viewConsumedNotes?: ViewNote[];
+  /** User-created notes with their ids; the fee note is excluded. Set by the verified builders only. */
+  createdNotes?: ViewNote[];
+  /** How many consumed notes the account already held. Set only by {@link toHoldingsView}. */
+  heldNotesSpent?: number;
 }
 
 function toAmounts(assets: FungibleAsset[]): AssetAmount[] {
@@ -83,6 +97,15 @@ function noteAssets(note: NoteWithAssets | undefined): AssetAmount[] {
 
 function noteNftAssets(note: NoteWithAssets | undefined): NonFungibleAsset[] {
   return note?.assets()?.nonFungibleAssets() ?? [];
+}
+
+type NoteId = { id(): { toString(): string } };
+
+const idOf = (note: NoteId): string => note.id().toString().toLowerCase();
+
+function viewNoteOf(id: string, note: NoteWithAssets | undefined): ViewNote {
+  if (!note?.assets()) return { id, amounts: [], nfts: [], opaque: true };
+  return { id, amounts: noteAssets(note), nfts: noteNfts(note) };
 }
 
 const viewNft = (asset: NonFungibleAsset): ViewNft => ({ ...toNft(asset), key: nftKey(asset) });
@@ -203,7 +226,9 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
     inputNotesConsumed: inputNotes.numNotes(),
     outputNotesCreated: userNotes.length,
     fee,
-    storageChanged: !delta.storage().isEmpty()
+    storageChanged: !delta.storage().isEmpty(),
+    viewConsumedNotes: inputNotes.notes().map(input => viewNoteOf(idOf(input), input.note())),
+    createdNotes: userNotes.map(created => viewNoteOf(idOf(created), created))
   };
 }
 
@@ -287,6 +312,54 @@ export function netOutflowByFaucet(view: TxAssetView, credit: readonly AssetAmou
   return outflow;
 }
 
+/**
+ * The view re-measured from the account's holdings: what leaves is what the account gives up, counting a consumed note
+ * it already held as value it spends. A consumed note counts as brought in only when `introducedNoteIds` names it.
+ *
+ * Per canonical faucet, `signed = outgoing - incoming + held`, where `held` sums the consumed notes the request did
+ * not introduce. The summary view's `outgoing` is the vault's net change and the executed view's is the gross output
+ * notes, and this formula gives both the same answer. Positive goes to `outgoing`, negative (negated) to `incoming`.
+ * NFTs follow the same rule: one created from an introduced note passes through, any other created NFT leaves.
+ */
+export function toHoldingsView(view: TxAssetView, introducedNoteIds: readonly string[]): TxAssetView {
+  const consumed = view.viewConsumedNotes;
+  const created = view.createdNotes;
+  if (!consumed || !created) throw new Error('the view does not list its notes');
+  const introduced = new Set(introducedNoteIds.map(id => id.toLowerCase()));
+  const held = consumed.filter(note => !introduced.has(note.id));
+  const carried = consumed.filter(note => introduced.has(note.id));
+
+  const signed = new Map<string, bigint>();
+  const spelling = new Map<string, string>();
+  const add = (faucetId: string, amount: bigint) => {
+    const key = canonicalWalletAccountId(faucetId);
+    if (!spelling.has(key)) spelling.set(key, faucetId);
+    signed.set(key, (signed.get(key) ?? 0n) + amount);
+  };
+  for (const asset of view.outgoing) add(asset.faucetId, asset.amount);
+  for (const asset of view.incoming) add(asset.faucetId, -asset.amount);
+  for (const note of held) for (const asset of note.amounts) add(asset.faucetId, asset.amount);
+
+  const outgoing: AssetAmount[] = [];
+  const incoming: AssetAmount[] = [];
+  for (const [key, amount] of signed) {
+    const faucetId = spelling.get(key) ?? key;
+    if (amount > 0n) outgoing.push({ faucetId, amount });
+    else if (amount < 0n) incoming.push({ faucetId, amount: -amount });
+  }
+
+  const carriedKeys = new Set(carried.flatMap(note => note.nfts.map(nft => nft.key)));
+  const createdKeys = new Set(created.flatMap(note => note.nfts.map(nft => nft.key)));
+  return {
+    ...view,
+    outgoing,
+    incoming,
+    outgoingNfts: created.flatMap(note => note.nfts).filter(nft => nft.key === undefined || !carriedKeys.has(nft.key)),
+    incomingNfts: carried.flatMap(note => note.nfts).filter(nft => nft.key === undefined || !createdKeys.has(nft.key)),
+    heldNotesSpent: held.length
+  };
+}
+
 export function summaryBytesToView(summaryB64: string): TxAssetView {
   return summaryToView(TransactionSummary.deserialize(b64ToU8(summaryB64)));
 }
@@ -323,7 +396,9 @@ export function executedBytesToView(executedB64: string): TxAssetView {
     inputNotesConsumed: inputNotes.numNotes(),
     outputNotesCreated: userNotes.length,
     fee: (feeNote ? noteAssets(feeNote) : [])[0],
-    storageChanged: !executed.accountPatch().storage().isEmpty()
+    storageChanged: !executed.accountPatch().storage().isEmpty(),
+    viewConsumedNotes: inputNotes.notes().map(input => viewNoteOf(idOf(input), input.note())),
+    createdNotes: userNotes.map(created => viewNoteOf(idOf(created), created))
   };
 }
 

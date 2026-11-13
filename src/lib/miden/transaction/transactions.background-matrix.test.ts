@@ -72,7 +72,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionSummary: {
     deserialize: () => {
       const removed = [{ faucetId: () => ({ __faucet: 'faucet' }), amount: () => 1000n }];
+      let noteCount = 0;
       const note = (assets: typeof removed) => ({
+        id: () => ({ toString: () => `stub-note-${++noteCount}` }),
         assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
       });
       return {

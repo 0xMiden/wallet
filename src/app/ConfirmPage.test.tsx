@@ -1061,14 +1061,17 @@ describe('sign payload — signingInputs', () => {
         numNotes: () => 3,
         notes: () => [
           {
+            id: () => ({ toString: () => 'stub-note-1' }),
             assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
             metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
           },
           {
+            id: () => ({ toString: () => 'stub-note-2' }),
             assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
             metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
           },
           {
+            id: () => ({ toString: () => 'stub-note-3' }),
             assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
             metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
           }
@@ -1147,7 +1150,9 @@ describe('sign payload — signingInputs', () => {
       unlistedAssets: 0,
       inputNotesConsumed: 2,
       outputNotesCreated: 3,
-      storageChanged: true
+      storageChanged: true,
+      viewConsumedNotes: [],
+      createdNotes: ['stub-note-1', 'stub-note-2', 'stub-note-3'].map(id => ({ id, amounts: [], nfts: [] }))
     });
   });
 

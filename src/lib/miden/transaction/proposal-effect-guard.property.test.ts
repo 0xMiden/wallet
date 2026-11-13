@@ -109,7 +109,10 @@ const leaving = (w: World) => ({
 });
 
 const asset = (a: Fungible) => ({ faucetId: () => ({ __faucet: a.faucet }), amount: () => a.amount });
+let stubNoteCount = 0;
+const stubNoteId = () => ({ toString: () => `stub-note-${++stubNoteCount}` });
 const stubNote = (n: Note) => ({
+  id: stubNoteId,
   assets: () => ({
     fungibleAssets: () => n.fungible.map(asset),
     nonFungibleAssets: () => n.nfts.map(k => ({ __nft: { faucetId: 'bech32:fN', assetId: k }, __key: k }))
@@ -144,7 +147,7 @@ const summaryOf = (w: World) => {
     }),
     inputNotes: () => ({
       numNotes: () => w.inputs.length,
-      notes: () => w.inputs.map(n => ({ note: () => stubNote(n) }))
+      notes: () => w.inputs.map(n => ({ id: stubNoteId, note: () => stubNote(n) }))
     }),
     outputNotes: () => ({ numNotes: () => outputs.length, notes: () => outputs })
   };

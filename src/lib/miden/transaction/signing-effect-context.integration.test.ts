@@ -118,7 +118,10 @@ const PUBLIC_KEY = new Uint8Array([0x0a]);
 
 type Asset = { faucetId: () => string; amount: () => bigint };
 const fa = (faucet: string, amount: bigint): Asset => ({ faucetId: () => faucet, amount: () => amount });
+let stubNoteCount = 0;
+const stubNoteId = () => ({ toString: () => `stub-note-${++stubNoteCount}` });
 const note = (assets: Asset[]) => ({
+  id: stubNoteId,
   assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
 });
 /** The summary of `account`'s transaction: `removed` leaves its vault, `added` comes in through one input note. */
@@ -131,7 +134,10 @@ const summary = (account: string, { removed, added = [] }: { removed: Asset[]; a
   const inputs = added.length > 0 ? [note(added)] : [];
   return {
     accountDelta: () => ({ id: () => account, vault, storage: () => ({ isEmpty: () => true }) }),
-    inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs.map(input => ({ note: () => input })) }),
+    inputNotes: () => ({
+      numNotes: () => inputs.length,
+      notes: () => inputs.map(input => ({ id: stubNoteId, note: () => input }))
+    }),
     outputNotes: () => ({ numNotes: () => removed.length, notes: () => removed.map(asset => note([asset])) })
   };
 };

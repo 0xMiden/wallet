@@ -48,6 +48,7 @@ jest.mock('lib/i18n/core', () => ({
 type Asset = { faucetId: () => { __faucet: string }; amount: () => bigint };
 type Nft = { __nft: { faucetId: string; assetId: string }; __key: string };
 type StubNote = {
+  id: () => { toString: () => string };
   assets: () => { fungibleAssets: () => Asset[]; nonFungibleAssets: () => Nft[] };
   metadata?: () => { tag: () => { asU32: () => number } };
 };
@@ -60,7 +61,10 @@ const nft = (faucet: string, assetId: string): Nft => ({
   __nft: { faucetId: `bech32:${faucet}`, assetId },
   __key: `${faucet}|${assetId}`
 });
+let stubNoteCount = 0;
+const stubNoteId = () => ({ toString: () => `stub-note-${++stubNoteCount}` });
 const note = (assets: Asset[], nfts: Nft[] = []): StubNote => ({
+  id: stubNoteId,
   assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => nfts })
 });
 const feeNote = (amount: bigint): StubNote => ({
@@ -94,7 +98,10 @@ const summary = ({
     }),
     storage: () => ({ isEmpty: () => true })
   }),
-  inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs.map(input => ({ note: () => input })) }),
+  inputNotes: () => ({
+    numNotes: () => inputs.length,
+    notes: () => inputs.map(input => ({ id: stubNoteId, note: () => input }))
+  }),
   outputNotes: () => ({ numNotes: () => outputs.length, notes: () => outputs })
 });
 type Summary = ReturnType<typeof summary>;

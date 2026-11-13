@@ -15929,7 +15929,12 @@ describe('Guardian proposal effect check', () => {
     faucetId: () => ({ __faucet: faucet }),
     amount: () => amount
   });
-  const note = (assets: Asset[]) => ({ assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] }) });
+  let stubNoteCount = 0;
+  const stubNoteId = () => ({ toString: () => `stub-note-${++stubNoteCount}` });
+  const note = (assets: Asset[]) => ({
+    id: stubNoteId,
+    assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
+  });
   // A summary as the SDK hands it over: the net vault delta, the notes consumed and the notes created.
   const summary = ({ removed = [], added = [] }: { removed?: Asset[]; added?: Asset[] }) => ({
     accountDelta: () => ({
@@ -15943,7 +15948,7 @@ describe('Guardian proposal effect check', () => {
     }),
     inputNotes: () => ({
       numNotes: () => added.length,
-      notes: () => added.map(asset => ({ note: () => note([asset]) }))
+      notes: () => added.map(asset => ({ id: stubNoteId, note: () => note([asset]) }))
     }),
     outputNotes: () => ({ numNotes: () => removed.length, notes: () => removed.map(asset => note([asset])) })
   });
@@ -16156,7 +16161,10 @@ describe('Guardian proposal effect check', () => {
     outputNotes: () => ({
       numNotes: () => 1,
       notes: () => [
-        { assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [nftAsset('fN', '0xone')] }) }
+        {
+          id: stubNoteId,
+          assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [nftAsset('fN', '0xone')] })
+        }
       ]
     })
   };

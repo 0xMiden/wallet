@@ -40,6 +40,7 @@ jest.mock('lib/i18n/core', () => ({ getMessage: jest.fn((key: string) => `copy:$
 
 type Asset = { faucetId: () => { __faucet: string }; amount: () => bigint };
 type StubNote = {
+  id: () => { toString: () => string };
   assets: () => { fungibleAssets: () => Asset[]; nonFungibleAssets: () => never[] };
   metadata?: () => { tag: () => { asU32: () => number } };
 };
@@ -48,7 +49,10 @@ const fa = (faucet: string, amount: bigint): Asset => ({
   faucetId: () => ({ __faucet: faucet }),
   amount: () => amount
 });
+let stubNoteCount = 0;
+const stubNoteId = () => ({ toString: () => `stub-note-${++stubNoteCount}` });
 const note = (assets: Asset[]): StubNote => ({
+  id: stubNoteId,
   assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
 });
 const feeNote = (amount: bigint): StubNote => ({
@@ -69,7 +73,10 @@ const summary = (
   return {
     vault,
     accountDelta: () => ({ id: () => account, vault, storage: () => ({ isEmpty: () => true }) }),
-    inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs.map(input => ({ note: () => input })) }),
+    inputNotes: () => ({
+      numNotes: () => inputs.length,
+      notes: () => inputs.map(input => ({ id: stubNoteId, note: () => input }))
+    }),
     outputNotes: () => ({ numNotes: () => outputs.length, notes: () => outputs })
   };
 };

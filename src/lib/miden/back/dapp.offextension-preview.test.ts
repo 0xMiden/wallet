@@ -275,6 +275,7 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
         numNotes: () => 1,
         notes: () => [
           {
+            id: () => ({ toString: () => 'stub-note-1' }),
             assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
             metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
           }
