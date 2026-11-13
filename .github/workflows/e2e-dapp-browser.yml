@@ -1,6 +1,7 @@
-name: Required source quotes (isolated parser QA)
+name: Facts routing reuse (isolated regression QA)
 
-# Manual tooling QA only; no runtime adoption or source-read certification.
+# Manual metadata-only QA. Original034 is intentionally functionally RED;
+# failures propagate normally. No producer patch, runtime adoption or wallet execution.
 on:
   workflow_dispatch:
     inputs:
@@ -13,9 +14,9 @@ permissions:
   contents: read
 
 jobs:
-  required-source-quotes:
+  facts-routing-reuse:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,189 +25,80 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Verify exact source and original runtime hashes before import
+      - name: Verify exact source and both original runtime copies before import
         shell: bash
         env:
           EXPECTED_SOURCE: ${{ inputs.expected_source }}
         run: |
           set -euo pipefail
-          exec > >(tee "$RUNNER_TEMP/required-source-quotes-setup.log") 2>&1
-          proof="$RUNNER_TEMP/required-source-quotes-source-hashes.txt"
+          exec > >(tee "$RUNNER_TEMP/facts-routing-reuse-setup.log") 2>&1
+          proof="$RUNNER_TEMP/facts-routing-reuse-source-hashes.txt"
           source=$(git rev-parse HEAD)
           printf 'expected_source=%s\ncheckout_head=%s\ngithub_sha=%s\n' \
             "$EXPECTED_SOURCE" "$source" "$GITHUB_SHA" | tee "$proof"
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           test "$source" = "$EXPECTED_SOURCE"
           test "$source" = "$GITHUB_SHA"
-          sha256sum .github/qa/test-required-source-quotes.py .github/qa/required-source-quotes.patch \
+          sha256sum .github/qa/test-facts-routing-reuse.py \
             .github/workflows/e2e-dapp-browser.yml | tee -a "$proof"
           archive="$GITHUB_WORKSPACE/.github/qa/2027-timeout-origin-runtime.zip"
           printf '%s  %s\n' \
             'dba8a1b618194daf7e6c0581b834511cd49cd3af5f278e001fedb4c95b792912' "$archive" \
             | sha256sum --check --strict | tee -a "$proof"
-          candidate=$(mktemp -d "$RUNNER_TEMP/required-source-quotes-runtime.XXXXXX")
-          unzip -q "$archive" -d "$candidate"
-          runtime="$candidate/runtime-0.9.0"
-          test "$(find "$runtime" -type f | wc -l)" -eq 171
-          printf '%s  %s\n' \
-            '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620' \
-            "$runtime/scripts/rev-evidence.py" \
-            'c40e65f1d171d6a63ac0db3d4501f4995eba4c8cb7905221d7b41cfe6f7aa80c' \
-            "$runtime/scripts/lib/review-read-audit.py" \
-            | sha256sum --check --strict | tee -a "$proof"
-          cp "$runtime/scripts/lib/review-read-audit.py" "$candidate/original-auditor.py"
-          # Apply only to the disposable extraction; reject offsets as well as fuzz.
-          patch --batch --forward --fuzz=0 -p1 -d "$runtime" \
-            < .github/qa/required-source-quotes.patch | tee "$candidate/patch.log"
-          ! grep -Ei 'offset|fuzz' "$candidate/patch.log"
-          printf '%s  %s\n' \
-            '32c0d0ae08bce8a74d4414ebbd3550d191135e1778067a443358b973bcd1c7f1' \
-            "$runtime/scripts/lib/review-read-audit.py" \
-            | sha256sum --check --strict | tee -a "$proof"
-          cp "$runtime/scripts/lib/review-read-audit.py" "$RUNNER_TEMP/required-source-quotes-final-auditor.py"
-          printf 'QUOTES_RUNTIME=%s\nQUOTES_CANDIDATE=%s\n' "$runtime" "$candidate" >> "$GITHUB_ENV"
-      - name: Install ripgrep prerequisite for read-bound tests
+          for identity in candidate reference; do
+            directory=$(mktemp -d "$RUNNER_TEMP/facts-routing-reuse-$identity.XXXXXX")
+            unzip -q "$archive" -d "$directory"
+            runtime="$directory/runtime-0.9.0"
+            test "$(find "$runtime" -type f | wc -l)" -eq 171
+            printf '%s  %s\n' \
+              '034c153a8b135e0b5492b88402a1f9347bfa83de01d835604ea9759c249f9620' \
+              "$runtime/scripts/rev-evidence.py" \
+              | sha256sum --check --strict | tee -a "$proof"
+            # Keep the exact unmodified imported source as evidence even on assertion failure.
+            cp "$runtime/scripts/rev-evidence.py" "$RUNNER_TEMP/facts-routing-reuse-$identity-compiler.py"
+            printf 'FACTS_%s_RUNTIME=%s\n' "${identity^^}" "$runtime" >> "$GITHUB_ENV"
+          done
+      - name: Ensure host Git and ripgrep for temporary metadata fixtures only
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+          exec > >(tee "$RUNNER_TEMP/facts-routing-reuse-tools.log") 2>&1
+          command -v git
+          git --version
+          if ! command -v rg; then
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
           rg --version
-      - name: Run nine real permission regressions
+      - name: Run exactly five real regressions and propagate assertion failures
         shell: bash
         run: |
           set -euo pipefail
-          python3 -B "$GITHUB_WORKSPACE/.github/qa/test-required-source-quotes.py" \
-            --runtime "$QUOTES_RUNTIME" \
-            2>&1 | tee "$RUNNER_TEMP/required-source-quotes-tests.log"
-          grep -E '^Ran 9 tests in ' "$RUNNER_TEMP/required-source-quotes-tests.log"
-      - name: Run every discovered read-bound identity using existing shims
-        shell: bash
-        run: |
-          set -euo pipefail
-          logs="$RUNNER_TEMP/required-source-quotes-read-bounds"
-          mkdir -p "$logs"
-          cd "$QUOTES_RUNTIME"
-          REVIEW_COUNCIL_TEST_DISCOVER=1 bash tests/run-tests.sh > "$logs/discovery.txt"
-          grep -E '^t-read-bounds\.sh::test_[A-Za-z0-9_]+$' "$logs/discovery.txt" > "$logs/identities.txt"
-          count=$(wc -l < "$logs/identities.txt")
-          test "$count" -gt 0
-          test "$(sort -u "$logs/identities.txt" | wc -l)" -eq "$count"
-          tasks=0 assertions=0 failures=0
-          while IFS= read -r identity; do
-            tasks=$((tasks + 1))
-            results="$logs/$tasks.results"
-            status=0
-            REVIEW_COUNCIL_TEST_TASK="$identity" REVIEW_COUNCIL_TEST_RESULTS_FILE="$results" \
-              bash tests/run-tests.sh > "$logs/$tasks.log" 2>&1 || status=$?
-            cat "$logs/$tasks.log"
-            passed=$(grep -c '^ok$' "$results" || true)
-            failed=$(grep -c '^fail$' "$results" || true)
-            assertions=$((assertions + passed + failed))
-            if [ "$status" -ne 0 ] || [ "$failed" -ne 0 ] || [ "$passed" -eq 0 ]; then
-              failures=$((failures + 1))
-            fi
-            printf '%s status=%s passed=%s failed=%s\n' "$identity" "$status" "$passed" "$failed" \
-              | tee -a "$logs/summary.txt"
-          done < "$logs/identities.txt"
-          printf 'identities=%s assertions=%s failed_identities=%s\n' "$tasks" "$assertions" "$failures" \
-            | tee -a "$logs/summary.txt"
-          test "$tasks" -eq "$count"
-          test "$assertions" -gt 0
-          test "$failures" -eq 0
-      - name: Require predicted assertion kills on temporary semantic mutants
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -B - <<'PY' 2>&1 | tee "$RUNNER_TEMP/required-source-quotes-mutations.log"
-          import hashlib
-          import os
-          from pathlib import Path
-          import re
-          import shutil
-          import subprocess
-          import sys
-          import tempfile
-
-          runtime = Path(os.environ['QUOTES_RUNTIME'])
-          candidate = Path(os.environ['QUOTES_CANDIDATE'])
-          relative = Path('scripts/lib/review-read-audit.py')
-          source = (runtime / relative).read_text()
-          # Written predictions: plain/quoted positives, malformed fallback, sibling,
-          # outside, multioperand/compound and legacy groups each have a named witness.
-          mutants = [
-              ('parser-revert', None, None, [
-                  'test_canonical_space_session', 'test_canonical_apostrophe_session',
-                  'test_malformed_quoting']),
-              ('command-prefix',
-               "                if (len(operands) != 3 or operands[:2] != ['cat', '--']\n"
-               "                        or shlex.join(operands) != command):\n",
-               "                if len(operands) < 3 or operands[:2] != ['cat', '--']:\n", [
-                   'test_extra_operands', 'test_pipeline_and_suffix_commands']),
-              ('outside-parent',
-               '            if path.parent != session or not SOURCE_SEGMENT_NAME.fullmatch(path.name):\n'
-               '                continue\n            authorized.add(path)\n',
-               '            if not SOURCE_SEGMENT_NAME.fullmatch(path.name):\n'
-               '                continue\n            authorized.add(path)\n', ['test_outside_session_artifact']),
-              ('session-wide',
-               '            authorized.add(path)\n            complete.add(path)\n            continue\n',
-               '            authorized.update(session.glob("*-source-segment-*.txt"))\n'
-               '            complete.update(session.glob("*-source-segment-*.txt"))\n'
-               '            authorized.add(path)\n            complete.add(path)\n            continue\n', [
-                   'test_canonical_plain_session', 'test_undeclared_sibling']),
-              ('legacy-disabled', '        if not matches:\n            continue\n',
-               '        if matches or not matches:\n            continue\n', [
-                   'test_legacy_claude_read_and_bare_declarations']),
-          ]
-          for name, anchor, replacement, predictions in mutants:
-              if anchor is None:
-                  mutated = (candidate / 'original-auditor.py').read_text()
-                  assert hashlib.sha256(mutated.encode()).hexdigest() == (
-                      'c40e65f1d171d6a63ac0db3d4501f4995eba4c8cb7905221d7b41cfe6f7aa80c')
-              else:
-                  assert source.count(anchor) == 1, (name, 'nonunique source anchor')
-                  mutated = source.replace(anchor, replacement, 1)
-              print(f'{name}: predict AssertionError FAIL in {predictions}', flush=True)
-              with tempfile.TemporaryDirectory(prefix='quotes-mutant-', dir=candidate) as temporary:
-                  copy = Path(temporary) / 'runtime-0.9.0'
-                  shutil.copytree(runtime, copy)
-                  (copy / relative).write_text(mutated)
-                  result = subprocess.run([
-                      sys.executable, '-B', str(Path(os.environ['GITHUB_WORKSPACE']) /
-                          '.github/qa/test-required-source-quotes.py'), '--runtime', str(copy),
-                  ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-                  log = result.stdout
-                  Path(os.environ['RUNNER_TEMP'], f'required-source-quotes-mutant-{name}.log').write_text(log)
-                  print(log, flush=True)
-                  # Nonzero exit alone is not a kill: require nine tests, no errors,
-                  # and an actual AssertionError in every predicted method's FAIL block.
-                  assert result.returncode == 1, (name, result.returncode)
-                  assert re.search(r'^Ran 9 tests in ', log, re.M), name
-                  assert not re.search(r'^ERROR:', log, re.M), name
-                  assert re.search(r'^FAILED \(failures=[1-9][0-9]*\)$', log, re.M), name
-                  blocks = re.split(r'^FAIL: ', log, flags=re.M)[1:]
-                  for method in predictions:
-                      assert any(block.startswith(method + ' ') and 'AssertionError:' in block
-                                 for block in blocks), (name, method, 'missing predicted assertion FAIL')
-                  print(f'KILLED {name}: nine tests, zero errors, predicted assertion FAILs', flush=True)
-          assert (runtime / relative).read_text() == source
-          PY
-      - name: Always retain source, final auditor, hashes and all logs
+          test "$FACTS_CANDIDATE_RUNTIME" != "$FACTS_REFERENCE_RUNTIME"
+          # Capture status only to verify the test count; never invert a functional failure.
+          set +e
+          python3 -B "$GITHUB_WORKSPACE/.github/qa/test-facts-routing-reuse.py" \
+            --runtime "$FACTS_CANDIDATE_RUNTIME" \
+            --reference-runtime "$FACTS_REFERENCE_RUNTIME" \
+            2>&1 | tee "$RUNNER_TEMP/facts-routing-reuse-tests.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          grep -E '^Ran 5 tests in ' "$RUNNER_TEMP/facts-routing-reuse-tests.log"
+          exit "$status"
+      - name: Always retain exact source, compiler copies, hashes and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: required-source-quotes-${{ github.run_id }}-${{ github.run_attempt }}
+          name: facts-routing-reuse-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            .github/qa/test-required-source-quotes.py
-            .github/qa/required-source-quotes.patch
+            .github/qa/test-facts-routing-reuse.py
             .github/workflows/e2e-dapp-browser.yml
-            ${{ runner.temp }}/required-source-quotes-source-hashes.txt
-            ${{ runner.temp }}/required-source-quotes-setup.log
-            ${{ runner.temp }}/required-source-quotes-tests.log
-            ${{ runner.temp }}/required-source-quotes-final-auditor.py
-            ${{ runner.temp }}/required-source-quotes-read-bounds/
-            ${{ runner.temp }}/required-source-quotes-mutations.log
-            ${{ runner.temp }}/required-source-quotes-mutant-*.log
+            ${{ runner.temp }}/facts-routing-reuse-source-hashes.txt
+            ${{ runner.temp }}/facts-routing-reuse-setup.log
+            ${{ runner.temp }}/facts-routing-reuse-tools.log
+            ${{ runner.temp }}/facts-routing-reuse-tests.log
+            ${{ runner.temp }}/facts-routing-reuse-candidate-compiler.py
+            ${{ runner.temp }}/facts-routing-reuse-reference-compiler.py
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
