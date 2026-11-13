@@ -39,6 +39,7 @@
 
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
+import { isExtensionPageSender, isExtensionServiceWorkerSender } from 'lib/intercom/sender';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import {
   clearConnectivityIssue,
@@ -1735,8 +1736,16 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
   }
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target !== 'offscreen') return false;
+  // Only this extension's own pages and its service worker. A content script carries the page url and a tab, and
+  // another extension carries a foreign id. Both predicates declining leaves the message unanswered.
+  if (
+    !isExtensionPageSender(sender, chrome.runtime.id, chrome.runtime.getURL('')) &&
+    !isExtensionServiceWorkerSender(sender, chrome.runtime.id)
+  ) {
+    return false;
+  }
 
   if (msg?.type === 'OFFSCREEN_PROVE') {
     (async () => {

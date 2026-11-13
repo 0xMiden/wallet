@@ -402,17 +402,27 @@ type StageCallback = (stage: ITransactionStage, detail?: StageDetail) => Promise
  * for that write op's mid-execute signing (design §2.7). The write dispatch
  * registers it before sending the OFFSCREEN_CALL and deletes it on settle/kill,
  * so the secret-touching callback is scoped to the op's lifetime. The reverse-IPC
- * handler looks it up (falling back to the caller-supplied default) when the
- * offscreen doc requests a signature.
+ * handler looks it up when the offscreen doc requests a signature.
  */
 const opSignCallbacks = new Map<string, RawSignCallback>();
 
 /**
+ * Ops that may sign with the reverse-IPC handler's default signer: a read that executes a
+ * transaction (the dry run) and so has no callback of its own. Added before dispatch and
+ * removed when the op settles, so a sign request naming any other op, or one of these after
+ * it settled, is refused instead of reaching the vault.
+ */
+const opDefaultSignerOps = new Set<string>();
+
+/**
  * op_id → the classified reason of that op's LAST failed reverse-IPC sign
- * (design §2.6). Recorded by the reverse-IPC handler; read by the write path so
+ * (design §2.6). Recorded by the reverse-IPC handler only while the op still
+ * holds a signer, and read by the write path after `inFlight` drops the op, so
  * a locked-mid-sign failure can be re-tagged onto the thrown error, making
  * `isLockedError(err)` in the tx loop DEFER (not Fail) the consume — the issue
- * #313 note-loss guard. Op-scoped (keyed by op_id) so it cannot bleed across ops.
+ * #313 note-loss guard. Released with the signer: the write `finally`, a signing
+ * read's `finally`, and the test critical dispatch. Op-scoped (keyed by op_id)
+ * so it cannot bleed across ops.
  */
 const opSignReasons = new Map<string, SignCallbackReason>();
 
@@ -724,6 +734,18 @@ function dispatchWithDeadline(method: string, args: unknown[], deadlineMs: numbe
   return dispatchOp(newOpId(), method, args, deadlineMs, false);
 }
 
+/** A read whose op may sign with the reverse-IPC default signer while it runs (see {@link opDefaultSignerOps}). */
+async function dispatchSigningRead(method: string, args: unknown[], deadlineMs: number | null): Promise<string | null> {
+  const op_id = newOpId();
+  opDefaultSignerOps.add(op_id);
+  try {
+    return await dispatchOp(op_id, method, args, deadlineMs, false);
+  } finally {
+    opDefaultSignerOps.delete(op_id);
+    opSignReasons.delete(op_id);
+  }
+}
+
 // --- Reverse-IPC sign channel (issue #260, slice 5, design §2) --------------
 
 /**
@@ -791,27 +813,34 @@ export function markOpStarted(op_id: string): void {
 /**
  * SW-side reverse-IPC sign handler (design §2.4). The offscreen client's
  * `keystore.sign` stub posts an {@link OffscreenSignRequest}; this signs via the
- * op's registered callback (or `fallbackSignCallback`) — the EXISTING vault
- * signer — and returns raw signature bytes. Only bytes cross; no SDK handle.
+ * op's registered callback, or `defaultSignCallback` (the EXISTING vault signer)
+ * for an op in {@link opDefaultSignerOps}, and returns raw signature bytes. Only
+ * bytes cross; no SDK handle. Any other op is refused before its deadline is
+ * touched: this worker signs only for an op it started and still runs.
  *
  * Deadline pause (§2.5): the op's deadline is cleared on entry and re-armed on
  * exit, so a slow/blocked sign never trips a kill.
  *
  * Locked-defer (§2.6, issue #313): on a sign failure the raw error is classified
- * exactly as the inline path does (`buildSignCallbackError`) and the reason is
- * recorded PER-OP (so the write path can re-tag the thrown error for
- * `isLockedError`; issue #260 flip-prep #1 removed the redundant global slot).
+ * exactly as the inline path does (`buildSignCallbackError`). The reason is
+ * recorded PER-OP only while the op still holds a signer, so the write path can
+ * re-tag the thrown error for `isLockedError`. A sign that fails after the op
+ * released its signer still returns the classified `{ ok: false }` and records
+ * nothing (issue #260 flip-prep #1 removed the redundant global slot).
  * A `WebAssembly.RuntimeError` is not classified. It is retired and rethrown;
  * the IPC rejection then answers the offscreen sign as a failed sign.
  */
 export async function handleOffscreenSignRequest(
   msg: OffscreenSignRequest,
-  fallbackSignCallback: RawSignCallback
+  defaultSignCallback: RawSignCallback
 ): Promise<OffscreenSignResponse> {
   const { op_id, sign_id } = msg;
+  const cb = opSignCallbacks.get(op_id) ?? (opDefaultSignerOps.has(op_id) ? defaultSignCallback : undefined);
+  if (cb === undefined) {
+    return { ok: false, sign_id, error: `offscreen sign: op ${op_id} is not awaiting a signature`, reason: 'rejected' };
+  }
   pauseDeadline(op_id);
   try {
-    const cb = opSignCallbacks.get(op_id) ?? fallbackSignCallback;
     const publicKeyHex = Buffer.from(b64ToBytes(msg.publicKeyB64)).toString('hex');
     const signingInputsHex = Buffer.from(b64ToBytes(msg.signingInputsB64)).toString('hex');
     try {
@@ -826,9 +855,14 @@ export async function handleOffscreenSignRequest(
         else retireWasmClientForUnheldTrap(rawErr);
         throw rawErr;
       }
-      // Classify identically to the inline path so a locked vault DEFERS.
+      // Classify identically to the inline path so a locked vault DEFERS. Record
+      // the reason only while this op still holds a signer: the write catch reads
+      // it after `inFlight` drops the op, and a failure after the op released its
+      // signer must not leave an entry behind.
       const classified = buildSignCallbackError(rawErr);
-      opSignReasons.set(op_id, classified.reason);
+      if (opSignCallbacks.has(op_id) || opDefaultSignerOps.has(op_id)) {
+        opSignReasons.set(op_id, classified.reason);
+      }
       return { ok: false, sign_id, error: classified.message, reason: classified.reason };
     }
   } finally {
@@ -1635,9 +1669,8 @@ export const midenClientProxy = {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return dryRunRequest(await getMidenClient(), accountIdHex, requestBytes, hold);
     }
-    const resultB64 = await this.call('dryRunTransaction', [accountIdHex, requestBytes], {
-      deadlineMs: DRY_RUN_DEADLINE_MS
-    });
+    // A single-key account's dry run signs mid-execute, with no write callback of its own.
+    const resultB64 = await dispatchSigningRead('dryRunTransaction', [accountIdHex, requestBytes], DRY_RUN_DEADLINE_MS);
     if (resultB64 == null) throw new Error('dryRunTransaction: offscreen document returned no result');
     const result: DryRunResult = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
     return result;
@@ -1948,6 +1981,7 @@ export const __test = {
   isOpPaused: (op_id: string) => inFlight.get(op_id)?.paused ?? false,
   hasOpTimer: (op_id: string) => inFlight.get(op_id)?.timer != null,
   opSignCallbacksSize: () => opSignCallbacks.size,
+  opSignReasonsSize: () => opSignReasons.size,
   opStageCallbacksSize: () => opStageCallbacks.size,
   isOffscreenClientEnabled: () => USE_OFFSCREEN_CLIENT,
   writeDeadlineMs: () => WRITE_DEADLINE_MS,
@@ -1961,7 +1995,20 @@ export const __test = {
   dispatchCritical: (method: string, args: unknown[], deadlineMs: number | null) => {
     incrementCriticalOp();
     const op_id = newOpId();
-    const promise = dispatchOp(op_id, method, args, deadlineMs, true).finally(() => decrementCriticalOp());
+    // Its sign round-trips go through the default signer, which serves only an op allowed to use it.
+    opDefaultSignerOps.add(op_id);
+    const promise = dispatchOp(op_id, method, args, deadlineMs, true).finally(() => {
+      decrementCriticalOp();
+      opDefaultSignerOps.delete(op_id);
+      opSignReasons.delete(op_id);
+    });
     return { op_id, promise };
+  },
+  /** Let `op_id` sign with the default signer, as a running dry run may; returns the undo. */
+  allowDefaultSigner: (op_id: string): (() => void) => {
+    opDefaultSignerOps.add(op_id);
+    return () => {
+      opDefaultSignerOps.delete(op_id);
+    };
   }
 };

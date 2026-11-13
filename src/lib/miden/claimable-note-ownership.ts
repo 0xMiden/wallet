@@ -18,16 +18,30 @@ export function isOwnClaimableNote(note: { standardPayment?: boolean; swapOrder?
   return note.standardPayment === true || note.swapOrder !== undefined;
 }
 
-/** The entry points that claim from the claim list, which must hold only this account's notes. */
-const CLAIM_LIST_ENTRY_POINTS: ReadonlySet<ConsumeEntryPoint> = new Set(['claim', 'claim_all', 'auto_consume']);
+/**
+ * Which entry points must hold only this account's notes. A Record over the union, so an
+ * entry point added later does not compile until someone decides which side it is on.
+ */
+const OWN_NOTES_ONLY: Readonly<Record<ConsumeEntryPoint, boolean>> = {
+  auto_consume: true,
+  claim: true,
+  claim_all: true,
+  dapp: false,
+  bridge_reclaim: false,
+  swap_settlement: false,
+  rotation_funding: false,
+  arcade_gc_purchase: false
+};
 
 /**
  * Whether a consume queued from `entryPoint` must hold only {@link isOwnClaimableNote}
  * notes. A dApp request, a bridge reclaim, swap settlement, rotation funding and the
  * Arcade purchase consume other scripts on purpose, and each checks its notes itself.
+ * A consume that names no entry point is treated as a claim, so a caller that forgets
+ * one cannot skip the check.
  */
 export function requiresOwnClaimableNotes(entryPoint: ConsumeEntryPoint | undefined): boolean {
-  return entryPoint !== undefined && CLAIM_LIST_ENTRY_POINTS.has(entryPoint);
+  return entryPoint === undefined || OWN_NOTES_ONLY[entryPoint];
 }
 
 /** A claim from the claim list named a note that is not this account's to claim. */

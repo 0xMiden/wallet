@@ -3223,6 +3223,10 @@
     "message": "备份您的钱包",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "恢复短语已隐藏",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "显示",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8个字符，1个数字",
-    "englishSource": "8 characters, 1 number"
+    "message": "至少 12 个字符",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "至少8个字符，其中至少包含1个数字",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "密码长度至少为12个字符。使用数字、符号及大小写混合可增强安全性。",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "请将这12个词保存下来，并存放在安全的地方。",
@@ -4392,6 +4396,18 @@
   "guardianAccountNotFound": {
     "message": "我们无法在此Guardian上找到备份。请检查URL或选择另一个Guardian。",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "您的账户无法恢复：该guardian返回的账户数据与您的恢复短语不匹配。没有任何数据被恢复。",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "您的账户无法恢复：该账户的guardian副本尚未与Miden网络匹配。没有任何内容被恢复。请几分钟后重试。",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "无法连接到 Miden 网络以核查您的账户。您的恢复短语没有问题。请检查网络连接并重试。",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "该“guardian”运行在另一个 Miden 网络上，因此无法在此处恢复账户。",
@@ -8673,5 +8689,22 @@
   "arcadePostingPolicy": {
     "message": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "自动锁定",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "当钱包在后台处于闲置状态达到一定时间后，系统将自动锁定该钱包。",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$分钟",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

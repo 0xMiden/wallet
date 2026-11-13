@@ -689,6 +689,7 @@
   "guardianInfoSwitchingIsEasyDescription": "Sie können jederzeit mit Ihrer Wiederherstellungsphrase zu einem anderen Guardian wechseln. Es ändert sich lediglich, wer Ihre Transaktionen bestätigt; Ihr Konto und Ihr Guthaben bleiben unverändert.",
   "gotIt": "Verstanden",
   "backUpYourWallet": "Erstellen Sie ein Backup Ihrer Wallet",
+  "recoveryPhraseHidden": "Wiederherstellungsphrase verborgen",
   "show": "Anzeigen",
   "hide": "Ausblenden",
   "copied": "Kopiert",
@@ -724,8 +725,8 @@
   "veryStrong": "Sehr stark!",
   "medium": "Mittel",
   "low": "Niedrig",
-  "8chars1number": "8 Zeichen, 1 Ziffer",
-  "minimumCharsWithAtLeast": "Mindestens 8 Zeichen, darunter mindestens 1 Ziffer",
+  "8chars1number": "Mindestens 12 Zeichen",
+  "minimumCharsWithAtLeast": "Verwenden Sie mindestens 12 Zeichen. Zahlen, Sonderzeichen und die Mischung aus Groß- und Kleinbuchstaben erhöhen die Sicherheit.",
   "backUpWalletInstructions": "Merken Sie sich diese 12 Wörter und bewahren Sie sie an einem sicheren Ort auf.",
   "doNotShareWithAnywone": "Gib diese Informationen an niemanden weiter.",
   "seedPhraseRecoveryCaption": "Deine Wiederherstellungsphrase stellt deine Schlüssel wieder her. Sie dient dazu, deinen Alltagsschlüssel zu rotieren, nicht für alltägliche Transaktionen.",
@@ -970,6 +971,9 @@
   "publicImportMayCreate": "Falls für diesen Ausdruck noch kein öffentliches Konto existiert, wird durch den Import ein neues daraus erstellt.",
   "retryGuardianDetection": "Versuchen Sie es noch einmal",
   "guardianAccountNotFound": "Wir konnten kein Backup für diesen Guardian finden. Überprüfen Sie die URL oder wählen Sie einen anderen Guardian aus.",
+  "guardianRecoveryUnverified": "Ihre Konten konnten nicht wiederhergestellt werden: Der guardian hat Kontodaten zurückgegeben, die nicht mit Ihrer Wiederherstellungsphrase übereinstimmen. Es wurde nichts wiederhergestellt.",
+  "guardianRecoveryBehindNetwork": "Ihre Konten konnten nicht wiederhergestellt werden: Die Kopie eines Kontos beim guardian stimmt noch nicht mit dem Miden-Netzwerk überein. Es wurde nichts wiederhergestellt. Versuchen Sie es in einigen Minuten erneut.",
+  "guardianRecoveryNetworkUnreachable": "Das Miden-Netzwerk konnte nicht erreicht werden, um Ihre Konten zu überprüfen. Ihre Wiederherstellungsphrase ist in Ordnung. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
   "guardianOtherNetwork": "Dieser „guardian“ läuft in einem anderen Miden-Netzwerk, daher kann er hier kein Konto wiederherstellen.",
   "useCustomGuardianUrl": "Verwenden Sie eine benutzerdefinierte URL: Guardian",
   "default": "Standard",
@@ -1893,5 +1897,8 @@
   "arcadeBalanceUnknown": "Guthaben nicht verfügbar",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Spielmünzen",
-  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst."
+  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
+  "autoLock": "Automatische Sperre",
+  "autoLockDescription": "Sperrt die Wallet, sobald sie so lange im Hintergrund war.",
+  "autoLockMinutes": "$minutes$ min"
 }

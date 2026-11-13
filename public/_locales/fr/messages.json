@@ -3223,6 +3223,10 @@
     "message": "Sauvegardez votre portefeuille",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Phrase de récupération masquée",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Afficher",
     "englishSource": "Show"
@@ -3364,12 +3368,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 caractères, 1 chiffre",
-    "englishSource": "8 characters, 1 number"
+    "message": "Au moins 12 caractères",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Au moins 8 caractères, dont au moins 1 chiffre",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Utilisez au moins 12 caractères. Les chiffres, les symboles et l’utilisation de majuscules et de minuscules renforcent la sécurité.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Notez ces 12 mots et conservez-les dans un endroit sûr.",
@@ -4392,6 +4396,18 @@
   "guardianAccountNotFound": {
     "message": "Nous n’avons pas trouvé de sauvegarde sur ce Guardian. Vérifiez l’URL ou choisissez un autre Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianRecoveryUnverified": {
+    "message": "Vos comptes n’ont pas pu être restaurés : le guardian a renvoyé des données de compte qui ne correspondent pas à votre phrase de récupération. Rien n’a été restauré.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Vos comptes n’ont pas pu être restaurés : la copie d’un compte détenue par le guardian ne correspond pas encore au réseau Miden. Rien n’a été restauré. Veuillez réessayer dans quelques minutes.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Impossible d’accéder au réseau Miden pour vérifier vos comptes. Votre phrase de récupération est correcte. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
   },
   "guardianOtherNetwork": {
     "message": "Ce « guardian » fonctionne sur un autre réseau Miden ; il ne peut donc pas récupérer un compte ici.",
@@ -8676,5 +8692,22 @@
   "arcadePostingPolicy": {
     "message": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Verrouillage automatique",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Verrouille le portefeuille dès qu’il est resté inactif en arrière-plan pendant cette durée.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

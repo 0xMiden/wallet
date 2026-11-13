@@ -42,6 +42,9 @@ describe('requiresOwnClaimableNotes', () => {
     ] as const) {
       expect(requiresOwnClaimableNotes(entryPoint)).toBe(false);
     }
-    expect(requiresOwnClaimableNotes(undefined)).toBe(false);
+  });
+
+  it('treats a consume with no entry point as a claim', () => {
+    expect(requiresOwnClaimableNotes(undefined)).toBe(true);
   });
 });
