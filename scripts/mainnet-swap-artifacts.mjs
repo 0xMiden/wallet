@@ -4,6 +4,12 @@ import { basename } from 'node:path';
 // Last verified nightly before native swaps existed. Never bootstrap past an unknown funded run.
 const BASELINE_RUN = 42966766471;
 const BASELINE_SHA = '96a3228a181d050395241d00071c5863a1815ab5';
+const LEGACY_SPENDING_STEPS = [
+  'Run native mainnet round trip',
+  'Run USDCx bridge loops',
+  'Run the mainnet AggLayer loop',
+  'Run mainnet round trip, USDCx bridge loops, and read-only 1Click preflight'
+];
 
 function validateProvider(provider) {
   if (!['swap', 'epoch', 'near'].includes(provider)) throw new Error('Invalid mainnet loop provider');
@@ -29,6 +35,24 @@ export function swapStepAttempted(jobs, leg, provider = 'swap') {
 
 export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline = BASELINE_RUN, provider = 'swap') {
   validateProvider(provider);
+  const orderedRuns = [...runs].sort((a, b) => b.id - a.id);
+  if (provider === 'swap') {
+    // A newer swap checkpoint cannot resolve an older interrupted legacy transfer.
+    for (const run of orderedRuns) {
+      if (!Number.isSafeInteger(run.id)) throw new Error('Invalid workflow run identity');
+      if (run.id <= baseline) break;
+      const jobs = await getJobs(run.id);
+      if (!Array.isArray(jobs?.jobs)) throw new Error('Invalid workflow jobs response');
+      for (const step of jobs.jobs.flatMap(job => job.steps ?? [])) {
+        if (
+          LEGACY_SPENDING_STEPS.includes(step.name) &&
+          step.conclusion !== 'skipped' &&
+          !(step.status === 'completed' && step.conclusion === 'success')
+        )
+          throw new Error(`Unresolved legacy activity in run ${run.id}; reconcile original outcomes before spending`);
+      }
+    }
+  }
   const prefix = provider === 'near' ? '1click' : provider;
   const signed =
     provider === 'swap'
@@ -46,7 +70,7 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
     'forward-authorized'
   ];
   if (provider === 'near') stages.push('execute-started', 'preflight');
-  for (const run of [...runs].sort((a, b) => b.id - a.id)) {
+  for (const run of orderedRuns) {
     if (!Number.isSafeInteger(run.id)) throw new Error('Invalid workflow run identity');
     if (run.id <= baseline) return { bootstrap: true };
     const artifacts = await getArtifacts(run.id);
