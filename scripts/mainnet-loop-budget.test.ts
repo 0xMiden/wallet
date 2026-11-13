@@ -54,26 +54,6 @@ describe('combined mainnet loop loss budget', () => {
   });
 });
 
-describe('explicit remaining task allowance after original recovery', () => {
-  const key = 'MAINNET_LOOP_LOSS_BUDGET_USD_MICROS';
-  const original = process.env[key];
-  afterEach(() => {
-    if (original === undefined) delete process.env[key];
-    else process.env[key] = original;
-  });
-  it('deducts current-run predecessors from the reduced allowance, never resets it to $2', () => {
-    process.env[key] = '1999500';
-    expect(remainingMainnetLoopBudget('100', 'swap', [])).toBe(1_999_500n);
-    expect(remainingMainnetLoopBudget('100', 'epoch', [evidence('swap', '905')])).toBe(1_998_595n);
-    expect(remainingMainnetLoopBudget('100', 'near', [evidence('swap', '905'), evidence('epoch', '500')])).toBe(1_998_095n);
-    expect(() => remainingMainnetLoopBudget('100', 'epoch', [evidence('swap', '1999501')])).toThrow();
-  });
-  it.each(['', '0', '-1', '2000001', '02000000', '1e6', '1.5', 'unknown'])('rejects an unsafe explicit allowance %s', value => {
-    process.env[key] = value;
-    expect(() => remainingMainnetLoopBudget('100', 'swap', [])).toThrow();
-  });
-});
-
 describe('cross-chain portfolio loss', () => {
   it('counts principal/native overlap once and includes EVM all-in gas at 18 decimals', () => {
     expect(

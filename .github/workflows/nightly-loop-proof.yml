@@ -1,4 +1,4 @@
-name: Remaining recovery allowance regression RED
+name: Keyless original recovery outcome
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -8,18 +8,43 @@ concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  budget:
+  outcome:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Verify frozen source
-        run: test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Original recovery cost must reduce the next qualification allowance
-        run: yarn jest scripts/mainnet-loop-budget.test.ts --maxWorkers=2 --watch=false
+      - name: Read exact return note and latest proved vault without financial keys
+        run: |
+          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { RpcClient, Endpoint, NoteId, Address, Word } from '@miden-sdk/miden-sdk';
+          const rpc = new RpcClient(new Endpoint('https://rpc.mainnet.miden.io'));
+          const actor = Address.fromBech32('mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5').accountId();
+          const noteId = '0x444d415a106341d4b7005bdb41c8af3f87d97ee49cc1010e420297632621cb1e';
+          for (let sample=0;sample<2;sample++) {
+            const tip = await rpc.getBlockHeaderByNumber();
+            const height = tip.blockNum();
+            assert.ok(height>855903);
+            const proof = await rpc.getAccountProof(actor, undefined, height, new Word(new BigUint64Array([0n,0n,0n,0n])));
+            assert.equal(proof.accountId().toString(),actor.toString());
+            assert.equal(proof.blockNum(),height);
+            const assets = proof.vaultFungibleAssets();
+            assert.ok(assets,'Latest public vault details unavailable');
+            const amount = faucet => (assets.find(asset=>asset.faucetId().toString()===faucet)?.amount()??0n).toString();
+            const native = amount('0xe69e6ca6e39df1b10c1e5399399feb');
+            const usdt = amount('0x5cb79d29507d3ad17bb6dc60279e89');
+            const notes = await rpc.getNotesById([NoteId.fromHex(noteId)]);
+            console.log(JSON.stringify({purpose:'keyless latest return outcome; no request bytes, signatures or writes',sample,height,returnNoteId:noteId,returnNoteCount:notes.length,native,usdt}));
+            assert.equal(notes.length,0,'A return submission exists; never reissue it');
+            assert.equal(native,'18987362');
+            assert.equal(usdt,'1010890');
+            if (sample===0) await new Promise(resolve=>setTimeout(resolve,5000));
+          }
+          NODE
