@@ -2,13 +2,13 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { createPlatformCredential } from 'lib/platform-auth/webauthn';
 import type {
   PlatformCredentialMetadata,
   PlatformUnlockCommand,
   PlatformUnlockResult,
   PlatformUnlockState
 } from 'lib/platform-auth/types';
+import { createPlatformCredential } from 'lib/platform-auth/webauthn';
 
 import PasskeyUnlockSettings from './PasskeyUnlockSettings';
 
@@ -170,14 +170,67 @@ it.each([false, true])('offers only a side-panel handoff outside the enrollment 
   expect(mockSend).not.toHaveBeenCalled();
 });
 
+it('does not start enrollment with an empty password', () => {
+  render(<PasskeyUnlockSettings />);
+  expect(screen.getByRole('button', { name: 'passkeyEnable' })).toBeDisabled();
+  const form = screen.getByLabelText('password').closest('form');
+  if (!form) throw new Error('Enrollment form unavailable');
+  fireEvent.submit(form);
+  expect(mockSend).not.toHaveBeenCalled();
+  expect(mockCreate).not.toHaveBeenCalled();
+});
+
+it('keeps the old credential and reports a failed removal', async () => {
+  mockState.credential = previous;
+  mockSend.mockRejectedValueOnce(new Error('Record changed'));
+  render(<PasskeyUnlockSettings />);
+  fireEvent.click(screen.getByRole('button', { name: 'passkeyRemove' }));
+  await screen.findByText('passkeyRemoveFailed');
+  expect(mockState.credential).toEqual(previous);
+  expect(screen.getByRole('button', { name: 'passkeyRemove' })).toBeEnabled();
+});
+
+it('reports a failed side-panel handoff without attempting enrollment', async () => {
+  mockSidePanel = false;
+  mockOpenPanel.mockResolvedValue(false);
+  render(<PasskeyUnlockSettings />);
+  fireEvent.click(screen.getByRole('button', { name: 'openWallet' }));
+  await screen.findByText('passkeySidePanelFailed');
+  expect(mockCreate).not.toHaveBeenCalled();
+});
+
+it('cancels a pending ceremony but still journals a late returned credential ID', async () => {
+  let finish: ((value: { credentialId: string; prfSecret: string }) => void) | undefined;
+  mockCreate.mockImplementation(async (_previous, onCreated) => {
+    const credential = await new Promise<{ credentialId: string; prfSecret: string }>(resolve => {
+      finish = resolve;
+    });
+    await onCreated(created.credentialId, created.prfSalt, created.backupEligible);
+    return credential;
+  });
+  render(<PasskeyUnlockSettings />);
+  submit();
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole('button', { name: 'cancel' }));
+  expect(mockCreate.mock.calls[0]?.[2]?.aborted).toBe(true);
+  await act(async () => {
+    finish?.({ credentialId: created.credentialId, prfSecret: 'A'.repeat(43) });
+  });
+  expect(mockSend).toHaveBeenCalledWith({ action: 'track', enrollmentId: 'A'.repeat(43), credential: created });
+  expect(mockSend).toHaveBeenCalledWith({ action: 'abandon', enrollmentId: 'A'.repeat(43) });
+  expect(mockSend.mock.calls.some(([command]) => command.action === 'commit')).toBe(false);
+  expect(screen.getByText('passkeyCanceled')).toBeInTheDocument();
+});
+
 it('does not start duplicate ceremonies or save a native result that arrives after unmount', async () => {
   let finish: ((value: { credentialId: string; prfSecret: string }) => void) | undefined;
-  mockCreate.mockImplementation(
-    () =>
-      new Promise(resolve => {
-        finish = resolve;
-      })
-  );
+  mockCreate.mockImplementation(async (_previous, onCreated) => {
+    const credential = await new Promise<{ credentialId: string; prfSecret: string }>(resolve => {
+      finish = resolve;
+    });
+    await onCreated(created.credentialId, created.prfSalt, created.backupEligible);
+    return credential;
+  });
   const view = render(<PasskeyUnlockSettings />);
   submit();
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));

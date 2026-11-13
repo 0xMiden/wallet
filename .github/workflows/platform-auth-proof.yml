@@ -5,13 +5,16 @@ on:
 permissions:
   contents: read
 jobs:
-  ui-ceremony-regression:
+  ui-ceremony-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest src/app/templates/PasskeyUnlockSettings.test.tsx src/app/pages/Settings.test.tsx src/app/pages/Unlock.test.tsx src/app/hooks/usePlatformUnlock.test.tsx src/lib/platform-auth/webauthn.test.ts --maxWorkers=2
+      - run: yarn tsc --noEmit --pretty false
+      - run: yarn lint:i18n
+      - run: yarn eslint src/app/hooks/usePlatformUnlock.ts src/app/hooks/usePlatformUnlock.test.tsx src/app/pages/Settings.tsx src/app/pages/Settings.selectors.ts src/app/pages/Settings.test.tsx src/app/pages/Unlock.tsx src/app/pages/Unlock.test.tsx src/app/templates/PasskeyUnlockSettings.tsx src/app/templates/PasskeyUnlockSettings.test.tsx src/lib/platform-auth/webauthn.ts src/lib/platform-auth/webauthn.test.ts
+      - run: yarn jest src/app/templates/PasskeyUnlockSettings.test.tsx src/app/pages/Settings.test.tsx src/app/pages/Unlock.test.tsx src/app/hooks/usePlatformUnlock.test.tsx src/lib/platform-auth/webauthn.test.ts src/lib/platform-auth/capabilities.test.ts src/lib/platform-auth/crypto.test.ts src/lib/platform-auth/protocol.test.ts src/lib/telemetry/redact.test.ts src/lib/store/index.test.ts src/lib/miden/front/client.test.tsx --maxWorkers=2
