@@ -27,7 +27,7 @@ const ROUNDING: Record<AmountRounding, BigNumber.RoundingMode> = {
 
 function displayValue(amount: DisplayAmount, decimals?: number): BigNumber {
   if (typeof amount !== 'bigint') return new BigNumber(amount);
-  if (decimals === undefined || !Number.isInteger(decimals) || decimals < 0 || decimals > 36) {
+  if (decimals === undefined || !Number.isInteger(decimals) || decimals < 0 || decimals > 38) {
     return new BigNumber(NaN);
   }
   return new BigNumber(amount.toString()).shiftedBy(-decimals);

@@ -25,6 +25,13 @@ describe('amount display policy', () => {
     expect(formatAmountDisplay(100n, { decimals: 0 })).toBe('100');
   });
 
+  // 1Click accepts assets up to 38 decimals, so the display must too.
+  it('accepts every scale up to 38 decimals', () => {
+    expect(formatAmountDisplay(10n ** 38n, { decimals: 38, formatting: 'exact' })).toBe('1');
+    expect(formatAmountDisplay(15n * 10n ** 36n, { decimals: 37 })).toBe('1.5');
+    expect(formatAmountDisplay(10n ** 39n, { decimals: 39, formatting: 'exact' })).toBe('—');
+  });
+
   it.each<[AmountRounding, string, string]>([
     ['up', '1.234', '1.24'],
     ['down', '1.239', '1.23'],
@@ -58,7 +65,7 @@ describe('amount display policy', () => {
     for (const amount of [NaN, Infinity, -Infinity, 'invalid', '1e9999999', '1e-9999999']) {
       expect(formatAmountDisplay(amount)).toBe('—');
     }
-    for (const decimals of [undefined, -1, 1.5, 37]) {
+    for (const decimals of [undefined, -1, 1.5, 39]) {
       expect(formatAmountDisplay(1n, { decimals })).toBe('—');
     }
     expect(formatAmountDisplay('1.234', { minimumFractionDigits: -1 })).toBe('1');
