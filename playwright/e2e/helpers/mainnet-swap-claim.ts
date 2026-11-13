@@ -364,20 +364,30 @@ export function prepareMainnetSwapClaimRecovery(
     ? { offer: state.offer.balance, request: state.request.balance, native: state.native.balance }
     : state.returnBaseline;
   if (
-    state.phase !== `${leg}-authorized` || !authority || !baseline ||
+    state.phase !== `${leg}-authorized` ||
+    !authority ||
+    !baseline ||
     (forward ? state.forwardClaimAuthority : state.reverseClaimAuthority) !== undefined ||
     (offerNative && (state.offer.faucetId !== state.native.faucetId || balances.offer !== balances.native)) ||
     (requestNative && (state.request.faucetId !== state.native.faucetId || balances.request !== balances.native)) ||
-    balances.offer < 0n || balances.native < 0n || balances.request < 0n ||
+    balances.offer < 0n ||
+    balances.native < 0n ||
+    balances.request < 0n ||
     (forward ? state.forwardOrderId : state.reverseOrderId) !== authority.orderId ||
-    payback.originalNoteId !== authority.noteId || payback.orderId !== authority.orderId ||
-    payback.claimedAtBlock !== undefined || payback.amount < BigInt(authority.minimumReceive) ||
+    payback.originalNoteId !== authority.noteId ||
+    payback.orderId !== authority.orderId ||
+    payback.claimedAtBlock !== undefined ||
+    payback.amount < BigInt(authority.minimumReceive) ||
     state.recoveryClaimNativeBefore !== undefined
-  ) throw new Error('Existing swap payout, claim outcome or original portfolio is unresolved');
-  const principal = BigInt(forward ? state.principal : state.returnAmount ?? '0');
-  const priorCosts = forward ? 0n : BigInt(state.native.balance) - BigInt(baseline.native)
-    - (offerNative ? BigInt(state.principal) : 0n)
-    + (requestNative ? BigInt(state.forwardReceived ?? '0') : 0n);
+  )
+    throw new Error('Existing swap payout, claim outcome or original portfolio is unresolved');
+  const principal = BigInt(forward ? state.principal : (state.returnAmount ?? '0'));
+  const priorCosts = forward
+    ? 0n
+    : BigInt(state.native.balance) -
+      BigInt(baseline.native) -
+      (offerNative ? BigInt(state.principal) : 0n) +
+      (requestNative ? BigInt(state.forwardReceived ?? '0') : 0n);
   if (priorCosts < 0n || BigInt(state.paidFees) !== priorCosts)
     throw new Error('Previously paid native fees differ from the immutable portfolio');
   // A missing local parent does not erase an actual vault debit or license a fabricated receipt.
@@ -385,21 +395,30 @@ export function prepareMainnetSwapClaimRecovery(
   const costs = BigInt(baseline.native) - balances.native - (offeredNative ? principal : 0n);
   const reserve = SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee);
   if (
-    costs <= 0n || costs > reserve ||
+    costs <= 0n ||
+    costs > reserve ||
     balances.offer !== BigInt(baseline.offer) - (forward ? principal : 0n) - (offerNative ? costs : 0n) ||
     balances.request !== BigInt(baseline.request) - (forward ? 0n : principal) - (requestNative ? costs : 0n) ||
     BigInt(state.paidFees) + costs + reserve > BigInt(state.feeBudget)
-  ) throw new Error('No attributable native debit or original claim fee reserve remains');
+  )
+    throw new Error('No attributable native debit or original claim fee reserve remains');
   const after = {
     offer: balances.offer - (offerNative ? reserve : 0n) + (forward ? 0n : payback.amount),
     request: balances.request - (requestNative ? reserve : 0n) + (forward ? payback.amount : 0n),
     native: balances.native - reserve + ((forward ? requestNative : offerNative) ? payback.amount : 0n)
   };
-  const loss = realizedSwapLoss(([
-    [state.offer, after.offer], [state.request, after.request], [state.native, after.native]
-  ] as const).map(([saved, amount]) => ({
-    before: { ...saved, balance: BigInt(saved.balance), usdMicros: BigInt(saved.usdMicros) }, after: amount
-  })));
+  const loss = realizedSwapLoss(
+    (
+      [
+        [state.offer, after.offer],
+        [state.request, after.request],
+        [state.native, after.native]
+      ] as const
+    ).map(([saved, amount]) => ({
+      before: { ...saved, balance: BigInt(saved.balance), usdMicros: BigInt(saved.usdMicros) },
+      after: amount
+    }))
+  );
   if (loss > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP))
     throw new Error('Existing payout claim exceeds the remaining original loss allowance');
   return costs;

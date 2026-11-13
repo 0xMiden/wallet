@@ -476,49 +476,109 @@ for (const [name, change] of [
     assert.throws(() => claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances));
   });
 function forwardClaimFixture() {
-  const {state,evidence}=recoveryFixture();
-  state.forwardRequestAuthority.orderId=evidence.orderId;
-  state.forwardOrderId=evidence.orderId;
-  state.lossBudgetUsdMicros='1999106';
-  const payback={...evidence};delete payback.claimedAtBlock;
-  const native=BigInt(state.native.balance)-BigInt(state.principal)-133n;
-  return {state,payback,balances:{offer:native,native,request:0n}};
+  const { state, evidence } = recoveryFixture();
+  state.forwardRequestAuthority.orderId = evidence.orderId;
+  state.forwardOrderId = evidence.orderId;
+  state.lossBudgetUsdMicros = '1999106';
+  const payback = { ...evidence };
+  delete payback.claimedAtBlock;
+  const native = BigInt(state.native.balance) - BigInt(state.principal) - 133n;
+  return { state, payback, balances: { offer: native, native, request: 0n } };
 }
-test('binds an unclaimed forward payout to original portfolio without a local parent or fee row',()=>{
-  const value=forwardClaimFixture();const before=structuredClone(value.state);
-  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state,value.payback,value.balances,'forward'),133n);
-  assert.deepEqual(value.state,before);
+test('binds an unclaimed forward payout to original portfolio without a local parent or fee row', () => {
+  const value = forwardClaimFixture();
+  const before = structuredClone(value.state);
+  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances, 'forward'), 133n);
+  assert.deepEqual(value.state, before);
 });
-test('preserves a non-native offer returning the native fee asset',()=>{
-  const value=forwardClaimFixture();
-  const originalOffer=value.state.offer;
-  value.state.offer={...value.state.request,balance:'20000000'};
-  value.state.request={...originalOffer};
-  value.balances={offer:20000000n-BigInt(value.state.principal),request:BigInt(value.state.native.balance)-133n,native:BigInt(value.state.native.balance)-133n};
-  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state,value.payback,value.balances,'forward'),133n);
+test('preserves a non-native offer returning the native fee asset', () => {
+  const value = forwardClaimFixture();
+  const originalOffer = value.state.offer;
+  value.state.offer = { ...value.state.request, balance: '20000000' };
+  value.state.request = { ...originalOffer };
+  value.balances = {
+    offer: 20000000n - BigInt(value.state.principal),
+    request: BigInt(value.state.native.balance) - 133n,
+    native: BigInt(value.state.native.balance) - 133n
+  };
+  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances, 'forward'), 133n);
 });
-test('preserves a pair whose fee asset is separate from both traded assets',()=>{
-  const value=forwardClaimFixture();
-  value.state.native={...value.state.native,hex:'0xfee',faucetId:'mm1fee'};
-  value.balances.offer=BigInt(value.state.offer.balance)-BigInt(value.state.principal);
-  value.balances.native=BigInt(value.state.native.balance)-133n;
-  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state,value.payback,value.balances,'forward'),133n);
+test('preserves a pair whose fee asset is separate from both traded assets', () => {
+  const value = forwardClaimFixture();
+  value.state.native = { ...value.state.native, hex: '0xfee', faucetId: 'mm1fee' };
+  value.balances.offer = BigInt(value.state.offer.balance) - BigInt(value.state.principal);
+  value.balances.native = BigInt(value.state.native.balance) - 133n;
+  assert.equal(claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances, 'forward'), 133n);
 });
-for(const [name,change] of [
-  ['wrong note',v=>{v.payback.originalNoteId=`0x${'0'.repeat(64)}`;}],
-  ['wrong order',v=>{v.payback.orderId='999';}],
-  ['already claimed',v=>{v.payback.claimedAtBlock=105;}],
-  ['issued claim',v=>{v.state.forwardClaimAuthority={nonce:'issued'};}],
-  ['unrelated target credit',v=>{v.balances.request=1n;}],
-  ['native credit',v=>{v.balances.native+=1000n;v.balances.offer=v.balances.native;}],
-  ['prepaid forward fees',v=>{v.state.paidFees='1';}],
-  ['creation debit above frozen bound',v=>{v.balances.native-=211n;v.balances.offer=v.balances.native;}],
-  ['fee reserve',v=>{v.state.feeBudget='300';}],
-  ['reduced loss cap',v=>{v.state.lossBudgetUsdMicros='1';}]
-]) test(`refuses forward claim recovery with ${name}`,()=>{
-  const value=forwardClaimFixture();change(value);
-  assert.throws(()=>claims.prepareMainnetSwapClaimRecovery(value.state,value.payback,value.balances,'forward'));
-});
+for (const [name, change] of [
+  [
+    'wrong note',
+    v => {
+      v.payback.originalNoteId = `0x${'0'.repeat(64)}`;
+    }
+  ],
+  [
+    'wrong order',
+    v => {
+      v.payback.orderId = '999';
+    }
+  ],
+  [
+    'already claimed',
+    v => {
+      v.payback.claimedAtBlock = 105;
+    }
+  ],
+  [
+    'issued claim',
+    v => {
+      v.state.forwardClaimAuthority = { nonce: 'issued' };
+    }
+  ],
+  [
+    'unrelated target credit',
+    v => {
+      v.balances.request = 1n;
+    }
+  ],
+  [
+    'native credit',
+    v => {
+      v.balances.native += 1000n;
+      v.balances.offer = v.balances.native;
+    }
+  ],
+  [
+    'prepaid forward fees',
+    v => {
+      v.state.paidFees = '1';
+    }
+  ],
+  [
+    'creation debit above frozen bound',
+    v => {
+      v.balances.native -= 211n;
+      v.balances.offer = v.balances.native;
+    }
+  ],
+  [
+    'fee reserve',
+    v => {
+      v.state.feeBudget = '300';
+    }
+  ],
+  [
+    'reduced loss cap',
+    v => {
+      v.state.lossBudgetUsdMicros = '1';
+    }
+  ]
+])
+  test(`refuses forward claim recovery with ${name}`, () => {
+    const value = forwardClaimFixture();
+    change(value);
+    assert.throws(() => claims.prepareMainnetSwapClaimRecovery(value.state, value.payback, value.balances, 'forward'));
+  });
 const failedReturnRun = () => ({ id: 456, workflow_id: 77, status: 'completed', conclusion: 'failure' });
 const failedReturnJobs = () => ({
   jobs: [

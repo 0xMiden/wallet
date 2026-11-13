@@ -79,12 +79,23 @@ test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial', retries: 0 });
 let claimStage = 'before-claim';
 let claimLeg: 'forward' | 'reverse' | undefined;
-test.afterEach(async (_fixtures, info) => {
+test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return;
   mkdirSync('test-results', { recursive: true });
-  writeFileSync('test-results/mainnet-swap-claim-failure.json', JSON.stringify({
-    version: 1, runId: process.env.GITHUB_RUN_ID, mode: process.env.MAINNET_SWAP_MODE, claimStage, claimLeg
-  }, null, 2));
+  writeFileSync(
+    'test-results/mainnet-swap-claim-failure.json',
+    JSON.stringify(
+      {
+        version: 1,
+        runId: process.env.GITHUB_RUN_ID,
+        mode: process.env.MAINNET_SWAP_MODE,
+        claimStage,
+        claimLeg
+      },
+      null,
+      2
+    )
+  );
 });
 
 const holding = (saved: SavedSwapHolding) => ({
@@ -389,17 +400,22 @@ async function settle(
     kind: 'swap',
     accountId: Address.fromBech32(state.account).accountId().toString(),
     faucetId: (leg === 'forward' ? state.offer : state.request).hex,
-    amount: leg === 'forward' ? state.principal : state.returnAmount ?? '0',
+    amount: leg === 'forward' ? state.principal : (state.returnAmount ?? '0'),
     requestedFaucetId: (leg === 'forward' ? state.request : state.offer).hex,
     requestedAmount: authority.minimumReceive,
     noteId: authority.noteId,
     orderId: authority.orderId
   };
   let found: MainnetSwapPaybackEvidence | undefined;
-  await expect.poll(async () => {
-    found = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope);
-    return found !== undefined;
-  }, { timeout: 300_000, intervals: [5_000], message: 'Exact original full-fill payback not proved' }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        found = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope);
+        return found !== undefined;
+      },
+      { timeout: 300_000, intervals: [5_000], message: 'Exact original full-fill payback not proved' }
+    )
+    .toBe(true);
   const payback = found;
   if (!payback) throw new Error('Original funded swap payout is unresolved; never resubmit');
   claimStage = 'portfolio-reserve';
@@ -505,7 +521,9 @@ async function settle(
     const offerNative = state.offer.hex === state.native.hex;
     const requestNative = state.request.hex === state.native.hex;
     expect(now.offer).toBe(before.offer + (leg === 'reverse' ? payback.amount : 0n) - (offerNative ? claimFee : 0n));
-    expect(now.request).toBe(before.request + (leg === 'forward' ? payback.amount : 0n) - (requestNative ? claimFee : 0n));
+    expect(now.request).toBe(
+      before.request + (leg === 'forward' ? payback.amount : 0n) - (requestNative ? claimFee : 0n)
+    );
     const targetNative = leg === 'forward' ? requestNative : offerNative;
     expect(now.native).toBe(before.native + (targetNative ? payback.amount : 0n) - claimFee);
     claimStage = 'public-claim-proof';
