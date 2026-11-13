@@ -16,7 +16,12 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
+      - name: Exact SDK payback contract regression
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs
       - name: Frozen recovery contracts
+        if: always()
         run: |
           test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
           printf 'Verified source %s\n' "$(git rev-parse HEAD^2)"

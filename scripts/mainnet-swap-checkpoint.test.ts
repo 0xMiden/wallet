@@ -146,6 +146,24 @@ describe('durable nightly swap authorization', () => {
     expect(loadMainnetSwapCheckpoint(path)).toEqual(recovered);
     expect(recovered.forwardRequestAuthority).toEqual(state.forwardRequestAuthority);
   });
+  it('retains the exact signed consume fingerprint and canonical payback identity without private bytes', () => {
+    const state = {
+      ...withRequest(),
+      forwardClaimAuthority: {
+        nonce: '22222222-2222-4222-8222-222222222222',
+        noteId: `0x${'d'.repeat(64)}`,
+        amount: '33650',
+        sha256: 'e'.repeat(64),
+        canonicalSha256: 'f'.repeat(64),
+        requestCanonicalSha256: '9'.repeat(64),
+        expiresAt: Date.parse(checkpoint().pricedAt) + 120_000
+      }
+    };
+    const path = join(dir, 'claim.json');
+    saveMainnetSwapCheckpoint(path, state);
+    expect(loadMainnetSwapCheckpoint(path)).toEqual(state);
+    expect(readFileSync(path, 'utf8')).not.toContain('requestBytes');
+  });
   it('matches the actual SDK order and exact reviewed request floor, never merely the older budget floor', () => {
     const state = withRequest();
     expect(matchAuthorizedSwap(state, [{ ...row(), orderId: '42' }], 'forward')).toBeUndefined();
