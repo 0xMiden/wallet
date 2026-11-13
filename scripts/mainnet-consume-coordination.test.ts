@@ -3,8 +3,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
+import { isRecord } from '../src/lib/update/guards';
 import {
   armMainnetConsumeAuthorization,
+  blockMainnetConsumeAuthorization,
   releaseMainnetConsumeAuthorization,
   type MainnetConsumeAuthority
 } from '../playwright/e2e/helpers/mainnet-consume-authorization';
@@ -60,7 +62,8 @@ beforeEach(() => {
           get: async () => structuredClone(data),
           set: async (patch: Record<string, unknown>) => {
             Object.assign(data, structuredClone(patch));
-            if ((data[KEY] as { status: string }).status === 'released') events.push('release');
+            const policy = data[KEY];
+            if (isRecord(policy) && policy.status === 'released') events.push('release');
           }
         }
       }
@@ -78,6 +81,31 @@ it('arms one actual account/note/canonical-byte scope with a fresh nonce and no 
   expect(armed).toEqual({ ...scope, nonce: expect.stringMatching(/^[0-9a-f-]{36}$/) });
   expect(data[KEY]).toEqual({ ...armed, status: 'armed' });
   expect(data[`${KEY}_required`]).toEqual({ accountId: armed.accountId, nonce: armed.nonce });
+});
+it('blocks all SDK claims without creating a spend authority, and can reinstate the same denial', async () => {
+  await blockMainnetConsumeAuthorization(page);
+  expect(data).toEqual({ [`${KEY}_required`]: { status: 'blocked' } });
+  await blockMainnetConsumeAuthorization(page);
+  expect(data).toEqual({ [`${KEY}_required`]: { status: 'blocked' } });
+});
+it('never overwrites an issued policy or its surviving marker merely to install a denial', async () => {
+  data[KEY] = waitingPolicy();
+  await expect(blockMainnetConsumeAuthorization(page)).rejects.toThrow(/unresolved|existing/i);
+  expect(data[KEY]).toEqual(waitingPolicy());
+  delete data[KEY];
+  data[`${KEY}_required`] = { accountId: handle.accountId, nonce: handle.nonce };
+  await expect(blockMainnetConsumeAuthorization(page)).rejects.toThrow(/unresolved|existing/i);
+  expect(data[`${KEY}_required`]).toEqual({ accountId: handle.accountId, nonce: handle.nonce });
+});
+it('atomically replaces only an explicit denial marker with the first exact claim authority', async () => {
+  data[`${KEY}_required`] = { status: 'blocked' };
+  const armed = await armMainnetConsumeAuthorization(page, scope);
+  expect(data[KEY]).toEqual({ ...armed, status: 'armed' });
+  expect(data[`${KEY}_required`]).toEqual({ accountId: armed.accountId, nonce: armed.nonce });
+});
+it('never treats a prior real marker disguised with blocked status as a fresh denial', async () => {
+  data[`${KEY}_required`] = { status: 'blocked', accountId: handle.accountId, nonce: handle.nonce };
+  await expect(armMainnetConsumeAuthorization(page, scope)).rejects.toThrow(/unresolved|existing|authorization/i);
 });
 it('never renews original claim authority when only its policy disappeared', async () => {
   data[`${KEY}_required`] = { accountId: handle.accountId, nonce: handle.nonce };
