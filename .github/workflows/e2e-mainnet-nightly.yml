@@ -26,6 +26,10 @@ on:
         description: Explicit first recovery-return grant for verified proceeds only; requires swaps_only and runs no fresh loops.
         type: boolean
         default: false
+      loss_budget_usd_micros:
+        description: Remaining allowance for fresh loops after prior recovery costs, in micro-USD (maximum 2000000).
+        type: string
+        default: '2000000'
 
 permissions:
   contents: read
@@ -48,6 +52,7 @@ jobs:
     env:
       E2E_NETWORK: mainnet
       MAINNET_SWAP_RECOVERY_RETURN_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_swap_recovery_return && 'true' || 'false' }}
+      MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: ${{ github.event_name == 'schedule' && '2000000' || inputs.loss_budget_usd_micros }}
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
       E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
@@ -61,6 +66,10 @@ jobs:
           LOOPS_ONLY: ${{ inputs.loops_only }}
         run: |
           [ "$GITHUB_RUN_ATTEMPT" = 1 ]
+          budget="${MAINNET_LOOP_LOSS_BUDGET_USD_MICROS-2000000}"
+          if ! [[ "$budget" =~ ^[1-9][0-9]{0,6}$ ]] || [ "$budget" -gt 2000000 ]; then
+            echo 'Invalid remaining loss/fee allowance; no wallet restoration authorized.' >&2; exit 1
+          fi
           if [ "$SWAPS_ONLY" = true ] && [ "$LOOPS_ONLY" = true ]; then
             echo 'Choose swaps_only or loops_only, not both.' >&2; exit 1
           fi
