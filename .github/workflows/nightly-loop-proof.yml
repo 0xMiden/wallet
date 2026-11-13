@@ -52,7 +52,7 @@ jobs:
           const path = 'test-results/read-only-existing-payout-ready.json';
           if (!existsSync(path)) { console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.'); process.exit(1); }
           const value = JSON.parse(readFileSync(path, 'utf8'));
-          const allowed = ['purpose','inspected','balances','payback','publicProofError','creationRows','consumeRows','noLivePolicy','consumeBlocked','errorStage','errorKind','aggregateNativeCosts','claimNativeBefore','claimUIReady','unresolvedRows','claimReadinessStage','claimExportReady','exportErrorKind'];
+          const allowed = ['purpose','inspected','balances','payback','publicProofError','creationRows','consumeRows','noLivePolicy','consumeBlocked','errorStage','errorKind','aggregateNativeCosts','claimNativeBefore','claimUIReady','unresolvedRows','claimReadinessStage','claimExportReady','exportErrorKind','exportErrorText'];
           if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
           console.log(JSON.stringify(value));
           NODE

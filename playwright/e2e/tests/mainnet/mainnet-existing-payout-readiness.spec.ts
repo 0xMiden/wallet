@@ -46,6 +46,7 @@ test('read-only replacement claim boundary; never arm or consume', async ({ wall
         report.claimExportReady=true;
       } catch(error) {
         const message=error instanceof Error?error.message:'';
+        report.exportErrorText=message.replace(/[A-Za-z0-9+/_=-]{24,}/g,'[redacted]').replace(/\b\d{9,}\b/g,'[redacted]').slice(0,200);
         report.exportErrorKind=/not found|not exist|missing note/i.test(message)?'note-not-found':/proof|commitment|not committed/i.test(message)?'inclusion-proof':/unsupported|format/i.test(message)?'unsupported-format':/lock|deadlock/i.test(message)?'client-lock':/network|fetch|rpc|transport/i.test(message)?'rpc':'unclassified';
       }
       report.claimReadinessStage='pending-accept';
