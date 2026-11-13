@@ -311,8 +311,8 @@ test.describe('API36 managed presentation gestures', () => {
           await adb('shell', 'dumpsys', 'activity', 'top')
         );
         await writeFile(
-          testInfo.outputPath(`${name}-window-windows.txt`),
-          await adb('shell', 'dumpsys', 'window', 'windows')
+          testInfo.outputPath(`${name}-window-all.txt`),
+          await adb('shell', 'dumpsys', 'window', '-a')
         );
         await writeFile(testInfo.outputPath(`${name}-package.txt`), await adb('shell', 'dumpsys', 'package', PACKAGE));
         nativeEvents.length = 0;
