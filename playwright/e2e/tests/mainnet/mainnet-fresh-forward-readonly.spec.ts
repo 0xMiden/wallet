@@ -1,0 +1,68 @@
+import { writeFileSync } from 'node:fs';
+import { Address, NoteFile } from '@miden-sdk/miden-sdk';
+import { expect, test } from '../../fixtures/two-wallets';
+import { vaultBalanceByFaucetId } from '../../helpers/balance-truth';
+import { readTransactionRows } from '../../helpers/history';
+import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
+import { loadMainnetSwapCheckpoint, mainnetSwapRequestExpiresAt } from '../../helpers/mainnet-swap-checkpoint';
+import { readMainnetSwapPayback, prepareMainnetSwapClaimRecovery } from '../../helpers/mainnet-swap-claim';
+import { exportPublicInputNote } from '../../helpers/swap';
+
+test.use({ injectFeeFaucet: false });
+test.describe.configure({ mode: 'serial', retries: 0 });
+test('inspect failed fresh forward without arming or spending', async ({ walletB }) => {
+  test.setTimeout(240000);
+  const state=loadMainnetSwapCheckpoint('test-results/original-authority/roundtrip.json');
+  if(!state||state.sourceRunId!=='43511695178'||state.phase!=='forward-authorized'||!state.forwardRequestAuthority||state.forwardClaimAuthority) throw new Error('Wrong retained fresh forward');
+  const authority=state.forwardRequestAuthority;
+  const report:Record<string,unknown>={purpose:'on-chain read-only failed fresh forward diagnostics; no policy, signature or execution',inspected:false};
+  let stage='restore';
+  try {
+    await restoreMainnetLoopGuardian(walletB,process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR??'');
+    expect(await walletB.getAccountAddress()).toBe(state.account);
+    await walletB.refreshBalancesLanded(90000);
+    stage='balances';
+    const native=await vaultBalanceByFaucetId(walletB.page,state.native.faucetId);
+    const requested=await vaultBalanceByFaucetId(walletB.page,state.request.faucetId);
+    report.balances={native:native.toString(),requested:requested.toString()};
+    report.aggregateNativeDebit=(BigInt(state.native.balance)-BigInt(state.principal)-native).toString();
+    report.lossBudgetUsdMicros=state.lossBudgetUsdMicros;
+    report.frozenReturnDeadline=mainnetSwapRequestExpiresAt(state,'reverse');
+    report.returnWindowLive=Date.now()<mainnetSwapRequestExpiresAt(state,'reverse');
+    stage='public-payback';
+    const proof=await readMainnetSwapPayback('https://rpc.mainnet.miden.io',{kind:'swap',accountId:Address.fromBech32(state.account).accountId().toString(),faucetId:state.offer.hex,amount:state.principal,requestedFaucetId:state.request.hex,requestedAmount:authority.minimumReceive,noteId:authority.noteId,orderId:authority.orderId});
+    report.payback=proof?{...proof,amount:proof.amount.toString()}:null;
+    report.unclaimed=proof!==undefined&&proof.claimedAtBlock===undefined;
+    if(!proof||proof.claimedAtBlock!==undefined) throw new Error('Exact payout is not unclaimed');
+    report.preparedLegCreationDebits=prepareMainnetSwapClaimRecovery(state,proof,{offer:native,native,request:requested},'forward').toString();
+    expect(report.preparedLegCreationDebits).toBe('133');
+    stage='export';
+    const file=NoteFile.deserialize(Buffer.from(await exportPublicInputNote(walletB,proof.noteId),'hex'));
+    expect(file.noteId()?.toString()).toBe(proof.noteId);expect(file.inclusionProof()).toBeDefined();
+    report.inputFileReady=true;
+    stage='pending-control';
+    await walletB.triggerSync(true);
+    await walletB.navigateTo('/history?filter=pending&view=list');
+    const accept=walletB.page.locator(`[data-pending-note-id="${proof.noteId}"]`).getByRole('button',{name:/^Accept Transfer$/});
+    await expect(accept).toBeVisible({timeout:60000});
+    await expect(accept).toBeEnabled({timeout:60000});
+    report.acceptVisible=true;
+    report.acceptEnabled=true;
+    stage='history';
+    const rows=await readTransactionRows(walletB.page);
+    report.unresolvedRows=rows.some(row=>row.status===0||row.status===1||row.status===4);
+    const parents=rows.filter(row=>row.type==='swap'&&String(row.extraInputs?.orderId)===authority.orderId);
+    report.creationRows=parents.map(row=>({id:row.id,status:row.status,amount:row.amount,faucetId:row.faucetId,feeAmount:row.feeAmount,feeFaucetId:row.feeFaucetId,minimumReceive:String(row.extraInputs?.requestedAmount),requestedFaucetId:row.extraInputs?.requestedFaucetId,autoConsume:row.extraInputs?.autoConsume}));
+    report.consumeRows=rows.filter(row=>row.type==='consume'&&(parents.some(parent=>row.extraInputs?.swapOrderTxId===parent.id)||row.noteIds?.includes(proof.noteId))).map(row=>({id:row.id,status:row.status,amount:row.amount,feeAmount:row.feeAmount}));
+    const keys=['e2e_mainnet_send_authorization','e2e_mainnet_consume_authorization'];
+    const stored=await walletB.page.evaluate(async names=>chrome.storage.local.get(names),[...keys,'e2e_mainnet_consume_authorization_required']);
+    report.noLivePolicy=keys.every(key=>stored[key]===undefined);
+    const marker=stored.e2e_mainnet_consume_authorization_required;
+    report.consumeBlocked=marker&&typeof marker==='object'&&Object.keys(marker).length===1&&marker.status==='blocked';
+    expect(report.noLivePolicy).toBe(true);expect(report.consumeBlocked).toBe(true);expect(report.unresolvedRows).toBe(false);
+    report.inspected=true;
+  } catch(error) {report.errorStage=stage;report.errorKind=error instanceof Error?error.name:'unknown';report.errorText=(error instanceof Error?error.message:'').replace(/[A-Za-z0-9+/_=-]{24,}/g,'[redacted]').slice(0,200);}
+  finally {writeFileSync('test-results/read-only-fresh-forward.json',JSON.stringify(report,null,2));}
+  expect(report.inspected).toBe(true);
+  expect(report.unclaimed).toBe(true);
+});
