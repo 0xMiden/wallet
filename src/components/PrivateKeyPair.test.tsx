@@ -66,6 +66,24 @@ it('draws bars and neither the QR, the keys nor the view switch while masked', (
   expect(screen.getByLabelText('evmPrivateKey')).toHaveValue(evm);
 });
 
+it('draws the QR again each time the mask lifts', () => {
+  const payload = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+  mockQrOptions.mockClear();
+  const view = render(<PrivateKeyPair payload={payload} masked />);
+  const qrCanvases = () => view.container.querySelectorAll('[role="img"] canvas');
+  expect(view.container.querySelectorAll('canvas')).toHaveLength(0);
+  expect(mockQrOptions).not.toHaveBeenCalled();
+  view.rerender(<PrivateKeyPair payload={payload} masked={false} />);
+  expect(qrCanvases()).toHaveLength(1);
+  expect(mockQrOptions).toHaveBeenLastCalledWith(expect.objectContaining({ data: payload }));
+  view.rerender(<PrivateKeyPair payload={payload} masked />);
+  expect(view.container.querySelectorAll('canvas')).toHaveLength(0);
+  mockQrOptions.mockClear();
+  view.rerender(<PrivateKeyPair payload={payload} masked={false} />);
+  expect(qrCanvases()).toHaveLength(1);
+  expect(mockQrOptions).toHaveBeenLastCalledWith(expect.objectContaining({ data: payload }));
+});
+
 jest.mock('lib/telemetry/user-visible-error', () => ({
   ...jest.requireActual('lib/telemetry/user-visible-error'),
   reportUserVisibleError: jest.fn()
