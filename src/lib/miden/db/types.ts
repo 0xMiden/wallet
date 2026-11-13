@@ -267,9 +267,27 @@ export interface IApprovedCustomEffects extends ICustomTransactionEffects {
    * The assets of the notes that the request introduced at approval. The spending-limit charge subtracts only this
    * value. The wallet cannot calculate it again at generation, because the approval dry run imported those notes.
    */
-  introducedCredit: IConsumedAssetTotal[];
+  introducedCredit?: IConsumedAssetTotal[];
   /** How many of the consumed notes the request introduced at approval. */
-  introducedCount: number;
+  introducedCount?: number;
+  /**
+   * The consumed notes that the request itself brought in, by the approval dry run's provenance check. Signing credits
+   * only these; every other consumed note is value the account already held and spends. Absent means none.
+   */
+  introducedNoteIds?: string[];
+  /** The notes that the approval dry run created for the user (not the fee note). Absent means none may carry assets. */
+  approvedOutputNoteIds?: string[];
+}
+
+/**
+ * What an `execute` approval lets signing move, measured from the account's holdings (`executeApprovalOf`). The first
+ * two go on the row's fields of the same name, the note ids on its `approvedEffects`.
+ */
+export interface IExecuteApproval {
+  approvedOutflow: IConsumedAssetTotal[];
+  approvedNftOutflow: string[];
+  introducedNoteIds: string[];
+  approvedOutputNoteIds: string[];
 }
 
 /** One note a consume claimed, as it was queued. */

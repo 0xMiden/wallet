@@ -3,8 +3,8 @@ import fc from 'fast-check';
 import { summaryToView } from 'app/confirm/decode';
 import { getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 
-import { proposalEffectRefusal } from './proposal-effect-guard';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { executeApprovalOf, proposalEffectRefusal } from './proposal-effect-guard';
+import { IApprovedCustomEffects, ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ TransactionSummary: { deserialize: jest.fn() } }));
 // Same doubles as proposal-effect-guard.test.ts: the decoder spells a faucet `bech32:x`, `hex:` is the other spelling.
@@ -34,7 +34,9 @@ const FAUCETS = [NATIVE, 'fA', 'fB'] as const;
 const FEE_TAG = 0xfee;
 
 type Fungible = { faucet: string; amount: bigint };
-type Note = { fungible: Fungible[]; nfts: string[]; tag: number };
+type Note = { id: string; fungible: Fungible[]; nfts: string[]; tag: number };
+/** A consumed note: `held` when the account already held it, else the request brought it in. */
+type InputNote = Note & { held: boolean };
 
 /**
  * One transaction that respects asset conservation: what the consumed notes bring and what the vault gives up is
@@ -42,7 +44,7 @@ type Note = { fungible: Fungible[]; nfts: string[]; tag: number };
  * that also wears the fee tag on one native asset.
  */
 interface World {
-  inputs: Note[];
+  inputs: InputNote[];
   outputs: Note[];
   feeTagged?: bigint;
   ownedNfts: string[];
@@ -56,7 +58,7 @@ const tag = fc.oneof(fc.constant(FEE_TAG), fc.integer({ min: 0, max: 0xffff }));
 
 const world: fc.Arbitrary<World> = fc
   .record({
-    inputs: fc.array(fc.record({ fungible: fungibles, nft: fc.boolean(), tag }), { maxLength: 3 }),
+    inputs: fc.array(fc.record({ fungible: fungibles, nft: fc.boolean(), tag, held: fc.boolean() }), { maxLength: 3 }),
     ownedNfts: fc.constantFrom<string[]>([], ['own-1'], ['own-1', 'own-2']),
     outputs: fc.array(fc.record({ fungible: fungibles, nftPick: fc.nat(), sendsNft: fc.boolean(), tag }), {
       maxLength: 3
@@ -70,16 +72,18 @@ const world: fc.Arbitrary<World> = fc
     unlisted: fc.oneof({ weight: 9, arbitrary: fc.constant(0) }, { weight: 1, arbitrary: fc.constant(1) })
   })
   .map(raw => {
-    const inputs: Note[] = raw.inputs.map((n, i) => ({
+    const inputs: InputNote[] = raw.inputs.map((n, i) => ({
+      id: `in-${i}`,
       fungible: n.fungible,
       nfts: n.nft ? [`in-${i}`] : [],
-      tag: n.tag
+      tag: n.tag,
+      held: n.held
     }));
     // Every NFT leaves at most once, from the vault or from a consumed note.
     const pool = [...raw.ownedNfts, ...inputs.flatMap(n => n.nfts)];
-    const outputs: Note[] = raw.outputs.map(n => {
+    const outputs: Note[] = raw.outputs.map((n, i) => {
       const nfts = n.sendsNft && pool.length > 0 ? pool.splice(n.nftPick % pool.length, 1) : [];
-      return { fungible: n.fungible, nfts, tag: n.tag };
+      return { id: `out-${i}`, fungible: n.fungible, nfts, tag: n.tag };
     });
     return {
       inputs,
@@ -98,9 +102,12 @@ const sum = (notes: Note[], faucet: string) =>
 const created = (w: World): Note[] =>
   w.feeTagged === undefined
     ? w.outputs
-    : [...w.outputs, { fungible: [{ faucet: NATIVE, amount: w.feeTagged }], nfts: [], tag: FEE_TAG }];
+    : [
+        ...w.outputs,
+        { id: 'out-fee-tagged', fungible: [{ faucet: NATIVE, amount: w.feeTagged }], nfts: [], tag: FEE_TAG }
+      ];
 
-/** What actually goes to other parties, beyond the network fee: the oracle every verdict is held to. */
+/** What actually goes to other parties, beyond the network fee: the oracle every claim verdict is held to. */
 const leaving = (w: World) => ({
   byFaucet: new Map(FAUCETS.map(f => [f, sum(created(w), f) - sum(w.inputs, f)] as const)),
   nfts: created(w)
@@ -108,11 +115,24 @@ const leaving = (w: World) => ({
     .filter(k => w.ownedNfts.includes(k))
 });
 
+/**
+ * What leaves the account's holdings, beyond the network fee: a consumed note it already held is value it spends, and
+ * only a note the request brought in is credited. The oracle every execute verdict is held to.
+ */
+const leavingHoldings = (w: World) => {
+  const brought = w.inputs.filter(n => !n.held);
+  const broughtNfts = new Set(brought.flatMap(n => n.nfts));
+  return {
+    byFaucet: new Map(FAUCETS.map(f => [f, sum(created(w), f) - sum(brought, f)] as const)),
+    nfts: created(w)
+      .flatMap(n => n.nfts)
+      .filter(k => !broughtNfts.has(k))
+  };
+};
+
 const asset = (a: Fungible) => ({ faucetId: () => ({ __faucet: a.faucet }), amount: () => a.amount });
-let stubNoteCount = 0;
-const stubNoteId = () => ({ toString: () => `stub-note-${++stubNoteCount}` });
 const stubNote = (n: Note) => ({
-  id: stubNoteId,
+  id: () => ({ toString: () => n.id }),
   assets: () => ({
     fungibleAssets: () => n.fungible.map(asset),
     nonFungibleAssets: () => n.nfts.map(k => ({ __nft: { faucetId: 'bech32:fN', assetId: k }, __key: k }))
@@ -124,7 +144,9 @@ const stubNote = (n: Note) => ({
 const summaryOf = (w: World) => {
   const feeAmount = w.fee.mode === 'free' ? 0n : w.fee.amount;
   const kernelFee: Note[] =
-    w.fee.mode === 'free' ? [] : [{ fungible: [{ faucet: NATIVE, amount: feeAmount }], nfts: [], tag: FEE_TAG }];
+    w.fee.mode === 'free'
+      ? []
+      : [{ id: 'kernel-fee', fungible: [{ faucet: NATIVE, amount: feeAmount }], nfts: [], tag: FEE_TAG }];
   const added: Fungible[] = [];
   const removed: Fungible[] = [];
   for (const faucet of FAUCETS) {
@@ -147,18 +169,36 @@ const summaryOf = (w: World) => {
     }),
     inputNotes: () => ({
       numNotes: () => w.inputs.length,
-      notes: () => w.inputs.map(n => ({ id: stubNoteId, note: () => stubNote(n) }))
+      notes: () => w.inputs.map(n => ({ id: () => ({ toString: () => n.id }), note: () => stubNote(n) }))
     }),
     outputNotes: () => ({ numNotes: () => outputs.length, notes: () => outputs })
   };
 };
 
-const verdict = (w: World, transaction: ITransaction) => {
+const viewOf = (w: World) => {
   jest
     .mocked(getVerificationBaseFeeSync)
     .mockReturnValue(w.fee.mode === 'unknown' ? null : w.fee.mode === 'free' ? 0 : 2);
-  return proposalEffectRefusal(transaction, summaryToView(summaryOf(w) as never));
+  return summaryToView(summaryOf(w) as never);
 };
+const verdict = (w: World, transaction: ITransaction) => proposalEffectRefusal(transaction, viewOf(w));
+
+/** The effects an approval recorded: only the note ids matter to the signing check. */
+const approvedEffects = (
+  ids: Pick<IApprovedCustomEffects, 'introducedNoteIds' | 'approvedOutputNoteIds'>
+): IApprovedCustomEffects => ({
+  shape: 'summary',
+  outgoing: [],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  recipients: [],
+  inputNotesConsumed: 0,
+  outputNotesCreated: 0,
+  storageChanged: false,
+  ...ids
+});
 
 const row = (fields: Partial<ITransaction>): ITransaction => ({
   id: 'tx',
@@ -227,9 +267,9 @@ describe('proposal effect guard: properties over conservation-respecting transac
     );
   });
 
-  it('an execute it passes moves no more of any faucet, and no NFT, beyond what was approved', () => {
+  it('an execute it passes moves no more of any faucet, NFT or created note than was approved', () => {
     const scenario = world.chain(w => {
-      const truth = leaving(w);
+      const truth = leavingHoldings(w);
       // Allowances near the truth, so passes and refusals both occur.
       const nearTruth = fc.tuple(
         ...FAUCETS.map(f =>
@@ -242,15 +282,25 @@ describe('proposal effect guard: properties over conservation-respecting transac
         w: fc.constant(w),
         totals: nearTruth.chain(pairs => spelledAllowance(new Map(pairs.filter(([, v]) => v > 0n)))),
         nfts: fc.subarray([...truth.nfts, 'own-1', 'own-2']),
+        // A record can name fewer brought-in notes than there were, never a held one.
+        introducedNoteIds: fc.subarray(w.inputs.filter(n => !n.held).map(n => n.id)),
+        outputNoteIds: fc.subarray([...created(w).map(n => n.id), 'kernel-fee']).map(ids => [...ids, 'unrelated']),
         viaFallback: fc.boolean()
       });
     });
     fc.assert(
-      fc.property(scenario, ({ w, totals, nfts, viaFallback }) => {
+      fc.property(scenario, ({ w, totals, nfts, introducedNoteIds, outputNoteIds, viaFallback }) => {
+        // The fallback arm is a row queued before approvals recorded any note.
         const transaction = row({
           type: 'execute',
           requestBytes: new Uint8Array([1]),
-          ...(viaFallback ? { spentAssetTotals: totals } : { approvedOutflow: totals, approvedNftOutflow: nfts })
+          ...(viaFallback
+            ? { spentAssetTotals: totals }
+            : {
+                approvedOutflow: totals,
+                approvedNftOutflow: nfts,
+                approvedEffects: approvedEffects({ introducedNoteIds, approvedOutputNoteIds: outputNoteIds })
+              })
         });
         if (verdict(w, transaction) !== undefined) return;
         const approved = new Map<string, bigint>();
@@ -258,10 +308,42 @@ describe('proposal effect guard: properties over conservation-respecting transac
           const f = t.faucetId.replace(/^hex:bech32:|^bech32:/, '');
           approved.set(f, (approved.get(f) ?? 0n) + t.amount);
         }
-        const out = leaving(w);
+        const out = leavingHoldings(w);
         for (const [faucet, net] of out.byFaucet) expect(net).toBeLessThanOrEqual(approved.get(faucet) ?? 0n);
         for (const key of out.nfts) expect(viaFallback ? [] : nfts).toContain(key);
+        // A recorded row creates only recorded notes; the fallback arm only notes that carry nothing.
+        const unapproved = created(w).filter(note =>
+          viaFallback ? note.fungible.length + note.nfts.length > 0 : !outputNoteIds.includes(note.id)
+        );
+        expect(unapproved).toEqual([]);
       }),
+      RUNS
+    );
+  });
+
+  it('an approval recorded from a transaction passes that transaction (no over-refusal)', () => {
+    fc.assert(
+      fc.property(
+        world.filter(w => w.unlisted === 0),
+        w => {
+          const view = viewOf(w);
+          const approval = executeApprovalOf(
+            view,
+            w.inputs.filter(n => !n.held).map(n => n.id)
+          );
+          const transaction = row({
+            type: 'execute',
+            requestBytes: new Uint8Array([1]),
+            approvedOutflow: approval.approvedOutflow,
+            approvedNftOutflow: approval.approvedNftOutflow,
+            approvedEffects: approvedEffects({
+              introducedNoteIds: approval.introducedNoteIds,
+              approvedOutputNoteIds: approval.approvedOutputNoteIds
+            })
+          });
+          expect(proposalEffectRefusal(transaction, view)).toBeUndefined();
+        }
+      ),
       RUNS
     );
   });

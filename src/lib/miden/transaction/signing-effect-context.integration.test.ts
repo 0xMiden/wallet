@@ -9,9 +9,9 @@ import { Buffer } from 'buffer';
 import { getMessage } from 'lib/i18n/core';
 import * as Repo from 'lib/miden/repo';
 import {
-  getVerificationBaseFee,
   getVerificationBaseFeeSync,
-  isVerificationBaseFeeKnownAbsent
+  isVerificationBaseFeeKnownAbsent,
+  refreshVerificationBaseFee
 } from 'lib/miden-chain/native-asset';
 
 import { completeConsumeTransaction, completeCustomTransaction } from './complete';
@@ -82,7 +82,17 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => 'bech32:usdcx',
   getVerificationBaseFeeSync: jest.fn(() => 0),
   getVerificationBaseFee: jest.fn(async () => 0),
+  // Mocked rather than spread, so no test reads the network.
+  refreshVerificationBaseFee: jest.fn(async () => 0),
   isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
+}));
+// The generation check of an approved custom request is covered by `custom-effects.test.ts`; here it passes.
+jest.mock('lib/miden/sdk/custom-request', () => ({
+  prepareCustomRequestBytes: async (_client: unknown, _account: string, bytes: Uint8Array) => bytes
+}));
+jest.mock('./custom-effects', () => ({
+  ...jest.requireActual('./custom-effects'),
+  verifyPreparedCustomRequest: async () => undefined
 }));
 jest.mock('lib/miden/swap/fee-context', () => ({ readSwapFeeContext: jest.fn(async () => ({})) }));
 jest.mock('../activity/notes', () => ({ importAllNotes: jest.fn(), queueNoteImport: jest.fn() }));
@@ -118,12 +128,14 @@ const PUBLIC_KEY = new Uint8Array([0x0a]);
 
 type Asset = { faucetId: () => string; amount: () => bigint };
 const fa = (faucet: string, amount: bigint): Asset => ({ faucetId: () => faucet, amount: () => amount });
-let stubNoteCount = 0;
-const stubNoteId = () => ({ toString: () => `stub-note-${++stubNoteCount}` });
-const note = (assets: Asset[]) => ({
-  id: stubNoteId,
-  assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
-});
+// A note's id stands for its contents, as a real note's id does.
+const note = (assets: Asset[]) => {
+  const id = assets.map(asset => `${asset.faucetId()}-${asset.amount()}`).join('+');
+  return {
+    id: () => ({ toString: () => `note:${id}` }),
+    assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
+  };
+};
 /** The summary of `account`'s transaction: `removed` leaves its vault, `added` comes in through one input note. */
 const summary = (account: string, { removed, added = [] }: { removed: Asset[]; added?: Asset[] }) => {
   const vault = () => ({
@@ -136,7 +148,7 @@ const summary = (account: string, { removed, added = [] }: { removed: Asset[]; a
     accountDelta: () => ({ id: () => account, vault, storage: () => ({ isEmpty: () => true }) }),
     inputNotes: () => ({
       numNotes: () => inputs.length,
-      notes: () => inputs.map(input => ({ id: stubNoteId, note: () => input }))
+      notes: () => inputs.map(input => ({ id: input.id, note: () => input }))
     }),
     outputNotes: () => ({ numNotes: () => removed.length, notes: () => removed.map(asset => note([asset])) })
   };
@@ -177,11 +189,26 @@ const queued = (fields: Partial<ITransaction>): ITransaction => ({
   displayIcon: 'DEFAULT',
   ...fields
 });
+// Approved to send 100 fA in one note.
 const executeRow = queued({
   id: 'execute',
   type: 'execute',
   requestBytes: new Uint8Array([1]),
-  approvedOutflow: [{ faucetId: 'bech32:fA', amount: 100n }]
+  approvedOutflow: [{ faucetId: 'bech32:fA', amount: 100n }],
+  approvedEffects: {
+    shape: 'summary',
+    outgoing: [{ faucetId: 'bech32:fA', amount: 100n }],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    recipients: [],
+    inputNotesConsumed: 0,
+    outputNotesCreated: 1,
+    storageChanged: false,
+    introducedNoteIds: [],
+    approvedOutputNoteIds: ['note:bech32:fa-100']
+  }
 });
 const claimRow: ConsumeTransaction = {
   ...queued({ id: 'claim', type: 'consume' }),
@@ -200,7 +227,7 @@ const runRow = async (row: ITransaction): Promise<ITransaction> => {
 
 beforeEach(async () => {
   jest.clearAllMocks();
-  jest.mocked(getVerificationBaseFee).mockImplementation(async () => 0);
+  jest.mocked(refreshVerificationBaseFee).mockImplementation(async () => 0);
   jest.mocked(getVerificationBaseFeeSync).mockReturnValue(0);
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockImplementation(() => false);
   mockClient.methods = {
@@ -222,7 +249,8 @@ describe('the loop on a single-key account', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.proposalEffectRefused).toBe(true);
     expect(row.rawError).toBe(
-      'ProposalEffectRefusedError: Refused to sign this execute transaction: 500 of bech32:fA leaves (approved 100)'
+      'ProposalEffectRefusedError: Refused to sign this execute transaction: 500 of bech32:fA leaves (approved 100); ' +
+        'creates a note that was not approved (note:bech32:fa-500)'
     );
     expect(isRequeueableTransaction(row)).toBe(false);
     expect(loopSigner).not.toHaveBeenCalled();
@@ -257,7 +285,7 @@ describe('the loop on a single-key account', () => {
   });
 
   it('requeues a claim while the chain fee is unknown, and fails a dApp transaction at once, as the Guardian leaf does', async () => {
-    jest.mocked(getVerificationBaseFee).mockImplementation(async () => null);
+    jest.mocked(refreshVerificationBaseFee).mockImplementation(async () => null);
     givenSigning({
       aa: summaryInputs(summary('acct-a', { removed: [fa('bech32:fA', 100n)] })),
       bb: summaryInputs(summary('acct-a', { removed: [], added: [fa('bech32:fB', 50n)] }))
@@ -285,7 +313,7 @@ describe('the loop on a single-key account', () => {
   it('does not requeue a claim for an unknown chain fee when the write is killed after the sign recorded it', async () => {
     // Known before the write, so the claim enters the client. Unknown on the sign's cache read, and on a second lookup.
     let feeLookups = 0;
-    jest.mocked(getVerificationBaseFee).mockImplementation(async () => {
+    jest.mocked(refreshVerificationBaseFee).mockImplementation(async () => {
       feeLookups += 1;
       return feeLookups === 1 ? 0 : null;
     });
