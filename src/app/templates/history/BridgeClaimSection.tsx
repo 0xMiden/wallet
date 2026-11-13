@@ -43,7 +43,7 @@ import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
 import { ExternalLinkValue } from './TransactionStatus';
 import { bridgeBadgeStatusOf, BridgeStatus } from './transactionUtils';
-import { EpochReturnState } from './useEpochReturnState';
+import { epochReturnNote, EpochReturnState } from './useEpochReturnState';
 
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
@@ -137,6 +137,10 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
   // An unconfirmed failed row may still have landed; its exit hash binds the lookup to its own deposit.
   const mayStillClaim = !transactionFailed || (entry.isUnconfirmed === true && !!exitTxHash);
 
+  const reclaimNote = epochReturnNote(entry, restoredFromBackup);
+  const reclaimHeight = reclaimNote?.height;
+  const reclaimNoteId = reclaimNote?.noteId;
+
   // A failed Epoch (Fast) bridge-out offers "Reclaim funds" once the reclaim height
   // passes, and only while its note may exist: the allocator rejected the intent after
   // the note committed, or the outcome is unknown. A definite failure never sent its
@@ -144,13 +148,6 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
   // a committed one only when the pipeline claimed its submit, so an unconfirmed or
   // route-failed row demoted before its claim offers nothing. A Completed row whose
   // fill failed is reclaimable too: its note committed and stayed Completed.
-  const noteMayExist = entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed';
-  const reclaimHeight = entry.bridgeReclaimHeight;
-  const reclaimNoteId =
-    entry.outputNoteIds?.[0] ??
-    (entry.bridgeSubmitClaimed === true && (entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed')
-      ? entry.bridgeReclaimNoteId
-      : undefined);
   // On the extension the page submits the intent, not the realm running the note pipeline, so a page closed after the
   // note committed leaves a Completed row whose intent never went out (a recorded intent always sets its status).
   const intentNeverRecorded =
@@ -164,22 +161,21 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
   // `transactionFailed` is exactly the state import forces every unfinished
   // restored row into, so without the flag check a dump naming any note id gets
   // a "Reclaim funds" button that queues a real consume through the signer.
-  const canShowReclaim =
-    isEpoch &&
-    !restoredFromBackup &&
-    reclaimHeight != null &&
-    !!reclaimNoteId &&
-    ((transactionFailed && noteMayExist) || intentNeverRecorded || fillFailed);
+  const canShowReclaim = !!reclaimNote && (transactionFailed || intentNeverRecorded || fillFailed);
   const reclaimReached =
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
   useUserVisibleError(
     isAgglayer && mayStillClaim && status !== 'claimed' && exitTxHash && error ? errorId : null,
     'inline'
   );
-  useUserVisibleError(
-    canShowReclaim && (reclaimReached || transactionFailed || fillFailed) && reclaimError ? reclaimErrorId : null,
-    'inline'
-  );
+  // Node evidence decides the reclaim block only once it has a status; until then the reclaim height does.
+  const nodeReturnStatus = epochReturn?.status;
+  const showReclaimBlock =
+    canShowReclaim &&
+    (nodeReturnStatus
+      ? nodeReturnStatus === 'readyToClaim' || nodeReturnStatus === 'awaitingReturn'
+      : reclaimReached || transactionFailed || fillFailed);
+  useUserVisibleError(showReclaimBlock && reclaimError ? reclaimErrorId : null, 'inline');
 
   // Poll the bridge indexer for THIS row's own exit deposit. Stateless and
   // indexer-driven, so it surfaces deposits from a previous session too. The
@@ -339,7 +335,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
 
   // Read the current Miden block once, to know whether the reclaim window has opened.
   useEffect(() => {
-    if (!canShowReclaim || epochReturn !== undefined) return;
+    if (!canShowReclaim || nodeReturnStatus) return;
     let cancelled = false;
     getCurrentMidenBlock()
       .then(block => {
@@ -349,7 +345,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [canShowReclaim, epochReturn]);
+  }, [canShowReclaim, nodeReturnStatus]);
 
   const handleReclaim = useCallback(async () => {
     if (!reclaimNoteId) return;
@@ -407,8 +403,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
           {/* Not confirmed only while the panel has no evidence of its own: once the tracker finds a
               deposit, a claim runs, or the Epoch fill poll reports, that state wins instead (#1250).
               A USDCx burn reads its own phase badge. */}
-          {epochReturn?.status ? (
-            <StatusBadge status={epochReturn.status} live />
+          {nodeReturnStatus ? (
+            <StatusBadge status={nodeReturnStatus} live />
           ) : isUsdcx ? (
             <StatusBadge status={bridgeBadgeStatusOf(entry)} live />
           ) : transactionFailed && !entry.isUnconfirmed ? (
@@ -508,43 +504,40 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
           <div className="mt-3 text-xs text-[#1A9C52]">{t('claimAssetSubmitted')}</div>
         ))}
 
-      {epochReturn?.messageKey && (
+      {nodeReturnStatus && epochReturn?.messageKey && (
         <p className="mt-3 text-sm text-muted" role="status">
           {t(epochReturn.messageKey, { block: reclaimHeight })}
         </p>
       )}
-      {canShowReclaim &&
-        (epochReturn
-          ? epochReturn.status === 'readyToClaim' || epochReturn.status === 'awaitingReturn'
-          : reclaimReached || transactionFailed || fillFailed) && (
-          <div className="mt-3 flex flex-col gap-2">
-            {reclaimError && (
-              <p className="text-red-500 text-xs" role="alert">
-                {reclaimError}
+      {showReclaimBlock && (
+        <div className="mt-3 flex flex-col gap-2">
+          {reclaimError && (
+            <p className="text-red-500 text-xs" role="alert">
+              {reclaimError}
+            </p>
+          )}
+          {(nodeReturnStatus ? nodeReturnStatus === 'readyToClaim' : reclaimReached) ? (
+            <>
+              {maxNetworkFee && (
+                // Reclaiming consumes the recallable note -- a real transaction with a
+                // real fee, submitted on this tap with no review step in between.
+                <div className="text-center text-xs text-ink">
+                  {t('networkFeeMax')} · {maxNetworkFee}
+                </div>
+              )}
+              <Button size="sm" onClick={handleReclaim} disabled={reclaiming}>
+                {reclaiming ? t('reclaiming') : t('reclaimFunds')}
+              </Button>
+            </>
+          ) : (
+            !nodeReturnStatus && (
+              <p className="text-xs text-ink/60">
+                {t('reclaimableAfterBlock')} {reclaimHeight}
               </p>
-            )}
-            {(epochReturn ? epochReturn.status === 'readyToClaim' : reclaimReached) ? (
-              <>
-                {maxNetworkFee && (
-                  // Reclaiming consumes the recallable note -- a real transaction with a
-                  // real fee, submitted on this tap with no review step in between.
-                  <div className="text-center text-xs text-ink">
-                    {t('networkFeeMax')} · {maxNetworkFee}
-                  </div>
-                )}
-                <Button size="sm" onClick={handleReclaim} disabled={reclaiming}>
-                  {reclaiming ? t('reclaiming') : t('reclaimFunds')}
-                </Button>
-              </>
-            ) : (
-              !epochReturn && (
-                <p className="text-xs text-ink/60">
-                  {t('reclaimableAfterBlock')} {reclaimHeight}
-                </p>
-              )
-            )}
-          </div>
-        )}
+            )
+          )}
+        </div>
+      )}
     </div>
   );
 };

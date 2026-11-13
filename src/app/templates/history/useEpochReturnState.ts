@@ -13,6 +13,38 @@ export interface EpochReturnState {
   messageKey?: string;
 }
 
+export function epochReturnNote(
+  entry: IHistoryEntry | null | undefined,
+  restored: boolean
+): { noteId: string; height: number } | undefined {
+  if (!entry) return undefined;
+  const isEpoch = entry.bridgeProvider === 'epoch';
+  const noteMayExist = entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed';
+  const intentNeverRecorded =
+    isEpoch &&
+    entry.status === ITransactionStatus.Completed &&
+    !entry.bridgeIntentNonce &&
+    entry.bridgeEpochStatus === undefined;
+  const fillFailed = isEpoch && entry.status === ITransactionStatus.Completed && entry.bridgeEpochStatus === 'failed';
+  const reclaimNoteId =
+    entry.outputNoteIds?.[0] ??
+    (entry.bridgeSubmitClaimed === true && (entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed')
+      ? entry.bridgeReclaimNoteId
+      : undefined);
+
+  if (
+    !isEpoch ||
+    restored ||
+    entry.bridgeReclaimHeight == null ||
+    !reclaimNoteId ||
+    !(noteMayExist || intentNeverRecorded || fillFailed)
+  ) {
+    return undefined;
+  }
+
+  return { noteId: reclaimNoteId, height: entry.bridgeReclaimHeight };
+}
+
 export function epochReturnDisplay(
   note: EpochNoteState | undefined,
   claims: Pick<ITransaction, 'status'>[]
@@ -44,19 +76,9 @@ export function useEpochReturnState(
   accountId: string,
   restored: boolean
 ): EpochReturnState {
-  const candidate =
-    !!accountId &&
-    entry?.txType === 'bridged-send' &&
-    entry.bridgeProvider === 'epoch' &&
-    !restored &&
-    (entry.status === ITransactionStatus.Failed ||
-      entry.isUnconfirmed ||
-      entry.bridgeEpochStatus === 'failed' ||
-      (entry.status === ITransactionStatus.Completed && !entry.bridgeIntentNonce && !entry.bridgeEpochStatus));
-  const noteId = candidate
-    ? (entry.outputNoteIds?.[0] ?? (entry.bridgeSubmitClaimed ? entry.bridgeReclaimNoteId : undefined))
-    : undefined;
-  const height = candidate ? entry.bridgeReclaimHeight : undefined;
+  const candidate = entry?.txType === 'bridged-send' ? epochReturnNote(entry, restored) : undefined;
+  const noteId = accountId ? candidate?.noteId : undefined;
+  const height = candidate?.height;
   const [read, setRead] = useState<{ noteId: string; note: EpochNoteState }>();
   const [claims, setClaims] = useState<{ noteId: string; rows: ITransaction[] }>();
 

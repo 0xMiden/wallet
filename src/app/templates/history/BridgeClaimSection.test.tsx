@@ -1220,6 +1220,23 @@ describe('user-visible bridge action errors', () => {
     await expectErrorAfterDwell('evmChainNotApproved', 'inline');
   });
 
+  it('reports a reclaim error the node-ready state shows before the cached height reaches it', async () => {
+    mockGetCurrentMidenBlock.mockReset().mockResolvedValue(500);
+    mockInitiateConsumeFromId.mockRejectedValueOnce(new Error('private reclaim amount 7'));
+    render(
+      <BridgeClaimSection
+        entry={entry({ status: 2, bridgeEpochStatus: undefined, bridgeIntentNonce: undefined })}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'readyToClaim', messageKey: 'epochReturnReady' }}
+      />
+    );
+    await settle();
+    fireEvent.click(screen.getByText('t:reclaimFunds'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private reclaim amount 7');
+    await expectErrorAfterDwell('raw_bridge_reclaim_failed', 'inline');
+  });
+
   it('reports a live reclaim raw producer as raw_bridge_reclaim_failed', async () => {
     mockInitiateConsumeFromId.mockRejectedValueOnce(new Error('private reclaim amount 42'));
     renderSection({ entry: entry() });
@@ -1329,6 +1346,25 @@ describe('Epoch return details', () => {
       />
     );
     expect(screen.getByRole('button', { name: 't:reclaimFunds' })).toBeEnabled();
+  });
+
+  it('falls back to the reclaim height while the node has not answered', async () => {
+    mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+    render(<BridgeClaimSection entry={entry()} restoredFromBackup={false} epochReturn={{}} />);
+    expect(await screen.findByRole('button', { name: 't:reclaimFunds' })).toBeEnabled();
+  });
+
+  it('keeps the countdown while the node has not answered and the height is ahead', async () => {
+    mockGetCurrentMidenBlock.mockResolvedValueOnce(500);
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ messageKey: 'epochReturnUnavailable' }}
+      />
+    );
+    expect(await screen.findByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
+    expect(screen.queryByText('t:epochReturnUnavailable')).not.toBeInTheDocument();
   });
 
   it('does not offer a claim after funds were returned', () => {
