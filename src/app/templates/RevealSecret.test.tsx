@@ -677,6 +677,26 @@ describe('RevealSecret', () => {
       }
     });
 
+    // Only the private key, whose field had the cover's 30 s window, keeps a timer under the mask.
+    it.each<[Reveal, string, string]>([
+      ['hot-key', `${'ab'.repeat(32)}:${'cd'.repeat(32)}`, '[role="img"]'],
+      ['seed-phrase', 'word1 word2 word3', '#reveal-secret-secret']
+    ])('keeps a shown %s on screen past SECRET_REVEAL_MS', async (reveal, secret, shown) => {
+      jest.useFakeTimers();
+      try {
+        mockSecret = secret;
+        const container = await renderReveal(reveal);
+        await pressShow(container);
+        act(() => {
+          jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+        });
+        expect(container.querySelector(shown)).not.toBeNull();
+        expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'true');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('keeps the field cover for a private key on mobile, where no mask applies', async () => {
       mockIsMobile = true;
       mockSecret = 'PRIVATE_KEY_HEX';
