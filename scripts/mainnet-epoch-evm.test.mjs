@@ -28,7 +28,11 @@ import {
   reconcileEpochEvmReceipts,
   inspectEpochForwardReceipt
 } from '../node_modules/.cache/nightly-epoch-evm.mjs';
-import { epochCheckpointFixture, epochReverseAuthorityFixture } from '../node_modules/.cache/nightly-epoch-fixture.mjs';
+import {
+  epochCheckpointFixture,
+  epochForwardRequestAuthorityFixture,
+  epochReverseAuthorityFixture
+} from '../node_modules/.cache/nightly-epoch-fixture.mjs';
 
 const hash = `0x${'a'.repeat(64)}`;
 function fixture() {
@@ -37,6 +41,8 @@ function fixture() {
     phase: 'reverse-authorized',
     forwardNoteId: hash,
     forwardMidenTxId: hash,
+    forwardAuthority: { minimumOutput: '1000001', bindingHash: hash, reclaimHeight: 7200, mandateReclaimHeight: 2200 },
+    forwardRequestAuthority: epochForwardRequestAuthorityFixture(hash, epochCheckpointFixture().createdAt),
     forwardEvmTxHash: hash,
     forwardReceived: '1001000',
     reverseNonce: '10',
