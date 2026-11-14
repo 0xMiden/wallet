@@ -26,7 +26,8 @@ test('original Epoch readonly balances and route preview; NEVER submit',async({w
  try{
   const key=process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();if(!key)throw new Error('Missing original actor');
   await restoreMainnetLoopGuardian(walletB,key);restored=true;expect(await walletB.getAccountAddress()).toBe(state.account);
-  phase='balances';expect(await vaultBalanceByFaucetId(walletB.page,state.native.faucetId)).toBe(BigInt(state.native.balance));
+  phase='balances';result.nativeInitial=(await vaultBalanceByFaucetId(walletB.page,state.native.faucetId)).toString();
+  const observed:string[]=[];await expect.poll(async()=>{const value=(await vaultBalanceByFaucetId(walletB.page,state.native.faucetId)).toString();if(observed.at(-1)!==value)observed.push(value);result.nativeObserved=observed;return value;},{timeout:30000}).toBe(state.native.balance);
   const h=await holdings();expect(h.gas).toBe(BigInt(state.evm.nativeBalance));expect(h.token).toBe(BigInt(state.evm.tokenBalance));
   const rows=await readTransactionRowsWithBytes(walletB.page,'bridged-send');const ids=rows.map(row=>row.id);
   phase='open-route';const id=evmChainSlug(state.evm.chainId);if(!id)throw new Error('Unknown original chain');

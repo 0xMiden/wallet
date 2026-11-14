@@ -66,7 +66,7 @@ jobs:
           const path='test-results/epoch-route-readonly-result.json';
           if(!existsSync(path))throw new Error('Probe blocked before approved diagnosis; private output remains local');
           const value=JSON.parse(readFileSync(path,'utf8'));
-          const keys=['purpose','sourceRunId','checkpointUnchanged','balancesUnchanged','grantPersisted','sdkAuthorityIssued','quoteAmount','quoteSymbol','minimum','reachedReview','blockedAt','errorClass','sourceLocation','quoteEnabled','quoteLoading','hasToken','hasAmount','quoteErrored','lastPhase'];
+          const keys=['purpose','sourceRunId','checkpointUnchanged','balancesUnchanged','grantPersisted','sdkAuthorityIssued','quoteAmount','quoteSymbol','minimum','reachedReview','blockedAt','errorClass','sourceLocation','quoteEnabled','quoteLoading','hasToken','hasAmount','quoteErrored','lastPhase','nativeInitial','nativeObserved'];
           if(Object.keys(value).some(key=>!keys.includes(key))||value.grantPersisted!==false||value.sdkAuthorityIssued!==false)throw new Error('Unexpected public diagnostic');
           console.log(JSON.stringify(value));
           NODE
