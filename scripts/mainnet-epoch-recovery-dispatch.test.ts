@@ -15,6 +15,7 @@ const restore = jest.fn();
 const summary = jest.fn();
 const save = jest.fn();
 const fundedForward = jest.fn();
+const verifiedUnspent = jest.fn();
 const head = jest.fn();
 const account = jest.fn();
 const wallet = { getAccountAddress: account };
@@ -39,6 +40,7 @@ const keys = [
   'E2E_MAINNET_GUARDIAN_KEY_PAIR',
   'E2E_MAINNET_EVM_KEY',
   'MAINNET_EPOCH_FORWARD_ATTEMPTED',
+  'MAINNET_EPOCH_PREAUTH_UNSPENT',
   'MAINNET_LOOP_RECOVERY_CLEARED'
 ];
 const modules = [
@@ -68,6 +70,7 @@ beforeEach(() => {
   });
   delete process.env.E2E_MAINNET_EVM_KEY;
   delete process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED;
+  delete process.env.MAINNET_EPOCH_PREAUTH_UNSPENT;
   delete process.env.MAINNET_LOOP_RECOVERY_CLEARED;
   previous = {
     ...epochCheckpointFixture(),
@@ -83,6 +86,7 @@ beforeEach(() => {
   refund.mockResolvedValue(undefined);
   returned.mockResolvedValue(undefined);
   restore.mockResolvedValue(undefined);
+  verifiedUnspent.mockResolvedValue(undefined);
   jest.doMock(modules[0]!, () => ({ test }));
   jest.doMock(modules[1]!, () => ({ loadMainnetEpochCheckpoint: () => previous, saveMainnetEpochCheckpoint: save }));
   jest.doMock(modules[2]!, () => ({
@@ -90,6 +94,7 @@ beforeEach(() => {
     recoverEpochReturn: returned,
     recoverEpochForward: forward,
     runEpochForward: fundedForward,
+    verifyUnstartedEpochForward: verifiedUnspent,
     runEpochReverse: reverse
   }));
   jest.doMock(modules[3]!, () => ({
@@ -169,6 +174,33 @@ it('closes only an authoritative never-attempted Epoch preflight without restori
   await run();
   expect(save).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ ...original, phase: 'unspent' }));
   expect(restore).not.toHaveBeenCalled();
+  expect(reverse).not.toHaveBeenCalled();
+  expect(refund).not.toHaveBeenCalled();
+});
+it('closes the exact certified failed pre-authorization only after live unspent verification', async () => {
+  previous = { ...epochCheckpointFixture(), sourceRunId: '43619310746', authorizationRunId: '43619310746' };
+  process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED = 'true';
+  process.env.MAINNET_EPOCH_PREAUTH_UNSPENT = 'true';
+  const original = JSON.stringify(previous);
+  await run();
+  expect(restore).toHaveBeenCalledWith(wallet, 'existing-fixture-key');
+  expect(verifiedUnspent).toHaveBeenCalledWith(wallet, expect.objectContaining({ sourceRunId: '43619310746' }));
+  expect(previous).toEqual({ ...JSON.parse(original), phase: 'unspent', updatedAt: expect.any(String) });
+  expect(save).toHaveBeenCalledWith(expect.any(String), previous);
+  expect(fundedForward).not.toHaveBeenCalled();
+  expect(reverse).not.toHaveBeenCalled();
+  expect(refund).not.toHaveBeenCalled();
+});
+it('keeps that certified checkpoint unresolved if original live outcomes differ', async () => {
+  previous = { ...epochCheckpointFixture(), sourceRunId: '43619310746', authorizationRunId: '43619310746' };
+  process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED = 'true';
+  process.env.MAINNET_EPOCH_PREAUTH_UNSPENT = 'true';
+  verifiedUnspent.mockRejectedValue(new Error('Original portfolio changed'));
+  const original = JSON.stringify(previous);
+  await expect(run()).rejects.toThrow('Original portfolio changed');
+  expect(JSON.stringify(previous)).toBe(original);
+  expect(save).not.toHaveBeenCalled();
+  expect(fundedForward).not.toHaveBeenCalled();
   expect(reverse).not.toHaveBeenCalled();
   expect(refund).not.toHaveBeenCalled();
 });

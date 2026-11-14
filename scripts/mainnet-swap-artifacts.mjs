@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
@@ -10,6 +11,50 @@ const LEGACY_SPENDING_STEPS = [
   'Run the mainnet AggLayer loop',
   'Run mainnet round trip, USDCx bridge loops, and read-only 1Click preflight'
 ];
+
+export function knownUnspentEpochPreAuthorization(checkpointDigest, run, jobs, now = Date.now()) {
+  // This exact no-authority checkpoint preceded the pinned source's first native ACK and queue release.
+  if (
+    checkpointDigest !== '8ec4e65e7f1f912ef290881fe65b69158af56838b0afd3b93bb6fb73f65646ef' ||
+    run?.id !== 43619310746 ||
+    run.repository?.id !== 853430876 ||
+    run.workflow_id !== 391951744 ||
+    run.head_sha !== '9fbe3807bcdd68ce728ed15bc3ab98c63815fba4' ||
+    run.head_branch !== 'wiktor/nightly-swap-loop' ||
+    run.event !== 'workflow_dispatch' ||
+    run.run_attempt !== 1 ||
+    run.status !== 'completed' ||
+    run.conclusion !== 'failure' ||
+    !Number.isSafeInteger(now) ||
+    now <= Date.parse('2026-11-14T17:24:34.674Z') ||
+    !Array.isArray(jobs?.jobs)
+  )
+    return false;
+  const matching = jobs.jobs.filter(job => job.name === 'Chrome mainnet round trip');
+  if (matching.length !== 1 || matching[0].status !== 'completed' || matching[0].conclusion !== 'failure') return false;
+  const steps = matching[0].steps;
+  if (!Array.isArray(steps)) return false;
+  return [
+    ['Prepare mainnet Epoch loop', 'success'],
+    ['Run mainnet epoch forward', 'success'],
+    ['Upload Epoch native forward authority', 'failure'],
+    ['Upload Epoch SDK forward authority', 'skipped'],
+    ['Wait for mainnet Epoch forward', 'skipped'],
+    ['Run mainnet epoch reverse', 'skipped'],
+    ['Upload Epoch reverse authority', 'skipped'],
+    // Recovery and fresh EVM/claim uploads share names in this pinned workflow; both copies must be skipped.
+    ['Upload mainnet epoch signed EVM 1', 'skipped', 2],
+    ['Upload mainnet epoch signed EVM 2', 'skipped', 2],
+    ['Upload mainnet epoch signed EVM 3', 'skipped', 2],
+    ['Upload mainnet epoch native return claim', 'skipped', 2],
+    ['Wait for mainnet Epoch return', 'skipped']
+  ].every(([name, conclusion, count = 1]) => {
+    const matches = steps.filter(step => step.name === name);
+    return (
+      matches.length === count && matches.every(step => step.status === 'completed' && step.conclusion === conclusion)
+    );
+  });
+}
 
 function validateProvider(provider) {
   if (!['swap', 'epoch', 'near'].includes(provider)) throw new Error('Invalid mainnet loop provider');
@@ -235,7 +280,8 @@ async function main() {
   validateProvider(provider);
   const prefix = provider === 'near' ? '1click' : provider;
   if (mode === 'attempts') {
-    const state = JSON.parse(readFileSync(`test-results/mainnet-${prefix}-state/roundtrip.json`, 'utf8'));
+    const checkpoint = readFileSync(`test-results/mainnet-${prefix}-state/roundtrip.json`, 'utf8');
+    const state = JSON.parse(checkpoint);
     for (const [leg, id] of [
       ['forward', state.sourceRunId],
       ['reverse', state.authorizationRunId ?? state.sourceRunId]
@@ -244,10 +290,13 @@ async function main() {
       const run = await github(`actions/runs/${id}`);
       const current = await github(`actions/runs/${process.env.GITHUB_RUN_ID}`);
       if (run.workflow_id !== current.workflow_id) throw new Error('Checkpoint source belongs to a different workflow');
-      output(
-        `${leg}_attempted`,
-        swapStepAttempted(await github(`actions/runs/${id}/jobs?per_page=100`), leg, provider)
-      );
+      const jobs = await github(`actions/runs/${id}/jobs?per_page=100`);
+      output(`${leg}_attempted`, swapStepAttempted(jobs, leg, provider));
+      if (provider === 'epoch' && leg === 'forward')
+        output(
+          'forward_pre_authority_unspent',
+          knownUnspentEpochPreAuthorization(createHash('sha256').update(checkpoint).digest('hex'), run, jobs)
+        );
     }
     return;
   }

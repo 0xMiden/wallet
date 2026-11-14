@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test';
-import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, parseUnits, type Hex } from 'viem';
+import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Endpoint, NoteId, RpcClient } from '@miden-sdk/miden-sdk';
 
@@ -10,7 +10,7 @@ import { WcCounterparty } from '../ios/helpers/wc-counterparty';
 import { getEnvironmentConfig } from '../config/environments';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import { vaultBalanceByFaucetId } from './balance-truth';
-import { openRouteStep, waitForReviewSubmitEnabled } from './bridge';
+import { waitForReviewSubmitEnabled } from './bridge';
 import { mainnetChain, mainnetRpc } from './mainnet-bridge-sources';
 import {
   saveMainnetEpochCheckpoint,
@@ -26,7 +26,6 @@ import {
   mainnetConsumeRequestHash
 } from './mainnet-epoch-request';
 import { runGuardedEpochForward } from './mainnet-epoch-ui';
-import { waitForFastQuote } from './epoch-quote';
 import {
   TxStatus,
   USER_CANCELLED_REASON,
@@ -63,6 +62,69 @@ import { exportPublicInputNote } from './swap';
 import { BRIDGE_DEPOSIT_LAYER } from './send-flow-scripts';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
 
+async function assertEpochOriginalPortfolio(
+  wallet: GuardianAwareWalletPage,
+  state: MainnetEpochCheckpoint
+): Promise<void> {
+  if ((await wallet.getAccountAddress()) !== state.account)
+    throw new Error('Epoch Guardian actor or native portfolio changed before forward execution');
+  await expect
+    .poll(() => vaultBalanceByFaucetId(wallet.page, state.native.faucetId), {
+      timeout: 30_000,
+      message: 'Epoch native portfolio must match its original snapshot before forward execution'
+    })
+    .toBe(BigInt(state.native.balance));
+  const client = createPublicClient({
+    chain: mainnetChain(state.evm.chainId),
+    transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 })
+  });
+  const account = getAddress(state.evm.account);
+  if (
+    (await client.getBalance({ address: account })) !== BigInt(state.evm.nativeBalance) ||
+    (await client.readContract({
+      address: getAddress(state.evm.token),
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [account]
+    })) !== BigInt(state.evm.tokenBalance)
+  )
+    throw new Error('Epoch EVM portfolio changed before forward execution');
+}
+
+export async function verifyUnstartedEpochForward(
+  wallet: GuardianAwareWalletPage,
+  state: MainnetEpochCheckpoint
+): Promise<void> {
+  const windowEnd = Math.max(Date.parse(state.createdAt), Date.parse(state.pricedAt)) + 600_000;
+  if (
+    state.phase !== 'forward-authorized' ||
+    state.forwardNoteId ||
+    state.forwardAuthority ||
+    state.forwardRequestAuthority ||
+    state.forwardMidenTxId ||
+    state.forwardReceived ||
+    state.forwardEvmTxHash ||
+    state.reverseNonce !== undefined ||
+    state.reverseAuthority ||
+    state.transactions?.length ||
+    state.consumeAuthority ||
+    state.returnMidenTxId ||
+    state.returnNoteId ||
+    state.reverseReceived ||
+    state.evmNonceBefore !== undefined ||
+    state.paidMidenFees !== '0' ||
+    state.paidEvmFees !== '0' ||
+    !Number.isFinite(windowEnd) ||
+    Date.now() <= windowEnd
+  )
+    throw new Error('Original Epoch pre-authorization is live or has an unresolved execution fingerprint');
+  await assertEpochOriginalPortfolio(wallet, state);
+  const provider = epochReadOnlyProvider(state.allocatorUrl, state.virtualChainId, state.evm.account);
+  const status = await provider.sdk.getIntentStatus(provider.config, state.evm.account, state.forwardNonce);
+  if (!Array.isArray(status) || status.length !== 0)
+    throw new Error('Original Epoch intent is registered or its unused outcome is unknown');
+}
+
 /** Runtime adapter; funded entry remains disabled until all recovery/return drivers are complete. */
 export async function runEpochForward(
   wallet: GuardianAwareWalletPage,
@@ -87,42 +149,19 @@ export async function runEpochForward(
     Date.now() - Date.parse(state.pricedAt) > 600_000
   )
     throw new Error('Epoch forward requires fresh unused same-run authorization');
-  if (
-    (await wallet.getAccountAddress()) !== state.account ||
-    (await vaultBalanceByFaucetId(wallet.page, state.native.faucetId)) !== BigInt(state.native.balance)
-  )
-    throw new Error('Epoch Guardian actor or native portfolio changed before forward execution');
-  const client = createPublicClient({
-    chain: mainnetChain(state.evm.chainId),
-    transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 })
-  });
+  await assertEpochOriginalPortfolio(wallet, state);
   const account = getAddress(state.evm.account);
-  const token = getAddress(state.evm.token);
-  const tokenBalance = () =>
-    client.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [account] });
-  if (
-    (await client.getBalance({ address: account })) !== BigInt(state.evm.nativeBalance) ||
-    (await tokenBalance()) !== BigInt(state.evm.tokenBalance)
-  )
-    throw new Error('Epoch EVM portfolio changed before forward execution');
   const networkId = evmChainSlug(state.evm.chainId);
   if (!networkId) throw new Error('Unknown Epoch mainnet destination');
-  await openRouteStep(wallet, {
-    destAddress: account,
-    tokenSymbol: state.native.symbol,
+  // Native USDCX's generic picker selects Circle; use the existing explicit Epoch review.
+  const params = new URLSearchParams({
     amount: formatUnits(BigInt(state.principal), 6),
-    network: { id: networkId, name: mainnetChain(state.evm.chainId).name }
+    to: account,
+    tokenId: state.native.faucetId,
+    network: networkId,
+    route: 'epoch'
   });
-  const visibleQuote = await waitForFastQuote(wallet.page, [], { timeoutMs: 90_000 });
-  if (
-    !visibleQuote.amount ||
-    !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(visibleQuote.amount) ||
-    parseUnits(visibleQuote.amount, 6) < BigInt(state.forwardMinimum)
-  )
-    throw new Error('Epoch visible output no longer meets the uploaded floor');
-  await wallet.page.getByTestId('bridge-route-fast').click();
-  await wallet.page.getByTestId('bridge-route-confirm').click();
-  await wallet.page.waitForURL(/#\/send\/review\?/, { timeout: 30_000 });
+  await wallet.page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/send/review?${params}`);
   await waitForReviewSubmitEnabled(wallet.page, 90_000);
   const oldIds = new Set((await readTransactionRowsWithBytes(wallet.page, 'bridged-send')).map(row => row.id));
   const blocker = await plantQueueBlocker(wallet.page);

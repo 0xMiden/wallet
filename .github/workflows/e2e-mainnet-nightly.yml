@@ -305,6 +305,7 @@ jobs:
       - name: Recover prior mainnet Epoch
         env:
           MAINNET_EPOCH_FORWARD_ATTEMPTED: ${{ steps.epoch-attempts.outputs.forward_attempted }}
+          MAINNET_EPOCH_PREAUTH_UNSPENT: ${{ steps.epoch-attempts.outputs.forward_pre_authority_unspent }}
         run: |
           umask 077
           mkdir -p test-results/mainnet-epoch-state

@@ -19,7 +19,8 @@ import {
   recoverEpochReturn,
   runEpochRefund,
   runEpochForward,
-  runEpochReverse
+  runEpochReverse,
+  verifyUnstartedEpochForward
 } from '../../helpers/mainnet-epoch-runtime';
 import { planEpochRoundTrip } from '../../helpers/mainnet-epoch-ui';
 import { remainingMainnetLoopBudget } from '../../helpers/mainnet-loop-budget';
@@ -53,6 +54,7 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
     if (
       previous?.phase === 'forward-authorized' &&
       !previous.forwardAuthority &&
+      !previous.forwardRequestAuthority &&
       !previous.forwardNoteId &&
       !previous.forwardMidenTxId &&
       !previous.forwardReceived &&
@@ -63,8 +65,15 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
       !previous.consumeAuthority &&
       previous.paidMidenFees === '0' &&
       previous.paidEvmFees === '0' &&
-      process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED === 'false'
+      (process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED === 'false' ||
+        (process.env.MAINNET_EPOCH_PREAUTH_UNSPENT === 'true' && previous.sourceRunId === '43619310746'))
     ) {
+      if (process.env.MAINNET_EPOCH_PREAUTH_UNSPENT === 'true') {
+        const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
+        if (!keyPair) throw new Error('Original Guardian key is required for live Epoch unspent verification');
+        await restoreMainnetLoopGuardian(walletB, keyPair);
+        await verifyUnstartedEpochForward(walletB, previous);
+      }
       previous.phase = 'unspent';
       previous.updatedAt = new Date().toISOString();
       saveMainnetEpochCheckpoint(STATE_PATH, previous);

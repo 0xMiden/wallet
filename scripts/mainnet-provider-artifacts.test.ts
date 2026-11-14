@@ -1,11 +1,121 @@
 /** @jest-environment node */
-import { chooseSwapCheckpoint, swapStepAttempted } from './mainnet-swap-artifacts.mjs';
+import {
+  chooseSwapCheckpoint,
+  swapStepAttempted,
+  knownUnspentEpochPreAuthorization
+} from './mainnet-swap-artifacts.mjs';
 
 const baseline = 42966766471;
 const runs = [{ id: baseline + 2 }, { id: baseline + 1 }, { id: baseline }];
 const artifact = (name: string, expired = false) => ({ name, expired });
 const jobs = (name: string, conclusion = 'cancelled') => ({
   jobs: [{ steps: [{ name, status: 'completed', conclusion }] }]
+});
+
+describe('known failed Epoch pre-authorization', () => {
+  const digest = '8ec4e65e7f1f912ef290881fe65b69158af56838b0afd3b93bb6fb73f65646ef';
+  const now = Date.parse('2026-11-14T17:25:00Z');
+  const run = () => ({
+    id: 43619310746,
+    repository: { id: 853430876 },
+    workflow_id: 391951744,
+    head_sha: '9fbe3807bcdd68ce728ed15bc3ab98c63815fba4',
+    head_branch: 'wiktor/nightly-swap-loop',
+    event: 'workflow_dispatch',
+    run_attempt: 1,
+    status: 'completed',
+    conclusion: 'failure'
+  });
+  const originalJobs = () => ({
+    jobs: [
+      {
+        name: 'Chrome mainnet round trip',
+        status: 'completed',
+        conclusion: 'failure',
+        steps: [
+          ['Prepare mainnet Epoch loop', 'success'],
+          ['Run mainnet epoch forward', 'success'],
+          ['Upload Epoch native forward authority', 'failure'],
+          ['Upload Epoch SDK forward authority', 'skipped'],
+          ['Wait for mainnet Epoch forward', 'skipped'],
+          ['Run mainnet epoch reverse', 'skipped'],
+          ['Upload Epoch reverse authority', 'skipped'],
+          ['Upload mainnet epoch signed EVM 1', 'skipped'],
+          ['Upload mainnet epoch signed EVM 2', 'skipped'],
+          ['Upload mainnet epoch signed EVM 3', 'skipped'],
+          ['Upload mainnet epoch native return claim', 'skipped'],
+          ['Wait for mainnet Epoch return', 'skipped']
+        ]
+          .concat([
+            ['Upload mainnet epoch signed EVM 1', 'skipped'],
+            ['Upload mainnet epoch signed EVM 2', 'skipped'],
+            ['Upload mainnet epoch signed EVM 3', 'skipped'],
+            ['Upload mainnet epoch native return claim', 'skipped']
+          ])
+          .map(([name, conclusion]) => ({ name, status: 'completed', conclusion }))
+      }
+    ]
+  });
+  it('recognizes only the exact expired no-authority checkpoint and original failed first gate', () => {
+    expect(knownUnspentEpochPreAuthorization(digest, run(), originalJobs(), now)).toBe(true);
+  });
+  it.each([
+    { id: 43619310747 },
+    { repository: { id: 1 } },
+    { workflow_id: 1 },
+    { head_sha: 'a'.repeat(40) },
+    { head_branch: 'main' },
+    { event: 'schedule' },
+    { run_attempt: 2 },
+    { status: 'in_progress' },
+    { conclusion: 'cancelled' }
+  ])('rejects changed original run metadata %j', changed => {
+    expect(knownUnspentEpochPreAuthorization(digest, { ...run(), ...changed }, originalJobs(), now)).toBe(false);
+  });
+  it('rejects any changed raw checkpoint, including hidden authority, amount, nonce or deadline fields', () => {
+    expect(knownUnspentEpochPreAuthorization('a'.repeat(64), run(), originalJobs(), now)).toBe(false);
+  });
+  it.each(['success', 'skipped', 'cancelled'])('rejects a %s first native gate', conclusion => {
+    const result = originalJobs();
+    result.jobs[0]!.steps[2]!.conclusion = conclusion;
+    expect(knownUnspentEpochPreAuthorization(digest, run(), result, now)).toBe(false);
+  });
+  it.each([3, 4, 5, 6, 7, 8, 9, 10, 11])('rejects attempted downstream step %i', index => {
+    const result = originalJobs();
+    result.jobs[0]!.steps[index]!.conclusion = 'success';
+    expect(knownUnspentEpochPreAuthorization(digest, run(), result, now)).toBe(false);
+  });
+  it('rejects duplicate or missing native gates and jobs', () => {
+    const result = originalJobs();
+    result.jobs[0]!.steps.push({ ...result.jobs[0]!.steps[2]! });
+    expect(knownUnspentEpochPreAuthorization(digest, run(), result, now)).toBe(false);
+    result.jobs[0]!.steps = result.jobs[0]!.steps.filter(step => step.name !== 'Upload Epoch native forward authority');
+    expect(knownUnspentEpochPreAuthorization(digest, run(), result, now)).toBe(false);
+    expect(knownUnspentEpochPreAuthorization(digest, run(), { jobs: [] }, now)).toBe(false);
+    expect(
+      knownUnspentEpochPreAuthorization(digest, run(), { jobs: [...originalJobs().jobs, ...originalJobs().jobs] }, now)
+    ).toBe(false);
+  });
+  it('requires exactly both skipped recovery and fresh EVM uploads, not missing or extra occurrences', () => {
+    const missing = originalJobs();
+    missing.jobs[0]!.steps = missing.jobs[0]!.steps.slice(0, 12);
+    expect(knownUnspentEpochPreAuthorization(digest, run(), missing, now)).toBe(false);
+    const extra = originalJobs();
+    extra.jobs[0]!.steps.push({ ...extra.jobs[0]!.steps[7]! });
+    expect(knownUnspentEpochPreAuthorization(digest, run(), extra, now)).toBe(false);
+  });
+  it('requires exactly both skipped native return-claim uploads', () => {
+    const missing = originalJobs();
+    missing.jobs[0]!.steps.pop();
+    expect(knownUnspentEpochPreAuthorization(digest, run(), missing, now)).toBe(false);
+    const extra = originalJobs();
+    extra.jobs[0]!.steps.push({ ...extra.jobs[0]!.steps[10]! });
+    expect(knownUnspentEpochPreAuthorization(digest, run(), extra, now)).toBe(false);
+  });
+  it('does not recognize a live original window or invalid observation time', () => {
+    for (const time of [Date.parse('2026-11-14T17:24:34.674Z'), NaN])
+      expect(knownUnspentEpochPreAuthorization(digest, run(), originalJobs(), time)).toBe(false);
+  });
 });
 
 describe('provider-scoped mainnet recovery discovery', () => {
