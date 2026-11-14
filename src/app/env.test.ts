@@ -256,7 +256,8 @@ describe('env', () => {
       expect(mockTabsCreate).not.toHaveBeenCalled();
     });
 
-    it.each([WindowType.Popup, WindowType.SidePanel])(
+    const compactSources: Array<WindowType.Popup | WindowType.SidePanel> = [WindowType.Popup, WindowType.SidePanel];
+    it.each(compactSources)(
       'opens extension-owned home in an active tab (%s)',
       async source => {
         mockTabsCreate.mockResolvedValueOnce({ id: 21 });
