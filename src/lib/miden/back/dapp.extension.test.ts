@@ -191,6 +191,12 @@ jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
 }));
 
+// A custom summary's approval re-reads the chain fee before it decodes; the read is the node's, not this suite's.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: jest.fn(async () => 2)
+}));
+
 jest.mock('app/confirm/decode', () => ({
   ...jest.requireActual('app/confirm/decode'),
   simulatedBytesToView: () => ({
@@ -201,7 +207,9 @@ jest.mock('app/confirm/decode', () => ({
     unlistedAssets: 0,
     inputNotesConsumed: 0,
     outputNotesCreated: 0,
-    storageChanged: false
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: []
   }),
   simulatedOutputRecipients: () => []
 }));

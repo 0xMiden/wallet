@@ -607,7 +607,13 @@ export async function expectFailedAfterEnqueue(
  */
 export async function expectVerifiedPreview(
   popup: Page,
-  expected: { amount: RegExp | null; outputNotes: number; storageChanged?: boolean; timeoutMs?: number },
+  expected: {
+    amount: RegExp | null;
+    heldNotesSpent?: number;
+    outputNotes: number;
+    storageChanged?: boolean;
+    timeoutMs?: number;
+  },
   ctx: CellContext
 ): Promise<void> {
   const verified = popup.locator('[data-testid="tx-asset-view"][data-mode="verified"]');
@@ -630,6 +636,11 @@ export async function expectVerifiedPreview(
   const rows = verified.locator('[data-verified="true"]');
   await expect(expected.amount === null ? rows : rows.filter({ hasText: expected.amount })).toHaveCount(moves);
   await expect(popup.getByTestId('tx-output-notes-created')).toHaveText(String(expected.outputNotes));
+  // Already-held notes the request spends: none unless the cell names a count, so no held-note line by default.
+  const held = expected.heldNotesSpent ?? 0;
+  const heldLine = verified.locator('[data-testid="tx-held-notes-spent"]');
+  const heldShown = held === 0 ? heldLine : heldLine.filter({ hasText: new RegExp(`^${held}$`) });
+  await expect(heldShown).toHaveCount(held === 0 ? 0 : 1);
   const storage = popup.getByTestId('tx-storage-changed');
   const changed = expected.storageChanged;
   await expect(storage).toHaveAttribute('data-changed', changed === undefined ? /^(true|false)$/ : String(changed));

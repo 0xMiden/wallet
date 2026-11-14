@@ -17,6 +17,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getClaimFloorBaseFee: jest.fn(),
   getClaimFloorBaseFeeSync: jest.fn(),
   getVerificationBaseFee: jest.fn(),
+  refreshVerificationBaseFee: jest.fn(),
   getVerificationBaseFeeSync: jest.fn(),
   onNativeAssetChanged: jest.fn()
 }));

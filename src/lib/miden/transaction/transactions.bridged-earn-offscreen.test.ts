@@ -67,6 +67,7 @@ const mockGetVerificationBaseFee = jest.fn(async (): Promise<number | null> => 0
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getVerificationBaseFee: () => mockGetVerificationBaseFee(),
+  refreshVerificationBaseFee: () => mockGetVerificationBaseFee(),
   getVerificationBaseFeeSync: () => 0,
   isVerificationBaseFeeKnownAbsent: () => false
 }));

@@ -61,7 +61,8 @@ jest.mock('../sdk/miden-client-interface', () => ({
 }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: () => mockNativeAssetId(),
-  getVerificationBaseFee: () => mockVerificationBaseFee()
+  getVerificationBaseFee: () => mockVerificationBaseFee(),
+  refreshVerificationBaseFee: () => mockVerificationBaseFee()
 }));
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: {
@@ -148,7 +149,7 @@ describe('queueConsumeNotes — swap settlement link', () => {
   });
 });
 
-describe('queueConsumeNotes — settlement cohort', () => {
+describe('queueConsumeNotes: settlement cohort', () => {
   const notes = () => [note('backed-off'), note('fresh')];
   const settlementCall = (cohort?: readonly string[]) =>
     initiateConsumeNotesTransaction(
