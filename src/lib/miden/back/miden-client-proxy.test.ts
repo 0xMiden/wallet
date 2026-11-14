@@ -2560,7 +2560,8 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
     // The chain fee is decided before the write runs, so it is known here.
     jest.doMock('lib/miden-chain/native-asset', () => ({
       ...jest.requireActual('lib/miden-chain/native-asset'),
-      getVerificationBaseFee: jest.fn(async () => 0)
+      getVerificationBaseFee: jest.fn(async () => 0),
+      refreshVerificationBaseFee: jest.fn(async () => 0)
     }));
     const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
     const { bytesToB64 } = await import('./offscreen-codec');

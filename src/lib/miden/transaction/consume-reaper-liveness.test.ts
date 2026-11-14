@@ -52,7 +52,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetId: async () => 'usdcx-faucet',
   // A checked write decides the chain fee before it runs.
-  getVerificationBaseFee: async () => 0
+  getVerificationBaseFee: async () => 0,
+  refreshVerificationBaseFee: async () => 0
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   ...jest.requireActual('lib/miden/sdk/helpers'),

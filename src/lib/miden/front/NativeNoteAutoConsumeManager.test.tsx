@@ -36,6 +36,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
     mockOnFeeRead();
     return Promise.resolve(mockBaseFee);
   },
+  refreshVerificationBaseFee: () => Promise.resolve(mockBaseFee),
   getClaimFloorBaseFee: () => {
     mockOnFeeRead();
     return Promise.resolve(mockFloorFee === undefined ? mockBaseFee : mockFloorFee);

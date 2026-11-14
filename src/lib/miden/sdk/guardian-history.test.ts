@@ -37,6 +37,37 @@ const mockFull = {
 };
 const mockFree = jest.fn();
 let mockPartial = false;
+type SummaryOutputNote = {
+  id?: () => { toString: () => string };
+  intoFull?: () => typeof mockFull | undefined;
+  assets: () => {
+    fungibleAssets: () => Array<{ faucetId: () => string; amount: () => bigint }>;
+    nonFungibleAssets: () => unknown[];
+  };
+  metadata: () => {
+    tag?: () => { asU32: () => number };
+    sender?: () => string;
+    noteType?: () => number;
+  };
+};
+const summaryUserNote: SummaryOutputNote = {
+  id: () => ({ toString: () => 'output' }),
+  intoFull: () => (mockPartial ? undefined : mockFull),
+  assets: mockAssets,
+  metadata: () => ({ sender: () => 'sender', noteType: () => 0, tag: () => ({ asU32: () => 1 }) })
+};
+const defaultSummaryOutputNotes = (): { notes: () => SummaryOutputNote[] } => ({
+  notes: () => [
+    {
+      assets: () => ({
+        fungibleAssets: () => [{ faucetId: () => 'fee', amount: () => 3n }],
+        nonFungibleAssets: () => []
+      }),
+      metadata: () => ({ tag: () => ({ asU32: () => 0xfee }) })
+    },
+    summaryUserNote
+  ]
+});
 const mockClientFree = jest.fn();
 const mockClientMarkPoisoned = jest.fn();
 const mockCreateClient = jest.fn(async () => ({ free: mockClientFree, markPoisoned: mockClientMarkPoisoned }));
@@ -57,23 +88,7 @@ const mockSummary = {
     if (mockInputNotesError) throw mockInputNotesError;
     return { notes: () => [{ note: () => mockFull }] };
   },
-  outputNotes: () => ({
-    notes: () => [
-      {
-        assets: () => ({
-          fungibleAssets: () => [{ faucetId: () => 'fee', amount: () => 3n }],
-          nonFungibleAssets: () => []
-        }),
-        metadata: () => ({ tag: () => ({ asU32: () => 0xfee }) })
-      },
-      {
-        id: () => ({ toString: () => 'output' }),
-        intoFull: () => (mockPartial ? undefined : mockFull),
-        assets: mockAssets,
-        metadata: () => ({ sender: () => 'sender', noteType: () => 0, tag: () => ({ asU32: () => 1 }) })
-      }
-    ]
-  })
+  outputNotes: defaultSummaryOutputNotes
 };
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -103,6 +118,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(),
   getVerificationBaseFee: jest.fn(),
+  refreshVerificationBaseFee: jest.fn(),
   getNativeAssetIdSync: () => (mockNativeLoaded ? 'fee' : null),
   getVerificationBaseFeeSync: () => (mockFeeLoaded ? 3 : null),
   isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent
@@ -151,6 +167,7 @@ beforeEach(() => {
     return 3;
   });
   mockPartial = false;
+  mockSummary.outputNotes = defaultSummaryOutputNotes;
   mockAttachment = [];
   mockRoot = 'p2id';
   mockStorage = [11n, 22n, 33n, 44n];
@@ -163,6 +180,39 @@ it('decodes P2ID recipients, input assets and the separate fee', async () => {
   expect(decoded.inputNotes[0]?.visibility).toBe('public');
   expect(decoded.fee).toEqual({ faucetId: 'fee', amount: '3' });
   expect(mockFree).toHaveBeenCalledTimes(1);
+});
+
+it('identifies a past fee note above the kernel ceiling of the fee this realm knows', async () => {
+  const outputNotes = mockSummary.outputNotes;
+  const userNote = outputNotes().notes()[1];
+  if (!userNote) throw new Error('missing user note');
+  // 3 * 30 + 1. Partial, so a note left among the user outputs decodes instead of throwing.
+  mockPartial = true;
+  mockSummary.outputNotes = () => ({
+    notes: () => [
+      {
+        id: () => ({ toString: () => 'fee-note' }),
+        intoFull: () => undefined,
+        assets: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'fee', amount: () => 91n }],
+          nonFungibleAssets: () => []
+        }),
+        metadata: () => ({
+          tag: () => ({ asU32: () => 0xfee }),
+          sender: () => 'sender',
+          noteType: () => 0
+        })
+      },
+      userNote
+    ]
+  });
+  try {
+    const decoded = await decode('summary');
+    expect(decoded.fee).toEqual({ faucetId: 'fee', amount: '91' });
+    expect(decoded.outputNotes.map(note => note.id)).toEqual(['output']);
+  } finally {
+    mockSummary.outputNotes = outputNotes;
+  }
 });
 
 it('decodes the recipient and reclaim height from the full P2IDE note', async () => {

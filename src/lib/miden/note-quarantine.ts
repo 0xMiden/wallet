@@ -97,7 +97,7 @@ interface QuarantineEntry {
   at: number;
 }
 
-/** How {@link importedNoteIds} and `importedNoteAssets` treat an entry whose decode traps. */
+/** How {@link importedNoteIds} treats an entry whose decode traps. */
 export interface NoteDecodeOptions {
   /**
    * Rethrow a WebAssembly trap instead of skipping the entry. A caller inside a WASM lock hold sets it, so the lock

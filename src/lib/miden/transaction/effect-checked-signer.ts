@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 
 import { summaryToView } from 'app/confirm/decode';
 import { getMessage } from 'lib/i18n/core';
-import { getVerificationBaseFee, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
+import { isVerificationBaseFeeKnownAbsent, refreshVerificationBaseFee } from 'lib/miden-chain/native-asset';
 
 import { ProposalFeeUnknownError } from './constants';
 import { assertCachedViewEffectApproved, effectRefusal, isEffectChecked } from './proposal-effect-guard';
@@ -83,8 +83,9 @@ export async function withEffectCheckedSigner<T>(
   run: (signer: RawSigner) => Promise<T>
 ): Promise<T> {
   if (!isEffectChecked(transaction.type)) return run(sign);
-  // The fee is decided here, before the write, and the signer reads the cache.
-  const chainFee = await getVerificationBaseFee();
+  // The fee is read from the chain here, before the write, and the signer reads the cache this read filled: the
+  // signer runs inside the WASM hold, where a network read cannot wait.
+  const chainFee = await refreshVerificationBaseFee();
   if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
     throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
   const check: { failed?: { error: unknown } } = {};
