@@ -675,3 +675,31 @@ After v1.17.9 published at 10:22 UTC, moved the #2035 amount-normalization note 
 RED: the first two named suites ran 104 tests, with five expected failures for redundant integer zeroes and caret behavior, plus one empty-input test setup failure corrected before implementation. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.
 
 Review found `.15` and `-.15` were left without a leading zero despite the accepted plan. Added both failing cases, then normalized them to `0.15` and `-0.15`. The two named suites now pass all 107 tests; named ESLint passes.
+
+# Bread Command fullscreen wallet integration
+
+## Plan
+
+- [x] Record V6 visual/UX approval and the request for full integration with a real bridge-portal source port.
+- [x] Establish an isolated worktree on freshly fetched `origin/main`.
+- [x] Map the real five journeys, wallet ownership, live data, configuration, and portal port boundaries.
+- [x] Write the integration design and complete the independent builder-readiness check.
+- [ ] Obtain approval of the written production design.
+- [ ] Write the implementation plan and verify a clean dependency/test baseline.
+- [ ] Implement the scoped React Command shell, desktop presentation variants, live data, drafts and existing four action controllers.
+- [ ] Port the bridge portal core/providers and required tests, with wallet-native signing, durable tracking and compatibility for existing bridge records.
+- [ ] Verify protected execution, recovery, routing and unaffected compact/mobile/desktop behavior with meaningful tests and current-head CI.
+- [ ] Inspect rendered wide-desktop visuals, all action states, keyboard/focus and normal/reduced motion.
+- [ ] Complete finished-code review, apply actionable findings, verify the final source and hand over without an unauthorized merge or release.
+
+## Status
+
+V6 is approved and real integration is requested. The written design is `docs/bread-command-integration-design.md`, awaiting the user's explicit approval. Fresh builder-readiness check `d178b4b3-ae2b-4c6b-a4ce-b0e785e0b53e` returned "nothing important left". Product code, dependencies and runtime wallet state are not changed. Baseline: `9f239a3171140260d1c3b1133b49a04eaecc5683`. Portal source: `0xMiden/bridge-portal` at `cb52c470395273e05e84460fdadc59652d9ef5b3`, freshly confirmed remote HEAD. The three read-only discovery lanes in `66df5a70-d4f5-49ce-baa6-37c45ed09fb3` completed successfully. Existing task sections above are inherited, not owned by this integration task. The story-wide tracker is `/Users/celrisen/tasks/wallet-dashboard/todo.md`.
+
+## Design verification
+
+- Confirmed both frozen refs, the clean starting worktree, unchanged approved V6 hashes, portal MIT terms, wallet execution ownership and the three discovery outputs.
+- Fresh builder-readiness check reported no important planning questions. This is not finished-code review or runtime validation.
+- Guarded document Prettier and diff preflight passed. Earlier lock refusals returned75 and ran nothing; no guard was bypassed. Existing unsupported Prettier import-order options emitted warnings, not document failures.
+- The shared design lives in `docs/` because this clone locally excludes `docs/superpowers/`; no ignore rule was changed or bypassed.
+- No dependency installation, product test/build, browser/device check, live wallet connection, signature, provider operation, push, PR, merge or deployment has occurred. Design approval and feature-branch CI publication permission are the next user-dependent gate.
