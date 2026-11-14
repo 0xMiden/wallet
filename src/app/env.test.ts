@@ -34,6 +34,14 @@ const mockTabsCreate = jest.fn();
 const mockTabsQuery = jest.fn().mockResolvedValue([]);
 const mockTabsUpdate = jest.fn();
 const mockSidebarClose = jest.fn();
+const mockChromeGetCurrent = jest.fn();
+const mockChromeGetLastFocused = jest.fn();
+const mockChromeSidePanelClose = jest.fn();
+const originalChrome = Object.getOwnPropertyDescriptor(globalThis, 'chrome');
+const mockChrome = {
+  windows: { getCurrent: mockChromeGetCurrent, getLastFocused: mockChromeGetLastFocused },
+  sidePanel: { close: mockChromeSidePanelClose }
+};
 const mockRuntimeGetURL = jest.fn((path: string) => `chrome-extension://test/${path}`);
 const mockAddListener = jest.fn();
 const mockSendMessage = jest.fn().mockResolvedValue(undefined);
@@ -72,6 +80,14 @@ describe('env', () => {
     mockIsMobile.mockReturnValue(false);
     mockIsExtension.mockReturnValue(true);
     mockSidebarClose.mockResolvedValue(undefined);
+    mockChromeGetCurrent.mockResolvedValue({ id: 27 });
+    mockChromeSidePanelClose.mockResolvedValue(undefined);
+    Object.defineProperty(globalThis, 'chrome', { configurable: true, value: undefined });
+  });
+
+  afterEach(() => {
+    if (originalChrome) Object.defineProperty(globalThis, 'chrome', originalChrome);
+    else Reflect.deleteProperty(globalThis, 'chrome');
   });
 
   describe('IS_DEV_ENV', () => {
@@ -281,9 +297,58 @@ describe('env', () => {
       expect(mockTabsCreate.mock.invocationCallOrder[0]).toBeLessThan(mockSidebarClose.mock.invocationCallOrder[0]!);
     });
 
+    it('closes only the initiating Chrome window panel after creating the tab', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
+      mockTabsCreate.mockImplementationOnce(() => {
+        expect(mockChromeGetCurrent).toHaveBeenCalledTimes(1);
+        mockChromeGetCurrent.mockResolvedValue({ id: 99 });
+        return Promise.resolve({ id: 21 });
+      });
+      await openCommandHome(WindowType.SidePanel);
+      expect(mockChromeSidePanelClose).toHaveBeenCalledWith({ windowId: 27 });
+      expect(mockTabsCreate.mock.invocationCallOrder[0]).toBeLessThan(
+        mockChromeSidePanelClose.mock.invocationCallOrder[0]!
+      );
+      expect(mockChromeGetLastFocused).not.toHaveBeenCalled();
+      expect(mockSidebarClose).not.toHaveBeenCalled();
+    });
+
+    it('leaves the Chrome panel usable when its close API is unavailable or its window identity is unknown', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: { ...mockChrome, sidePanel: {} } });
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      await openCommandHome(WindowType.SidePanel);
+      expect(mockChromeGetCurrent).not.toHaveBeenCalled();
+      expect(mockSidebarClose).not.toHaveBeenCalled();
+
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
+      mockChromeGetCurrent.mockResolvedValueOnce({});
+      mockTabsCreate.mockResolvedValueOnce({ id: 22 });
+      await openCommandHome(WindowType.SidePanel);
+      expect(mockChromeSidePanelClose).not.toHaveBeenCalled();
+    });
+
+    it('opens the tab and keeps the panel usable when the initiating window cannot be read', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
+      mockChromeGetCurrent.mockRejectedValueOnce(new Error('window unavailable'));
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      await expect(openCommandHome(WindowType.SidePanel)).resolves.toBeUndefined();
+      expect(mockTabsCreate).toHaveBeenCalledTimes(1);
+      expect(mockChromeSidePanelClose).not.toHaveBeenCalled();
+    });
+
+    it('does not report Chrome closure failure after successful tab creation', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      mockChromeSidePanelClose.mockRejectedValueOnce(new Error('panel already closed'));
+      await expect(openCommandHome(WindowType.SidePanel)).resolves.toBeUndefined();
+      expect(mockChromeSidePanelClose).toHaveBeenCalledWith({ windowId: 27 });
+    });
+
     it('keeps a side panel usable when creating the tab fails', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
       mockTabsCreate.mockRejectedValueOnce(new Error('tabs unavailable'));
       await expect(openCommandHome(WindowType.SidePanel)).rejects.toThrow('tabs unavailable');
+      expect(mockChromeSidePanelClose).not.toHaveBeenCalled();
       expect(mockSidebarClose).not.toHaveBeenCalled();
     });
 

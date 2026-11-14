@@ -148,14 +148,31 @@ export const onboardingUrls = async () => {
 
 export async function openCommandHome(source: WindowType.Popup | WindowType.SidePanel): Promise<void> {
   if (!isExtension()) return;
+  const chromePanel = typeof chrome === 'undefined' ? undefined : chrome.sidePanel;
+  const closeChromePanel =
+    chromePanel && 'close' in chromePanel && typeof chromePanel.close === 'function'
+      ? chromePanel.close.bind(chromePanel)
+      : undefined;
+  let initiatingWindowId: number | undefined;
+  if (source === WindowType.SidePanel && closeChromePanel) {
+    // Capture this panel's window before creating an active tab can change the focused window.
+    try {
+      initiatingWindowId = (await chrome.windows.getCurrent()).id;
+    } catch {
+      // Without an initiating identity, leave the panel usable rather than closing another window's panel.
+    }
+  }
   const browser = await getBrowser();
   await browser.tabs.create({ url: browser.runtime.getURL('fullpage.html#/'), active: true });
   if (source === WindowType.Popup) {
     window.close();
   } else {
-    // Firefox exposes sidebarAction.close; unsupported panels stay usable in the browser.
     try {
-      await browser.sidebarAction?.close?.();
+      if (chromePanel) {
+        if (initiatingWindowId !== undefined) await closeChromePanel?.({ windowId: initiatingWindowId });
+      } else {
+        await browser.sidebarAction?.close?.();
+      }
     } catch {
       // The new tab is already open; failure to close the old panel is harmless.
     }
