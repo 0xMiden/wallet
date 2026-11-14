@@ -666,35 +666,66 @@ for (const name of [
     assert.throws(() => claims.assertFailedMainnetSwapReturnUpload(run, jobs, '456', 77));
   });
 const expiredPostAckReturn = () => {
-  const run = { id:43596925757, workflow_id:77, status:'completed', conclusion:'failure', head_sha:'10cb2d586e483de224ab8f342b36e47668a57968', updated_at:'2026-11-14T12:57:53Z' };
+  const run = {
+    id: 43596925757,
+    workflow_id: 77,
+    status: 'completed',
+    conclusion: 'failure',
+    head_sha: '10cb2d586e483de224ab8f342b36e47668a57968',
+    updated_at: '2026-11-14T12:57:53Z'
+  };
   const jobs = failedReturnJobs();
-  jobs.jobs[0].steps[0].conclusion='success';
-  jobs.jobs[0].steps[1].conclusion='failure';
-  const absence = { previousRunId:'43596925757', noteId:'0xf41d27eecb4f68ee60bb1e7d84165f8b7e81366caaae2e054ceef6acdf63ccf5', atBlock:885688, atTime:1794663606000, noteCount:0, approvalAnchor:{blockNumber:885224,timestamp:1794662213000} };
-  return {run,jobs,absence};
+  jobs.jobs[0].steps[0].conclusion = 'success';
+  jobs.jobs[0].steps[1].conclusion = 'failure';
+  const absence = {
+    previousRunId: '43596925757',
+    noteId: '0xf41d27eecb4f68ee60bb1e7d84165f8b7e81366caaae2e054ceef6acdf63ccf5',
+    atBlock: 885688,
+    atTime: 1794663606000,
+    noteCount: 0,
+    approvalAnchor: { blockNumber: 885224, timestamp: 1794662213000 }
+  };
+  return { run, jobs, absence };
 };
 test('accepts the exact post-ACK failure only after its bounded Guardian approval expired and the note is absent', () => {
-  const {run,jobs,absence}=expiredPostAckReturn();
-  assert.doesNotThrow(()=>claims.assertFailedMainnetSwapReturnUpload(run,jobs,'43596925757',77,absence));
+  const { run, jobs, absence } = expiredPostAckReturn();
+  assert.doesNotThrow(() => claims.assertFailedMainnetSwapReturnUpload(run, jobs, '43596925757', 77, absence));
 });
-for (const name of ['missing proof','approval still live','wrong anchor','wrong anchor time','anchor predates run','note exists','other note','other source','other run','foreign absence','future anchor','invalid block','claim ACK succeeded','wait attempted'])
+for (const name of [
+  'missing proof',
+  'approval still live',
+  'wrong anchor',
+  'wrong anchor time',
+  'anchor predates run',
+  'note exists',
+  'other note',
+  'other source',
+  'other run',
+  'foreign absence',
+  'future anchor',
+  'invalid block',
+  'claim ACK succeeded',
+  'wait attempted'
+])
   test(`rejects an ambiguous post-ACK return: ${name}`, () => {
-    const value=expiredPostAckReturn();
-    if(name==='missing proof')value.absence=undefined;
-    if(name==='approval still live')value.absence.atBlock=885404;
-    if(name==='wrong anchor')value.absence.approvalAnchor.blockNumber=885223;
-    if(name==='wrong anchor time')value.absence.approvalAnchor.timestamp--;
-    if(name==='anchor predates run')value.run.updated_at='2026-11-14T13:20:00Z';
-    if(name==='note exists')value.absence.noteCount=1;
-    if(name==='other note')value.absence.noteId='0x'+'a'.repeat(64);
-    if(name==='other source')value.run.head_sha='0'.repeat(40);
-    if(name==='other run')value.run.id++;
-    if(name==='foreign absence')value.absence.previousRunId='43596925758';
-    if(name==='future anchor')value.absence.atTime=value.absence.approvalAnchor.timestamp-1;
-    if(name==='invalid block')value.absence.atBlock=Infinity;
-    if(name==='claim ACK succeeded')value.jobs.jobs[0].steps[1].conclusion='success';
-    if(name==='wait attempted')value.jobs.jobs[0].steps[2].conclusion='success';
-    assert.throws(()=>claims.assertFailedMainnetSwapReturnUpload(value.run,value.jobs,'43596925757',77,value.absence));
+    const value = expiredPostAckReturn();
+    if (name === 'missing proof') value.absence = undefined;
+    if (name === 'approval still live') value.absence.atBlock = 885404;
+    if (name === 'wrong anchor') value.absence.approvalAnchor.blockNumber = 885223;
+    if (name === 'wrong anchor time') value.absence.approvalAnchor.timestamp--;
+    if (name === 'anchor predates run') value.run.updated_at = '2026-11-14T13:20:00Z';
+    if (name === 'note exists') value.absence.noteCount = 1;
+    if (name === 'other note') value.absence.noteId = '0x' + 'a'.repeat(64);
+    if (name === 'other source') value.run.head_sha = '0'.repeat(40);
+    if (name === 'other run') value.run.id++;
+    if (name === 'foreign absence') value.absence.previousRunId = '43596925758';
+    if (name === 'future anchor') value.absence.atTime = value.absence.approvalAnchor.timestamp - 1;
+    if (name === 'invalid block') value.absence.atBlock = Infinity;
+    if (name === 'claim ACK succeeded') value.jobs.jobs[0].steps[1].conclusion = 'success';
+    if (name === 'wait attempted') value.jobs.jobs[0].steps[2].conclusion = 'success';
+    assert.throws(() =>
+      claims.assertFailedMainnetSwapReturnUpload(value.run, value.jobs, '43596925757', 77, value.absence)
+    );
   });
 
 test('accepts a claimed forward-settled checkpoint for its first recovery return', () => {
