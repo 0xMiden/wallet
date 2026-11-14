@@ -3,6 +3,7 @@
 ## 1.17.12 (TBD)
 
 - [CHANGE][ci] Add serialized solver swap, Epoch and NEAR round trips to the mainnet nightly, recycling existing principal under one $2 loss/fee cap with original-authority recovery, exact upload gates and loops-only qualification. Public NEAR configuration remains unchanged.
+- [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
 - [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).
 - [FIX][all] Off mobile the recovery phrase stays hidden until Show is pressed and hides again when the window loses focus, the desktop window is kept out of screen captures while secret material is on screen, and new wallet and backup-file passwords need at least 12 characters (existing passwords still unlock).
