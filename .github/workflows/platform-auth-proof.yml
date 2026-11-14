@@ -5,233 +5,67 @@ on:
 permissions:
   contents: read
 jobs:
-  native-windows-preflight:
-    runs-on: windows-11-arm
-    timeout-minutes: 5
+  native-wallet-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Prepare disposable desktop privacy and inspect native PIN setup
-        shell: powershell
+      - uses: actions/checkout@v4
+        with:
+          ref: 35add7dbebd615fd57332f7ad802525dd0c131b4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify frozen product source
+        run: test "$(git rev-parse HEAD)" = 35add7dbebd615fd57332f7ad802525dd0c131b4
+      - name: Check the existing production eligibility endpoint
+        env:
+          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
+          FEATURE_ELIGIBILITY_NETWORKS: '["testnet"]'
+          FEATURE_ELIGIBILITY_ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
+        run: node services/feature-eligibility/check-deployment.mjs
+      - name: Install frozen dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build the real testnet Chrome wallet
+        env:
+          MODE_ENV: production
+          NODE_ENV: production
+          MIDEN_NETWORK: testnet
+          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
+        run: yarn build:chrome
+      - name: Verify and bind the candidate bytes
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          Add-Type -TypeDefinition @'
-          using System;
-          using System.Runtime.InteropServices;
-          public static class NativeHelloPreflight {
-            [DllImport("webauthn.dll", ExactSpelling = true)]
-            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-            public static extern uint WebAuthNGetApiVersionNumber();
-            [DllImport("webauthn.dll", ExactSpelling = true)]
-            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-            public static extern int WebAuthNIsUserVerifyingPlatformAuthenticatorAvailable(
-              [MarshalAs(UnmanagedType.Bool)] out bool available);
-            [DllImport("user32.dll", ExactSpelling = true)]
-            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool SetCursorPos(int x, int y);
-            [DllImport("user32.dll", EntryPoint = "mouse_event", ExactSpelling = true)]
-            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-            public static extern void MouseEvent(uint flags, uint x, uint y, uint data, UIntPtr extra);
-            [DllImport("user32.dll", ExactSpelling = true)]
-            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-            public static extern IntPtr GetForegroundWindow();
-            [DllImport("user32.dll", ExactSpelling = true)]
-            [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool SetForegroundWindow(IntPtr window);
-          }
-          '@
-          $os = Get-CimInstance Win32_OperatingSystem
-          if ($os.Caption -notmatch 'Windows 11') { throw 'This probe requires actual Windows 11, not Server or simulated OS evidence' }
-          $version = [NativeHelloPreflight]::WebAuthNGetApiVersionNumber()
-          if ($version -lt 1) { throw 'Native WebAuthn API version unavailable' }
-          [bool]$available = $false
-          $hr = [NativeHelloPreflight]::WebAuthNIsUserVerifyingPlatformAuthenticatorAvailable([ref]$available)
-          if ($hr -ne 0) { throw ('Native availability query failed: 0x{0:X8}' -f $hr) }
-          $tpm = $null
-          $tpmQueryError = $null
-          try {
-            $state = Get-Tpm
-            $tpm = @{ present = [bool]$state.TpmPresent; ready = [bool]$state.TpmReady; enabled = [bool]$state.TpmEnabled; activated = [bool]$state.TpmActivated }
-          } catch {
-            $tpmQueryError = $_.Exception.GetType().Name
-          }
-          $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-          $evidence = [ordered]@{
-            purpose = 'Native Windows setup feasibility; no credential input or unlock qualification'
-            qualification = 'NOT RUN: no PIN, credential creation, PRF, wallet unlock or OS restart test'
-            productSource = '35add7dbebd615fd57332f7ad802525dd0c131b4'
-            proofSource = $env:GITHUB_SHA
-            osCaption = $os.Caption
-            osVersion = $os.Version
-            architecture = $env:PROCESSOR_ARCHITECTURE
-            processSession = [Diagnostics.Process]::GetCurrentProcess().SessionId
-            sessionName = $env:SESSIONNAME
-            nativeApiVersion = $version
-            nativeApiCalls = 2
-            platformAuthenticatorAvailable = $available
-            tpm = $tpm
-            tpmQueryError = $tpmQueryError
-            chromeVersion = $(if ($chrome) { (Get-Item $chrome).VersionInfo.ProductVersion } else { $null })
-          }
-          $ui = [ordered]@{ status = 'not-started'; pinExpanderFound = $false; observedControls = @() }
-          try {
-            Add-Type -AssemblyName UIAutomationClient
-            Add-Type -AssemblyName UIAutomationTypes
-            Start-Process 'ms-settings:signinoptions'
-            $privacy = [ordered]@{ pagesHandled = 0; status = 'not-observed' }
-            $ui['firstLoginPrivacy'] = $privacy
-            $privacyDeadline = [DateTime]::UtcNow.AddSeconds(30)
-            for ($page = 0; $page -lt 4; $page++) {
-              do {
-                $isPrivacy = $false
-                $topWindows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.Condition]::TrueCondition)
-                $ui['topWindows'] = @($topWindows | ForEach-Object { $_.Current.Name })
-                foreach ($front in $topWindows) {
-                  $nodes = $front.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
-                  foreach ($node in $nodes) { if ($node.Current.Name -like '*Choose privacy settings for your device*') { $isPrivacy = $true; break } }
-                  if ($isPrivacy) { break }
-                }
-                if (-not $isPrivacy) { Start-Sleep -Milliseconds 300 }
-              } while (-not $isPrivacy -and [DateTime]::UtcNow -lt $privacyDeadline)
-              if (-not $isPrivacy) { break }
-              $privacyDeadline = [DateTime]::UtcNow.AddSeconds(8)
-              $privacy.status = 'privacy-wizard-observed'
-              foreach ($node in $nodes) {
-                $toggle = $null
-                if ($node.Current.IsEnabled -and -not $node.Current.IsOffscreen -and $node.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
-                  if ($toggle.Current.ToggleState -eq [Windows.Automation.ToggleState]::On) { $toggle.Toggle() }
-                }
-              }
-              $button = $null
-              foreach ($node in $nodes) {
-                if ($node.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and $node.Current.IsEnabled -and -not $node.Current.IsOffscreen -and $node.Current.Name -in @('Accept', 'Next')) { $button = $node; break }
-              }
-              if (-not $button) { $privacy.status = 'privacy-navigation-unavailable'; break }
-              $action = $null
-              if (-not $button.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$action)) { $privacy.status = 'privacy-button-pattern-unavailable'; break }
-              $accepting = $button.Current.Name -eq 'Accept'
-              $action.Invoke()
-              $privacy.pagesHandled += 1
-              $until = [DateTime]::UtcNow.AddSeconds(3)
-              while ([DateTime]::UtcNow -lt $until) {
-                try { if (-not $button.Current.IsEnabled -or $button.Current.IsOffscreen) { break } }
-                catch [System.Windows.Automation.ElementNotAvailableException] { break }
-                Start-Sleep -Milliseconds 200
-              }
-              if ($accepting) { $privacy.status = 'privacy-selection-accepted'; break }
-            }
-            $ui['firstLoginPrivacy'] = $privacy
-            Start-Process 'ms-settings:signinoptions'
-            $deadline = [DateTime]::UtcNow.AddSeconds(30)
-            $window = $null
-            do {
-              $windows = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.Condition]::TrueCondition)
-              foreach ($candidate in $windows) {
-                if ($candidate.Current.Name -match '^(Settings|Sign-in options)$') { $window = $candidate; break }
-              }
-              if (-not $window) { Start-Sleep -Milliseconds 500 }
-            } while (-not $window -and [DateTime]::UtcNow -lt $deadline)
-            if ($window) {
-              $pinDeadline = [DateTime]::UtcNow.AddSeconds(20)
-              do {
-                $controls = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
-                $pinReady = $false
-                foreach ($candidate in $controls) { if ($candidate.Current.Name -eq 'PIN (Windows Hello)') { $pinReady = $true; break } }
-                if (-not $pinReady) { Start-Sleep -Milliseconds 300 }
-              } while (-not $pinReady -and [DateTime]::UtcNow -lt $pinDeadline)
-              if (-not $pinReady) { throw 'PIN controls never became ready' }
-              foreach ($element in $controls) {
-                if ($element.Current.Name -match 'PIN.*Windows Hello') {
-                  $ui.pinExpanderFound = $true
-                  $ui['pinSupportedPatterns'] = @($element.GetSupportedPatterns() | ForEach-Object { $_.ProgrammaticName })
-                  $pattern = $null
-                  if ($element.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) {
-                    $ui['pinPattern'] = 'ExpandCollapse'
-                    $pattern.Expand()
-                  } elseif ($element.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
-                    $ui['pinPattern'] = 'Invoke'
-                    $pattern.Invoke()
-                  } else {
-                    $clickTarget = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SystemSettings_Users_EnrollmentPIN_EntityItem')))
-                    if (-not $clickTarget -or -not $clickTarget.Current.IsEnabled -or $clickTarget.Current.IsOffscreen -or $clickTarget.Current.Name -ne 'PIN (Windows Hello)') { throw 'Exact visible PIN settings target unavailable' }
-                    $targetWindow = [IntPtr]$window.Current.NativeWindowHandle
-                    $focused = [NativeHelloPreflight]::SetForegroundWindow($targetWindow)
-                    if ([NativeHelloPreflight]::GetForegroundWindow() -ne $targetWindow) { throw 'Settings is covered by another foreground window; no native click allowed' }
-                    $point = $clickTarget.GetClickablePoint()
-                    if (-not [NativeHelloPreflight]::SetCursorPos([int]$point.X, [int]$point.Y)) { throw 'Native cursor placement unavailable' }
-                    [NativeHelloPreflight]::MouseEvent(2, 0, 0, 0, [UIntPtr]::Zero)
-                    [NativeHelloPreflight]::MouseEvent(4, 0, 0, 0, [UIntPtr]::Zero)
-                    $ui['pinPattern'] = 'Native mouse click on exact PIN group'
-                  }
-                  break
-                }
-              }
-              $setupDeadline = [DateTime]::UtcNow.AddSeconds(10)
-              $setupAvailable = $false
-              do {
-                $pinGroup = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SystemSettings_Users_EnrollmentPIN_EntityItem')))
-                if ($pinGroup) {
-                  $pinControls = $pinGroup.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
-                  foreach ($item in $pinControls) {
-                    if ($item.Current.Name -eq 'Set up' -and $item.Current.IsEnabled) { $setupAvailable = $true; break }
-                  }
-                }
-                if (-not $setupAvailable) { Start-Sleep -Milliseconds 500 }
-              } while (-not $setupAvailable -and [DateTime]::UtcNow -lt $setupDeadline)
-              $ui['pinSetupAvailable'] = $setupAvailable
-              $controls = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
-              $rows = @()
-              foreach ($element in $controls) {
-                $label = $element.Current.Name
-                if ($label -match 'PIN|Hello|sign.in|password|Set up|unavailable|organization|administrator') {
-                  $rows += @{ type = $element.Current.ControlType.ProgrammaticName; automationId = $element.Current.AutomationId; name = $label; enabled = $element.Current.IsEnabled; offscreen = $element.Current.IsOffscreen }
-                }
-              }
-              $ui.status = 'settings-controls-observed'
-              $ui.observedControls = $rows | Select-Object -First 60
-            } else {
-              $ui.status = 'settings-window-not-observed'
-            }
-          } catch {
-            $ui.status = 'settings-query-failed'
-            $ui['errorType'] = $_.Exception.GetType().Name
-            $ui['errorMessage'] = $_.Exception.Message
-          }
-          $evidence['settingsUi'] = $ui
-          $evidence['credentialWrites'] = 0
-          try {
-            Add-Type -AssemblyName System.Windows.Forms
-            Add-Type -AssemblyName System.Drawing
-            $bounds = [Windows.Forms.Screen]::PrimaryScreen.Bounds
-            $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
-            $graphics = [Drawing.Graphics]::FromImage($bitmap)
-            $graphics.CopyFromScreen($bounds.Location, [Drawing.Point]::Empty, $bounds.Size)
-            $factor = [Math]::Min(1.0, 1800.0 / [Math]::Max($bounds.Width, $bounds.Height))
-            $size = [System.Drawing.Size]::new([int]($bounds.Width * $factor), [int]($bounds.Height * $factor))
-            $small = [System.Drawing.Bitmap]::new($bitmap, $size)
-            if ([Math]::Max($small.Width, $small.Height) -gt 1800) { throw 'Screenshot exceeds ceiling' }
-            $small.Save("$env:RUNNER_TEMP/native-settings-no-secret-input.png", [Drawing.Imaging.ImageFormat]::Png)
-            $small.Dispose()
-            $graphics.Dispose()
-            $bitmap.Dispose()
-            $evidence['clearedScreenshot'] = 'Captured before any password/PIN/PRF input, max long side 1800'
-          } catch {
-            $evidence['screenshotErrorType'] = $_.Exception.GetType().Name
-          }
-          $json = $evidence | ConvertTo-Json -Depth 7
-          $json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/native-windows-preflight.json"
-          Write-Output $json
-          @"
-          ## Native Windows environment preflight
-          - Two actual native API calls completed on $($os.Caption).
-          - Platform authenticator available: $available
-          - **Native Hello/PIN/PRF/wallet/restart qualification: NOT RUN.**
-          - A green measurement job is not a passing Windows Hello release gate.
-          "@ | Add-Content $env:GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          test -s dist/chrome.zip
+          test -s dist/chrome_unpacked/manifest.json
+          unzip -t dist/chrome.zip
+          mkdir native-candidate
+          cp dist/chrome.zip native-candidate/wallet-testnet.zip
+          sha256sum native-candidate/wallet-testnet.zip | tee native-candidate/SHA256SUMS
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const path = 'native-candidate/wallet-testnet.zip';
+          const manifest = JSON.parse(readFileSync('dist/chrome_unpacked/manifest.json', 'utf8'));
+          if (manifest.manifest_version !== 3) throw new Error('Expected actual MV3 Chrome extension');
+          const record = {
+            purpose: 'Disposable native qualification candidate; not a release or passing native test',
+            productSource: '35add7dbebd615fd57332f7ad802525dd0c131b4',
+            workflowSource: process.env.GITHUB_SHA,
+            runId: process.env.GITHUB_RUN_ID,
+            network: 'testnet',
+            mode: 'production',
+            mockClient: false,
+            virtualAuthenticator: false,
+            extensionVersion: manifest.version,
+            sha256: createHash('sha256').update(readFileSync(path)).digest('hex')
+          };
+          writeFileSync('native-candidate/source.json', JSON.stringify(record, null, 2));
+          console.log(JSON.stringify(record));
+          NODE
       - uses: actions/upload-artifact@v4
         with:
-          name: native-windows-environment-preflight
-          path: |
-            ${{ runner.temp }}/native-windows-preflight.json
-            ${{ runner.temp }}/native-settings-no-secret-input.png
+          name: native-wallet-35add7dbe
+          path: native-candidate/
+          retention-days: 3
           if-no-files-found: error
