@@ -1,3 +1,4 @@
+import { simulatedBytesToView } from 'app/confirm/decode';
 import {
   abandonQuarantineAttempt,
   beginQuarantineAttempt,
@@ -40,8 +41,8 @@ export interface SimulateCustomTxResult {
   /** Human-oriented error message when the dry run could not be produced. */
   error?: string;
   /**
-   * The carried notes this request brought in, as opposed to notes the synced wallet already held, by the provenance
-   * check inside `simulateCustomTransaction`; lowercased. Set on both successful results. The approval credits only
+   * Notes this request brought in, lowercased: carried notes the synced wallet did not already hold, and notes
+   * embedded in the request that the store does not hold. Set on both successful results. The approval credits only
    * these consumed notes, so every other one is value the account spends.
    */
   introducedNoteIds?: string[];
@@ -95,10 +96,30 @@ async function idsNotAlreadyHeld(
 }
 
 /**
+ * Ids of the notes a dry run consumed. `{ error }` when that list cannot be read. A `WebAssembly.RuntimeError` is
+ * rethrown so the lock retires the client. `TransactionRequest` has no input-note accessor, so a note embedded in
+ * the request shows up only here.
+ */
+function consumedNoteIds(dryRun: {
+  summaryBytes?: string;
+  executedBytes?: string;
+}): { ids: string[] } | { error: string } {
+  try {
+    const notes = simulatedBytesToView(dryRun)?.viewConsumedNotes;
+    if (!notes) return { error: 'the view does not list the notes it consumes' };
+    return { ids: notes.map(note => note.id) };
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
  * Locally executes a custom transaction to derive its ground truth WITHOUT
  * proving or submitting: a dry run. Syncs, judges against the synced client
  * which carried notes the request introduced, imports those, and syncs again
- * after an import so execution can resolve its inputs.
+ * after an import so execution can resolve its inputs. The dry run writes
+ * nothing; notes the request embedded are judged after it returns.
  *
  * Returns `summaryBytes` (a TransactionSummary) when authorization is still
  * pending — a guardian/multisig account below its signing threshold — and
@@ -218,8 +239,22 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         );
         assertWasmHoldCurrent(hold, 'after custom request preparation');
         // The same dry run that the generation check of the queued row executes, so the two decode identically.
+        // It applies nothing: an input note embedded in the request is still absent from the store, and
+        // `TransactionRequest` has no accessor for it. After the hold check, judge every consumed id the carried
+        // set does not already name (case-insensitively). One the store does not hold was brought in; one it holds
+        // is the user's own. A carried id is not looked up again (the import above would make it look held), and
+        // an embedded id is not imported or quarantined, because it was never written to the store.
         const dryRun = await dryRunPreparedCustomRequest(client.client, accountIdHex, preparedBytes, hold);
-        return { ...dryRun, introducedNoteIds: introducedIds.map(id => id.toLowerCase()) };
+        assertWasmHoldCurrent(hold, 'after the dry run');
+        const consumed = consumedNoteIds(dryRun);
+        if ('error' in consumed) return consumed;
+        const carried = new Set(carriedIds.map(id => id.toLowerCase()));
+        const embeddedIds = consumed.ids.filter(id => !carried.has(id.toLowerCase()));
+        const embeddedIntroduced = await idsNotAlreadyHeld(client, embeddedIds, hold);
+        return {
+          ...dryRun,
+          introducedNoteIds: [...introducedIds, ...embeddedIntroduced].map(id => id.toLowerCase())
+        };
       });
     } catch (e: any) {
       // An abandonment is reported as an interruption, not as its internal

@@ -12,6 +12,10 @@ const syncState = jest.fn(async () => undefined);
 // Provenance lookup: `null` = the wallet does NOT already hold this note, so the
 // dry run is the thing introducing it. Defaults to "not held" for every id.
 const getInputNote = jest.fn(async (_id: string): Promise<unknown> => null);
+// These bytes are not a real summary. A real decode would turn every success into `{ error }`.
+const mockSimulatedBytesToView = jest.fn((): { viewConsumedNotes?: { id: string }[] } | undefined => ({
+  viewConsumedNotes: []
+}));
 const executeRequest = jest.fn(async () => ({ result: { serialize: () => new Uint8Array([9, 9]) } }));
 const fakeClient = { transactions: { executeRequest } };
 const getMidenClient = jest.fn(async () => ({ client: fakeClient, importNoteBytes, syncState, getInputNote }));
@@ -110,10 +114,18 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   executeForSummaryAtTip: jest.fn(async () => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
 }));
+// Lazy closure: this factory runs before `mockSimulatedBytesToView` is initialized.
+jest.mock('app/confirm/decode', () => ({
+  simulatedBytesToView: (result: { summaryBytes?: string; executedBytes?: string }) => mockSimulatedBytesToView(result)
+}));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length])),
   u8ToB64: jest.fn((u: Uint8Array) => `b64:${Array.from(u).join('-')}`)
 }));
+
+beforeEach(() => {
+  mockSimulatedBytesToView.mockReset().mockImplementation(() => ({ viewConsumedNotes: [] }));
+});
 
 describe('simulateCustomTransaction', () => {
   beforeEach(() => {
@@ -736,6 +748,109 @@ describe('introduced-note provenance', () => {
     await simulateCustomTransaction({ address: 'mtst1sender', transactionRequest: 'reqB64', importNotes: ['noteA'] });
 
     expect(syncState.mock.invocationCallOrder[0]).toBeLessThan(getInputNote.mock.invocationCallOrder[0]!);
+  });
+
+  it.each([
+    ['a summary', false],
+    ['an executed result', true]
+  ] as const)(
+    'counts a consumed note embedded in the request that the wallet does not hold, on %s',
+    async (_label, executed) => {
+      mockSimulatedBytesToView.mockReturnValueOnce({
+        viewConsumedNotes: [{ id: 'id:notea' }, { id: 'id:embedded' }]
+      });
+      if (executed) {
+        (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(
+          Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })
+        );
+      }
+
+      const result = await simulateCustomTransaction({
+        address: 'mtst1sender',
+        transactionRequest: 'reqB64',
+        importNotes: ['noteA']
+      });
+
+      expect(result).toEqual({
+        ...(executed ? { executedBytes: 'b64:9-9' } : { summaryBytes: 'b64:1-2-3' }),
+        introducedNoteIds: ['id:notea', 'id:embedded']
+      });
+      const embeddedCall = getInputNote.mock.calls.findIndex(([id]) => id === 'id:embedded');
+      expect(embeddedCall).toBeGreaterThanOrEqual(0);
+      expect(jest.mocked(executeForSummaryAtTip).mock.invocationCallOrder[0]).toBeLessThan(
+        getInputNote.mock.invocationCallOrder[embeddedCall]!
+      );
+      expect(importNoteBytes).toHaveBeenCalledTimes(1);
+      expect(importNoteBytes).toHaveBeenCalledWith(new Uint8Array(['noteA'.length]), expect.anything());
+      expect(quarantineNoteIds).toHaveBeenCalledTimes(1);
+      expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteA'], expect.objectContaining({ abandoned: false }));
+      // The carried id was already judged, before its import. The consumed spelling is not looked up again.
+      expect(getInputNote).not.toHaveBeenCalledWith('id:notea');
+    }
+  );
+
+  it('leaves out an embedded note the wallet already holds', async () => {
+    mockSimulatedBytesToView.mockReturnValueOnce({ viewConsumedNotes: [{ id: 'id:embedded' }] });
+    getInputNote.mockImplementation(async (id: string) => (id === 'id:embedded' ? { alreadyHere: true } : null));
+
+    await expect(simulateCustomTransaction({ address: 'mtst1sender', transactionRequest: 'reqB64' })).resolves.toEqual({
+      summaryBytes: 'b64:1-2-3',
+      introducedNoteIds: []
+    });
+    expect(importNoteBytes).not.toHaveBeenCalled();
+    expect(quarantineNoteIds).toHaveBeenCalledWith([], expect.objectContaining({ abandoned: false }));
+  });
+
+  it('keeps a carried note introduced when the store holds it only after the import', async () => {
+    mockSimulatedBytesToView.mockReturnValueOnce({ viewConsumedNotes: [{ id: 'id:notea' }] });
+    getInputNote.mockImplementation(async (id: string) =>
+      importNoteBytes.mock.calls.length > 0 && id.toLowerCase() === 'id:notea' ? { alreadyHere: true } : null
+    );
+
+    const result = await simulateCustomTransaction({
+      address: 'mtst1sender',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA']
+    });
+
+    expect(result).toEqual({ summaryBytes: 'b64:1-2-3', introducedNoteIds: ['id:notea'] });
+    expect(getInputNote.mock.calls.map(([id]) => id)).toEqual(['id:noteA']);
+    expect(getInputNote.mock.invocationCallOrder[0]).toBeLessThan(importNoteBytes.mock.invocationCallOrder[0]!);
+  });
+
+  it('returns { error } and no introduced ids when the consumed notes cannot be read', async () => {
+    mockSimulatedBytesToView.mockReturnValueOnce({});
+
+    await expect(
+      simulateCustomTransaction({
+        address: 'mtst1sender',
+        transactionRequest: 'reqB64',
+        importNotes: ['noteA']
+      })
+    ).resolves.toEqual({ error: 'the view does not list the notes it consumes' });
+  });
+
+  it('returns the decode failure and no introduced ids when the consumed notes throw', async () => {
+    mockSimulatedBytesToView.mockImplementationOnce(() => {
+      throw new Error('not a summary');
+    });
+
+    await expect(simulateCustomTransaction({ address: 'mtst1sender', transactionRequest: 'reqB64' })).resolves.toEqual({
+      error: 'not a summary'
+    });
+    expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+  });
+
+  it('lets a trap while reading consumed notes reach the lock', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockSimulatedBytesToView.mockImplementationOnce(() => {
+      throw trap;
+    });
+
+    await expect(simulateCustomTransaction({ address: 'mtst1sender', transactionRequest: 'reqB64' })).resolves.toEqual({
+      error: 'unreachable'
+    });
+    expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
   });
 
   it('returns the introduced ids with an executed result too', async () => {
