@@ -9,11 +9,9 @@ type AnsweredTrapRetirement = (trap: WebAssembly.RuntimeError) => void;
 let installed: AnsweredTrapRetirement | undefined;
 
 /**
- * Landings already retired for. One landed result is often read by several answering readers, each read throwing a
- * new trap, and every retire after the first would take the client its successor built in between. A reader that
- * decodes a new result on every call keys its landing by transaction id instead.
+ * Wallet row ids already retired for. The completion and the later dApp waiter share that one id, and the waiter's
+ * new result and new trap do not retire the successor.
  */
-const retiredResults = new WeakSet<object>();
 const retiredTransactionIds = new Set<string>();
 
 /** Install the realm's retirement; the returned restore puts the previous one back while `retire` is still current. */
@@ -26,14 +24,9 @@ export function installAnsweredTrapRetirement(retire: AnsweredTrapRetirement): (
 }
 
 /** Retire the client for `error` when it is a trap, once per `landing`; anything else is the caller's to answer. */
-export function retireAnsweredTrap(error: unknown, landing: object | string): void {
+export function retireAnsweredTrap(error: unknown, landing: string): void {
   if (typeof WebAssembly === 'undefined' || !(error instanceof WebAssembly.RuntimeError)) return;
-  if (typeof landing === 'string') {
-    if (retiredTransactionIds.has(landing)) return;
-    retiredTransactionIds.add(landing);
-  } else {
-    if (retiredResults.has(landing)) return;
-    retiredResults.add(landing);
-  }
+  if (retiredTransactionIds.has(landing)) return;
+  retiredTransactionIds.add(landing);
   installed?.(error);
 }

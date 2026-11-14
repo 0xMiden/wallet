@@ -98,7 +98,7 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
   let displayIcon = transaction.displayIcon;
   let secondaryAccountId = transaction.secondaryAccountId;
   const inputNotes = result.executedTransaction().inputNotes().notes();
-  const { userNotes: userOutputNotes } = splitLandedOutputNotes(result);
+  const { userNotes: userOutputNotes } = splitLandedOutputNotes(result, transaction.id);
 
   // Both totals ACCUMULATE across notes, and both faucet sets are deduped across
   // the whole loop (not per note). A custom (`execute`) transaction can consume or

@@ -1450,7 +1450,7 @@ describe('poisoned client recovery', () => {
     // read a different instance than the one the lock module bumps.
     let poison!: { wasmClientGeneration: () => number };
     // The lock module installs its retirement into this registry's leaf, so the test reaches it through the same one.
-    let leaf!: { retireAnsweredTrap: (error: unknown, landing: object | string) => void };
+    let leaf!: { retireAnsweredTrap: (error: unknown, landing: string) => void };
     await jest.isolateModulesAsync(async () => {
       mod = require('./miden-client');
       poison = require('./wasm-client-poison');
@@ -2030,9 +2030,10 @@ describe('poisoned client recovery', () => {
     const trap = new WebAssembly.RuntimeError('unreachable');
     await mod.getMidenClient();
 
-    leaf.retireAnsweredTrap(trap, {});
-    leaf.retireAnsweredTrap(trap, {});
-    leaf.retireAnsweredTrap(new Error('an ordinary failure'), {});
+    // The second row passes the leaf, so the client module's own per-trap guard is what holds this to one retire.
+    leaf.retireAnsweredTrap(trap, 'row');
+    leaf.retireAnsweredTrap(trap, 'row-2');
+    leaf.retireAnsweredTrap(new Error('an ordinary failure'), 'row-3');
     await jest.advanceTimersByTimeAsync(0);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(free).toHaveBeenCalledTimes(1);
@@ -2057,7 +2058,7 @@ describe('poisoned client recovery', () => {
     });
     await jest.advanceTimersByTimeAsync(0);
 
-    leaf.retireAnsweredTrap(trap, {});
+    leaf.retireAnsweredTrap(trap, 'row');
     expect(markPoisoned).toHaveBeenCalledTimes(1);
     expect(free).not.toHaveBeenCalled();
 

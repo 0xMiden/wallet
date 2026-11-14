@@ -661,9 +661,9 @@ export function retireWasmClientForUnheldTrap(cause: unknown): void {
  *
  * It takes and compares no hold: none caught this trap, so a current holder is a retainer, never the catcher,
  * and nothing is evicted. The recovery cooldown is neither consulted nor stamped: the trap is the reader's own
- * synchronous call, and the per-result dedupe bounds it. With a current or yielded holder the client is poisoned
- * in place and freed once they settle; with neither it is disposed at once, as the no-holder recovery does. Note
- * records are standalone objects, so the reader keeps reading them.
+ * synchronous call, and the leaf's once-per-row-id dedupe bounds it. With a current or yielded holder the client
+ * is poisoned in place and freed once they settle; with neither it is disposed at once, as the no-holder recovery
+ * does. Note records are standalone objects, so the reader keeps reading them.
  */
 export function retireWasmClientForAnsweredTrap(cause: unknown): void {
   if (wasRetiredForCaughtTrap(cause)) return;

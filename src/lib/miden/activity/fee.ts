@@ -30,7 +30,7 @@ export type { UserOutputNote, FeePaid } from './fee-notes';
  * plausible `undefined` and let the caller run its NEXT WASM read on the same evicted
  * client -- the double borrow the poison contract exists to prevent.
  */
-export function feePaidFromResult(result: TransactionResult): FeePaid | undefined {
+export function feePaidFromResult(result: TransactionResult, landing: string): FeePaid | undefined {
   try {
     const { feeNote } = splitExecutedOutputNotes(result.executedTransaction());
     if (!feeNote) {
@@ -52,7 +52,7 @@ export function feePaidFromResult(result: TransactionResult): FeePaid | undefine
     if (isWasmClientPoisonedError(err)) {
       throw err;
     }
-    retireAnsweredTrap(err, result);
+    retireAnsweredTrap(err, landing);
     return undefined;
   }
 }
@@ -64,14 +64,17 @@ export function feePaidFromResult(result: TransactionResult): FeePaid | undefine
  * paid: these spread into a partial update that `Object.assign`s over the stored
  * row, so writing explicit undefineds would erase whatever is already there.
  */
-export function feeFieldsFromResult(result: TransactionResult | undefined): {
+export function feeFieldsFromResult(
+  result: TransactionResult | undefined,
+  landing: string
+): {
   feeAmount?: bigint;
   feeFaucetId?: string;
 } {
   if (!result) {
     return {};
   }
-  const paid = feePaidFromResult(result);
+  const paid = feePaidFromResult(result, landing);
   return paid ? { feeAmount: paid.amount, feeFaucetId: paid.faucetId } : {};
 }
 

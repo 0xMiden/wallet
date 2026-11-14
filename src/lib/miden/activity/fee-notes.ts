@@ -202,14 +202,14 @@ export function splitExecutedOutputNotes(
 /**
  * {@link splitExecutedOutputNotes} for a reader past submit and outside any hold. A fee-check
  * `WebAssembly.RuntimeError` identifies no fee note, as an unknown fee does, keeps every note a user note with no
- * further WASM call, and retires the realm client once per landed result through `lib/miden/sdk/caught-trap-retirement`
+ * further WASM call, and retires the realm client once per wallet row id through `lib/miden/sdk/caught-trap-retirement`
  * before that answer returns. `feePaidFromResult` does the same for its own fee-check trap. The landed row is still
  * recorded completed. A kill, and a trap from `executedTransaction()` or the output-note read, still propagate with
  * no retire.
  */
 export function splitLandedOutputNotes(
   result: { executedTransaction: () => ExecutedOutputs },
-  landing: object | string = result
+  landing: string
 ): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
