@@ -29,6 +29,7 @@ for (const headless of [true, false]) {
   try {
     context = await chromium.launchPersistentContext(profile, {
       headless,
+      channel: 'chromium',
       chromiumSandbox: true,
       args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
       ignoreDefaultArgs: ['--disable-extensions', '--use-mock-keychain', '--password-store=basic']
