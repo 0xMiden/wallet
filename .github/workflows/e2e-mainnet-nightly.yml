@@ -108,6 +108,10 @@ jobs:
       - name: Install dependencies (linked PRs injected)
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
+      - name: Build read-only Epoch SDK
+        run: |
+          yarn esbuild scripts/helpers/mainnet-epoch-readonly-sdk.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs
+          node -e "const sdk=require('./node_modules/.cache/nightly-epoch-readonly-sdk.cjs'); for (const name of ['createLockTag','getAllocatorId','getTaskData','getIntentQuote','getCompactData','getMidenCollateralConfig','getIntentStatus','resolveServiceConfiguration','resolveCompactAddress']) if (typeof sdk[name] !== 'function') throw new Error('Missing read-only Epoch SDK export: '+name);"
       - name: Find prior swap checkpoint
         id: swap-prior
         env:
