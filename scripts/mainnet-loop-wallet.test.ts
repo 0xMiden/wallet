@@ -11,7 +11,8 @@ jest.mock('../playwright/e2e/helpers/mainnet-consume-authorization', () => ({
 const events: string[] = [];
 const recover = jest.fn();
 const sync = jest.fn();
-const wallet = { recoverGuardianFromHotKey: recover, triggerSync: sync };
+const refresh = jest.fn();
+const wallet = { recoverGuardianFromHotKey: recover, triggerSync: sync, refreshBalancesLanded: refresh };
 beforeEach(() => {
   jest.clearAllMocks();
   events.length = 0;
@@ -30,6 +31,9 @@ beforeEach(() => {
   sync.mockImplementation(async () => {
     events.push('sync');
   });
+  refresh.mockImplementation(async () => {
+    events.push('balances-landed');
+  });
 });
 const restore = (key = ' existing-test-pair ') => restoreMainnetLoopGuardian(wallet as GuardianAwareWalletPage, key);
 it('disables and awaits native auto-claim mirrors BEFORE restoring and syncing the existing funded actor', async () => {
@@ -42,8 +46,34 @@ it('disables and awaits native auto-claim mirrors BEFORE restoring and syncing t
     'disable-native-auto-claim',
     'restore-existing-actor',
     'block-sdk-claim',
-    'sync'
+    'sync',
+    'balances-landed'
   ]);
+  expect(refresh).toHaveBeenCalledWith(90_000);
+});
+it('does not expose the restored wallet until its balance projection has landed', async () => {
+  let land: (() => void) | undefined;
+  refresh.mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        land = resolve;
+      })
+  );
+  let ready = false;
+  const pending = restore().then(() => {
+    ready = true;
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  expect(sync).toHaveBeenCalledWith(true);
+  expect(ready).toBe(false);
+  expect(land).toBeDefined();
+  land!();
+  await pending;
+  expect(ready).toBe(true);
+});
+it('propagates a non-landing balance instead of planning against an empty projection', async () => {
+  refresh.mockRejectedValue(new Error('balance snapshot did not land'));
+  await expect(restore()).rejects.toThrow('balance snapshot did not land');
 });
 it('does not restore or sync when the deny-all SDK barrier cannot be installed', async () => {
   jest.mocked(blockMainnetConsumeAuthorization).mockRejectedValue(new Error('SDK barrier unavailable'));

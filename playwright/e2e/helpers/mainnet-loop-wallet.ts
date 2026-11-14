@@ -9,4 +9,5 @@ export async function restoreMainnetLoopGuardian(wallet: GuardianAwareWalletPage
   await wallet.recoverGuardianFromHotKey(keyPair.trim());
   await blockMainnetConsumeAuthorization(wallet.page);
   await wallet.triggerSync(true);
+  await wallet.refreshBalancesLanded(90_000);
 }
