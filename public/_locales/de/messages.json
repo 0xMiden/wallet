@@ -5562,6 +5562,10 @@
     "message": "Informationen zum Token",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "Zusammensetzung",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "Beschreibung",
     "englishSource": "Description"

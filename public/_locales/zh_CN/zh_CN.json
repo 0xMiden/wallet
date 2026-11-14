@@ -1239,6 +1239,7 @@
   "invalidAmount": "金额无效",
   "tokenPrice": "代币价格",
   "tokenInfo": "代币信息",
+  "basketComposition": "成分",
   "tokenDescription": "描述",
   "fungible": "可互换的",
   "network": "网络",

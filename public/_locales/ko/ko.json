@@ -1239,6 +1239,7 @@
   "invalidAmount": "잘못된 금액",
   "tokenPrice": "토큰 가격",
   "tokenInfo": "토큰 정보",
+  "basketComposition": "구성",
   "tokenDescription": "설명",
   "fungible": "대체 가능",
   "network": "네트워크",

@@ -6,16 +6,23 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getBridgeConfigSnapshot, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
-import { loadTokenPriceAssets, peekTokenPriceAssets } from 'lib/token-list/runtime';
+import {
+  loadTokenPriceAssets,
+  peekTokenBaskets,
+  peekTokenDecimals,
+  peekTokenPriceAssets,
+  peekTokenSymbols
+} from 'lib/token-list/runtime';
 import { useLoadedList } from 'lib/token-list/useLoadedList';
 
+import { basketPriceSources, fetchBasketPrices } from './basket-nav';
 import type { Timeframe } from './binance';
-import { fetchKlineData, fetchTokenPrices } from './feed';
+import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket } from './feed';
 import { writeUsdPriceCache } from './usd';
 
 export { listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
 export { fetchKlineData } from './feed';
-export type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
+export type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
 
 /**
  * useTokenSparkline — close prices over the given timeframe for a single symbol.
@@ -58,7 +65,20 @@ export function PriceProvider() {
     isLoading: pricesLoading
   } = useRetryableSWR(
     enabled ? ['token-prices', network, assetKey] : null,
-    async () => ({ network, assetKey, prices: await fetchTokenPrices(symbols) }),
+    async () => {
+      const prices = await fetchTokenPrices(symbols);
+      // After the feed, which is what rules a market out and prices the constituents: a basket's value never stands
+      // in for an exchange's price.
+      const sources = basketPriceSources(
+        peekTokenBaskets(network),
+        assets,
+        peekTokenDecimals(network),
+        hasNoUsdMarket,
+        peekTokenSymbols(network)
+      );
+      const basketPrices = sources.length > 0 ? await fetchBasketPrices(sources, prices) : {};
+      return { network, assetKey, prices, basketPrices };
+    },
     { refreshInterval: 5 * 60_000, dedupingInterval: 30_000, keepPreviousData: false }
   );
 
@@ -72,9 +92,10 @@ export function PriceProvider() {
 
   useEffect(() => {
     if (enabled && prices?.network === network && prices.assetKey === assetKey) {
-      setTokenPrices(prices.prices);
+      setTokenPrices({ ...prices.basketPrices, ...prices.prices });
       // The enforcement path runs in the backend realm and cannot see this store. Writing through
       // is what keeps the cache warm enough that the backend rarely fetches on the send path.
+      // Exchange quotes only: a basket's value is for display and never values a spend.
       writeUsdPriceCache(prices.prices).catch(() => undefined);
     }
   }, [enabled, network, assetKey, prices, setTokenPrices]);

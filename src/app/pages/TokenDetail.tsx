@@ -12,6 +12,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
+import { BasketComposition } from 'components/BasketComposition';
 import { NetworkChip } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
@@ -39,7 +40,9 @@ import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
-import type { Timeframe, TokenPriceInfo } from 'lib/prices';
+import type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from 'lib/prices';
+import { basketChange24h, basketKlines } from 'lib/prices/basket';
+import { isBasketQuote } from 'lib/prices/basket-nav';
 import { isNominalQuote } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
 import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
@@ -231,12 +234,29 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {/* The nominal rate is a dollar figure with no market behind it: no price, move or line to chart. */}
+          {/* The nominal rate and a basket's net asset value are dollar figures with no market behind them: no price, move or
+              line to chart. */}
           <SectionDivider />
 
-          {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && priceSymbol && (
+          {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && !isBasketQuote(quote) && priceSymbol && (
             <>
               <PriceChart symbol={priceSymbol} priceInfo={quote} />
+              <SectionDivider />
+            </>
+          )}
+
+          {/* A basket priced from its vault: its line and move are its tokens', weighted by the vault's mix, and the
+              mix itself follows. */}
+          {quote && isBasketQuote(quote) && quote.composition && priceSymbol && (
+            <>
+              <BasketPriceChart
+                symbol={priceSymbol}
+                priceInfo={quote}
+                composition={quote.composition}
+                prices={tokenPrices}
+              />
+              <SectionDivider />
+              <BasketComposition components={quote.composition} />
               <SectionDivider />
             </>
           )}
@@ -281,16 +301,54 @@ function priceChange(percentageChange24h: number): { tone: PillTone; label: stri
   return { tone: 'neutral', label: (0).toFixed(1) };
 }
 
-const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol, priceInfo }) => {
+/** A basket's price section: its net asset value, with the move and line its tokens' candles give it. */
+const BasketPriceChart: FC<{
+  symbol: string;
+  priceInfo: TokenPriceInfo;
+  composition: BasketComponent[];
+  prices: TokenPrices;
+}> = ({ symbol, priceInfo, composition, prices }) => {
+  const change = basketChange24h(composition, prices);
+  const mix = composition.map(c => `${c.priceSymbol}:${c.weight.toFixed(4)}`).join(',');
+  return (
+    <PriceChart
+      symbol={symbol}
+      priceInfo={{ ...priceInfo, percentageChange24h: change ?? 0 }}
+      showChange={change !== undefined}
+      klines={{
+        key: `basket:${mix}:${priceInfo.price}`,
+        load: async timeframe =>
+          basketKlines(
+            composition,
+            await Promise.all(composition.map(c => fetchKlineData(c.priceSymbol, timeframe))),
+            priceInfo.price
+          )
+      }}
+    />
+  );
+};
+
+const PriceChart: FC<{
+  symbol: string;
+  priceInfo: TokenPriceInfo;
+  /** Hide the 24h pill, for a price with no move to show. */
+  showChange?: boolean;
+  /** Where the line comes from, when it is not the symbol's own candles. */
+  klines?: { key: string; load: (timeframe: Timeframe) => Promise<KlinePoint[]> };
+}> = ({ symbol, priceInfo, showChange = true, klines }) => {
   const { t } = useTranslation();
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
 
-  const { data: klineData } = useRetryableSWR(['kline', symbol, timeframe], () => fetchKlineData(symbol, timeframe), {
-    dedupingInterval: 30_000,
-    // Hold the previous timeframe's line while the next one loads, so switching does not flash
-    // the skeleton; only the very first load shows it.
-    keepPreviousData: true
-  });
+  const { data: klineData } = useRetryableSWR(
+    ['kline', klines?.key ?? symbol, timeframe],
+    () => (klines ? klines.load(timeframe) : fetchKlineData(symbol, timeframe)),
+    {
+      dedupingInterval: 30_000,
+      // Hold the previous timeframe's line while the next one loads, so switching does not flash
+      // the skeleton; only the very first load shows it.
+      keepPreviousData: true
+    }
+  );
 
   // `fetchKlineData` resolves `[]` on failure or for a token with no market, so `undefined` only
   // ever means the first load is still in flight.
@@ -328,12 +386,14 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
         />
         {/* The tone is the SHOWN change's, read once from the destination, so the pill does not
             change colour on its way there; the label follows each frame. */}
-        <Pill size="md" tone={change.tone} data-testid="token-detail-price-change">
-          <AnimatedNumber
-            value={priceInfo.percentageChange24h}
-            format={value => t('tokenDetailChange24h', { change: priceChange(value).label })}
-          />
-        </Pill>
+        {showChange && (
+          <Pill size="md" tone={change.tone} data-testid="token-detail-price-change">
+            <AnimatedNumber
+              value={priceInfo.percentageChange24h}
+              format={value => t('tokenDetailChange24h', { change: priceChange(value).label })}
+            />
+          </Pill>
+        )}
       </div>
       <div className="mt-4 h-28">
         {loading ? (

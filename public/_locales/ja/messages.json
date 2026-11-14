@@ -5553,6 +5553,10 @@
     "message": "トークン情報",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "構成",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "説明",
     "englishSource": "Description"

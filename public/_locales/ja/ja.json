@@ -1239,6 +1239,7 @@
   "invalidAmount": "金額が無効です",
   "tokenPrice": "トークン価格",
   "tokenInfo": "トークン情報",
+  "basketComposition": "構成",
   "tokenDescription": "説明",
   "fungible": "代替可能",
   "network": "ネットワーク",

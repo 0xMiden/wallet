@@ -1238,6 +1238,7 @@
   "invalidAmount": "Nieprawidłowa kwota",
   "tokenPrice": "Cena tokenu",
   "tokenInfo": "Informacje o tokenie",
+  "basketComposition": "Skład",
   "tokenDescription": "Opis",
   "fungible": "Wymienialny",
   "network": "Sieć",

@@ -5554,6 +5554,10 @@
     "message": "Informacje o tokenie",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "Skład",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "Opis",
     "englishSource": "Description"
