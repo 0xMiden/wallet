@@ -119,6 +119,26 @@ export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetVi
 }
 
 /**
+ * The signing allowance of a holdings view that is already measured. `holdings.heldNotesSpent` must be set, and
+ * `createdNotes` are the raw view's notes, not a second measure. This does not call `toHoldingsView`. Throws when the
+ * view is not measured from holdings, or when the raw view did not list the notes it creates.
+ */
+export function executeApprovalFromHoldings(
+  holdings: TxAssetView,
+  createdNotes: readonly ViewNote[] | undefined,
+  introducedNoteIds: readonly string[]
+): IExecuteApproval {
+  if (holdings.heldNotesSpent === undefined) throw new Error('the view is not measured from holdings');
+  if (createdNotes === undefined) throw new Error('the view does not list the notes it creates');
+  return {
+    approvedOutflow: netOutflowByFaucet(holdings),
+    approvedNftOutflow: holdings.outgoingNfts.flatMap(nft => (nft.key === undefined ? [] : [nft.key])),
+    introducedNoteIds: [...new Set(introducedNoteIds.map(id => id.toLowerCase()))],
+    approvedOutputNoteIds: createdNotes.map(note => note.id)
+  };
+}
+
+/**
  * What an approval of `view` lets signing move, measured as `proposalEffectRefusal` measures a custom transaction:
  * from the account's holdings, crediting only `introducedNoteIds`, the consumed notes the request brought in. Throws
  * for a view that does not list its notes, or one already measured from holdings, which would count its held notes
@@ -128,13 +148,7 @@ export function executeApprovalOf(view: TxAssetView, introducedNoteIds: readonly
   if (view.heldNotesSpent !== undefined) throw new Error('the view is already measured from holdings');
   const created = view.createdNotes;
   if (created === undefined) throw new Error('the view does not list the notes it creates');
-  const holdings = toHoldingsView(view, introducedNoteIds);
-  return {
-    approvedOutflow: netOutflowByFaucet(holdings),
-    approvedNftOutflow: holdings.outgoingNfts.flatMap(nft => (nft.key === undefined ? [] : [nft.key])),
-    introducedNoteIds: [...new Set(introducedNoteIds.map(id => id.toLowerCase()))],
-    approvedOutputNoteIds: created.map(note => note.id)
-  };
+  return executeApprovalFromHoldings(toHoldingsView(view, introducedNoteIds), created, introducedNoteIds);
 }
 
 /** The refusal the effect check throws for `transaction`, with the localized sentence the row shows. */

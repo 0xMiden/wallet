@@ -34,15 +34,23 @@ interface TestView {
 /** The decoded result of each dry run, by its bytes. The decoders themselves are covered by `decode.test.ts`. */
 const mockViews = new Map<string, TestView>();
 const mockRecipients = new Map<string, string[]>();
+const mockToHoldingsView = jest.fn();
 const bytesOf = (result: { summaryBytes?: string; executedBytes?: string }) =>
   result.summaryBytes ?? result.executedBytes ?? '';
 
-jest.mock('app/confirm/decode', () => ({
-  ...jest.requireActual('app/confirm/decode'),
-  simulatedBytesToView: (result: { summaryBytes?: string; executedBytes?: string }) => mockViews.get(bytesOf(result)),
-  simulatedOutputRecipients: (result: { summaryBytes?: string; executedBytes?: string }) =>
-    mockRecipients.get(bytesOf(result))
-}));
+jest.mock('app/confirm/decode', () => {
+  const actual = jest.requireActual('app/confirm/decode');
+  return {
+    ...actual,
+    simulatedBytesToView: (result: { summaryBytes?: string; executedBytes?: string }) => mockViews.get(bytesOf(result)),
+    simulatedOutputRecipients: (result: { summaryBytes?: string; executedBytes?: string }) =>
+      mockRecipients.get(bytesOf(result)),
+    toHoldingsView: (view: TestView, introducedNoteIds: readonly string[]) => {
+      mockToHoldingsView(view, introducedNoteIds);
+      return actual.toHoldingsView(view, introducedNoteIds);
+    }
+  };
+});
 
 jest.mock('lib/miden/sdk/helpers', () => ({
   ...jest.requireActual('lib/miden/sdk/helpers'),
@@ -132,6 +140,7 @@ const generate = (generatedView: TestView, recipients: string[] = ['0xr1']) => {
 beforeEach(() => {
   mockViews.clear();
   mockRecipients.clear();
+  mockToHoldingsView.mockClear();
   mockHasSpendingLimits.mockReset();
   mockHasSpendingLimits.mockResolvedValue(false);
 });
@@ -193,6 +202,14 @@ describe('approveCustomSimulation', () => {
     expect(approval.effects.outgoing).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
   });
 
+  it('measures the dry run holdings once for the sheet, the allowance and the charge', () => {
+    const approval = approve(view());
+
+    expect(mockToHoldingsView).toHaveBeenCalledTimes(1);
+    expect(approval.spends).toEqual(approval.signing.approvedOutflow);
+    expect(approval.spends).not.toBe(approval.signing.approvedOutflow);
+  });
+
   it('does not credit an introduced note again in a summary net outflow', () => {
     const approval = approve(
       view({ viewConsumedNotes: [viewNote('0xcarried', [{ faucetId: 'faucet-a', amount: 4n }])] })
@@ -247,6 +264,7 @@ describe('approveCustomSimulation', () => {
     expect(() => approveCustomSimulation({ summaryBytes: 'approved', introducedNoteIds: ['0xcarried'] })).toThrow(
       'the view does not list the notes it creates'
     );
+    expect(mockToHoldingsView).not.toHaveBeenCalled();
   });
 
   it('gives no approval when the dry run gave no result', () => {

@@ -16,7 +16,7 @@ import { hasSpendingLimits } from 'lib/miden/spending-limits/queue';
 import { spendsDigest } from 'lib/miden/spending-limits/types';
 
 import { CustomTransactionEffectsChangedError } from './constants';
-import { executeApprovalOf } from './proposal-effect-guard';
+import { executeApprovalFromHoldings } from './proposal-effect-guard';
 import type {
   IApprovedCustomEffects,
   IConsumedAssetTotal,
@@ -168,17 +168,24 @@ export function approveCustomSimulation(
 ): ApprovedCustomSimulation | undefined {
   const decoded = decodeCustomEffects(dryRun);
   if (decoded === undefined) return undefined;
-  // Measured on the raw dry run: a holdings view would count its held notes twice.
-  const signing = executeApprovalOf(decoded.view, dryRun.introducedNoteIds ?? []);
+  // One measure of the raw dry run. A holdings view would count its held notes twice, so the sheet, the allowance and
+  // the charge are all read off this view. Created notes are checked before that measure: a view that lists none
+  // would otherwise refuse with a different error.
+  if (decoded.view.heldNotesSpent !== undefined) throw new Error('the view is already measured from holdings');
+  const created = decoded.view.createdNotes;
+  if (created === undefined) throw new Error('the view does not list the notes it creates');
+  const introducedNoteIds = dryRun.introducedNoteIds ?? [];
+  const view = toHoldingsView(decoded.view, introducedNoteIds);
+  const signing = executeApprovalFromHoldings(view, created, introducedNoteIds);
   return {
-    view: toHoldingsView(decoded.view, signing.introducedNoteIds),
+    view,
     effects: {
       ...decoded.effects,
       introducedNoteIds: signing.introducedNoteIds,
       approvedOutputNoteIds: signing.approvedOutputNoteIds
     },
     signing,
-    spends: holdingsSpends(decoded.view, signing.introducedNoteIds)
+    spends: asTotals(signing.approvedOutflow)
   };
 }
 
