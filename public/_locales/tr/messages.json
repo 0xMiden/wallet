@@ -3307,6 +3307,30 @@
     "message": "Cüzdanı aç",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "Cüzdan",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Cüzdan işlemlerini ara",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Cüzdan işlemleri",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "İşlem",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Köprü",
+    "englishSource": "Bridge"
+  },
+  "commandDetails": {
+    "message": "Ayrıntılar",
+    "englishSource": "Details"
+  },
   "commandOpenFullscreen": {
     "message": "Tam ekran aç",
     "englishSource": "Open fullscreen"

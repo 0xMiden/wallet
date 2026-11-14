@@ -3307,6 +3307,30 @@
     "message": "Открыть кошелек",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "Кошелек",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Поиск действий с кошельком",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Действия с кошельком",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Транзакция",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Мост",
+    "englishSource": "Bridge"
+  },
+  "commandDetails": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
   "commandOpenFullscreen": {
     "message": "Открыть в полноэкранном режиме",
     "englishSource": "Open fullscreen"

@@ -3308,6 +3308,30 @@
     "message": "Brieftasche öffnen",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "Wallet",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Wallet-Aktionen suchen",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Wallet-Aktionen",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Transaktion",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Brücke",
+    "englishSource": "Bridge"
+  },
+  "commandDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
   "commandOpenFullscreen": {
     "message": "Vollbild anzeigen",
     "englishSource": "Open fullscreen"

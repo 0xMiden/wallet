@@ -3307,6 +3307,30 @@
     "message": "Abrir cartera",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "Cartera",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Buscar acciones de la cartera",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Acciones de la cartera",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Transacción",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Puente",
+    "englishSource": "Bridge"
+  },
+  "commandDetails": {
+    "message": "Detalles",
+    "englishSource": "Details"
+  },
   "commandOpenFullscreen": {
     "message": "Abrir a pantalla completa",
     "englishSource": "Open fullscreen"

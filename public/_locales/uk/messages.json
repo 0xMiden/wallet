@@ -3307,6 +3307,30 @@
     "message": "Відкрити гаманець",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "Гаманець",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Пошук дій гаманця",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Дії з гаманцем",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Транзакція",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Міст",
+    "englishSource": "Bridge"
+  },
+  "commandDetails": {
+    "message": "Деталі",
+    "englishSource": "Details"
+  },
   "commandOpenFullscreen": {
     "message": "Відкрити у повноекранному режимі",
     "englishSource": "Open fullscreen"

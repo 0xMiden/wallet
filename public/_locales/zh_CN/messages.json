@@ -3307,6 +3307,30 @@
     "message": "打开钱包",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "钱包",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "搜索钱包操作",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "钱包操作",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "交易",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "桥接",
+    "englishSource": "Bridge"
+  },
+  "commandDetails": {
+    "message": "详情",
+    "englishSource": "Details"
+  },
   "commandOpenFullscreen": {
     "message": "打开全屏模式",
     "englishSource": "Open fullscreen"

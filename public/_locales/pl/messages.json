@@ -3307,6 +3307,30 @@
     "message": "Otwórz portfel",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "Portfel",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Wyszukiwanie operacji w portfelu",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Czynności związane z portfelem",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Transakcja",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Bridge",
+    "englishSource": "Bridge"
+  },
+  "commandDetails": {
+    "message": "Szczegóły",
+    "englishSource": "Details"
+  },
   "commandOpenFullscreen": {
     "message": "Otwórz tryb pełnoekranowy",
     "englishSource": "Open fullscreen"

@@ -3307,6 +3307,30 @@
     "message": "지갑 열기",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "지갑",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "지갑 작업 검색",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "지갑 관련 작업",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "거래",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "브리지",
+    "englishSource": "Bridge"
+  },
+  "commandDetails": {
+    "message": "세부 사항",
+    "englishSource": "Details"
+  },
   "commandOpenFullscreen": {
     "message": "전체 화면으로 열기",
     "englishSource": "Open fullscreen"

@@ -3307,6 +3307,30 @@
     "message": "Open wallet",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "Wallet",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Search wallet actions",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Wallet actions",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Transaction",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Bridge",
+    "englishSource": "Bridge"
+  },
+  "commandDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
   "commandOpenFullscreen": {
     "message": "Open fullscreen",
     "englishSource": "Open fullscreen"
