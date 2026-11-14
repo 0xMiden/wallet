@@ -435,6 +435,7 @@ export async function readMainnetSwapPayback(
   const originals = await withRpcTimeout(() => rpc.getNotesById([NoteId.fromHex(scope.noteId)]), 'original PSWAP', {
     retries: 0
   });
+  if (originals.length === 0) return undefined;
   const original = originals[0];
   if (
     originals.length !== 1 ||
