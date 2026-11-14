@@ -187,7 +187,7 @@ export interface CustomWrite {
   consumedNullifiers: string[];
   /**
    * `amount` is the row every account's sheet shows for what leaves its holdings, null for a request that moves
-   * nothing but the fee (X8c); `heldNotesSpent`, when set, the count of already-held notes the request spends;
+   * nothing but the fee (X8c); `heldNotesSpent`, the count of already-held notes the request spends (0 by default);
    * `storageChanged`, when set, the "Storage changed" row.
    */
   preview: {
