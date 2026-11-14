@@ -1,4 +1,6 @@
 import { Note, NoteFile, TransactionRequest, TransactionResult, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
+import fs from 'fs';
+import path from 'path';
 
 import {
   declaredRequestToView,
@@ -459,8 +461,6 @@ describe('declaredRequestToView', () => {
   });
 });
 
-// A caller decoding inside a WASM hold asks for a trap to reach the lock, which retires the client; the confirm
-// sheet's own decode runs outside any hold and keeps skipping the entry.
 describe('the declared view of a carried note whose decode traps', () => {
   const trap = new WebAssembly.RuntimeError('unreachable');
   const throwTrap = () => {
@@ -475,18 +475,22 @@ describe('the declared view of a carried note whose decode traps', () => {
     'the asset read': () => (Note.deserialize as jest.Mock).mockReturnValueOnce({ assets: throwTrap })
   };
 
-  it.each(Object.keys(traps))('rethrows a trap in %s only when asked to', name => {
-    traps[name]!();
-    expect(() => declaredTransactionRequestToView(request, ['imported'], { rethrowTraps: true })).toThrow(trap);
+  it.each(Object.keys(traps))('returns no incoming assets when %s traps', name => {
     traps[name]!();
     expect(declaredTransactionRequestToView(request, ['imported']).incoming).toEqual([]);
   });
 
-  it('still skips an entry that fails ordinarily when asked to rethrow traps', () => {
+  it('returns no incoming assets when Note.deserialize fails ordinarily', () => {
     (Note.deserialize as jest.Mock).mockImplementationOnce(() => {
       throw new Error('bad note bytes');
     });
-    expect(declaredTransactionRequestToView(request, ['imported'], { rethrowTraps: true }).incoming).toEqual([]);
+    expect(declaredTransactionRequestToView(request, ['imported']).incoming).toEqual([]);
+  });
+
+  it('keeps the trap option out of the declared view', () => {
+    const source = fs.readFileSync(path.join(__dirname, 'decode.ts'), 'utf8');
+    expect(source).not.toContain('rethrowTraps');
+    expect(source).not.toContain('NoteDecodeOptions');
   });
 });
 

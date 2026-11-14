@@ -9,7 +9,6 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
-import type { NoteDecodeOptions } from 'lib/miden/note-quarantine';
 import { canonicalWalletAccountId, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { nftKey, toNft, type NftAsset } from 'lib/miden/sdk/nft-asset';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -119,23 +118,18 @@ function noteNfts(note: NoteWithAssets | undefined): ViewNft[] {
  * bare Note (the dApp chooses which, mirroring importNoteBytes). Handling only
  * one format would throw for the other and blank the declared incoming assets.
  */
-function importedNoteContents(
-  b64: string,
-  options: NoteDecodeOptions = {}
-): { amounts: AssetAmount[]; nfts: ViewNft[] } {
+function importedNoteContents(b64: string): { amounts: AssetAmount[]; nfts: ViewNft[] } {
   const bytes = b64ToU8(b64);
   const contentsOf = (note: NoteWithAssets | undefined) => ({ amounts: noteAssets(note), nfts: noteNfts(note) });
   try {
     const nf = NoteFile.deserialize(bytes);
     return contentsOf(nf.note() ?? nf.noteDetails());
-  } catch (error) {
-    if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
+  } catch {
     // Not a NoteFile — try a bare Note below.
   }
   try {
     return contentsOf(Note.deserialize(bytes));
-  } catch (error) {
-    if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
+  } catch {
     return { amounts: [], nfts: [] };
   }
 }
@@ -410,13 +404,9 @@ export function declaredRequestToView(requestB64: string, importNotes: string[] 
  * bytes while still treating a failure to summarize a valid request as an
  * opaque transaction that the user may review.
  */
-export function declaredTransactionRequestToView(
-  request: TransactionRequest,
-  importNotes: string[] = [],
-  options: NoteDecodeOptions = {}
-): TxAssetView {
+export function declaredTransactionRequestToView(request: TransactionRequest, importNotes: string[] = []): TxAssetView {
   const outputNotes = request.expectedOutputOwnNotes();
-  const imported = importNotes.map(b64 => importedNoteContents(b64, options));
+  const imported = importNotes.map(b64 => importedNoteContents(b64));
 
   return {
     account: undefined,
