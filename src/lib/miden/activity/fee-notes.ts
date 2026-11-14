@@ -4,7 +4,7 @@ import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { getNativeAssetIdSync, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { rethrowTrapOrKill } from '../sdk/sdk-error-code';
 
 /**
  * Fee-note identification, kept in a LEAF module on purpose.
@@ -43,17 +43,16 @@ export type FeePaid = {
 /**
  * Whether an output note carries the fee tag. NOT sufficient on its own — see below.
  *
- * Tolerates a missing accessor but lets an EVICTION through, for the reason given on
- * `feePaidFromResult`: these accessors borrow from the client's RefCell, so a swallowed
- * poison error would answer this question from a client another flow is inside.
+ * Tolerates a missing accessor but lets a TRAP or a KILL through (`rethrowTrapOrKill`), as
+ * every fee check below does. These accessors borrow from the client's RefCell, so a
+ * swallowed eviction would answer this question from a client another flow is inside, and
+ * a swallowed trap would leave the hold this runs in on a client its lock never retires.
  */
 function hasFeeTag(note: OutputNote): boolean {
   try {
     return note.metadata()?.tag()?.asU32() === TX_FEE_NOTE_TAG;
   } catch (err) {
-    if (isWasmClientPoisonedError(err)) {
-      throw err;
-    }
+    rethrowTrapOrKill(err);
     return false;
   }
 }
@@ -76,9 +75,7 @@ function soleFungibleFaucet(note: OutputNote): string | undefined {
     }
     return getBech32AddressFromAccountId(first.faucetId());
   } catch (err) {
-    if (isWasmClientPoisonedError(err)) {
-      throw err;
-    }
+    rethrowTrapOrKill(err);
     return undefined;
   }
 }
@@ -95,9 +92,7 @@ function withinFeeCeiling(note: OutputNote, ceiling: bigint): boolean {
     const amount = (note.assets()?.fungibleAssets() ?? [])[0]?.amount();
     return amount !== undefined && BigInt(amount) <= ceiling;
   } catch (err) {
-    if (isWasmClientPoisonedError(err)) {
-      throw err;
-    }
+    rethrowTrapOrKill(err);
     return false;
   }
 }
@@ -173,39 +168,71 @@ export function partitionFeeNote(
   return { feeNote, userNotes };
 }
 
+type ExecutedOutputs = {
+  outputNotes: () => { notes: () => OutputNote[] };
+  blockHeader?: () => { verificationBaseFee: () => number };
+};
+
 /**
- * The ONLY place in the wallet that reads an executed transaction's raw output notes.
+ * The ONLY place in the wallet that reads an executed transaction's raw output notes, with
+ * {@link splitLandedOutputNotes}.
  *
  * `ExecutedTransaction.outputNotes()` returns the kernel's fee note alongside the user's,
  * so every caller has to split them -- and the ones that forgot did not fail, they silently
  * picked or counted the wrong note on a fee-charging chain while staying green at fee 0.
  * Routing every read through here means a caller cannot forget: it gets the split back or
- * nothing. The `no-restricted-syntax` rule bans every `.outputNotes()` call, and this call
- * is the one disable.
+ * nothing. The `no-restricted-syntax` rule bans every `.outputNotes()` call, and the read
+ * both splits share is the one disable.
+ *
+ * A trap or a kill in a fee check is thrown as itself, so the WASM hold a caller runs in
+ * retires the client instead of trusting an answer read from it.
  */
 export function splitExecutedOutputNotes(
-  executed: {
-    outputNotes: () => { notes: () => OutputNote[] };
-    blockHeader?: () => { verificationBaseFee: () => number };
-  },
+  executed: ExecutedOutputs,
   ceiling: 'kernel' | 'recorded' = 'kernel'
 ): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
 } {
-  // The kernel charged against the reference block's rate, which the realm cache can lag behind.
-  const baseFee = executed.blockHeader
-    ? headerBaseFee(executed.blockHeader.bind(executed))
-    : getVerificationBaseFeeSync();
+  const notes = readOutputNotes(executed);
+  return partitionFeeNote(notes, getNativeAssetIdSync(), executedBaseFee(executed), ceiling);
+}
+
+/**
+ * {@link splitExecutedOutputNotes} for a reader past submit and outside any hold, where no lock can retire a trapped
+ * client and a landed row that failed would offer a Retry that pays twice. A trap in a fee check identifies no fee
+ * note, as an unknown fee does, and keeps every note a user note with no further WASM call, while a kill and a trap
+ * from the output-note read itself still propagate.
+ */
+export function splitLandedOutputNotes(executed: ExecutedOutputs): {
+  feeNote: OutputNote | undefined;
+  userNotes: UserOutputNote[];
+} {
+  const notes = readOutputNotes(executed);
+  try {
+    return partitionFeeNote(notes, getNativeAssetIdSync(), executedBaseFee(executed));
+  } catch (err) {
+    if (!(err instanceof WebAssembly.RuntimeError)) throw err;
+    return partitionFeeNote(notes, null, null);
+  }
+}
+
+/** Read before any fee check, so a split that answers a trap still has the notes. */
+function readOutputNotes(executed: ExecutedOutputs): OutputNote[] {
   // eslint-disable-next-line no-restricted-syntax -- sanctioned outputNotes() read
-  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), baseFee, ceiling);
+  return executed.outputNotes().notes();
+}
+
+/** The kernel charged against the reference block's rate, which the realm cache can lag behind. */
+function executedBaseFee(executed: ExecutedOutputs): number | null {
+  return executed.blockHeader ? headerBaseFee(executed.blockHeader.bind(executed)) : getVerificationBaseFeeSync();
 }
 
 function headerBaseFee(read: () => { verificationBaseFee: () => number }): number | null {
   try {
     return read().verificationBaseFee();
   } catch (err) {
-    if (isWasmClientPoisonedError(err)) throw err;
+    rethrowTrapOrKill(err);
     return null;
   }
 }
