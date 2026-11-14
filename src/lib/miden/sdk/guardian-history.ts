@@ -175,7 +175,8 @@ export async function decodeGuardianSummary(encoded: string, hold: WasmLockHold)
   // The summary lives in the instance a trap aborted, so a trapped walk does not free it.
   let trapped = false;
   try {
-    const { feeNote, userNotes } = splitExecutedOutputNotes(summary);
+    // A past summary has no fee rate of its own.
+    const { feeNote, userNotes } = splitExecutedOutputNotes(summary, 'recorded');
     const feeAsset = feeNote?.assets()?.fungibleAssets()[0];
     return {
       accountId: summary.accountDelta().id().toString(),

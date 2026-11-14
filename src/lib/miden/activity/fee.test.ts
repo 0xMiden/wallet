@@ -196,6 +196,31 @@ describe('partitionFeeNote', () => {
     const forged = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
     expect(partitionFeeNote([forged] as any, 'bech32-native', null).feeNote).toBeUndefined();
   });
+
+  // Omitting the argument keeps the kernel ceiling; the own-block case already pins that.
+  it("returns a fee-tagged native note above the kernel ceiling when the ceiling is 'recorded'", () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    const { feeNote } = partitionFeeNote([over] as any, native, CHARGING, 'recorded');
+    expect(feeNote).toBe(over);
+  });
+
+  it("leaves both fee-tagged native notes above the kernel ceiling as user notes for a 'recorded' split", () => {
+    const a = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    const b = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 2n, 'native')]);
+    const { feeNote, userNotes } = partitionFeeNote([a, b] as any, native, CHARGING, 'recorded');
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([a, b]);
+  });
+
+  it("identifies nothing for a 'recorded' split when the base fee is 0", () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    expect(partitionFeeNote([over] as any, native, 0, 'recorded').feeNote).toBeUndefined();
+  });
+
+  it("identifies nothing for a 'recorded' split before the native faucet is known", () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    expect(partitionFeeNote([over] as any, null, CHARGING, 'recorded').feeNote).toBeUndefined();
+  });
 });
 
 describe('feeFieldsFromResult', () => {

@@ -127,6 +127,11 @@ function withinFeeCeiling(note: OutputNote, ceiling: bigint): boolean {
  *   - exactly ONE candidate exists. The kernel emits one. If a second appears we cannot say
  *     which is real, so NEITHER is treated as the fee and both stay in the totals.
  *
+ * `'recorded'` skips only that magnitude check. A past summary has no fee rate of its own, so the
+ * note the chain charged can sit above `feeCeiling`, and a base fee whose kernel ceiling is not
+ * a safe integer still identifies that one note. The chain-charges, tag, sole-native and
+ * one-candidate checks stay. Approval and signing omit the argument and keep `'kernel'`.
+ *
  * UNKNOWN FAILS CLOSED. When the base fee or the native faucet has not been discovered
  * yet, nothing is identified as the fee. The cost is that the kernel's real fee note is
  * briefly counted as user value — an inflated amount, in the same direction as the
@@ -138,13 +143,24 @@ function withinFeeCeiling(note: OutputNote, ceiling: bigint): boolean {
 export function partitionFeeNote(
   notes: OutputNote[],
   nativeFaucetId: string | null,
-  verificationBaseFee: number | null
+  verificationBaseFee: number | null,
+  ceiling: 'kernel' | 'recorded' = 'kernel'
 ): { feeNote: OutputNote | undefined; userNotes: UserOutputNote[] } {
-  const ceiling = verificationBaseFee !== null && verificationBaseFee > 0 ? feeCeiling(verificationBaseFee) : undefined;
+  // `'kernel'` measures `feeCeiling`. `'recorded'` must not call it.
+  const kernelCeiling =
+    ceiling === 'kernel' && verificationBaseFee !== null && verificationBaseFee > 0
+      ? feeCeiling(verificationBaseFee)
+      : undefined;
   const candidates =
-    ceiling !== undefined && nativeFaucetId !== null
+    verificationBaseFee !== null &&
+    verificationBaseFee > 0 &&
+    nativeFaucetId !== null &&
+    (ceiling === 'recorded' || kernelCeiling !== undefined)
       ? notes.filter(
-          note => hasFeeTag(note) && soleFungibleFaucet(note) === nativeFaucetId && withinFeeCeiling(note, ceiling)
+          note =>
+            hasFeeTag(note) &&
+            soleFungibleFaucet(note) === nativeFaucetId &&
+            (ceiling === 'recorded' || (kernelCeiling !== undefined && withinFeeCeiling(note, kernelCeiling)))
         )
       : [];
   const feeNote = candidates.length === 1 ? candidates[0] : undefined;
@@ -167,10 +183,13 @@ export function partitionFeeNote(
  * nothing. The `no-restricted-syntax` rule bans every `.outputNotes()` call, and this call
  * is the one disable.
  */
-export function splitExecutedOutputNotes(executed: {
-  outputNotes: () => { notes: () => OutputNote[] };
-  blockHeader?: () => { verificationBaseFee: () => number };
-}): {
+export function splitExecutedOutputNotes(
+  executed: {
+    outputNotes: () => { notes: () => OutputNote[] };
+    blockHeader?: () => { verificationBaseFee: () => number };
+  },
+  ceiling: 'kernel' | 'recorded' = 'kernel'
+): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
 } {
@@ -179,7 +198,7 @@ export function splitExecutedOutputNotes(executed: {
     ? headerBaseFee(executed.blockHeader.bind(executed))
     : getVerificationBaseFeeSync();
   // eslint-disable-next-line no-restricted-syntax -- sanctioned outputNotes() read
-  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), baseFee);
+  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), baseFee, ceiling);
 }
 
 function headerBaseFee(read: () => { verificationBaseFee: () => number }): number | null {
