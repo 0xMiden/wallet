@@ -71,6 +71,25 @@ it('renders outgoing and incoming asset rows with symbol + amount (verified)', a
   expect(screen.queryByText('unverified')).not.toBeInTheDocument();
 });
 
+it('shows how many unclaimed notes the outflow includes, only when there are some', async () => {
+  const { rerender } = render(<TransactionAssetView view={{ ...view, heldNotesSpent: 1 }} mode="verified" />);
+  await waitFor(() => expect(rowAmount('10/6 miZK')).toBeInTheDocument());
+
+  expect(screen.getByTestId('tx-held-notes-spent')).toHaveTextContent(/^1$/);
+  const label = screen.getByText('includesUnclaimedNotes');
+  // Above the notes consumed, as the mobile and desktop sheets order it.
+  expect(label.compareDocumentPosition(screen.getByText('inputNotesConsumed'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+  for (const heldNotesSpent of [0, undefined]) {
+    rerender(<TransactionAssetView view={{ ...view, heldNotesSpent }} mode="verified" />);
+    expect(screen.queryByTestId('tx-held-notes-spent')).not.toBeInTheDocument();
+    expect(screen.queryByText('includesUnclaimedNotes')).not.toBeInTheDocument();
+  }
+
+  rerender(<TransactionAssetView view={{ ...view, heldNotesSpent: 1 }} mode="declared" />);
+  expect(screen.queryByTestId('tx-held-notes-spent')).not.toBeInTheDocument();
+});
+
 it('renders the network fee as its own row, outside the asset totals', async () => {
   // A cost the user pays. `decode.ts` deliberately keeps it OUT of `outgoing` on both paths,
   // so if this row is missing the fee is not on the sheet at all — which is what shipped

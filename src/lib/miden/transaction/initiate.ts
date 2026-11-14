@@ -119,11 +119,12 @@ export const requestCustomTransaction = async (
   dappOrigin?: string,
   /** The NFTs the approval-time dry run showed leaving; see `ITransaction.approvedNftOutflow`. */
   approvedNftOutflow?: string[],
-  /** The per-faucet outflow the approval-time dry run showed; see `ITransaction.approvedOutflow`. */
+  /** What the approval-time dry run showed leaving the account's holdings; see `ITransaction.approvedOutflow`. */
   approvedOutflow?: IConsumedAssetTotal[],
   /**
-   * The effects of the approval-time dry run that the user approved; see `ITransaction.approvedEffects`. Generation
-   * proposes the row only when its own dry run gives the same effects, so a row without them is never proposed.
+   * The effects of the approval-time dry run that the user approved, with the note ids signing binds; see
+   * `ITransaction.approvedEffects`. Generation proposes the row only when its own dry run gives the same effects, so a
+   * row without them is never proposed.
    */
   approvedEffects?: IApprovedCustomEffects
 ): Promise<string> => {

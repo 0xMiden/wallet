@@ -122,7 +122,7 @@ describe('the pinned sheet text', () => {
 
   it('lists the preview head before the simulated effects on the mobile sheet, so the cells read the effects last', () => {
     expect(dapp).toContain(
-      'transactionMessages: [...formatCustomTransactionPreview(customTransaction), ...simulatedEffects.messages]'
+      'transactionMessages: [...formatCustomTransactionPreview(customTransaction), ...effectLines]'
     );
   });
 

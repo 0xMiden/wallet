@@ -4485,6 +4485,10 @@
     "message": "未知",
     "englishSource": "Unknown"
   },
+  "includesUnclaimedNotes": {
+    "message": "包含您尚未領取的notes",
+    "englishSource": "Includes notes you have not claimed yet"
+  },
   "inputNotesConsumed": {
     "message": "已消耗的輸入notes",
     "englishSource": "Input notes consumed"

@@ -99,7 +99,8 @@ jest.mock('shared/logger', () => ({
 // A single-key write reads the chain fee before it signs; a known fee lets the attempt run.
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getVerificationBaseFee: jest.fn(async () => 0)
+  getVerificationBaseFee: jest.fn(async () => 0),
+  refreshVerificationBaseFee: jest.fn(async () => 0)
 }));
 
 const signCallback = jest.fn(async () => new Uint8Array());

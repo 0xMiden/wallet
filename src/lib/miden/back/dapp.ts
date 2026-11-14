@@ -21,13 +21,7 @@ import {
 import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
-import {
-  netOutflowByFaucet,
-  simulatedBytesToView,
-  summaryToView,
-  type AssetAmount,
-  type TxAssetView
-} from 'app/confirm/decode';
+import { summaryToView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
 import { noteFlowFromSimulatedBytes, type NoteFlow } from 'app/confirm/note-flow';
 import { toSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import {
@@ -71,6 +65,7 @@ import {
   type DAppConfirmationResult,
   type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
+import { getMessage } from 'lib/i18n';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
@@ -112,7 +107,12 @@ import {
 } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import {
+  getNativeAssetId,
+  getVerificationBaseFee,
+  isVerificationBaseFeeKnownAbsent,
+  refreshVerificationBaseFee
+} from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -171,7 +171,11 @@ import {
 } from '../transaction';
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { deterministicKernelFailureCopy } from '../transaction/constants';
-import { approveCustomSimulation, type ApprovedCustomSimulation } from '../transaction/custom-effects';
+import {
+  approveCustomSimulation,
+  type ApprovedCustomSimulation,
+  type CustomDryRunResult
+} from '../transaction/custom-effects';
 import { TransactionQueuedError } from '../transaction/initiate';
 
 /**
@@ -1661,57 +1665,40 @@ export function buildCustomTxConfirmPayload(args: {
 }
 
 /**
- * Builds the intercom handler that answers a `DAppSimulateTransactionRequest`
- * for THIS confirm popup (matched by id) with the dry run's decoded effects. Returns
- * `undefined` for non-matching requests so the caller keeps dispatching.
+ * Builds the intercom handler that answers a `DAppSimulateTransactionRequest` for THIS confirm popup (matched by id)
+ * with the approval's view. Returns `undefined` for non-matching requests so the caller keeps dispatching.
  */
 export function makeSimulateHandler(
   id: string,
-  tx: MidenCustomTransaction,
   /**
-   * The dry run the caller already performed for this confirm id. Answering from it keeps the
-   * request simulated once: the sheet renders the same execution the spending-limit policy
-   * assessed, and the WASM lock is taken once rather than twice per approval.
+   * The approval's view, measured from the holdings: what the spending limit charges and signing allows. The sheet
+   * shows this object rather than a decode of its own, so the two cannot differ.
    */
-  simulated?: { summaryBytes?: string; executedBytes?: string; error?: string }
+  approvedView: TxAssetView | undefined,
+  /** The dry run the approval measured; only its note flow is read here. */
+  simulated?: CustomDryRunResult
 ) {
   return async (req: MidenRequest): Promise<MidenDAppSimulateTransactionResponse | undefined> => {
     if (req?.type !== MidenMessageType.DAppSimulateTransactionRequest || (req as any).id !== id) {
       return undefined;
     }
-    // Only a SUCCESSFUL dry run is reusable. A timeout or a WASM-lock eviction resolves as
-    // `{ error }`, and caching that would leave the sheet's verified asset view - an anti-phishing
-    // control - permanently unavailable for this confirm id, even once the lock frees.
-    const reusable = simulated?.summaryBytes !== undefined || simulated?.executedBytes !== undefined;
-    const result =
-      reusable && simulated
-        ? simulated
-        : await simulateCustomTransaction({
-            address: tx.address,
-            transactionRequest: tx.transactionRequest,
-            importNotes: tx.importNotes
-          });
-    // The executed transaction is already authorized, so only its decoded view leaves the service worker.
-    let view: TxAssetView | undefined;
-    try {
-      view = simulatedBytesToView(result);
-    } catch (e) {
-      console.error('Failed to decode the dry run for the approval window', e);
-    }
-    if (!view) {
+    if (!approvedView) {
       return {
         type: MidenMessageType.DAppSimulateTransactionResponse,
-        error:
-          result.error === undefined ? 'the simulated transaction could not be read' : dryRunFailureReason(result.error)
+        error: 'the request has no approved effects to show'
       };
     }
     let noteFlow: NoteFlow | undefined;
     try {
-      noteFlow = noteFlowFromSimulatedBytes(result);
+      noteFlow = simulated && noteFlowFromSimulatedBytes(simulated);
     } catch (e) {
       console.error('Custom transaction note details unavailable:', e);
     }
-    return { type: MidenMessageType.DAppSimulateTransactionResponse, effects: toSimulatedEffectsWire(view, noteFlow) };
+    // The executed transaction is already authorized, so only the view leaves the service worker.
+    return {
+      type: MidenMessageType.DAppSimulateTransactionResponse,
+      effects: toSimulatedEffectsWire(approvedView, noteFlow)
+    };
   };
 }
 
@@ -2411,16 +2398,25 @@ const generatePromisifyTransaction = async (
       throw pipelineKillIn(e) ?? e;
     }
     try {
+      // A summary's fee note is told apart by the fee this realm just read. An unknown fee is refused before
+      // any prompt, on the same predicate the signing paths use. An executed dry run splits on its own header.
+      if (simulated.summaryBytes) {
+        const chainFee = await refreshVerificationBaseFee();
+        if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) {
+          throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+        }
+      }
       const approval = approvedSimulationOrRefusal(simulated);
-      const simulatedEffects = await formatSimulatedCustomEffects(simulated, approval.view);
+      const effectLines = await formatSimulatedCustomEffects(approval.view);
       const customLimit = await customSpendingLimitState(customTransaction.address, approval.spends);
       return {
-        transactionMessages: [...formatCustomTransactionPreview(customTransaction), ...simulatedEffects.messages],
+        transactionMessages: [...formatCustomTransactionPreview(customTransaction), ...effectLines],
         simulated,
         customLimit,
+        approvedView: approval.view,
         approvedEffects: approval.effects,
-        approvedOutflow: simulatedEffects.approvedOutflow,
-        approvedNftOutflow: simulatedEffects.outgoingNfts
+        approvedOutflow: approval.signing.approvedOutflow,
+        approvedNftOutflow: approval.signing.approvedNftOutflow
       };
     } catch (e) {
       return releaseRefusedRequest(e);
@@ -2536,9 +2532,11 @@ const generatePromisifyTransaction = async (
         spendingLimitDetails: customLimit.details
       });
     },
-    // The sheet's own simulate request reuses the build's dry run, so it shows what the policy assessed.
-    handleSimulate: async simulateReq =>
-      makeSimulateHandler(id, customTransaction, (await sheet.data()).simulated)(simulateReq),
+    // The sheet shows the approval this request queues with, so it shows what the policy charges and signing allows.
+    handleSimulate: async simulateReq => {
+      const { approvedView, simulated } = await sheet.data();
+      return makeSimulateHandler(id, approvedView, simulated)(simulateReq);
+    },
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
@@ -3869,61 +3867,36 @@ function formatCustomTransactionPreview(payload: MidenCustomTransaction): string
 }
 
 /**
- * The decoded approval dry run shown to the user, plus the outflow the cap and signing guard record.
- * The caller supplies the already-validated view so decoding stays bound to one dry run.
+ * The approval's effects as the mobile and desktop sheets show them: what leaves and enters the account's holdings,
+ * the view the spending limit and the signing-time check also measure. A consumed note the account already held is
+ * value it spends, so its assets are among what leaves, and the sheet names how many such notes there are.
  */
-async function formatSimulatedCustomEffects(
-  simulated: SimulateCustomTxResult,
-  approvedView?: TxAssetView
-): Promise<{
-  messages: string[];
-  outgoing?: IConsumedAssetTotal[];
-  approvedOutflow?: IConsumedAssetTotal[];
-  outgoingNfts?: string[];
-}> {
-  try {
-    const view = approvedView ?? simulatedBytesToView(simulated);
-    if (!view) throw new Error(simulated.error ?? 'no summary was produced');
-    const attributable =
-      simulated.summaryBytes === undefined || view.inputNotesConsumed <= (simulated.introducedCount ?? 0);
-    const movement = async (asset: AssetAmount, direction: 'send' | 'consume') => {
-      const metadata = await getTokenMetadata(asset.faucetId);
-      const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals, hasKnownScale(metadata));
-      return `${direction === 'send' ? 'Leaves this account' : 'Enters this account'}, ${amount} ${
-        metadata?.symbol ?? ''
-      }`.trimEnd();
-    };
+async function formatSimulatedCustomEffects(view: TxAssetView): Promise<string[]> {
+  const movement = async (asset: AssetAmount, direction: 'send' | 'consume') => {
+    const metadata = await getTokenMetadata(asset.faucetId);
+    const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals, hasKnownScale(metadata));
+    return `${direction === 'send' ? 'Leaves this account' : 'Enters this account'}, ${amount} ${
+      metadata?.symbol ?? ''
+    }`.trimEnd();
+  };
 
-    const effects = [
-      ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
-      ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume')))),
-      ...view.outgoingNfts.map(nft => `Leaves this account, ${describeNft(nft, nftFaucetLabel)}`),
-      ...view.incomingNfts.map(nft => `Enters this account, ${describeNft(nft, nftFaucetLabel)}`)
-    ];
-    if (view.unlistedAssets > 0) effects.push(UNLISTED_ASSETS_WARNING);
-    if (view.fee) {
-      const feeMetadata = await getTokenMetadata(view.fee.faucetId);
-      const feeAmount = formatAmountSafe(view.fee.amount, 'send', feeMetadata?.decimals, hasKnownScale(feeMetadata));
-      effects.push(`Network fee, ${feeAmount} ${feeMetadata?.symbol ?? ''}`.trimEnd());
-    }
-    if (effects.length === 0) effects.push('No assets move');
-    effects.push(`Notes consumed, ${view.inputNotesConsumed}`, `Notes created, ${view.outputNotesCreated}`);
-    if (view.storageChanged) effects.push('Changes this account’s stored data');
-
-    const credit = simulated.summaryBytes ? [] : simulated.introducedCredit;
-    const outflow = netOutflowByFaucet(view, credit).map(asset => ({ faucetId: asset.faucetId, amount: asset.amount }));
-    return {
-      messages: ['Simulated effects:', ...effects],
-      approvedOutflow: outflow,
-      outgoingNfts: view.outgoingNfts.flatMap(nft => (nft.key === undefined ? [] : [nft.key])),
-      ...(attributable && { outgoing: outflow })
-    };
-  } catch (e: any) {
-    console.error('Failed to simulate a custom transaction for approval', e);
-    return {
-      messages: ['This transaction could not be simulated, so its effects are unknown.', `Reason, ${consentReason(e)}`]
-    };
+  const effects = [
+    ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
+    ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume')))),
+    ...view.outgoingNfts.map(nft => `Leaves this account, ${describeNft(nft, nftFaucetLabel)}`),
+    ...view.incomingNfts.map(nft => `Enters this account, ${describeNft(nft, nftFaucetLabel)}`)
+  ];
+  if (view.unlistedAssets > 0) effects.push(UNLISTED_ASSETS_WARNING);
+  if (view.fee) {
+    const feeMetadata = await getTokenMetadata(view.fee.faucetId);
+    const feeAmount = formatAmountSafe(view.fee.amount, 'send', feeMetadata?.decimals, hasKnownScale(feeMetadata));
+    effects.push(`Network fee, ${feeAmount} ${feeMetadata?.symbol ?? ''}`.trimEnd());
   }
+  if (effects.length === 0) effects.push('No assets move');
+  if ((view.heldNotesSpent ?? 0) > 0) effects.push(`Includes notes you have not claimed yet, ${view.heldNotesSpent}`);
+  effects.push(`Notes consumed, ${view.inputNotesConsumed}`, `Notes created, ${view.outputNotesCreated}`);
+  if (view.storageChanged) effects.push('Changes this account’s stored data');
+  return ['Simulated effects:', ...effects];
 }
 
 /**
@@ -3946,7 +3919,9 @@ export class CustomTransactionNotSimulatedError extends PublicError {
  * The effects of a successful approval dry run, or a `CustomTransactionNotSimulatedError`.
  *
  * Case that fails by design: a request that the wallet cannot simulate at approval. The wallet does not show the
- * effects that the dApp declares in place of a dry run, so it refuses the request before any prompt.
+ * effects that the dApp declares in place of a dry run, so it refuses the request before any prompt. A dry run whose
+ * holdings cannot be measured (a view that does not list its notes, or a held note whose assets cannot be read) is
+ * refused the same way, so no row is queued without the note ids signing checks.
  */
 function approvedSimulationOrRefusal(simulated: SimulateCustomTxResult): ApprovedCustomSimulation {
   let approval: ApprovedCustomSimulation | undefined;

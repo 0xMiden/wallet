@@ -4485,6 +4485,10 @@
     "message": "Bilinmiyor",
     "englishSource": "Unknown"
   },
+  "includesUnclaimedNotes": {
+    "message": "Henüz talep etmediğiniz notes'u içerir",
+    "englishSource": "Includes notes you have not claimed yet"
+  },
   "inputNotesConsumed": {
     "message": "notes'lık girdi tüketildi",
     "englishSource": "Input notes consumed"

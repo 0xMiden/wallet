@@ -264,12 +264,31 @@ export interface ICustomTransactionEffects {
  */
 export interface IApprovedCustomEffects extends ICustomTransactionEffects {
   /**
-   * The assets of the notes that the request introduced at approval. The spending-limit charge subtracts only this
-   * value. The wallet cannot calculate it again at generation, because the approval dry run imported those notes.
+   * Rows queued before approvals recorded `introducedNoteIds` only: the assets of the notes that the request introduced
+   * at approval, which their spending-limit charge subtracts. No longer written.
    */
-  introducedCredit: IConsumedAssetTotal[];
-  /** How many of the consumed notes the request introduced at approval. */
-  introducedCount: number;
+  introducedCredit?: IConsumedAssetTotal[];
+  /** Rows queued before approvals recorded `introducedNoteIds` only: how many consumed notes the request introduced. */
+  introducedCount?: number;
+  /**
+   * The consumed notes that the request itself brought in, by the approval dry run's provenance check. Signing credits
+   * only these; every other consumed note is value the account already held and spends. Absent means none.
+   */
+  introducedNoteIds?: string[];
+  /** The notes that the approval dry run created for the user (not the fee note). Absent means none may carry assets. */
+  approvedOutputNoteIds?: string[];
+}
+
+/**
+ * What an `execute` approval lets signing move. This allowance is `executeApprovalOf`'s `signing`, recorded with its
+ * holdings view by `approveCustomSimulation`. The first two go on the row's fields of the same name, the note ids on
+ * its `approvedEffects`.
+ */
+export interface IExecuteApproval {
+  approvedOutflow: IConsumedAssetTotal[];
+  approvedNftOutflow: string[];
+  introducedNoteIds: string[];
+  approvedOutputNoteIds: string[];
 }
 
 /** One note a consume claimed, as it was queued. */
@@ -947,15 +966,16 @@ export interface ITransaction {
    */
   approvedEffects?: IApprovedCustomEffects;
   /**
-   * Execute only: the per-faucet outflow the approval-time dry run showed, recorded for every decoded dry run,
-   * including one whose `spentAssetTotals` the spending-limit policy withheld because the request consumed notes the
-   * wallet already held. Signing lets at most this leave (`proposal-effect-guard.ts`); a row without it falls back to
+   * Execute only: per-faucet value leaving the account's holdings. This allowance is `executeApprovalOf`'s `signing`,
+   * recorded with its holdings view by `approveCustomSimulation`. A consumed note the account already held counts as
+   * value it spends. Signing lets at most this leave (`proposal-effect-guard.ts`); a row without it falls back to
    * `spentAssetTotals`.
    */
   approvedOutflow?: IConsumedAssetTotal[];
   /**
-   * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving. Signing lets
-   * exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry run, may send none.
+   * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving the account's
+   * holdings. Signing lets exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry
+   * run, may send none.
    */
   approvedNftOutflow?: string[];
   /** Set when signing refused the proposal for moving more than was approved (#2147). A retry would refuse again. */

@@ -70,7 +70,8 @@ jest.mock('./claim-fee', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetId: jest.fn(jest.requireActual('lib/miden-chain/native-asset').getNativeAssetId),
-  getVerificationBaseFee: jest.fn(jest.requireActual('lib/miden-chain/native-asset').getVerificationBaseFee)
+  getVerificationBaseFee: jest.fn(jest.requireActual('lib/miden-chain/native-asset').getVerificationBaseFee),
+  refreshVerificationBaseFee: jest.fn(jest.requireActual('lib/miden-chain/native-asset').refreshVerificationBaseFee)
 }));
 
 // In-memory db so liveQuery has something to subscribe to.
