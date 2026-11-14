@@ -1,5 +1,6 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk';
 
+import { retireAnsweredTrap } from 'lib/miden/sdk/caught-trap-retirement';
 import { formatAmount } from 'lib/shared/format';
 
 import { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes } from './fee-notes';
@@ -51,6 +52,7 @@ export function feePaidFromResult(result: TransactionResult): FeePaid | undefine
     if (isWasmClientPoisonedError(err)) {
       throw err;
     }
+    retireAnsweredTrap(err, result);
     return undefined;
   }
 }

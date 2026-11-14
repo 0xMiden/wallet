@@ -86,7 +86,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // RELAYS every private note to `transaction.secondaryAccountId`, a recipient named by
   // the requesting site, so a fee note reaching it would be sent to the user's
   // counterparty. Consistent with `extractFullNote` and `completeSwapTransaction`.
-  const { userNotes: outputNotes } = splitLandedOutputNotes(executedTx);
+  const { userNotes: outputNotes } = splitLandedOutputNotes(result);
 
   // Every private note this transaction produced, with the id it is owed under. Collected
   // first so the relays below are a flat sequence: the commit wait then happens ONCE,
@@ -441,7 +441,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // that on a fee-charging chain the `orderId` below -- the serial number this swap is
   // tracked by for its entire lineage -- can be read off the FEE note instead of the
   // PSWAP note, which points settlement at a note that will never be filled.
-  const { userNotes } = splitLandedOutputNotes(executedTx);
+  const { userNotes } = splitLandedOutputNotes(result);
   const outputNote = userNotes[0];
 
   if (!outputNote) {
@@ -1066,7 +1066,7 @@ const extractFullNote = (result: TransactionResult): Note | undefined => {
     // returns is the one a PRIVATE send RELAYS to its recipient, so picking the fee note
     // here would hand the transport the wrong note and leave the payment undeliverable
     // while the row still completed.
-    const { userNotes } = splitLandedOutputNotes(result.executedTransaction());
+    const { userNotes } = splitLandedOutputNotes(result);
 
     const firstOutput = userNotes[0];
     if (!firstOutput) {

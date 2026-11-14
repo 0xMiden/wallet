@@ -1260,7 +1260,7 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
             // would get the fee note whenever the kernel ordered it first, and every site
             // reading `.length` counted one note too many. Silent at fee 0, since the
             // kernel skips the fee branch entirely.
-            const { userNotes } = splitLandedOutputNotes(txResult.executedTransaction());
+            const { userNotes } = splitLandedOutputNotes(txResult, transactionId);
             const res = {
               txHash: tx.transactionId!,
               outputNotes: userNotes

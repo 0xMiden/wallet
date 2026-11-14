@@ -1449,11 +1449,14 @@ describe('poisoned client recovery', () => {
     // generation counter is module state, and a plain top-level import would
     // read a different instance than the one the lock module bumps.
     let poison!: { wasmClientGeneration: () => number };
+    // The lock module installs its retirement into this registry's leaf, so the test reaches it through the same one.
+    let leaf!: { retireAnsweredTrap: (error: unknown, landing: object | string) => void };
     await jest.isolateModulesAsync(async () => {
       mod = require('./miden-client');
       poison = require('./wasm-client-poison');
+      leaf = require('./caught-trap-retirement');
     });
-    return { mod, free, create, markPoisoned, poison };
+    return { mod, free, create, markPoisoned, poison, leaf };
   };
 
   it('reclaims the poisoned client once the abandoned operation finally settles', async () => {
@@ -2017,6 +2020,55 @@ describe('poisoned client recovery', () => {
     await mod.getMidenClient();
     expect(create).toHaveBeenCalledTimes(2);
     unsubscribe();
+  });
+
+  it('an answered trap disposes the client at once when nothing holds or yields the lock, once per trap', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { mod, free, create, leaf } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    await mod.getMidenClient();
+
+    leaf.retireAnsweredTrap(trap, {});
+    leaf.retireAnsweredTrap(trap, {});
+    leaf.retireAnsweredTrap(new Error('an ordinary failure'), {});
+    await jest.advanceTimersByTimeAsync(0);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(free).toHaveBeenCalledTimes(1);
+    await mod.getMidenClient();
+    expect(create).toHaveBeenCalledTimes(2);
+    unsubscribe();
+    errorSpy.mockRestore();
+  });
+
+  it('an answered trap under an unrelated hold poisons in place and frees once that hold settles', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { mod, free, markPoisoned, leaf } = await loadIsolated();
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const held = mod.withWasmClientLock(async () => {
+      await mod.getMidenClient();
+      await gate;
+      return 'its own value';
+    });
+    await jest.advanceTimersByTimeAsync(0);
+
+    leaf.retireAnsweredTrap(trap, {});
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
+
+    release();
+    await expect(held).resolves.toBe('its own value');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).toHaveBeenCalledTimes(1);
+    const logged = errorSpy.mock.calls.map(call => String(call[0]));
+    expect(logged.some(line => line.includes('answered outside any hold'))).toBe(true);
+    expect(logged.some(line => line.includes('caught by its own lock holder'))).toBe(false);
+    errorSpy.mockRestore();
   });
 
   it('an unheld retire leaves a current holder alone', async () => {

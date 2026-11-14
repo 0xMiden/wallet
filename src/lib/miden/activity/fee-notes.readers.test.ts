@@ -14,8 +14,9 @@ const filesCalling = (call: string): string[] =>
     .filter(file => read(file).includes(call))
     .sort();
 
-// Past submit and outside any hold no lock can retire a trap, and a landed row that fails offers a Retry that
-// pays twice, so these readers alone answer a fee-check trap with no fee note; every other reader lets it through.
+// Past submit and outside any hold, `splitLandedOutputNotes` and `feePaidFromResult` answer a fee-check trap, retire
+// the realm client once per landed result (`lib/miden/sdk/caught-trap-retirement`) and still record the landed row
+// completed. These readers alone take that split; every other reader lets the trap through.
 const LANDED_READERS = [
   'src/lib/miden/activity/helpers.ts',
   'src/lib/miden/transaction/complete.ts',

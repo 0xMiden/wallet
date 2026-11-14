@@ -2,6 +2,7 @@ import { NoteType, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { type ITransaction, ITransactionStatus, SwapTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { installAnsweredTrapRetirement } from 'lib/miden/sdk/caught-trap-retirement';
 
 import { completeCustomTransaction, completeSwapTransaction } from './complete';
 
@@ -19,7 +20,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFeeSync: () => 10000
 }));
 
-// No lock can retire past submit, so a landed row that failed here would offer a Retry that pays twice.
+// A landed row that failed here would offer a Retry that pays twice, so the split answers the trap with no fee note and,
+// since no lock sees it past submit, retires the client itself, once for the result however many readers trap on it.
 function landedWithTrappingHeader(outputNote: object): TransactionResult {
   const result: TransactionResult = Object.create(null);
   Object.assign(result, {
@@ -36,9 +38,16 @@ function landedWithTrappingHeader(outputNote: object): TransactionResult {
   return result;
 }
 
+const retire = jest.fn();
+let restore: () => void = () => undefined;
+
 beforeEach(async () => {
   await Repo.transactions.clear();
+  retire.mockClear();
+  restore = installAnsweredTrapRetirement(retire);
 });
+
+afterEach(() => restore());
 
 it('completes a landed swap whose fee-rate read traps, recording its order note', async () => {
   const swap = new SwapTransaction('account', 'offer', 70n, 'requested', 30n);
@@ -59,6 +68,8 @@ it('completes a landed swap whose fee-rate read traps, recording its order note'
     status: ITransactionStatus.Completed,
     outputNoteIds: ['order-note']
   });
+  expect(retire).toHaveBeenCalledTimes(1);
+  expect(retire.mock.calls[0][0]).toBeInstanceOf(WebAssembly.RuntimeError);
 });
 
 it('completes a landed custom transaction whose fee-rate read traps', async () => {
@@ -82,4 +93,7 @@ it('completes a landed custom transaction whose fee-rate read traps', async () =
   const row = await Repo.transactions.get('custom');
   expect(row?.status).toBe(ITransactionStatus.Completed);
   expect(row?.outputNoteIds).toEqual(['user-note']);
+  // Read through the split, interpretTransactionResult and the fee fields, and retired once.
+  expect(retire).toHaveBeenCalledTimes(1);
+  expect(retire.mock.calls[0][0]).toBeInstanceOf(WebAssembly.RuntimeError);
 });
