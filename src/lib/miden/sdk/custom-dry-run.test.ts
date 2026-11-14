@@ -36,7 +36,7 @@ it('rethrows a wrapped kill whose text names no fallback as the kill', async () 
 });
 
 it('rethrows a trap from the summary execution as that same object, without the local fallback', async () => {
-  const trap = new WebAssembly.RuntimeError('unreachable');
+  const trap = new WebAssembly.RuntimeError('failed to generate signature');
   jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(trap);
   await expect(dryRun()).rejects.toBe(trap);
   expect(executeRequest).not.toHaveBeenCalled();
