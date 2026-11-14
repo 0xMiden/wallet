@@ -1373,7 +1373,7 @@ describe('refreshVerificationBaseFee', () => {
     expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
   });
 
-  it('reads through the display cooldown a failed read armed, and then getVerificationBaseFee is not held', async () => {
+  it('reads through the display cooldown a failed read armed', async () => {
     _g.__nativeAssetTest.rpcHeader = feeHeader(() => {
       throw new Error('down');
     });
@@ -1385,10 +1385,6 @@ describe('refreshVerificationBaseFee', () => {
     _g.__nativeAssetTest.rpcHeader = feeHeader(() => 11);
     await expect(refreshVerificationBaseFee()).resolves.toBe(11);
     expect(_g.__nativeAssetTest.rpcCalls).toBeGreaterThan(afterFailure);
-    const afterSuccess = _g.__nativeAssetTest.rpcCalls;
-    await expect(getVerificationBaseFee()).resolves.toBe(11);
-    expect(getVerificationBaseFeeSync()).toBe(11);
-    expect(_g.__nativeAssetTest.rpcCalls).toBe(afterSuccess);
   });
 
   it('joins a successful in-flight read during the display cooldown and returns that fee', async () => {

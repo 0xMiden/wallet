@@ -347,8 +347,6 @@ async function discover(keepFeeOnFailedRead = false): Promise<string> {
     else {
       feeProbedScope = snapshot.scope;
       feeProbedAt = Date.now();
-      // The header answered, so display readers are not held on the cooldown a failed read armed.
-      feeProbeRetryAfterMs = 0;
     }
     if (!feeReadThrew && accessorAbsent) feeAccessorAbsentScope = snapshot.scope;
     emit();
