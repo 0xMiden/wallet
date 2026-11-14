@@ -11,7 +11,7 @@ import { navigate } from 'lib/woozie';
 import type { CommandAction } from './command-routes';
 import { COMMAND_DESTINATIONS } from './CommandDock';
 
-const ACTIONS: CommandAction[] = ['send', 'receive', 'swap', 'earn', 'bridge'];
+const ACTIONS: Array<CommandAction | 'explore'> = ['send', 'receive', 'swap', 'earn', 'bridge', 'explore'];
 
 export function CommandPalette({
   open,
@@ -37,10 +37,10 @@ export function CommandPalette({
       setSelected(-1);
     }
   }, [open]);
-  const choose = (action: CommandAction) => {
+  const choose = (action: CommandAction | 'explore') => {
     hapticSelection();
     onOpenChange(false);
-    navigate(COMMAND_DESTINATIONS[action]);
+    navigate(action === 'explore' ? '/browser' : COMMAND_DESTINATIONS[action]);
   };
   return (
     <Dialog.Portal container={container ?? undefined}>

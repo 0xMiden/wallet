@@ -61,6 +61,31 @@ it.each([
   expect(navigate).toHaveBeenCalledWith(path);
 });
 
+it('keeps the existing Profile route visible in a narrow Command tab', () => {
+  render(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  const profile = screen.getByRole('button', { name: /profile/i });
+  fireEvent.click(profile);
+  expect(navigate).toHaveBeenCalledWith('/me');
+});
+
+it('keeps existing Explore reachable from the keyboard palette', () => {
+  render(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'commandSearch' }));
+  const input = screen.getByRole('combobox', { name: 'commandSearch' });
+  fireEvent.change(input, { target: { value: 'explore' } });
+  fireEvent.keyDown(input, { key: 'ArrowDown' });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(navigate).toHaveBeenCalledWith('/browser');
+});
+
 it('keeps a provider consumer’s unsigned literal draft on minimize and clears it on scope change', () => {
   function Probe() {
     const { readDraft, writeDraft } = useCommandDrafts();
