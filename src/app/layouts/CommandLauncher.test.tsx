@@ -13,7 +13,13 @@ jest.mock('app/env', () => ({
   useAppEnv: () => mockEnv,
   openCommandHome: jest.fn()
 }));
-jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
+jest.mock('lib/platform', () => ({
+  isExtension: () => mockExtension,
+  isMobile: () => false,
+  isIOS: () => false,
+  isAndroid: () => false,
+  isDesktop: () => false
+}));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 const mockOpen = openCommandHome as jest.MockedFunction<typeof openCommandHome>;
