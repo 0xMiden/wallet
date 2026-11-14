@@ -22,7 +22,7 @@ import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
 import { summaryToView, toHoldingsView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
-import { noteFlowFromSimulatedBytes, type NoteFlow } from 'app/confirm/note-flow';
+import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, type NoteFlow } from 'app/confirm/note-flow';
 import { toSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import {
   MidenDAppDisconnectRequest,
@@ -770,13 +770,17 @@ const generatePromisifySign = async (
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 
-  // A transaction summary whose holdings cannot be measured is refused before either sheet. A deserialize
-  // failure, a non-summary variant, and any other kind still prompt with the opaque-signature warning.
-  // WASM startup failures keep their original error, and a decode trap reaches the lock, as on the custom arm.
+  // A transaction summary is decoded and measured once, here, and both sheets show that measure. Its fee note is told
+  // apart by the fee this realm reads first, outside the lock; an unknown fee or an unmeasurable summary is refused
+  // before either sheet, as on the custom arm. A deserialize failure, a non-summary variant, and any other kind still
+  // prompt with the opaque-signature warning. WASM startup failures keep their original error, and a trap reaches
+  // the lock.
+  let signing: { view: TxAssetView; noteFlow?: NoteFlow } | undefined;
   if (req.kind === 'signingInputs') {
     await ensureSdkWasmReady();
     try {
-      await withWasmClientLock(async () => {
+      const chainFee = await refreshVerificationBaseFee();
+      signing = await withWasmClientLock(async () => {
         let summary: TransactionSummary | undefined;
         try {
           const signingInputs = SigningInputs.deserialize(b64ToU8(req.payload));
@@ -787,7 +791,19 @@ const generatePromisifySign = async (
           if (decodeError instanceof WebAssembly.RuntimeError) throw decodeError;
           console.error('[DApp] Could not decode the signingInputs payload for the approval sheet:', decodeError);
         }
-        if (summary) measuredSigningHoldings(summary);
+        if (!summary) return undefined;
+        if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) {
+          throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+        }
+        const view = measuredSigningHoldings(summary);
+        let noteFlow: NoteFlow | undefined;
+        try {
+          noteFlow = noteFlowFromTransaction(summary);
+        } catch (noteError) {
+          if (noteError instanceof WebAssembly.RuntimeError) throw noteError;
+          console.error('[DApp] Signing summary note details unavailable:', noteError);
+        }
+        return { view, noteFlow };
       });
     } catch (e) {
       reject(dappReadFailure(e));
@@ -810,7 +826,7 @@ const generatePromisifySign = async (
         origin,
         dApp,
         networkRpc,
-        await formatSignPreview(req),
+        await formatSignPreview(req, signing?.view),
         sessionId,
         waits.deadline
       );
@@ -840,7 +856,8 @@ const generatePromisifySign = async (
       sourcePublicKey: req.sourcePublicKey,
       payload: req.payload,
       kind: req.kind,
-      preview: null
+      preview: null,
+      ...(signing && { signingEffects: toSimulatedEffectsWire(signing.view, signing.noteFlow) })
     },
     onDecline: () => {
       reject(new Error(MidenDAppErrorType.NotGranted));
@@ -3842,47 +3859,29 @@ function measuredSigningHoldings(summary: TransactionSummary): TxAssetView {
  * A `signingInputs` payload holding a transaction summary is a full TRANSACTION
  * authorization, signed as decoded, so approving one can move the whole balance.
  * The `Arbitrary` / `Blind` variants and `word` are signed under a domain tag
- * (`signBytesInputs`) and never authorize a transaction. The extension decodes it
- * (`SigningInputsPayloadContent` in ConfirmPage) and renders what leaves the
- * account's holdings, crediting no consumed note; off-extension `signBytes` had no
- * approval sheet at all: it fell into `requestConfirm`'s throw and the dApp's
+ * (`signBytesInputs`) and never authorize a transaction. Off-extension `signBytes`
+ * had no approval sheet at all: it fell into `requestConfirm`'s throw and the dApp's
  * promise never settled (see `confirmOnNonExtension`). These rows are the first
- * thing mobile and desktop show for it, and they are that same measure as text:
- * what leaves holdings when the summary can be measured. When that measure throws,
- * this raises `NotGranted` and no sheet is shown. The explicit opaque-signature
- * warning is for the `Arbitrary` / `Blind` variants, for the other `SignKind`
- * (`word`, a raw digest), and for bytes that do not decode at all, mirroring the
- * extension's `OpaqueSignatureWarning`.
+ * thing mobile and desktop show for it.
+ *
+ * `holdings` is the one measure `generatePromisifySign` made of the summary, after
+ * this realm's fee read: what leaves the account's holdings, crediting no consumed
+ * note. The extension popup renders that same measure (`signingEffects`). Nothing
+ * here decodes; a summary that could not be measured, or whose fee is unknown, was
+ * refused before this sheet. Without a measure the rows carry the explicit
+ * opaque-signature warning: for the `Arbitrary` / `Blind` variants, for the other
+ * `SignKind` (`word`, a raw digest), and for bytes that do not decode at all,
+ * mirroring the extension's `OpaqueSignatureWarning`.
  *
  * The summary is ground truth for the signature: it is the very value being
  * signed, not a dApp-declared description of it.
  */
-async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
+async function formatSignPreview(req: MidenDAppSignRequest, holdings?: TxAssetView): Promise<string[]> {
   const rows = [`Kind, ${req.kind}`, `Account, ${truncateAddress(req.sourcePublicKey)}`];
-  if (req.kind !== 'signingInputs') {
+  if (!holdings) {
     rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
     return rows;
   }
-
-  let summary: TransactionSummary | undefined;
-  try {
-    const signingInputs = SigningInputs.deserialize(b64ToU8(req.payload));
-    if (signingInputs.variantType === SigningInputsType.TransactionSummary) {
-      summary = signingInputs.transactionSummaryPayload();
-    }
-  } catch (e) {
-    // An undecodable payload is not a reason to refuse — it is a reason to say
-    // so. The user still gets the warning row below instead of a bare "Kind".
-    console.error('[DApp] Could not decode the signingInputs payload for the approval sheet:', e);
-  }
-
-  if (!summary) {
-    rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
-    return rows;
-  }
-
-  // No consumed note is credited: every one counts as already held. A throw is the refusal, before the sheet.
-  const holdings = measuredSigningHoldings(summary);
 
   rows.push('Signing, a transaction that moves these assets');
   rows.push(...(await formatAssetViewRows(holdings)));
