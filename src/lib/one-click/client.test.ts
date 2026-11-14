@@ -140,6 +140,50 @@ async function callSubmitBoundary(
 }
 
 describe('1Click client', () => {
+  it.each(['status', 'submit'])(
+    'uses the caller-scoped transport for %s without changing verified quote or fee authority',
+    async boundary => {
+      const quote = quoteWithFees(pinnedWetQuote, [fixtureFee]);
+      const scopedFetch = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json(statusResponse(quote))
+      );
+      fetchMock.mockRejectedValue(new Error('The default transport is not authorized for this caller'));
+      const result =
+        boundary === 'status'
+          ? fetchOneClickStatus(configWithFees([fixtureFee]), wetDepositAddress, undefined, quote, scopedFetch)
+          : submitOneClickDeposit(
+              configWithFees([fixtureFee]),
+              wetDepositAddress,
+              submitTransactionHash,
+              undefined,
+              quote,
+              scopedFetch
+            );
+      await expect(result).resolves.toMatchObject({ status: 'PROCESSING', quoteResponse: quote });
+      expect(scopedFetch.mock.calls.length).toBe(1);
+      expect(fetchMock.mock.calls.length).toBe(0);
+    }
+  );
+  it.each(['status', 'submit'])('does not trust fees returned through a caller-scoped %s transport', async boundary => {
+    const quote = quoteWithFees(pinnedWetQuote, [fixtureFee]);
+    const scopedFetch = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json(statusResponse(quote))
+    );
+    const result =
+      boundary === 'status'
+        ? fetchOneClickStatus(configWithFees([]), wetDepositAddress, undefined, quote, scopedFetch)
+        : submitOneClickDeposit(
+            configWithFees([]),
+            wetDepositAddress,
+            submitTransactionHash,
+            undefined,
+            quote,
+            scopedFetch
+          );
+    await expect(result).rejects.toThrow(/fee/i);
+    expect(scopedFetch.mock.calls.length).toBe(1);
+    expect(fetchMock.mock.calls.length).toBe(0);
+  });
   beforeEach(() => {
     globalThis.fetch = fetchMock;
   });

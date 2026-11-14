@@ -62,7 +62,14 @@ const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
-let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string; address?: string } = {
+let mockEpochQuote: {
+  amount?: string;
+  loading: boolean;
+  error: null;
+  symbol: string;
+  address?: string;
+  decimals?: number;
+} = {
   amount: undefined,
   loading: false,
   error: null,
@@ -995,6 +1002,49 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
     expect(container.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+  });
+
+  it.each([
+    { amount: '4.8', decimals: 6, minimum: 4_800_000n },
+    { amount: '1.000000000000000001', decimals: 18, minimum: 1_000_000_000_000_000_001n }
+  ])(
+    'passes the reviewed output in exact $decimals-decimal base units to Epoch before signing',
+    async ({ amount, decimals, minimum }) => {
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = { amount, decimals, loading: false, error: null, symbol: 'USDC' };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+      render(<ReviewTransaction />);
+      await flush();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(bridgeEpochSendMock).toHaveBeenCalledWith(expect.objectContaining({ minimumOutputBaseUnits: minimum }));
+    }
+  );
+
+  it('cannot authorize an Epoch output whose token precision is unresolved', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', loading: false, error: null, symbol: 'USDC' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, '0'])('cannot submit Epoch without a positive reviewed quote: %s', async amount => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount, loading: false, error: null, symbol: 'USDC' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
   });
 
   // What arrives is the quote at most, so "you receive" rounds it down.
@@ -1619,6 +1669,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('reopens an Epoch bridge challenge when external preparation outlives authorization', async () => {
     mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     const firstAssessment = breachAssessment({
@@ -1668,6 +1719,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('cancels a bridge challenge before any external bridge work', async () => {
     mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(

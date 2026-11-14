@@ -53,9 +53,9 @@ test.describe('Fullpage UI', () => {
 
     extensionContext.on('page', page => {
       page.on('response', response => {
-        if (response.status() !== 404) return;
+        if (response.status() < 400) return;
         const url = new URL(response.url());
-        missing.push(`${url.protocol}//${url.host}${url.pathname}`);
+        missing.push(response.status() === 404 ? `${url.origin}${url.pathname}` : `${response.status()} ${url.origin}`);
       });
       page.on('console', message => {
         if (message.type() === 'error' && !isIgnoredConsoleError(message.text())) {
@@ -71,7 +71,7 @@ test.describe('Fullpage UI', () => {
     // Wait for React to render content into #root (not just for #root to exist)
     await page.waitForSelector('#root > *', { timeout: 30000 });
 
-    expect(errors, `Missing request paths: ${JSON.stringify(missing)}`).toHaveLength(0);
+    expect(errors, `Failed request origins or missing paths: ${JSON.stringify(missing)}`).toHaveLength(0);
   });
 
   // SKIPPED for the v0 UI: the create flow is now Guardian-mandatory (no "Fully

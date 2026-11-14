@@ -1117,7 +1117,8 @@ export function dispatchGuardianPipeline(
   // The leaf's submit gate (#1644): the offscreen leaf submits only once it opened.
   submitGate?: SubmitGate,
   oneClickDeadline?: string,
-  oneClickRequired = false
+  oneClickRequired = false,
+  testAuthorizationKind?: GuardianPipelineArgs[6]
 ): Promise<TransactionResult> {
   // Typed against the shared wire contract so a dropped or reordered slot is a
   // compile error here rather than an argument the offscreen leaf silently misreads.
@@ -1129,6 +1130,7 @@ export function dispatchGuardianPipeline(
     oneClickDeadline ?? null,
     oneClickRequired
   ];
+  if (testAuthorizationKind !== undefined) args.push(testAuthorizationKind);
   return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage, submitGate);
 }
 

@@ -40,6 +40,8 @@ export const OFFSCREEN_URL = 'offscreen.html';
  * picking it up (issue #260, slice 5, design §2.3). */
 export const SW_TARGET = 'sw' as const;
 
+export const OFFSCREEN_TEST_AUTHORIZATION_STORAGE = 'OFFSCREEN_TEST_AUTHORIZATION_STORAGE';
+
 /** Message family for a generalized WASM-client method call. Distinct from the
  * existing `OFFSCREEN_PROVE` family, which keeps working unchanged. */
 export const OFFSCREEN_CALL = 'OFFSCREEN_CALL' as const;
@@ -437,7 +439,7 @@ export function encodeArg(value: unknown): string {
  * leaves the tail `undefined` (only hand-built test envelopes do that today),
  * which is why the leaf tests `delegateTransaction` for truthiness rather than
  * for `null`. The anchor slot has no receiver, and the deadline is only read
- * for a 1Click send.
+ * for a 1Click send. The seventh slot routes an explicitly armed E2E native byte authority.
  *
  * `trBytes` MUST stay a top-level element — {@link encodeArg} only recognizes a
  * `Uint8Array` at the top level, and a nested one would be JSON-mangled,
@@ -449,7 +451,8 @@ export type GuardianPipelineArgs = [
   delegateTransaction: boolean | null,
   chainAnchorB64: string | null,
   oneClickDeadline: string | null,
-  oneClickRequired: boolean | null
+  oneClickRequired: boolean | null,
+  testAuthorizationKind?: 'send' | 'consume' | null
 ];
 
 /** Inverse of {@link encodeArg}. */

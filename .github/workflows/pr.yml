@@ -182,6 +182,12 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
+      - name: Check mainnet harness
+        run: |
+          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
+          yarn lint:e2e
+          E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list
+
       - name: Run ESLint
         uses: borales/actions-yarn@v4
         with:

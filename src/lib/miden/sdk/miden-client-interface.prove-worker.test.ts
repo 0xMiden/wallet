@@ -224,6 +224,8 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+  jest.dontMock('./test-consume-authorization');
+  jest.dontMock('./test-send-authorization');
   jest.resetModules();
 });
 
@@ -294,6 +296,53 @@ describe('remoteProver transport deadline (#473)', () => {
 });
 
 describe('send (site 5)', () => {
+  const paths: [string, typeof load | typeof loadOffscreenProved][] = [
+    ['staged', load],
+    ['offscreen', loadOffscreenProved]
+  ];
+  for (const [name, create] of paths) {
+    it(`${name} cannot execute or submit a native send before the exact upload authorization`, async () => {
+      const harness = buildHarness();
+      const refused = new Error('exact native send authorization refused');
+      const gate = jest.fn(async (_actor: string, request: { serialize(): Uint8Array }) => {
+        expect(Array.from(request.serialize())).toEqual([1]);
+        throw refused;
+      });
+      jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+      const { client, withWasmClientLock } = await create(harness);
+      await expect(withWasmClientLock(async () => client.sendTransaction(sendTx(false)))).rejects.toBe(refused);
+      expect(gate).toHaveBeenCalledWith('sdk-acct', expect.objectContaining({ serialize: expect.any(Function) }));
+      expect(harness.executeRequest).not.toHaveBeenCalled();
+      expect(harness.inner.executeTransaction).not.toHaveBeenCalled();
+      expect(harness.submitProven).not.toHaveBeenCalled();
+      expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
+    });
+    it(`${name} checks the native hold after an async executing-stage write, not before it can expire`, async () => {
+      const harness = buildHarness();
+      const refused = new Error('original native authorization expired during the stage write');
+      let expired = false;
+      const gate = jest.fn(async () => {
+        if (expired) throw refused;
+      });
+      jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+      const { client, withWasmClientLock } = await create(harness);
+      await expect(
+        withWasmClientLock(async () =>
+          client.sendTransaction(sendTx(false), async stage => {
+            if (stage === 'executing') {
+              await Promise.resolve();
+              expired = true;
+            }
+          })
+        )
+      ).rejects.toBe(refused);
+      expect(gate).toHaveBeenCalledTimes(1);
+      expect(harness.executeRequest).not.toHaveBeenCalled();
+      expect(harness.inner.executeTransaction).not.toHaveBeenCalled();
+      expect(harness.submitProven).not.toHaveBeenCalled();
+      expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
+    });
+  }
   it('a local attempt proves in the worker, then submits the proof and applies it', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
@@ -654,6 +703,32 @@ const consumeTx = (delegateTransaction: boolean) =>
   new ConsumeTransaction('acct', [note('n1'), note('n2')], delegateTransaction);
 
 describe('consume (site 7)', () => {
+  for (const [name, create] of [
+    ['staged', load],
+    ['offscreen', loadOffscreenProved]
+  ] as const) {
+    it(`${name} cannot execute or submit before the actual native request authorization`, async () => {
+      const harness = buildHarness();
+      const refused = new Error('exact native authorization refused');
+      const gate = jest.fn(async (_actor: string, _ids: string[], request: { serialize(): Uint8Array }) => {
+        expect(Array.from(request.serialize())).toEqual([3, 3]);
+        throw refused;
+      });
+      jest.doMock('./test-consume-authorization', () => ({ awaitTestConsumeAuthorization: gate }));
+      const { client, withWasmClientLock } = await create(harness);
+      const transaction = new ConsumeTransaction('acct', [note('n1')], false);
+      await expect(withWasmClientLock(async () => client.consumeNoteId(transaction))).rejects.toBe(refused);
+      expect(gate).toHaveBeenCalledWith(
+        'sdk-acct',
+        ['n1'],
+        expect.objectContaining({ serialize: expect.any(Function) })
+      );
+      expect(harness.executeRequest).not.toHaveBeenCalled();
+      expect(harness.inner.executeTransaction).not.toHaveBeenCalled();
+      expect(harness.submitProven).not.toHaveBeenCalled();
+      expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
+    });
+  }
   it('a local attempt builds the consume request, executes it and proves in the worker', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
@@ -755,6 +830,51 @@ const swapTx = (delegateTransaction: boolean) =>
   new SwapTransaction('acct', 'offered', 5n, 'requested', 7n, delegateTransaction);
 
 describe('swap (site 8)', () => {
+  it('cannot execute or submit a PSWAP before its actual request upload authorization', async () => {
+    const harness = buildHarness();
+    const refused = new Error('exact PSWAP authorization refused');
+    const gate = jest.fn(async () => {
+      throw refused;
+    });
+    jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+    const { client, withWasmClientLock } = await load(harness);
+    await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(false)))).rejects.toBe(refused);
+    expect(gate).toHaveBeenCalledWith('sdk-acct', { pswapRequest: true }, 'swap');
+    expect(harness.executeRequest).not.toHaveBeenCalled();
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+  it('checks PSWAP authority after an async executing-stage write can expire it', async () => {
+    const harness = buildHarness();
+    const refused = new Error('original PSWAP authority expired during stage write');
+    let expired = false;
+    const gate = jest.fn(async () => {
+      if (expired) throw refused;
+    });
+    jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+    const { client, withWasmClientLock } = await load(harness);
+    await expect(
+      withWasmClientLock(async () =>
+        client.swapTransaction(swapTx(false), async stage => {
+          if (stage === 'executing') {
+            await Promise.resolve();
+            expired = true;
+          }
+        })
+      )
+    ).rejects.toBe(refused);
+    expect(gate).toHaveBeenCalledTimes(1);
+    expect(harness.executeRequest).not.toHaveBeenCalled();
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+  it('executes the same PSWAP request object held once, without drawing another serial', async () => {
+    const harness = buildHarness();
+    const gate = jest.fn(async (_actor: string, _request: unknown, _kind: string) => {});
+    jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+    const { client, withWasmClientLock } = await load(harness);
+    await withWasmClientLock(async () => client.swapTransaction(swapTx(false)));
+    expect(gate).toHaveBeenCalledTimes(1);
+    expect(harness.executeRequest.mock.calls[0]?.[1]).toBe(gate.mock.calls[0]?.[1]);
+  });
   it('a local attempt executes the PSWAP request it built and proves in the worker', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);

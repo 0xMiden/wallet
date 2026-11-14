@@ -1,0 +1,100 @@
+name: Authorize an exact mainnet loop request
+description: Upload and download an immutable checkpoint before acknowledging the held request.
+inputs:
+  checkpoint:
+    required: true
+    description: Validated public checkpoint file.
+  gate:
+    required: true
+    description: Exact live request gate prefix.
+  artifact-name:
+    required: true
+    description: Provider and stage scoped artifact name.
+  process-id:
+    required: true
+    description: File containing the live runner process ID.
+  snapshot-directory:
+    required: true
+    description: Exclusive job-local snapshot directory.
+  alternative-gates:
+    default: ''
+    description: Newline separated gates proving that recovery took another authorization path.
+outputs:
+  envelope-kind:
+    value: ${{ steps.snapshot.outputs.envelope_kind }}
+    description: Last signed envelope kind from the exact immutable snapshot, not a newer live journal.
+  alternative-gate:
+    value: ${{ steps.snapshot.outputs.alternative_gate }}
+    description: Actual ready recovery path when this stage was unused.
+  skipped:
+    value: ${{ steps.snapshot.outputs.skipped }}
+    description: Whether this stage was unused.
+runs:
+  using: composite
+  steps:
+    - id: snapshot
+      shell: bash
+      env:
+        CHECKPOINT: ${{ inputs.checkpoint }}
+        GATE: ${{ inputs.gate }}
+        PID_FILE: ${{ inputs.process-id }}
+        SNAPSHOT_DIRECTORY: ${{ inputs.snapshot-directory }}
+        ALTERNATIVE_GATES: ${{ inputs.alternative-gates }}
+      run: |
+        set -euo pipefail
+        deadline=$((SECONDS + 1100))
+        while [ ! -f "${GATE}.ready" ]; do
+          while IFS= read -r alternative; do
+            if [ -n "$alternative" ] && [ -f "${alternative}.ready" ]; then
+              printf 'skipped=true\nalternative_gate=%s\n' "$alternative" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          done <<< "$ALTERNATIVE_GATES"
+          read -r pid < "$PID_FILE"
+          [[ "$pid" =~ ^[1-9][0-9]*$ ]]
+          kill -0 "$pid" 2>/dev/null
+          if [ "$SECONDS" -ge "$deadline" ]; then echo 'Mainnet request did not become ready'; exit 1; fi
+          sleep 1
+        done
+        node scripts/mainnet-loop-upload.mjs snapshot "$CHECKPOINT" "$GATE" "$SNAPSHOT_DIRECTORY"
+        node --input-type=module - "$SNAPSHOT_DIRECTORY/roundtrip.json" <<'NODE'
+        import { appendFileSync, readFileSync } from 'node:fs';
+        const state = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+        const kind = state.transactions?.at(-1)?.kind ?? '';
+        if (!['', 'approve', 'deposit', 'transfer'].includes(kind)) throw new Error('Unexpected actual signed envelope kind');
+        appendFileSync(process.env.GITHUB_OUTPUT, `envelope_kind=${kind}\n`);
+        NODE
+    - id: upload
+      if: steps.snapshot.outputs.skipped != 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.snapshot.outputs.snapshot }}
+        if-no-files-found: error
+        retention-days: 90
+    - if: steps.snapshot.outputs.skipped != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        CHECKPOINT: ${{ inputs.checkpoint }}
+        GATE: ${{ inputs.gate }}
+        SNAPSHOT: ${{ steps.snapshot.outputs.snapshot }}
+        SNAPSHOT_DIRECTORY: ${{ inputs.snapshot-directory }}
+      run: |
+        set -euo pipefail
+        [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+        read_only_get() {
+          local endpoint="$1" destination="$2" attempt status
+          for attempt in 1 2 3; do
+            if timeout 30s gh api --method GET "$endpoint" > "$destination" 2> "$SNAPSHOT_DIRECTORY/download-errors"; then return 0; fi
+            status=$(grep -oE 'HTTP [0-9]{3}' "$SNAPSHOT_DIRECTORY/download-errors" | tail -1 || true)
+            printf 'Read-only artifact GET failed (%s, attempt %s/3); request remains held.\n' "${status:-transport error}" "$attempt" >&2
+            if [ "$attempt" -lt 3 ]; then sleep 2; fi
+          done
+          return 1
+        }
+        read_only_get "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}" "$SNAPSHOT_DIRECTORY/artifact.json"
+        read_only_get "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" "$SNAPSHOT_DIRECTORY/artifact.zip"
+        unzip -p "$SNAPSHOT_DIRECTORY/artifact.zip" roundtrip.json | head -c 65537 > "$SNAPSHOT_DIRECTORY/downloaded.json"
+        node scripts/mainnet-loop-upload.mjs release "$CHECKPOINT" "$GATE" "$SNAPSHOT" "$SNAPSHOT_DIRECTORY/downloaded.json" "$SNAPSHOT_DIRECTORY/artifact.json" "$ARTIFACT_ID" "$ARTIFACT_NAME"
