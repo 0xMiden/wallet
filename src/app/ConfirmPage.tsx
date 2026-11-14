@@ -37,7 +37,7 @@ import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { summaryToView, toHoldingsView, TxAssetView } from './confirm/decode';
+import { summaryToView, TxAssetView } from './confirm/decode';
 import { noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
@@ -394,14 +394,6 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
   switch (signingInputs.variantType) {
     case SigningInputsType.TransactionSummary: {
       const summary = signingInputs.transactionSummaryPayload();
-      // No consumed note is credited: every one counts as already held.
-      let view: TxAssetView;
-      try {
-        view = toHoldingsView(summaryToView(summary), []);
-      } catch (measureError) {
-        console.error('Signing summary holdings unavailable:', measureError);
-        return <OpaqueSignatureWarning rawValue={t('noPreview')} />;
-      }
       let noteFlow: NoteFlow | undefined;
       try {
         noteFlow = noteFlowFromTransaction(summary);
@@ -410,7 +402,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
       }
       return (
         <TransactionAssetView
-          view={view}
+          view={summaryToView(summary)}
           noteFlow={noteFlow}
           mode="verified"
           onDownload={() => downloadBytes('transaction_summary.bin', bytes)}

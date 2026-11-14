@@ -1032,15 +1032,14 @@ describe('sign payload — signingInputs', () => {
 
   const makeAsset = (id: string, amount: number) => ({
     faucetId: () => ({ toString: () => id }),
-    amount: () => BigInt(amount)
+    amount: () => amount
   });
 
   const transactionSummary = ({
     vaultEmpty = false,
     storageEmpty = false,
     removed = [] as any[],
-    added = [] as any[],
-    inputs = [] as any[]
+    added = [] as any[]
   }) => {
     const vault = {
       isEmpty: () => vaultEmpty,
@@ -1055,7 +1054,7 @@ describe('sign payload — signingInputs', () => {
     };
     const ts = {
       accountDelta: () => accountDelta,
-      inputNotes: () => ({ numNotes: () => (inputs.length > 0 ? inputs.length : 2), notes: () => inputs }),
+      inputNotes: () => ({ numNotes: () => 2, notes: () => [] }),
       // `notes()` as well: summary output notes now go through the fee split, because
       // `fee::pay_fee` runs in auth BEFORE the summary is built.
       outputNotes: () => ({
@@ -1102,8 +1101,8 @@ describe('sign payload — signingInputs', () => {
   // `TransactionAssetView.test.tsx`. `TransactionAssetView` is stubbed here
   // (see the `jest.mock` above) so these tests assert only that the
   // sign->TransactionSummary branch routes through it with the correct
-  // mode/view/onDownload wiring, i.e. that ConfirmPage measures holdings with
-  // `toHoldingsView` (no consumed note credited) and hands that view off.
+  // mode/view/onDownload wiring — i.e. that ConfirmPage computes the right
+  // `TxAssetView` via `summaryToView` and hands it off.
   it('renders a TransactionSummary via the verified TransactionAssetView', () => {
     // Input-aware so each faucet id resolves to its own bech32 — proving the
     // view maps assets by the bech32 faucet address (getBech32AddressFromAccountId),
@@ -1129,8 +1128,8 @@ describe('sign payload — signingInputs', () => {
     expect(screen.queryByText('opaqueSignatureNotATransaction')).not.toBeInTheDocument();
     expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
 
-    // The view handed to TransactionAssetView is the holdings measure. This summary
-    // lists no consumed note, so the amounts stay the vault delta, as bigints.
+    // The view handed to TransactionAssetView is the ground-truth mapping of
+    // the executed TransactionSummary (summaryToView), not a re-derivation.
     // Faucet ids are resolved to bech32 (metadata cache key), not hex.
     expect(mockTransactionAssetView).toHaveBeenCalledTimes(1);
     const { view, noteFlow } = mockTransactionAssetView.mock.calls[0][0];
@@ -1139,12 +1138,12 @@ describe('sign payload — signingInputs', () => {
     expect(view).toEqual({
       account: 'bech32:acc-id',
       outgoing: [
-        { faucetId: 'bech32:rem1', amount: 100n },
-        { faucetId: 'bech32:rem-null', amount: 200n }
+        { faucetId: 'bech32:rem1', amount: 100 },
+        { faucetId: 'bech32:rem-null', amount: 200 }
       ],
       incoming: [
-        { faucetId: 'bech32:add1', amount: 300n },
-        { faucetId: 'bech32:add-null', amount: 400n }
+        { faucetId: 'bech32:add1', amount: 300 },
+        { faucetId: 'bech32:add-null', amount: 400 }
       ],
       outgoingNfts: [],
       incomingNfts: [],
@@ -1152,58 +1151,9 @@ describe('sign payload — signingInputs', () => {
       inputNotesConsumed: 2,
       outputNotesCreated: 3,
       storageChanged: true,
-      heldNotesSpent: 0,
       viewConsumedNotes: [],
       createdNotes: ['stub-note-1', 'stub-note-2', 'stub-note-3'].map(id => ({ id, amounts: [], nfts: [] }))
     });
-  });
-
-  it('counts a consumed note that lists its assets as leaving holdings', () => {
-    mockAddress.fromAccountId.mockImplementation((id: any) => ({
-      toBech32: () => `bech32:${typeof id === 'string' ? id : id.toString()}`
-    }));
-    setPayload(siPayload());
-    mockSigningInputs.deserialize.mockReturnValue(
-      transactionSummary({
-        inputs: [
-          {
-            id: () => ({ toString: () => 'held-note' }),
-            note: () => ({
-              assets: () => ({
-                fungibleAssets: () => [makeAsset('X', 1000)],
-                nonFungibleAssets: () => []
-              })
-            })
-          }
-        ]
-      })
-    );
-    render(<ConfirmPage />);
-
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified');
-    expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
-    const { view } = mockTransactionAssetView.mock.calls[0][0];
-    expect(view.outgoing).toContainEqual({ faucetId: 'bech32:X', amount: 1000n });
-    expect(view.heldNotesSpent).toBe(1);
-  });
-
-  it('renders an opaque-signature warning when a consumed note does not list its assets', () => {
-    setPayload(siPayload());
-    mockSigningInputs.deserialize.mockReturnValue(
-      transactionSummary({
-        inputs: [
-          {
-            id: () => ({ toString: () => 'opaque-note' }),
-            note: () => ({ assets: () => undefined })
-          }
-        ]
-      })
-    );
-    render(<ConfirmPage />);
-
-    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
-    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
-    expect(mockTransactionAssetView).not.toHaveBeenCalled();
   });
 
   it('renders a TransactionSummary with an empty vault and empty storage', () => {

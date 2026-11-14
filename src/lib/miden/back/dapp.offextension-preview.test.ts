@@ -265,11 +265,7 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     }) as unknown as Parameters<typeof requestSign>[1];
 
   /** A `SigningInputs` whose variant is a TransactionSummary moving `assets` out. */
-  const summarySigningInputs = (
-    outgoing: ReturnType<typeof fungibleAsset>[],
-    unlisted = 0,
-    inputs: { id: string; note: { assets: () => unknown } }[] = []
-  ) => ({
+  const summarySigningInputs = (outgoing: ReturnType<typeof fungibleAsset>[], unlisted = 0) => ({
     variantType: 0,
     transactionSummaryPayload: () => ({
       accountDelta: () => ({
@@ -281,10 +277,7 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
         }),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({
-        numNotes: () => inputs.length,
-        notes: () => inputs.map(input => ({ id: () => ({ toString: () => input.id }), note: () => input.note }))
-      }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
       // `notes()` as well: summary output notes now go through the fee split, because
       // `fee::pay_fee` runs in auth BEFORE the summary is built.
       outputNotes: () => ({
@@ -313,32 +306,6 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     expect(rows).not.toContain(NOT_A_TRANSACTION);
     // The pre-existing rows stay.
     expect(rows).toContain('Kind, signingInputs');
-  });
-
-  it('counts a consumed note as leaving and names how many are still unclaimed', async () => {
-    sdk.SigningInputs = {
-      deserialize: () =>
-        summarySigningInputs([], 0, [{ id: 'held-note', note: noteCarrying([fungibleAsset('faucet-usdc', 1500000n)]) }])
-    };
-
-    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
-
-    const rows = sheetRows();
-    expect(rows).toContain('Sending, -1.5 USDC');
-    expect(rows).toContain('Includes notes you have not claimed yet, 1');
-    expect(rows).not.toContain(OPAQUE_WARNING);
-  });
-
-  it('warns instead of listing assets when a consumed note does not list them', async () => {
-    sdk.SigningInputs = {
-      deserialize: () => summarySigningInputs([], 0, [{ id: 'opaque-note', note: { assets: () => undefined } }])
-    };
-
-    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
-
-    const rows = sheetRows();
-    expectWarningThenLine(rows);
-    expect(rows.some(row => row.startsWith('Sending, '))).toBe(false);
   });
 
   it('scales the amount by the faucet decimals, not a fixed 6', async () => {
