@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { UsdAmount } from 'components/ui/TokenAmount';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import {
   createSpendingLimitAuthorization,
@@ -11,33 +12,6 @@ import { SpendingLimitAssessment, SpendingLimitAuthorization } from 'lib/miden/s
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 import { StrictActionAuthentication } from './StrictActionAuthentication';
-
-/** Dollars carry two decimal places on screen and six in storage, matching SpendingLimits.tsx. */
-const USD_STORAGE_DECIMALS = 6;
-const USD_DISPLAY_DECIMALS = 2;
-
-const MICRO_PER_CENT = 10n ** BigInt(USD_STORAGE_DECIMALS - USD_DISPLAY_DECIMALS);
-
-/**
- * Format micro-dollars as a two-decimal display string, rounded UP to the cent.
- *
- * Up, because the charge itself (`usdMicroFromAmount`) rounds up: displaying anything less would
- * show a limit and a breach as equal (or a breach as "Over by $0.00") when the account is actually
- * over by a sub-cent amount, and would show a charge lower than what actually leaves the account.
- * Limits are unaffected - the settings parser only ever writes whole cents.
- *
- * Deliberately NOT delegated to `lib/i18n/numbers`, for the same reason `formatUsdLimitInput` in
- * `SpendingLimits.tsx` isn't: that module's automatic mock rounds through `parseFloat`, so a
- * figure shown right before an authentication step would be tested against a lossy stand-in
- * rather than the real value.
- */
-export function formatUsdMicroAmount(value: bigint): string {
-  if (value < 0n) throw new RangeError('Invalid USD amount');
-  const cents = (value + MICRO_PER_CENT - 1n) / MICRO_PER_CENT;
-  const integerPart = cents / 100n;
-  const fractionPart = cents % 100n;
-  return `$${integerPart}.${fractionPart.toString().padStart(USD_DISPLAY_DECIMALS, '0')}`;
-}
 
 export interface SpendingLimitChallengeProps {
   /** `false` where the host's own back handler closes the challenge (the swap flow's). */
@@ -111,11 +85,23 @@ export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
           {breach !== undefined && assessment !== undefined ? (
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-xl bg-surface-secondary-token p-3 text-sm">
               <dt className="text-text-secondary-token">{t('amount')}</dt>
-              <dd className="text-right font-medium text-ink">{formatUsdMicroAmount(assessment.usdAmount)}</dd>
+              <dd className="text-right font-medium text-ink">
+                <UsdAmount
+                  amount={assessment.usdAmount}
+                  decimals={6}
+                  formatting="fixed"
+                  grouping={false}
+                  rounding="up"
+                />
+              </dd>
               <dt className="text-text-secondary-token">{t('spendingLimitCap')}</dt>
-              <dd className="text-right text-ink">{formatUsdMicroAmount(breach.limit)}</dd>
+              <dd className="text-right text-ink">
+                <UsdAmount amount={breach.limit} decimals={6} formatting="fixed" grouping={false} rounding="up" />
+              </dd>
               <dt className="text-text-secondary-token">{t('spendingLimitOverBy')}</dt>
-              <dd className="text-right text-status-negative">{formatUsdMicroAmount(breach.overBy)}</dd>
+              <dd className="text-right text-status-negative">
+                <UsdAmount amount={breach.overBy} decimals={6} formatting="fixed" grouping={false} rounding="up" />
+              </dd>
               <dt className="text-text-secondary-token">{t('spendingLimitResets')}</dt>
               <dd className="text-right text-ink">
                 {breach.resetAt === null

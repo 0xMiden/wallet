@@ -1,9 +1,9 @@
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
 /**
@@ -45,7 +45,9 @@ type NetworkFeeEstimateDetails = ReturnType<typeof useNetworkFeeEstimateDetails>
 
 /** The text form of `useNetworkFeeEstimateDetails`, so a screen that shows both reads the fee once. */
 export function formatNetworkFeeEstimate(fee: NetworkFeeEstimateDetails): string | undefined {
-  return fee ? `${formatAmount(fee.amount, fee.decimals)} ${fee.symbol}` : undefined;
+  return fee
+    ? `${formatAmountDisplay(fee.amount, { decimals: fee.decimals, rounding: 'up' })} ${fee.symbol}`
+    : undefined;
 }
 
 export function useNetworkFeeEstimate(): string | undefined {

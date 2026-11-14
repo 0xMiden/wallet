@@ -373,6 +373,35 @@
       "rules": {
         "@typescript-eslint/no-restricted-imports": "off"
       }
+    },
+    {
+      "files": [
+        "src/**/*.tsx"
+      ],
+      "excludedFiles": [
+        "**/*.test.tsx"
+      ],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.property.name='outputNotes']",
+            "message": "The kernel's TX_FEE note is an output note too, so a raw outputNotes() read hands you the fee note alongside the user's -- and indexing or counting that array silently picks or over-counts on any fee-charging chain while staying green at fee 0. Read output notes only via splitExecutedOutputNotes() in lib/miden/activity/fee-notes.ts."
+          },
+          {
+            "selector": "CallExpression[callee.property.name=/^(executeRequest|executeTransaction|newTransaction|submitNewTransaction|submitProvenTransaction|submitProven|consumeNoteId|swapTransaction|cancelByOrder)$/], CallExpression[callee.property.value=/^(executeRequest|executeTransaction|newTransaction|submitNewTransaction|submitProvenTransaction|submitProven|consumeNoteId|swapTransaction|cancelByOrder)$/], CallExpression[callee.object.property.name='transactions'][callee.property.name=/^(send|mint|bridge|consume|consumeAll|swap|pswapCreate|pswapConsume|pswapCancel|execute|submit|createNetworkNote|batch|submitBatch)$/], CallExpression[callee.object.property.name='transactions'][callee.property.value=/^(send|mint|bridge|consume|consumeAll|swap|pswapCreate|pswapConsume|pswapCancel|execute|submit|createNetworkNote|batch|submitBatch)$/], CallExpression[callee.object.property.value='transactions'][callee.property.name=/^(send|mint|bridge|consume|consumeAll|swap|pswapCreate|pswapConsume|pswapCancel|execute|submit|createNetworkNote|batch|submitBatch)$/], CallExpression[callee.object.property.value='transactions'][callee.property.value=/^(send|mint|bridge|consume|consumeAll|swap|pswapCreate|pswapConsume|pswapCancel|execute|submit|createNetworkNote|batch|submitBatch)$/], CallExpression[callee.property.name='sendTransaction'][callee.object.name!='NativeReown'], CallExpression[callee.property.value='sendTransaction'][callee.object.name!='NativeReown']",
+            "message": "Value-moving writes go through midenClientProxy inside withEffectCheckedSigner (transaction/index.ts); add the file to the allowlist only with a signing-time effect check."
+          },
+          {
+            "selector": "ImportSpecifier[imported.name=/^(toAdaptiveFixed|adaptiveFormatterFor|getAdaptiveDecimalPlaces|toLocalFormat|toLocalFixed|toShortened|formatUsd|usdFormatterFor)$/]",
+            "message": "Use TokenAmount or UsdAmount from components/ui/TokenAmount. For translations and text-only APIs, use lib/i18n/amount-display. Keep transaction conversion separate from display formatting."
+          },
+          {
+            "selector": "JSXExpressionContainer CallExpression[callee.name=/^(formatBigInt|formatUnits)$/]",
+            "message": "Do not display base-unit conversions directly. Use TokenAmount with amount and decimals. Use formatting=\"exact\" when all digits are required."
+          }
+        ]
+      }
     }
   ]
 }

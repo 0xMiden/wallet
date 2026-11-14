@@ -19,7 +19,6 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
-
 import Explore from './Explore';
 
 // The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
@@ -40,6 +39,7 @@ beforeEach(() => {
   mockVerifiedPriceAssets.clear();
   mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
   mockVerifiedPriceAssets.set(TEST_TOKEN_IBTC.faucetId, 'BTC');
+  mockNumberSymbols = { group: ',', decimal: '.' };
 });
 
 // This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
@@ -81,6 +81,7 @@ let mockClaimableNotesAreCached = false;
 let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
+let mockNumberSymbols = { group: ',', decimal: '.' };
 let mockBalancesLoading = false;
 let mockBaseFee: number | null = 0;
 let mockFloorFee: number | null | undefined;
@@ -102,6 +103,11 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${Object.values(params).join(':')}` : key)
   })
+}));
+
+jest.mock('lib/i18n/core', () => ({
+  ...jest.requireActual<typeof import('lib/i18n/core')>('lib/i18n/core'),
+  getNumberSymbols: () => mockNumberSymbols
 }));
 
 let mockLegacyFeeIdentity: string | undefined;
@@ -435,7 +441,7 @@ describe('Explore', () => {
 
         mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
         view.rerender(<Explore />);
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       } finally {
         mockedHasUnquotedDefaultPrice.mockReturnValue(false);
         _setSwapTokensForTest(TEST_SWAP_TOKENS);
@@ -467,6 +473,17 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it("formats the balance card with the active locale's number symbols", async () => {
+      mockNumberSymbols = { group: '.', decimal: ',' };
+      mockPortfolioTotal = new BigNumber(1234.5);
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden')];
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^1\.234,50$/);
     });
 
     it('hands the faucet lifecycle only a live note list, never the cached fallback', async () => {
@@ -613,7 +630,7 @@ describe('Explore', () => {
         await renderBeforeAnyPrice();
 
         expect(screen.getByTestId('hidden-assets-toggle')).toHaveTextContent('hiddenAssetsCount:1');
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
 
       it('does not hold back the total when its balance is zero', async () => {
@@ -624,7 +641,7 @@ describe('Explore', () => {
 
         await renderBeforeAnyPrice();
 
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
 
       it('does not hold back the total when its scale is unknown', async () => {
@@ -639,7 +656,7 @@ describe('Explore', () => {
 
         await renderBeforeAnyPrice();
 
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
     });
 

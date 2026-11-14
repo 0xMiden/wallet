@@ -548,8 +548,8 @@ describe('BridgeClaimSection', () => {
 
       it('shows Received and Circle fee from the recorded payout', () => {
         renderSection({ entry: burnRow({ payout }), sentAmount: 5_000_000n });
-        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.4365')).toBeInTheDocument();
-        expect(screen.getByText('t:usdcxCircleFeet:usdcxPayoutAmount|2.5635')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.43')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxCircleFeet:usdcxPayoutAmount|2.57')).toBeInTheDocument();
       });
 
       it('shows neither row for a legacy balance-confirmed row', () => {
@@ -564,7 +564,7 @@ describe('BridgeClaimSection', () => {
 
       it('shows no fee row when the paid amount is not below the sent amount', () => {
         renderSection({ entry: burnRow({ payout }), sentAmount: 2_436_500n });
-        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.4365')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.43')).toBeInTheDocument();
         expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
       });
 

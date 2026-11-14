@@ -178,6 +178,22 @@ describe('ActivityRow', () => {
       expect(screen.getByText('MIDEN')).toBeTruthy();
     });
 
+    it('rounds negative amounts up and positive amounts down', () => {
+      const { rerender } = renderRow({ amount: { value: '1.2345', direction: 'negative' } });
+
+      expect(screen.getByText('1.235')).toBeTruthy();
+      rerender(
+        <ActivityRow
+          icon={<svg data-testid="glyph" />}
+          title="Sent MIDEN"
+          status={baseStatus}
+          amount={{ value: '1.2345', direction: 'positive' }}
+        />
+      );
+
+      expect(screen.getByText('1.234')).toBeTruthy();
+    });
+
     it('expands precision instead of truncating a small non-zero amount to zero', () => {
       renderRow({ amount: { value: '0.00012345', symbol: 'MIDEN' } });
 
@@ -201,16 +217,16 @@ describe('ActivityRow', () => {
       expect(screen.getByText('+50.5')).toBeTruthy();
     });
 
-    it('returns non-finite values verbatim (sign absent)', () => {
+    it('shows a placeholder for an invalid value', () => {
       renderRow({ amount: { value: 'not-a-number' } });
 
-      expect(screen.getByText('not-a-number')).toBeTruthy();
+      expect(screen.getByText('—')).toBeTruthy();
     });
 
-    it('returns non-finite values verbatim even with a leading + sign', () => {
+    it('shows a placeholder for an invalid signed value', () => {
       renderRow({ amount: { value: '+abc' } });
 
-      expect(screen.getByText('+abc')).toBeTruthy();
+      expect(screen.getByText('—')).toBeTruthy();
     });
 
     it('omits the symbol span when no symbol is provided', () => {

@@ -13,7 +13,7 @@ import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SelectionCheck } from 'components/ui/SelectionCheck';
 import { Skeleton } from 'components/ui/Skeleton';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useWalletStore } from 'lib/store';
@@ -272,7 +272,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
 
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the
   // no-literal-string i18n lint; "$1.84" is excluded as a $-prefixed value.
-  const feeText = fastFeeUsd != null ? `$${toAdaptiveFixed(fastFeeUsd)}` : '—';
+  const feeText = fastFeeUsd != null ? formatUsdDisplay(fastFeeUsd) : '—';
   const fastFee = fastQuoteLoading ? (
     <Skeleton className="h-4 w-12" />
   ) : (

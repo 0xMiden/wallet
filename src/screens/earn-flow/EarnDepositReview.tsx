@@ -16,9 +16,11 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { earnCollateralFaucetId, earnMarketForVault, earnVaultTakesDeposits, openEarnPosition } from 'lib/epoch';
-import { amountExceedsTokenDecimals, stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
+import { amountExceedsTokenDecimals, stringToBigInt } from 'lib/i18n/numbers';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
@@ -360,7 +362,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               // review takes over from the screen it was typed on.
               labelClassName={amountCaptionClassName}
               figureClassName={classNames('mt-3 text-ink', amountFigureClassName(formatMoneyAmount(amount, 'typed')))}
-              value={formatMoneyAmount(amount, 'typed')}
+              value={<TokenAmount amount={formatMoneyAmount(amount, 'typed')} formatting="exact" />}
               unit={<EarnAmountUnit symbol={depositSymbol} faucetId={collateral?.faucetId} compact />}
               label={t('earnDepositAmountTitle')}
               meta={
@@ -483,7 +485,9 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
               <div key={item.label}>
                 <div className="text-label uppercase tracking-wide text-muted">{item.label}</div>
                 <div className="mt-1 text-value text-positive-tint-ink">
-                  {t('earnProjectedRewardAmount', { amount: `$${toAdaptiveFixed(item.reward)}` })}
+                  {t('earnProjectedRewardAmount', {
+                    amount: formatUsdDisplay(item.reward)
+                  })}
                 </div>
               </div>
             ))}

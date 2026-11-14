@@ -1724,10 +1724,10 @@ describe('requestConsumeTransaction', () => {
     mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'MIDEN' });
 
     const feeRow = (await consumeMessages()).find(m => m.startsWith('Network fee (max), '));
-    // 2000000 x FEE_RESERVE_MULTIPLE(30). This suite stubs `formatBigInt` to raw units,
-    // so the bound shows unscaled; the decimal formatting is that helper's own job. The
-    // minus prefix matches the existing `Network fee` row, which formats fees the same way.
-    expect(feeRow).toBe('Network fee (max), -60000000 MIDEN');
+    // 2000000 x FEE_RESERVE_MULTIPLE(30) base units at 6 decimals. The preview formats the bound
+    // exactly through formatAmountDisplay, not the stubbed `formatBigInt`. The minus prefix
+    // matches the existing `Network fee` row, which formats fees the same way.
+    expect(feeRow).toBe('Network fee (max), -60 MIDEN');
     mockBaseFee = null;
   });
 

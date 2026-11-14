@@ -9,13 +9,13 @@ import { FlowAccent } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
 import { TransactionHeroIcon } from '../components';
@@ -86,9 +86,14 @@ export const useReceiptFeeText = (transaction?: ITransaction) => {
   // The fee is always paid in the native asset, so it resolves against the native
   // faucet rather than the transaction's own token.
   const feeMetadata = resolveDisplayMetadata(transaction?.feeFaucetId, assetsMetadata, nativeFaucetId);
-  return transaction?.feeAmount !== undefined && hasKnownScale(feeMetadata)
-    ? `${formatAmount(transaction.feeAmount, feeMetadata.decimals)} ${feeMetadata.symbol}`
-    : undefined;
+  return transaction?.feeAmount !== undefined && hasKnownScale(feeMetadata) ? (
+    <TokenAmount
+      amount={transaction.feeAmount}
+      decimals={feeMetadata.decimals}
+      symbol={feeMetadata.symbol}
+      rounding="up"
+    />
+  ) : undefined;
 };
 
 export const useReceiptAmount = (transaction?: ITransaction) => {
@@ -107,11 +112,12 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
   // Same rule as the in-progress badge this receipt replaces: a faucet whose
   // decimals were never resolved has no honest scale, so the asset is named
   // without a quantity instead of being shown at the placeholder's guess.
-  const amount =
-    transaction?.amount !== undefined && hasKnownScale(tokenMetadata)
-      ? formatAmount(transaction.amount, tokenMetadata.decimals)
-      : undefined;
-  const amountText = consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenLabel}` : undefined;
+  const amountText =
+    consumeParts.length > 0 ? (
+      consumeParts.join(', ')
+    ) : transaction?.amount !== undefined && hasKnownScale(tokenMetadata) ? (
+      <TokenAmount amount={transaction.amount} decimals={tokenMetadata.decimals} symbol={tokenLabel} rounding="up" />
+    ) : undefined;
 
   const feeText = useReceiptFeeText(transaction);
 
@@ -122,7 +128,7 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
 export const SuccessHero: FC = () => <TransactionHeroIcon state="success" />;
 
 /** Emphasized amount block ("12 MDN") with an optional sub-line below it. */
-export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }> = ({ amountText, subline }) => {
+export const SuccessAmountBlock: FC<{ amountText?: ReactNode; subline?: ReactNode }> = ({ amountText, subline }) => {
   if (!amountText) return null;
 
   return (

@@ -71,7 +71,7 @@ import {
   type DAppConfirmationResult,
   type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
@@ -4006,7 +4006,9 @@ function formatAmountSafe(
   tokenDecimals: number | undefined,
   scaleIsKnown: boolean
 ) {
-  const normalizedAmount = scaleIsKnown ? formatBigInt(amount, tokenDecimals ?? MIDEN_METADATA.decimals) : '?';
+  const normalizedAmount = scaleIsKnown
+    ? formatAmountDisplay(amount, { decimals: tokenDecimals ?? MIDEN_METADATA.decimals, formatting: 'exact' })
+    : '?';
   if (transactionType === 'consume') {
     return `+${normalizedAmount}`;
   }

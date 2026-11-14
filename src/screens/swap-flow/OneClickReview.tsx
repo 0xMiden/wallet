@@ -9,7 +9,7 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { effectiveOneClickFundingDeadline } from 'lib/one-click/deadline';
 import { OneClickAsset, OneClickQuoteResponse } from 'lib/one-click/types';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
@@ -84,8 +84,6 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
     fundingDeadline = undefined;
   }
   const arrival = t('oneClickArrivalEstimate', { minutes: Math.ceil(quote.quote.timeEstimate / 60) });
-  const amountInFormatted = formatBigInt(BigInt(quote.quote.amountIn), originAsset.decimals);
-  const amountOutFormatted = formatBigInt(BigInt(quote.quote.amountOut), destinationAsset.decimals);
 
   return (
     <ReviewLayout
@@ -101,7 +99,14 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
                 size="md"
               />
             }
-            value={`${amountInFormatted} ${originAsset.symbol}`}
+            value={
+              <TokenAmount
+                amount={BigInt(quote.quote.amountIn)}
+                decimals={originAsset.decimals}
+                symbol={originAsset.symbol}
+                formatting="exact"
+              />
+            }
             subtitle={t('oneClickYouPayFrom', { network: originNetworkName })}
           />
           <span className="text-center text-body-sm text-muted" aria-hidden="true">
@@ -115,7 +120,14 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
                 size="md"
               />
             }
-            value={`${amountOutFormatted} ${destinationAsset.symbol}`}
+            value={
+              <TokenAmount
+                amount={BigInt(quote.quote.amountOut)}
+                decimals={destinationAsset.decimals}
+                symbol={destinationAsset.symbol}
+                rounding="down"
+              />
+            }
             subtitle={t('oneClickYouReceiveOn', { network: destinationNetworkName })}
           />
         </div>
@@ -157,7 +169,12 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
       )}
       <DetailCard surface="fill">
         <DetailRow label={t('oneClickMinimumReceived')} data-testid="one-click-minimum-row">
-          {formatBigInt(BigInt(quote.quote.minAmountOut), destinationAsset.decimals)} {destinationAsset.symbol}
+          <TokenAmount
+            amount={BigInt(quote.quote.minAmountOut)}
+            decimals={destinationAsset.decimals}
+            symbol={destinationAsset.symbol}
+            rounding="down"
+          />
         </DetailRow>
         {fees.map(fee => (
           <DetailRow key={fee.label} label={t(fee.label)}>

@@ -19,7 +19,7 @@ export interface AnimatedNumberProps {
    * node: a suffix rendered as a sibling would split "100.00 MIDEN" across two elements.
    *
    * It is called once per animation frame while the number is travelling, so it must be cheap and
-   * must not change shape with magnitude (see `adaptiveFormatterFor`), or the row will jitter.
+   * must not change shape with magnitude (see `amountFormatterFor`), or the row will jitter.
    */
   format: (value: number) => string;
   /** What to render while `value` is not a finite number: a dash, a mask, a skeleton, nothing. */
@@ -50,7 +50,7 @@ function realmCanAnimate(): boolean {
  * panes here stay mounted, so a value that changes behind a hidden pane travels while it is hidden
  * and is already settled when the pane is shown — which is the behaviour we want.)
  *
- *   <AnimatedNumber value={balance} format={n => `$${toLocalFormat(n, { decimalPlaces: 2 })}`} />
+ *   <TokenAmount amount={balance} animated />
  *
  * Under reduced motion, in any realm that cannot report the motion preference, and when the sign
  * changes, the new value is set immediately.

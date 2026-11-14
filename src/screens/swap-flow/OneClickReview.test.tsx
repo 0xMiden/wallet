@@ -88,4 +88,14 @@ describe('OneClickReview quote amount display', () => {
     expect(within(hero).queryByText('0.0000025 USDC')).not.toBeInTheDocument();
     expect(screen.getByTestId('one-click-minimum-row')).toHaveTextContent('2.49 USDC');
   });
+
+  it('shows the amount the user pays with every digit of the quote', () => {
+    render(
+      <OneClickReview
+        {...reviewProps({ quote: { ...quote, quote: { ...quote.quote, amountIn: '1234567800000000000' } } })}
+      />
+    );
+
+    expect(within(screen.getByTestId('one-click-review-hero')).getByText('1.2345678 ETH')).toBeInTheDocument();
+  });
 });
