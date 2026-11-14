@@ -64,8 +64,9 @@ const SIMULATION_TIMEOUT_MS = 20_000;
  * dry-run-imported note visible is a cosmetic surprise, while hiding a note
  * the user already owned removes their only view of their own funds. When the
  * lookup is broken for every id the quarantine simply degrades to a no-op.
- * A trap is rethrown as itself and a killed pipeline as the kill link
- * `pipelineKillIn` finds, so the lock sees them.
+ * A trap is rethrown as itself, so the lock retires the client, and a killed
+ * pipeline as the kill link `pipelineKillIn` finds, for the dry run's outer
+ * catch to abandon the quarantine and reject with.
  *
  * The caller syncs first: a note on chain that the client has not synced has no
  * record yet and would read as introduced.
@@ -92,8 +93,8 @@ async function idsNotAlreadyHeld(
     // Per-iteration: an eviction during any lookup hands the mutex to a
     // successor without stopping this loop, and the next lookup would borrow a
     // client somebody else is inside. The check sits OUTSIDE the try below.
-    // The try rethrows a trap as itself and a killed pipeline as its kill link,
-    // so the lock sees them; an ordinary failure is already held.
+    // The try rethrows a trap as itself, so the lock retires the client, and a
+    // killed pipeline as its kill link; an ordinary failure is already held.
     assertWasmHoldCurrent(hold, 'before the provenance lookup');
     try {
       if (!(await client.getInputNote(id))) introduced.push(id);
@@ -142,19 +143,23 @@ function consumedNoteIds(dryRun: {
  * describe the same executed transaction; the confirm UI decodes whichever
  * arrives.
  * All WASM work runs inside a single `withWasmClientLock` scope (the client is
- * single-threaded). Never throws: failures are returned as `{ error }`. The dApp
- * approval refuses a request whose dry run gives `{ error }`, before any prompt
- * (see `generatePromisifyTransaction` in `dapp.ts`).
+ * single-threaded). An ordinary failure resolves to `{ error }`, and so does a
+ * WebAssembly trap once the lock has retired the client. A killed pipeline
+ * rejects with its kill link (`pipelineKillIn`) after the quarantine attempt is
+ * abandoned, and a timeout abandons the attempt and rejects with
+ * `CustomSimulationTimeoutError`. The dApp approval refuses a request whose dry
+ * run gives `{ error }`, before any prompt (see `generatePromisifyTransaction`
+ * in `dapp.ts`).
  *
  * The whole locked operation races against `SIMULATION_TIMEOUT_MS` so a slow
  * import/sync/execute can never hang the confirm screen's "verifying…" state
  * forever. The race is done OUTSIDE `withWasmClientLock` — racing inside it
  * would let a subsequent lock holder start while this abandoned WASM work is
  * still executing, risking the recursive-use/unsafe-aliasing crash the
- * `withWasmClientLock` guardian code warns about. The locked work itself never
- * rejects (it stays wrapped in try/catch -> `{ error }`), so when the timeout
- * wins there is no unhandled rejection; the lock is simply released whenever
- * the abandoned work eventually finishes.
+ * `withWasmClientLock` guardian code warns about. The locked work can reject
+ * with a kill, and the race subscribes to it, so a late rejection after the
+ * timeout won is still handled; the lock is simply released whenever the
+ * abandoned work eventually finishes.
  *
  * Residual limitation: a slow `syncState` (or import/execute) still holds the
  * WASM lock until it completes or the #775 watchdog evicts it — the timeout
