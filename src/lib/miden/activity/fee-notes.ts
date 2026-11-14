@@ -1,5 +1,6 @@
 import type { OutputNote } from '@miden-sdk/miden-sdk';
 
+import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { getNativeAssetIdSync, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -82,6 +83,25 @@ function soleFungibleFaucet(note: OutputNote): string | undefined {
   }
 }
 
+/** The most the kernel can charge at `verificationBaseFee`, or undefined when that is not a safe integer. */
+function feeCeiling(verificationBaseFee: number): bigint | undefined {
+  const ceiling = Math.round(verificationBaseFee * FEE_RESERVE_MULTIPLE);
+  return Number.isSafeInteger(ceiling) ? BigInt(ceiling) : undefined;
+}
+
+/** Whether the note's first fungible amount is at most `ceiling`; false when it cannot be read. */
+function withinFeeCeiling(note: OutputNote, ceiling: bigint): boolean {
+  try {
+    const amount = (note.assets()?.fungibleAssets() ?? [])[0]?.amount();
+    return amount !== undefined && BigInt(amount) <= ceiling;
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) {
+      throw err;
+    }
+    return false;
+  }
+}
+
 /**
  * Split output notes into the kernel's fee note and the notes the user actually created.
  *
@@ -101,6 +121,9 @@ function soleFungibleFaucet(note: OutputNote): string | undefined {
  *     cache, just a dApp asking a fee-free chain to hide a transfer.
  *   - the note holds exactly ONE fungible asset, drawn on the chain's NATIVE faucet, which
  *     is the only asset the wallet ever commits a fee in (it always commits `one_to_one`).
+ *   - the amount is at most what the kernel can charge: the base fee times
+ *     `FEE_RESERVE_MULTIPLE`. The kernel charges the base fee times (ilog2(cycles) + 1) with
+ *     cycles capped at 2^29, so a larger tagged note is never the fee.
  *   - exactly ONE candidate exists. The kernel emits one. If a second appears we cannot say
  *     which is real, so NEITHER is treated as the fee and both stay in the totals.
  *
@@ -117,10 +140,12 @@ export function partitionFeeNote(
   nativeFaucetId: string | null,
   verificationBaseFee: number | null
 ): { feeNote: OutputNote | undefined; userNotes: UserOutputNote[] } {
-  const chainCharges = verificationBaseFee !== null && verificationBaseFee > 0;
+  const ceiling = verificationBaseFee !== null && verificationBaseFee > 0 ? feeCeiling(verificationBaseFee) : undefined;
   const candidates =
-    chainCharges && nativeFaucetId !== null
-      ? notes.filter(note => hasFeeTag(note) && soleFungibleFaucet(note) === nativeFaucetId)
+    ceiling !== undefined && nativeFaucetId !== null
+      ? notes.filter(
+          note => hasFeeTag(note) && soleFungibleFaucet(note) === nativeFaucetId && withinFeeCeiling(note, ceiling)
+        )
       : [];
   const feeNote = candidates.length === 1 ? candidates[0] : undefined;
   // The ONE place the brand is minted. Sound when a fee note was identified: that note is

@@ -6,6 +6,7 @@ import {
   partitionFeeNote,
   splitExecutedOutputNotes
 } from './fee';
+import { FEE_RESERVE_MULTIPLE } from '../fees/spendable';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The fee note is corroborated against the chain's NATIVE faucet, so the suite has to
@@ -230,9 +231,10 @@ describe('feeTextFromTransaction', () => {
 
 describe("splitExecutedOutputNotes against the transaction's own block", () => {
   const userNote = outputNote(0x0, [asset(500n, 'tkn-faucet')]);
-  const taggedNative = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
-  const withHeader = (blockHeader: () => unknown) =>
-    ({ outputNotes: () => ({ notes: () => [userNote, taggedNative] }), blockHeader }) as any;
+  // Within the ceiling of a base fee of 2 (60), so each case below is decided by which fee source the split reads.
+  const taggedNative = outputNote(TX_FEE_NOTE_TAG, [asset(50n, 'native')]);
+  const withHeader = (blockHeader: () => unknown, notes = [userNote, taggedNative]) =>
+    ({ outputNotes: () => ({ notes: () => notes }), blockHeader }) as any;
   afterEach(() => {
     mockVerificationBaseFee = CHARGING;
   });
@@ -272,6 +274,26 @@ describe("splitExecutedOutputNotes against the transaction's own block", () => {
         })
       )
     ).toThrow(eviction);
+  });
+
+  // The kernel charges at most the base fee times FEE_RESERVE_MULTIPLE, so a larger tagged note is never the fee.
+  it('leaves a fee-tagged native note above the kernel ceiling among the user notes', () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    const { feeNote, userNotes } = splitExecutedOutputNotes(withHeader(headerCharging(CHARGING), [userNote, over]));
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([userNote, over]);
+  });
+
+  it('still takes a fee-tagged native note at exactly the kernel ceiling', () => {
+    const atCeiling = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE), 'native')]);
+    const { feeNote } = splitExecutedOutputNotes(withHeader(headerCharging(CHARGING), [userNote, atCeiling]));
+    expect(feeNote).toBe(atCeiling);
+  });
+
+  it("measures the ceiling against the transaction's own block fee", () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(61n, 'native')]);
+    const { feeNote } = splitExecutedOutputNotes(withHeader(headerCharging(2), [userNote, over]));
+    expect(feeNote).toBeUndefined();
   });
 
   it('keeps the realm cache for an object without a header', () => {
