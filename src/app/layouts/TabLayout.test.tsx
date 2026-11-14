@@ -27,7 +27,7 @@ import TabLayout from './TabLayout';
 // ---------------------------------------------------------------------------
 const mockLocation = { pathname: '/' };
 const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, isIOS: false, isAndroid: false };
-const mockEnv = { fullPage: false, sidePanel: false };
+const mockEnv = { fullPage: false, popup: false, sidePanel: false, confirmWindow: false };
 const mockReturning = { value: false };
 const mockHasUnread = { value: false };
 const mockUnreadBadges = { value: false };
@@ -66,6 +66,14 @@ jest.mock('lib/mobile/webview-state', () => ({
 
 jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: mockEnv.fullPage, sidePanel: mockEnv.sidePanel })
+}));
+
+jest.mock('app/layouts/CommandLauncher', () => ({
+  __esModule: true,
+  default: () =>
+    mockPlatform.isExtension && !mockEnv.confirmWindow && (mockEnv.popup || mockEnv.sidePanel) ? (
+      <button data-testid="command-launcher">commandOpenFullscreen</button>
+    ) : null
 }));
 
 jest.mock('app/hooks/useHasUnreadActivity', () => ({
@@ -211,7 +219,9 @@ beforeEach(() => {
   mockPlatform.isIOS = false;
   mockPlatform.isAndroid = false;
   mockEnv.fullPage = false;
+  mockEnv.popup = false;
   mockEnv.sidePanel = false;
+  mockEnv.confirmWindow = false;
   mockReturning.value = false;
   mockHasUnread.value = false;
   mockUnreadBadges.value = false;
@@ -329,6 +339,32 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     expect(screen.queryByTestId('action-bar')).toBeNull();
     expect(screen.queryByTestId('home-swipe')).toBeNull();
     expect(screen.getByTestId('child-content')).toBeInTheDocument();
+  });
+});
+
+describe('TabLayout — compact fullscreen launcher placement', () => {
+  it.each(['/', '/send', '/receive', '/earn', '/swap'])('places the launcher ahead of Home actions on %s', pathname => {
+    mockLocation.pathname = pathname;
+    mockPlatform.isExtension = true;
+    mockEnv.sidePanel = true;
+    const { container } = renderLayout();
+    const launcher = screen.getByTestId('command-launcher');
+    const actions = screen.getByTestId('action-bar');
+    expect(launcher.closest('[data-home-actions]')).toBeNull();
+    expect(launcher.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    document.body.setAttribute('data-hide-home-actions', '');
+    expect(container.querySelector('[data-home-actions]')).toBeInTheDocument();
+    expect(launcher.closest('[data-home-actions]')).toBeNull();
+    document.body.removeAttribute('data-hide-home-actions');
+  });
+
+  it.each(['native', 'fullpage', 'confirmation'] as const)('does not show the launcher on %s', surface => {
+    mockPlatform.isExtension = surface !== 'native';
+    mockEnv.fullPage = surface === 'fullpage';
+    mockEnv.popup = surface !== 'fullpage';
+    mockEnv.confirmWindow = surface === 'confirmation';
+    renderLayout();
+    expect(screen.queryByTestId('command-launcher')).toBeNull();
   });
 });
 

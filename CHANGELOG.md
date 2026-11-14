@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FEATURE][extension] Open the unlocked wallet in a new fullscreen tab from a prominent button on the compact Home and action pages; a failed tab opening keeps the compact wallet available to retry.
 - [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
 - [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).

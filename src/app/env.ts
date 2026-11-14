@@ -146,6 +146,10 @@ export const onboardingUrls = async () => {
   return urls;
 };
 
+export async function openCommandHome(_source: WindowType.Popup | WindowType.SidePanel): Promise<void> {
+  // RED-only interface: the tab handoff is implemented after its behavioral test fails.
+}
+
 export async function openInFullPage() {
   // Only extension can open new tabs
   if (!isExtension()) {

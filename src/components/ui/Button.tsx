@@ -19,7 +19,8 @@ export enum ButtonVariant {
   /** A destructive action: `fill`, `negative-ink` label. */
   Destructive = 'destructive',
   /** A quiet outlined action, for the few places a filled secondary is too heavy. */
-  Ghost = 'ghost'
+  Ghost = 'ghost',
+  Launcher = 'launcher'
 }
 
 /** `lg` is the 48px CTA; `sm` the 36px compact button. */
@@ -61,7 +62,8 @@ const buttonVariants = cva(
         [ButtonVariant.Destructive]:
           'bg-fill text-negative-ink hover:bg-fill-pressed disabled:bg-fill disabled:text-muted',
         [ButtonVariant.Ghost]:
-          'border border-hairline bg-transparent text-ink hover:bg-fill disabled:bg-transparent disabled:text-muted'
+          'border border-hairline bg-transparent text-ink hover:bg-fill disabled:bg-transparent disabled:text-muted',
+        [ButtonVariant.Launcher]: ''
       },
       size: {
         // 48px, not 52: a pinned CTA (often with a secondary under it) was eating the page.

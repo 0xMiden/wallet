@@ -11,6 +11,7 @@ import {
   WindowType,
   IS_DEV_ENV,
   onboardingUrls,
+  openCommandHome,
   openInFullPage
 } from './env';
 
@@ -32,6 +33,7 @@ jest.mock('lib/woozie', () => ({
 const mockTabsCreate = jest.fn();
 const mockTabsQuery = jest.fn().mockResolvedValue([]);
 const mockTabsUpdate = jest.fn();
+const mockSidebarClose = jest.fn();
 const mockRuntimeGetURL = jest.fn((path: string) => `chrome-extension://test/${path}`);
 const mockAddListener = jest.fn();
 const mockSendMessage = jest.fn().mockResolvedValue(undefined);
@@ -44,6 +46,7 @@ jest.mock('webextension-polyfill', () => ({
       query: (...args: unknown[]) => mockTabsQuery(...args),
       update: (...args: unknown[]) => mockTabsUpdate(...args)
     },
+    sidebarAction: { close: (...args: unknown[]) => mockSidebarClose(...args) },
     runtime: {
       getURL: (path: string) => mockRuntimeGetURL(path),
       onMessage: {
@@ -68,6 +71,7 @@ describe('env', () => {
     jest.clearAllMocks();
     mockIsMobile.mockReturnValue(false);
     mockIsExtension.mockReturnValue(true);
+    mockSidebarClose.mockResolvedValue(undefined);
   });
 
   describe('IS_DEV_ENV', () => {
@@ -242,6 +246,61 @@ describe('env', () => {
       expect(mockTabsCreate).toHaveBeenCalledWith({
         url: expect.stringContaining('fullpage.html')
       });
+    });
+  });
+
+  describe('openCommandHome', () => {
+    it('does not open a tab outside the extension', async () => {
+      mockIsExtension.mockReturnValue(false);
+      await openCommandHome(WindowType.Popup);
+      expect(mockTabsCreate).not.toHaveBeenCalled();
+    });
+
+    it.each([WindowType.Popup, WindowType.SidePanel])('opens extension-owned home in an active tab (%s)', async source => {
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      const close = jest.spyOn(window, 'close').mockImplementation(() => {});
+      try {
+        window.history.replaceState(null, '', '/?draft=private#/send?amount=123');
+        await openCommandHome(source);
+        expect(mockTabsCreate).toHaveBeenCalledWith({
+          url: 'chrome-extension://test/fullpage.html#/',
+          active: true
+        });
+        expect(close).toHaveBeenCalledTimes(source === WindowType.Popup ? 1 : 0);
+      } finally {
+        window.history.replaceState(null, '', '/');
+        close.mockRestore();
+      }
+    });
+
+    it('closes a supported sidebar only after successful creation', async () => {
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      await openCommandHome(WindowType.SidePanel);
+      expect(mockSidebarClose).toHaveBeenCalledTimes(1);
+      expect(mockTabsCreate.mock.invocationCallOrder[0]).toBeLessThan(mockSidebarClose.mock.invocationCallOrder[0]!);
+    });
+
+    it('keeps a side panel usable when creating the tab fails', async () => {
+      mockTabsCreate.mockRejectedValueOnce(new Error('tabs unavailable'));
+      await expect(openCommandHome(WindowType.SidePanel)).rejects.toThrow('tabs unavailable');
+      expect(mockSidebarClose).not.toHaveBeenCalled();
+    });
+
+    it('does not close a popup before tab creation resolves, and keeps it open on rejection', async () => {
+      let rejectCreate: (error: Error) => void = () => {};
+      mockTabsCreate.mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectCreate = reject)));
+      const close = jest.spyOn(window, 'close').mockImplementation(() => {});
+      try {
+        const opening = openCommandHome(WindowType.Popup);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(close).not.toHaveBeenCalled();
+        rejectCreate(new Error('tabs unavailable'));
+        await expect(opening).rejects.toThrow('tabs unavailable');
+        expect(close).not.toHaveBeenCalled();
+      } finally {
+        close.mockRestore();
+      }
     });
   });
 
