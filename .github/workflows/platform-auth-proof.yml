@@ -5,67 +5,65 @@ on:
 permissions:
   contents: read
 jobs:
-  native-wallet-candidate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  readonly-ui-observation-self-check:
+    runs-on: windows-11-arm
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 35add7dbebd615fd57332f7ad802525dd0c131b4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Verify frozen product source
-        run: test "$(git rev-parse HEAD)" = 35add7dbebd615fd57332f7ad802525dd0c131b4
-      - name: Check the existing production eligibility endpoint
-        env:
-          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
-          FEATURE_ELIGIBILITY_NETWORKS: '["testnet"]'
-          FEATURE_ELIGIBILITY_ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
-        run: node services/feature-eligibility/check-deployment.mjs
-      - name: Install frozen dependencies
-        run: yarn install --frozen-lockfile
-      - name: Build the real testnet Chrome wallet
-        env:
-          MODE_ENV: production
-          NODE_ENV: production
-          MIDEN_NETWORK: testnet
-          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
-        run: yarn build:chrome
-      - name: Verify and bind the candidate bytes
-        shell: bash
+          persist-credentials: false
+      - name: Check the observation trust boundaries
+        run: python .github/native-pilot/check-observation-boundaries.py
+      - name: Parse and exercise the read-only observation on the CI fixture
+        shell: powershell
         run: |
-          set -euo pipefail
-          test -s dist/chrome.zip
-          test -s dist/chrome_unpacked/manifest.json
-          unzip -t dist/chrome.zip
-          mkdir native-candidate
-          cp dist/chrome.zip native-candidate/wallet-testnet.zip
-          sha256sum native-candidate/wallet-testnet.zip | tee native-candidate/SHA256SUMS
-          node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync } from 'node:fs';
-          import { createHash } from 'node:crypto';
-          const path = 'native-candidate/wallet-testnet.zip';
-          const manifest = JSON.parse(readFileSync('dist/chrome_unpacked/manifest.json', 'utf8'));
-          if (manifest.manifest_version !== 3) throw new Error('Expected actual MV3 Chrome extension');
-          const record = {
-            purpose: 'Disposable native qualification candidate; not a release or passing native test',
-            productSource: '35add7dbebd615fd57332f7ad802525dd0c131b4',
-            workflowSource: process.env.GITHUB_SHA,
-            runId: process.env.GITHUB_RUN_ID,
-            network: 'testnet',
-            mode: 'production',
-            mockClient: false,
-            virtualAuthenticator: false,
-            extensionVersion: manifest.version,
-            sha256: createHash('sha256').update(readFileSync(path)).digest('hex')
-          };
-          writeFileSync('native-candidate/source.json', JSON.stringify(record, null, 2));
-          console.log(JSON.stringify(record));
-          NODE
+          $ErrorActionPreference = 'Stop'
+          $script = (Resolve-Path '.github/native-pilot/observe-ui-session.ps1').Path
+          [IO.File]::WriteAllText($script, [IO.File]::ReadAllText($script).Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+          if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b668b8670a0f46a58f540ec3c9eb0a5c7fcfbbf39b05428a642590b8a4d29b4c') { throw 'Observation source hash mismatch' }
+          $tokens = $null
+          $parseErrors = $null
+          [void][Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count) { throw 'Observation PowerShell syntax is invalid' }
+          $previousLocalAppData = $env:LOCALAPPDATA
+          try {
+            $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'readonly-ui-fixture'
+            $root = Join-Path $env:LOCALAPPDATA 'MidenNative846Probe'
+            [void](New-Item -ItemType Directory -Path $root -Force)
+            'CI fixture only; no native wallet qualification' | Set-Content (Join-Path $root 'owned-native-probe-v1.txt')
+            $text = & $script -ExpectedUser $env:USERNAME
+            $report = ($text -join "`n") | ConvertFrom-Json
+            if ($report.schemaVersion -ne 1 -or -not $report.expectedProcessUserMatched -or $report.samples.Count -ne 3) { throw 'Observation schema assertion failed' }
+            foreach ($sample in $report.samples) {
+              if (-not $sample.processDesktop -or $sample.processSessionId -lt 0) { throw 'Native process desktop/session query failed' }
+              if ($report.interactiveUserMatched -ne $true -and $sample.controls.Count) { throw 'Cross-user UI inspection must fail closed' }
+              if (-not $sample.sameInputDesktop -and $sample.controls.Count) { throw 'Cross-desktop UI inspection must fail closed' }
+              foreach ($control in $sample.controls) {
+                $names = @($control.PSObject.Properties.Name | Sort-Object)
+                if (($names -join ',') -ne 'controlType,enabled,focused,isPassword,offscreen') { throw 'Unexpected UI metadata field' }
+              }
+            }
+            New-Item -ItemType Directory 'native-observation-candidate' | Out-Null
+            Copy-Item $script 'native-observation-candidate/observe-ui-session.ps1'
+            Copy-Item (Join-Path $root 'native-driver-observation.json') 'native-observation-candidate/CI-FIXTURE-ONLY.json'
+            $receipt = [ordered]@{
+              purpose = 'Read-only UI/session diagnostic source; not an input driver or native wallet qualification'
+              workflowSource = $env:GITHUB_SHA
+              targetProductSource = '35add7dbebd615fd57332f7ad802525dd0c131b4'
+              runId = $env:GITHUB_RUN_ID
+              scriptSha256 = (Get-FileHash $script -Algorithm SHA256).Hash.ToLowerInvariant()
+              ciFixtureSyntaxAndRuntime = 'passed'
+              shadowGuestExecution = 'NOT RUN'
+              credentialInput = 'NONE'
+            }
+            $receipt | ConvertTo-Json | Set-Content 'native-observation-candidate/source.json' -Encoding UTF8
+            $receipt | ConvertTo-Json
+          } finally {
+            $env:LOCALAPPDATA = $previousLocalAppData
+          }
       - uses: actions/upload-artifact@v4
         with:
-          name: native-wallet-35add7dbe
-          path: native-candidate/
+          name: readonly-ui-observation-candidate
+          path: native-observation-candidate/
           retention-days: 3
           if-no-files-found: error
