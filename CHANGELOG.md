@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Bridge reclaim success receipts show a localized withdrawal confirmation with a return-to-locked-funds action (#2146).
 - [FIX][ci] Reload the selected extension build before using a saved Playwright wallet profile.
 - [FIX][e2e] Link stress-test sends to wallet transaction receipts, wait for timed-out send UI helpers to settle, and audit send completion against the configured failure budget.
 - [FIX][all] Read recent Activity history in bounded batches for the unread indicator, preserving History's newest 50 visible rows across timestamp ties and reusing claim checks within each scan (#2202).

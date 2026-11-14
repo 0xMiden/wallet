@@ -10,7 +10,25 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { TransactionSuccess } from './TransactionSuccess';
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key })
+  useTranslation: () => ({
+    t: (key: string, opts?: { defaultValue?: string }) => {
+      const translations: Record<string, string> = {
+        bridgeWithdrawalSuccessful: 'Withdrawal successful',
+        returnToLockedFunds: 'Return to locked funds',
+        home: 'Home'
+      };
+      return translations[key] ?? opts?.defaultValue ?? key;
+    }
+  })
+}));
+
+const mockBack = jest.fn();
+let mockBackFallbackPath: string | undefined;
+jest.mock('app/hooks/useBackWithFallback', () => ({
+  useBackWithFallback: (fallbackPath: string) => {
+    mockBackFallbackPath = fallbackPath;
+    return mockBack;
+  }
 }));
 
 jest.mock('components/Button', () => ({
@@ -119,6 +137,8 @@ describe('TransactionSuccess', () => {
     mockState.assetsMetadata = {};
     mockMidenMeta.symbol = 'MIDEN';
     mockNativeAssetId = null;
+    mockBack.mockClear();
+    mockBackFallbackPath = undefined;
   });
 
   const renderInto = async (element: React.ReactElement) => {
@@ -246,9 +266,43 @@ describe('TransactionSuccess', () => {
     // The summary pill's right side reads "Accepted" instead of an address.
     expect(container.textContent).toContain('Accepted');
     expect(container.textContent).toContain('Transaction ID');
+    // Ordinary accepted transfers keep the generic receipt and actions.
+    expect(container.textContent).toContain('Transaction Complete!');
+    expect(container.querySelector('[data-testid="done-button"][data-title="done"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="done-button"][data-title="viewInActivities"]')).not.toBeNull();
+    expect(container.querySelector('[data-title="returnToLockedFunds"]')).toBeNull();
     // And its arrow is the received green — the colour this claim's icon carries in Activity
     // and on its detail page — not the Send blue and not the Receive action's own token.
     expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-received)');
+
+    act(() => root.unmount());
+  });
+
+  it('renders the localized bridge reclaim receipt and returns to its history parent', async () => {
+    const onDoneClick = jest.fn();
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({ type: 'consume', status: 2, consumeEntryPoint: 'bridge_reclaim' })}
+        onDoneClick={onDoneClick}
+      />
+    );
+
+    expect(container.textContent).toContain('Withdrawal successful');
+    expect(container.textContent).not.toContain('Transaction Complete!');
+    expect(container.textContent).not.toContain('View in Activities');
+    expect(container.querySelector('[data-testid="done-button"][data-title="Return to locked funds"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="done-button"][data-title="Home"]')).not.toBeNull();
+    expect(mockBackFallbackPath).toBe('/history');
+
+    act(() => {
+      (container.querySelector('[data-title="Return to locked funds"]') as HTMLButtonElement).click();
+    });
+    expect(mockBack).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      (container.querySelector('[data-title="Home"]') as HTMLButtonElement).click();
+    });
+    expect(onDoneClick).toHaveBeenCalledTimes(1);
 
     act(() => root.unmount());
   });
