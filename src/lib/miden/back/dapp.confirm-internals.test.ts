@@ -425,15 +425,32 @@ describe('requestSign measures a transaction summary once, before the popup', ()
     return response.payload;
   };
 
+  // The summary's vault moves nothing; the 1000 leaves only through the held note it consumes, so the raw summary
+  // view shows nothing leaving and only the holdings measure counts it.
+  const heldNote = {
+    id: () => ({ toString: () => 'held-note' }),
+    note: () => ({
+      assets: () => ({
+        fungibleAssets: () => [{ faucetId: () => ({ __faucet: 'faucet-x' }), amount: () => 1000n }],
+        nonFungibleAssets: () => []
+      })
+    })
+  };
+  const heldNoteMeasure = {
+    outputNotesCreated: 1,
+    heldNotesSpent: 1,
+    outgoing: [{ faucetId: 'bech32', amount: '1000' }]
+  };
+
   it('hands the popup the measured holdings as signingEffects', async () => {
-    summaryConsuming([]);
+    summaryConsuming([heldNote]);
 
     const payload = await servedPayload();
 
     expect(payload.preview).toBeNull();
-    expect(payload.signingEffects.view).toMatchObject({ outputNotesCreated: 1, outgoing: [] });
+    expect(payload.signingEffects.view).toMatchObject(heldNoteMeasure);
     expect(payload.signingEffects.noteFlow).toMatchObject({
-      inputCount: 0,
+      inputCount: 1,
       outputs: [expect.objectContaining({ id: 'stub-note-1' })]
     });
   });
@@ -454,12 +471,12 @@ describe('requestSign measures a transaction summary once, before the popup', ()
     mockNoteFlowFromTransaction.mockImplementationOnce(() => {
       throw new Error('no note details');
     });
-    summaryConsuming([]);
+    summaryConsuming([heldNote]);
 
     try {
       const payload = await servedPayload();
 
-      expect(payload.signingEffects.view).toMatchObject({ outputNotesCreated: 1, outgoing: [] });
+      expect(payload.signingEffects.view).toMatchObject(heldNoteMeasure);
       expect(payload.signingEffects).not.toHaveProperty('noteFlow');
     } finally {
       consoleError.mockRestore();
