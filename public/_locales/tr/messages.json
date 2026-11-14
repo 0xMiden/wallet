@@ -7467,8 +7467,8 @@
     "englishSource": "Hide dust tokens"
   },
   "hideDustTokensDescription": {
-    "message": "Varlık listenizden değeri 0,001 $'dan az olan token'ları gizler. USDCX her zaman görünür kalır.",
-    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+    "message": "Varlık listenizden değeri 0,001 $'dan az olan token'ları gizler. Yerel token her zaman görünür kalır.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Gizli varlıklar",

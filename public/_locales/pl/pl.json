@@ -1634,7 +1634,7 @@
   "unhideToken": "Odkryj token",
   "tokenHiddenNotice": "Ukryty w portfelu. Pozostaje w portfelu, a jego przelewy nadal można odebrać.",
   "hideDustTokens": "Ukryj tokeny typu dust",
-  "hideDustTokensDescription": "Ukrywa tokeny o wartości poniżej 0,001 USD z listy aktywów. USDCX pozostaje zawsze widoczny.",
+  "hideDustTokensDescription": "Ukrywa tokeny o wartości poniżej 0,001 USD z listy aktywów. Natywny token zawsze pozostaje widoczny.",
   "hiddenAssets": "Ukryte aktywa",
   "hiddenAssetsCount": "Ukryte aktywa ($count$)",
   "unhide": "Pokaż",

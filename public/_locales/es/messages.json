@@ -7472,8 +7472,8 @@
     "englishSource": "Hide dust tokens"
   },
   "hideDustTokensDescription": {
-    "message": "Oculta de tu lista de activos los tokens con un valor inferior a 0,001 $. El USDCX siempre permanece visible.",
-    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+    "message": "Oculta de tu lista de activos los tokens con un valor inferior a 0,001 $. El token nativo siempre permanece visible.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Activos ocultos",

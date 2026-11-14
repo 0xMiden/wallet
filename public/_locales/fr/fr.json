@@ -1633,7 +1633,7 @@
   "unhideToken": "Afficher le jeton",
   "tokenHiddenNotice": "Caché depuis la page d’accueil. Il reste dans votre portefeuille et ses transferts peuvent toujours être réclamés.",
   "hideDustTokens": "Masquer les jetons « dust »",
-  "hideDustTokensDescription": "Masque les tokens d’une valeur inférieure à 0,001 $ dans votre liste d’actifs. L’USDCX reste toujours visible.",
+  "hideDustTokensDescription": "Masque les tokens d’une valeur inférieure à 0,001 $ dans votre liste d’actifs. Le token natif reste toujours visible.",
   "hiddenAssets": "Actifs cachés",
   "hiddenAssetsCount": "Actifs cachés ($count$)",
   "unhide": "Afficher",

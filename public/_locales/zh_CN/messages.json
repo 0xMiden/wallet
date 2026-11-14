@@ -7466,8 +7466,8 @@
     "englishSource": "Hide dust tokens"
   },
   "hideDustTokensDescription": {
-    "message": "将价值低于 0.001 美元的代币从您的资产列表中隐藏。USDCX 始终可见。",
-    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+    "message": "将价值低于 0.001 美元的代币从您的资产列表中隐藏。原生代币始终可见。",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "隐藏资产",

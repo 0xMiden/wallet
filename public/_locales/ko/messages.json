@@ -7466,8 +7466,8 @@
     "englishSource": "Hide dust tokens"
   },
   "hideDustTokensDescription": {
-    "message": "자산 목록에서 0.001달러 미만의 토큰을 숨깁니다. USDCX는 항상 표시됩니다.",
-    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+    "message": "자산 목록에서 0.001달러 미만의 토큰을 숨깁니다. 네이티브 토큰은 항상 표시됩니다.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "숨겨진 자산",
