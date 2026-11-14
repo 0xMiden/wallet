@@ -30,6 +30,11 @@ describe('user-visible error reports', () => {
     expect(isUserErrorId('earnBalanceLoadError')).toBe(true);
   });
 
+  it('recognizes the localized fullscreen tab creation failure as a closed error id', () => {
+    expect(isUserErrorId('commandFullscreenOpenFailed')).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(en, 'commandFullscreenOpenFailed')).toBe(true);
+  });
+
   it('reports a known id and surface once as WalletUserVisibleError', () => {
     reportUserVisibleError('usdcxFaucetUnavailable', 'review');
 

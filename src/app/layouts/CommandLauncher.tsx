@@ -46,7 +46,7 @@ export default function CommandLauncher(): ReactElement | null {
       <span id="command-fullscreen-new-tab-description" className="sr-only">
         {t('commandFullscreenNewTab')}
       </span>
-      <ErrorLine>{error && t('commandFullscreenOpenFailed')}</ErrorLine>
+      <ErrorLine errorId="commandFullscreenOpenFailed">{error && t('commandFullscreenOpenFailed')}</ErrorLine>
     </div>
   );
 }

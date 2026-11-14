@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { openCommandHome, WindowType } from 'app/env';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import CommandLauncher from './CommandLauncher';
 
@@ -21,6 +22,7 @@ jest.mock('lib/platform', () => ({
   isDesktop: () => false
 }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 const mockOpen = openCommandHome as jest.MockedFunction<typeof openCommandHome>;
 
@@ -69,6 +71,23 @@ it('keeps the compact surface usable after failure and permits retry', async () 
   });
   expect(mockOpen).toHaveBeenCalledTimes(2);
   expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('reports a visible tab creation failure on the inline surface without exposing the underlying error', async () => {
+  jest.useFakeTimers();
+  mockOpen.mockRejectedValueOnce(new Error('private draft and URL must not escape'));
+  try {
+    render(<CommandLauncher />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'commandOpenFullscreen' }));
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('commandFullscreenOpenFailed');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('private draft');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('commandFullscreenOpenFailed', 'inline');
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 it('creates only one tab under duplicate activation while creation is pending', async () => {
