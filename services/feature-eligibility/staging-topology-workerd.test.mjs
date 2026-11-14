@@ -13,6 +13,13 @@ async function runScenario(name) {
   assert.deepEqual(await result.json(), { scenario: name, status: 'passed' });
 }
 
+async function runInFreshRateWindow(name) {
+  // Native buckets reset on wall-clock boundaries; keep each five-request proof within a full 10 s window.
+  const periodMs = 10_000;
+  await new Promise(resolve => setTimeout(resolve, periodMs - (Date.now() % periodMs) + 25));
+  await runScenario(name);
+}
+
 test('isolated workerd cache scenario proves the real service miss and hit', async () => {
   await runScenario('cache_reuse');
 });
@@ -30,7 +37,7 @@ test('isolated workerd refuses rate limits before object access', async () => {
 });
 
 test('isolated workerd wires the configured rate-limit bindings through the Worker', async () => {
-  await runScenario('wired_rate');
+  await runInFreshRateWindow('wired_rate');
 });
 
 test('isolated workerd distinguishes overload from retryable failure', async () => {
@@ -42,5 +49,5 @@ test('isolated workerd retains lease state through restart and day boundary', as
 });
 
 test('isolated workerd exercises both native rate limit bindings', async () => {
-  await runScenario('native_rate');
+  await runInFreshRateWindow('native_rate');
 });
