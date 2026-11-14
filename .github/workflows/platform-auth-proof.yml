@@ -5,9 +5,9 @@ on:
 permissions:
   contents: read
 jobs:
-  macos-native-feasibility:
+  macos-official-chrome-availability:
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -15,39 +15,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Check the reused PRF and UV measurement contract
+      - name: Validate measurement contracts
         run: |
           node --test .github/native-pilot/macos-prf/probe-core.test.mjs
-          node --check .github/native-pilot/macos-prf/measure.mjs
+          node --check .github/native-pilot/macos-prf/platform-availability.mjs
       - name: Install frozen existing dependencies
         timeout-minutes: 5
         run: yarn install --frozen-lockfile
-      - name: Install the existing Playwright Chromium runtime
+      - name: Use official Chrome on the disposable runner
         timeout-minutes: 3
-        run: npx playwright install chromium
-      - name: Measure native OS authentication availability without authenticating
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir macos-native-measurement
-          sw_vers > macos-native-measurement/os-version.txt
-          swift -e '
-          import Foundation
-          import LocalAuthentication
-          let context = LAContext()
-          var error: NSError?
-          let biometric = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
-          let owner = context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
-          let data = try JSONSerialization.data(withJSONObject: ["biometricAvailable": biometric, "deviceOwnerAuthenticationAvailable": owner], options: [.sortedKeys])
-          print(String(decoding: data, as: UTF8.self))
-          ' > macos-native-measurement/local-authentication.json
-      - name: Try actual native PRF and UV, headless then headful
-        run: node .github/native-pilot/macos-prf/measure.mjs
-      - name: Preserve metadata only, never profiles or secret material
+          test -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' || npx playwright install chrome
+      - name: Check actual official Chrome provider availability
+        run: node .github/native-pilot/macos-prf/platform-availability.mjs
+      - name: Preserve availability metadata only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-native-feasibility
+          name: macos-official-chrome-availability
           path: macos-native-measurement/
           retention-days: 3
           if-no-files-found: error
