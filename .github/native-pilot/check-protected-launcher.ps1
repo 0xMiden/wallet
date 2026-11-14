@@ -16,6 +16,14 @@ foreach ($forbidden in @('Set-ExecutionPolicy', '-ExecutionPolicy', 'Set-MpPrefe
     if ($source.Contains($forbidden)) { throw ('Unexpected capability: ' + $forbidden) }
 }
 if ($source.IndexOf('Valid Microsoft signature required') -gt $source.IndexOf('Start-Process -FilePath')) { throw 'Signature must be verified before launch' }
+$exitSources = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Value.Contains('class NativeProbeExit') }, $true))
+if ($exitSources.Count -ne 1 -or -not $source.Contains('$processHandle = $process.Handle') -or $source.Contains('$process.ExitCode')) { throw 'Cached-handle native exit retrieval required' }
+Add-Type -TypeDefinition $exitSources[0].Value
+$childProcess = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'exit 17') -PassThru -NoNewWindow
+$handle = $childProcess.Handle
+if (-not $childProcess.WaitForExit(15000)) { $childProcess.Kill(); throw 'Exit-status fixture timed out' }
+if ([NativeProbeExit]::Read($handle) -ne 17) { throw 'Native exit-status fixture must return 17' }
+if (-not $source.Contains('-join "`n"')) { throw 'Diagnostic strings must not serialize provider metadata' }
 $root = Join-Path $env:ProgramData 'MidenNative846ProtectedProbe'
 $rootBefore = Test-Path $root
 $serviceBefore = [bool](Get-Service -Name 'Miden846ReadOnlyProbe' -ErrorAction SilentlyContinue)

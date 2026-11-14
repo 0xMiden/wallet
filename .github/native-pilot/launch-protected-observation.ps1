@@ -20,13 +20,28 @@ $serviceName = 'Miden846ReadOnlyProbe'
 $root = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'MidenNative846ProtectedProbe'
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { throw 'Helper service name already in use; do not alter it' }
 if (Test-Path $root) { throw 'Protected probe directory already exists; do not alter it' }
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class NativeProbeExit {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+    public static uint Read(IntPtr process) {
+        uint code;
+        if (!GetExitCodeProcess(process, out code)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        return code;
+    }
+}
+'@
 $created = $false
 $process = $null
 $cleanupErrors = @()
 $report = $null
 $failure = $null
 $serviceImage = $null
-$diagnostics = @()
+$diagnostics = ''
 $startedHelper = $false
 try {
     [void](New-Item -ItemType Directory -Path $root)
@@ -70,6 +85,7 @@ Invoke-Command -ScriptBlock ([ScriptBlock]::Create([IO.File]::ReadAllText($sourc
     $arguments = @('-accepteula', '-nobanner', '-r', $serviceName, '-s', '-i', [string]$session, '-x', (Join-Path $PSHOME 'powershell.exe'), '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
     $process = Start-Process -FilePath $protectedTool -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput (Join-Path $root 'helper.stdout') -RedirectStandardError (Join-Path $root 'helper.stderr')
     $startedHelper = $true
+    $processHandle = $process.Handle
     # The elevated parent remains separate from the measured child and enforces its deadline.
     for ($i = 0; $i -lt 10 -and -not $process.HasExited; $i++) {
         $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
@@ -77,7 +93,8 @@ Invoke-Command -ScriptBlock ([ScriptBlock]::Create([IO.File]::ReadAllText($sourc
         Start-Sleep -Milliseconds 200
     }
     if (-not $process.WaitForExit(60000)) { throw 'Read-only helper exceeded 60-second deadline' }
-    if ($process.ExitCode -ne 0) { throw ('Microsoft helper returned exit ' + $process.ExitCode) }
+    $exitCode = [NativeProbeExit]::Read($processHandle)
+    if ($exitCode -ne 0) { throw ('Microsoft helper returned exit ' + $exitCode) }
     $owner = Get-Content (Join-Path $root 'child-owned.json') -Raw | ConvertFrom-Json
     if (-not $owner.systemIdentityVerified -or $owner.session -ne $session) { throw 'SYSTEM child identity/session assertion failed' }
     $report = Get-Content (Join-Path $data 'native-driver-observation.json') -Raw | ConvertFrom-Json
@@ -116,7 +133,7 @@ Invoke-Command -ScriptBlock ([ScriptBlock]::Create([IO.File]::ReadAllText($sourc
             }
         } catch { $cleanupErrors += 'Owned service/binary cleanup failed' }
         $stderr = Join-Path $root 'helper.stderr'
-        if (Test-Path $stderr) { $diagnostics = @(Get-Content -LiteralPath $stderr -Tail 8 -ErrorAction SilentlyContinue) }
+        if (Test-Path $stderr) { $diagnostics = (@(Get-Content -LiteralPath $stderr -Tail 8 -ErrorAction SilentlyContinue) -join "`n") }
         if (-not $cleanupErrors.Count) {
             try { Remove-Item -LiteralPath $root -Recurse -Force }
             catch { $cleanupErrors += 'Protected directory cleanup failed' }
