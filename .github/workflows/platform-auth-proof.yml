@@ -17,7 +17,7 @@ jobs:
       - name: Check bounded privileged-launcher syntax and rejected-context safety
         shell: powershell
         run: |
-          foreach ($file in @('.github/native-pilot/launch-protected-observation.ps1', '.github/native-pilot/check-protected-launcher.ps1')) {
+          foreach ($file in @('.github/native-pilot/launch-protected-observation.ps1', '.github/native-pilot/check-protected-launcher.ps1', '.github/native-pilot/elevate-protected-observation.ps1')) {
             $path = (Resolve-Path $file).Path
             [IO.File]::WriteAllText($path, [IO.File]::ReadAllText($path).Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
           }
@@ -54,6 +54,7 @@ jobs:
             New-Item -ItemType Directory 'native-observation-candidate' | Out-Null
             Copy-Item $script 'native-observation-candidate/observe-ui-session.ps1'
             Copy-Item '.github/native-pilot/launch-protected-observation.ps1' 'native-observation-candidate/launch-protected-observation.ps1'
+            Copy-Item '.github/native-pilot/elevate-protected-observation.ps1' 'native-observation-candidate/elevate-protected-observation.ps1'
             Copy-Item (Join-Path $root 'native-driver-observation.json') 'native-observation-candidate/CI-FIXTURE-ONLY.json'
             $receipt = [ordered]@{
               purpose = 'Read-only UI/session diagnostic source; not an input driver or native wallet qualification'
@@ -62,7 +63,8 @@ jobs:
               runId = $env:GITHUB_RUN_ID
               scriptSha256 = (Get-FileHash $script -Algorithm SHA256).Hash.ToLowerInvariant()
               launcherSha256 = (Get-FileHash '.github/native-pilot/launch-protected-observation.ps1' -Algorithm SHA256).Hash.ToLowerInvariant()
-              launcherValidation = 'Parent/child syntax and rejected-context safety only; no PsExec/SYSTEM launch in CI'
+              elevationBootstrapSha256 = (Get-FileHash '.github/native-pilot/elevate-protected-observation.ps1' -Algorithm SHA256).Hash.ToLowerInvariant()
+              launcherValidation = 'Parent/child/UAC-loader syntax and rejected-context safety only; no UAC/PsExec/SYSTEM launch in CI'
               ciFixtureSyntaxAndRuntime = 'passed'
               shadowGuestExecution = 'NOT RUN'
               credentialInput = 'NONE'

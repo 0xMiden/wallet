@@ -27,4 +27,14 @@ catch {
 }
 if (-not $rejected) { throw 'Invalid context must be rejected' }
 if ((Test-Path $root) -ne $rootBefore -or [bool](Get-Service -Name 'Miden846ReadOnlyProbe' -ErrorAction SilentlyContinue) -ne $serviceBefore) { throw 'Rejected context changed machine state' }
-'PASS: parent/child parser, static safety boundaries, rejected-context side-effect check. No PsExec or SYSTEM process launched in CI.'
+$bootstrap = Join-Path $PSScriptRoot 'elevate-protected-observation.ps1'
+$bootstrapSource = [IO.File]::ReadAllText($bootstrap)
+$bootstrapAst = [Management.Automation.Language.Parser]::ParseFile($bootstrap, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Elevation bootstrap syntax failed' }
+$elevationChildren = @($bootstrapAst.FindAll({ param($node) $node -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Value.Contains('Launcher hash mismatch after UAC') }, $true))
+if ($elevationChildren.Count -ne 1) { throw 'Expected one bounded elevation command' }
+[void][Management.Automation.Language.Parser]::ParseInput($elevationChildren[0].Value, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Elevated command syntax failed' }
+$launcherHash = (Get-FileHash $launcher).Hash.ToLowerInvariant()
+if (-not $bootstrapSource.Contains($launcherHash) -or -not $bootstrapSource.Contains('-Verb RunAs') -or $bootstrapSource.Contains('-ExecutionPolicy')) { throw 'Normal UAC and exact launcher hash required' }
+'PASS: launcher/bootstrap/child parsers, static safety boundaries, rejected-context side-effect check. No UAC, PsExec or SYSTEM process launched in CI.'
