@@ -327,7 +327,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   cacheScope: () => 'fixture-rpc|testnet',
   captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
-  recordSyncedFeeFaucetId: jest.fn(async () => true)
+  recordSyncedFeeFaucetId: jest.fn(async () => true),
+  // An approved custom proposal reads the chain fee first; the read is the node's, not this suite's.
+  refreshVerificationBaseFee: jest.fn(async () => 2),
+  isVerificationBaseFeeKnownAbsent: () => false
 }));
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
