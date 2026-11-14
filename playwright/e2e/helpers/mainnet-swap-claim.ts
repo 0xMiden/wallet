@@ -181,6 +181,7 @@ export interface MainnetSwapReturnAbsence {
   atTime: number;
   previousRunId: string;
   noteCount: number;
+  approvalAnchor?: { blockNumber: number; timestamp: number };
 }
 
 export function authorizeMainnetSwapReturnReplacement(
@@ -254,7 +255,8 @@ export function assertFailedMainnetSwapReturnUpload(
   run: unknown,
   jobs: unknown,
   previousRunId: string,
-  workflowId: number
+  workflowId: number,
+  absence?: MainnetSwapReturnAbsence
 ): void {
   if (
     !/^\d{1,25}$/.test(previousRunId) ||
@@ -271,9 +273,19 @@ export function assertFailedMainnetSwapReturnUpload(
   )
     throw new Error('Original return workflow is unresolved or foreign');
   const steps = jobs.jobs.flatMap(job => (isRecord(job) && Array.isArray(job.steps) ? job.steps.filter(isRecord) : []));
+  // This reviewed source binds swap approvals for 180 blocks; the later canonical anchor bounds its old approval.
+  const expiredPostAck = run.id === 43596925757 &&
+    run.head_sha === '10cb2d586e483de224ab8f342b36e47668a57968' &&
+    absence?.previousRunId === previousRunId &&
+    absence.noteId === '0xf41d27eecb4f68ee60bb1e7d84165f8b7e81366caaae2e054ceef6acdf63ccf5' &&
+    absence.noteCount === 0 && absence.approvalAnchor?.blockNumber === 885224 &&
+    absence.approvalAnchor.timestamp === 1794662213000 &&
+    Date.parse(typeof run.updated_at === 'string' ? run.updated_at : '') < absence.approvalAnchor.timestamp &&
+    Number.isSafeInteger(absence.atBlock) && absence.atBlock > 885224 + 180 &&
+    Number.isSafeInteger(absence.atTime) && absence.atTime >= absence.approvalAnchor.timestamp;
   for (const [name, conclusion] of [
-    ['Upload recovered swap SDK return authority', 'failure'],
-    ['Upload recovered swap SDK return claim authority', 'skipped'],
+    ['Upload recovered swap SDK return authority', expiredPostAck ? 'success' : 'failure'],
+    ['Upload recovered swap SDK return claim authority', expiredPostAck ? 'failure' : 'skipped'],
     ['Wait for recovered swap return', 'skipped']
   ]) {
     const matches = steps.filter(step => step.name === name);
@@ -307,12 +319,8 @@ export async function readMainnetSwapReturnAbsence(
   const workflow = await get('actions/workflows/e2e-mainnet-nightly.yml');
   if (!isRecord(workflow) || typeof workflow.id !== 'number' || !Number.isSafeInteger(workflow.id))
     throw new Error('Invalid original workflow metadata');
-  assertFailedMainnetSwapReturnUpload(
-    await get(`actions/runs/${previousRunId}`),
-    await get(`actions/runs/${previousRunId}/jobs?per_page=100`),
-    previousRunId,
-    workflow.id
-  );
+  const sourceRun = await get(`actions/runs/${previousRunId}`);
+  const sourceJobs = await get(`actions/runs/${previousRunId}/jobs?per_page=100`);
   const url = new URL(rpcUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
     throw new Error('Invalid public return outcome RPC');
@@ -325,13 +333,21 @@ export async function readMainnetSwapReturnAbsence(
     'exact previous return outcome',
     { retries: 0 }
   );
-  return {
+  let approvalAnchor: MainnetSwapReturnAbsence['approvalAnchor'];
+  if (previousRunId === '43596925757') {
+    const anchor = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(885224), 'original approval lifetime anchor', { retries: 0 });
+    approvalAnchor = { blockNumber: anchor.blockNum(), timestamp: anchor.timestamp() * 1000 };
+  }
+  const absence: MainnetSwapReturnAbsence = {
     previousRunId,
     noteId: authority.noteId,
     atBlock: header.blockNum(),
     atTime: header.timestamp() * 1000,
-    noteCount: notes.length
+    noteCount: notes.length,
+    ...(approvalAnchor ? { approvalAnchor } : {})
   };
+  assertFailedMainnetSwapReturnUpload(sourceRun, sourceJobs, previousRunId, workflow.id, absence);
+  return absence;
 }
 
 export async function readMainnetSwapCommitHeight(
