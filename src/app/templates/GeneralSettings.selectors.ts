@@ -11,5 +11,6 @@ export enum GeneralSettingsSelectors {
   DarkModeToggle = 'General Settings/DarkModeToggle',
   TelemetryToggle = 'General Settings/TelemetryToggle',
   HideDustToggle = 'General Settings/HideDustToggle',
-  ThemeSelector = 'General Settings/ThemeSelector'
+  ThemeSelector = 'General Settings/ThemeSelector',
+  AutoLockSelector = 'General Settings/AutoLockSelector'
 }

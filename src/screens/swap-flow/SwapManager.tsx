@@ -1023,6 +1023,17 @@ const SwapManager: React.FC<SwapManagerProps> = ({
 const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailability> }> = ({ availability }) => {
   const { t } = useTranslation();
   const restricted = availability.state === 'unavailable' && availability.reason === 'restricted';
+  const notConfigured = availability.state === 'unavailable' && availability.reason === 'not-configured';
+  const titleKey = restricted
+    ? 'geoRestrictedTitle'
+    : notConfigured
+      ? 'swapUnavailableTitle'
+      : 'bridgeFeatureUnavailableTitle';
+  const bodyKey = restricted
+    ? 'geoRestrictedBody'
+    : notConfigured
+      ? 'swapUnavailableBody'
+      : 'bridgeFeatureUnavailableBody';
   return (
     <HomeGroupPaneRoot testId="swap-flow">
       <HomeGroupPaneBody title={t('swap')}>
@@ -1030,11 +1041,11 @@ const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailabili
           <Notice
             tone="warning"
             icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-            title={t(restricted ? 'geoRestrictedTitle' : 'swapUnavailableTitle')}
+            title={t(titleKey)}
             data-testid="swap-unavailable-notice"
             data-reason={availability.reason}
           >
-            {t(restricted ? 'geoRestrictedBody' : 'swapUnavailableBody')}
+            {t(bodyKey)}
           </Notice>
         )}
       </HomeGroupPaneBody>

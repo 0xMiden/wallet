@@ -8,7 +8,8 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
-import { isMobile } from 'lib/platform';
+import { BACKGROUND_LOCK_DELAYS, backgroundLockDelay, type BackgroundLockDelay } from 'lib/lock-up';
+import { isDesktop, isMobile } from 'lib/platform';
 import type { ThemeSetting } from 'lib/settings/constants';
 import { setHideDustTokensSetting, useHideDustTokens } from 'lib/settings/dust';
 import {
@@ -32,6 +33,8 @@ import SettingToggle from './SettingToggle';
 const GeneralSettings: FC = () => {
   const { t } = useTranslation();
   const mobile = isMobile();
+  // The extension keeps its fixed page-closure lock; the apps lock on time spent in the background.
+  const showAutoLock = mobile || isDesktop();
 
   const [themeSetting, setThemeSettingState] = useState<ThemeSetting>(() => getThemeSetting());
   const themeItems = useMemo<SegmentedControlItem<ThemeSetting>[]>(
@@ -51,6 +54,11 @@ const GeneralSettings: FC = () => {
   const handleHideDustChange = useCallback((evt: React.ChangeEvent<HTMLInputElement>) => {
     setHideDustTokensSetting(evt.target.checked);
   }, []);
+  const autoLockItems = useMemo<SegmentedControlItem<BackgroundLockDelay>[]>(
+    () => BACKGROUND_LOCK_DELAYS.map(minutes => ({ id: minutes, label: t('autoLockMinutes', { minutes }) })),
+    [t]
+  );
+  const autoLockDelay = backgroundLockDelay.useValue();
 
   const delegateEnabled = isDelegateProofEnabled();
   const delegateChangingRef = useRef(false);
@@ -128,6 +136,24 @@ const GeneralSettings: FC = () => {
           )}
         </ListGroup>
       </SubPageSection>
+
+      {showAutoLock && (
+        <SubPageSection
+          title={t('autoLock')}
+          icon={<Icon name={IconName.Lock} fill="currentColor" />}
+          footnote={t('autoLockDescription')}
+        >
+          <SegmentedControl
+            items={autoLockItems}
+            value={autoLockDelay}
+            onChange={backgroundLockDelay.set}
+            size="sm"
+            layout="fill"
+            aria-label={t('autoLock')}
+            data-testid={GeneralSettingsSelectors.AutoLockSelector}
+          />
+        </SubPageSection>
+      )}
 
       <SubPageSection
         title={t('assets')}

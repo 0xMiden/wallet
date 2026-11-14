@@ -3223,6 +3223,14 @@
     "message": "Back up your wallet",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Recovery phrase hidden",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "Private key hidden",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Show",
     "englishSource": "Show"
@@ -3364,12 +3372,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 characters, 1 number",
-    "englishSource": "8 characters, 1 number"
+    "message": "At least 12 characters",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Minimum 8 characters with at least 1 number",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Save these 12 words and store in a secure place.",
@@ -4393,6 +4401,18 @@
     "message": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "This guardian runs on another Miden network, so it cannot recover an account here.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4464,6 +4484,10 @@
   "unknown": {
     "message": "Unknown",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Includes notes you have not claimed yet",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Input notes consumed",
@@ -8681,5 +8705,71 @@
   "arcadePostingPolicy": {
     "message": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Auto-lock",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Locks the wallet once it has been in the background this long.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "Awaiting Return",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Ready to Claim",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Returning Funds",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Funds Returned",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Your funds remain on Miden. You can claim them after block $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Claim your funds to return them to your wallet.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Your funds are being returned to your wallet.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Your funds have returned to your wallet.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Funds sent to your destination.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Unable to check the funds status. Try again.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

@@ -6,6 +6,7 @@ const _g = globalThis as any;
 _g.__noteToastTest = {
   claimableNotes: [] as Array<{ id: string }>,
   baseFee: null as number | null,
+  floorFee: undefined as number | null | undefined,
   isExtension: false,
   isFallback: false
 };
@@ -42,9 +43,9 @@ jest.mock('./claimable-notes', () => ({
   })
 }));
 
-// `useManuallyClaimableNotes` drops native notes the wallet auto-consumes (#811);
-// default to a known native faucet with auto-consume ON so the exclusion is live,
-// and to an unknown fee, which lets every native batch through.
+// `useManuallyClaimableNotes` drops native notes the wallet auto-consumes (#811).
+// Default to a known native faucet with auto-consume on so the exclusion is live.
+// An unset claim floor passes the raw fee through, so a null fee stays null and the note stays manual.
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
   default: () => 'legacy-display'
@@ -55,7 +56,12 @@ jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
 }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => (globalThis as any).__noteToastTest.baseFee
+  default: () => (globalThis as any).__noteToastTest.baseFee,
+  // An unset floor passes the raw fee through, so a null raw fee stays null.
+  useClaimFloorBaseFee: () => {
+    const { baseFee, floorFee } = (globalThis as any).__noteToastTest;
+    return floorFee === undefined ? baseFee : floorFee;
+  }
 }));
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => true
@@ -78,6 +84,7 @@ beforeEach(() => {
   _g.__noteToastTest.isExtension = false;
   _g.__noteToastTest.claimableNotes = [];
   _g.__noteToastTest.baseFee = null;
+  _g.__noteToastTest.floorFee = undefined;
   _g.__noteToastTest.isFallback = false;
 });
 
@@ -127,6 +134,8 @@ describe('useNoteToastMonitor', () => {
   });
 
   it('passes an auto-consumed native note as seen but never as notifiable (#811)', async () => {
+    // Fee-free chain and no amount: the floor is 0, so auto-consume hides the native note.
+    _g.__noteToastTest.floorFee = 0;
     _g.__noteToastTest.claimableNotes = [];
     const { rerender } = renderHook(() => useNoteToastMonitor('pk-1'));
     // The address effect re-arms the first-fetch seed after mount, so the next
@@ -181,23 +190,44 @@ describe('useNoteToastMonitor', () => {
   });
 
   it('seeds every listed note as seen, including one the filter hides', () => {
+    // A chain that charges nothing: the floor is 0, so the native dust note rides in an auto-consume batch and is
+    // hidden.
+    _g.__noteToastTest.floorFee = 0;
     _g.__noteToastTest.claimableNotes = [];
     const { rerender } = renderHook(() => useNoteToastMonitor('pk-1'));
 
-    // With the fee still unknown, the native dust note rides in an auto-consume batch and is hidden.
     _g.__noteToastTest.claimableNotes = [
       { id: 'seeded', faucetId: 'faucet-other' },
-      { id: 'dust', faucetId: 'faucet-native', amount: '1' }
+      { id: 'dust', faucetId: 'faucet-native', amount: '1', standardPayment: true }
     ];
     rerender();
     expect(_g.__noteToastTest.setState).toHaveBeenLastCalledWith({ seenNoteIds: new Set(['seeded', 'dust']) });
     expect(mockCheckForNewNotes).not.toHaveBeenCalled();
 
-    // Once the fee is known the dust note is passed as notifiable; that it never toasts is checked against the real
-    // store in useNoteToast.store.test.tsx.
-    _g.__noteToastTest.baseFee = 10;
+    // Once a fee the dust cannot clear is known, the dust note is passed as notifiable; that it never toasts is
+    // checked against the real store in useNoteToast.store.test.tsx.
+    _g.__noteToastTest.floorFee = 10;
     rerender();
     expect(mockCheckForNewNotes).toHaveBeenLastCalledWith(['seeded', 'dust'], ['seeded', 'dust']);
+  });
+
+  it('passes a worthwhile native note as notifiable while the claim floor is unknown', async () => {
+    _g.__noteToastTest.baseFee = null;
+    _g.__noteToastTest.floorFee = undefined;
+    _g.__noteToastTest.claimableNotes = [];
+    const { rerender } = renderHook(() => useNoteToastMonitor('pk-1'));
+    _g.__noteToastTest.claimableNotes = [{ id: 'seeded', faucetId: 'faucet-other' }];
+    rerender();
+
+    _g.__noteToastTest.claimableNotes = [
+      { id: 'seeded', faucetId: 'faucet-other' },
+      { id: 'worth', faucetId: 'faucet-native', amount: '1000000', standardPayment: true }
+    ];
+    rerender();
+
+    await waitFor(() => {
+      expect(mockCheckForNewNotes).toHaveBeenCalledWith(['seeded', 'worth'], ['seeded', 'worth']);
+    });
   });
 
   it('does not hydrate on non-extension', async () => {

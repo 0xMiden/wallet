@@ -47,7 +47,8 @@ jest.mock('../sdk/miden-client', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetId: async () => 'native-faucet',
-  getVerificationBaseFee: async () => 10000
+  getVerificationBaseFee: async () => 10000,
+  refreshVerificationBaseFee: async () => 10000
 }));
 
 // These rows hold no checkable entry, so the tap-time proof never runs; mocked so this suite never builds a client.

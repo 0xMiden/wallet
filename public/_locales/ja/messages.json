@@ -3223,6 +3223,14 @@
     "message": "ウォレットのバックアップを取る",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "リカバリーフレーズは非表示",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "秘密鍵は非公開",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "表示",
     "englishSource": "Show"
@@ -3364,12 +3372,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8文字、1つの数字",
-    "englishSource": "8 characters, 1 number"
+    "message": "12文字以上",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "8文字以上で、数字を1つ以上含めること",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "12文字以上を使用してください。数字、記号、大文字と小文字を混ぜることで、セキュリティが強化されます。",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "この12語を書き留めて、安全な場所に保管してください。",
@@ -4393,6 +4401,18 @@
     "message": "このGuardianのバックアップが見つかりませんでした。URLを確認するか、別のGuardianを選択してください。",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "アカウントは復元できませんでした。guardianが返したアカウントデータが、あなたのリカバリーフレーズと一致しなかったためです。何も復元されていません。",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "アカウントは復元できませんでした。guardianが保持するアカウントのコピーは、まだMidenネットワークと一致していません。何も復元されていません。数分後に再度お試しください。",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Midenネットワークに接続できず、アカウントを確認できませんでした。リカバリーフレーズに問題はありません。接続状態を確認し、もう一度お試しください。",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "このguardianは別のMidenネットワーク上で稼働しているため、こちらのアカウントを復旧することはできません。",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4464,6 +4484,10 @@
   "unknown": {
     "message": "不明",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "これには、まだ受け取り請求していないnotesが含まれます",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "notesの入力データが消費されました",
@@ -8681,5 +8705,71 @@
   "arcadePostingPolicy": {
     "message": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "自動ロック",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "これほど長い間バックグラウンド状態が続くと、ウォレットがロックされます。",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$分",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "返却待ち",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "請求の準備完了",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "資金の返還",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "返還された資金",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "お客様の資金はMidenに残っています。ブロック$block$以降に、それらを引き出すことができます。",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "資金を引き出して、ウォレットに戻してください。",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "お客様の資金は、ウォレットに返還されています。",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "お客様の資金はウォレットに戻りました。",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "資金が送金先に送金されました。",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "このnoteは使用されましたが、支払いは確認されていません。送金先とMidenの残高を確認してください。",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "資金の状況を確認できません。もう一度お試しください。",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

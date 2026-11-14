@@ -341,6 +341,19 @@ describe('Unlock — extension password form', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it('unlocks with an existing password shorter than the new-password floor', async () => {
+    mockUnlock.mockResolvedValue(undefined);
+    const { container } = await renderUnlock();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, {
+      target: { value: 'Abcd123!' }
+    });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledWith('Abcd123!');
+  });
+
   it('shows the incorrect-password error and resets it on the next keystroke', async () => {
     mockUnlock.mockRejectedValue(new Error('bad'));
     const { container } = await renderUnlock();
