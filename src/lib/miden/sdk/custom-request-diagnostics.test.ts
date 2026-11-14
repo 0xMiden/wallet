@@ -1,10 +1,10 @@
-import type { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import type { MidenClient, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
-import { customRequestAuthDiagnostics } from './custom-request-diagnostics';
+import { customRequestAccountAuthCode, customRequestAuthDiagnostics } from './custom-request-diagnostics';
 
-let hashFails = false;
+let hashFailure: unknown;
 let hashInput: unknown;
-let adviceFails = false;
+let adviceFailure: unknown;
 const hashWord = { toU64s: () => BigUint64Array.from([10n, 20n, 30n, 40n]), free: jest.fn() };
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({ getProcedureRoot: () => 'public-pinned-root' }));
@@ -17,7 +17,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   },
   Poseidon2: {
     hashElements: () => {
-      if (hashFails) throw new Error('sensitive hash input');
+      if (hashFailure !== undefined) throw hashFailure;
       return hashWord;
     }
   }
@@ -29,16 +29,25 @@ function request(values?: number[], word: typeof auth | undefined = auth): Trans
     authArg: () => word,
     adviceMap: () => ({
       get: () => {
-        if (adviceFails) throw new Error('sensitive advice');
+        if (adviceFailure !== undefined) throw adviceFailure;
         return values;
       }
     })
   } as unknown as TransactionRequest;
 }
 
+const thrownBy = (run: () => unknown): unknown => {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+};
+
 beforeEach(() => {
-  hashFails = false;
-  adviceFails = false;
+  hashFailure = undefined;
+  adviceFailure = undefined;
   hashInput = undefined;
   hashWord.free.mockClear();
 });
@@ -89,7 +98,7 @@ it('does not hash arbitrary advice shapes', () => {
 });
 
 it('keeps a recognized layout when hashing fails without returning the error', () => {
-  hashFails = true;
+  hashFailure = new Error('sensitive hash input');
   expect(customRequestAuthDiagnostics(request([1, 2, 3, 4, 5, 6, 7, 8]))).toEqual({
     authLayout: 'fee',
     commitmentMatch: 'unavailable'
@@ -97,9 +106,40 @@ it('keeps a recognized layout when hashing fails without returning the error', (
 });
 
 it('contains SDK advice lookup failure', () => {
-  adviceFails = true;
+  adviceFailure = new Error('sensitive advice');
   expect(customRequestAuthDiagnostics(request([1, 2, 3, 4, 5, 6, 7, 8]))).toEqual({
     authLayout: 'unavailable',
     commitmentMatch: 'unavailable'
   });
+});
+
+it.each([['the advice read'], ['the hash']])(
+  'rethrows a trap from %s as that same object without reporting read_failed',
+  source => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    if (source === 'the hash') hashFailure = trap;
+    else adviceFailure = trap;
+    const observe = jest.fn();
+    expect(thrownBy(() => customRequestAuthDiagnostics(request([1, 2, 3, 4, 5, 6, 7, 8]), observe))).toBe(trap);
+    expect(observe).not.toHaveBeenCalledWith('read_failed');
+  }
+);
+
+const accountReadFailing = (failure: unknown) =>
+  ({
+    accounts: {
+      get: async () => {
+        throw failure;
+      }
+    }
+  }) as unknown as MidenClient;
+
+it('customRequestAccountAuthCode rethrows a trap from the account read as that same object', async () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  await expect(customRequestAccountAuthCode(accountReadFailing(trap), 'acc')).rejects.toBe(trap);
+});
+
+it('customRequestAccountAuthCode rethrows a terminated client from the account read as itself', async () => {
+  const terminated = new Error('Client terminated');
+  await expect(customRequestAccountAuthCode(accountReadFailing(terminated), 'acc')).rejects.toBe(terminated);
 });
