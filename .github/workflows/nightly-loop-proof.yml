@@ -54,7 +54,7 @@ jobs:
           const path = 'test-results/read-only-funded-return.json';
           if (!existsSync(path)) { console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.'); process.exit(1); }
           const value = JSON.parse(readFileSync(path, 'utf8'));
-          const allowed = ['purpose','inspected','retainedReturnNonce','retainedReturnExpiresAt','balances','payback','unclaimed','preparedLegCreationDebits','creatorBlock','inputFileReady','acceptVisible','acceptEnabled','unresolvedRows','noLivePolicy','consumeBlocked','errorStage','errorCode'];
+          const allowed = ['purpose','inspected','retainedReturnNonce','retainedReturnExpiresAt','originalNoteCount','absence','outcome','balances','payback','unclaimed','preparedLegCreationDebits','creatorBlock','inputFileReady','acceptVisible','acceptEnabled','unresolvedRows','noLivePolicy','consumeBlocked','errorStage','errorCode'];
           if (!value || Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unexpected diagnostic fields');
           console.log(JSON.stringify(value));
           NODE

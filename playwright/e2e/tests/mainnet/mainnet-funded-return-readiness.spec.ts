@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs';
-import { Address, NoteFile } from '@miden-sdk/miden-sdk';
+import { Address, Endpoint, NoteFile, NoteId, RpcClient } from '@miden-sdk/miden-sdk';
 import { expect, test } from '../../fixtures/two-wallets';
 import { vaultBalanceByFaucetId } from '../../helpers/balance-truth';
 import { readTransactionRows } from '../../helpers/history';
@@ -28,6 +28,34 @@ test('read-only already funded first return and exact unclaimed native payout', 
     const native=await vaultBalanceByFaucetId(walletB.page,state.native.faucetId);
     const requested=await vaultBalanceByFaucetId(walletB.page,state.request.faucetId);
     report.balances={native:native.toString(),requested:requested.toString()};
+    stage='public-original';
+    const rpc=new RpcClient(new Endpoint('https://rpc.mainnet.miden.io'));
+    const firstHeader=await rpc.getBlockHeaderByNumber();
+    const originals=await rpc.getNotesById([NoteId.fromHex(authority.noteId)]);
+    report.originalNoteCount=originals.length;
+    if(originals.length===0) {
+      expect(native.toString()).toBe(state.returnBaseline!.native);
+      expect(requested.toString()).toBe(state.returnAmount);
+      expect(Date.now()).toBeGreaterThan(authority.expiresAt);
+      await walletB.page.waitForTimeout(5000);
+      const lastHeader=await rpc.getBlockHeaderByNumber();
+      expect(lastHeader.blockNum()).toBeGreaterThanOrEqual(firstHeader.blockNum());
+      const last=await rpc.getNotesById([NoteId.fromHex(authority.noteId)]);
+      expect(last.length).toBe(0);
+      await walletB.refreshBalancesLanded(90000);
+      expect((await vaultBalanceByFaucetId(walletB.page,state.native.faucetId)).toString()).toBe(state.returnBaseline!.native);
+      expect((await vaultBalanceByFaucetId(walletB.page,state.request.faucetId)).toString()).toBe(state.returnAmount);
+      const keys=['e2e_mainnet_send_authorization','e2e_mainnet_consume_authorization'];
+      const stored=await walletB.page.evaluate(async names=>chrome.storage.local.get(names),[...keys,'e2e_mainnet_consume_authorization_required']);
+      report.noLivePolicy=keys.every(key=>stored[key]===undefined);
+      const marker=stored.e2e_mainnet_consume_authorization_required;
+      report.consumeBlocked=marker&&typeof marker==='object'&&Object.keys(marker).length===1&&marker.status==='blocked';
+      expect(report.noLivePolicy).toBe(true);expect(report.consumeBlocked).toBe(true);
+      report.absence={firstBlock:firstHeader.blockNum(),lastBlock:lastHeader.blockNum(),verifiedAt:Date.now(),noteCount:0,vaultUnchanged:true};
+      report.outcome='expired-issued-return-unobserved-onchain';
+      report.inspected=true;
+      return;
+    }
     expect(requested).toBe(0n);
     expect(native).toBe(18985997n);
     stage='public-payback';
