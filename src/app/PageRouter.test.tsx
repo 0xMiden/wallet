@@ -153,6 +153,7 @@ jest.mock('components/MainnetCountdownBanner', () => ({
   MainnetCountdownBanner: () => <div data-testid="mainnet-countdown-banner" />
 }));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
+jest.mock('app/pages/Earn', () => ({ __esModule: true, default: () => <div data-testid="earn-page" /> }));
 jest.mock('app/pages/Me', () => ({ __esModule: true, default: () => <div data-testid="me" /> }));
 jest.mock('app/pages/MyBadges', () => ({ __esModule: true, default: () => <div data-testid="my-badges" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
@@ -329,6 +330,7 @@ describe('Command routing', () => {
     ['/receive', 'receive'],
     ['/swap', 'swap-flow'],
     ['/send/review', 'review-transaction'],
+    ['/earn', 'earn-page'],
     ['/earn/positions', 'earn-positions'],
     ['/earn/vaults/v1/deposit', 'earn-deposit-amount'],
     ['/earn/positions/p1/withdraw/review', 'earn-withdraw-review'],

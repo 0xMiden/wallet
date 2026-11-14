@@ -7,6 +7,7 @@ import { useDappApprovalTelemetry } from 'app/hooks/useDappApprovalTelemetry';
 import FullScreenPage, { defaultPageEntrance, FullScreenPageProps } from 'app/layouts/FullScreenPage';
 import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
+import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import HelpImproveWalletPrompt from 'app/pages/HelpImproveWallet';
 import Me from 'app/pages/Me';
@@ -505,7 +506,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     '/earn',
     onlyReady((_params, ctx) =>
       ctx.command ? (
-        <></>
+        <Earn />
       ) : (
         <TabLayout>
           <></>
