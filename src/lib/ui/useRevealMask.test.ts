@@ -98,3 +98,59 @@ it('hides again when the reset key changes', () => {
   expect(result.current.revealed).toBe(false);
   expect(result.current.masked).toBe(true);
 });
+
+describe('autoHideMs', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('masks a shown secret again once autoHideMs has passed since Show, not a millisecond before', () => {
+    const { result } = renderHook(() => useRevealMask({ autoHideMs: 1000 }));
+    act(() => result.current.toggle());
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    expect(result.current.revealed).toBe(true);
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(result.current.revealed).toBe(false);
+    expect(result.current.masked).toBe(true);
+  });
+
+  it('restarts the window on each Show and clears it on Hide and unmount', () => {
+    const { result, unmount } = renderHook(() => useRevealMask({ autoHideMs: 1000 }));
+    act(() => result.current.toggle());
+    act(() => {
+      jest.advanceTimersByTime(600);
+    });
+    act(() => result.current.toggle());
+    act(() => result.current.toggle());
+    act(() => {
+      jest.advanceTimersByTime(600);
+    });
+    expect(result.current.revealed).toBe(true);
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+    expect(result.current.revealed).toBe(false);
+
+    act(() => result.current.toggle());
+    expect(jest.getTimerCount()).toBe(1);
+    unmount();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('keeps a shown secret with no autoHideMs, and runs no timer on mobile', () => {
+    const { result } = renderHook(() => useRevealMask());
+    act(() => result.current.toggle());
+    act(() => {
+      jest.advanceTimersByTime(60_000);
+    });
+    expect(result.current.revealed).toBe(true);
+
+    mockIsMobile = true;
+    const mobile = renderHook(() => useRevealMask({ autoHideMs: 1000 }));
+    act(() => mobile.result.current.toggle());
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});

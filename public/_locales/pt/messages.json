@@ -3227,6 +3227,10 @@
     "message": "Frase de recuperação oculta",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Chave privada oculta",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Mostrar",
     "englishSource": "Show"

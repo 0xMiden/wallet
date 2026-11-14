@@ -16,6 +16,10 @@ const mockWrite = jest.fn(
     })
 );
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown[]) => mockWrite(...args) } }));
+const mockWriteSecret = jest.fn((..._args: unknown[]) => Promise.resolve());
+jest.mock('lib/ui/secret-clipboard', () => ({
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
+}));
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -44,6 +48,44 @@ it('writes the given text and flips copied true, then false after the feedback w
     jest.advanceTimersByTime(1500);
   });
   expect(result.current.copied).toBe(false);
+});
+
+it('writes a secret through the secret clipboard and confirms once it lands', async () => {
+  const { result } = renderHook(() => useClipboardCopy('alpha beta', { secret: true }));
+
+  await act(async () => {
+    await result.current.copy();
+  });
+
+  expect(mockWriteSecret).toHaveBeenCalledWith('alpha beta');
+  expect(mockWrite).not.toHaveBeenCalled();
+  expect(result.current.copied).toBe(true);
+});
+
+it('reports a refused secret write as a failure', async () => {
+  mockWriteSecret.mockRejectedValueOnce(new Error('refused'));
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const { result } = renderHook(() => useClipboardCopy('alpha beta', { secret: true }));
+
+  await act(async () => {
+    await result.current.copy();
+  });
+
+  expect(result.current.status).toBe('failure');
+  errorSpy.mockRestore();
+});
+
+it('keeps an ordinary copy on the plain clipboard', async () => {
+  const { result } = renderHook(() => useClipboardCopy('0xabc123'));
+
+  await act(async () => {
+    const p = result.current.copy();
+    resolveWrite?.();
+    await p;
+  });
+
+  expect(mockWrite).toHaveBeenCalledWith({ string: '0xabc123' });
+  expect(mockWriteSecret).not.toHaveBeenCalled();
 });
 
 it('leaves copied false and reports a failure that decays when the write is refused', async () => {
