@@ -1,4 +1,4 @@
-name: Await committed public swap and merged-main GREEN
+name: Read-only issued Guardian swap approval expiry
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -9,57 +9,9 @@ concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  contracts:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - run: |
-          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
-          rm playwright/e2e/tests/mainnet/mainnet-funded-return-readiness.spec.ts
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: ./.github/actions/yarn-install
-      - name: Actual SDK public creation pending and fail-closed evidence checks
-        run: |
-          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
-          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
-          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts --maxWorkers=2 --watch=false
-      - name: Preserve merged swap UI availability, legacy discovery and Guardian deadlines
-        run: yarn jest src/screens/swap-flow/SwapManager.test.tsx src/lib/miden/guardian/native-http.test.ts --maxWorkers=2 --watch=false
-      - name: Live official history and immutable legacy artifact, GET only
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/legacy-reconciliation-readonly-proof.mjs
-      - name: Actual mainnet registration, canonical types and lint
-        run: |
-          set -euo pipefail
-          yarn playwright test --config playwright.mainnet.config.ts --list | tee mainnet-listed-tests.txt
-          grep -Eq 'Total: [1-9][0-9]* tests' mainnet-listed-tests.txt
-          yarn ts
-          yarn lint:e2e
-      - name: Owned formatter patch
-        if: always()
-        run: |
-          yarn prettier --write playwright/e2e/helpers/mainnet-swap-claim.ts scripts/mainnet-swap-claim.test.mjs
-          git diff --binary -- playwright/e2e/helpers/mainnet-swap-claim.ts scripts/mainnet-swap-claim.test.mjs > create-pending-owned-format.patch
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: create-pending-owned-format
-          path: create-pending-owned-format.patch
-          if-no-files-found: error
   readonly:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      E2E_NETWORK: mainnet
-      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
-      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,32 +21,7 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 43596925757
-          github-token: ${{ github.token }}
-          name: mainnet-swap-final-43596925757
-          path: test-results/original-authority
-      - uses: ./.github/actions/install-miden-client-cli
-      - uses: ./.github/actions/apt-drop-unused-repos
-      - run: npx playwright install --with-deps chromium
-      - uses: ./.github/actions/start-eligibility-fixture
-      - name: Build exact mainnet extension without overlay
-        run: yarn test:e2e:blockchain:build
-      - name: Classify issued return after expiry without any new grant
-        run: |
-          umask 077
-          before=$(sha256sum test-results/original-authority/roundtrip.json)
-          code=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/issued-return-results" xvfb-run -a yarn playwright test mainnet-funded-return-readiness.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/issued-return.log" 2>&1 || code=$?
-          test "$before" = "$(sha256sum test-results/original-authority/roundtrip.json)" || { echo '::error::Read-only probe changed the retained authority'; exit 1; }
-          node --input-type=module <<'NODE'
-          import {existsSync,readFileSync} from 'node:fs';
-          const path='test-results/read-only-funded-return.json';
-          if(!existsSync(path)){console.log('Read-only stopped before approved diagnostics; private process output remains runner-local.');process.exit(1);}
-          const value=JSON.parse(readFileSync(path,'utf8'));
-          const allowed=['purpose','inspected','retainedReturnNonce','retainedReturnExpiresAt','originalNoteCount','absence','outcome','balances','payback','unclaimed','preparedLegCreationDebits','creatorBlock','inputFileReady','acceptVisible','acceptEnabled','unresolvedRows','noLivePolicy','consumeBlocked','errorStage','errorCode'];
-          if(!value||Object.keys(value).some(key=>!allowed.includes(key)))throw new Error('Unexpected diagnostic fields');
-          console.log(JSON.stringify(value));
-          NODE
-          exit "$code"
+      - name: Prove original source approval bound elapsed and original public note remains absent
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/issued-return-approval-expiry-proof.mjs

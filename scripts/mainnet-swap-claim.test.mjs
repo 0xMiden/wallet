@@ -97,28 +97,45 @@ test('waits without signing while the newly queued original PSWAP is not public 
   const { scope } = fixture();
   const originalGet = RpcClient.prototype.getNotesById;
   let reads = 0;
-  RpcClient.prototype.getNotesById = async () => { reads++; return []; };
+  RpcClient.prototype.getNotesById = async () => {
+    reads++;
+    return [];
+  };
   try {
     assert.equal(await claims.readMainnetSwapPayback('https://rpc.mainnet.miden.io', scope), undefined);
     assert.equal(reads, 1);
-  } finally { RpcClient.prototype.getNotesById = originalGet; }
+  } finally {
+    RpcClient.prototype.getNotesById = originalGet;
+  }
 });
 test('never treats a nonempty malformed original response as pending', async () => {
   const { scope } = fixture();
   const originalGet = RpcClient.prototype.getNotesById;
   RpcClient.prototype.getNotesById = async () => [{}];
   try {
-    await assert.rejects(() => claims.readMainnetSwapPayback('https://rpc.mainnet.miden.io', scope), /Missing exact original public PSWAP/);
-  } finally { RpcClient.prototype.getNotesById = originalGet; }
+    await assert.rejects(
+      () => claims.readMainnetSwapPayback('https://rpc.mainnet.miden.io', scope),
+      /Missing exact original public PSWAP/
+    );
+  } finally {
+    RpcClient.prototype.getNotesById = originalGet;
+  }
 });
 test('propagates a public original lookup failure instead of declaring it pending or retrying submission', async () => {
   const { scope } = fixture();
   const originalGet = RpcClient.prototype.getNotesById;
   const failure = new Error('synthetic public read failure');
-  RpcClient.prototype.getNotesById = async () => { throw failure; };
+  RpcClient.prototype.getNotesById = async () => {
+    throw failure;
+  };
   try {
-    await assert.rejects(() => claims.readMainnetSwapPayback('https://rpc.mainnet.miden.io', scope), error => error === failure);
-  } finally { RpcClient.prototype.getNotesById = originalGet; }
+    await assert.rejects(
+      () => claims.readMainnetSwapPayback('https://rpc.mainnet.miden.io', scope),
+      error => error === failure
+    );
+  } finally {
+    RpcClient.prototype.getNotesById = originalGet;
+  }
 });
 
 test('verifies the actual SDK full payback using protocol order serial[1] and the original random depth offset', () => {
