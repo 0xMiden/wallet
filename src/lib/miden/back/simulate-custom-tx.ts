@@ -15,7 +15,7 @@ import {
   withWasmClientLock,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
-import { isKilledPipeline, isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
+import { isKilledPipeline, pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { CustomSimulationTimeoutError } from './public-error';
@@ -273,10 +273,11 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
       // wallet-internal text that says nothing a signer can act on. Both callers
       // also only ever test this field for presence. The real error keeps its
       // identity on the console via the recovery log.
-      if (isPipelineKillLink(e)) {
+      const kill = pipelineKillIn(e);
+      if (kill !== undefined) {
         // Settle before returning so an in-flight quarantine write cannot land after the caller releases.
         await abandonQuarantineAttempt(attempt);
-        throw e;
+        throw kill;
       }
       return { error: e?.message ?? String(e) };
     }

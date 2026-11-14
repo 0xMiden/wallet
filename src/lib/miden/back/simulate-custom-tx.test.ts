@@ -301,17 +301,28 @@ describe('simulateCustomTransaction', () => {
     expect(quarantineNoteIds).not.toHaveBeenCalled();
   });
 
-  it('rethrows a killed pipeline wrapped around a poison from an embedded lookup', async () => {
+  it('rethrows a killed pipeline wrapped around a poison from an embedded lookup as the poison', async () => {
     const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    const poison = new WasmClientPoisonedError('watchdog');
     mockSimulatedBytesToView.mockReturnValueOnce({ viewConsumedNotes: [{ id: 'id:one' }, { id: 'id:two' }] });
-    getInputNote.mockRejectedValueOnce(new Error('lookup failed', { cause: new WasmClientPoisonedError('watchdog') }));
+    getInputNote.mockRejectedValueOnce(new Error('lookup failed', { cause: poison }));
 
-    await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).resolves.toEqual({
-      error: 'lookup failed'
-    });
+    await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).rejects.toBe(poison);
+    expect(mockAbandonQuarantineAttempt).toHaveBeenCalledTimes(1);
     expect(getInputNote).toHaveBeenCalledTimes(1);
     expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
-    expect(mockAbandonQuarantineAttempt).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a terminated client wrapped by the dry run as the terminated client', async () => {
+    const terminated = new Error('Client terminated');
+    jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(new Error('dry run failed', { cause: terminated }));
+
+    await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).rejects.toBe(
+      terminated
+    );
+    expect(mockAbandonQuarantineAttempt).toHaveBeenCalledTimes(1);
+    expect(getInputNote).not.toHaveBeenCalled();
+    expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
   });
 
   it('syncs again after an import, before executing, for a carried note committed since the first sync', async () => {
