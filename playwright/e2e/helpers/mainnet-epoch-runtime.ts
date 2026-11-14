@@ -87,11 +87,14 @@ export async function runEpochForward(
     Date.now() - Date.parse(state.pricedAt) > 600_000
   )
     throw new Error('Epoch forward requires fresh unused same-run authorization');
-  if (
-    (await wallet.getAccountAddress()) !== state.account ||
-    (await vaultBalanceByFaucetId(wallet.page, state.native.faucetId)) !== BigInt(state.native.balance)
-  )
+  if ((await wallet.getAccountAddress()) !== state.account)
     throw new Error('Epoch Guardian actor or native portfolio changed before forward execution');
+  await expect
+    .poll(() => vaultBalanceByFaucetId(wallet.page, state.native.faucetId), {
+      timeout: 30_000,
+      message: 'Epoch native portfolio must match its original snapshot before forward execution'
+    })
+    .toBe(BigInt(state.native.balance));
   const client = createPublicClient({
     chain: mainnetChain(state.evm.chainId),
     transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 })

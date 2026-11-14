@@ -205,7 +205,7 @@ export async function openRouteStep(wallet: Wallet, opts: BridgeOutSlowOptions):
   await flow.getByTestId('send-amount-input').fill(opts.amount);
   await flow.getByTestId('send-amount-confirm').click({ timeout: step });
 
-  await expect(flow.getByTestId('bridge-route-slow')).toBeVisible({ timeout: step });
+  await expect(flow.getByTestId('bridge-route-confirm')).toBeVisible({ timeout: step });
 }
 
 /**
