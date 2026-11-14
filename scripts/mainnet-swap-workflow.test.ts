@@ -24,6 +24,18 @@ function step(name: string): Record<string, unknown> {
 }
 
 describe('funded nightly swap workflow', () => {
+  it('builds and loads the actual read-only Epoch SDK before any provider recovery or funding', () => {
+    const name = 'Build read-only Epoch SDK';
+    const build = step(name);
+    expect(build.run).toContain('scripts/helpers/mainnet-epoch-readonly-sdk.ts');
+    expect(build.run).toContain('--bundle --platform=node --format=cjs');
+    expect(build.run).toContain('--outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs');
+    expect(build.run).toContain("require('./node_modules/.cache/nightly-epoch-readonly-sdk.cjs')");
+    expect(index(name)).toBeGreaterThan(index('Install dependencies'));
+    for (const stage of ['Recover prior mainnet swap', 'Recover prior mainnet Epoch', 'Prepare mainnet solver swap', 'Prepare mainnet Epoch loop']) {
+      expect(index(name)).toBeLessThan(index(stage));
+    }
+  });
   it('adds loops_only without redefining swaps_only or enabling public NEAR configuration', () => {
     const inputs = object(object(object(document.on).workflow_dispatch).inputs);
     expect(object(inputs.loops_only)).toMatchObject({ type: 'boolean', default: false });

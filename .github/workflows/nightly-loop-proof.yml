@@ -1,4 +1,4 @@
-name: Keyless recovered principal and remaining shared cap audit
+name: Provider SDK bootstrap before funding RED
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -9,9 +9,9 @@ concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  public-audit:
+  regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,43 +21,5 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 43608126536
-          github-token: ${{ github.token }}
-          name: mainnet-swap-final-43608126536
-          path: test-results/final
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 43608126536
-          github-token: ${{ github.token }}
-          name: mainnet-swap-reverse-claim-sdk-authorized-43608126536
-          path: test-results/sdk
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 43608126536
-          github-token: ${{ github.token }}
-          name: mainnet-swap-reverse-sdk-authorized-43608126536
-          path: test-results/create
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 43608126536
-          github-token: ${{ github.token }}
-          name: mainnet-nightly-43608126536
-          path: test-results/public
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 43596925757
-          github-token: ${{ github.token }}
-          name: mainnet-swap-final-43596925757
-          path: test-results/prior
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 43562192705
-          github-token: ${{ github.token }}
-          name: mainnet-nightly-43562192705
-          path: test-results/scheduled
-      - name: Independent original authorities, actual public nullifier and all predecessor costs
-        run: |
-          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          node scripts/goal-recovery-keyless-audit.mjs
+      - name: Read-only provider SDK must exist before recovery or new funding
+        run: yarn jest scripts/mainnet-swap-workflow.test.ts --maxWorkers=2 --watch=false
