@@ -42,6 +42,7 @@
 - [CHANGE][extension] The dApp approval window receives the decoded preview of a custom transaction's dry run, not the executed transaction.
 - [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
+- [CHANGE][all] Value a verified basket token that no exchange lists at its net asset value, read from chain: when the token list gives it `basket.constituents`, the wallet reads one account proof for its supply and its balance of each constituent, without loading unrelated storage maps, and prices each constituent at its market price. No issuer endpoint is involved. Display only: no 24h move or chart, and spending limits are unchanged.
 - [FIX][ci] Remove a run-owned eligibility probe when privacy settings cannot be read, while requiring the exact identity and content checks (#1894).
 - [FIX][all] The bridge-in token drawer lists only Agglayer tokens with positive balances and scrolls long lists below a fixed header with vertical overscroll containment. Unreadable balances stay unavailable, and balances from a previous account or chain are cleared.
 - [FIX][all] Offer a retry when the Earn deposit balance cannot be loaded (#2095).

@@ -119,3 +119,53 @@ it.each(['', 'eth', ' ETH', 'ETH ', 'ETH/USDT', 'A'.repeat(21), 42, null])(
 it.each(['', 'eth', 'ETH/USDT', 42, null, undefined])('drops invalid symbol %p', symbol => {
   expect(parseTokenList(list([token({ symbol })]), 'testnet')?.priceAssets.size).toBe(0);
 });
+
+const coin = (faucetId: string, symbol: string) => token({ faucetId, symbol });
+const basket = (constituents: unknown, extra: Record<string, unknown> = {}) =>
+  token({ faucetId: 'mtst1bsk', symbol: 'BSK', basket: { constituents }, ...extra });
+
+it('keeps a basket of listed, priced tokens, whatever their order in the list, and every decimals', () => {
+  const parsed = parseTokenList(
+    list([basket(['mtst1bbb', 'mtst1ccc']), coin('mtst1bbb', 'BBB'), coin('mtst1ccc', 'CCC')]),
+    'testnet'
+  );
+  expect(parsed?.baskets).toEqual(new Map([['mtst1bsk', ['mtst1bbb', 'mtst1ccc']]]));
+  expect(parsed?.decimals.get('mtst1bsk')).toBe(token({}).decimals);
+});
+
+it.each([
+  ['no constituents', []],
+  ['a constituent twice', ['mtst1bbb', 'mtst1bbb']],
+  ['itself', ['mtst1bsk']],
+  ['an unlisted token', ['mtst1zzz']],
+  ['a non-string', [42]],
+  ['more than 12 constituents', Array.from({ length: 13 }, (_, i) => `mtst1b${i}`)],
+  ['no array', 'mtst1bbb']
+])('drops a basket of %s and keeps the token verified and its price asset', (_case, constituents) => {
+  const parsed = parseTokenList(list([basket(constituents), coin('mtst1bbb', 'BBB')]), 'testnet');
+  expect(parsed?.baskets.size).toBe(0);
+  expect(parsed?.priceAssets.get('mtst1bsk')).toBe('BSK');
+  expect(parsed?.ids.has('mtst1bsk')).toBe(true);
+});
+
+it('drops a basket of a basket', () => {
+  const inner = token({ faucetId: 'mtst1inn', symbol: 'INN', basket: { constituents: ['mtst1bbb'] } });
+  const parsed = parseTokenList(list([basket(['mtst1inn']), inner, coin('mtst1bbb', 'BBB')]), 'testnet');
+  expect(parsed?.baskets).toEqual(new Map([['mtst1inn', ['mtst1bbb']]]));
+});
+
+it('drops a basket whose constituent has no price asset or no decimals', () => {
+  const noAsset = parseTokenList(list([basket(['mtst1bbb']), coin('mtst1bbb', 'bbb')]), 'testnet');
+  const noDecimals = parseTokenList(
+    list([basket(['mtst1bbb']), token({ faucetId: 'mtst1bbb', symbol: 'BBB', decimals: 1.5 })]),
+    'testnet'
+  );
+  expect(noAsset?.baskets.size).toBe(0);
+  expect(noDecimals?.baskets.size).toBe(0);
+});
+
+it('drops a basket that has no price asset itself', () => {
+  expect(
+    parseTokenList(list([basket(['mtst1bbb'], { symbol: 'bsk' }), coin('mtst1bbb', 'BBB')]), 'testnet')?.baskets.size
+  ).toBe(0);
+});

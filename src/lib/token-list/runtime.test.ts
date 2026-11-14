@@ -4,6 +4,8 @@ import {
   loadTokenPriceAssets,
   loadVerifiedFaucetIds,
   onTokenListUpdated,
+  peekTokenBaskets,
+  peekTokenDecimals,
   peekTokenPriceAssets
 } from './runtime';
 
@@ -185,4 +187,25 @@ it('adopts a fetched price override for a network with no bundled list', async (
   await expect(loadTokenPriceAssets('devnet')).resolves.toBeNull();
   await flush();
   await expect(loadTokenPriceAssets('devnet')).resolves.toEqual(new Map([['coin', 'ETH']]));
+});
+
+it('loads the baskets and decimals with the price assets', async () => {
+  const body = doc(['coin', 'basket'], 'devnet');
+  const tokens = body.tokens.map(token =>
+    token.faucetId === 'basket' ? { ...token, symbol: 'B', basket: { constituents: ['coin'] } } : token
+  );
+  fetchMock.mockResolvedValue(response({ ...body, tokens }));
+  expect(peekTokenBaskets('devnet')).toBeUndefined();
+  await loadTokenPriceAssets('devnet');
+  expect(peekTokenBaskets('devnet')).toBeNull();
+  await flush();
+  await loadTokenPriceAssets('devnet');
+  expect(peekTokenBaskets('devnet')).toEqual(new Map([['basket', ['coin']]]));
+  expect(peekTokenDecimals('devnet')).toEqual(
+    new Map([
+      ['coin', 8],
+      ['basket', 8]
+    ])
+  );
+  expect(peekTokenBaskets('localnet')).toBeNull();
 });
