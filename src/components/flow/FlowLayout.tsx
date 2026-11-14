@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { PageHeader } from 'components/PageHeader';
 
 export interface FlowLayoutProps {
@@ -42,9 +43,10 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
   children,
   footer
 }) => {
+  const command = useFlowPresentation() === 'command';
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col bg-app-bg">
-      {!tabRoot && (
+      {!command && !tabRoot && (
         // `PageHeader` carries no horizontal padding of its own — it takes the page's — and its
         // inset rule is a sibling of the row, so both sit in one wrapper at the page margin.
         <div className="shrink-0 px-4">
@@ -62,7 +64,11 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
       {/* A tab root's title is not a navigation bar: it is the first line of the page, above the
           field it names, exactly where the swap page puts "You Pay" - so the pane shell draws it,
           at the one offset every home-group pane's first line sits at. */}
-      <HomeGroupPaneBody title={tabRoot ? title : undefined} top={tabRoot ? 'root' : 'header'} footer={footer}>
+      <HomeGroupPaneBody
+        title={command ? undefined : tabRoot ? title : undefined}
+        top={command ? 'header' : tabRoot ? 'root' : 'header'}
+        footer={footer}
+      >
         {children}
       </HomeGroupPaneBody>
     </div>

@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 
 import { SubPageHeaderProvider, SubPageLayout, SubPageSection } from './SubPageLayout';
@@ -18,6 +19,18 @@ const body = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-slot=
 const footer = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-slot="footer"]');
 
 describe('SubPageLayout', () => {
+  it('does not draw a duplicate page header inside a Command workbench', () => {
+    render(
+      <FlowPresentationProvider value="command">
+        <SubPageLayout title="Earn" footer={<button>Continue</button>}>
+          <p>Position</p>
+        </SubPageLayout>
+      </FlowPresentationProvider>
+    );
+    expect(screen.queryByRole('heading', { name: 'Earn' })).not.toBeInTheDocument();
+    expect(screen.getByText('Position')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
   it('renders the shared page header with the title and a back button that calls onBack', () => {
     const onBack = jest.fn();
     render(

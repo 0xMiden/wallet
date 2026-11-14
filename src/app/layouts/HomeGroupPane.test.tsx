@@ -21,6 +21,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 
 import { HomeGroupPane, HomeGroupPaneBody, HomeGroupPaneRoot } from './HomeGroupPane';
@@ -36,6 +37,17 @@ jest.mock('app/icons/v2', () => ({
 const body = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-home-pane-body="true"]')!;
 
 describe('HomeGroupPaneBody', () => {
+  it('drops compact carousel navigation clearance in Command presentation', () => {
+    const { container } = render(
+      <FlowPresentationProvider value="command">
+        <HomeGroupPaneBody>
+          <p>Amount</p>
+        </HomeGroupPaneBody>
+      </FlowPresentationProvider>
+    );
+    expect(body(container).className).not.toContain('--navbar-cushion');
+    expect(screen.getByText('Amount')).toBeInTheDocument();
+  });
   it('lets horizontal pans reach the pager: pan-x pan-y, and never a horizontal scroller', () => {
     const { container } = render(
       <HomeGroupPaneBody>
