@@ -6,6 +6,7 @@ import {
   partitionFeeNote,
   splitExecutedOutputNotes
 } from './fee';
+import { splitLandedOutputNotes } from './fee-notes';
 import { FEE_RESERVE_MULTIPLE } from '../fees/spendable';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -327,5 +328,115 @@ describe("splitExecutedOutputNotes against the transaction's own block", () => {
       outputNotes: () => ({ notes: () => [userNote, taggedNative] })
     } as any);
     expect(feeNote).toBe(taggedNative);
+  });
+});
+
+type FeeRead = 'tag' | 'faucet' | 'amount';
+const FEE_READS: FeeRead[] = ['tag', 'faucet', 'amount'];
+
+// A fee-tagged native note whose `where` read throws `failure`, so each fee check is reached in turn.
+const trapping = (where: FeeRead, failure: unknown) => {
+  const fail = () => {
+    throw failure;
+  };
+  return {
+    metadata: () => ({ tag: where === 'tag' ? fail : () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
+    assets: () => ({
+      fungibleAssets: () => [
+        { amount: where === 'amount' ? fail : () => '163840', faucetId: where === 'faucet' ? fail : () => 'native' }
+      ],
+      nonFungibleAssets: () => []
+    })
+  };
+};
+
+const executed = (notes: unknown[], blockHeader?: () => { verificationBaseFee: () => number }) =>
+  ({ outputNotes: () => ({ notes: () => notes }), ...(blockHeader ? { blockHeader } : {}) }) as any;
+
+const thrownBy = (fn: () => unknown): unknown => {
+  try {
+    fn();
+  } catch (caught) {
+    return caught;
+  }
+  return undefined;
+};
+
+const user = outputNote(0x0, [asset(500n, 'tkn')]);
+const poison = new WasmClientPoisonedError('watchdog');
+
+// The lock retires a trapped client only when the trap reaches it, so a fee check must not answer it.
+describe('a trap or a kill in a fee check', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+
+  it.each(FEE_READS)('splitExecutedOutputNotes rethrows a trap from the %s read as that same object', where => {
+    expect(thrownBy(() => splitExecutedOutputNotes(executed([user, trapping(where, trap)])))).toBe(trap);
+  });
+
+  it('rethrows a trap from the header read as that same object', () => {
+    const header = () => {
+      throw trap;
+    };
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    expect(thrownBy(() => splitExecutedOutputNotes(executed([user, fee], header)))).toBe(trap);
+  });
+
+  it('rethrows the eviction a wrapped tag-read failure carries, as the eviction', () => {
+    const wrapped = trapping('tag', new Error('wrapped', { cause: poison }));
+    expect(thrownBy(() => splitExecutedOutputNotes(executed([user, wrapped])))).toBe(poison);
+  });
+
+  it('still identifies nothing when a fee check fails with an ordinary error', () => {
+    const broken = trapping('tag', new TypeError('no accessor'));
+    expect(splitExecutedOutputNotes(executed([user, broken]))).toEqual({
+      feeNote: undefined,
+      userNotes: [user, broken]
+    });
+  });
+});
+
+describe('splitLandedOutputNotes', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+
+  it.each(FEE_READS)('identifies no fee note when the %s read traps, and keeps every note', where => {
+    const trapped = trapping(where, trap);
+    expect(splitLandedOutputNotes(executed([user, trapped]))).toEqual({
+      feeNote: undefined,
+      userNotes: [user, trapped]
+    });
+  });
+
+  it('identifies no fee note when the header read traps', () => {
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const { feeNote, userNotes } = splitLandedOutputNotes(
+      executed([user, fee], () => {
+        throw trap;
+      })
+    );
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([user, fee]);
+  });
+
+  it('separates the fee note as splitExecutedOutputNotes does when nothing traps', () => {
+    const same = executed([user, outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])], () => ({
+      verificationBaseFee: () => CHARGING
+    }));
+    const landed = splitLandedOutputNotes(same);
+    expect(landed).toEqual(splitExecutedOutputNotes(same));
+    expect(landed.feeNote).toBeDefined();
+  });
+
+  it('lets the eviction a wrapped failure carries through', () => {
+    const wrapped = trapping('tag', new Error('wrapped', { cause: poison }));
+    expect(thrownBy(() => splitLandedOutputNotes(executed([user, wrapped])))).toBe(poison);
+  });
+
+  it('lets a trap from the output-note read itself through', () => {
+    const unreadable = {
+      outputNotes: () => {
+        throw trap;
+      }
+    };
+    expect(thrownBy(() => splitLandedOutputNotes(unreadable))).toBe(trap);
   });
 });

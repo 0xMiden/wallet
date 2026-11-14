@@ -900,3 +900,61 @@ describe('executedBytesToView fee rate', () => {
     expect(view.outputNotesCreated).toBe(1);
   });
 });
+
+// Every decode here can run inside a WASM hold, and the lock retires a trapped client only when the trap reaches it.
+describe('a trap in the fee split reaches the caller', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  const trappingFee = {
+    ...note([fa(NATIVE_FAUCET, 2n)]),
+    metadata: () => ({
+      tag: () => {
+        throw trap;
+      }
+    })
+  };
+  const thrownBy = (fn: () => unknown): unknown => {
+    try {
+      fn();
+    } catch (caught) {
+      return caught;
+    }
+    return undefined;
+  };
+  const summary = () => ({
+    accountDelta: () => ({
+      id: () => 'acctId',
+      vault: () => vaultOf([fa('fA', 10n), fa(NATIVE_FAUCET, 2n)], []),
+      storage: () => ({ isEmpty: () => true })
+    }),
+    inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+    outputNotes: () => ({ numNotes: () => 2, notes: () => [note([fa('fA', 10n)]), trappingFee] })
+  });
+
+  it('summaryToView rethrows it as that same object', () => {
+    expect(thrownBy(() => summaryToView(summary() as any))).toBe(trap);
+  });
+
+  it('executedBytesToView rethrows it as that same object', () => {
+    const executed = {
+      accountId: () => 'acctId',
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+      outputNotes: () => ({ numNotes: () => 2, notes: () => [note([fa('fA', 10n)]), trappingFee] }),
+      accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) })
+    };
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({ executedTransaction: () => executed });
+    expect(thrownBy(() => executedBytesToView('execB64'))).toBe(trap);
+  });
+
+  it('simulatedOutputRecipients rethrows it as that same object', () => {
+    const recipient = (digest: string) => ({ recipientDigest: () => ({ toHex: () => digest }) });
+    (TransactionSummary.deserialize as jest.Mock).mockReturnValueOnce({
+      outputNotes: () => ({
+        notes: () => [
+          { ...note([fa('fA', 1n)]), ...recipient('0xaa') },
+          { ...trappingFee, ...recipient('0xfee') }
+        ]
+      })
+    });
+    expect(thrownBy(() => simulatedOutputRecipients({ summaryBytes: 'sumB64' }))).toBe(trap);
+  });
+});
