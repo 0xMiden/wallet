@@ -1,217 +1,159 @@
-name: Compile surfaces
-
-# The wallet ships FOUR surfaces — Chrome extension, iOS, Android and the Tauri
-# desktop app — and until now only the extension was built on a PR. A change that
-# broke the Android gradle build, the iOS Xcode build, or the Rust in src-tauri
-# merged with nothing going red, and was found later by whoever next tried to
-# ship that platform.
-#
-# These are COMPILE gates, deliberately: no emulator, no simulator, no chain.
-# They answer "does this still build" in minutes, which is the failure that
-# actually reaches main. Behaviour on those surfaces is covered by the E2E
-# suites (e2e-blockchain.yml for iOS, e2e-android.yml for Android).
-#
-# Each job is a required-check candidate, so none of them is `continue-on-error`:
-# a gate that cannot fail is worse than no gate, because it reads as coverage.
+name: Swap notice source checks
 
 on:
-  pull_request:
   workflow_dispatch:
+    inputs:
+      expected_source:
+        description: Exact QA commit SHA
+        required: true
+        type: string
 
 permissions:
   contents: read
-  # The linked-PR injections list a dispatched branch's open pull request and read its description.
-  pull-requests: read
-
-concurrency:
-  group: compile-surfaces-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  android:
-    name: Compile Android
+  source-checks:
     runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [checks, visual]
+    env:
+      WALLET_SOURCE: 3bce9e916adbe30bd1ec3d7c3d6d06699094f688
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: '21'
-      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - uses: gradle/actions/setup-gradle@v4
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # `mobile:sync` regenerates the Capacitor bridge files the gradle build
-      # needs; assembleDebug is the same target the Android E2E job builds, so a
-      # break here is a break there.
-      - name: Build debug APK
-        run: yarn test:e2e:android:build
-      # The JVM logic tests (Play update classification, hot-key rules) run
-      # nowhere else: assembleDebug never compiles src/test.
-      - name: Run Android unit tests
-        run: cd android && ./gradlew :app:testDebugUnitTest :miden-dapp-browser:testDebugUnitTest --console=plain
-
-  desktop:
-    name: Compile desktop (Tauri)
-    runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
-    steps:
+          persist-credentials: false
+      - name: Bind workflow source
+        env:
+          EXPECTED_SOURCE: ${{ inputs.expected_source }}
+          LANE: ${{ matrix.lane }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/2115-proof"
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          test "$GITHUB_SHA" = "$EXPECTED_SOURCE"
+          printf 'qa_source=%s\nwallet_source=%s\nrun_id=%s\nrun_attempt=%s\nlane=%s\n' \
+            "$GITHUB_SHA" "$WALLET_SOURCE" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$LANE" \
+            > "$RUNNER_TEMP/2115-proof/provenance.txt"
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
-      - name: Drop apt repositories this repo never installs from
-        uses: ./.github/actions/apt-drop-unused-repos
-      # Tauri's system deps on Linux. The desktop app ships for macOS, but the
-      # Rust in src-tauri is what this gate is checking and it compiles here far
-      # cheaper than on a macOS runner.
-      - name: Install Tauri system dependencies
-        # Same mirror hardening as the xvfb steps in the e2e workflows: the
-        # azure mirror intermittently blackholes and an unbounded `apt-get
-        # update` can eat the whole job budget. Current runners also use a
-        # mirror+file source, so rewrite its mirror list as well as direct sources.
-        timeout-minutes: 8
+          ref: ${{ env.WALLET_SOURCE }}
+          fetch-depth: 4
+          persist-credentials: false
+      - name: Bind original wallet source
         run: |
-          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
-            /etc/apt/apt-mirrors.txt 2>/dev/null || true
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # REQUIRED before cargo: `tauri::generate_context!()` reads tauri.conf.json's
-      # `frontendDist` (../dist/desktop) at COMPILE time and fails the build if the
-      # directory is absent. `cargo check` alone is not runnable from a clean
-      # checkout — verified locally, where it failed with
-      # "The `frontendDist` configuration is set to `../dist/desktop` but this path doesn't exist".
-      - name: Build desktop frontend
-        run: yarn build:desktop
-      - name: Check Rust
-        working-directory: src-tauri
-        run: cargo check --locked --all-targets
-
-  ios:
-    name: Compile iOS
-    # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
-    # 33.8s to launch WebContent for a hosted fixture without changing its source.
-    # macos-26-xlarge also has the required toolchain. NOT macos-15:
-    # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
-    # `UIGlassEffect`, an iOS 26 API — so the build fails there with
-    # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
-    # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
-    runs-on: macos-26-xlarge
-    # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
-    # on the runner. That step finished in 73 minutes, and the 75 minute limit
-    # then cancelled yarn install. The other linked-SDK jobs already use 120.
-    # A run without the marker does not build the SDK, so the extra ceiling is idle.
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$WALLET_SOURCE"
+          test "$(git rev-parse HEAD^)" = '5544598e7b091965b44b236f0a440b8273066f4a'
+          test "$(git rev-parse HEAD^2)" = '46d7fcf8ac612ca48997753574b53b308e365070'
+          git diff 46d7fcf8ac612ca48997753574b53b308e365070 HEAD > "$RUNNER_TEMP/2115-proof/source.patch"
+          sha256sum src/screens/swap-flow/SwapManager.tsx src/screens/swap-flow/SwapManager.test.tsx \
+            playwright/tests/wallet-access.spec.ts CHANGELOG.md package.json yarn.lock \
+            > "$RUNNER_TEMP/2115-proof/source-hashes.txt"
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      - name: Sync Capacitor
-        run: yarn mobile:sync
-      # -project, not -workspace: this app resolves its native deps through Swift
-      # Package Manager, not CocoaPods. Unsigned and for a generic device, because
-      # this gate is about whether the code COMPILES — signing belongs to release.
-      - name: Build App scheme
+        with:
+          node-version: '22'
+          cache: yarn
+      - name: Install exact dependencies
+        run: yarn install --frozen-lockfile --network-timeout 600000
+      - name: Run real consumer and producer suites
+        if: matrix.lane == 'checks'
         run: |
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -destination 'generic/platform=iOS' \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
-
-      # The XCTest logic tests (App Store version comparison, receipt trust) run
-      # nowhere else: `build` never compiles the AppTests target. The simulator
-      # is chosen by id so a runner image that renames its devices still works.
-      - name: Run iOS unit tests
+          set -euo pipefail
+          mkdir -p test-results
+          yarn jest --runTestsByPath src/screens/swap-flow/SwapManager.test.tsx src/lib/miden/swap/use-swap-tokens.test.ts src/components/FeatureUnavailable.test.tsx --maxWorkers=2 --json --outputFile=test-results/2115-green-jest.json 2>&1 | tee "$RUNNER_TEMP/2115-proof/jest.log"
+      - name: Kill four predicted semantic mutants
+        if: matrix.lane == 'checks'
         run: |
-          node --test scripts/ios-test-screenshots.test.cjs
-          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
-          xcrun simctl bootstatus "$UDID" -b
-          mkdir -p artifacts
-          node scripts/ios-test-screenshots.cjs "$UDID" > artifacts/ios-screenshot-helper.log 2>&1 &
-          SCREENSHOT_PID=$!
-          trap 'kill "$SCREENSHOT_PID"; wait "$SCREENSHOT_PID" || true' EXIT
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -destination "id=$UDID" \
-            -parallel-testing-enabled NO \
-            -only-testing:AppTests \
-            -resultBundlePath artifacts/ios-unit-tests.xcresult \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            test
-      - name: Upload iOS test results
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          source = pathlib.Path('src/screens/swap-flow/SwapManager.tsx')
+          original = source.read_text()
+          proof = pathlib.Path(os.environ['RUNNER_TEMP']) / '2115-proof'
+          page = 'src/screens/swap-flow/SwapManager.test.tsx'
+          prefix = 'SwapFlow / SwapManager startup eligibility on the 1Click route '
+          temporary = [prefix + 'keeps the form closed while the decision is pending',
+                       prefix + 'keeps the form closed while the decision is failed',
+                       prefix + 'uses temporary-unavailability copy when the pair registry read failed']
+          cases = [
+            ('old-mapping', [("      : 'bridgeFeatureUnavailableTitle';", "      : 'swapUnavailableTitle';"),
+                             ("      : 'bridgeFeatureUnavailableBody';", "      : 'swapUnavailableBody';")], temporary),
+            ('empty-is-temporary', [("const notConfigured = availability.state === 'unavailable' && availability.reason === 'not-configured';", 'const notConfigured = false;')],
+             [prefix + 'keeps the genuine empty-registry notice copy']),
+            ('restriction-is-temporary', [("const restricted = availability.state === 'unavailable' && availability.reason === 'restricted';", 'const restricted = false;')],
+             [prefix + 'keeps the form closed while the decision is restricted']),
+            ('wrong-body', [("      : 'bridgeFeatureUnavailableBody';", "      : 'swapUnavailableBody';")], temporary)
+          ]
+          predictions = [{'name': name, 'expected_failed_names': expected} for name, _, expected in cases]
+          (proof / 'mutation-predictions.json').write_text(json.dumps(predictions, indent=2))
+          outcomes = []
+          try:
+            for name, replacements, expected in cases:
+              mutant = original
+              for old, new in replacements:
+                assert mutant.count(old) == 1, (name, old)
+                mutant = mutant.replace(old, new)
+              source.write_text(mutant)
+              output = proof / (name + '.json')
+              with (proof / (name + '.log')).open('w') as log:
+                run = subprocess.run(['yarn', 'jest', '--runTestsByPath', page, '--maxWorkers=2',
+                    '--testNamePattern', 'startup eligibility on the 1Click route', '--json', '--outputFile=' + str(output)],
+                    stdout=log, stderr=subprocess.STDOUT)
+              result = json.loads(output.read_text())
+              failures = [a['fullName'] for suite in result['testResults'] for a in suite['assertionResults'] if a['status'] == 'failed']
+              assert run.returncode == 1 and result['numTotalTests'] > 0, name
+              assert result['numRuntimeErrorTestSuites'] == 0 and sorted(failures) == sorted(expected), (name, failures)
+              outcomes.append({'name': name, 'exit': run.returncode, 'failed_names': failures, 'runtime_errors': 0})
+              source.write_text(original)
+          finally:
+            source.write_text(original)
+          assert source.read_text() == original
+          (proof / 'mutation-outcomes.json').write_text(json.dumps(outcomes, indent=2))
+          (proof / 'restored-source-sha256.txt').write_text(hashlib.sha256(source.read_bytes()).hexdigest() + '\n')
+          PY
+      - name: Check formatting, types, lint and pins
+        if: matrix.lane == 'checks'
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit -p .
+          yarn eslint src/screens/swap-flow/SwapManager.tsx src/screens/swap-flow/SwapManager.test.tsx playwright/tests/wallet-access.spec.ts
+          yarn -s lint:e2e
+          yarn -s lint:i18n
+          yarn -s check:prover-pin
+      - name: Start existing wallet eligibility fixture
+        if: matrix.lane == 'visual'
+        uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
+      - name: Build existing mock extension
+        if: matrix.lane == 'visual'
+        env:
+          MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
+        run: |
+          set -euo pipefail
+          yarn build:chrome 2>&1 | tee "$RUNNER_TEMP/2115-proof/build.log"
+          test -f dist/chrome_unpacked/manifest.json
+      - name: Install existing browser prerequisites
+        if: matrix.lane == 'visual'
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+      - name: Exercise existing real wallet-access flow
+        if: matrix.lane == 'visual'
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/2115-playwright.json
+          DEBUG: pw:browser,pw:protocol
+        run: xvfb-run -a yarn playwright test playwright/tests/wallet-access.spec.ts --workers=1 --retries=0 --reporter=list,json > "$RUNNER_TEMP/2115-proof/playwright.log" 2>&1
+      - name: Preserve source-bound results and capped screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unit-test-results
+          name: swap-notice-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            artifacts/ios-unit-tests.xcresult
-            artifacts/ios-screenshot-helper.log
-          if-no-files-found: ignore
+            ${{ runner.temp }}/2115-proof
+            test-results
+          retention-days: 14
+          if-no-files-found: error
