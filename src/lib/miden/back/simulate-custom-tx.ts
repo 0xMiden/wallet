@@ -67,6 +67,13 @@ const SIMULATION_TIMEOUT_MS = 20_000;
  *
  * The caller syncs first: a note on chain that the client has not synced has no
  * record yet and would read as introduced.
+ *
+ * Any record reads as held, whoever wrote it. A note an earlier dry run imported
+ * stays in the store after a decline (the quarantine hides it and does not delete
+ * it), so a later request carrying it again is not credited for it, and its sheet
+ * and charge overstate what leaves. That is deliberate: crediting the record would
+ * extend the credit beyond the request that brought the note in. Both lookups, the
+ * carried notes before the import and the embedded ones after the dry run, follow it.
  */
 async function idsNotAlreadyHeld(
   client: { getInputNote(id: string): Promise<unknown> },
