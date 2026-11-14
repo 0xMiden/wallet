@@ -101,3 +101,10 @@ describe('SeedRevealToggle', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+// The words are not selectable (main.css), so a copy out of the grid has no secret to route: it stays the browser's.
+it('leaves a copy out of the grid to the browser', () => {
+  render(<SeedPhraseGrid words={WORDS} data-testid="grid" />);
+
+  expect(fireEvent.copy(screen.getByTestId('grid'))).toBe(true);
+});

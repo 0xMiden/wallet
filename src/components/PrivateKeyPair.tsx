@@ -7,6 +7,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { MaskedSecretBox } from 'components/ui/SeedPhraseGrid';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { handleSecretCopyEvent, selectedFieldText } from 'lib/ui/secret-clipboard';
 
 /** Kept separate from address QR encoding: no prefix or plaintext DOM attribute. */
 export function PrivateKeyPair({ payload, masked = false }: { payload: string; masked?: boolean }) {
@@ -59,6 +60,7 @@ export function PrivateKeyPair({ payload, masked = false }: { payload: string; m
                 value={field.value}
                 rows={3}
                 spellCheck={false}
+                onCopy={e => handleSecretCopyEvent(e.nativeEvent, selectedFieldText(e.currentTarget))}
                 className="w-full resize-none rounded-lg bg-fill p-3 font-sans text-sm text-text-primary-token focus-visible:outline focus-visible:outline-2"
               />
             </div>

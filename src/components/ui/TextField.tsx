@@ -21,6 +21,7 @@ import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { clearFieldValue } from 'lib/ui/clear-field';
+import { handleSecretCopyEvent, selectedFieldText } from 'lib/ui/secret-clipboard';
 import { cn } from 'lib/ui/util';
 
 import { ClearFieldButton } from './ClearFieldButton';
@@ -34,7 +35,7 @@ export type TextFieldElement = HTMLInputElement | HTMLTextAreaElement;
 // `size` variant name collide with nothing we want to expose here.
 type SharedFieldAttrs = Omit<
   InputHTMLAttributes<HTMLInputElement> & TextareaHTMLAttributes<HTMLTextAreaElement>,
-  'onChange' | 'onFocus' | 'onBlur' | 'value' | 'defaultValue' | 'size'
+  'onChange' | 'onFocus' | 'onBlur' | 'onCopy' | 'value' | 'defaultValue' | 'size'
 >;
 
 export interface TextFieldProps extends SharedFieldAttrs {
@@ -46,6 +47,7 @@ export interface TextFieldProps extends SharedFieldAttrs {
   onChange?: (event: React.ChangeEvent<TextFieldElement>) => void;
   onFocus?: (event: React.FocusEvent<TextFieldElement>) => void;
   onBlur?: (event: React.FocusEvent<TextFieldElement>) => void;
+  onCopy?: (event: React.ClipboardEvent<TextFieldElement>) => void;
   /** 13px bold `muted` label above the field, associated to it via `htmlFor`/`id`. */
   label?: ReactNode;
   /** `md` draws the label as the 16px section label (`text-row-title`, Nunito) instead of the 13px one. */
@@ -67,7 +69,8 @@ export interface TextFieldProps extends SharedFieldAttrs {
   /**
    * Key material: cover the value whenever the field is not focused, and give up focus after
    * `SECRET_REVEAL_MS` or as soon as the window loses it. A private key typed, pasted or revealed
-   * is on screen only while someone is deliberately looking at it.
+   * is on screen only while someone is deliberately looking at it. A copy out of the field goes
+   * through the secret clipboard.
    */
   secret?: boolean;
   /**
@@ -176,6 +179,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       type,
       onFocus,
       onBlur,
+      onCopy,
       // Mirrors `FormField`, which has defaulted this since it was written. A vault secret must
       // not be offered to the browser password manager, and `off` is overridden by browsers on
       // password-TYPE inputs, so a password field needs `new-password` specifically. Callers here
@@ -257,6 +261,14 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       [forwardedRef]
     );
 
+    const handleCopy = useCallback(
+      (event: React.ClipboardEvent<TextFieldElement>) => {
+        onCopy?.(event);
+        if (secret) handleSecretCopyEvent(event.nativeEvent, selectedFieldText(event.currentTarget));
+      },
+      [onCopy, secret]
+    );
+
     const handleChange = useCallback(
       (event: React.ChangeEvent<TextFieldElement>) => {
         setUncontrolledValue(event.target.value);
@@ -315,6 +327,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
               onChange={handleChange}
               onFocus={handleFocus}
               onBlur={handleBlur}
+              onCopy={handleCopy}
               aria-invalid={invalid}
               aria-describedby={describedBy}
               {...textAssist}
@@ -338,6 +351,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
                 onChange={handleChange}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
+                onCopy={handleCopy}
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 {...textAssist}

@@ -42,6 +42,7 @@ const mockGoBack = jest.fn();
 const mockHapticLight = jest.fn();
 const mockHapticMedium = jest.fn();
 const mockClipboardWrite = jest.fn();
+const mockWriteSecret = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -142,6 +143,10 @@ jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
+jest.mock('lib/ui/secret-clipboard', () => ({
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
+}));
+
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
   IconName: { Eye: 'Eye', EyeOff: 'EyeOff' }
@@ -227,6 +232,7 @@ describe('VerifySeedPhraseFlow', () => {
     mockRevealMnemonic.mockResolvedValue(TWELVE);
     mockCompleteWalletPrompt.mockResolvedValue(undefined);
     mockClipboardWrite.mockResolvedValue(undefined);
+    mockWriteSecret.mockResolvedValue(undefined);
   });
 
   it('keeps the required backup flow open on hardware back and has no close action', async () => {
@@ -358,19 +364,20 @@ describe('VerifySeedPhraseFlow', () => {
       fireEvent.click(screen.getByTestId('verify-seed-copy'));
     });
 
-    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TWELVE });
+    expect(mockWriteSecret).toHaveBeenCalledWith(TWELVE);
+    expect(mockClipboardWrite).not.toHaveBeenCalled();
     expect(presentCopyLabel()).toBe('copied');
   });
 
   it('keeps the copy label when the clipboard write is refused', async () => {
-    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    mockWriteSecret.mockRejectedValue(new Error('write refused'));
     await reachReview();
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('verify-seed-copy'));
     });
 
-    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(mockWriteSecret).toHaveBeenCalledTimes(1);
     expect(presentCopyLabel()).toBe('copyToClipboard');
   });
 
