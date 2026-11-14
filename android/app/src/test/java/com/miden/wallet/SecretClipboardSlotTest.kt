@@ -153,6 +153,27 @@ class SecretClipboardSlotTest {
         assertEquals("secret", clipText())
     }
 
+    // Destroyed before the deadline, which then passes with nothing attached: the recreated activity attaches
+    // unfocused and the clear runs once it has focus.
+    @Test
+    fun aDeadlinePassedWhileDetachedClearsWhenFocusReturns() {
+        val slot = SecretClipboardSlot()
+        val first = Any()
+        val second = Any()
+        slot.attach(first, clipboard, focused = true)
+        slot.write(clipboard, "overdue", 1_000)
+        flushWrites()
+        advance(400)
+        slot.detach(first)
+        advance(700)
+        slot.attach(second, clipboard, focused = false)
+        flushWrites()
+        assertEquals("overdue", clipText())
+        slot.onWindowFocusChanged(second, true)
+        flushWrites()
+        assertNull(clipText())
+    }
+
     private fun clipText(): String? = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
 
     private fun flushWrites() {
