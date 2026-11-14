@@ -9,8 +9,8 @@ import { rethrowTrapOrKill } from '../sdk/sdk-error-code';
 /**
  * Fee-note identification, kept in a LEAF module on purpose.
  *
- * `splitExecutedOutputNotes` has to be callable from every completion path, the confirm
- * sheet and the dApp-facing serializer -- and `fee.ts` reaches `lib/shared/format`, which
+ * `splitExecutedOutputNotes` and `splitLandedOutputNotes` have to be callable from every
+ * completion path, the confirm sheet and the dApp-facing serializer -- and `fee.ts` reaches `lib/shared/format`, which
  * pulls in `lib/miden/front`. Importing that chain from those modules broke eight unrelated
  * jest suites at module load. The rule that only one module may read raw output notes is
  * only adoptable if that module is cheap to import, so the primitives live here and `fee.ts`
@@ -44,9 +44,9 @@ export type FeePaid = {
  * Whether an output note carries the fee tag. NOT sufficient on its own — see below.
  *
  * Tolerates a missing accessor but lets a TRAP or a KILL through (`rethrowTrapOrKill`), as
- * every fee check below does. These accessors borrow from the client's RefCell, so a
- * swallowed eviction would answer this question from a client another flow is inside, and
- * a swallowed trap would leave the hold this runs in on a client its lock never retires.
+ * every fee check below does. These accessors run in the client's WASM instance, so a
+ * swallowed trap would leave the hold this runs in on an instance its lock never retires,
+ * and a swallowed kill would answer for a pipeline that was stopped.
  */
 function hasFeeTag(note: OutputNote): boolean {
   try {
