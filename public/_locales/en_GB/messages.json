@@ -3307,6 +3307,18 @@
     "message": "Open wallet",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "Open fullscreen",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Opens your wallet in a new tab.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Couldn’t open fullscreen. Try again.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "Get started",
     "englishSource": "Get started"

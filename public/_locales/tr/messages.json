@@ -3307,6 +3307,18 @@
     "message": "Cüzdanı aç",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "Tam ekran aç",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Cüzdanınızı yeni bir sekmede açar.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Tam ekran açılmadı. Lütfen tekrar deneyin.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "Başlayın",
     "englishSource": "Get started"

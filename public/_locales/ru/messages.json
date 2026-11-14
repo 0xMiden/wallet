@@ -3307,6 +3307,18 @@
     "message": "Открыть кошелек",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "Открыть в полноэкранном режиме",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Открывает ваш кошелек в новой вкладке.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Не удалось перейти в полноэкранный режим. Попробуйте ещё раз.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "Начать работу",
     "englishSource": "Get started"

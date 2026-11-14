@@ -3307,6 +3307,18 @@
     "message": "打開錢包",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "開啟全螢幕",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "在新的分頁中開啟您的錢包。",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "無法開啟全螢幕模式。請重試。",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "開始使用",
     "englishSource": "Get started"

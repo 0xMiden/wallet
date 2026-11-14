@@ -3308,6 +3308,18 @@
     "message": "Brieftasche öffnen",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "Vollbild anzeigen",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Öffnet Ihre Wallet in einem neuen Tab.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Vollbildmodus konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "Los geht’s",
     "englishSource": "Get started"

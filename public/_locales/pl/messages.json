@@ -3307,6 +3307,18 @@
     "message": "Otwórz portfel",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "Otwórz tryb pełnoekranowy",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Otwiera portfel w nowej karcie.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Nie udało się otworzyć trybu pełnoekranowego. Spróbuj ponownie.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "Zacznij",
     "englishSource": "Get started"

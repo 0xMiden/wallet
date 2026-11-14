@@ -3307,6 +3307,18 @@
     "message": "지갑 열기",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "전체 화면으로 열기",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "새 탭에서 지갑을 엽니다.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "전체 화면으로 열 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "시작하기",
     "englishSource": "Get started"

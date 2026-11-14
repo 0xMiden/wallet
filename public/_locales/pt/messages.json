@@ -3307,6 +3307,18 @@
     "message": "Abrir a carteira",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "Abrir em tela cheia",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Abre sua carteira em uma nova aba.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Não foi possível abrir em tela cheia. Tente novamente.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "Comece agora",
     "englishSource": "Get started"

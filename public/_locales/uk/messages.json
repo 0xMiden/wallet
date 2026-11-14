@@ -3307,6 +3307,18 @@
     "message": "Відкрити гаманець",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "Відкрити у повноекранному режимі",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Відкриває ваш гаманець у новій вкладці.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Не вдалося відкрити у повноекранному режимі. Спробуйте ще раз.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "Почніть",
     "englishSource": "Get started"

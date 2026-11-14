@@ -3307,6 +3307,18 @@
     "message": "Abrir cartera",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "Abrir a pantalla completa",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Abre tu monedero en una nueva pestaña.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "No se ha podido abrir en pantalla completa. Inténtalo de nuevo.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "Empezar",
     "englishSource": "Get started"

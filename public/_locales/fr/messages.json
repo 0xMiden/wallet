@@ -3307,6 +3307,18 @@
     "message": "Ouvrir le portefeuille",
     "englishSource": "Open wallet"
   },
+  "commandOpenFullscreen": {
+    "message": "Passer en plein écran",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Ouvre votre portefeuille dans un nouvel onglet.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Impossible d’afficher en plein écran. Veuillez réessayer.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
   "getStarted": {
     "message": "Commencer",
     "englishSource": "Get started"
