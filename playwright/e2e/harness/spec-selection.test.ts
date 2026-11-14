@@ -768,7 +768,7 @@ const requiredNameLiteralViolations = (file: string, text: string): Array<Litera
 const API_WRITER_ALLOWLIST = [
   {
     file: '.github/workflows/check-linked-web-sdk-pr.yml',
-    sha256: '6d473729f44a96453884085bdb26d0bfdf28ae5d7bb49200fa0bc42f53023c7d'
+    sha256: '0c799a091daf3cfbdfc36fa71051c9648dee174a0285cd5aa81e657e967cbc38'
   }
 ];
 
@@ -1550,8 +1550,8 @@ const apiWriterCases: ApiCase[] = [
     'P7: the pinned workflow adding a test reporter that names its check',
     LINKED,
     linkedWith(
-      '      - uses: actions/checkout@v6\n',
-      `      - uses: actions/checkout@v6\n\n      - uses: dorny/test-reporter@v1\n        with:\n          name: local-e2e (\${{ matrix.b }})\n`
+      '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n',
+      `      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n\n      - uses: dorny/test-reporter@v1\n        with:\n          name: local-e2e (\${{ matrix.b }})\n`
     ),
     'the whole file'
   ],

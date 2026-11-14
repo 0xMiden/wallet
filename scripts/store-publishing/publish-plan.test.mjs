@@ -333,7 +333,7 @@ test('publishing workflow is manual, main-only, protected and pins trusted autom
 
 test('workflow uses bounded OIDC credentials and never persists or archives authentication material', () => {
   const text = readFileSync(new URL('../../.github/workflows/publish-stores.yml', import.meta.url), 'utf8');
-  assert.match(text, /uses: google-github-actions\/auth@v3/);
+  assert.match(text, /uses: google-github-actions\/auth@[0-9a-f]{40} # v3$/m);
   assert.match(text, /service_account: bread-wallet-play-publisher@bread-wallet-publishing\.iam\.gserviceaccount\.com/);
   assert.match(
     text,
