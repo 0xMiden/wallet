@@ -85,6 +85,7 @@ CTA.
 
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
+| `launcher-fill` / `launcher-ink` | #E77537 / #191919 | #E77537 / #191919 | Compact extension Home's fullscreen launcher: one fixed 4.5:1+ pair at rest, hover, press and focus, including Devnet. |
 | `accent` | #E77537 | #E77537 | Primary CTA fill, a selected icon, focus ring, a held icon button. White on it is 3.0:1: that clears rule 6 at 19px bold (the CTA) and for a glyph (a `filled` `IconButton`'s active state), and nowhere else, so a 14px selected label sits on `accent-tint` instead. The colour is the same in both themes, so every ratio holds in both. Never text: #E77537 is 2.64:1 on `fill` and 3.0:1 on white. |
 | `accent-tint` | #FDEEE5 | #3A2418 | Selected pill fill. |
 | `accent-tint-ink` | #A84A18 | #F2A57A | Text on `accent-tint` (5.1:1), and every text action: Copy, Edit, See all, a header's text action. |
@@ -254,6 +255,7 @@ for a focus call); where a section's own parts sit closer than 20px, that number
 | Tab root band | 56px title row + the 4px rule = 60px (Home's action bar), then 8px, then 48px of filter row |
 | Page header | 60px row (taller for a two-line title), then the 4px rule |
 | CTA (`Button` lg) | 48px (label stays 19px bold: white on `accent` is 3.0:1, which only clears at 19px bold) |
+| Compact fullscreen launcher (`Button` launcher, lg) | 48px; full width of its separate 16px-gutter Home band, above and outside the hideable action tabs |
 | Compact button (`Button` sm) | 36px |
 | Search, single-line input | 44px / 52px |
 | Pill | 32px (24px status in a header, 20px status in a row, 18px tag after a row's name) |

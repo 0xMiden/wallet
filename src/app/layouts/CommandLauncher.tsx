@@ -1,5 +1,52 @@
-import { ReactElement } from 'react';
+import { ReactElement, useRef, useState } from 'react';
+
+import { useTranslation } from 'react-i18next';
+
+import { openCommandHome, useAppEnv, WindowType } from 'app/env';
+import { Icon, IconName } from 'app/icons/v2';
+import { Button, ButtonVariant } from 'components/ui/Button';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { isExtension } from 'lib/platform';
 
 export default function CommandLauncher(): ReactElement | null {
-  return null;
+  const { t } = useTranslation();
+  const { popup, sidePanel, confirmWindow } = useAppEnv();
+  const [error, setError] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const openingRef = useRef(false);
+
+  if (!isExtension() || confirmWindow || (!popup && !sidePanel)) return null;
+
+  const open = async () => {
+    if (openingRef.current) return;
+    openingRef.current = true;
+    setOpening(true);
+    setError(false);
+    try {
+      await openCommandHome(sidePanel ? WindowType.SidePanel : WindowType.Popup);
+    } catch {
+      setError(true);
+    } finally {
+      openingRef.current = false;
+      setOpening(false);
+    }
+  };
+
+  return (
+    <div className="shrink-0 px-4 py-2">
+      <Button
+        variant={ButtonVariant.Launcher}
+        isLoading={opening}
+        aria-describedby="command-fullscreen-new-tab-description"
+        onClick={open}
+      >
+        <Icon name={IconName.Fullscreen} className="h-5 w-5" fill="currentColor" aria-hidden="true" />
+        <span>{t('commandOpenFullscreen')}</span>
+      </Button>
+      <span id="command-fullscreen-new-tab-description" className="sr-only">
+        {t('commandFullscreenNewTab')}
+      </span>
+      <ErrorLine>{error && t('commandFullscreenOpenFailed')}</ErrorLine>
+    </div>
+  );
 }

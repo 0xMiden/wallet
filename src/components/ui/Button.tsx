@@ -20,6 +20,7 @@ export enum ButtonVariant {
   Destructive = 'destructive',
   /** A quiet outlined action, for the few places a filled secondary is too heavy. */
   Ghost = 'ghost',
+  /** The compact wallet's fixed high-contrast fullscreen launch action. */
   Launcher = 'launcher'
 }
 
@@ -63,7 +64,7 @@ const buttonVariants = cva(
           'bg-fill text-negative-ink hover:bg-fill-pressed disabled:bg-fill disabled:text-muted',
         [ButtonVariant.Ghost]:
           'border border-hairline bg-transparent text-ink hover:bg-fill disabled:bg-transparent disabled:text-muted',
-        [ButtonVariant.Launcher]: ''
+        [ButtonVariant.Launcher]: 'bg-launcher-fill text-launcher-ink'
       },
       size: {
         // 48px, not 52: a pinned CTA (often with a secondary under it) was eating the page.
@@ -140,6 +141,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       className={cn(
         buttonVariants({ variant, size }),
         variant === ButtonVariant.Primary && ACCENT_CLASSES[accent].cta,
+        variant === ButtonVariant.Launcher && 'max-w-none',
         isLoading && 'pointer-events-none',
         className
       )}

@@ -256,22 +256,25 @@ describe('env', () => {
       expect(mockTabsCreate).not.toHaveBeenCalled();
     });
 
-    it.each([WindowType.Popup, WindowType.SidePanel])('opens extension-owned home in an active tab (%s)', async source => {
-      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
-      const close = jest.spyOn(window, 'close').mockImplementation(() => {});
-      try {
-        window.history.replaceState(null, '', '/?draft=private#/send?amount=123');
-        await openCommandHome(source);
-        expect(mockTabsCreate).toHaveBeenCalledWith({
-          url: 'chrome-extension://test/fullpage.html#/',
-          active: true
-        });
-        expect(close).toHaveBeenCalledTimes(source === WindowType.Popup ? 1 : 0);
-      } finally {
-        window.history.replaceState(null, '', '/');
-        close.mockRestore();
+    it.each([WindowType.Popup, WindowType.SidePanel])(
+      'opens extension-owned home in an active tab (%s)',
+      async source => {
+        mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+        const close = jest.spyOn(window, 'close').mockImplementation(() => {});
+        try {
+          window.history.replaceState(null, '', '/?draft=private#/send?amount=123');
+          await openCommandHome(source);
+          expect(mockTabsCreate).toHaveBeenCalledWith({
+            url: 'chrome-extension://test/fullpage.html#/',
+            active: true
+          });
+          expect(close).toHaveBeenCalledTimes(source === WindowType.Popup ? 1 : 0);
+        } finally {
+          window.history.replaceState(null, '', '/');
+          close.mockRestore();
+        }
       }
-    });
+    );
 
     it('closes a supported sidebar only after successful creation', async () => {
       mockTabsCreate.mockResolvedValueOnce({ id: 21 });

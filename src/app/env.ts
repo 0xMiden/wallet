@@ -146,8 +146,20 @@ export const onboardingUrls = async () => {
   return urls;
 };
 
-export async function openCommandHome(_source: WindowType.Popup | WindowType.SidePanel): Promise<void> {
-  // RED-only interface: the tab handoff is implemented after its behavioral test fails.
+export async function openCommandHome(source: WindowType.Popup | WindowType.SidePanel): Promise<void> {
+  if (!isExtension()) return;
+  const browser = await getBrowser();
+  await browser.tabs.create({ url: browser.runtime.getURL('fullpage.html#/'), active: true });
+  if (source === WindowType.Popup) {
+    window.close();
+  } else {
+    // Firefox exposes sidebarAction.close; unsupported panels stay usable in the browser.
+    try {
+      await browser.sidebarAction?.close?.();
+    } catch {
+      // The new tab is already open; failure to close the old panel is harmless.
+    }
+  }
 }
 
 export async function openInFullPage() {
