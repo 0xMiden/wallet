@@ -9,7 +9,11 @@ export interface WireAssetAmount {
   amount: string;
 }
 
-export type SimulatedViewWire = Omit<TxAssetView, 'outgoing' | 'incoming' | 'fee'> & {
+/** The note lists stay behind: the sheet shows only the totals, and their bigint amounts would cross as strings. */
+export type SimulatedViewWire = Omit<
+  TxAssetView,
+  'outgoing' | 'incoming' | 'fee' | 'viewConsumedNotes' | 'createdNotes'
+> & {
   outgoing: WireAssetAmount[];
   incoming: WireAssetAmount[];
   fee?: WireAssetAmount;
@@ -40,7 +44,8 @@ function noteFromWire({ assets, ...note }: NoteDetailWire): NoteDetail {
 }
 
 export function toSimulatedEffectsWire(view: TxAssetView, noteFlow?: NoteFlow): SimulatedEffectsWire {
-  return serializeBigints({ view, noteFlow });
+  const { viewConsumedNotes: _consumed, createdNotes: _created, ...shown } = view;
+  return serializeBigints({ view: shown, noteFlow });
 }
 
 /** Throws on an amount that is not a non-negative decimal integer, so a malformed reply never renders as verified. */

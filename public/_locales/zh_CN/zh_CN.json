@@ -708,6 +708,7 @@
   "gotIt": "明白了",
   "backUpYourWallet": "备份您的钱包",
   "recoveryPhraseHidden": "恢复短语已隐藏",
+  "privateKeyHidden": "私钥隐藏",
   "show": "显示",
   "hide": "隐藏",
   "copied": "已复制",
@@ -1010,6 +1011,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "此交易还涉及转移钱包无法列出的资产，例如 NFT。仅在您确信其真实性时才继续操作。",
   "unknown": "未知",
+  "includesUnclaimedNotes": "包括您尚未认领的notes",
   "inputNotesConsumed": "已消耗输入notes",
   "outputNotesCreated": "输出：已创建notes",
   "transactionNoteFlow": "Note流",
@@ -1927,5 +1929,16 @@
   "arcadePostingPolicy": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
   "autoLock": "自动锁定",
   "autoLockDescription": "当钱包在后台处于闲置状态达到一定时间后，系统将自动锁定该钱包。",
-  "autoLockMinutes": "$minutes$分钟"
+  "autoLockMinutes": "$minutes$分钟",
+  "epochAwaitingReturn": "等待返还",
+  "epochReadyToClaim": "准备申领",
+  "epochReturningFunds": "退还资金",
+  "epochFundsReturned": "资金退回",
+  "epochReturnWaiting": "您的资金仍保留在 Miden 上。您可以在区块 $block$ 之后提取这些资金。",
+  "epochReturnReady": "申领您的资金，将其退回您的钱包。",
+  "epochReturnPending": "您的资金正在返还至您的钱包。",
+  "epochReturnDone": "您的资金已返还至您的钱包。",
+  "epochReturnPaid": "资金已发送至您的目的地。",
+  "epochReturnSpent": "该note已被使用，但支付尚未确认。请检查您的收款地址和Miden余额。",
+  "epochReturnUnavailable": "无法查询资金状态。请重试。"
 }

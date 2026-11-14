@@ -51,6 +51,22 @@ describe('simulated effects wire', () => {
     expect(decoded).not.toHaveProperty('noteFlow');
   });
 
+  it('sends a holdings view without its note lists and with its held note count', () => {
+    const holdings: TxAssetView = {
+      ...view,
+      viewConsumedNotes: [{ id: '0xheld', amounts: [{ faucetId: 'fA', amount: 1000n }], nfts: [] }],
+      createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'fA', amount: 1050n }], nfts: [], opaque: true }],
+      heldNotesSpent: 1
+    };
+    const wire: SimulatedEffectsWire = JSON.parse(JSON.stringify(toSimulatedEffectsWire(holdings)));
+
+    expect(wire.view).not.toHaveProperty('viewConsumedNotes');
+    expect(wire.view).not.toHaveProperty('createdNotes');
+    expect(wire.view.heldNotesSpent).toBe(1);
+    const { viewConsumedNotes: _consumed, createdNotes: _created, ...shown } = holdings;
+    expect(fromSimulatedEffectsWire(wire)).toEqual({ view: shown });
+  });
+
   it('refuses an amount that is not a non-negative integer', () => {
     const good = toSimulatedEffectsWire(view, flow);
     const placements: Array<(amount: string) => SimulatedEffectsWire> = [

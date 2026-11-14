@@ -1,5 +1,6 @@
 import type { OutputNote } from '@miden-sdk/miden-sdk';
 
+import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { getNativeAssetIdSync, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -82,6 +83,25 @@ function soleFungibleFaucet(note: OutputNote): string | undefined {
   }
 }
 
+/** The most the kernel can charge at `verificationBaseFee`, or undefined when that is not a safe integer. */
+function feeCeiling(verificationBaseFee: number): bigint | undefined {
+  const ceiling = Math.round(verificationBaseFee * FEE_RESERVE_MULTIPLE);
+  return Number.isSafeInteger(ceiling) ? BigInt(ceiling) : undefined;
+}
+
+/** Whether the note's first fungible amount is at most `ceiling`; false when it cannot be read. */
+function withinFeeCeiling(note: OutputNote, ceiling: bigint): boolean {
+  try {
+    const amount = (note.assets()?.fungibleAssets() ?? [])[0]?.amount();
+    return amount !== undefined && BigInt(amount) <= ceiling;
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) {
+      throw err;
+    }
+    return false;
+  }
+}
+
 /**
  * Split output notes into the kernel's fee note and the notes the user actually created.
  *
@@ -101,8 +121,16 @@ function soleFungibleFaucet(note: OutputNote): string | undefined {
  *     cache, just a dApp asking a fee-free chain to hide a transfer.
  *   - the note holds exactly ONE fungible asset, drawn on the chain's NATIVE faucet, which
  *     is the only asset the wallet ever commits a fee in (it always commits `one_to_one`).
+ *   - the amount is at most what the kernel can charge: the base fee times
+ *     `FEE_RESERVE_MULTIPLE`. The kernel charges the base fee times (ilog2(cycles) + 1) with
+ *     cycles capped at 2^29, so a larger tagged note is never the fee.
  *   - exactly ONE candidate exists. The kernel emits one. If a second appears we cannot say
  *     which is real, so NEITHER is treated as the fee and both stay in the totals.
+ *
+ * `'recorded'` skips only that magnitude check. A past summary has no fee rate of its own, so the
+ * note the chain charged can sit above `feeCeiling`, and a base fee whose kernel ceiling is not
+ * a safe integer still identifies that one note. The chain-charges, tag, sole-native and
+ * one-candidate checks stay. Approval and signing omit the argument and keep `'kernel'`.
  *
  * UNKNOWN FAILS CLOSED. When the base fee or the native faucet has not been discovered
  * yet, nothing is identified as the fee. The cost is that the kernel's real fee note is
@@ -115,12 +143,25 @@ function soleFungibleFaucet(note: OutputNote): string | undefined {
 export function partitionFeeNote(
   notes: OutputNote[],
   nativeFaucetId: string | null,
-  verificationBaseFee: number | null
+  verificationBaseFee: number | null,
+  ceiling: 'kernel' | 'recorded' = 'kernel'
 ): { feeNote: OutputNote | undefined; userNotes: UserOutputNote[] } {
-  const chainCharges = verificationBaseFee !== null && verificationBaseFee > 0;
+  // `'kernel'` measures `feeCeiling`. `'recorded'` must not call it.
+  const kernelCeiling =
+    ceiling === 'kernel' && verificationBaseFee !== null && verificationBaseFee > 0
+      ? feeCeiling(verificationBaseFee)
+      : undefined;
   const candidates =
-    chainCharges && nativeFaucetId !== null
-      ? notes.filter(note => hasFeeTag(note) && soleFungibleFaucet(note) === nativeFaucetId)
+    verificationBaseFee !== null &&
+    verificationBaseFee > 0 &&
+    nativeFaucetId !== null &&
+    (ceiling === 'recorded' || kernelCeiling !== undefined)
+      ? notes.filter(
+          note =>
+            hasFeeTag(note) &&
+            soleFungibleFaucet(note) === nativeFaucetId &&
+            (ceiling === 'recorded' || (kernelCeiling !== undefined && withinFeeCeiling(note, kernelCeiling)))
+        )
       : [];
   const feeNote = candidates.length === 1 ? candidates[0] : undefined;
   // The ONE place the brand is minted. Sound when a fee note was identified: that note is
@@ -142,10 +183,29 @@ export function partitionFeeNote(
  * nothing. The `no-restricted-syntax` rule bans every `.outputNotes()` call, and this call
  * is the one disable.
  */
-export function splitExecutedOutputNotes(executed: { outputNotes: () => { notes: () => OutputNote[] } }): {
+export function splitExecutedOutputNotes(
+  executed: {
+    outputNotes: () => { notes: () => OutputNote[] };
+    blockHeader?: () => { verificationBaseFee: () => number };
+  },
+  ceiling: 'kernel' | 'recorded' = 'kernel'
+): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
 } {
+  // The kernel charged against the reference block's rate, which the realm cache can lag behind.
+  const baseFee = executed.blockHeader
+    ? headerBaseFee(executed.blockHeader.bind(executed))
+    : getVerificationBaseFeeSync();
   // eslint-disable-next-line no-restricted-syntax -- sanctioned outputNotes() read
-  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), getVerificationBaseFeeSync());
+  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), baseFee, ceiling);
+}
+
+function headerBaseFee(read: () => { verificationBaseFee: () => number }): number | null {
+  try {
+    return read().verificationBaseFee();
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) throw err;
+    return null;
+  }
 }

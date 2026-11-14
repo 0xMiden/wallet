@@ -17,6 +17,7 @@
  */
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
+import { getMessage } from 'lib/i18n';
 import {
   TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
@@ -154,6 +155,15 @@ jest.mock('lib/miden/note-quarantine', () => ({
   releaseNoteIds: (...args: unknown[]) => mockReleaseNoteIds(...(args as []))
 }));
 
+// The summary decoder reads the chain fee this realm cached, so the approval reads it first and refuses when unknown.
+const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
+const mockFeeKnownAbsent = jest.fn(() => false);
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
+  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent()
+}));
+
 jest.unmock('lib/i18n/numbers');
 
 // ── Imports under test ─────────────────────────────────────────────
@@ -172,8 +182,17 @@ const emptyView = {
   unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 0,
-  storageChanged: false
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: []
 };
+
+/** A note the dry run consumed or created, as a verified view lists it. */
+const viewNote = (id: string, amounts: { faucetId: string; amount: bigint }[] = [], nfts: unknown[] = []) => ({
+  id,
+  amounts,
+  nfts
+});
 
 const customRequest = (overrides: Record<string, unknown> = {}) =>
   ({
@@ -221,6 +240,9 @@ beforeEach(() => {
   mockNoteFlowFromBytes.mockReturnValue({ inputCount: 0, inputs: [], outputs: [] });
   mockSummaryBytesToView.mockReturnValue(emptyView);
   mockRequestCustomTransaction.mockResolvedValue('tx-id-1' as never);
+  mockRefreshVerificationBaseFee.mockResolvedValue(2);
+  mockFeeKnownAbsent.mockReset();
+  mockFeeKnownAbsent.mockReturnValue(false);
 });
 
 describe('the mobile/desktop custom-transaction sheet states the simulated effects', () => {
@@ -293,10 +315,23 @@ describe('the mobile/desktop custom-transaction sheet states the simulated effec
 
   // #1600: an NFT has no amount, so the amount rows alone made an NFT-only transfer read as nothing.
   it('lists an NFT that leaves and one that enters, and never says no assets move', async () => {
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', introducedNoteIds: ['0xcarried'] });
     mockSummaryBytesToView.mockReturnValue({
       ...emptyView,
-      outgoingNfts: [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaaaaaaaa', assetId: '0xaa11bb22\u2026cc33dd' }],
-      incomingNfts: [{ faucetId: 'mtst1otherfaucetbbbbbbbbbbbbbbbbbbbbbb', assetId: '0x01020304\u2026050607' }]
+      createdNotes: [
+        viewNote(
+          '0xsent',
+          [],
+          [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaaaaaaaa', assetId: '0xaa11bb22\u2026cc33dd' }]
+        )
+      ],
+      viewConsumedNotes: [
+        viewNote(
+          '0xcarried',
+          [],
+          [{ faucetId: 'mtst1otherfaucetbbbbbbbbbbbbbbbbbbbbbb', assetId: '0x01020304\u2026050607' }]
+        )
+      ]
     });
 
     await raiseSheet(false);
@@ -486,23 +521,21 @@ describe('a terminated simulation remains retryable', () => {
 
 describe('the approved effects are recorded on the queued row', () => {
   it('passes the effects of the approval dry run to the initiator', async () => {
-    mockSimulate.mockResolvedValue({
-      summaryBytes: 'sumB64',
-      introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
-      introducedCount: 1
-    });
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', introducedNoteIds: ['0xcarried'] });
     mockSummaryBytesToView.mockReturnValue({
       ...emptyView,
       outgoing: [{ faucetId: 'faucet-a', amount: 10n }],
       inputNotesConsumed: 1,
-      outputNotesCreated: 1
+      outputNotesCreated: 1,
+      viewConsumedNotes: [viewNote('0xcarried', [{ faucetId: 'faucet-a', amount: 4n }])],
+      createdNotes: [viewNote('0xsent', [{ faucetId: 'faucet-a', amount: 14n }])]
     });
 
     await raiseSheet(true);
 
     expect(mockRequestCustomTransaction).toHaveBeenCalledTimes(1);
     const args = mockRequestCustomTransaction.mock.calls[0] as unknown[];
-    // The summary already includes consumed notes, so the carried note is not credited twice.
+    // The summary is already net of the consumed notes, so the carried note is not credited twice.
     expect(args[6]).toEqual([{ faucetId: 'faucet-a', amount: 10n }]);
     expect(args[11]).toEqual({
       shape: 'summary',
@@ -515,9 +548,48 @@ describe('the approved effects are recorded on the queued row', () => {
       inputNotesConsumed: 1,
       outputNotesCreated: 1,
       storageChanged: false,
-      introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
-      introducedCount: 1
+      introducedNoteIds: ['0xcarried'],
+      approvedOutputNoteIds: ['0xsent']
     });
+  });
+
+  it('records the introduced ids and every created note id', async () => {
+    mockSimulate.mockResolvedValue({ executedBytes: 'execB64', introducedNoteIds: ['0xcarried'] });
+    mockExecutedBytesToView.mockReturnValue({
+      ...emptyView,
+      outgoing: [{ faucetId: 'faucet-x', amount: 30n }],
+      incoming: [{ faucetId: 'faucet-x', amount: 30n }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 2,
+      viewConsumedNotes: [viewNote('0xcarried', [{ faucetId: 'faucet-x', amount: 30n }])],
+      createdNotes: [viewNote('0xsent-1', [{ faucetId: 'faucet-x', amount: 30n }]), viewNote('0xsent-2')]
+    });
+
+    await raiseSheet(true);
+
+    const approvedEffects = (mockRequestCustomTransaction.mock.calls[0] as unknown[])[11];
+    expect(approvedEffects).toMatchObject({
+      introducedNoteIds: ['0xcarried'],
+      approvedOutputNoteIds: ['0xsent-1', '0xsent-2']
+    });
+    expect(approvedEffects).not.toHaveProperty('introducedCredit');
+    expect(approvedEffects).not.toHaveProperty('introducedCount');
+  });
+
+  it('records none of the dApp\u2019s carried notes as introduced when the dry run returned no ids', async () => {
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64' });
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      inputNotesConsumed: 1,
+      viewConsumedNotes: [viewNote('id:noteb64', [{ faucetId: 'faucet-x', amount: 7n }])]
+    });
+
+    await raiseSheet(true);
+
+    const args = mockRequestCustomTransaction.mock.calls[0] as unknown[];
+    expect(args[11]).toMatchObject({ introducedNoteIds: [] });
+    // The carried note counts as the account's own, so its 7 leaves the holdings.
+    expect(args[10]).toEqual([{ faucetId: 'faucet-x', amount: 7n }]);
   });
 });
 
@@ -555,52 +627,85 @@ describe('the quarantine the dry run placed is lifted on approval only', () => {
 });
 
 /**
- * What the approval records as leaving, which both the spending limit and the signing-time check read (#2147). A
- * summary's vault change is already net of the notes the request consumed, so only an executed view's gross output is
- * credited with the notes the request brought in.
+ * What the approval records as leaving, which the sheet shows and both the spending limit and the signing-time check
+ * read (#2147). It is measured from the account's holdings: a consumed note the request brought in passes through, and
+ * one the account already held is value it spends.
  */
 describe('the outflow an approval records', () => {
-  // The request carries a 50 X note and sends 100 X: 50 X of the user's own leaves.
-  const carried = { introducedCredit: [{ faucetId: 'faucet-x', amount: 50n }], introducedCount: 1 };
   const recorded = () => {
     expect(mockRequestCustomTransaction).toHaveBeenCalledTimes(1);
     const args = mockRequestCustomTransaction.mock.calls[0] as unknown[];
     return { spentAssetTotals: args[6], approvedNftOutflow: args[9], approvedOutflow: args[10] };
   };
 
-  it('records a summary view’s net outflow as the sheet shows it, without crediting the carried note again', async () => {
-    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', ...carried });
+  it('records and shows what leaves the holdings: a summary consuming a held 1000 X and sending 1050 X', async () => {
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', introducedNoteIds: [] });
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      // The vault's net change: 1050 sent less the 1000 the held note brought.
+      outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1,
+      viewConsumedNotes: [viewNote('0xheld', [{ faucetId: 'faucet-x', amount: 1000n }])],
+      createdNotes: [viewNote('0xsent', [{ faucetId: 'faucet-x', amount: 1050n }])]
+    });
+
+    await raiseSheet(true);
+
+    const messages = sheetMessages();
+    expect(messages).toContain('Leaves this account, -0.00105 MIDEN');
+    expect(messages).not.toContain('Leaves this account, -0.00005 MIDEN');
+    const held = messages.indexOf('Includes notes you have not claimed yet, 1');
+    expect(held).toBeGreaterThan(-1);
+    expect(messages[held + 1]).toBe('Notes consumed, 1');
+    expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 1050n }]);
+    expect(recorded().spentAssetTotals).toEqual([{ faucetId: 'faucet-x', amount: 1050n }]);
+    expect(mockAssessOutgoing).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: [{ faucetId: 'faucet-x', amount: 1050n }]
+    });
+  });
+
+  it('records a summary that consumed only the note it carried as its net outflow, crediting the note once', async () => {
+    // The request carries a 50 X note and sends 100 X: 50 X of the user's own leaves.
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', introducedNoteIds: ['0xcarried'] });
     mockSummaryBytesToView.mockReturnValue({
       ...emptyView,
       outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
       inputNotesConsumed: 1,
-      outputNotesCreated: 1
+      outputNotesCreated: 1,
+      viewConsumedNotes: [viewNote('0xcarried', [{ faucetId: 'faucet-x', amount: 50n }])],
+      createdNotes: [viewNote('0xsent', [{ faucetId: 'faucet-x', amount: 100n }])]
     });
 
     await raiseSheet(true);
 
     expect(sheetMessages()).toContain('Leaves this account, -0.00005 MIDEN');
+    expect(sheetMessages()).not.toContain('Includes notes you have not claimed yet, 0');
     expect(recorded().spentAssetTotals).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
     expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
-    // The spending-limit admission is charged the same net outflow.
     expect(mockAssessOutgoing).toHaveBeenCalledWith({
       accountId: 'miden-account-1',
       spends: [{ faucetId: 'faucet-x', amount: 50n }]
     });
   });
 
-  it('credits an executed view’s gross output with the note the request brought in', async () => {
-    mockSimulate.mockResolvedValue({ executedBytes: 'execB64', ...carried });
+  it('credits a carried note the dry run introduced, on the executed path', async () => {
+    mockSimulate.mockResolvedValue({ executedBytes: 'execB64', introducedNoteIds: ['0xcarried'] });
     mockExecutedBytesToView.mockReturnValue({
       ...emptyView,
       outgoing: [{ faucetId: 'faucet-x', amount: 100n }],
       incoming: [{ faucetId: 'faucet-x', amount: 50n }],
       inputNotesConsumed: 1,
-      outputNotesCreated: 1
+      outputNotesCreated: 1,
+      viewConsumedNotes: [viewNote('0xcarried', [{ faucetId: 'faucet-x', amount: 50n }])],
+      createdNotes: [viewNote('0xsent', [{ faucetId: 'faucet-x', amount: 100n }])]
     });
 
     await raiseSheet(true);
 
+    expect(sheetMessages()).toContain('Leaves this account, -0.00005 MIDEN');
+    expect(sheetMessages().some(line => line.startsWith('Includes notes you have not claimed yet'))).toBe(false);
     expect(recorded().spentAssetTotals).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
     expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
     expect(mockAssessOutgoing).toHaveBeenCalledWith({
@@ -609,30 +714,24 @@ describe('the outflow an approval records', () => {
     });
   });
 
-  // The request consumes a note the wallet already held besides the one it carries, so the policy cannot attribute
-  // the net figure and withholds it, as before; signing still gets the outflow the sheet showed.
-  it('leaves a summary that consumed a held note unattributable to the spending limit', async () => {
-    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', ...carried });
-    mockSummaryBytesToView.mockReturnValue({
-      ...emptyView,
-      outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
-      inputNotesConsumed: 2,
-      outputNotesCreated: 1
-    });
-
-    await raiseSheet(true);
-
-    expect(sheetMessages()).toContain('Leaves this account, -0.00005 MIDEN');
-    expect(recorded().spentAssetTotals).toBeUndefined();
-    expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
-    expect(mockAssessOutgoing).not.toHaveBeenCalled();
-  });
-
   it('records each NFT the sheet lists as leaving by its complete key', async () => {
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', introducedNoteIds: ['0xcarried'] });
     mockSummaryBytesToView.mockReturnValue({
       ...emptyView,
-      outgoingNfts: [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaaaaaaaa', assetId: '0xaa…dd', key: 'nft-key-1' }],
-      incomingNfts: [{ faucetId: 'mtst1otherfaucetbbbbbbbbbbbbbbbbbbbbbb', assetId: '0x01…07', key: 'nft-key-2' }]
+      createdNotes: [
+        viewNote(
+          '0xsent',
+          [],
+          [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaaaaaaaa', assetId: '0xaa\u2026dd', key: 'nft-key-1' }]
+        )
+      ],
+      viewConsumedNotes: [
+        viewNote(
+          '0xcarried',
+          [],
+          [{ faucetId: 'mtst1otherfaucetbbbbbbbbbbbbbbbbbbbbbb', assetId: '0x01\u202607', key: 'nft-key-2' }]
+        )
+      ]
     });
 
     await raiseSheet(true);
@@ -640,9 +739,79 @@ describe('the outflow an approval records', () => {
     expect(recorded().approvedNftOutflow).toEqual(['nft-key-1']);
   });
 
-  it('refuses a failed dry run before recording an approved outflow', async () => {
+  it('records no approval when the dry run failed', async () => {
     mockSimulate.mockResolvedValue({ error: 'note not found' });
 
     expect(await refusedBeforePrompt()).toContain('Reason: note not found');
+  });
+
+  it('refuses before any prompt a dry run that spends a held note whose assets cannot be read', async () => {
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      inputNotesConsumed: 1,
+      viewConsumedNotes: [{ id: '0xheld', amounts: [], nfts: [], opaque: true }]
+    });
+
+    expect(await refusedBeforePrompt()).toContain('Reason: a held note does not list its assets');
+  });
+
+  it('refuses before any prompt a dry run whose view does not list its notes', async () => {
+    const { viewConsumedNotes: _consumed, createdNotes: _created, ...unlisted } = emptyView;
+    mockSummaryBytesToView.mockReturnValue(unlisted);
+
+    expect(await refusedBeforePrompt()).toContain('Reason: the view does not list the notes it creates');
+  });
+});
+
+/**
+ * A summary's fee note is told apart only by the chain fee this realm just read, so the approval reads it before it
+ * decodes one and refuses when that read is unknown. An executed dry run reads the fee of its own block and needs no
+ * re-read.
+ */
+describe('the chain fee the approval decodes with', () => {
+  it('re-reads the chain fee before decoding a summary, and not for an executed dry run', async () => {
+    await raiseSheet(false);
+
+    expect(mockRefreshVerificationBaseFee).toHaveBeenCalledTimes(1);
+    expect(mockRefreshVerificationBaseFee.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockSummaryBytesToView.mock.invocationCallOrder[0]!
+    );
+
+    jest.clearAllMocks();
+    mockSimulate.mockResolvedValue({ executedBytes: 'execB64' });
+    mockExecutedBytesToView.mockReturnValue(emptyView);
+    await raiseSheet(false);
+
+    expect(mockExecutedBytesToView).toHaveBeenCalledWith('execB64');
+    expect(mockRefreshVerificationBaseFee).not.toHaveBeenCalled();
+  });
+
+  it('refuses a summary dry run before any prompt when the refresh does not know the fee', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
+    const sentence = getMessage('chainFeeUnknown');
+    expect(sentence.length).toBeGreaterThan(0);
+
+    let message = '';
+    await requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+      () => {
+        throw new Error('the request was not refused');
+      },
+      (error: Error) => {
+        message = error.message;
+      }
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+    expect(message).toContain(sentence);
+  });
+
+  it('still prompts when the refresh finds the fee absent', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
+    mockFeeKnownAbsent.mockReturnValueOnce(true);
+
+    await raiseSheet(false);
+
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
   });
 });

@@ -75,6 +75,7 @@ describe('expectVerifiedPreview', () => {
       shown(`${VERIFIED}.getByText(Asset changes, exact true)`, 'toHaveCount', 0),
       shown(`${VERIFIED} [data-verified="true"]`, 'toHaveCount', 0),
       shown('testid=tx-output-notes-created', 'toHaveText', '0'),
+      shown(`${VERIFIED} [data-testid="tx-held-notes-spent"]`, 'toHaveCount', 0),
       shown('testid=tx-storage-changed', 'toHaveAttribute', 'data-changed', 'false'),
       shown('testid=tx-storage-changed', 'toHaveText', 'No'),
       shown('testid=tx-simulation-failed', 'toHaveCount', 0)
@@ -88,6 +89,25 @@ describe('expectVerifiedPreview', () => {
       shown(`${VERIFIED}.getByText(Asset changes, exact true)`, 'toHaveCount', 1),
       shown(`${VERIFIED} [data-verified="true"].filter(/^2 TST$/)`, 'toHaveCount', 1),
       shown('testid=tx-output-notes-created', 'toHaveText', '1'),
+      shown(`${VERIFIED} [data-testid="tx-held-notes-spent"]`, 'toHaveCount', 0),
+      shown('testid=tx-storage-changed', 'toHaveAttribute', 'data-changed', /^(true|false)$/),
+      shown('testid=tx-storage-changed', 'toHaveText', /^(Yes|No)$/),
+      shown('testid=tx-simulation-failed', 'toHaveCount', 0)
+    ]);
+  });
+
+  it('checks the held-note count a cell names: one held-note line with that count', async () => {
+    await expectVerifiedPreview(
+      fakePopup(1),
+      { amount: /^1 TST$/, heldNotesSpent: 1, outputNotes: 1 },
+      ctxWith(jest.fn())
+    );
+    expect(mockRecorded).toEqual([
+      OUTCOME,
+      shown(`${VERIFIED}.getByText(Asset changes, exact true)`, 'toHaveCount', 1),
+      shown(`${VERIFIED} [data-verified="true"].filter(/^1 TST$/)`, 'toHaveCount', 1),
+      shown('testid=tx-output-notes-created', 'toHaveText', '1'),
+      shown(`${VERIFIED} [data-testid="tx-held-notes-spent"].filter(/^1$/)`, 'toHaveCount', 1),
       shown('testid=tx-storage-changed', 'toHaveAttribute', 'data-changed', /^(true|false)$/),
       shown('testid=tx-storage-changed', 'toHaveText', /^(Yes|No)$/),
       shown('testid=tx-simulation-failed', 'toHaveCount', 0)

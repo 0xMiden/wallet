@@ -708,6 +708,7 @@
   "gotIt": "Понял",
   "backUpYourWallet": "Сделайте резервную копию своего кошелька",
   "recoveryPhraseHidden": "Скрытая фраза восстановления",
+  "privateKeyHidden": "Скрытый закрытый ключ",
   "show": "Показать",
   "hide": "Скрыть",
   "copied": "Скопировано",
@@ -1010,6 +1011,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "Эта транзакция также перемещает актив, который кошелек не может отобразить, например NFT. Продолжайте только в том случае, если доверяете ей.",
   "unknown": "Неизвестно",
+  "includesUnclaimedNotes": "Включает notes, которые вы ещё не получили",
   "inputNotesConsumed": "Входные notes использованы",
   "outputNotesCreated": "Создан файл «notes»",
   "transactionNoteFlow": "Поток Note",
@@ -1923,5 +1925,16 @@
   "arcadePostingPolicy": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
   "autoLock": "Автоблокировка",
   "autoLockDescription": "Блокирует кошелек, если он находился в фоновом режиме в течение такого длительного времени.",
-  "autoLockMinutes": "$minutes$ мин"
+  "autoLockMinutes": "$minutes$ мин",
+  "epochAwaitingReturn": "В ожидании возврата",
+  "epochReadyToClaim": "Готовы к получению",
+  "epochReturningFunds": "Возврат средств",
+  "epochFundsReturned": "Возвращённые средства",
+  "epochReturnWaiting": "Ваши средства остаются на Miden. Вы сможете получить их после блока $block$.",
+  "epochReturnReady": "Запросите свои средства, чтобы вернуть их в свой кошелек.",
+  "epochReturnPending": "Ваши средства возвращаются в ваш кошелек.",
+  "epochReturnDone": "Ваши средства вернулись в ваш кошелек.",
+  "epochReturnPaid": "Средства, отправленные по назначению.",
+  "epochReturnSpent": "Эта note была использована, но выплата не подтверждена. Проверьте адрес назначения и свой баланс в Miden.",
+  "epochReturnUnavailable": "Не удалось проверить состояние средств. Попытайтесь ещё раз."
 }

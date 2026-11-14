@@ -5,12 +5,18 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
   getVerificationBaseFee,
   getVerificationBaseFeeSync,
-  isVerificationBaseFeeKnownAbsent
+  isVerificationBaseFeeKnownAbsent,
+  refreshVerificationBaseFee
 } from 'lib/miden-chain/native-asset';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
-import { assertProposalEffectApproved, assertViewEffectApproved, proposalEffectRefusal } from './proposal-effect-guard';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import {
+  assertProposalEffectApproved,
+  assertViewEffectApproved,
+  executeApprovalOf,
+  proposalEffectRefusal
+} from './proposal-effect-guard';
+import { IApprovedCustomEffects, ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionSummary: { deserialize: jest.fn() }
@@ -35,6 +41,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
   getVerificationBaseFeeSync: jest.fn(() => 2),
   getVerificationBaseFee: jest.fn(async () => 2),
+  refreshVerificationBaseFee: jest.fn(async () => 2),
   isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
 }));
 // By the path the guard imports: a root manual mock shadows the `lib/` spelling of this module.
@@ -48,7 +55,8 @@ jest.mock('lib/i18n/core', () => ({
 type Asset = { faucetId: () => { __faucet: string }; amount: () => bigint };
 type Nft = { __nft: { faucetId: string; assetId: string }; __key: string };
 type StubNote = {
-  assets: () => { fungibleAssets: () => Asset[]; nonFungibleAssets: () => Nft[] };
+  id: () => { toString: () => string };
+  assets: () => { fungibleAssets: () => Asset[]; nonFungibleAssets: () => Nft[] } | undefined;
   metadata?: () => { tag: () => { asU32: () => number } };
 };
 
@@ -60,9 +68,14 @@ const nft = (faucet: string, assetId: string): Nft => ({
   __nft: { faucetId: `bech32:${faucet}`, assetId },
   __key: `${faucet}|${assetId}`
 });
-const note = (assets: Asset[], nfts: Nft[] = []): StubNote => ({
+let stubNoteCount = 0;
+// A note keeps its id across reads, as a real note's id does.
+const note = (assets: Asset[], nfts: Nft[] = [], id = `stub-note-${++stubNoteCount}`): StubNote => ({
+  id: () => ({ toString: () => id }),
   assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => nfts })
 });
+// A note whose assets cannot be read.
+const opaqueNote = (id: string): StubNote => ({ id: () => ({ toString: () => id }), assets: () => undefined });
 const feeNote = (amount: bigint): StubNote => ({
   ...note([fa('usdcx', amount)]),
   metadata: () => ({ tag: () => ({ asU32: () => 0xfee }) })
@@ -94,7 +107,10 @@ const summary = ({
     }),
     storage: () => ({ isEmpty: () => true })
   }),
-  inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs.map(input => ({ note: () => input })) }),
+  inputNotes: () => ({
+    numNotes: () => inputs.length,
+    notes: () => inputs.map(input => ({ id: input.id, note: () => input }))
+  }),
   outputNotes: () => ({ numNotes: () => outputs.length, notes: () => outputs })
 });
 type Summary = ReturnType<typeof summary>;
@@ -132,12 +148,60 @@ const gcPurchase = (fillAmount: string) =>
       }
     }
   });
-const execute = (spentAssetTotals?: { faucetId: string; amount: bigint }[]) =>
-  row({ type: 'execute', requestBytes: new Uint8Array([1]), spentAssetTotals });
-
 // The real decoder over the summary: the rule sees the shape the wiring hands it.
-const refusalOf = (transaction: ITransaction, ts: Summary) =>
-  proposalEffectRefusal(transaction, summaryToView(ts as never));
+const viewOf = (ts: Summary) => summaryToView(ts as never);
+const refusalOf = (transaction: ITransaction, ts: Summary) => proposalEffectRefusal(transaction, viewOf(ts));
+
+/** The effects an approval recorded: only the note ids matter to the signing check. */
+const approvedEffects = (
+  ids: Pick<IApprovedCustomEffects, 'introducedNoteIds' | 'approvedOutputNoteIds'>
+): IApprovedCustomEffects => ({
+  shape: 'summary',
+  outgoing: [],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  recipients: [],
+  inputNotesConsumed: 0,
+  outputNotesCreated: 0,
+  storageChanged: false,
+  ...ids
+});
+/** A custom transaction row whose approval recorded `introducedNoteIds` and the notes `sent` creates (none without it). */
+const execute = (
+  spentAssetTotals?: { faucetId: string; amount: bigint }[],
+  sent?: Summary,
+  introducedNoteIds: string[] = []
+) =>
+  row({
+    type: 'execute',
+    requestBytes: new Uint8Array([1]),
+    spentAssetTotals,
+    approvedEffects: approvedEffects({
+      introducedNoteIds,
+      approvedOutputNoteIds: sent === undefined ? [] : (viewOf(sent).createdNotes ?? []).map(created => created.id)
+    })
+  });
+/** A custom transaction row queued before approvals recorded any note. */
+const legacy = (spentAssetTotals?: { faucetId: string; amount: bigint }[]) =>
+  row({ type: 'execute', requestBytes: new Uint8Array([1]), spentAssetTotals });
+/**
+ * A row queued with an approval record but before the record listed notes: it carries the spending-limit provenance,
+ * here a 100 fB note the approval brought in, and no note ids.
+ */
+const queuedWithEffects = (spentAssetTotals?: { faucetId: string; amount: bigint }[]) =>
+  row({
+    ...legacy(spentAssetTotals),
+    approvedEffects: {
+      ...approvedEffects({}),
+      recipients: ['recipient-digest'],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1,
+      introducedCredit: [{ faucetId: 'bech32:fB', amount: 100n }],
+      introducedCount: 1
+    }
+  });
 
 const givenSummary = (ts: Summary) => jest.mocked(TransactionSummary.deserialize).mockReturnValue(ts as never);
 
@@ -146,6 +210,8 @@ beforeEach(() => {
   jest.mocked(TransactionSummary.deserialize).mockReset();
   jest.mocked(getVerificationBaseFee).mockReset();
   jest.mocked(getVerificationBaseFee).mockImplementation(async () => 2);
+  jest.mocked(refreshVerificationBaseFee).mockReset();
+  jest.mocked(refreshVerificationBaseFee).mockImplementation(async () => 2);
   jest.mocked(getVerificationBaseFeeSync).mockReturnValue(2);
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReset();
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(false);
@@ -271,18 +337,21 @@ describe('execute', () => {
     });
 
   it('passes a custom transaction that moves what its approval showed, spelled either way', () => {
-    expect(refusalOf(execute([{ faucetId: 'bech32:fA', amount: 100n }]), sends(fa('fA', 100n)))).toBeUndefined();
-    expect(refusalOf(execute([{ faucetId: 'hex:bech32:fA', amount: 100n }]), sends(fa('fA', 100n)))).toBeUndefined();
+    const sent = sends(fa('fA', 100n));
+    expect(refusalOf(execute([{ faucetId: 'bech32:fA', amount: 100n }], sent), sent)).toBeUndefined();
+    expect(refusalOf(execute([{ faucetId: 'hex:bech32:fA', amount: 100n }], sent), sent)).toBeUndefined();
   });
 
   it('refuses one unit over the approved amount', () => {
-    expect(refusalOf(execute([{ faucetId: 'bech32:fA', amount: 100n }]), sends(fa('fA', 101n)))).toBe(
+    const sent = sends(fa('fA', 101n));
+    expect(refusalOf(execute([{ faucetId: 'bech32:fA', amount: 100n }], sent), sent)).toBe(
       '101 of bech32:fA leaves (approved 100)'
     );
   });
 
   it('refuses an asset the approval did not show leaving', () => {
-    expect(refusalOf(execute([{ faucetId: 'bech32:fA', amount: 100n }]), sends(fa('fA', 100n), fa('fB', 1n)))).toBe(
+    const sent = sends(fa('fA', 100n), fa('fB', 1n));
+    expect(refusalOf(execute([{ faucetId: 'bech32:fA', amount: 100n }], sent), sent)).toBe(
       '1 of bech32:fB leaves (approved 0)'
     );
   });
@@ -294,7 +363,7 @@ describe('execute', () => {
     unlisted: 1
   });
   const withNfts = (approvedNftOutflow?: string[]) =>
-    row({ ...execute([{ faucetId: 'bech32:fA', amount: 100n }]), approvedNftOutflow });
+    row({ ...execute([{ faucetId: 'bech32:fA', amount: 100n }], nftOut), approvedNftOutflow });
 
   it('passes an NFT its approval showed leaving', () => {
     expect(refusalOf(withNfts(['fN|n1']), nftOut)).toBeUndefined();
@@ -307,40 +376,212 @@ describe('execute', () => {
   });
 
   it('lets a row approved with unknown effects pay only its fee', () => {
-    for (const unknown of [execute([]), execute(undefined)]) {
-      expect(refusalOf(unknown, sends())).toBeUndefined();
-      expect(refusalOf(unknown, sends(fa('fA', 1n)))).toBe('1 of bech32:fA leaves (approved 0)');
+    const feeOnly = sends();
+    const sent = sends(fa('fA', 1n));
+    for (const totals of [[], undefined]) {
+      expect(refusalOf(execute(totals, feeOnly), feeOnly)).toBeUndefined();
+      expect(refusalOf(execute(totals, sent), sent)).toBe('1 of bech32:fA leaves (approved 0)');
     }
   });
 
-  it('credits no note the request brought in: the net delta already counts it', () => {
-    // A carried 100 fA note comes in and 150 fA leaves: 50 of the user's own fA is the outflow the user saw.
-    const carried = summary({
+  // The request consumes a note of 1000 fA and sends 1050 fA: the vault's net change is 50.
+  const spendsNote = () => {
+    const consumed = note([fa('fA', 1000n)], [], 'n-in');
+    return summary({
       removed: [fa('fA', 50n), fa('usdcx', 2n)],
-      inputs: [note([fa('fA', 100n)])],
-      outputs: [note([fa('fA', 150n)]), feeNote(2n)]
+      inputs: [consumed],
+      outputs: [note([fa('fA', 1050n)]), feeNote(2n)]
     });
-    expect(refusalOf(execute([{ faucetId: 'bech32:fA', amount: 50n }]), carried)).toBeUndefined();
-    expect(refusalOf(execute([]), carried)).toBe('50 of bech32:fA leaves (approved 0)');
+  };
+  const approvedFifty = (ts: Summary, introducedNoteIds: string[]) =>
+    row({ ...execute([], ts, introducedNoteIds), approvedOutflow: [{ faucetId: 'bech32:fA', amount: 50n }] });
+
+  it('counts a held note the request consumed: consuming a held 1000 fA and sending 1050 fA is refused against an approval of 50', () => {
+    const ts = spendsNote();
+    expect(refusalOf(approvedFifty(ts, []), ts)).toBe('1050 of bech32:fA leaves (approved 50)');
+  });
+
+  it('credits a note the row records as introduced', () => {
+    const ts = spendsNote();
+    expect(refusalOf(approvedFifty(ts, ['n-in']), ts)).toBeUndefined();
+    // Recorded in another case, it is the same note.
+    expect(refusalOf(approvedFifty(ts, ['N-IN']), ts)).toBeUndefined();
+  });
+
+  it('refuses a created note the approval did not record, and passes when every created note was recorded, the fee note aside', () => {
+    const ts = summary({
+      removed: [fa('fA', 100n), fa('usdcx', 2n)],
+      outputs: [note([fa('fA', 100n)], [], 'out-1'), note([], [], 'out-2'), feeNote(2n)]
+    });
+    const recording = (approvedOutputNoteIds: string[]) =>
+      row({
+        ...execute([{ faucetId: 'bech32:fA', amount: 100n }]),
+        approvedEffects: approvedEffects({ introducedNoteIds: [], approvedOutputNoteIds })
+      });
+    expect(refusalOf(recording(['out-1', 'out-2']), ts)).toBeUndefined();
+    expect(refusalOf(recording(['out-2', 'unrelated']), ts)).toBe('creates a note that was not approved (out-1)');
+    // A recorded note binds by id even when it carries nothing.
+    expect(refusalOf(recording([]), ts)).toBe(
+      'creates a note that was not approved (out-1); creates a note that was not approved (out-2)'
+    );
+  });
+
+  // Review Focus 1: a row queued before this build recorded no note, so it may create only notes that carry nothing.
+  // Rows in queues today have both shapes: no approval record, or one without the note ids.
+  it.each([
+    ['no approval record', legacy],
+    ['an approval record without note ids', queuedWithEffects]
+  ])(
+    'refuses a row queued before notes were recorded when it creates a note carrying assets or passes a carried note through, and passes one creating an empty note (%s)',
+    (_shape, queuedRow) => {
+      const queued = queuedRow([{ faucetId: 'bech32:fA', amount: 50n }]);
+      expect(queued.approvedEffects?.approvedOutputNoteIds).toBeUndefined();
+      expect(queued.approvedEffects?.introducedNoteIds).toBeUndefined();
+      const paying = summary({
+        removed: [fa('fA', 50n), fa('usdcx', 2n)],
+        outputs: [note([fa('fA', 50n)], [], 'pay'), feeNote(2n)]
+      });
+      expect(refusalOf(queued, paying)).toBe('creates a note that was not approved (pay)');
+      const passThrough = summary({
+        removed: [fa('usdcx', 2n)],
+        inputs: [note([fa('fB', 100n)], [], 'carried')],
+        outputs: [note([fa('fB', 100n)], [], 'onward'), feeNote(2n)]
+      });
+      expect(refusalOf(queued, passThrough)).toBe(
+        '100 of bech32:fB leaves (approved 0); creates a note that was not approved (onward)'
+      );
+      const withNft = summary({
+        removed: [fa('usdcx', 2n)],
+        outputs: [note([], [nft('fN', 'n1')], 'nft'), feeNote(2n)]
+      });
+      expect(refusalOf({ ...queued, approvedNftOutflow: ['fN|n1'] }, withNft)).toBe(
+        'creates a note that was not approved (nft)'
+      );
+      const unreadable = summary({ removed: [fa('usdcx', 2n)], outputs: [opaqueNote('opaque'), feeNote(2n)] });
+      expect(refusalOf(queued, unreadable)).toBe('creates a note that was not approved (opaque)');
+      const empty = summary({ removed: [fa('usdcx', 2n)], outputs: [note([], [], 'empty'), feeNote(2n)] });
+      expect(refusalOf(queued, empty)).toBeUndefined();
+      // Every consumed note counts as held: the 1000 fA note is spent, so 1050 leaves, not the vault's net 50.
+      const spending = summary({
+        removed: [fa('fA', 50n), fa('usdcx', 2n)],
+        inputs: [note([fa('fA', 1000n)], [], 'consumed')],
+        outputs: [note([], [], 'marker'), note([fa('fA', 1050n)], [], 'sent'), feeNote(2n)]
+      });
+      expect(refusalOf(queued, spending)).toBe(
+        '1050 of bech32:fA leaves (approved 50); creates a note that was not approved (sent)'
+      );
+    }
+  );
+
+  it('reads the policy totals on a row queued before the approved outflow was recorded', () => {
+    const queued = legacy([{ faucetId: 'bech32:fA', amount: 50n }]);
+    expect(queued.approvedOutflow).toBeUndefined();
+    const burns = (amount: bigint) => summary({ removed: [fa('fA', amount), fa('usdcx', 2n)], outputs: [feeNote(2n)] });
+    expect(refusalOf(queued, burns(50n))).toBeUndefined();
+    expect(refusalOf(queued, burns(51n))).toBe('51 of bech32:fA leaves (approved 50)');
+  });
+
+  it('refuses when a held note does not list its assets, since it cannot be measured', () => {
+    const ts = summary({ removed: [fa('usdcx', 2n)], inputs: [opaqueNote('held')], outputs: [feeNote(2n)] });
+    expect(refusalOf(execute([], ts), ts)).toBe(
+      'the notes it consumes could not be measured (a held note does not list its assets)'
+    );
+    // Recorded as introduced, it is credited nothing, which can only overstate what leaves.
+    expect(refusalOf(execute([], ts, ['held']), ts)).toBeUndefined();
   });
 
   // A request that consumed a note the wallet already held: the policy withheld its totals, and signing reads the
   // outflow the sheet showed instead.
-  const heldNoteApproval = row({
-    ...execute([]),
-    approvedOutflow: [{ faucetId: 'bech32:fA', amount: 50n }]
-  });
+  const heldNoteApproval = (sent: Summary) =>
+    row({
+      ...execute([], sent),
+      approvedOutflow: [{ faucetId: 'bech32:fA', amount: 50n }]
+    });
 
   it('allows the outflow the sheet showed when the policy totals were withheld, and refuses one unit more', () => {
-    expect(refusalOf(heldNoteApproval, sends(fa('fA', 50n)))).toBeUndefined();
-    expect(refusalOf(heldNoteApproval, sends(fa('fA', 51n)))).toBe('51 of bech32:fA leaves (approved 50)');
+    const fifty = sends(fa('fA', 50n));
+    const fiftyOne = sends(fa('fA', 51n));
+    expect(refusalOf(heldNoteApproval(fifty), fifty)).toBeUndefined();
+    expect(refusalOf(heldNoteApproval(fiftyOne), fiftyOne)).toBe('51 of bech32:fA leaves (approved 50)');
   });
 
-  it('reads the policy totals on a row queued before the approved outflow was recorded', () => {
-    const legacy = execute([{ faucetId: 'bech32:fA', amount: 50n }]);
-    expect(legacy.approvedOutflow).toBeUndefined();
-    expect(refusalOf(legacy, sends(fa('fA', 50n)))).toBeUndefined();
-    expect(refusalOf(legacy, sends(fa('fA', 51n)))).toBe('51 of bech32:fA leaves (approved 50)');
+  it('an approval taken from a view passes that same view', () => {
+    const pswapView = viewOf(PSWAP_FILL);
+    const offerId = pswapView.viewConsumedNotes?.[0]?.id ?? '';
+    for (const introduced of [[offerId], [offerId, offerId], []]) {
+      const approval = executeApprovalOf(pswapView, introduced);
+      const approved = row({
+        ...execute(),
+        approvedOutflow: approval.signing.approvedOutflow,
+        approvedNftOutflow: approval.signing.approvedNftOutflow,
+        approvedEffects: approvedEffects({
+          introducedNoteIds: approval.signing.introducedNoteIds,
+          approvedOutputNoteIds: approval.signing.approvedOutputNoteIds
+        })
+      });
+      expect(proposalEffectRefusal(approved, pswapView)).toBeUndefined();
+    }
+    // Brought in, the offer is credited; held, it is spent too.
+    const credited = executeApprovalOf(pswapView, [offerId]);
+    expect(credited.signing).toEqual({
+      approvedOutflow: [{ faucetId: 'bech32:fA', amount: 500n }],
+      approvedNftOutflow: [],
+      introducedNoteIds: [offerId],
+      approvedOutputNoteIds: [pswapView.createdNotes?.[0]?.id]
+    });
+    expect(credited.view.heldNotesSpent).toBe(0);
+    expect(executeApprovalOf(pswapView, [offerId, offerId]).signing.introducedNoteIds).toEqual([offerId]);
+    const uncredited = executeApprovalOf(pswapView, []);
+    expect(uncredited.view.heldNotesSpent).toBe(1);
+    expect(uncredited.signing.approvedOutflow).toEqual([{ faucetId: 'bech32:fA', amount: 500n }]);
+
+    const heldView = viewOf(spendsNote());
+    const heldApproval = executeApprovalOf(heldView, []);
+    expect(heldApproval.view.heldNotesSpent).toBe(1);
+    expect(heldApproval.view.outgoing).toEqual(heldApproval.signing.approvedOutflow);
+    expect(heldApproval.signing.approvedOutflow).toEqual([{ faucetId: 'bech32:fA', amount: 1050n }]);
+    const fromHeld = row({
+      ...execute(),
+      approvedOutflow: heldApproval.signing.approvedOutflow,
+      approvedEffects: approvedEffects({
+        introducedNoteIds: heldApproval.signing.introducedNoteIds,
+        approvedOutputNoteIds: heldApproval.signing.approvedOutputNoteIds
+      })
+    });
+    expect(proposalEffectRefusal(fromHeld, heldView)).toBeUndefined();
+  });
+
+  it('records only keyed NFTs and refuses a view without its notes or one already measured from holdings', () => {
+    const nftView = viewOf(nftOut);
+    expect(executeApprovalOf(nftView, []).signing.approvedNftOutflow).toEqual(['fN|n1']);
+    const unkeyed = {
+      ...nftView,
+      createdNotes: [{ id: 'x', amounts: [], nfts: [{ faucetId: 'bech32:fN', assetId: 'n9' }] }]
+    };
+    expect(executeApprovalOf(unkeyed, []).signing.approvedNftOutflow).toEqual([]);
+    expect(() => executeApprovalOf({ ...nftView, createdNotes: undefined }, [])).toThrow();
+    expect(() => executeApprovalOf({ ...nftView, heldNotesSpent: 0 }, [])).toThrow();
+  });
+});
+
+// Review Focus 5: a claim takes in, so it is measured on the net rule and the notes it creates are not bound.
+describe('consume measurement', () => {
+  it('leaves a claim of held notes on the net rule with no output binding', () => {
+    // The sale note is the seller's, consumed by this account: counted as held it would read as 4000 GC leaving.
+    const purchase = summary({
+      removed: [fa('usdcx', 302n)],
+      added: [fa('gc', 1000n)],
+      inputs: [note([fa('gc', 5000n)], [], 'sale')],
+      outputs: [note([fa('usdcx', 300n)], [], 'payment'), note([fa('gc', 4000n)], [], 'remainder'), feeNote(2n)]
+    });
+    expect(refusalOf(gcPurchase('300'), purchase)).toBeUndefined();
+    const heldClaim = summary({
+      removed: [fa('usdcx', 2n)],
+      added: [fa('fB', 50n)],
+      inputs: [note([fa('fB', 50n)], [], 'held')],
+      outputs: [note([], [], 'created'), feeNote(2n)]
+    });
+    expect(refusalOf(claim, heldClaim)).toBeUndefined();
   });
 });
 
@@ -408,9 +649,10 @@ describe('assertProposalEffectApproved', () => {
     );
   });
 
-  it('looks the chain fee up before it reads the summary', async () => {
+  // Review Focus 3: a fee cached by another realm's read may be stale, so the check reads the chain again.
+  it('reads a fresh chain fee before decoding, and rejects ProposalFeeUnknownError when that read fails although a fee is cached', async () => {
     const order: string[] = [];
-    jest.mocked(getVerificationBaseFee).mockImplementationOnce(async () => {
+    jest.mocked(refreshVerificationBaseFee).mockImplementationOnce(async () => {
       order.push('fee');
       return 2;
     });
@@ -420,10 +662,17 @@ describe('assertProposalEffectApproved', () => {
     });
     await assertProposalEffectApproved(claim, 'sum');
     expect(order).toEqual(['fee', 'decode']);
+    expect(getVerificationBaseFee).not.toHaveBeenCalled();
+
+    jest.mocked(refreshVerificationBaseFee).mockResolvedValueOnce(null);
+    const refused = await assertProposalEffectApproved(claim, 'sum').catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalFeeUnknownError);
+    expect(getVerificationBaseFeeSync()).toBe(2);
+    expect(TransactionSummary.deserialize).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an unknown fee before it reads the summary', async () => {
-    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(null);
+    jest.mocked(refreshVerificationBaseFee).mockResolvedValueOnce(null);
     jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValueOnce(false);
     givenSummary(
       summary({
@@ -438,13 +687,13 @@ describe('assertProposalEffectApproved', () => {
   });
 
   it('decodes a fee of 0, and refuses a known-absent fee the summary still counts as leaving', async () => {
-    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(0);
+    jest.mocked(refreshVerificationBaseFee).mockResolvedValueOnce(0);
     jest.mocked(getVerificationBaseFeeSync).mockReturnValue(0);
     givenSummary(summary({}));
     await expect(assertProposalEffectApproved(claim, 'sum')).resolves.toBeUndefined();
     expect(TransactionSummary.deserialize).toHaveBeenCalledTimes(1);
 
-    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(null);
+    jest.mocked(refreshVerificationBaseFee).mockResolvedValueOnce(null);
     jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValueOnce(true);
     jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
     givenSummary(
@@ -474,14 +723,14 @@ describe('assertProposalEffectApproved', () => {
     await expect(assertProposalEffectApproved(unchecked, undefined)).resolves.toBeUndefined();
     await expect(assertProposalEffectApproved(unchecked, 'sum')).resolves.toBeUndefined();
     expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
-    expect(getVerificationBaseFee).not.toHaveBeenCalled();
+    expect(refreshVerificationBaseFee).not.toHaveBeenCalled();
   });
 });
 
 describe('assertViewEffectApproved', () => {
   it('refuses an execute whose view moves more than approved, after the fee lookup', async () => {
     const order: string[] = [];
-    jest.mocked(getVerificationBaseFee).mockImplementationOnce(async () => {
+    jest.mocked(refreshVerificationBaseFee).mockImplementationOnce(async () => {
       order.push('fee');
       return 2;
     });
@@ -527,7 +776,7 @@ describe('assertViewEffectApproved', () => {
   });
 
   it('rejects an unknown fee without calling the decode', async () => {
-    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(null);
+    jest.mocked(refreshVerificationBaseFee).mockResolvedValueOnce(null);
     const decode = jest.fn(() => summaryToView(PSWAP_FILL as never));
     const refused = assertViewEffectApproved(claim, decode);
     await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
@@ -540,6 +789,6 @@ describe('assertViewEffectApproved', () => {
     const incoming = row({ type: 'bridged-receive', faucetId: 'bech32:fA', amount: 500n });
     await expect(assertViewEffectApproved(incoming, decode)).resolves.toBeUndefined();
     expect(decode).not.toHaveBeenCalled();
-    expect(getVerificationBaseFee).not.toHaveBeenCalled();
+    expect(refreshVerificationBaseFee).not.toHaveBeenCalled();
   });
 });

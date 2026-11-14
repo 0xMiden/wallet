@@ -22,7 +22,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
     if (mockNativeIdentityError) throw mockNativeIdentityError;
     return mockNativeFaucetId;
   },
-  getVerificationBaseFee: async () => mockFeeContextBaseFee
+  getVerificationBaseFee: async () => mockFeeContextBaseFee,
+  refreshVerificationBaseFee: async () => mockFeeContextBaseFee
 }));
 
 jest.mock('lib/miden/front/guardian-manager', () => ({

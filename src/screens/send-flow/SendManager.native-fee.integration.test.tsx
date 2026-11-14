@@ -59,6 +59,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetMetadataSync: () => ({ symbol: 'USDCX', decimals: 6 }),
   getSdkSyncedNativeAssetIdSync: () => 'current-native',
   getVerificationBaseFee: jest.fn(),
+  refreshVerificationBaseFee: jest.fn(),
   getVerificationBaseFeeSync: jest.fn(),
   onNativeAssetChanged: jest.fn()
 }));

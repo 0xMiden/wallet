@@ -52,7 +52,7 @@ const RevealSeedPhrase: FC = () => {
     [seedStatus]
   );
   const [secret, setSecret] = useSecretState();
-  const { copy, copied } = useClipboardCopy(secret ?? '');
+  const { copy, copied } = useClipboardCopy(secret ?? '', { secret: true });
   const [step, setStep] = useState<Step>('warning');
   // Every exit from this page goes through `leave`, never `goBack()` directly: it
   // bumps the generation, resets the step and the drawer, then pops through this

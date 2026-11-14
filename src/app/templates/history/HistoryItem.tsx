@@ -26,6 +26,7 @@ import {
   isFaucetRequest,
   isReceiveEntry
 } from './transactionUtils';
+import { useEpochReturnState } from './useEpochReturnState';
 
 type HistoryItemProps = {
   entry: IHistoryEntry;
@@ -167,6 +168,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
   lastEntry
 }) => {
   const { t } = useTranslation();
+  const epochReturn = useEpochReturnState(entry, entry.address, entry.restoredFromBackup === true);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const { inLabel, outLabel, outAmount, providerLabel, network, status } =
     entry.txType === 'bridged-send' ? bridgeRowDisplay(bridgeConfig, entry) : bridgeInRowDisplay(bridgeConfig, entry);
@@ -203,7 +205,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
             {outAmount} {outLabel}
           </span>
         )}
-        <StatusBadge status={isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : status} />
+        <StatusBadge status={epochReturn.status ?? (isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : status)} />
       </div>
     </div>
   );
