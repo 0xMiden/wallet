@@ -1,9 +1,9 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 
-import { validateMnemonic } from '@miden/hd-key';
 import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
+import { validateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
 import { Button } from 'components/Button';
 import { Notice } from 'components/ui/Notice';
