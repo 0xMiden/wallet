@@ -11,13 +11,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: dc039b9cb6e9dc901f819a3331690066cd53aae7
+          ref: 10d2a7f2b3208d287b35a1276f83ce327f72f914
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Verify frozen product source
-        run: test "$(git rev-parse HEAD)" = dc039b9cb6e9dc901f819a3331690066cd53aae7
+        run: test "$(git rev-parse HEAD)" = 10d2a7f2b3208d287b35a1276f83ce327f72f914
       - name: Check the existing production eligibility endpoint
         env:
           FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
@@ -53,7 +53,7 @@ jobs:
           if (manifest.manifest_version !== 3) throw new Error('Expected actual MV3 Chrome extension');
           const record = {
             purpose: 'Disposable native qualification candidate; not a release or passing native test',
-            productSource: 'dc039b9cb6e9dc901f819a3331690066cd53aae7',
+            productSource: '10d2a7f2b3208d287b35a1276f83ce327f72f914',
             workflowSource: process.env.GITHUB_SHA,
             runId: process.env.GITHUB_RUN_ID,
             network: 'testnet',
@@ -69,7 +69,7 @@ jobs:
           NODE
       - uses: actions/upload-artifact@v4
         with:
-          name: native-wallet-dc039b9cb
+          name: native-wallet-10d2a7f2b
           path: native-candidate/
           retention-days: 3
           if-no-files-found: error
