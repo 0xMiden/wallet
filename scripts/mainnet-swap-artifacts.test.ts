@@ -29,7 +29,7 @@ describe('mainnet swap recovery artifact discovery', () => {
     }
   };
   const retainedSwapRun = 43527071078;
-  const legacyHistory = (candidate = readOnlyLegacyRun, report = readOnlyLegacyReport, duplicate = false) =>
+  const legacyHistory = (candidate = readOnlyLegacyRun, report = readOnlyLegacyReport, duplicate = false, conclusion = 'failure', stage = 'Run the mainnet AggLayer loop') =>
     chooseSwapCheckpoint(
       [candidate, run(retainedSwapRun), run(baseline)],
       async id => ({
@@ -38,7 +38,7 @@ describe('mainnet swap recovery artifact discovery', () => {
             ? duplicate ? [report, report] : [report]
             : [artifact(`mainnet-swap-final-${id}`)]
       }),
-      async id => id === candidate.id ? steps('Run the mainnet AggLayer loop', 'failure') : { jobs: [] },
+      async id => id === candidate.id ? steps(stage, conclusion) : { jobs: [] },
       baseline
     );
   it('reconciles the exact immutable pre-deposit indexer failure without losing the older funded swap checkpoint', async () => {
@@ -56,9 +56,18 @@ describe('mainnet swap recovery artifact discovery', () => {
     ['expired report', {}, {expired:true}],
     ['different report name', {}, {name:'mainnet-agglayer-other'}],
     ['different artifact origin', {}, {workflow_run:{...readOnlyLegacyReport.workflow_run, id:43562192706}}],
-    ['different repository', {}, {workflow_run:{...readOnlyLegacyReport.workflow_run, repository_id:1}}]
+    ['different repository', {}, {workflow_run:{...readOnlyLegacyReport.workflow_run, repository_id:1}}],
+    ['forked source', {}, {workflow_run:{...readOnlyLegacyReport.workflow_run, head_repository_id:1}}],
+    ['different report source', {}, {workflow_run:{...readOnlyLegacyReport.workflow_run, head_sha:'0'.repeat(40)}}],
+    ['different report branch', {}, {workflow_run:{...readOnlyLegacyReport.workflow_run, head_branch:'other'}}]
   ])('still blocks an uncertified legacy outcome: %s', async (_label, source, report) => {
     await expect(legacyHistory({...readOnlyLegacyRun,...source}, {...readOnlyLegacyReport,...report})).rejects.toThrow(/legacy|unresolved/i);
+  });
+  it('keeps a cancelled operation at the known source blocked', async () => {
+    await expect(legacyHistory(readOnlyLegacyRun,readOnlyLegacyReport,false,'cancelled')).rejects.toThrow(/legacy|unresolved/i);
+  });
+  it('never applies the AggLayer receipt to another legacy operation', async () => {
+    await expect(legacyHistory(readOnlyLegacyRun,readOnlyLegacyReport,false,'failure','Run USDCx bridge loops')).rejects.toThrow(/legacy|unresolved/i);
   });
   it('rejects duplicate read-only reconciliation artifacts', async () => {
     await expect(legacyHistory(readOnlyLegacyRun,readOnlyLegacyReport,true)).rejects.toThrow(/legacy|unresolved/i);
