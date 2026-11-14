@@ -1,217 +1,811 @@
-name: Compile surfaces
-
-# The wallet ships FOUR surfaces — Chrome extension, iOS, Android and the Tauri
-# desktop app — and until now only the extension was built on a PR. A change that
-# broke the Android gradle build, the iOS Xcode build, or the Rust in src-tauri
-# merged with nothing going red, and was found later by whoever next tried to
-# ship that platform.
-#
-# These are COMPILE gates, deliberately: no emulator, no simulator, no chain.
-# They answer "does this still build" in minutes, which is the failure that
-# actually reaches main. Behaviour on those surfaces is covered by the E2E
-# suites (e2e-blockchain.yml for iOS, e2e-android.yml for Android).
-#
-# Each job is a required-check candidate, so none of them is `continue-on-error`:
-# a gate that cannot fail is worse than no gate, because it reads as coverage.
+name: 2027 exact-248 app acceptance (QA only)
+run-name: 2027 exact-248 app acceptance (QA only) / ${{ github.run_id }}-${{ github.run_attempt }}
 
 on:
-  pull_request:
   workflow_dispatch:
+    inputs:
+      expected_source:
+        type: string
+        required: true
+      checks:
+        type: boolean
+        default: false
+      visuals:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
-  # The linked-PR injections list a dispatched branch's open pull request and read its description.
-  pull-requests: read
-
 concurrency:
-  group: compile-surfaces-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: qa-2027-248-app-${{ github.run_id }}
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  EXPECTED_SOURCE: ${{ inputs.expected_source }}
+  CHECKS: ${{ inputs.checks }}
+  VISUALS: ${{ inputs.visuals }}
 
 jobs:
-  android:
-    name: Compile Android
+  app-qa:
+    name: QA-only exact-248 application evidence
     runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - uses: gradle/actions/setup-gradle@v4
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # `mobile:sync` regenerates the Capacitor bridge files the gradle build
-      # needs; assembleDebug is the same target the Android E2E job builds, so a
-      # break here is a break there.
-      - name: Build debug APK
-        run: yarn test:e2e:android:build
-      # The JVM logic tests (Play update classification, hot-key rules) run
-      # nowhere else: assembleDebug never compiles src/test.
-      - name: Run Android unit tests
-        run: cd android && ./gradlew :app:testDebugUnitTest :miden-dapp-browser:testDebugUnitTest --console=plain
+      # Unconditional: defaults must fail validation, not skip the job.
+      - name: Validate immutable source and nonempty selection
+        id: inputs
+        run: |
+          set -euo pipefail
+          umask 077
+          export EVIDENCE="$RUNNER_TEMP/2027-app-evidence"
+          printf 'EVIDENCE=%s\n' "$EVIDENCE" >> "$GITHUB_ENV"
+          mkdir -p "$EVIDENCE/public"
+          printf 'BASH_ENV=%s/shell.sh\n' "$EVIDENCE" >> "$GITHUB_ENV"
+          printf 'PYTHONDONTWRITEBYTECODE=1\n' >> "$GITHUB_ENV"
+          cat > "$EVIDENCE/shell.sh" <<'BASH'
+          set -euo pipefail
+          run_private() {
+            local key="$1" status=0
+            shift
+            "$@" > "$EVIDENCE/$key.stdout.private" 2> "$EVIDENCE/$key.stderr.private" || status=$?
+            printf '%s\n' "$status" > "$EVIDENCE/$key.exit"
+            if [ "$status" -ne 0 ]; then
+              printf 'QA command %s failed (exit %s); raw diagnostics retained privately.\n' "$key" "$status"
+            fi
+            return "$status"
+          }
+          BASH
+          cat > "$EVIDENCE/observer.js" <<'JS'
+          // Fixture-browser HTTP(S) guard only; not a claim about CI/OS egress.
+          const qaCounters = new Map();
+          test.beforeEach(async ({ page, context }, testInfo) => {
+            const counts = { pageerror: 0, consoleError: 0, unexpectedHttp: 0 };
+            qaCounters.set(testInfo.testId, counts);
+            page.on('pageerror', () => { counts.pageerror += 1; });
+            page.on('console', message => { if (message.type() === 'error') counts.consoleError += 1; });
+            await context.route(/^https?:\/\//, async route => {
+              if (new URL(route.request().url()).origin === 'http://127.0.0.1:5192') {
+                await route.continue();
+              } else {
+                counts.unexpectedHttp += 1;
+                await route.abort();
+              }
+            });
+          });
+          test.afterEach(async ({}, testInfo) => {
+            const counts = qaCounters.get(testInfo.testId);
+            await testInfo.attach('runtime-counters', {
+              body: Buffer.from(JSON.stringify({
+                role: process.env.TOKEN_DETAIL_CAPTURE,
+                project: testInfo.project.name,
+                title: testInfo.title,
+                counts: counts ?? null
+              })),
+              contentType: 'application/json'
+            });
+            qaCounters.delete(testInfo.testId);
+            expect(counts).toEqual({ pageerror: 0, consoleError: 0, unexpectedHttp: 0 });
+          });
+          JS
+          cat > "$EVIDENCE/observer-self-check.cjs" <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const vm = require('node:vm');
+          let before, after, routeHandler, pattern;
+          const handlers = {};
+          const records = [];
+          const info = { testId: 'self-check', project: { name: 'mobile-light' }, title: 'self-check',
+            attach: async (name, attachment) => records.push(JSON.parse(attachment.body.toString())) };
+          vm.runInNewContext(fs.readFileSync(process.env.EVIDENCE + '/observer.js', 'utf8'), {
+            test: { beforeEach: fn => { before = fn; }, afterEach: fn => { after = fn; } },
+            expect: value => ({ toEqual: expected => assert.equal(JSON.stringify(value), JSON.stringify(expected)) }),
+            Buffer, URL, Map, process: { env: { TOKEN_DETAIL_CAPTURE: 'before' } }
+          });
+          const fixtures = { page: { on: (event, fn) => { handlers[event] = fn; } },
+            context: { route: async (regex, fn) => { pattern = regex; routeHandler = fn; } } };
+          async function request(url, expected) {
+            let outcome;
+            await routeHandler({ request: () => ({ url: () => url }),
+              continue: async () => { outcome = 'allow'; }, abort: async () => { outcome = 'abort'; } });
+            assert.equal(outcome, expected);
+          }
+          (async () => {
+            await before(fixtures, info);
+            assert(pattern.test('https://example.invalid/'));
+            assert(!pattern.test('data:text/plain,fixture'));
+            assert(!pattern.test('blob:http://127.0.0.1:5192/fixture'));
+            await request('http://127.0.0.1:5192/?fixture', 'allow');
+            handlers.console({ type: () => 'log' });
+            await after({}, info);
+            assert.deepEqual(records[0].counts, { pageerror: 0, consoleError: 0, unexpectedHttp: 0 });
+            await before(fixtures, info);
+            await request('http://127.0.0.1.evil.invalid:5192/?private', 'abort');
+            await request('https://127.0.0.1:5192/', 'abort');
+            handlers.pageerror(new Error('private'));
+            handlers.console({ type: () => 'error' });
+            await assert.rejects(() => after({}, info));
+            assert.deepEqual(records[1].counts, { pageerror: 1, consoleError: 1, unexpectedHttp: 2 });
+            assert(!JSON.stringify(records).includes('private'));
+          })().catch(() => { process.exitCode = 1; });
+          JS
+          cat > "$EVIDENCE/evidence.py" <<'PY'
+          import base64
+          import copy
+          import difflib
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+          import struct
+          import subprocess
+          import sys
 
-  desktop:
-    name: Compile desktop (Tauri)
-    runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+          E = Path(os.environ['EVIDENCE'])
+          W = Path(os.environ['GITHUB_WORKSPACE'])
+          P = E / 'public'
+          APP = '2480022061ae837d2a2ee55c77eddcd36d190ba8'
+          TREE = '19bd9283965397b5877275e5cec870d8e2de97e7'
+          BEFORE = '5278fe5dc659a3f81bce97d118f2c9fd53001cdd'
+          BEFORE_TREE = '132483359494eb4a3803c4dca0272e82042b3174'
+          WORKFLOW = '.github/workflows/pr-compile-surfaces.yml'
+          SPEC = 'playwright/visual/token-detail/visual.spec.ts'
+          BASE = W / 'token-detail-baseline'
+          PROJECTS = ['mobile-light', 'mobile-dark', 'extension-light', 'extension-dark']
+          TITLES = [
+              'captures the real token detail page in compact light and dark layouts',
+              'retains honest identity when metadata and native-faucet discovery are unavailable'
+          ]
+          SUITES = {'src/app/pages/TokenDetail.test.tsx': 107,
+                    'src/components/ui/DetailCard.test.tsx': 27,
+                    'src/components/ui/CopyButton.test.tsx': 18}
+          REFERENCES = dict(line.split('  ', 1)[::-1] for line in '''55a469e4e2626ba98d1c8a0bed221ec3b12a82126dcded9cf800e96c868d60a8  .github/workflows/pr.yml
+          254dbc0e8784c68cbf3702ab1a947a57ebb1601d10313642cd7c0e88a6c17719  package.json
+          963962393cd2ceb376acb0103098e43cb75f4f173f6af761a818abe0e456f8f2  yarn.lock
+          5a49edb29629ae236e9d2c5dbfcf82fe1123bae990366e8252137ed6a81f09f9  jest.config.ts
+          4c60f3a6017eba8ef53da3b35b006222453bf968eedb182664d881d82ae8f11c  playwright.token-detail-visual.config.ts
+          9cd5f0dfd72063bab4e1c56e91242cac4dc44caa564d108339c1e29087ec5020  playwright/visual/token-detail/fixture.tsx
+          ebdfbae8cdcb2adc83e4f3715e345c3340f851b0988d8e4a755e5183ab757634  playwright/visual/token-detail/history.fixture.tsx
+          7f375b7dc146fa6b396d60a13365ebd7e945e7303d1ea3100a9a20b6ecfb4763  playwright/visual/token-detail/index.html
+          fc7666f9aff35bbb681fd01a18ebd9cd12a9de8859c4037650671f16b214611f  playwright/visual/token-detail/main.tsx
+          f0780ec133614d1ffbbda927b34cbb9d6694a57f1abf6ed95877d99513058b68  playwright/visual/token-detail/native-faucet.fixture.ts
+          11b62c30fe8f15541416570de90f9142ffa34fd9c2b5ddb709e33ed1913d870e  playwright/visual/token-detail/visual.spec.ts
+          202012da458bf739dd8968c73ac86c5a6c3999c81e78dba3845d0b43f725889f  playwright/visual/token-detail/vite.config.mts
+          a6150f0457ec753a481098ce373b67e3cccda776254c779d6e6ddcbe873b104f  src/app/pages/TokenDetail.tsx
+          73759aff0e07b1c90d7082431fdd8d2980bbdb266d72aed5f06d2fcd34e78498  src/app/pages/TokenDetail.test.tsx
+          4089ea1e6ad76d8b05273b9f6fb53177da0e013cb108ac13bc382f67e8c00688  src/components/ui/DetailCard.test.tsx
+          9210b19cad63d573c352c553cd33bad1a6814b8c62abbf674b315f9d37331f16  src/components/ui/CopyButton.test.tsx'''.splitlines())
+          EXTRA = ['src/components/ui/DetailCard.tsx', 'src/components/ui/CopyButton.tsx',
+                   'src/app/pages/EditTokenDetailsDrawer.tsx', 'src/main.css',
+                   'scripts/check-native-prover-pin.mjs', 'scripts/install-pinned-miden-cli.cjs',
+                   'scripts/install-pinned-miden-cli.test.cjs',
+                   'packages/native-prover/android/rust-bridge/Cargo.toml',
+                   'packages/native-prover/android/rust-bridge/Cargo.lock',
+                   'packages/native-prover/pin-drift-exemptions.json']
+          COMMANDS = {
+              'ts': 'yarn ts', 'lint': 'yarn lint', 'i18n': 'yarn lint:i18n', 'e2e-lint': 'yarn lint:e2e',
+              'node-tests': 'node --test scripts/install-pinned-miden-cli.test.cjs',
+              'pin-self': 'node scripts/check-native-prover-pin.mjs --self-test',
+              'pin-live': 'node scripts/check-native-prover-pin.mjs',
+              'jest': 'yarn test src/app/pages/TokenDetail.test.tsx src/components/ui/DetailCard.test.tsx src/components/ui/CopyButton.test.tsx --maxWorkers=2 --json --outputFile="$RUNNER_TEMP/2027-app-evidence/jest.private.json"',
+              'browser': 'npx playwright install --with-deps chromium',
+              'before': '"$GITHUB_WORKSPACE/node_modules/.bin/playwright" test --config playwright.token-detail-visual.config.ts --reporter=list,json',
+              'after': 'yarn playwright test --config playwright.token-detail-visual.config.ts --reporter=list,json'
+          }
+
+          def require(ok):
+              if not ok:
+                  raise ValueError('evidence requirement not met')
+
+          def write(path, value):
+              path.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
+
+          def load(path):
+              return json.loads(path.read_text())
+
+          def digest(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          def git(*args, root=W):
+              return subprocess.check_output(['git', '-C', str(root), *args], stderr=subprocess.PIPE).decode().strip()
+
+          def clean():
+              require(git('rev-parse', 'HEAD') == APP)
+              require(git('rev-parse', 'HEAD^{tree}') == TREE)
+              git('diff', '--exit-code')
+              git('diff', '--cached', '--exit-code')
+
+          def snapshot():
+              paths = list(REFERENCES) + EXTRA
+              optional = 'src/lib/ui/charts.tsx'
+              if (W / optional).is_file():
+                  paths.append(optional)
+              return {path: digest(W / path) for path in paths}
+
+          def private_text(key):
+              return '\n'.join((E / (key + '.' + stream + '.private')).read_text(errors='replace')
+                               for stream in ['stdout', 'stderr'])
+
+          def exit_code(key):
+              path = E / (key + '.exit')
+              return int(path.read_text()) if path.is_file() else None
+
+          def pin_state(text, code):
+              if code is None:
+                  return 'unavailable'
+              if code != 0:
+                  return 'failure'
+              if 'is a linked/local spec' in text and 'skipping the pin check' in text:
+                  return 'linked-skip'
+              if 'could not resolve the miden-client behind' in text and 'skipping the pin check' in text:
+                  return 'unresolved-warning-skip'
+              if 'documented safe exemption:' in text:
+                  return 'resolved-exemption'
+              if 'transaction-kernel crates resolve identically' in text and '✅' in text:
+                  return 'resolved-match'
+              return 'unclassified'
+
+          def jest_counts(report):
+              for field, expected in {'numTotalTestSuites': 3, 'numPassedTestSuites': 3,
+                                      'numFailedTestSuites': 0, 'numPendingTestSuites': 0,
+                                      'numRuntimeErrorTestSuites': 0, 'numTotalTests': 152,
+                                      'numPassedTests': 152, 'numFailedTests': 0,
+                                      'numPendingTests': 0, 'numTodoTests': 0}.items():
+                  require(report[field] == expected)
+              require(report['success'] is True)
+              result = {}
+              for suite in report['testResults']:
+                  name = Path(suite['name']).relative_to(W).as_posix()
+                  require(name in SUITES and name not in result)
+                  tests = suite['assertionResults']
+                  require(suite['status'] == 'passed' and len(tests) == SUITES[name])
+                  require(all(test['status'] == 'passed' for test in tests))
+                  result[name] = {'executed': len(tests), 'passed': len(tests), 'failed': 0, 'pending': 0, 'todo': 0}
+              require(set(result) == set(SUITES))
+              return result
+
+          def specs(suites):
+              for suite in suites:
+                  yield from suite.get('specs', [])
+                  yield from specs(suite.get('suites', []))
+
+          def runtime_record(attachment, output):
+              require(attachment['name'] == 'runtime-counters' and attachment['contentType'] == 'application/json')
+              if 'body' in attachment:
+                  return json.loads(base64.b64decode(attachment['body'], validate=True))
+              path = Path(attachment['path'])
+              require(not path.is_symlink() and path.resolve().is_relative_to(output.resolve()))
+              return load(path)
+
+          def visual_counts(report, role, output):
+              stats = report['stats']
+              require([stats[k] for k in ['expected', 'unexpected', 'flaky', 'skipped']] == [8, 0, 0, 0])
+              require(not report.get('errors'))
+              records = {}
+              for spec in specs(report['suites']):
+                  title = spec['title']
+                  require(title in TITLES and spec['ok'] is True)
+                  require(Path(spec['file']).name == 'visual.spec.ts')
+                  for test in spec['tests']:
+                      project = test['projectName']
+                      key = (project, title)
+                      require(project in PROJECTS and key not in records)
+                      require(test['expectedStatus'] == 'passed' and test['status'] == 'expected')
+                      require(len(test['results']) == 1)
+                      result = test['results'][0]
+                      require(result['status'] == 'passed' and result['retry'] == 0 and not result.get('errors'))
+                      attachments = [a for a in result.get('attachments', []) if a['name'] == 'runtime-counters']
+                      require(len(attachments) == 1)
+                      record = runtime_record(attachments[0], output)
+                      require(set(record) == {'role', 'project', 'title', 'counts'})
+                      require((record['role'], record['project'], record['title']) == (role, project, title))
+                      require(record['counts'] == {'pageerror': 0, 'consoleError': 0, 'unexpectedHttp': 0})
+                      require(all(type(n) is int for n in record['counts'].values()))
+                      records[key] = record
+              require(set(records) == {(p, t) for p in PROJECTS for t in TITLES})
+              return list(records.values())
+
+          def observed_jest(report):
+              observed = {}
+              for suite in report['testResults']:
+                  name = Path(suite['name']).relative_to(W).as_posix()
+                  require(name in SUITES and name not in observed)
+                  statuses = [test['status'] for test in suite['assertionResults']]
+                  observed[name] = {status: statuses.count(status) for status in ['passed', 'failed', 'pending', 'todo']}
+                  observed[name]['reported'] = len(statuses)
+              return observed
+
+          def observed_visual(report, role, output):
+              observed = {project: {'passed': 0, 'failed': 0, 'timedOut': 0, 'skipped': 0, 'interrupted': 0}
+                          for project in PROJECTS}
+              for spec in specs(report['suites']):
+                  require(spec['title'] in TITLES)
+                  for test in spec['tests']:
+                      project = test['projectName']
+                      require(project in PROJECTS)
+                      for result in test['results']:
+                          status = result['status']
+                          require(status in observed[project])
+                          observed[project][status] += 1
+                          for attachment in result.get('attachments', []):
+                              if attachment['name'] != 'runtime-counters':
+                                  continue
+                              record = runtime_record(attachment, output)
+                              require(set(record) == {'role', 'project', 'title', 'counts'})
+                              require((record['role'], record['project'], record['title']) == (role, project, spec['title']))
+                              require(set(record['counts']) == {'pageerror', 'consoleError', 'unexpectedHttp'})
+                              require(all(type(n) is int and n >= 0 for n in record['counts'].values()))
+                              dest = P / 'runtime' / role / project / f'{TITLES.index(spec["title"])}.json'
+                              dest.parent.mkdir(parents=True, exist_ok=True)
+                              write(dest, record)
+              return observed
+
+          def png_size(data):
+              require(len(data) >= 33 and data[:8] == b'\x89PNG\r\n\x1a\n')
+              require(data[8:16] == b'\x00\x00\x00\rIHDR')
+              width, height = struct.unpack('>II', data[16:24])
+              require(0 < width <= 1800 and 0 < height <= 1800)
+              return width, height
+
+          def pngs(role, root, started):
+              output = root / 'test-results/token-detail-visual'
+              expected = {}
+              for project in PROJECTS:
+                  stages = ['top', 'details'] + (['history'] if role == 'after' else [])
+                  for stage in stages:
+                      expected[f'token-detail-{project}-{role}-{stage}.png'] = project
+              files = list(output.rglob('*.png'))
+              require(len(files) == len(expected))
+              inventory = []
+              seen = set()
+              for path in files:
+                  require(path.name in expected and path.name not in seen and not path.is_symlink())
+                  require(path.stat().st_mtime >= started)
+                  project = expected[path.name]
+                  width, height = png_size(path.read_bytes())
+                  require((width, height) == ((393, 852) if project.startswith('mobile') else (360, 640)))
+                  dest = P / role / project / path.name
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copyfile(path, dest)
+                  inventory.append({'path': dest.relative_to(P).as_posix(), 'width': width, 'height': height,
+                                    'sha256': digest(dest)})
+                  seen.add(path.name)
+              require(seen == set(expected))
+              return inventory
+
+          def self_check():
+              def rejects(fn):
+                  try:
+                      fn()
+                  except (ValueError, KeyError):
+                      return
+                  raise AssertionError('negative self-check was accepted')
+              report = {'success': True, 'testResults': []}
+              report.update(dict(zip(['numTotalTestSuites', 'numPassedTestSuites', 'numFailedTestSuites',
+                  'numPendingTestSuites', 'numRuntimeErrorTestSuites', 'numTotalTests', 'numPassedTests',
+                  'numFailedTests', 'numPendingTests', 'numTodoTests'], [3, 3, 0, 0, 0, 152, 152, 0, 0, 0])))
+              for name, count in SUITES.items():
+                  report['testResults'].append({'name': str(W / name), 'status': 'passed',
+                      'assertionResults': [{'status': 'passed'} for _ in range(count)]})
+              assert len(jest_counts(report)) == 3
+              bad = copy.deepcopy(report)
+              bad['testResults'][0]['assertionResults'].pop()
+              rejects(lambda: jest_counts(bad))
+              visual = {'stats': dict(expected=8, unexpected=0, flaky=0, skipped=0), 'suites': [{'specs': []}]}
+              for title in TITLES:
+                  spec = {'title': title, 'file': 'visual.spec.ts', 'ok': True, 'tests': []}
+                  for project in PROJECTS:
+                      record = dict(role='after', project=project, title=title,
+                                    counts=dict(pageerror=0, consoleError=0, unexpectedHttp=0))
+                      spec['tests'].append({'projectName': project, 'expectedStatus': 'passed', 'status': 'expected',
+                          'results': [{'status': 'passed', 'retry': 0, 'attachments': [{'name': 'runtime-counters',
+                          'contentType': 'application/json', 'body': base64.b64encode(json.dumps(record).encode()).decode()}]}]})
+                  visual['suites'][0]['specs'].append(spec)
+              assert len(visual_counts(visual, 'after', W)) == 8
+              bad = copy.deepcopy(visual)
+              bad['suites'][0]['specs'][0]['tests'][0]['results'][0]['attachments'] = []
+              rejects(lambda: visual_counts(bad, 'after', W))
+              bad = copy.deepcopy(visual)
+              bad['stats']['flaky'] = 1
+              rejects(lambda: visual_counts(bad, 'after', W))
+              bad = copy.deepcopy(visual)
+              attachment = bad['suites'][0]['specs'][0]['tests'][0]['results'][0]['attachments'][0]
+              record = json.loads(base64.b64decode(attachment['body']))
+              record['counts']['consoleError'] = 1
+              attachment['body'] = base64.b64encode(json.dumps(record).encode()).decode()
+              rejects(lambda: visual_counts(bad, 'after', W))
+              assert png_size(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' + struct.pack('>II', 393, 852) + bytes(9)) == (393, 852)
+              rejects(lambda: png_size(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' + struct.pack('>II', 1801, 852) + bytes(9)))
+              assert pin_state('could not resolve the miden-client behind x skipping the pin check', 0) == 'unresolved-warning-skip'
+              assert pin_state('documented safe exemption:', 0) == 'resolved-exemption'
+              assert pin_state('✅ transaction-kernel crates resolve identically', 0) == 'resolved-match'
+              assert pin_state('', None) == 'unavailable'
+
+          def finalize():
+              failures = []
+              checks = {'visualInspection': {'status': 'pending', 'observations': []},
+                        'commandResults': {}, 'validation': {}, 'pngs': [], 'runtime': [],
+                        'harness': {'status': 'unavailable'}}
+              def collect(label, fn):
+                  try:
+                      value = fn()
+                      checks['validation'][label] = 'verified'
+                      return value
+                  except Exception:
+                      failures.append(label)
+                      checks['validation'][label] = 'failed-or-unavailable'
+                      return None
+              # Restoration precedes parsers and remains independent of test success.
+              def restore():
+                  backup = E / 'visual.spec.original'
+                  require(backup.is_file())
+                  shutil.copyfile(backup, W / SPEC)
+                  require(digest(W / SPEC) == REFERENCES[SPEC] == digest(backup))
+                  if (BASE / SPEC).is_file():
+                      shutil.copyfile(backup, BASE / SPEC)
+                      require(digest(BASE / SPEC) == digest(backup))
+                  return 'restored-and-hash-verified'
+              if os.environ['VISUALS'] == 'true':
+                  checks['restoration'] = collect('restoration', restore)
+              else:
+                  checks['restoration'] = 'not-requested'
+              identity = collect('identity-record', lambda: load(E / 'identity.json')) or {'expectedAppCommit': APP, 'expectedAppTree': TREE}
+              steps = json.loads(os.environ['STEPS_JSON'])
+              checks['stepOutcomes'] = {key: value.get('outcome', 'unavailable') for key, value in steps.items()}
+              for key, command in COMMANDS.items():
+                  code = exit_code(key)
+                  checks['commandResults'][key] = {'command': command, 'exitCode': code,
+                      'status': 'unavailable' if code is None else ('succeeded' if code == 0 else 'failed'),
+                      'diagnostics': 'private raw stdout/stderr; not published'}
+              before_hashes = collect('initial-source-hashes', lambda: load(E / 'source-before.json')) or {}
+              final_hashes = collect('final-source-hashes', snapshot)
+              collect('tracked-product-cleanliness', clean)
+              collect('unchanged-product-hashes', lambda: require(bool(before_hashes) and final_hashes == before_hashes))
+              lines = []
+              for phase, hashes in [('before', before_hashes), ('after-restoration', final_hashes or {})]:
+                  lines += [f'{sha}  {path}  [{phase}]' for path, sha in sorted(hashes.items())]
+              for name, label in [('visual.spec.original', 'original-visual-spec'), ('observer.js', 'appended-observer')]:
+                  if (E / name).is_file():
+                      lines.append(f'{digest(E / name)}  {SPEC}  [{label}]')
+              if (E / 'instrumented.sha256').is_file():
+                  lines.append(f'{(E / "instrumented.sha256").read_text().strip()}  {SPEC}  [instrumented-capture-spec]')
+                  checks['harness'] = {'status': 'declared-runner-only-overlay',
+                      'observerDiff': collect('observer-diff', lambda: (E / 'observer.diff').read_text()),
+                      'baselineUsesCandidateHarnessAndDependencies': True}
+              baseline_info = collect('baseline-identity', lambda: load(E / 'baseline.json')) if os.environ['VISUALS'] == 'true' else None
+              identity['historicalBaseline'] = baseline_info
+              if baseline_info:
+                  lines.append(f'{baseline_info["pageSha256"]}  src/app/pages/TokenDetail.tsx  [historical-before]')
+              (P / 'source-sha256.txt').write_text('\n'.join(lines) + '\n')
+              if os.environ['CHECKS'] == 'true':
+                  checks['jestObserved'] = collect('jest-observed', lambda: observed_jest(load(E / 'jest.private.json')))
+                  checks['jestSuites'] = collect('jest-counts', lambda: jest_counts(load(E / 'jest.private.json')))
+                  def node_counts():
+                      text = private_text('node-tests')
+                      actual = {}
+                      for field in ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo']:
+                          matches = re.findall(r'(?m)^# ' + field + r' (\d+)\s*$', text)
+                          require(len(matches) == 1)
+                          actual[field] = int(matches[0])
+                      return actual
+                  checks['nodeTests'] = collect('node-observed', node_counts)
+                  collect('node-test-counts', lambda: require(checks['nodeTests'] == {
+                      'tests': 5, 'pass': 5, 'fail': 0, 'cancelled': 0, 'skipped': 0, 'todo': 0}))
+                  collect('pin-self-success-marker', lambda: require('✅ native-prover-pin self-test passed' in private_text('pin-self')))
+                  checks['proverResolution'] = collect('pin-resolution', lambda: pin_state(private_text('pin-live'), exit_code('pin-live')))
+                  collect('pin-classified', lambda: require(checks['proverResolution'] in [
+                      'resolved-match', 'resolved-exemption', 'unresolved-warning-skip', 'linked-skip']))
+                  checks['identicalPinProof'] = checks['proverResolution'] == 'resolved-match'
+              if os.environ['VISUALS'] == 'true':
+                  for role, root, sha in [('before', BASE, BEFORE), ('after', W, APP)]:
+                      def visual(role=role, root=root):
+                          report = load(E / (role + '.private.json'))
+                          started = float((E / (role + '.started')).read_text())
+                          require((E / (role + '.private.json')).stat().st_mtime >= started)
+                          checks[role + 'Observed'] = observed_visual(report, role, root / 'test-results/token-detail-visual')
+                          records = visual_counts(report, role, root / 'test-results/token-detail-visual')
+                          checks['runtime'].extend(records)
+                          return {project: {'executed': 2, 'passed': 2} for project in PROJECTS}
+                      checks[role + 'Projects'] = collect(role + '-counts-runtime', visual)
+                      def images(role=role, root=root):
+                          return pngs(role, root, float((E / (role + '.started')).read_text()))
+                      checks['pngs'].extend(collect(role + '-png-inventory', images) or [])
+                      def source_record(role=role, root=root, sha=sha):
+                          record = load(root / 'token-detail-source.json')
+                          require(record == {'role': role, 'sha': sha})
+                          dest = P / role / 'token-detail-source.json'
+                          dest.parent.mkdir(parents=True, exist_ok=True)
+                          write(dest, record)
+                      collect(role + '-source-record', source_record)
+                  collect('all-visual-evidence', lambda: require(len(checks['pngs']) == 20 and len(checks['runtime']) == 16))
+              required = ['inputs', 'qa_checkout', 'qa_identity', 'app_checkout', 'app_identity',
+                          'node', 'install', 'ready', 'self_check']
+              if os.environ['CHECKS'] == 'true':
+                  required += ['ts', 'lint', 'i18n', 'e2e_lint', 'node_tests', 'pin_self', 'pin_live', 'jest']
+              if os.environ['VISUALS'] == 'true':
+                  required += ['apt', 'browser', 'baseline_checkout', 'prepare', 'before', 'after']
+              collect('requested-step-outcomes', lambda: require(all(steps.get(key, {}).get('outcome') == 'success' for key in required)))
+              selected_commands = ([k for k in COMMANDS if k not in ['browser', 'before', 'after']] if os.environ['CHECKS'] == 'true' else [])
+              if os.environ['VISUALS'] == 'true':
+                  selected_commands += ['browser', 'before', 'after']
+              collect('requested-command-exits', lambda: require(all(exit_code(key) == 0 for key in selected_commands)))
+              collect('source-and-run-identity', lambda: require(identity.get('appCommit') == APP and identity.get('appTree') == TREE
+                  and identity.get('qaVerified') is True and identity.get('inputSourceMatches') is True
+                  and identity.get('event') == 'workflow_dispatch'))
+              complete_selection = os.environ['CHECKS'] == 'true' and os.environ['VISUALS'] == 'true'
+              checks['machineStatus'] = ('failed-or-incomplete' if failures or os.environ['JOB_STATUS'] != 'success'
+                                         else 'complete-pending-visual-inspection' if complete_selection else 'partial')
+              checks['acceptance'] = 'unestablished-pending-human-inspection' if checks['machineStatus'] == 'complete-pending-visual-inspection' else 'failed-or-incomplete'
+              checks['failureGates'] = failures
+              checks['mergeGate'] = 'not-satisfied-by-this-QA-workflow; ordinary current-PR coverage and required contexts remain separate'
+              write(P / 'source-identity.json', identity)
+              write(P / 'checks.json', checks)
+              return 0 if checks['machineStatus'] == 'complete-pending-visual-inspection' else 1
+
+          def main():
+              mode = sys.argv[1]
+              if mode == 'inputs':
+                  selectors = {key.lower(): os.environ[key] == 'true' for key in ['CHECKS', 'VISUALS']}
+                  write(E / 'identity.json', {'expectedAppCommit': APP, 'expectedAppTree': TREE,
+                      'inputSourceMatches': os.environ['EXPECTED_SOURCE'] == APP,
+                      'selectors': selectors, 'runId': os.environ['GITHUB_RUN_ID'],
+                      'runAttempt': os.environ['GITHUB_RUN_ATTEMPT'], 'event': os.environ['GITHUB_EVENT_NAME'],
+                      'runnerLabels': ['ubuntu-latest'], 'commands': COMMANDS,
+                      'setup': {'node': 'actions/setup-node@v4 node-version=22; no cache',
+                          'install': './.github/actions/yarn-install: yarn install --network-timeout 600000; default 3 attempts, 6m each',
+                          'apt': './.github/actions/apt-drop-unused-repos',
+                          'server': 'yarn vite --config playwright/visual/token-detail/vite.config.mts',
+                          'origin': 'http://127.0.0.1:5192', 'browserInstallLimitMinutes': 12,
+                          'captureLimitMinutes': 5, 'workers': 1, 'deviceScaleFactor': 1,
+                          'viewports': {'mobile': [393, 852], 'extension': [360, 640]}},
+                      'linkedMarkerObservation': 'not-queried; pre-dispatch verification must establish no linked-dependency markers',
+                      'baselineRole': 'immutable-historical-before-not-current-main'})
+                  require(os.environ['EXPECTED_SOURCE'] == APP and any(selectors.values()))
+                  require(os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch')
+              elif mode == 'qa':
+                  identity = load(E / 'identity.json')
+                  identity.update(qaCommit=git('rev-parse', 'HEAD'), qaTree=git('rev-parse', 'HEAD^{tree}'),
+                                  qaWorkflowPath=WORKFLOW, qaWorkflowSha256=digest(W / WORKFLOW), qaVerified=False)
+                  write(E / 'identity.json', identity)
+                  require(identity['qaCommit'] == os.environ['GITHUB_SHA'])
+                  require(git('diff', '--name-only', APP, 'HEAD') == WORKFLOW)
+                  require(git('diff', '--name-status', '--no-renames', APP, 'HEAD') == 'M\t' + WORKFLOW)
+                  identity['qaVerified'] = True
+                  write(E / 'identity.json', identity)
+              elif mode == 'source':
+                  identity = load(E / 'identity.json')
+                  identity.update(appCommit=git('rev-parse', 'HEAD'), appTree=git('rev-parse', 'HEAD^{tree}'))
+                  write(E / 'identity.json', identity)
+                  hashes = snapshot()
+                  write(E / 'source-before.json', hashes)
+                  require(all(hashes[path] == sha for path, sha in REFERENCES.items()))
+                  clean()
+              elif mode == 'ready':
+                  clean()
+                  hashes = snapshot()
+                  write(E / 'source-after-install.json', hashes)
+                  require(hashes == load(E / 'source-before.json'))
+              elif mode == 'prepare':
+                  clean()
+                  baseline = {'role': 'historical-before', 'commit': git('rev-parse', 'HEAD', root=BASE),
+                      'tree': git('rev-parse', 'HEAD^{tree}', root=BASE),
+                      'pageSha256': digest(BASE / 'src/app/pages/TokenDetail.tsx')}
+                  write(E / 'baseline.json', baseline)
+                  require(baseline['commit'] == BEFORE and baseline['tree'] == BEFORE_TREE)
+                  original = (W / SPEC).read_bytes()
+                  (E / 'visual.spec.original').write_bytes(original)
+                  require(digest(E / 'visual.spec.original') == REFERENCES[SPEC])
+                  observer = (E / 'observer.js').read_bytes()
+                  executed = original + b'\n' + observer
+                  (W / SPEC).write_bytes(executed)
+                  (E / 'instrumented.sha256').write_text(digest(W / SPEC) + '\n')
+                  (E / 'observer.diff').write_text(''.join(difflib.unified_diff(
+                      original.decode().splitlines(True), executed.decode().splitlines(True),
+                      fromfile=SPEC + ' (original)', tofile=SPEC + ' (runner-observer)')))
+                  require(not list((W / 'test-results/token-detail-visual').rglob('*.png')))
+                  require(not list((BASE / 'test-results/token-detail-visual').rglob('*.png')))
+              elif mode == 'capture-ready':
+                  require(git('rev-parse', 'HEAD') == APP and git('rev-parse', 'HEAD^{tree}') == TREE)
+                  require(git('rev-parse', 'HEAD', root=BASE) == BEFORE)
+                  require(git('rev-parse', 'HEAD^{tree}', root=BASE) == BEFORE_TREE)
+                  executed = (E / 'instrumented.sha256').read_text().strip()
+                  require(digest(W / SPEC) == digest(BASE / SPEC) == executed)
+                  require(all(digest(W / path) == sha for path, sha in load(E / 'source-before.json').items() if path != SPEC))
+              elif mode == 'self-check':
+                  self_check()
+              elif mode == 'finalize':
+                  return finalize()
+              else:
+                  raise ValueError('unknown evidence operation')
+              return 0
+
+          if __name__ == '__main__':
+              sys.exit(main())
+          PY
+          source "$EVIDENCE/shell.sh"
+          run_private inputs python3 "$EVIDENCE/evidence.py" inputs
+          printf 'selected=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Check out QA workflow commit
+        id: qa_checkout
+        if: steps.inputs.outputs.selected == 'true'
+        uses: actions/checkout@v4
         with:
-          workspaces: src-tauri
-      - name: Drop apt repositories this repo never installs from
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify sole modified workflow path and record QA identity
+        id: qa_identity
+        if: steps.inputs.outputs.selected == 'true'
+        run: run_private qa-identity python3 "$EVIDENCE/evidence.py" qa
+      - name: Check out immutable application source
+        id: app_checkout
+        if: steps.inputs.outputs.selected == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_source }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Record and verify app identity and source hashes before setup
+        id: app_identity
+        if: steps.inputs.outputs.selected == 'true'
+        run: run_private app-identity python3 "$EVIDENCE/evidence.py" source
+      - name: Use Node 22 without cache
+        id: node
+        if: steps.inputs.outputs.selected == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: House yarn install
+        id: install
+        if: steps.inputs.outputs.selected == 'true'
+        uses: ./.github/actions/yarn-install
+      - name: Verify unchanged tracked source and package/lock hashes before tests
+        id: ready
+        if: steps.inputs.outputs.selected == 'true'
+        run: run_private ready python3 "$EVIDENCE/evidence.py" ready
+      - name: Small observer and validator assert-based self-checks
+        id: self_check
+        if: steps.inputs.outputs.selected == 'true'
+        run: |
+          run_private validator-self-check python3 "$EVIDENCE/evidence.py" self-check
+          run_private observer-self-check node "$EVIDENCE/observer-self-check.cjs"
+
+      - name: QA TypeScript
+        id: ts
+        if: inputs.checks && steps.inputs.outputs.selected == 'true'
+        run: run_private ts yarn ts
+      - name: QA source ESLint
+        id: lint
+        if: inputs.checks && steps.inputs.outputs.selected == 'true'
+        run: run_private lint yarn lint
+      - name: QA i18n lint
+        id: i18n
+        if: inputs.checks && steps.inputs.outputs.selected == 'true'
+        run: run_private i18n yarn lint:i18n
+      - name: QA E2E harness lint
+        id: e2e_lint
+        if: inputs.checks && steps.inputs.outputs.selected == 'true'
+        run: run_private e2e-lint yarn lint:e2e
+      - name: QA pinned CLI preparation tests (five expected)
+        id: node_tests
+        if: inputs.checks && steps.inputs.outputs.selected == 'true'
+        run: run_private node-tests node --test scripts/install-pinned-miden-cli.test.cjs
+      - name: QA prover pin offline self-test
+        id: pin_self
+        if: inputs.checks && steps.inputs.outputs.selected == 'true'
+        run: run_private pin-self node scripts/check-native-prover-pin.mjs --self-test
+      - name: QA prover pin live comparison (resolution classified separately)
+        id: pin_live
+        if: inputs.checks && steps.inputs.outputs.selected == 'true'
+        run: run_private pin-live node scripts/check-native-prover-pin.mjs
+      - name: QA real TokenDetail and shared controls (3 suites, 152 expected)
+        id: jest
+        if: inputs.checks && steps.inputs.outputs.selected == 'true'
+        run: run_private jest yarn test src/app/pages/TokenDetail.test.tsx src/components/ui/DetailCard.test.tsx src/components/ui/CopyButton.test.tsx --maxWorkers=2 --json --outputFile="$RUNNER_TEMP/2027-app-evidence/jest.private.json"
+
+      - name: House apt cleanup for isolated fixture browser
+        id: apt
+        if: inputs.visuals && steps.inputs.outputs.selected == 'true'
         uses: ./.github/actions/apt-drop-unused-repos
-      # Tauri's system deps on Linux. The desktop app ships for macOS, but the
-      # Rust in src-tauri is what this gate is checking and it compiles here far
-      # cheaper than on a macOS runner.
-      - name: Install Tauri system dependencies
-        # Same mirror hardening as the xvfb steps in the e2e workflows: the
-        # azure mirror intermittently blackholes and an unbounded `apt-get
-        # update` can eat the whole job budget. Current runners also use a
-        # mirror+file source, so rewrite its mirror list as well as direct sources.
-        timeout-minutes: 8
+      - name: Install only Playwright Chromium
+        id: browser
+        if: inputs.visuals && steps.inputs.outputs.selected == 'true'
+        timeout-minutes: 12
+        run: run_private browser npx playwright install --with-deps chromium
+      - name: Check out immutable historical before comparator
+        id: baseline_checkout
+        if: inputs.visuals && steps.inputs.outputs.selected == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: 5278fe5dc659a3f81bce97d118f2c9fd53001cdd
+          path: token-detail-baseline
+          persist-credentials: false
+      - name: Hash baseline, save spec and apply declared observer overlay
+        id: prepare
+        if: inputs.visuals && steps.inputs.outputs.selected == 'true'
         run: |
-          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
-            /etc/apt/apt-mirrors.txt 2>/dev/null || true
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # REQUIRED before cargo: `tauri::generate_context!()` reads tauri.conf.json's
-      # `frontendDist` (../dist/desktop) at COMPILE time and fails the build if the
-      # directory is absent. `cargo check` alone is not runnable from a clean
-      # checkout — verified locally, where it failed with
-      # "The `frontendDist` configuration is set to `../dist/desktop` but this path doesn't exist".
-      - name: Build desktop frontend
-        run: yarn build:desktop
-      - name: Check Rust
-        working-directory: src-tauri
-        run: cargo check --locked --all-targets
+          run_private prepare python3 "$EVIDENCE/evidence.py" prepare
+          {
+            mkdir -p token-detail-baseline/playwright/visual
+            cp playwright.token-detail-visual.config.ts token-detail-baseline/
+            cp -R playwright/visual/token-detail token-detail-baseline/playwright/visual/
+            ln -s "$GITHUB_WORKSPACE/node_modules" token-detail-baseline/node_modules
+            printf '{"role":"before","sha":"%s"}\n' "$(git -C token-detail-baseline rev-parse HEAD)" > token-detail-baseline/token-detail-source.json
+          } > "$EVIDENCE/overlay.stdout.private" 2> "$EVIDENCE/overlay.stderr.private"
+      - name: Capture historical before (4 projects, 8 tests, 8 PNGs expected)
+        id: before
+        if: inputs.visuals && steps.inputs.outputs.selected == 'true'
+        timeout-minutes: 5
+        working-directory: token-detail-baseline
+        env:
+          TOKEN_DETAIL_CAPTURE: before
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/2027-app-evidence/before.private.json
+        run: |
+          run_private before-identity python3 "$EVIDENCE/evidence.py" capture-ready
+          date +%s > "$EVIDENCE/before.started"
+          run_private before "$GITHUB_WORKSPACE/node_modules/.bin/playwright" test --config playwright.token-detail-visual.config.ts --reporter=list,json
+      - name: Capture exact-248 after (4 projects, 8 tests, 12 PNGs expected)
+        id: after
+        if: inputs.visuals && steps.inputs.outputs.selected == 'true'
+        timeout-minutes: 5
+        env:
+          TOKEN_DETAIL_CAPTURE: after
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/2027-app-evidence/after.private.json
+        run: |
+          run_private after-identity python3 "$EVIDENCE/evidence.py" capture-ready
+          printf '{"role":"after","sha":"%s"}\n' "$(git rev-parse HEAD)" > token-detail-source.json
+          date +%s > "$EVIDENCE/after.started"
+          run_private after yarn playwright test --config playwright.token-detail-visual.config.ts --reporter=list,json
 
-  ios:
-    name: Compile iOS
-    # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
-    # 33.8s to launch WebContent for a hosted fixture without changing its source.
-    # macos-26-xlarge also has the required toolchain. NOT macos-15:
-    # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
-    # `UIGlassEffect`, an iOS 26 API — so the build fails there with
-    # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
-    # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
-    runs-on: macos-26-xlarge
-    # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
-    # on the runner. That step finished in 73 minutes, and the 75 minute limit
-    # then cancelled yarn install. The other linked-SDK jobs already use 120.
-    # A run without the marker does not build the SDK, so the extra ceiling is idle.
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      - name: Sync Capacitor
-        run: yarn mobile:sync
-      # -project, not -workspace: this app resolves its native deps through Swift
-      # Package Manager, not CocoaPods. Unsigned and for a generic device, because
-      # this gate is about whether the code COMPILES — signing belongs to release.
-      - name: Build App scheme
+      - name: Always restore original spec and finalize sanitized failure-aware evidence
+        id: finalize
+        if: always()
+        env:
+          STEPS_JSON: ${{ toJSON(steps) }}
+          JOB_STATUS: ${{ job.status }}
         run: |
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -destination 'generic/platform=iOS' \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
-
-      # The XCTest logic tests (App Store version comparison, receipt trust) run
-      # nowhere else: `build` never compiles the AppTests target. The simulator
-      # is chosen by id so a runner image that renames its devices still works.
-      - name: Run iOS unit tests
-        run: |
-          node --test scripts/ios-test-screenshots.test.cjs
-          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
-          xcrun simctl bootstatus "$UDID" -b
-          mkdir -p artifacts
-          node scripts/ios-test-screenshots.cjs "$UDID" > artifacts/ios-screenshot-helper.log 2>&1 &
-          SCREENSHOT_PID=$!
-          trap 'kill "$SCREENSHOT_PID"; wait "$SCREENSHOT_PID" || true' EXIT
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -destination "id=$UDID" \
-            -parallel-testing-enabled NO \
-            -only-testing:AppTests \
-            -resultBundlePath artifacts/ios-unit-tests.xcresult \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            test
-      - name: Upload iOS test results
+          status=0
+          run_private finalize python3 "$EVIDENCE/evidence.py" finalize || status=$?
+          (
+            cd "$EVIDENCE/public"
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          )
+          exit "$status"
+      - name: Upload only sanitized QA evidence (including failures)
+        id: upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unit-test-results
+          name: 2027-248-app-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            artifacts/ios-unit-tests.xcresult
-            artifacts/ios-screenshot-helper.log
-          if-no-files-found: ignore
+            ${{ runner.temp }}/2027-app-evidence/public/source-identity.json
+            ${{ runner.temp }}/2027-app-evidence/public/source-sha256.txt
+            ${{ runner.temp }}/2027-app-evidence/public/checks.json
+            ${{ runner.temp }}/2027-app-evidence/public/before/token-detail-source.json
+            ${{ runner.temp }}/2027-app-evidence/public/after/token-detail-source.json
+            ${{ runner.temp }}/2027-app-evidence/public/before/mobile-light/*.png
+            ${{ runner.temp }}/2027-app-evidence/public/before/mobile-dark/*.png
+            ${{ runner.temp }}/2027-app-evidence/public/before/extension-light/*.png
+            ${{ runner.temp }}/2027-app-evidence/public/before/extension-dark/*.png
+            ${{ runner.temp }}/2027-app-evidence/public/after/mobile-light/*.png
+            ${{ runner.temp }}/2027-app-evidence/public/after/mobile-dark/*.png
+            ${{ runner.temp }}/2027-app-evidence/public/after/extension-light/*.png
+            ${{ runner.temp }}/2027-app-evidence/public/after/extension-dark/*.png
+            ${{ runner.temp }}/2027-app-evidence/public/runtime/before/*/*.json
+            ${{ runner.temp }}/2027-app-evidence/public/runtime/after/*/*.json
+            ${{ runner.temp }}/2027-app-evidence/public/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+      - name: Record artifact service identity (downloaded archive hash is separate)
+        if: always()
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          printf 'QA artifact ID: %s\nActions artifact digest: %s\n' "${ARTIFACT_ID:-unavailable}" "${ARTIFACT_DIGEST:-unavailable}" >> "$GITHUB_STEP_SUMMARY"
