@@ -186,12 +186,13 @@ export interface CustomWrite {
   toB: boolean[];
   consumedNullifiers: string[];
   /**
-   * `amount` is the gross row single-sig shows, null for a request that moves nothing but the fee (X8c); `netAmount`,
-   * when it differs, the net row a Guardian summary shows; `storageChanged`, when set, the "Storage changed" row.
+   * `amount` is the row every account's sheet shows for what leaves its holdings, null for a request that moves
+   * nothing but the fee (X8c); `heldNotesSpent`, when set, the count of already-held notes the request spends;
+   * `storageChanged`, when set, the "Storage changed" row.
    */
   preview: {
     amount: RegExp | null;
-    netAmount?: RegExp;
+    heldNotesSpent?: number;
     outputNotes: number;
     storageChanged?: boolean;
     timeoutMs?: number;
@@ -199,8 +200,9 @@ export interface CustomWrite {
   slot?: AccountSlot;
 }
 
-const previewFor = (side: WriteSide, preview: CustomWrite['preview']) => ({
-  amount: side.axis.expected.previewAmount === 'net' ? (preview.netAmount ?? preview.amount) : preview.amount,
+const previewFor = (preview: CustomWrite['preview']) => ({
+  amount: preview.amount,
+  heldNotesSpent: preview.heldNotesSpent,
   outputNotes: preview.outputNotes,
   storageChanged: preview.storageChanged,
   timeoutMs: preview.timeoutMs
@@ -240,7 +242,7 @@ export async function customWriteToTheEnd(
       decision: 'approve',
       origin: dapp.origin,
       whileOpen: async popup => {
-        await expectVerifiedPreview(popup, previewFor(side, write.preview), ctx);
+        await expectVerifiedPreview(popup, previewFor(write.preview), ctx);
         await popupBlock(dapp, ctx);
       }
     },

@@ -30,8 +30,6 @@ export interface DappAxis extends AccountAxis {
     connectKeyMembership: string;
     guardianCommitment(chainCommitmentHex: string): string;
     builder: 'plain' | 'guardian-twin';
-    /** Single-sig previews gross note flows (decode.ts:212-227); Guardian the net vault delta (decode.ts:95-128). */
-    previewAmount: 'gross' | 'net';
   };
 }
 
@@ -51,8 +49,7 @@ export const offchainDappAxis: DappAxis = {
     }),
     connectKeyMembership: NOT_APPLICABLE,
     guardianCommitment: () => NOT_APPLICABLE,
-    builder: 'plain',
-    previewAmount: 'gross'
+    builder: 'plain'
   }
 };
 
@@ -89,8 +86,7 @@ export function guardianDappAxis(guardianUrl: string): DappAxis {
       }),
       connectKeyMembership: 'member',
       guardianCommitment: chain => (comparable ? normalizeHex(chain) : NOT_APPLICABLE),
-      builder: 'guardian-twin',
-      previewAmount: 'net'
+      builder: 'guardian-twin'
     }
   };
 }

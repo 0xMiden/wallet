@@ -607,7 +607,13 @@ export async function expectFailedAfterEnqueue(
  */
 export async function expectVerifiedPreview(
   popup: Page,
-  expected: { amount: RegExp | null; outputNotes: number; storageChanged?: boolean; timeoutMs?: number },
+  expected: {
+    amount: RegExp | null;
+    heldNotesSpent?: number;
+    outputNotes: number;
+    storageChanged?: boolean;
+    timeoutMs?: number;
+  },
   ctx: CellContext
 ): Promise<void> {
   const verified = popup.locator('[data-testid="tx-asset-view"][data-mode="verified"]');
@@ -630,6 +636,9 @@ export async function expectVerifiedPreview(
   const rows = verified.locator('[data-verified="true"]');
   await expect(expected.amount === null ? rows : rows.filter({ hasText: expected.amount })).toHaveCount(moves);
   await expect(popup.getByTestId('tx-output-notes-created')).toHaveText(String(expected.outputNotes));
+  if (expected.heldNotesSpent !== undefined) {
+    await expect(verified.getByTestId('tx-held-notes-spent')).toHaveText(String(expected.heldNotesSpent));
+  }
   const storage = popup.getByTestId('tx-storage-changed');
   const changed = expected.storageChanged;
   await expect(storage).toHaveAttribute('data-changed', changed === undefined ? /^(true|false)$/ : String(changed));
