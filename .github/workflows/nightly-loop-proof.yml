@@ -1,4 +1,4 @@
-name: Read-only current replacement preparation outcome
+name: Keyless recovered principal and remaining shared cap audit
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -9,17 +9,9 @@ concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  readonly:
+  public-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      E2E_NETWORK: mainnet
-      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
-      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
-      GH_TOKEN: ${{ github.token }}
-      MAINNET_SWAP_MODE: authorize-recovery-return
-      MAINNET_SWAP_RECOVERY_RETURN_APPROVED: 'false'
-      MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: 'true'
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,29 +23,41 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
-          run-id: 43606200050
+          run-id: 43608126536
           github-token: ${{ github.token }}
-          name: mainnet-swap-final-43606200050
-          path: test-results/mainnet-swap-state
-      - uses: ./.github/actions/install-miden-client-cli
-      - uses: ./.github/actions/apt-drop-unused-repos
-      - run: npx playwright install --with-deps chromium
-      - uses: ./.github/actions/start-eligibility-fixture
-      - run: yarn test:e2e:blockchain:build
-      - name: Exact current replacement preparation without persistence or signing
+          name: mainnet-swap-final-43608126536
+          path: test-results/final
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43608126536
+          github-token: ${{ github.token }}
+          name: mainnet-swap-reverse-claim-sdk-authorized-43608126536
+          path: test-results/sdk
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43608126536
+          github-token: ${{ github.token }}
+          name: mainnet-swap-reverse-sdk-authorized-43608126536
+          path: test-results/create
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43608126536
+          github-token: ${{ github.token }}
+          name: mainnet-nightly-43608126536
+          path: test-results/public
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43596925757
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43596925757
+          path: test-results/prior
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43562192705
+          github-token: ${{ github.token }}
+          name: mainnet-nightly-43562192705
+          path: test-results/scheduled
+      - name: Independent original authorities, actual public nullifier and all predecessor costs
         run: |
-          umask 077
-          before=$(sha256sum test-results/mainnet-swap-state/roundtrip.json)
-          code=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/replacement-results" xvfb-run -a yarn playwright test mainnet-replacement-preflight.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/replacement.log" 2>&1 || code=$?
-          test "$before" = "$(sha256sum test-results/mainnet-swap-state/roundtrip.json)" || { echo '::error::Read-only probe changed the retained authority'; exit 1; }
-          node --input-type=module <<'NODE'
-          import {existsSync,readFileSync} from 'node:fs';
-          const path='test-results/read-only-replacement-preflight.json';
-          if(!existsSync(path)){console.log('Stopped before approved diagnostics; private process output stays runner-local.');process.exit(1);}
-          const value=JSON.parse(readFileSync(path,'utf8'));
-          const allowed=['purpose','eligible','stage','errorCode','originalRunId','retainedNonce','retainedExpiresAt','quotedMinimum','retainedMinimum','returnAmount','aggregateNativeDebit','lossBudgetUsdMicros','newWindowValidatedMs','noLivePolicy','consumeBlocked','oldAuthoritiesUnchanged','grantPersisted','sdkAuthorityIssued'];
-          if(!value||Object.keys(value).some(key=>!allowed.includes(key)))throw new Error('Unexpected diagnostic fields');
-          console.log(JSON.stringify(value));
-          NODE
-          exit "$code"
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          node scripts/goal-recovery-keyless-audit.mjs
