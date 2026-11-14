@@ -4,6 +4,7 @@ import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 import { importedNoteIds, quarantineNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 
 import { simulateCustomTransaction } from './simulate-custom-tx';
 
@@ -308,6 +309,27 @@ describe('simulateCustomTransaction', () => {
     getInputNote.mockRejectedValueOnce(new Error('lookup failed', { cause: poison }));
 
     await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).rejects.toBe(poison);
+    expect(withWasmClientLock).toHaveBeenCalledTimes(1);
+    await expect(jest.mocked(withWasmClientLock).mock.results[0]?.value).rejects.toBe(poison);
+    expect(mockAbandonQuarantineAttempt).toHaveBeenCalledTimes(1);
+    expect(getInputNote).toHaveBeenCalledTimes(1);
+    expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a killed pipeline wrapped around a poison from a carried lookup as the poison the hold saw', async () => {
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    const poison = new WasmClientPoisonedError('watchdog');
+    getInputNote.mockRejectedValueOnce(new Error('lookup failed', { cause: poison }));
+
+    await expect(
+      simulateCustomTransaction({
+        address: 'mtst1abc',
+        transactionRequest: 'reqB64',
+        importNotes: ['noteA', 'noteB']
+      })
+    ).rejects.toBe(poison);
+    expect(withWasmClientLock).toHaveBeenCalledTimes(1);
+    await expect(jest.mocked(withWasmClientLock).mock.results[0]?.value).rejects.toBe(poison);
     expect(mockAbandonQuarantineAttempt).toHaveBeenCalledTimes(1);
     expect(getInputNote).toHaveBeenCalledTimes(1);
     expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
@@ -928,6 +950,36 @@ describe('introduced-note provenance', () => {
       error: 'unreachable'
     });
     expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+  });
+
+  it('rethrows a poison from the consumed-note decode as the poison and abandons the quarantine', async () => {
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    const poison = new WasmClientPoisonedError('watchdog');
+    mockSimulatedBytesToView.mockImplementationOnce(() => {
+      throw poison;
+    });
+
+    await expect(simulateCustomTransaction({ address: 'mtst1sender', transactionRequest: 'reqB64' })).rejects.toBe(
+      poison
+    );
+    await expect(jest.mocked(withWasmClientLock).mock.results[0]?.value).rejects.toBe(poison);
+    expect(mockAbandonQuarantineAttempt).toHaveBeenCalledTimes(1);
+    expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a killed pipeline wrapped by the consumed-note decode as the poison', async () => {
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    const poison = new WasmClientPoisonedError('watchdog');
+    mockSimulatedBytesToView.mockImplementationOnce(() => {
+      throw new Error('not a summary', { cause: poison });
+    });
+
+    await expect(simulateCustomTransaction({ address: 'mtst1sender', transactionRequest: 'reqB64' })).rejects.toBe(
+      poison
+    );
+    await expect(jest.mocked(withWasmClientLock).mock.results[0]?.value).rejects.toBe(poison);
+    expect(mockAbandonQuarantineAttempt).toHaveBeenCalledTimes(1);
+    expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
   });
 
   it('returns the introduced ids with an executed result too', async () => {

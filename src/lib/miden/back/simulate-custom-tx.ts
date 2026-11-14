@@ -15,7 +15,7 @@ import {
   withWasmClientLock,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
-import { isKilledPipeline, pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
+import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { CustomSimulationTimeoutError } from './public-error';
@@ -64,7 +64,8 @@ const SIMULATION_TIMEOUT_MS = 20_000;
  * dry-run-imported note visible is a cosmetic surprise, while hiding a note
  * the user already owned removes their only view of their own funds. When the
  * lookup is broken for every id the quarantine simply degrades to a no-op.
- * A trap and a killed pipeline are rethrown so the lock sees them.
+ * A trap is rethrown as itself and a killed pipeline as the kill link
+ * `pipelineKillIn` finds, so the lock sees them.
  *
  * The caller syncs first: a note on chain that the client has not synced has no
  * record yet and would read as introduced.
@@ -91,13 +92,15 @@ async function idsNotAlreadyHeld(
     // Per-iteration: an eviction during any lookup hands the mutex to a
     // successor without stopping this loop, and the next lookup would borrow a
     // client somebody else is inside. The check sits OUTSIDE the try below.
-    // The try rethrows a trap and a killed pipeline so the lock sees them; an
-    // ordinary failure is already held.
+    // The try rethrows a trap as itself and a killed pipeline as its kill link,
+    // so the lock sees them; an ordinary failure is already held.
     assertWasmHoldCurrent(hold, 'before the provenance lookup');
     try {
       if (!(await client.getInputNote(id))) introduced.push(id);
     } catch (error) {
-      if (error instanceof WebAssembly.RuntimeError || isKilledPipeline(error)) throw error;
+      if (error instanceof WebAssembly.RuntimeError) throw error;
+      const kill = pipelineKillIn(error);
+      if (kill !== undefined) throw kill;
       // An ordinary failure is already held, see above.
     }
   }
@@ -106,8 +109,8 @@ async function idsNotAlreadyHeld(
 
 /**
  * Ids of the notes a dry run consumed. `{ error }` when that list cannot be read. A `WebAssembly.RuntimeError` is
- * rethrown so the lock retires the client. `TransactionRequest` has no input-note accessor, so a note embedded in
- * the request shows up only here.
+ * rethrown so the lock retires the client, and a killed pipeline is rethrown as the kill link `pipelineKillIn` finds.
+ * `TransactionRequest` has no input-note accessor, so a note embedded in the request shows up only here.
  */
 function consumedNoteIds(dryRun: {
   summaryBytes?: string;
@@ -119,6 +122,8 @@ function consumedNoteIds(dryRun: {
     return { ids: notes.map(note => note.id) };
   } catch (error) {
     if (error instanceof WebAssembly.RuntimeError) throw error;
+    const kill = pipelineKillIn(error);
+    if (kill !== undefined) throw kill;
     return { error: error instanceof Error ? error.message : String(error) };
   }
 }
