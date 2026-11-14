@@ -5,71 +5,49 @@ on:
 permissions:
   contents: read
 jobs:
-  native-wallet-candidate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  macos-native-feasibility:
+    runs-on: macos-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 10d2a7f2b3208d287b35a1276f83ce327f72f914
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify frozen product source
-        run: test "$(git rev-parse HEAD)" = 10d2a7f2b3208d287b35a1276f83ce327f72f914
-      - name: Check the existing production eligibility endpoint
-        env:
-          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
-          FEATURE_ELIGIBILITY_NETWORKS: '["testnet"]'
-          FEATURE_ELIGIBILITY_ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
-        run: node services/feature-eligibility/check-deployment.mjs
-      - name: Install frozen dependencies
+      - name: Check the reused PRF and UV measurement contract
+        run: |
+          node --test .github/native-pilot/macos-prf/probe-core.test.mjs
+          node --check .github/native-pilot/macos-prf/measure.mjs
+      - name: Install frozen existing dependencies
+        timeout-minutes: 5
         run: yarn install --frozen-lockfile
-      - name: Build the real testnet Chrome wallet
-        env:
-          MODE_ENV: production
-          NODE_ENV: production
-          MIDEN_NETWORK: testnet
-          MIDEN_USE_MOCK_CLIENT: 'false'
-          MIDEN_E2E_TEST: 'false'
-          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
-        run: yarn build:chrome
-      - name: Verify and bind the candidate bytes
+      - name: Install the existing Playwright Chromium runtime
+        timeout-minutes: 3
+        run: npx playwright install chromium
+      - name: Measure native OS authentication availability without authenticating
         shell: bash
         run: |
           set -euo pipefail
-          test -s dist/chrome.zip
-          test -s dist/chrome_unpacked/manifest.json
-          unzip -t dist/chrome.zip
-          mkdir native-candidate
-          cp dist/chrome.zip native-candidate/wallet-testnet.zip
-          sha256sum native-candidate/wallet-testnet.zip | tee native-candidate/SHA256SUMS
-          node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync } from 'node:fs';
-          import { createHash } from 'node:crypto';
-          const path = 'native-candidate/wallet-testnet.zip';
-          const manifest = JSON.parse(readFileSync('dist/chrome_unpacked/manifest.json', 'utf8'));
-          if (manifest.manifest_version !== 3) throw new Error('Expected actual MV3 Chrome extension');
-          const record = {
-            purpose: 'Disposable native qualification candidate; not a release or passing native test',
-            productSource: '10d2a7f2b3208d287b35a1276f83ce327f72f914',
-            workflowSource: process.env.GITHUB_SHA,
-            runId: process.env.GITHUB_RUN_ID,
-            network: 'testnet',
-            mode: 'production',
-            mockClient: false,
-            e2eTestHooks: false,
-            virtualAuthenticator: false,
-            extensionVersion: manifest.version,
-            sha256: createHash('sha256').update(readFileSync(path)).digest('hex')
-          };
-          writeFileSync('native-candidate/source.json', JSON.stringify(record, null, 2));
-          console.log(JSON.stringify(record));
-          NODE
-      - uses: actions/upload-artifact@v4
+          mkdir macos-native-measurement
+          sw_vers > macos-native-measurement/os-version.txt
+          swift -e '
+          import Foundation
+          import LocalAuthentication
+          let context = LAContext()
+          var error: NSError?
+          let biometric = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+          let owner = context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
+          let data = try JSONSerialization.data(withJSONObject: ["biometricAvailable": biometric, "deviceOwnerAuthenticationAvailable": owner], options: [.sortedKeys])
+          print(String(decoding: data, as: UTF8.self))
+          ' > macos-native-measurement/local-authentication.json
+      - name: Try actual native PRF and UV, headless then headful
+        run: node .github/native-pilot/macos-prf/measure.mjs
+      - name: Preserve metadata only, never profiles or secret material
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: native-wallet-10d2a7f2b
-          path: native-candidate/
+          name: macos-native-feasibility
+          path: macos-native-measurement/
           retention-days: 3
           if-no-files-found: error

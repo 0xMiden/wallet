@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Native PRF qualification</title></head>
+<body>
+  <h1>Native extension-origin PRF probe</h1>
+  <p>Uses real platform credentials with required user verification. Wallet lifecycle is not tested here.</p>
+  <p>Secrets stay in memory and are cleared. Only metadata is displayed or downloaded.</p>
+  <button id="run" type="button">Run native probe</button>
+  <button id="cancel" type="button" disabled>Cancel</button>
+  <button id="cleanup" type="button">Signal test credential cleanup</button>
+  <button id="save" type="button">Save metadata</button>
+  <pre id="result" role="status" aria-live="polite">Not run.</pre>
+  <script type="module" src="probe.mjs"></script>
+</body>
+</html>

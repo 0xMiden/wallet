@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Native platform qualification probe",
+  "version": "0.0.1",
+  "minimum_chrome_version": "140",
+  "description": "Disposable native extension-origin PRF measurement. No virtual authenticator or wallet data.",
+  "background": { "service_worker": "worker.js" },
+  "options_ui": { "page": "probe.html", "open_in_tab": true }
+}
