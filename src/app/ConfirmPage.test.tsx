@@ -1202,6 +1202,7 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
     expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
     expect(mockTransactionAssetView).not.toHaveBeenCalled();
   });

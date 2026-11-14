@@ -329,16 +329,39 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     expect(rows).not.toContain(OPAQUE_WARNING);
   });
 
-  it('warns instead of listing assets when a consumed note does not list them', async () => {
+  it('refuses before any prompt when a consumed note does not list its assets', async () => {
     sdk.SigningInputs = {
       deserialize: () => summarySigningInputs([], 0, [{ id: 'opaque-note', note: { assets: () => undefined } }])
     };
 
-    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      `${DECLINED}: a held note does not list its assets`
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
 
-    const rows = sheetRows();
-    expectWarningThenLine(rows);
-    expect(rows.some(row => row.startsWith('Sending, '))).toBe(false);
+  it('keeps a WASM startup failure as its own error and decodes nothing before it', async () => {
+    const startupFailure = new Error('wasm failed to start');
+    sdk.MidenClient = { ready: () => Promise.reject(startupFailure) };
+    const deserialize = jest.fn(() => summarySigningInputs([]));
+    sdk.SigningInputs = { deserialize };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toBe(startupFailure);
+    expect(deserialize).not.toHaveBeenCalled();
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('refuses before any prompt when decoding the signing payload traps', async () => {
+    sdk.SigningInputs = {
+      deserialize: () => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
   it('scales the amount by the faucet decimals, not a fixed 6', async () => {

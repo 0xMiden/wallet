@@ -770,6 +770,31 @@ const generatePromisifySign = async (
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 
+  // A transaction summary whose holdings cannot be measured is refused before either sheet. A deserialize
+  // failure, a non-summary variant, and any other kind still prompt with the opaque-signature warning.
+  // WASM startup failures keep their original error, and a decode trap reaches the lock, as on the custom arm.
+  if (req.kind === 'signingInputs') {
+    await ensureSdkWasmReady();
+    try {
+      await withWasmClientLock(async () => {
+        let summary: TransactionSummary | undefined;
+        try {
+          const signingInputs = SigningInputs.deserialize(b64ToU8(req.payload));
+          if (signingInputs.variantType === SigningInputsType.TransactionSummary) {
+            summary = signingInputs.transactionSummaryPayload();
+          }
+        } catch (decodeError) {
+          if (decodeError instanceof WebAssembly.RuntimeError) throw decodeError;
+          console.error('[DApp] Could not decode the signingInputs payload for the approval sheet:', decodeError);
+        }
+        if (summary) measuredSigningHoldings(summary);
+      });
+    } catch (e) {
+      reject(dappReadFailure(e));
+      return;
+    }
+  }
+
   // Mobile / desktop: no popup window exists, so prompt through the shared
   // confirmation store instead of falling into requestConfirm's throw.
   if (!isExtension()) {
@@ -3800,6 +3825,17 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
   return rows;
 }
 
+/** Holdings of a transaction summary. A throw here is `NotGranted` before any prompt. */
+function measuredSigningHoldings(summary: TransactionSummary): TxAssetView {
+  try {
+    return toHoldingsView(summaryToView(summary), []);
+  } catch (measureError) {
+    if (measureError instanceof WebAssembly.RuntimeError) throw measureError;
+    const reason = measureError instanceof Error ? measureError.message : String(measureError);
+    throw new Error(`${MidenDAppErrorType.NotGranted}: ${reason}`);
+  }
+}
+
 /**
  * What the mobile modal / desktop overlay show for `signBytes`.
  *
@@ -3812,11 +3848,11 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
  * approval sheet at all: it fell into `requestConfirm`'s throw and the dApp's
  * promise never settled (see `confirmOnNonExtension`). These rows are the first
  * thing mobile and desktop show for it, and they are that same measure as text:
- * what leaves holdings when the summary can be measured, the opaque-signature
- * warning when that measure throws, and the explicit opaque-signature warning for the
- * `Arbitrary` / `Blind` variants, for the other `SignKind` (`word`, a raw digest),
- * and for bytes that do not decode at all — mirroring the extension's
- * `OpaqueSignatureWarning`.
+ * what leaves holdings when the summary can be measured. When that measure throws,
+ * this raises `NotGranted` and no sheet is shown. The explicit opaque-signature
+ * warning is for the `Arbitrary` / `Blind` variants, for the other `SignKind`
+ * (`word`, a raw digest), and for bytes that do not decode at all, mirroring the
+ * extension's `OpaqueSignatureWarning`.
  *
  * The summary is ground truth for the signature: it is the very value being
  * signed, not a dApp-declared description of it.
@@ -3845,15 +3881,8 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
     return rows;
   }
 
-  // No consumed note is credited: every one counts as already held.
-  let holdings: TxAssetView;
-  try {
-    holdings = toHoldingsView(summaryToView(summary), []);
-  } catch (e) {
-    console.error('[DApp] Could not measure the signing summary holdings for the approval sheet:', e);
-    rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
-    return rows;
-  }
+  // No consumed note is credited: every one counts as already held. A throw is the refusal, before the sheet.
+  const holdings = measuredSigningHoldings(summary);
 
   rows.push('Signing, a transaction that moves these assets');
   rows.push(...(await formatAssetViewRows(holdings)));
