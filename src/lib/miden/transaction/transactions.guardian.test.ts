@@ -194,11 +194,13 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
 // The effects check of an `execute` row is covered by `custom-effects.test.ts`. Here the generation-time dry run
 // gives the approved effects, so the row goes on to its proposal.
 const mockVerifyPreparedCustomRequest = jest.fn(async (..._args: unknown[]) => undefined);
-const mockAssertCustomEffectsApproved = jest.fn((..._args: unknown[]) => undefined);
+type AssertCustomEffectsApproved = typeof import('./custom-effects').assertCustomEffectsApproved;
+const mockAssertCustomEffectsApproved = jest.fn<void, Parameters<AssertCustomEffectsApproved>>(() => undefined);
 jest.mock('./custom-effects', () => ({
   customEffectsCheckAccess: (...args: unknown[]) => ({ args }),
   verifyPreparedCustomRequest: (...args: unknown[]) => mockVerifyPreparedCustomRequest(...args),
-  assertCustomEffectsApproved: (...args: unknown[]) => mockAssertCustomEffectsApproved(...args)
+  assertCustomEffectsApproved: (...args: Parameters<AssertCustomEffectsApproved>) =>
+    mockAssertCustomEffectsApproved(...args)
 }));
 
 jest.mock('lib/settings/constants', () => ({}));

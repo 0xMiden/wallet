@@ -13,9 +13,14 @@ const syncState = jest.fn(async () => undefined);
 // dry run is the thing introducing it. Defaults to "not held" for every id.
 const getInputNote = jest.fn(async (_id: string): Promise<unknown> => null);
 // These bytes are not a real summary. A real decode would turn every success into `{ error }`.
-const mockSimulatedBytesToView = jest.fn((): { viewConsumedNotes?: { id: string }[] } | undefined => ({
-  viewConsumedNotes: []
-}));
+const mockSimulatedBytesToView = jest.fn(
+  (_result: {
+    summaryBytes?: string;
+    executedBytes?: string;
+  }): { viewConsumedNotes?: { id: string }[] } | undefined => ({
+    viewConsumedNotes: []
+  })
+);
 const executeRequest = jest.fn(async () => ({ result: { serialize: () => new Uint8Array([9, 9]) } }));
 const fakeClient = { transactions: { executeRequest } };
 const getMidenClient = jest.fn(async () => ({ client: fakeClient, importNoteBytes, syncState, getInputNote }));
