@@ -126,21 +126,17 @@ const SignatureRawValue: FC<{ value: string; errorId?: UserErrorId | null }> = (
   return <>{value}</>;
 };
 
-const OpaqueSignatureWarning: React.FC<{
-  rawValue: string;
-  errorId?: UserErrorId | null;
-  /** A measured transaction summary is one; this sentence is for every other signature. */
-  showNotATransaction?: boolean;
-}> = ({ rawValue, errorId, showNotATransaction = true }) => {
+const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId | null }> = ({
+  rawValue,
+  errorId
+}) => {
   const { t } = useTranslation();
   return (
     <>
       <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
-      {showNotATransaction && (
-        <p className="text-sm text-left text-ink mb-2" data-testid="opaque-signature-not-a-transaction">
-          {t('opaqueSignatureNotATransaction')}
-        </p>
-      )}
+      <p className="text-sm text-left text-ink mb-2" data-testid="opaque-signature-not-a-transaction">
+        {t('opaqueSignatureNotATransaction')}
+      </p>
       <AdvancedDetails label={t('rawValue')}>
         <SignatureRawValue value={rawValue} errorId={errorId} />
       </AdvancedDetails>
@@ -404,8 +400,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
         view = toHoldingsView(summaryToView(summary), []);
       } catch (measureError) {
         console.error('Signing summary holdings unavailable:', measureError);
-        // The backend refuses this before the popup. This arm is only the fallback, and it is still a transaction.
-        return <OpaqueSignatureWarning rawValue={t('noPreview')} showNotATransaction={false} />;
+        return <OpaqueSignatureWarning rawValue={t('noPreview')} />;
       }
       let noteFlow: NoteFlow | undefined;
       try {
