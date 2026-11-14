@@ -17,6 +17,7 @@
  */
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
+import { getMessage } from 'lib/i18n';
 import {
   TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
@@ -154,11 +155,13 @@ jest.mock('lib/miden/note-quarantine', () => ({
   releaseNoteIds: (...args: unknown[]) => mockReleaseNoteIds(...(args as []))
 }));
 
-// The summary decoder reads the chain fee this realm cached, so the approval re-reads it first.
+// The summary decoder reads the chain fee this realm cached, so the approval reads it first and refuses when unknown.
 const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
+const mockFeeKnownAbsent = jest.fn(() => false);
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee()
+  refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
+  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent()
 }));
 
 jest.unmock('lib/i18n/numbers');
@@ -238,6 +241,8 @@ beforeEach(() => {
   mockSummaryBytesToView.mockReturnValue(emptyView);
   mockRequestCustomTransaction.mockResolvedValue('tx-id-1' as never);
   mockRefreshVerificationBaseFee.mockResolvedValue(2);
+  mockFeeKnownAbsent.mockReset();
+  mockFeeKnownAbsent.mockReturnValue(false);
 });
 
 describe('the mobile/desktop custom-transaction sheet states the simulated effects', () => {
@@ -759,8 +764,9 @@ describe('the outflow an approval records', () => {
 });
 
 /**
- * A summary's fee note is told apart only by the chain fee this realm knows, so the approval re-reads it before it
- * decodes one. An executed dry run reads the fee of its own block and needs no re-read.
+ * A summary's fee note is told apart only by the chain fee this realm just read, so the approval reads it before it
+ * decodes one and refuses when that read is unknown. An executed dry run reads the fee of its own block and needs no
+ * re-read.
  */
 describe('the chain fee the approval decodes with', () => {
   it('re-reads the chain fee before decoding a summary, and not for an executed dry run', async () => {
@@ -780,17 +786,32 @@ describe('the chain fee the approval decodes with', () => {
     expect(mockRefreshVerificationBaseFee).not.toHaveBeenCalled();
   });
 
-  it('decodes on the cached fee when the re-read fails', async () => {
-    mockRefreshVerificationBaseFee.mockRejectedValueOnce(new Error('node unreachable'));
-    const warn = jest.spyOn(console, 'warn').mockImplementation();
+  it('refuses a summary dry run before any prompt when the refresh does not know the fee', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
+    const sentence = getMessage('chainFeeUnknown');
+    expect(sentence.length).toBeGreaterThan(0);
 
-    try {
-      await raiseSheet(false);
-    } finally {
-      warn.mockRestore();
-    }
+    let message = '';
+    await requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+      () => {
+        throw new Error('the request was not refused');
+      },
+      (error: Error) => {
+        message = error.message;
+      }
+    );
 
-    expect(mockSummaryBytesToView).toHaveBeenCalledWith('sumB64');
-    expect(sheetMessages()).toContain('No assets move');
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+    expect(message).toContain(sentence);
+  });
+
+  it('still prompts when the refresh finds the fee absent', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
+    mockFeeKnownAbsent.mockReturnValueOnce(true);
+
+    await raiseSheet(false);
+
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
   });
 });

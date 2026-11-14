@@ -134,6 +134,13 @@ jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: (...args: unknown[]) => mockSimulate(...args)
 }));
 
+// A custom summary's approval reads the chain fee before it decodes and refuses when that read is unknown.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: async () => 2,
+  isVerificationBaseFeeKnownAbsent: () => false
+}));
+
 /** The decoded view of the dry run. The real decoders stay in place for the sign tests. */
 const mockSimulatedView = jest.fn();
 jest.mock('app/confirm/decode', () => ({

@@ -65,6 +65,7 @@ import {
   type DAppConfirmationResult,
   type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
+import { getMessage } from 'lib/i18n';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
@@ -106,7 +107,12 @@ import {
 } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetId, getVerificationBaseFee, refreshVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import {
+  getNativeAssetId,
+  getVerificationBaseFee,
+  isVerificationBaseFeeKnownAbsent,
+  refreshVerificationBaseFee
+} from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -2392,9 +2398,14 @@ const generatePromisifyTransaction = async (
       throw pipelineKillIn(e) ?? e;
     }
     try {
-      // A summary's fee note is told apart by the fee this realm cached, so a stale one would show the fee as a
-      // transfer. Best effort: a failed read decodes on the cached fee, and signing refuses anything it hid.
-      if (simulated.summaryBytes) await refreshChainFeeBeforeDecode();
+      // A summary's fee note is told apart by the fee this realm just read. An unknown fee is refused before
+      // any prompt, on the same predicate the signing paths use. An executed dry run splits on its own header.
+      if (simulated.summaryBytes) {
+        const chainFee = await refreshVerificationBaseFee();
+        if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) {
+          throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+        }
+      }
       const approval = approvedSimulationOrRefusal(simulated);
       const effectLines = await formatSimulatedCustomEffects(approval.view);
       const customLimit = await customSpendingLimitState(customTransaction.address, approval.spends);
@@ -3867,15 +3878,6 @@ function formatCustomTransactionPreview(payload: MidenCustomTransaction): string
   }
 
   return messages;
-}
-
-/** Re-reads the chain fee for the summary decode that follows; the result is not needed. */
-async function refreshChainFeeBeforeDecode(): Promise<void> {
-  try {
-    await refreshVerificationBaseFee();
-  } catch (error) {
-    console.warn('[DApp] Could not re-read the chain fee before the approval decode', error);
-  }
 }
 
 /**

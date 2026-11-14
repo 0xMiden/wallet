@@ -1372,4 +1372,73 @@ describe('refreshVerificationBaseFee', () => {
     expect(plain).toBe(2);
     expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
   });
+
+  it('reads through the display cooldown a failed read armed, and then getVerificationBaseFee is not held', async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => {
+      throw new Error('down');
+    });
+    await expect(refreshVerificationBaseFee()).resolves.toBeNull();
+    const afterFailure = _g.__nativeAssetTest.rpcCalls;
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFailure);
+
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 11);
+    await expect(refreshVerificationBaseFee()).resolves.toBe(11);
+    expect(_g.__nativeAssetTest.rpcCalls).toBeGreaterThan(afterFailure);
+    const afterSuccess = _g.__nativeAssetTest.rpcCalls;
+    await expect(getVerificationBaseFee()).resolves.toBe(11);
+    expect(getVerificationBaseFeeSync()).toBe(11);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(afterSuccess);
+  });
+
+  it('joins a successful in-flight read during the display cooldown and returns that fee', async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => {
+      throw new Error('down');
+    });
+    await expect(refreshVerificationBaseFee()).resolves.toBeNull();
+
+    let release!: (header: { verificationBaseFee: () => number }) => void;
+    _g.__nativeAssetTest.deferHeader = new Promise(resolve => {
+      release = resolve;
+    });
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 9);
+    const before = _g.__nativeAssetTest.rpcCalls;
+    const first = refreshVerificationBaseFee();
+    for (let i = 0; i < 20 && _g.__nativeAssetTest.rpcCalls === before; i++) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(before + 1);
+    const second = refreshVerificationBaseFee();
+    release({ verificationBaseFee: () => 9 });
+    await expect(Promise.all([first, second])).resolves.toEqual([9, 9]);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(before + 1);
+    await expect(getVerificationBaseFee()).resolves.toBe(9);
+  });
+
+  it("keeps this realm's read when storage carries another fee while that read is fresh", async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 4);
+    await expect(refreshVerificationBaseFee()).resolves.toBe(4);
+    const faucetId = getNativeAssetIdSync();
+    const listener = _g.__nativeAssetTest.storageListeners.get('native_asset_fee:v2:rpc-testnet|testnet');
+    expect(listener).toEqual(expect.any(Function));
+    listener?.({ faucetId, baseFee: 9 });
+    expect(getVerificationBaseFeeSync()).toBe(4);
+    await expect(refreshVerificationBaseFee()).resolves.toBe(4);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+
+    now += CHAIN_FEE_MAX_AGE_MS + 1;
+    listener?.({ faucetId, baseFee: 9 });
+    expect(getVerificationBaseFeeSync()).toBe(9);
+  });
+
+  it('returns null from a failed read even when an older fee is cached', async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 2);
+    await refreshVerificationBaseFee();
+    now += CHAIN_FEE_MAX_AGE_MS + 1;
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => {
+      throw new Error('down');
+    });
+    await expect(refreshVerificationBaseFee()).resolves.toBeNull();
+    expect(getVerificationBaseFeeSync()).toBe(2);
+  });
 });

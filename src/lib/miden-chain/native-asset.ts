@@ -207,6 +207,9 @@ function adoptFee(value: unknown): void {
     !isPlausibleBaseFee(value.baseFee)
   )
     return;
+  // This realm's own header read is what an effect check just decoded with. A value another realm stored
+  // must not replace it while that read is fresh, and `fresh()` must not vouch for it afterwards.
+  if (feeProbedScope === cacheScope() && Date.now() - feeProbedAt <= CHAIN_FEE_MAX_AGE_MS) return;
   feeMemCache = value.baseFee;
   emit();
 }
@@ -344,6 +347,8 @@ async function discover(keepFeeOnFailedRead = false): Promise<string> {
     else {
       feeProbedScope = snapshot.scope;
       feeProbedAt = Date.now();
+      // The header answered, so display readers are not held on the cooldown a failed read armed.
+      feeProbeRetryAfterMs = 0;
     }
     if (!feeReadThrew && accessorAbsent) feeAccessorAbsentScope = snapshot.scope;
     emit();
@@ -457,9 +462,10 @@ export async function getVerificationBaseFee(): Promise<number | null> {
 }
 
 /**
- * The chain's fee as of a read made by THIS realm at most `maxAgeMs` ago. A cached value another
- * realm stored, or one older than the limit, is read again; a failed read gives null and leaves the
- * cached value for display readers. Null that is not `isVerificationBaseFeeKnownAbsent()` is unknown.
+ * The chain's fee as of a header read THIS realm made within `maxAgeMs`. A value another realm stored
+ * is not that read. When none is fresh this makes one, or joins the one in flight, whatever the display
+ * cooldown says, and returns the cache only when that read succeeded. A failed read gives null and leaves
+ * the cached value for display readers. Null that is not `isVerificationBaseFeeKnownAbsent()` is unknown.
  */
 export async function refreshVerificationBaseFee(maxAgeMs: number = CHAIN_FEE_MAX_AGE_MS): Promise<number | null> {
   invalidateOnEndpointChange();
@@ -474,9 +480,8 @@ export async function refreshVerificationBaseFee(maxAgeMs: number = CHAIN_FEE_MA
     return null;
   }
   if (fresh()) return feeMemCache;
-  if (!feeInflight && Date.now() < feeProbeRetryAfterMs) return null;
-  const read = await probeFee(true);
-  return Date.now() < feeProbeRetryAfterMs ? null : read;
+  await probeFee(true);
+  return fresh() ? feeMemCache : null;
 }
 
 export async function getNativeAssetId(): Promise<string> {
