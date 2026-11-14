@@ -155,13 +155,14 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
       }
     },
     G2a: signingInputsCell('arbitrary', opaque),
-    // The twin's summary receives SUMMARY_AMOUNT and its fee headroom (guardian-request-builder.ts previewTwinSummary),
-    // so the verified view (SigningInputsPayloadContent's TransactionSummary arm in ConfirmPage.tsx) lists a 0.5 TST
-    // row beside the native one (spike row 8).
+    // The twin consumes one unauthenticated note carrying 0.5 TST (previewTwinSummary). The sheet measures
+    // holdings with no consumed note credited, so it counts that held note. The note lists its assets, so the
+    // opaque warning stays absent.
     G2b: signingInputsCell('summary', async popup => {
       const verified = popup.locator('[data-testid="tx-asset-view"][data-mode="verified"]');
       await expect(verified).toBeVisible();
-      await expect(verified.locator('[data-verified="true"]').filter({ hasText: /^0\.5 TST$/ })).toHaveCount(1);
+      await expect(verified.getByTestId('tx-held-notes-spent')).toHaveText('1');
+      await expect(popup.getByText(OPAQUE_WARNING)).toHaveCount(0);
     }),
     G2c: signingInputsCell('blind', opaque),
     G3: {

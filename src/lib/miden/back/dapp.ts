@@ -21,7 +21,7 @@ import {
 import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
-import { summaryToView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
+import { summaryToView, toHoldingsView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
 import { noteFlowFromSimulatedBytes, type NoteFlow } from 'app/confirm/note-flow';
 import { toSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import {
@@ -3807,12 +3807,13 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
  * authorization, signed as decoded, so approving one can move the whole balance.
  * The `Arbitrary` / `Blind` variants and `word` are signed under a domain tag
  * (`signBytesInputs`) and never authorize a transaction. The extension decodes it
- * (`SigningInputsPayloadContent` in ConfirmPage) and renders the summary's asset
- * movement; off-extension `signBytes` had no approval sheet at all — it fell into
- * `requestConfirm`'s throw and the dApp's promise never settled (see
- * `confirmOnNonExtension`). These rows are the first thing mobile and desktop show
- * for it, and they are that same decode as text: the summary's real asset movement
- * when the payload carries one, and the explicit opaque-signature warning for the
+ * (`SigningInputsPayloadContent` in ConfirmPage) and renders what leaves the
+ * account's holdings, crediting no consumed note; off-extension `signBytes` had no
+ * approval sheet at all: it fell into `requestConfirm`'s throw and the dApp's
+ * promise never settled (see `confirmOnNonExtension`). These rows are the first
+ * thing mobile and desktop show for it, and they are that same measure as text:
+ * what leaves holdings when the summary can be measured, the opaque-signature
+ * warning when that measure throws, and the explicit opaque-signature warning for the
  * `Arbitrary` / `Blind` variants, for the other `SignKind` (`word`, a raw digest),
  * and for bytes that do not decode at all — mirroring the extension's
  * `OpaqueSignatureWarning`.
@@ -3844,8 +3845,21 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
     return rows;
   }
 
+  // No consumed note is credited: every one counts as already held.
+  let holdings: TxAssetView;
+  try {
+    holdings = toHoldingsView(summaryToView(summary), []);
+  } catch (e) {
+    console.error('[DApp] Could not measure the signing summary holdings for the approval sheet:', e);
+    rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
+    return rows;
+  }
+
   rows.push('Signing, a transaction that moves these assets');
-  rows.push(...(await formatAssetViewRows(summaryToView(summary))));
+  rows.push(...(await formatAssetViewRows(holdings)));
+  if ((holdings.heldNotesSpent ?? 0) > 0) {
+    rows.push(`Includes notes you have not claimed yet, ${holdings.heldNotesSpent}`);
+  }
   return rows;
 }
 
