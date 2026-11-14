@@ -8,6 +8,8 @@
  * Uses isExtension=true to enter requestConfirm.
  */
 
+import { netOutflowByFaucet } from 'app/confirm/decode';
+import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
@@ -157,6 +159,13 @@ jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
 }));
 
+// A custom summary's approval reads the chain fee before it decodes and refuses when that read is unknown.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: async () => 2,
+  isVerificationBaseFeeKnownAbsent: () => false
+}));
+
 // This suite supplies the dry-run view directly so fixture summary bytes are not decoded.
 const mockEmptySimulatedView = {
   outgoing: [],
@@ -166,7 +175,9 @@ const mockEmptySimulatedView = {
   unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 0,
-  storageChanged: false
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: []
 };
 let mockSimulatedView: unknown;
 jest.mock('app/confirm/decode', () => {
@@ -387,7 +398,15 @@ describe('requestConfirm runs an approval once (#1584)', () => {
       unlistedAssets: 0,
       inputNotesConsumed: 0,
       outputNotesCreated: 1,
-      storageChanged: false
+      storageChanged: false,
+      viewConsumedNotes: [],
+      createdNotes: [
+        {
+          id: '0xsent',
+          amounts: [{ faucetId: 'faucet-x', amount: 50n }],
+          nfts: [{ faucetId: 'mtst1nftfaucet', assetId: '0xaa\u2026dd', key: 'nft-key-1' }]
+        }
+      ]
     };
     const { answer, listener, port, confirmation } = await openTransaction();
 
@@ -399,6 +418,62 @@ describe('requestConfirm runs an approval once (#1584)', () => {
     expect(args[6]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
     expect(args[9]).toEqual(['nft-key-1']);
     expect(args[10]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+  });
+
+  /** A summary dry run on faucet-x: the vault nets `net`, consuming `consumed` and creating `sent`, each one note. */
+  const summaryDryRun = (
+    net: bigint,
+    consumed: [string, bigint],
+    sent: [string, bigint],
+    introducedNoteIds: string[]
+  ) => {
+    const note = ([id, amount]: [string, bigint]) => ({ id, amounts: [{ faucetId: 'faucet-x', amount }], nfts: [] });
+    jest
+      .requireMock('./simulate-custom-tx')
+      .simulateCustomTransaction.mockResolvedValueOnce({ summaryBytes: 'confirm-sim-sum', introducedNoteIds });
+    mockSimulatedView = {
+      ...mockEmptySimulatedView,
+      account: 'a1',
+      outgoing: [{ faucetId: 'faucet-x', amount: net }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1,
+      viewConsumedNotes: [note(consumed)],
+      createdNotes: [note(sent)]
+    };
+  };
+
+  const queuedArgs = async ({ answer, listener, port, confirmation }: Awaited<ReturnType<typeof openTransaction>>) => {
+    await listener(confirmation, port);
+    await answer;
+    expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+    const args: unknown[] = requestCustomTransaction.mock.calls[0];
+    return args;
+  };
+
+  it('queues the approved effects with the introduced and the created note ids', async () => {
+    summaryDryRun(50n, ['0xcarried', 50n], ['0xsent', 100n], ['0xcarried']);
+
+    const args = await queuedArgs(await openTransaction());
+
+    expect(args[11]).toMatchObject({ introducedNoteIds: ['0xcarried'], approvedOutputNoteIds: ['0xsent'] });
+  });
+
+  // The sheet shows the measure the approval records: what leaves the holdings, never the vault's net change.
+  it('shows 1050 leaving for a summary that spends a held 1000 and sends 1050, as the approval records', async () => {
+    summaryDryRun(50n, ['0xheld', 1000n], ['0xsent', 1050n], []);
+    const opened = await openTransaction();
+
+    const reply = await opened.listener(
+      { type: MidenMessageType.DAppSimulateTransactionRequest, id: opened.confirmation.id },
+      opened.port
+    );
+    const { view } = fromSimulatedEffectsWire(reply.effects);
+    const args = await queuedArgs(opened);
+
+    expect(view.outgoing).toEqual([{ faucetId: 'faucet-x', amount: 1050n }]);
+    expect(view.heldNotesSpent).toBe(1);
+    expect(args[10]).toEqual(netOutflowByFaucet(view));
+    expect(args[6]).toEqual(netOutflowByFaucet(view));
   });
 
   it('runs the action once when the popup confirms twice while it runs', async () => {
@@ -740,7 +815,9 @@ const simulatedViewFixture = {
   unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 1,
-  storageChanged: false
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'faucet-x', amount: 50n }], nfts: [] }]
 };
 
 describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {

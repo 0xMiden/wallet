@@ -4485,6 +4485,10 @@
     "message": "알 수 없음",
     "englishSource": "Unknown"
   },
+  "includesUnclaimedNotes": {
+    "message": "아직 청구하지 않은 notes를 포함합니다",
+    "englishSource": "Includes notes you have not claimed yet"
+  },
   "inputNotesConsumed": {
     "message": "notes가 소비되었습니다.",
     "englishSource": "Input notes consumed"

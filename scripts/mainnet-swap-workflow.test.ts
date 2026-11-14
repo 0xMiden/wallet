@@ -32,7 +32,12 @@ describe('funded nightly swap workflow', () => {
     expect(build.run).toContain('--outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs');
     expect(build.run).toContain("require('./node_modules/.cache/nightly-epoch-readonly-sdk.cjs')");
     expect(index(name)).toBeGreaterThan(index('Install dependencies'));
-    for (const stage of ['Recover prior mainnet swap', 'Recover prior mainnet Epoch', 'Prepare mainnet solver swap', 'Prepare mainnet Epoch loop']) {
+    for (const stage of [
+      'Recover prior mainnet swap',
+      'Recover prior mainnet Epoch',
+      'Prepare mainnet solver swap',
+      'Prepare mainnet Epoch loop'
+    ]) {
       expect(index(name)).toBeLessThan(index(stage));
     }
   });

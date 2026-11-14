@@ -140,8 +140,8 @@ function customCells(j: Journey, fx: CustomFixtures): Record<string, DappCellImp
             vaultDelta: { [j.tokenFaucetId]: fx.supplied.amount - tst(1.5) },
             toB: [true],
             consumedNullifiers: [fx.supplied.nullifierHex],
-            // Gross on single-sig (1.5 out, 4 in); net on Guardian (+2.5), whose summary nets each faucet.
-            preview: { amount: /^1\.5 TST$/, netAmount: /^2\.5 TST$/, outputNotes: 1 }
+            // The supplied note is the request's own, so it is credited: 4 in, 1.5 out, +2.5 on every account.
+            preview: { amount: /^2\.5 TST$/, outputNotes: 1 }
           },
           ctx
         );
@@ -240,7 +240,8 @@ function customCells(j: Journey, fx: CustomFixtures): Record<string, DappCellImp
             vaultDelta: { [j.tokenFaucetId]: tst(3) - tst(1) },
             toB: [true],
             consumedNullifiers: [held.nullifierHex ?? ''],
-            preview: { amount: /^1 TST$/, netAmount: /^2 TST$/, outputNotes: 1 }
+            // The held note is not credited, so 1 TST leaves on every account and the sheet counts the held note.
+            preview: { amount: /^1 TST$/, heldNotesSpent: 1, outputNotes: 1 }
           },
           ctx
         );

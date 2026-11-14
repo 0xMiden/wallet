@@ -993,6 +993,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "Transakcja ta obejmuje również przeniesienie aktywów, których portfel nie może wyświetlić, takich jak NFT. Kontynuuj tylko wtedy, gdy masz do niej zaufanie.",
   "unknown": "Nieznane",
+  "includesUnclaimedNotes": "Obejmuje to notes, których jeszcze nie odebrałeś",
   "inputNotesConsumed": "Zużycie energii w trybie pracy z podłączonym zasilaczem „notes”",
   "outputNotesCreated": "Wynik: Utworzono plik „notes”",
   "transactionNoteFlow": "Przepływ Note",

@@ -1,4 +1,4 @@
-name: Actual provider bootstrap, lower budget and no-spend bridge plans GREEN
+name: Main signing-effects integration and no-spend provider plans GREEN
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -48,6 +48,8 @@ jobs:
           }
           console.log('Actual installed read-only provider SDK loads for every supported chain; no funded method exposed.');
           NODE
+      - name: Connected SDK, Guardian, native-asset and approval-effect integration
+        run: yarn jest src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/lib/miden/transaction/transactions.guardian-offscreen.test.ts src/lib/miden/swap/test-hooks.test.ts src/lib/miden-chain/native-asset.test.ts src/lib/miden/transaction/proposal-effect-guard.test.ts src/lib/miden/transaction/effect-checked-signer.test.ts --maxWorkers=2 --watch=false
       - name: SDK and mainnet contracts, actual discovery, types and lint
         run: |
           set -euo pipefail
