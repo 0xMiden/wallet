@@ -476,6 +476,32 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     expectWarningThenLine(sheetRows());
   });
 
+  it('still prompts for an Arbitrary payload when the fee read does not know the fee', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValue(null);
+    sdk.SigningInputs = { deserialize: () => ({ variantType: 1 }) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(DECLINED)
+    );
+
+    expectWarningThenLine(sheetRows());
+  });
+
+  it('still prompts for a payload that does not decode when the fee read does not know the fee', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValue(null);
+    sdk.SigningInputs = {
+      deserialize: () => {
+        throw new Error('not signing inputs');
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(DECLINED)
+    );
+
+    expectWarningThenLine(sheetRows());
+  });
+
   it('warns explicitly for a raw `word` digest', async () => {
     await expect(requestSign(DAPP_ORIGIN, signRequest('word'), 'session-1')).rejects.toThrow(DECLINED);
 

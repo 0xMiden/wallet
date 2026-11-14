@@ -170,6 +170,15 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent()
 }));
 
+// The real note flow unless a case makes it fail.
+const mockNoteFlowFromTransaction = jest.fn((transaction: unknown) =>
+  jest.requireActual('app/confirm/note-flow').noteFlowFromTransaction(transaction)
+);
+jest.mock('app/confirm/note-flow', () => ({
+  ...jest.requireActual('app/confirm/note-flow'),
+  noteFlowFromTransaction: (transaction: unknown) => mockNoteFlowFromTransaction(transaction)
+}));
+
 // This suite supplies the dry-run view directly so fixture summary bytes are not decoded.
 const mockEmptySimulatedView = {
   outgoing: [],
@@ -398,11 +407,12 @@ describe('requestSign measures a transaction summary once, before the popup', ()
     );
   });
 
-  it('hands the popup the measured holdings as signingEffects', async () => {
-    summaryConsuming([]);
+  /** The payload the popup this request opened is served, once the request has been auto-declined. */
+  const servedPayload = async () => {
     const answer = sign();
     answer.catch(() => undefined);
     await jest.advanceTimersByTimeAsync(0);
+    expect(browser().windows.create).toHaveBeenCalledTimes(1);
 
     const id: string = browser()
       .windows.create.mock.calls.at(-1)?.[0]
@@ -410,11 +420,50 @@ describe('requestSign measures a transaction summary once, before the popup', ()
     const listener = _g.__dappConfInternals.intercomListeners.at(-1);
     const response = await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, { id: 'p' });
 
-    expect(response.payload.preview).toBeNull();
-    expect(response.payload.signingEffects.view).toMatchObject({ outputNotesCreated: 1, outgoing: [] });
-
     jest.advanceTimersByTime(121_000);
     await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    return response.payload;
+  };
+
+  it('hands the popup the measured holdings as signingEffects', async () => {
+    summaryConsuming([]);
+
+    const payload = await servedPayload();
+
+    expect(payload.preview).toBeNull();
+    expect(payload.signingEffects.view).toMatchObject({ outputNotesCreated: 1, outgoing: [] });
+    expect(payload.signingEffects.noteFlow).toMatchObject({
+      inputCount: 0,
+      outputs: [expect.objectContaining({ id: 'stub-note-1' })]
+    });
+  });
+
+  it('rejects before the popup when reading the note flow traps', async () => {
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw new WebAssembly.RuntimeError('unreachable');
+    });
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.InvalidParams}: RuntimeError: unreachable`)
+    );
+  });
+
+  it('still hands the popup the measured holdings, without a note flow, when the note flow read fails', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw new Error('no note details');
+    });
+    summaryConsuming([]);
+
+    try {
+      const payload = await servedPayload();
+
+      expect(payload.signingEffects.view).toMatchObject({ outputNotesCreated: 1, outgoing: [] });
+      expect(payload.signingEffects).not.toHaveProperty('noteFlow');
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
 
