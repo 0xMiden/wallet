@@ -1,16 +1,17 @@
-name: Eligibility native rate window GREEN
+name: Exact legacy read-only reconciliation RED
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  eligibility:
+  regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,12 +20,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs services/feature-eligibility/staging-probe.test.mjs scripts/feature-eligibility-staging-probe.test.mjs scripts/feature-eligibility-staging-probe-recovery.test.mjs scripts/feature-eligibility-staging-inspect.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
-      - name: Real isolated native rate bindings with full window headroom
-        run: node services/feature-eligibility/run-staging-topology-workerd.mjs
-      - name: Store publishing and production artifact guards
-        run: node --test scripts/store-publishing/*.test.mjs
-      - name: Store artifact archive inspection
-        run: python3 scripts/store-publishing/inspect-artifact.test.py
-      - name: Production Worker bundle dry run, no deployment
-        run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/feature-eligibility/wrangler.jsonc
+      - uses: ./.github/actions/yarn-install
+      - name: Known immutable pre-deposit failure retains older funded swap checkpoint
+        run: yarn jest scripts/mainnet-swap-artifacts.test.ts --maxWorkers=2 --watch=false
