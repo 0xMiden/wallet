@@ -691,6 +691,7 @@
   "gotIt": "D'accord",
   "backUpYourWallet": "Sauvegardez votre portefeuille",
   "recoveryPhraseHidden": "Phrase de récupération masquée",
+  "privateKeyHidden": "Clé privée masquée",
   "show": "Afficher",
   "hide": "Masquer",
   "copied": "Copié",

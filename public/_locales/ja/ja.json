@@ -691,6 +691,7 @@
   "gotIt": "了解しました",
   "backUpYourWallet": "ウォレットのバックアップを取る",
   "recoveryPhraseHidden": "リカバリーフレーズは非表示",
+  "privateKeyHidden": "秘密鍵は非公開",
   "show": "表示",
   "hide": "非表示",
   "copied": "コピーしました",

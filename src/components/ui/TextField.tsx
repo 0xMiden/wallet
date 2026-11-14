@@ -21,6 +21,7 @@ import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { clearFieldValue } from 'lib/ui/clear-field';
+import { handleSecretCopyEvent, selectedFieldText } from 'lib/ui/secret-clipboard';
 import { cn } from 'lib/ui/util';
 
 import { ClearFieldButton } from './ClearFieldButton';
@@ -34,7 +35,7 @@ export type TextFieldElement = HTMLInputElement | HTMLTextAreaElement;
 // `size` variant name collide with nothing we want to expose here.
 type SharedFieldAttrs = Omit<
   InputHTMLAttributes<HTMLInputElement> & TextareaHTMLAttributes<HTMLTextAreaElement>,
-  'onChange' | 'onFocus' | 'onBlur' | 'value' | 'defaultValue' | 'size'
+  'onChange' | 'onFocus' | 'onBlur' | 'onCopy' | 'value' | 'defaultValue' | 'size'
 >;
 
 export interface TextFieldProps extends SharedFieldAttrs {
@@ -46,6 +47,7 @@ export interface TextFieldProps extends SharedFieldAttrs {
   onChange?: (event: React.ChangeEvent<TextFieldElement>) => void;
   onFocus?: (event: React.FocusEvent<TextFieldElement>) => void;
   onBlur?: (event: React.FocusEvent<TextFieldElement>) => void;
+  onCopy?: (event: React.ClipboardEvent<TextFieldElement>) => void;
   /** 13px bold `muted` label above the field, associated to it via `htmlFor`/`id`. */
   label?: ReactNode;
   /** `md` draws the label as the 16px section label (`text-row-title`, Nunito) instead of the 13px one. */
@@ -67,9 +69,15 @@ export interface TextFieldProps extends SharedFieldAttrs {
   /**
    * Key material: cover the value whenever the field is not focused, and give up focus after
    * `SECRET_REVEAL_MS` or as soon as the window loses it. A private key typed, pasted or revealed
-   * is on screen only while someone is deliberately looking at it.
+   * is on screen only while someone is deliberately looking at it. A copy out of the field goes
+   * through the secret clipboard.
    */
   secret?: boolean;
+  /**
+   * `false` keeps every other `secret` guard but drops the cover and the `SECRET_REVEAL_MS` focus
+   * timer, for a caller whose own mask decides when the value is on screen. Defaults to true.
+   */
+  secretCover?: boolean;
   /**
    * `false` keeps the clear button off a field that would otherwise offer it. A field offers one
    * while it holds a value it can edit, unless it has a `trailing` action, is a password or is `secret`.
@@ -162,6 +170,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       trailing,
       leading,
       secret,
+      secretCover = true,
       clearable = true,
       containerClassName,
       className,
@@ -170,6 +179,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       type,
       onFocus,
       onBlur,
+      onCopy,
       // Mirrors `FormField`, which has defaulted this since it was written. A vault secret must
       // not be offered to the browser password manager, and `off` is overridden by browsers on
       // password-TYPE inputs, so a password field needs `new-password` specifically. Callers here
@@ -200,7 +210,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     const [focused, setFocused] = useState(false);
     const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? '');
     const hasValue = value !== undefined ? value !== '' : uncontrolledValue !== '';
-    const covered = Boolean(secret) && hasValue && !focused;
+    const covered = Boolean(secret) && secretCover && hasValue && !focused;
     // One trailing action per field, and none that erases a password or key material in one tap.
     const showClear =
       clearable && hasValue && !trailing && type !== 'password' && !secret && !rest.disabled && !rest.readOnly;
@@ -229,10 +239,10 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     }, [secret]);
 
     useEffect(() => {
-      if (!secret || !focused) return undefined;
+      if (!secret || !secretCover || !focused) return undefined;
       const timer = setTimeout(() => fieldRef.current?.blur(), SECRET_REVEAL_MS);
       return () => clearTimeout(timer);
-    }, [secret, focused]);
+    }, [secret, secretCover, focused]);
 
     // Autofill, form memory, spellcheck and autocorrect would each hand key material to something
     // outside the field (a saved-form store, a dictionary, a spelling service).
@@ -249,6 +259,14 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
         else if (forwardedRef) forwardedRef.current = node;
       },
       [forwardedRef]
+    );
+
+    const handleCopy = useCallback(
+      (event: React.ClipboardEvent<TextFieldElement>) => {
+        onCopy?.(event);
+        if (secret) handleSecretCopyEvent(event.nativeEvent, selectedFieldText(event.currentTarget));
+      },
+      [onCopy, secret]
     );
 
     const handleChange = useCallback(
@@ -309,6 +327,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
               onChange={handleChange}
               onFocus={handleFocus}
               onBlur={handleBlur}
+              onCopy={handleCopy}
               aria-invalid={invalid}
               aria-describedby={describedBy}
               {...textAssist}
@@ -332,6 +351,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
                 onChange={handleChange}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
+                onCopy={handleCopy}
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 {...textAssist}
