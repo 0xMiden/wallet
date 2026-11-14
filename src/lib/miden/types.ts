@@ -147,6 +147,9 @@ export interface MidenDAppSignPayload extends MidenDAppPayloadBase {
   payload: string;
   preview: any;
   kind: SignKind;
+  // The background's one measure of a transaction summary, taken after its fee read. Absent for any other payload;
+  // the popup never measures a summary itself.
+  signingEffects?: SimulatedEffectsWire;
 }
 
 // A sign-in with `accountId`'s login key for `domain`, the registrable domain read from `origin`.
