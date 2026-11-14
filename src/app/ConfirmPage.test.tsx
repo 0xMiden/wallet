@@ -1159,7 +1159,7 @@ describe('sign payload — signingInputs', () => {
     expect(shown.noteFlow).toEqual(noteFlow);
   });
 
-  it('counts a consumed note that lists its assets as leaving holdings', () => {
+  it("shows the background's held-note count and outgoing amount without decoding", () => {
     setPayload({
       ...siPayload(),
       signingEffects: toSimulatedEffectsWire(
@@ -1206,29 +1206,36 @@ describe('sign payload — signingInputs', () => {
     expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
   });
 
-  it('renders an opaque-signature warning when a consumed note does not list its assets', () => {
+  it('shows a summary with no background measure as unmeasured even when that summary lists its assets', () => {
+    bech32ById();
     setPayload(siPayload());
-    mockSigningInputs.deserialize.mockReturnValue(
-      transactionSummary({
-        inputs: [
-          {
-            id: () => ({ toString: () => 'opaque-note' }),
-            note: () => ({ assets: () => undefined })
-          }
-        ]
-      })
-    );
+    const decoded = transactionSummary({
+      removed: [makeAsset('X', 1000)],
+      inputs: [
+        {
+          id: () => ({ toString: () => 'held-note' }),
+          note: () => ({
+            assets: () => ({
+              fungibleAssets: () => [makeAsset('X', 1000)],
+              nonFungibleAssets: () => []
+            })
+          })
+        }
+      ]
+    });
+    const transactionSummaryPayload = jest.fn(decoded.transactionSummaryPayload);
+    mockSigningInputs.deserialize.mockReturnValue({ ...decoded, transactionSummaryPayload });
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
     expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
     expect(mockTransactionAssetView).not.toHaveBeenCalled();
+    expect(transactionSummaryPayload).not.toHaveBeenCalled();
   });
 
-  it('renders a TransactionSummary with an empty vault and empty storage', () => {
+  it("shows the background's empty holdings without decoding", () => {
     setPayload({ ...siPayload(), signingEffects: toSimulatedEffectsWire(measuredView()) });
-    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ vaultEmpty: true, storageEmpty: true }));
     render(<ConfirmPage />);
 
     const assetView = screen.getByTestId('asset-view');
@@ -1241,17 +1248,27 @@ describe('sign payload — signingInputs', () => {
     expect(view.storageChanged).toBe(false);
   });
 
-  it('downloads the full summary binary when the download button is clicked', async () => {
+  it('downloads the signing-inputs bytes as transaction_summary.bin without decoding', async () => {
     setPayload({ ...siPayload(), signingEffects: toSimulatedEffectsWire(measuredView()) });
-    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ vaultEmpty: true, storageEmpty: true }));
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByText('downloadFullSummary')).toBeInTheDocument());
     expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('downloadFullSummary'));
 
-    expect(createObjSpy).toHaveBeenCalled();
-    expect(clickSpy).toHaveBeenCalled();
+    const anchor: HTMLAnchorElement = clickSpy.mock.contexts[0];
+    expect(anchor.download).toBe('transaction_summary.bin');
+    const blob: Blob = createObjSpy.mock.calls[0][0];
+    const downloaded = await new Promise<Buffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result instanceof ArrayBuffer) resolve(Buffer.from(reader.result));
+        else reject(new Error('expected the download blob to read as bytes'));
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(blob);
+    });
+    expect(downloaded).toEqual(Buffer.from(b64('signing-bytes'), 'base64'));
     // The revoke is scheduled on a 0ms timeout after the click.
     await waitFor(() => expect(revokeObjSpy).toHaveBeenCalled());
   });
