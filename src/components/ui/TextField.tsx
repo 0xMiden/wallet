@@ -71,6 +71,11 @@ export interface TextFieldProps extends SharedFieldAttrs {
    */
   secret?: boolean;
   /**
+   * `false` keeps every other `secret` guard but drops the cover and the `SECRET_REVEAL_MS` focus
+   * timer, for a caller whose own mask decides when the value is on screen. Defaults to true.
+   */
+  secretCover?: boolean;
+  /**
    * `false` keeps the clear button off a field that would otherwise offer it. A field offers one
    * while it holds a value it can edit, unless it has a `trailing` action, is a password or is `secret`.
    */
@@ -162,6 +167,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       trailing,
       leading,
       secret,
+      secretCover = true,
       clearable = true,
       containerClassName,
       className,
@@ -200,7 +206,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     const [focused, setFocused] = useState(false);
     const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? '');
     const hasValue = value !== undefined ? value !== '' : uncontrolledValue !== '';
-    const covered = Boolean(secret) && hasValue && !focused;
+    const covered = Boolean(secret) && secretCover && hasValue && !focused;
     // One trailing action per field, and none that erases a password or key material in one tap.
     const showClear =
       clearable && hasValue && !trailing && type !== 'password' && !secret && !rest.disabled && !rest.readOnly;
@@ -229,10 +235,10 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     }, [secret]);
 
     useEffect(() => {
-      if (!secret || !focused) return undefined;
+      if (!secret || !secretCover || !focused) return undefined;
       const timer = setTimeout(() => fieldRef.current?.blur(), SECRET_REVEAL_MS);
       return () => clearTimeout(timer);
-    }, [secret, focused]);
+    }, [secret, secretCover, focused]);
 
     // Autofill, form memory, spellcheck and autocorrect would each hand key material to something
     // outside the field (a saved-form store, a dictionary, a spelling service).

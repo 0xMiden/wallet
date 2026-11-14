@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
@@ -965,6 +966,25 @@ describe('RevealSeedPhrase', () => {
     });
     expect(mockHapticLight).toHaveBeenCalled();
     expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'alpha beta gamma delta' });
+  });
+
+  // Only a revealed private key hides itself after SECRET_REVEAL_MS; a phrase is being written down.
+  it('keeps a shown phrase on screen past SECRET_REVEAL_MS', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
+    const container = await renderAndView();
+    jest.useFakeTimers();
+    try {
+      await pressShow(container);
+      await act(async () => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+      });
+
+      expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+      expect(container.querySelector('[data-testid="seed-reveal-toggle"]')!.textContent).toContain('hide');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('shows the "copied" state once the write lands (the shared glyph morphed to a check + the label rolled to copied)', async () => {

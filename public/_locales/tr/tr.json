@@ -691,6 +691,7 @@
   "gotIt": "Anladım",
   "backUpYourWallet": "Cüzdanınızı yedekleyin",
   "recoveryPhraseHidden": "Gizlenmiş kurtarma ifadesi",
+  "privateKeyHidden": "Gizli özel anahtar",
   "show": "Göster",
   "hide": "Gizle",
   "copied": "Kopyalandı",

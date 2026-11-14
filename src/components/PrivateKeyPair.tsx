@@ -4,11 +4,12 @@ import QRCodeStyling from 'qr-code-styling';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { MaskedSecretBox } from 'components/ui/SeedPhraseGrid';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 /** Kept separate from address QR encoding: no prefix or plaintext DOM attribute. */
-export function PrivateKeyPair({ payload }: { payload: string }) {
+export function PrivateKeyPair({ payload, masked = false }: { payload: string; masked?: boolean }) {
   const { t } = useTranslation();
   const [textMode, setTextMode] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -17,7 +18,7 @@ export function PrivateKeyPair({ payload }: { payload: string }) {
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || textMode) return;
+    if (!container || textMode || masked) return;
     const qr = new QRCodeStyling({
       type: 'canvas',
       width: 260,
@@ -32,7 +33,7 @@ export function PrivateKeyPair({ payload }: { payload: string }) {
     return () => {
       container.replaceChildren();
     };
-  }, [payload, textMode]);
+  }, [payload, textMode, masked]);
 
   if (!pair) return <p role="alert">{t('importHotKeyInvalid')}</p>;
   const fields = [
@@ -42,7 +43,10 @@ export function PrivateKeyPair({ payload }: { payload: string }) {
   return (
     <div className="flex flex-1 min-h-0 overflow-y-auto flex-col items-center gap-6 pt-6">
       <p className="text-sm text-text-secondary-token">{t('privateKeyPairWarning')}</p>
-      {textMode ? (
+      {masked ? (
+        // The keys and the QR are left out of the DOM entirely, as the masked recovery phrase is.
+        <MaskedSecretBox label={t('privateKeyHidden')} className="h-[260px]" />
+      ) : textMode ? (
         <div key="text" className="flex w-full flex-col gap-4">
           {fields.map(field => (
             <div key={field.id} className="flex flex-col gap-2">
@@ -69,12 +73,14 @@ export function PrivateKeyPair({ payload }: { payload: string }) {
           className="bg-pure-white rounded-lg"
         />
       )}
-      <Button
-        variant={ButtonVariant.Secondary}
-        className="mt-auto w-full mb-6"
-        title={t(textMode ? 'showQrCode' : 'showPrivateKeyText')}
-        onClick={() => setTextMode(value => !value)}
-      />
+      {!masked && (
+        <Button
+          variant={ButtonVariant.Secondary}
+          className="mt-auto w-full mb-6"
+          title={t(textMode ? 'showQrCode' : 'showPrivateKeyText')}
+          onClick={() => setTextMode(value => !value)}
+        />
+      )}
     </div>
   );
 }

@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
+
 import { BackUpSeedPhraseScreen } from './BackUpSeedPhrase';
 
 // ---------------------------------------------------------------------------
@@ -299,6 +301,21 @@ describe('BackUpSeedPhraseScreen', () => {
 
       expect(screen.queryAllByTestId(/^seed-word-\d+$/)).toHaveLength(0);
       expect(screen.getByTestId('btn-show')).toBeInTheDocument();
+    });
+
+    // Only a revealed private key hides itself on a timer; a phrase is being written down.
+    it('off mobile shown words stay on screen past SECRET_REVEAL_MS', () => {
+      jest.useFakeTimers();
+      try {
+        renderComponent();
+        fireEvent.click(screen.getByTestId('btn-show'));
+        act(() => {
+          jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+        });
+        expect(screen.getByTestId('seed-word-0')).toHaveTextContent('alpha');
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('on mobile the hidden words stay blurred text and a window blur does not hide them', () => {

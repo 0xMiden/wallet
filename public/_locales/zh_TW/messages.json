@@ -3227,6 +3227,10 @@
     "message": "備用密句已隱藏",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "私鑰隱藏",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "顯示",
     "englishSource": "Show"

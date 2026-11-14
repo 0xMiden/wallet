@@ -2,7 +2,13 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero, SeedRevealToggle } from './SeedPhraseGrid';
+import {
+  MaskedSecretBox,
+  SeedPhraseGrid,
+  SeedPhrasePlaceholder,
+  SeedPhrasePrivacyHero,
+  SeedRevealToggle
+} from './SeedPhraseGrid';
 
 let mockIsMobile = false;
 jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile, isDesktop: () => false }));
@@ -32,6 +38,19 @@ it('draws twelve blank bars for the placeholder, hidden from assistive tech', ()
   // The placeholder shows no words at all.
   expect(card.textContent).toBe('');
   expect(card.querySelector('[data-testid^="seed-word-"]')).toBeNull();
+});
+
+it('draws one bar for a masked secret, named for assistive tech, with no text', () => {
+  render(<MaskedSecretBox label="privateKeyHidden" className="h-[108px]" data-testid="mask" />);
+
+  const box = screen.getByTestId('mask');
+  expect(box).toHaveAttribute('role', 'group');
+  expect(box).toHaveAttribute('aria-label', 'privateKeyHidden');
+  expect(box).toHaveAttribute('data-masked', 'true');
+  expect(box).toHaveAttribute('data-slot', 'masked-secret');
+  expect(box).toHaveClass('rounded-lg-token', 'bg-fill', 'h-[108px]');
+  expect(box.querySelectorAll('[aria-hidden="true"]')).toHaveLength(1);
+  expect(box.textContent).toBe('');
 });
 
 it('names the privacy warning both screens open on', () => {
