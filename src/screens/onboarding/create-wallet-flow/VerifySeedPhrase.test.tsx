@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, render, screen, fireEvent } from '@testing-library/react';
 
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
@@ -421,6 +422,21 @@ describe('on mobile the quiz words are present with no Show control', () => {
 });
 
 describe('off mobile the quiz words stay out of the DOM until Show', () => {
+  // Only a revealed private key hides itself on a timer; a phrase is being written down.
+  it('keeps shown quiz words on screen past SECRET_REVEAL_MS', () => {
+    jest.useFakeTimers();
+    try {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
+      act(() => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+      });
+      expect(screen.getByTestId('verify-quiz-word-0')).toHaveTextContent('w0');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('omits the words until Show, and a window blur removes them again', () => {
     render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
     expect(screen.queryByText('w0')).toBeNull();

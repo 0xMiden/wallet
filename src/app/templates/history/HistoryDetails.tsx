@@ -100,6 +100,7 @@ import {
   labelHistoryEntry,
   swapSettlementOf
 } from './transactionUtils';
+import { useEpochReturnState } from './useEpochReturnState';
 import { usePaybackClaimState } from './usePaybackClaimState';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 import { useTransactionActions } from './useTransactionActions';
@@ -609,6 +610,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // strings. Shared with `SwapDetail`, which renders the swap branch of this same
   // page - see `useTransactionActions`.
   const actions = useTransactionActions(transactionId, entry, transaction, guardianHoldUntil);
+  const epochReturn = useEpochReturnState(
+    entry,
+    transaction?.accountId ?? account?.publicKey ?? '',
+    transaction?.restoredFromBackup === true
+  );
   const { canCancel, canRetry, earnRetryKind, acknowledgement } = actions;
   const heldByGuardian = guardianHoldUntil !== undefined;
 
@@ -924,7 +930,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <StatusBadge
                     size="md"
                     live
-                    status={entry.isUnconfirmed ? 'unconfirmed' : bridgeBadgeStatusOf(entry)}
+                    status={epochReturn.status ?? (entry.isUnconfirmed ? 'unconfirmed' : bridgeBadgeStatusOf(entry))}
                     data-testid="history-status-pill"
                   />
                 ) : isEarnWithdraw && earnWithdraw ? (
@@ -1382,6 +1388,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   restoredFromBackup={transaction?.restoredFromBackup === true}
                   destinationTxHash={entry.usdcxBurn?.payout?.transactionHash ?? usdcxDestinationTxHash}
                   sentAmount={transaction?.amount}
+                  epochReturn={epochReturn}
                 />
               </>
             )}

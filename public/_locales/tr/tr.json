@@ -691,6 +691,7 @@
   "gotIt": "Anladım",
   "backUpYourWallet": "Cüzdanınızı yedekleyin",
   "recoveryPhraseHidden": "Gizlenmiş kurtarma ifadesi",
+  "privateKeyHidden": "Gizli özel anahtar",
   "show": "Göster",
   "hide": "Gizle",
   "copied": "Kopyalandı",
@@ -993,6 +994,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "Bu işlem ayrıca, NFT gibi cüzdanın listeleyemediği bir varlığı da aktarır. Yalnızca güvendiğiniz takdirde devam edin.",
   "unknown": "Bilinmiyor",
+  "includesUnclaimedNotes": "Henüz talep etmediğiniz notes'u içerir",
   "inputNotesConsumed": "notes'lık girdi tüketildi",
   "outputNotesCreated": "Çıktı note'ları oluşturuldu",
   "transactionNoteFlow": "Note akışı",
@@ -1908,5 +1910,16 @@
   "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin.",
   "autoLock": "Otomatik kilitleme",
   "autoLockDescription": "Cüzdan bu kadar uzun süre arka planda kaldığında kilitlenir.",
-  "autoLockMinutes": "$minutes$ dakika"
+  "autoLockMinutes": "$minutes$ dakika",
+  "epochAwaitingReturn": "Geri Dönüş Bekleniyor",
+  "epochReadyToClaim": "Talep Etmeye Hazır",
+  "epochReturningFunds": "Fonların İadesi",
+  "epochFundsReturned": "İade Edilen Fonlar",
+  "epochReturnWaiting": "Paralarınız Miden'de kalır. $block$ blokundan sonra bu paraları talep edebilirsiniz.",
+  "epochReturnReady": "Paralarınızı geri almak için talepte bulunun ve cüzdanınıza aktarın.",
+  "epochReturnPending": "Paralarınız cüzdanınıza iade ediliyor.",
+  "epochReturnDone": "Paralarınız cüzdanınıza geri döndü.",
+  "epochReturnPaid": "Hedef adresinize gönderilen fonlar.",
+  "epochReturnSpent": "Bu note kullanıldı, ancak ödeme henüz onaylanmadı. Hedefinizi ve Miden bakiyenizi kontrol edin.",
+  "epochReturnUnavailable": "Para durumunu kontrol edilemiyor. Lütfen tekrar deneyin."
 }

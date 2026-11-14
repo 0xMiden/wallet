@@ -7,6 +7,7 @@ import {
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { v4 as uuid } from 'uuid';
 
+import { getMessage } from 'lib/i18n/core';
 import {
   clearGuardianServiceFor,
   getOrCreateMultisigService,
@@ -62,7 +63,11 @@ import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } from 'lib/miden/swap/balance';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import {
+  getNativeAssetId,
+  isVerificationBaseFeeKnownAbsent,
+  refreshVerificationBaseFee
+} from 'lib/miden-chain/native-asset';
 import { beginBackgroundExecution } from 'lib/mobile/background-execution';
 import { setRunningTimeout } from 'lib/mobile/background-time';
 import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
@@ -4239,6 +4244,18 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
+      // The dry run below and the proposal summary both tell a kernel fee note from a user note by the cached chain
+      // fee, so a note within FEE_RESERVE_MULTIPLE of that fee is the fee. Read it before the dry run, and so before
+      // a proposal takes a nonce. A null while the read failed is not an answer: refuse here, outside the
+      // post-proposal try, so nothing is proposed and no nonce is abandoned. A number, 0 included, and a null the
+      // probe found absent, both continue; both checks then read the cache this filled. The signing check still
+      // refreshes after the candidate exists, and a fresh read returns this same cache.
+      if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
+        const chainFee = await refreshVerificationBaseFee();
+        if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) {
+          throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
+        }
+      }
       let preparedBytes: Uint8Array;
       let observedDiagnostics: ITransaction['failureDiagnostics'];
       const attemptId = transaction.attemptId;

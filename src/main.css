@@ -4,9 +4,10 @@
 
 /* #503 — native-app feel: UI chrome (labels, buttons, badges, nav) is not
    text-selectable. Content meant to be copyable opts back in — real inputs, and
-   anything tagged `.select-text` (addresses, seed reveal, error/tx detail
-   strings already use it). Only `user-select` is touched, so the paste/lookup
-   callout on inputs is unaffected.
+   anything tagged `.select-text` (addresses, error/tx detail strings already
+   use it). Recovery phrases stay unselectable: they are copied only through
+   `useClipboardCopy(text, { secret: true })`. Only `user-select` is touched, so
+   the paste/lookup callout on inputs is unaffected.
    NOTE: these rules are intentionally UNLAYERED (declared before
    `@import 'tailwindcss'` below), so they win over Tailwind's layered
    utilities. A bare Tailwind `select-all`/`select-text` class would LOSE to

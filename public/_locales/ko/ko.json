@@ -691,6 +691,7 @@
   "gotIt": "알겠습니다",
   "backUpYourWallet": "지갑을 백업하세요",
   "recoveryPhraseHidden": "복구 문구 숨김",
+  "privateKeyHidden": "비공개 키 숨김",
   "show": "표시",
   "hide": "숨기기",
   "copied": "복사됨",
@@ -993,6 +994,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "이 거래는 또한 NFT와 같이 지갑에서 목록으로 표시할 수 없는 자산을 이동시킵니다. 신뢰할 수 있는 경우에만 진행하십시오.",
   "unknown": "알 수 없음",
+  "includesUnclaimedNotes": "아직 청구하지 않은 notes를 포함합니다",
   "inputNotesConsumed": "notes가 소비되었습니다.",
   "outputNotesCreated": "notes 파일이 생성되었습니다.",
   "transactionNoteFlow": "Note 흐름",
@@ -1910,5 +1912,16 @@
   "arcadePostingPolicy": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요.",
   "autoLock": "자동 잠금",
   "autoLockDescription": "이 정도 시간 동안 백그라운드 상태로 있으면 지갑을 잠급니다.",
-  "autoLockMinutes": "$minutes$분"
+  "autoLockMinutes": "$minutes$분",
+  "epochAwaitingReturn": "반환 대기 중",
+  "epochReadyToClaim": "청구 준비 완료",
+  "epochReturningFunds": "자금 반환",
+  "epochFundsReturned": "환불된 자금",
+  "epochReturnWaiting": "귀하의 자금은 Miden에 그대로 남아 있습니다. 블록 $block$ 이후에 자금을 인출할 수 있습니다.",
+  "epochReturnReady": "자금을 청구하여 지갑으로 되돌리십시오.",
+  "epochReturnPending": "귀하의 자금이 지갑으로 반환되고 있습니다.",
+  "epochReturnDone": "자금이 지갑으로 반환되었습니다.",
+  "epochReturnPaid": "수취인에게 자금이 송금되었습니다.",
+  "epochReturnSpent": "이 note는 사용되었으나, 지급은 아직 확인되지 않았습니다. 수취처와 Miden 잔액을 확인해 주십시오.",
+  "epochReturnUnavailable": "자금 상태를 확인할 수 없습니다. 다시 시도해 주십시오."
 }

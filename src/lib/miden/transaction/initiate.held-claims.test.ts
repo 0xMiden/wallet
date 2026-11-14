@@ -21,7 +21,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: async () => 'native-faucet',
-  getVerificationBaseFee: async () => null
+  getVerificationBaseFee: async () => null,
+  refreshVerificationBaseFee: async () => null
 }));
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: {

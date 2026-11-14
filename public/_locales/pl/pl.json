@@ -691,6 +691,7 @@
   "gotIt": "Rozumiem",
   "backUpYourWallet": "Utwórz kopię zapasową portfela",
   "recoveryPhraseHidden": "Ukryta fraza odzyskiwania",
+  "privateKeyHidden": "Klucz prywatny ukryty",
   "show": "Pokaż",
   "hide": "Ukryj",
   "copied": "Skopiowano",
@@ -992,6 +993,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "Transakcja ta obejmuje również przeniesienie aktywów, których portfel nie może wyświetlić, takich jak NFT. Kontynuuj tylko wtedy, gdy masz do niej zaufanie.",
   "unknown": "Nieznane",
+  "includesUnclaimedNotes": "Obejmuje to notes, których jeszcze nie odebrałeś",
   "inputNotesConsumed": "Zużycie energii w trybie pracy z podłączonym zasilaczem „notes”",
   "outputNotesCreated": "Wynik: Utworzono plik „notes”",
   "transactionNoteFlow": "Przepływ Note",
@@ -1908,5 +1910,15 @@
   "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji.",
   "autoLock": "Automatyczna blokada",
   "autoLockDescription": "Blokuje portfel, gdy pozostaje on w tle przez tak długi czas.",
-  "autoLockMinutes": "$minutes$ min"
+  "autoLockMinutes": "$minutes$ min",
+  "epochAwaitingReturn": "Oczekiwanie na zwrot",
+  "epochReadyToClaim": "Gotowy do odebrania",
+  "epochReturningFunds": "Zwrot środków",
+  "epochFundsReturned": "Zwrócone środki",
+  "epochReturnWaiting": "Twoje środki pozostają na platformie Miden. Możesz je odebrać po bloku $block$.",
+  "epochReturnReady": "Odbierz swoje środki, aby przywrócić je do swojego portfela.",
+  "epochReturnPending": "Twoje środki są zwracane do Twojego portfela.",
+  "epochReturnDone": "Twoje środki powróciły do Twojego portfela.",
+  "epochReturnPaid": "Środki wysłane do miejsca docelowego.",
+  "epochReturnUnavailable": "Nie można sprawdzić stanu środków. Spróbuj ponownie."
 }

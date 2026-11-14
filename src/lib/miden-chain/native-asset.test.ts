@@ -98,6 +98,8 @@ import {
   primeNativeAssetId,
   resetNativeAssetCache,
   getVerificationBaseFee,
+  refreshVerificationBaseFee,
+  CHAIN_FEE_MAX_AGE_MS,
   getVerificationBaseFeeSync,
   isVerificationBaseFeeKnownAbsent,
   getClaimFloorBaseFee,
@@ -1296,5 +1298,143 @@ describe('publication acknowledgment recovery', () => {
       jest.clearAllTimers();
       jest.useRealTimers();
     }
+  });
+});
+
+describe('refreshVerificationBaseFee', () => {
+  let now = 1_000_000;
+  const feeHeader = (read: () => number) => ({ feeFaucetId: () => ({ _id: 'native-acc' }), verificationBaseFee: read });
+
+  beforeEach(() => {
+    now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it("reads the header again once this realm's last read is older than the limit", async () => {
+    let fee = 2;
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => fee);
+    await expect(refreshVerificationBaseFee()).resolves.toBe(2);
+    fee = 0;
+    now += CHAIN_FEE_MAX_AGE_MS + 1;
+    await expect(refreshVerificationBaseFee()).resolves.toBe(0);
+    expect(getVerificationBaseFeeSync()).toBe(0);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(2);
+  });
+
+  it('returns the cached fee without a header read inside the limit', async () => {
+    let fee = 2;
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => fee);
+    await refreshVerificationBaseFee();
+    fee = 0;
+    now += CHAIN_FEE_MAX_AGE_MS;
+    await expect(refreshVerificationBaseFee()).resolves.toBe(2);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+  });
+
+  it('re-reads a fee hydrated from storage, which this realm never read itself', async () => {
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'bech32-native-acc';
+    _g.__nativeAssetTest.storage['native_asset_fee:v2:rpc-testnet|testnet'] = {
+      faucetId: 'bech32-native-acc',
+      baseFee: 2
+    };
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 0);
+    await expect(refreshVerificationBaseFee()).resolves.toBe(0);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+  });
+
+  it('returns null on a failed re-read and keeps the old cached fee for other readers', async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 2);
+    await refreshVerificationBaseFee();
+    _g.__nativeAssetTest.deferHeader = Promise.reject(new Error('rpc down'));
+    now += CHAIN_FEE_MAX_AGE_MS + 1;
+    await expect(refreshVerificationBaseFee()).resolves.toBeNull();
+    expect(getVerificationBaseFeeSync()).toBe(2);
+  });
+
+  it('keeps the old cached fee when the header arrives but its fee read throws', async () => {
+    let throws = false;
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => {
+      if (throws) throw new Error('trap');
+      return 2;
+    });
+    await refreshVerificationBaseFee();
+    throws = true;
+    now += CHAIN_FEE_MAX_AGE_MS + 1;
+    await expect(refreshVerificationBaseFee()).resolves.toBeNull();
+    expect(getVerificationBaseFeeSync()).toBe(2);
+  });
+
+  it('shares one header read with a concurrent getVerificationBaseFee', async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 2);
+    const [refreshed, plain] = await Promise.all([refreshVerificationBaseFee(), getVerificationBaseFee()]);
+    expect(refreshed).toBe(2);
+    expect(plain).toBe(2);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+  });
+
+  it('reads through the display cooldown a failed read armed', async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => {
+      throw new Error('down');
+    });
+    await expect(refreshVerificationBaseFee()).resolves.toBeNull();
+    const afterFailure = _g.__nativeAssetTest.rpcCalls;
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFailure);
+
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 11);
+    await expect(refreshVerificationBaseFee()).resolves.toBe(11);
+    expect(_g.__nativeAssetTest.rpcCalls).toBeGreaterThan(afterFailure);
+  });
+
+  it('joins a successful in-flight read during the display cooldown and returns that fee', async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => {
+      throw new Error('down');
+    });
+    await expect(refreshVerificationBaseFee()).resolves.toBeNull();
+
+    let release!: (header: { verificationBaseFee: () => number }) => void;
+    _g.__nativeAssetTest.deferHeader = new Promise(resolve => {
+      release = resolve;
+    });
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 9);
+    const before = _g.__nativeAssetTest.rpcCalls;
+    const first = refreshVerificationBaseFee();
+    for (let i = 0; i < 20 && _g.__nativeAssetTest.rpcCalls === before; i++) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(before + 1);
+    const second = refreshVerificationBaseFee();
+    release({ verificationBaseFee: () => 9 });
+    await expect(Promise.all([first, second])).resolves.toEqual([9, 9]);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(before + 1);
+    await expect(getVerificationBaseFee()).resolves.toBe(9);
+  });
+
+  it("keeps this realm's read when storage carries another fee while that read is fresh", async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 4);
+    await expect(refreshVerificationBaseFee()).resolves.toBe(4);
+    const faucetId = getNativeAssetIdSync();
+    const listener = _g.__nativeAssetTest.storageListeners.get('native_asset_fee:v2:rpc-testnet|testnet');
+    expect(listener).toEqual(expect.any(Function));
+    listener?.({ faucetId, baseFee: 9 });
+    expect(getVerificationBaseFeeSync()).toBe(4);
+    await expect(refreshVerificationBaseFee()).resolves.toBe(4);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+
+    now += CHAIN_FEE_MAX_AGE_MS + 1;
+    listener?.({ faucetId, baseFee: 9 });
+    expect(getVerificationBaseFeeSync()).toBe(9);
+  });
+
+  it('returns null from a failed read even when an older fee is cached', async () => {
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => 2);
+    await refreshVerificationBaseFee();
+    now += CHAIN_FEE_MAX_AGE_MS + 1;
+    _g.__nativeAssetTest.rpcHeader = feeHeader(() => {
+      throw new Error('down');
+    });
+    await expect(refreshVerificationBaseFee()).resolves.toBeNull();
+    expect(getVerificationBaseFeeSync()).toBe(2);
   });
 });

@@ -1,11 +1,6 @@
 import { simulatedBytesToView, type TxAssetView } from 'app/confirm/decode';
 import { noteFlowFromSimulatedBytes } from 'app/confirm/note-flow';
 import { SpendingLimitAssessmentDetails } from 'lib/miden/spending-limits/queue';
-import {
-  TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
-  TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
-  TRANSACTION_VAULT_SHORTFALL_ERROR
-} from 'lib/miden/transaction/constants';
 import { MidenDAppSimulateTransactionRequest, MidenMessageType } from 'lib/miden/types';
 
 import { buildCustomTxConfirmPayload, makeSimulateHandler } from './dapp';
@@ -13,6 +8,12 @@ import { simulateCustomTransaction } from './simulate-custom-tx';
 
 jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
+}));
+// A custom summary's approval reads the chain fee before it decodes and refuses when that read is unknown.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: async () => 2,
+  isVerificationBaseFeeKnownAbsent: () => false
 }));
 jest.mock('app/confirm/decode', () => ({
   ...jest.requireActual('app/confirm/decode'),
@@ -142,7 +143,24 @@ describe('makeSimulateHandler', () => {
     id: 'confirm-id'
   };
 
+  /** What the approval measured from the holdings: a held 1000 spent, so 1050 leaves where the vault nets 50. */
+  const approvedView = (): TxAssetView => ({
+    ...decodedView(),
+    outgoing: [{ faucetId: 'fA', amount: 1050n }],
+    inputNotesConsumed: 1,
+    viewConsumedNotes: [{ id: '0xheld', amounts: [{ faucetId: 'fA', amount: 1000n }], nfts: [] }],
+    createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'fA', amount: 1050n }], nfts: [] }],
+    heldNotesSpent: 1
+  });
+  const approvedWireView = {
+    ...wireView,
+    outgoing: [{ faucetId: 'fA', amount: '1050' }],
+    inputNotesConsumed: 1,
+    heldNotesSpent: 1
+  };
+
   beforeEach(() => {
+    jest.mocked(simulateCustomTransaction).mockClear();
     jest
       .mocked(simulatedBytesToView)
       .mockReset()
@@ -150,38 +168,30 @@ describe('makeSimulateHandler', () => {
     jest.mocked(noteFlowFromSimulatedBytes).mockReset().mockReturnValue(undefined);
   });
 
-  it('responds to a matching simulate request with the summary, no throw', async () => {
-    const handler = makeSimulateHandler('confirm-id', customTx as any);
-    const out = await handler({ type: MidenMessageType.DAppSimulateTransactionRequest, id: 'confirm-id' } as any);
-    expect(simulateCustomTransaction).toHaveBeenCalledWith({
-      address: 'mtst1sender',
-      transactionRequest: 'reqB64',
-      importNotes: ['noteB64']
-    });
-    expect(simulatedBytesToView).toHaveBeenCalledWith({ summaryBytes: 'sumB64' });
+  it('answers with the approval view it is given, never simulating or decoding the view again', async () => {
+    const out = await makeSimulateHandler('confirm-id', approvedView(), { summaryBytes: 'sumB64' })(simulateRequest);
+
     expect(out).toEqual({
       type: MidenMessageType.DAppSimulateTransactionResponse,
-      effects: { view: wireView }
+      effects: { view: approvedWireView }
     });
+    expect(simulateCustomTransaction).not.toHaveBeenCalled();
+    expect(simulatedBytesToView).not.toHaveBeenCalled();
   });
 
-  it('answers an executed dry run with its decoded effects and never the executed transaction', async () => {
-    jest
-      .mocked(simulateCustomTransaction)
-      .mockResolvedValueOnce({ executedBytes: 'execB64', introducedCredit: [], introducedCount: 0 });
+  it("carries the dry run's note flow beside the view and never the dry-run bytes", async () => {
     jest.mocked(noteFlowFromSimulatedBytes).mockReturnValueOnce({
       inputCount: 0,
       inputs: [],
       outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId: 'fA', amount: 500n }] }]
     });
 
-    const out = await makeSimulateHandler('confirm-id', customTx)(simulateRequest);
+    const out = await makeSimulateHandler('confirm-id', decodedView(), { executedBytes: 'execB64' })(simulateRequest);
 
-    expect(simulatedBytesToView).toHaveBeenCalledWith(expect.objectContaining({ executedBytes: 'execB64' }));
-    expect(out?.effects?.view.outgoing).toEqual([{ faucetId: 'fA', amount: '500' }]);
+    expect(noteFlowFromSimulatedBytes).toHaveBeenCalledWith({ executedBytes: 'execB64' });
+    expect(out?.effects?.view).toEqual(wireView);
     expect(out?.effects?.noteFlow?.outputs[0]?.assets).toEqual([{ faucetId: 'fA', amount: '500' }]);
     expect(out).not.toHaveProperty('executedBytes');
-    expect(out).not.toHaveProperty('summaryBytes');
     expect(JSON.stringify(out)).not.toContain('execB64');
   });
 
@@ -192,7 +202,7 @@ describe('makeSimulateHandler', () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
     try {
-      const out = await makeSimulateHandler('confirm-id', customTx)(simulateRequest);
+      const out = await makeSimulateHandler('confirm-id', decodedView(), { summaryBytes: 'sumB64' })(simulateRequest);
 
       expect(out).toEqual({ type: MidenMessageType.DAppSimulateTransactionResponse, effects: { view: wireView } });
       expect(out?.effects).not.toHaveProperty('noteFlow');
@@ -202,102 +212,24 @@ describe('makeSimulateHandler', () => {
     }
   });
 
-  it('answers an error and no effects when the dry run cannot be decoded', async () => {
-    jest.mocked(simulatedBytesToView).mockImplementationOnce(() => {
-      throw new Error('bad summary bytes');
+  it('answers an error and no effects when it has no approval view', async () => {
+    const out = await makeSimulateHandler('confirm-id', undefined, { summaryBytes: 'sumB64' })(simulateRequest);
+
+    expect(out).toEqual({
+      type: MidenMessageType.DAppSimulateTransactionResponse,
+      error: 'the request has no approved effects to show'
     });
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-
-    try {
-      const thrown = await makeSimulateHandler('confirm-id', customTx)(simulateRequest);
-      jest.mocked(simulatedBytesToView).mockReturnValueOnce(undefined);
-      const unread = await makeSimulateHandler('confirm-id', customTx)(simulateRequest);
-
-      for (const out of [thrown, unread]) {
-        expect(out).toEqual({
-          type: MidenMessageType.DAppSimulateTransactionResponse,
-          error: 'the simulated transaction could not be read'
-        });
-        expect(JSON.stringify(out)).not.toContain('sumB64');
-      }
-      expect(noteFlowFromSimulatedBytes).not.toHaveBeenCalled();
-    } finally {
-      consoleError.mockRestore();
-    }
-  });
-
-  // A MATCHED PAIR, and they must stay one: each pins the case the other's fix would otherwise
-  // make vacuous. The first says a usable dry run is reused so the request is simulated once; the
-  // second says a FAILED one is not, so the sheet can still get a verified view once the lock
-  // frees. Asserting only the first would pass with the reuse deleted; only the second, with the
-  // reuse made unconditional.
-  it('reuses a dry run the caller already performed, rather than simulating twice', async () => {
-    (simulateCustomTransaction as jest.Mock).mockClear();
-    const handler = makeSimulateHandler('confirm-id', customTx as any, { summaryBytes: 'cachedB64' });
-
-    const out = await handler({ type: MidenMessageType.DAppSimulateTransactionRequest, id: 'confirm-id' } as any);
-
     expect(simulateCustomTransaction).not.toHaveBeenCalled();
-    expect(simulatedBytesToView).toHaveBeenCalledWith({ summaryBytes: 'cachedB64' });
-    expect(out).toEqual({ type: MidenMessageType.DAppSimulateTransactionResponse, effects: { view: wireView } });
-  });
-
-  it("re-runs when the caller's dry run failed, instead of caching the failure", async () => {
-    // A timeout or a WASM-lock eviction resolves as `{ error }`. Serving that for the lifetime of
-    // the confirm id would leave the verified asset view - an anti-phishing control - permanently
-    // unavailable even after the contention cleared.
-    (simulateCustomTransaction as jest.Mock).mockClear();
-    const handler = makeSimulateHandler('confirm-id', customTx as any, { error: 'Simulation timed out' });
-
-    const out = await handler({ type: MidenMessageType.DAppSimulateTransactionRequest, id: 'confirm-id' } as any);
-
-    expect(simulateCustomTransaction).toHaveBeenCalled();
-    expect(simulatedBytesToView).toHaveBeenCalledTimes(1);
-    expect(simulatedBytesToView).toHaveBeenCalledWith({ summaryBytes: 'sumB64' });
-    expect(out).toEqual({ type: MidenMessageType.DAppSimulateTransactionResponse, effects: { view: wireView } });
-  });
-
-  // The reply hands a failed dry run's reason on to the sheet, so a deterministic kernel code reads as the copy the
-  // Failed row gets there too (#1475).
-  describe.each([
-    ['missing fee conversion info', '14712559985122731094', TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR],
-    ["dApp's fee commitment mismatch", '15404814807981965102', TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR],
-    ['vault shortfall', '644413868907058392', TRANSACTION_VAULT_SHORTFALL_ERROR]
-  ])('a dry run failing with the %s code', (_name, code, copy) => {
-    const kernelLine = `failed to execute transaction kernel program: assertion failed with error code: ${code}`;
-
-    it('replies with the Failed row copy, never the code', async () => {
-      jest.mocked(simulateCustomTransaction).mockResolvedValueOnce({ error: kernelLine });
-
-      const out = await makeSimulateHandler('confirm-id', customTx)(simulateRequest);
-
-      expect(out).toMatchObject({ error: copy });
-      expect(JSON.stringify(out)).not.toContain(code);
-    });
-
-    it('replies with the same copy when it reruns a failed cached dry run', async () => {
-      jest.mocked(simulateCustomTransaction).mockClear();
-      jest.mocked(simulateCustomTransaction).mockResolvedValueOnce({ error: kernelLine });
-
-      const out = await makeSimulateHandler('confirm-id', customTx, { error: kernelLine })(simulateRequest);
-
-      expect(simulateCustomTransaction).toHaveBeenCalledTimes(1);
-      expect(out).toMatchObject({ error: copy });
-      expect(JSON.stringify(out)).not.toContain(code);
-    });
-  });
-
-  it('replies with the text of a failure that carries no named code', async () => {
-    jest.mocked(simulateCustomTransaction).mockResolvedValueOnce({ error: 'Simulation timed out' });
-
-    const out = await makeSimulateHandler('confirm-id', customTx)(simulateRequest);
-
-    expect(out).toMatchObject({ error: 'Simulation timed out' });
+    expect(simulatedBytesToView).not.toHaveBeenCalled();
+    expect(noteFlowFromSimulatedBytes).not.toHaveBeenCalled();
   });
 
   it('ignores a simulate request for a different id', async () => {
-    const handler = makeSimulateHandler('confirm-id', customTx as any);
-    const out = await handler({ type: MidenMessageType.DAppSimulateTransactionRequest, id: 'other' } as any);
+    const out = await makeSimulateHandler(
+      'confirm-id',
+      approvedView()
+    )({ type: MidenMessageType.DAppSimulateTransactionRequest, id: 'other' });
+
     expect(out).toBeUndefined();
   });
 });

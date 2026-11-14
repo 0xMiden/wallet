@@ -1,10 +1,9 @@
-import { Note, NoteFile, TransactionRequest, TransactionResult, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
+import { TransactionResult, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import {
-  declaredRequestToView,
   executedBytesToView,
-  importedNoteAssets,
   netOutflowByFaucet,
+  toHoldingsView,
   simulatedBytesToView,
   simulatedOutputRecipients,
   summaryBytesToView,
@@ -20,8 +19,16 @@ const fa = (faucetId: string, amount: bigint) => ({
   faucetId: () => ({ __faucet: faucetId }),
   amount: () => amount
 });
-const note = (assets: any[], nfts: any[] = []) => ({
+let noteCounter = 0;
+const noteId = (id: string) => ({ toString: () => id });
+const note = (assets: any[], nfts: any[] = [], id = `n${++noteCounter}`) => ({
+  id: () => noteId(id),
   assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => nfts })
+});
+// An input wrapper: the id is the wrapper's, the assets are its note's.
+const input = (inner: ReturnType<typeof note> | { id?: never; assets: () => undefined }, id = `i${++noteCounter}`) => ({
+  id: () => noteId(id),
+  note: () => inner
 });
 // A vault delta that lists its fungible entries and counts `unlisted` more (the NFTs the SDK cannot list).
 const vaultOf = (removed: any[], added: any[], unlisted = 0) => ({
@@ -47,18 +54,8 @@ const feeNote = (amount: bigint, faucetId = NATIVE_FAUCET) => ({
 });
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  TransactionRequest: { deserialize: jest.fn() },
   TransactionResult: { deserialize: jest.fn() },
-  TransactionSummary: { deserialize: jest.fn() },
-  Note: { deserialize: jest.fn() },
-  // NoteFile is tried FIRST for importNotes (mirroring importNoteBytes); it
-  // throws by default ("bare Note, not a NoteFile") so the Note path is
-  // exercised by the existing tests. NoteFile-format tests override it.
-  NoteFile: {
-    deserialize: jest.fn(() => {
-      throw new Error('not a NoteFile');
-    })
-  }
+  TransactionSummary: { deserialize: jest.fn() }
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   // Input-aware: the account delta id is a bare string; faucet ids are the
@@ -110,7 +107,9 @@ describe('summaryToView', () => {
       unlistedAssets: 0,
       inputNotesConsumed: 1,
       outputNotesCreated: 2,
-      storageChanged: false
+      storageChanged: false,
+      viewConsumedNotes: expect.any(Array),
+      createdNotes: expect.any(Array)
     });
   });
 
@@ -139,7 +138,9 @@ describe('summaryToView', () => {
       unlistedAssets: 0,
       inputNotesConsumed: 1,
       outputNotesCreated: 2,
-      storageChanged: false
+      storageChanged: false,
+      viewConsumedNotes: expect.any(Array),
+      createdNotes: expect.any(Array)
     });
   });
 });
@@ -154,7 +155,7 @@ describe('executedBytesToView', () => {
     (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
       executedTransaction: () => ({
         accountId: () => 'acctId',
-        inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([fa('fB', 3n)]) }] }),
+        inputNotes: () => ({ numNotes: () => 1, notes: () => [input(note([fa('fB', 3n)]))] }),
         outputNotes: () => ({ numNotes: () => 2, notes: () => [note([fa('fA', 10n)]), note([])] }),
         accountPatch: () => ({ storage: () => ({ isEmpty: () => false }) })
       })
@@ -172,7 +173,9 @@ describe('executedBytesToView', () => {
       unlistedAssets: 0,
       inputNotesConsumed: 1,
       outputNotesCreated: 2,
-      storageChanged: true
+      storageChanged: true,
+      viewConsumedNotes: expect.any(Array),
+      createdNotes: expect.any(Array)
     });
   });
 });
@@ -262,7 +265,7 @@ describe('the network fee, on both decode paths', () => {
     (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
       executedTransaction: () => ({
         accountId: () => 'acctId',
-        inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([fa(NATIVE_FAUCET, 10n)]) }] }),
+        inputNotes: () => ({ numNotes: () => 1, notes: () => [input(note([fa(NATIVE_FAUCET, 10n)]))] }),
         outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(2n)] }),
         accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) })
       })
@@ -370,105 +373,6 @@ describe('the network fee, on both decode paths', () => {
       { faucetId: 'bech32:native', amount: 2n },
       { faucetId: 'bech32:native', amount: 7n }
     ]);
-  });
-});
-
-describe('declaredRequestToView', () => {
-  it('derives bech32 outgoing from expected output notes and incoming from imported notes', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({
-      expectedOutputOwnNotes: () => [note([fa('fA', 10n)])]
-    });
-    (Note.deserialize as jest.Mock).mockReturnValueOnce(note([fa('fB', 3n)]));
-
-    const view = declaredRequestToView('reqB64', ['imported']);
-    expect(view).toEqual({
-      account: undefined,
-      outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
-      incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
-      outgoingNfts: [],
-      incomingNfts: [],
-      unlistedAssets: 0,
-      inputNotesConsumed: 1,
-      outputNotesCreated: 1,
-      storageChanged: false
-    });
-  });
-
-  it('handles a request with no output/imported notes', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
-    const view = declaredRequestToView('reqB64');
-    expect(view.outgoing).toEqual([]);
-    expect(view.incoming).toEqual([]);
-    expect(view.outputNotesCreated).toBe(0);
-    expect(view.inputNotesConsumed).toBe(0);
-  });
-
-  it('contributes [] for an output note whose assets() returns undefined', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({
-      expectedOutputOwnNotes: () => [{ assets: () => undefined }]
-    });
-    const view = declaredRequestToView('reqB64');
-    expect(view.outgoing).toEqual([]);
-    expect(view.outputNotesCreated).toBe(1);
-  });
-
-  it('derives incoming assets from a NoteFile-serialized importNote (Note parse would throw)', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
-    (NoteFile.deserialize as jest.Mock).mockReturnValueOnce({
-      note: () => note([fa('fB', 3n)]),
-      noteDetails: () => undefined
-    });
-    const view = declaredRequestToView('reqB64', ['nf']);
-    expect(view.incoming).toEqual([{ faucetId: 'bech32:fB', amount: 3n }]);
-    expect(view.inputNotesConsumed).toBe(1);
-  });
-
-  it('falls back to NoteFile.noteDetails() assets when note() is undefined', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
-    (NoteFile.deserialize as jest.Mock).mockReturnValueOnce({
-      note: () => undefined,
-      noteDetails: () => note([fa('fC', 7n)])
-    });
-    const view = declaredRequestToView('reqB64', ['nf']);
-    expect(view.incoming).toEqual([{ faucetId: 'bech32:fC', amount: 7n }]);
-  });
-
-  it('yields [] incoming for an importNote that is neither NoteFile nor Note', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
-    (Note.deserialize as jest.Mock).mockImplementationOnce(() => {
-      throw new Error('not a Note either');
-    });
-    const view = declaredRequestToView('reqB64', ['bad']);
-    expect(view.incoming).toEqual([]);
-    expect(view.inputNotesConsumed).toBe(1);
-  });
-});
-
-// The custom-transaction simulation decodes inside its WASM hold, where a trap has to reach the lock to retire the
-// client; the confirm sheet's own decode runs outside any hold and keeps skipping the entry.
-describe('importedNoteAssets', () => {
-  const trap = new WebAssembly.RuntimeError('unreachable');
-  const throwTrap = () => {
-    throw trap;
-  };
-  const traps: Record<string, () => void> = {
-    'NoteFile.deserialize': () => (NoteFile.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
-    'Note.deserialize': () => (Note.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
-    'the asset read': () => (Note.deserialize as jest.Mock).mockReturnValueOnce({ assets: throwTrap })
-  };
-
-  it.each(Object.keys(traps))('rethrows a trap in %s only when asked to', name => {
-    traps[name]!();
-    expect(() => importedNoteAssets('imported', { rethrowTraps: true })).toThrow(trap);
-    traps[name]!();
-    expect(importedNoteAssets('imported')).toEqual([]);
-  });
-
-  it('still skips an entry that fails ordinarily when asked to rethrow traps', () => {
-    (Note.deserialize as jest.Mock).mockImplementationOnce(() => {
-      throw new Error('bad note bytes');
-    });
-    expect(importedNoteAssets('imported', { rethrowTraps: true })).toEqual([]);
   });
 });
 
@@ -592,22 +496,15 @@ describe('netOutflowByFaucet', () => {
     ).toEqual([{ faucetId: 'f1', amount: 120n }]);
   });
 
-  it('credits only what the caller passes, never the consumed notes', () => {
-    // `incoming` is every note consumed, including ones the user already held. Crediting those
-    // let a dApp consume a pending 1000 of the user's and send 1050 for a charge of 50.
+  it('counts only what leaves the view, never crediting the consumed notes', () => {
+    // `incoming` is every note consumed, including ones the user already held. Crediting those let a dApp consume a
+    // pending 1000 of the user's and send 1050 for a charge of 50; a holdings view counts that note instead.
     const consumed = {
       ...view([{ faucetId: 'f1', amount: 1050n }]),
       incoming: [{ faucetId: 'f1', amount: 1000n }]
     };
 
     expect(netOutflowByFaucet(consumed)).toEqual([{ faucetId: 'f1', amount: 1050n }]);
-    expect(netOutflowByFaucet(consumed, [{ faucetId: 'f1', amount: 1000n }])).toEqual([
-      { faucetId: 'f1', amount: 50n }
-    ]);
-  });
-
-  it('never reports a negative outflow when the credit exceeds what left', () => {
-    expect(netOutflowByFaucet(view([{ faucetId: 'f1', amount: 10n }]), [{ faucetId: 'f1', amount: 99n }])).toEqual([]);
   });
 
   it('keeps distinct faucets apart', () => {
@@ -616,11 +513,10 @@ describe('netOutflowByFaucet', () => {
         view([
           { faucetId: 'f1', amount: 50n },
           { faucetId: 'f2', amount: 30n }
-        ]),
-        [{ faucetId: 'f1', amount: 20n }]
+        ])
       )
     ).toEqual([
-      { faucetId: 'f1', amount: 30n },
+      { faucetId: 'f1', amount: 50n },
       { faucetId: 'f2', amount: 30n }
     ]);
   });
@@ -630,28 +526,11 @@ describe('NFTs on the approval view (#1600)', () => {
   const nftOut = nft('bech32:nftFaucet', '0xaa11bb22…cc33dd');
   const nftIn = nft('bech32:otherFaucet', '0x01020304…050607');
 
-  it('declared view lists the NFT of an output note and of an imported note, with no fungible amount', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({
-      expectedOutputOwnNotes: () => [note([], [nftOut])]
-    });
-    (Note.deserialize as jest.Mock).mockReturnValueOnce(note([], [nftIn]));
-
-    const view = declaredRequestToView('reqB64', ['imported']);
-
-    expect(view.outgoing).toEqual([]);
-    expect(view.outgoingNfts).toEqual([
-      { faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22…cc33dd', key: 'bech32:nftFaucet|0xaa11bb22…cc33dd' }
-    ]);
-    expect(view.incomingNfts).toEqual([
-      { faucetId: 'bech32:otherFaucet', assetId: '0x01020304…050607', key: 'bech32:otherFaucet|0x01020304…050607' }
-    ]);
-  });
-
   it('executed view lists the NFT of a created note and of a consumed note', () => {
     (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
       executedTransaction: () => ({
         accountId: () => 'acctId',
-        inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [nftIn]) }] }),
+        inputNotes: () => ({ numNotes: () => 1, notes: () => [input(note([], [nftIn]))] }),
         outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [nftOut])] }),
         accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) })
       })
@@ -725,7 +604,7 @@ describe('NFTs on the approval view (#1600)', () => {
         vault: () => vaultOf([], [], 1),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [nftIn]) }] }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [input(note([], [nftIn]))] }),
       outputNotes: () => ({ numNotes: () => 0, notes: () => [] })
     };
 
@@ -743,7 +622,7 @@ describe('NFTs on the approval view (#1600)', () => {
         vault: () => vaultOf([], [], 0),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [nftOut]) }] }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [input(note([], [nftOut]))] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [nftOut])] })
     };
 
@@ -763,7 +642,7 @@ describe('NFTs on the approval view (#1600)', () => {
         vault: () => vaultOf([], [], 2),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [consumed]) }] }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [input(note([], [consumed]))] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [created])] })
     };
 
@@ -819,5 +698,205 @@ describe('NFTs on the approval view (#1600)', () => {
     };
 
     expect(netOutflowByFaucet(view)).toEqual([{ faucetId: 'f1', amount: 5n }]);
+  });
+});
+
+describe('the notes a verified view lists', () => {
+  const summaryOf = (inputs: any[], outputs: any[], removed: any[], added: any[] = []) =>
+    ({
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf(removed, added),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs }),
+      outputNotes: () => ({ numNotes: () => outputs.length, notes: () => outputs })
+    }) as any;
+  const executedOf = (inputs: any[], outputs: any[]) => ({
+    executedTransaction: () => ({
+      accountId: () => 'acctId',
+      inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs }),
+      outputNotes: () => ({ numNotes: () => outputs.length, notes: () => outputs }),
+      accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) })
+    })
+  });
+  const executedView = (inputs: any[], outputs: any[]) => {
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce(executedOf(inputs, outputs));
+    return executedBytesToView('execB64');
+  };
+  const nftIn = nft('bech32:nftFaucet', 'in', 'k-in');
+
+  it('lists consumed and created notes with ids, amounts and NFTs on the summary path, without the fee note', () => {
+    const view = summaryToView(
+      summaryOf(
+        [input(note([fa('fB', 3n)], [nftIn], 'x'), 'IN-A'), input({ assets: () => undefined }, 'in-b')],
+        [note([fa('fA', 10n)], [], 'out-1'), feeNote(2n)],
+        [fa('fA', 10n)]
+      )
+    );
+
+    expect(view.viewConsumedNotes).toEqual([
+      {
+        id: 'in-a',
+        amounts: [{ faucetId: 'bech32:fB', amount: 3n }],
+        nfts: [expect.objectContaining({ key: 'k-in' })]
+      },
+      { id: 'in-b', amounts: [], nfts: [], opaque: true }
+    ]);
+    expect(view.createdNotes).toEqual([{ id: 'out-1', amounts: [{ faucetId: 'bech32:fA', amount: 10n }], nfts: [] }]);
+  });
+
+  it('lists them on the executed path the same way', () => {
+    const view = executedView(
+      [input(note([fa('fB', 3n)], [nftIn]), 'IN-A'), input({ assets: () => undefined }, 'in-b')],
+      [note([fa('fA', 10n)], [], 'out-1'), feeNote(2n)]
+    );
+
+    expect(view.viewConsumedNotes).toEqual([
+      {
+        id: 'in-a',
+        amounts: [{ faucetId: 'bech32:fB', amount: 3n }],
+        nfts: [expect.objectContaining({ key: 'k-in' })]
+      },
+      { id: 'in-b', amounts: [], nfts: [], opaque: true }
+    ]);
+    expect(view.createdNotes).toEqual([{ id: 'out-1', amounts: [{ faucetId: 'bech32:fA', amount: 10n }], nfts: [] }]);
+  });
+
+  it('fails the whole decode when a note id cannot be read', () => {
+    const broken = {
+      id: () => {
+        throw new Error('no id');
+      },
+      note: () => note([])
+    };
+    expect(() => executedView([broken], [])).toThrow('no id');
+  });
+
+  describe('toHoldingsView', () => {
+    const heldView = () =>
+      summaryToView(
+        summaryOf(
+          [input(note([fa('X', 1000n)], [], 'v'), 'n-held')],
+          [note([fa('X', 1050n)], [], 'out')],
+          [fa('X', 50n)]
+        )
+      );
+
+    it('counts a held consumed note as leaving: consuming a held 1000 X and sending 1050 X shows 1050 leaving', () => {
+      const view = toHoldingsView(heldView(), []);
+
+      expect(view.outgoing).toEqual([{ faucetId: 'bech32:X', amount: 1050n }]);
+      expect(view.incoming).toEqual([]);
+      expect(view.heldNotesSpent).toBe(1);
+    });
+
+    it('credits only a consumed note the request introduced', () => {
+      const view = toHoldingsView(heldView(), ['N-HELD']);
+
+      expect(view.outgoing).toEqual([{ faucetId: 'bech32:X', amount: 50n }]);
+      expect(view.heldNotesSpent).toBe(0);
+    });
+
+    it('agrees between the summary and executed paths for one transaction', () => {
+      const inputs = () => [
+        input(note([fa('X', 30n)], [], 'v1'), 'held'),
+        input(note([fa('X', 100n)], [], 'v2'), 'introduced')
+      ];
+      const outputs = () => [note([fa('X', 150n)], [], 'out'), feeNote(2n)];
+      const fromSummary = toHoldingsView(
+        summaryToView(summaryOf(inputs(), outputs(), [fa('X', 20n), fa(NATIVE_FAUCET, 2n)])),
+        ['introduced']
+      );
+      const fromExecuted = toHoldingsView(executedView(inputs(), outputs()), ['introduced']);
+
+      expect(fromSummary.outgoing).toEqual([{ faucetId: 'bech32:X', amount: 50n }]);
+      expect(fromExecuted.outgoing).toEqual([{ faucetId: 'bech32:X', amount: 50n }]);
+      expect(fromSummary.incoming).toEqual([]);
+      expect(fromExecuted.incoming).toEqual([]);
+    });
+
+    it('counts an NFT from a held note as leaving and one from an introduced note as passing through', () => {
+      const heldNft = nft('bech32:nftFaucet', 'h', 'k-held');
+      const passNft = nft('bech32:nftFaucet', 'p', 'k-pass');
+      const inputs = () => [input(note([], [heldNft], 'v1'), 'held'), input(note([], [passNft], 'v2'), 'intro')];
+      const outputs = () => [note([], [heldNft], 'o1'), note([], [passNft], 'o2')];
+      const view = toHoldingsView(executedView(inputs(), outputs()), ['intro']);
+
+      expect(view.outgoingNfts.map(n => n.key)).toEqual(['k-held']);
+      expect(view.incomingNfts).toEqual([]);
+    });
+
+    it('lists an introduced NFT that is not re-created as incoming, and always counts a keyless created NFT', () => {
+      const keyless = { __nft: { faucetId: 'bech32:nftFaucet', assetId: 'z' }, __key: undefined };
+      const view = toHoldingsView(
+        executedView([input(note([], [nftIn], 'v1'), 'intro')], [note([], [keyless], 'o1')]),
+        ['intro']
+      );
+
+      expect(view.incomingNfts.map(n => n.key)).toEqual(['k-in']);
+      expect(view.outgoingNfts).toHaveLength(1);
+    });
+
+    it('throws when a held consumed note does not list its assets', () => {
+      const view = executedView([input({ assets: () => undefined }, 'held-opaque')], [note([fa('X', 1050n)], [], 'o')]);
+
+      expect(() => toHoldingsView(view, [])).toThrow('a held note does not list its assets');
+    });
+
+    it('does not throw for an introduced consumed note that does not list its assets', () => {
+      const view = executedView([input({ assets: () => undefined }, 'intro-opaque')], [note([fa('X', 50n)], [], 'o')]);
+
+      expect(toHoldingsView(view, ['intro-opaque']).outgoing).toEqual([{ faucetId: 'bech32:X', amount: 50n }]);
+    });
+
+    it('throws for a view that lists no notes', () => {
+      const { viewConsumedNotes, createdNotes, ...view } = heldView();
+      expect(viewConsumedNotes).toBeDefined();
+      expect(createdNotes).toBeDefined();
+      expect(() => toHoldingsView(view, [])).toThrow('the view does not list its notes');
+    });
+
+    it('folds hex and bech32 spellings and keeps the bech32 one', () => {
+      const view = toHoldingsView(
+        {
+          ...heldView(),
+          outgoing: [
+            { faucetId: 'bech32:f1', amount: 60n },
+            { faucetId: 'hex:bech32:f1', amount: 40n }
+          ],
+          incoming: [],
+          viewConsumedNotes: [],
+          createdNotes: []
+        },
+        []
+      );
+
+      expect(view.outgoing).toEqual([{ faucetId: 'bech32:f1', amount: 100n }]);
+    });
+
+    it('moves a net-negative faucet to incoming, negated', () => {
+      const view = toHoldingsView(executedView([input(note([fa('X', 80n)], [], 'v'), 'intro')], []), ['intro']);
+
+      expect(view.outgoing).toEqual([]);
+      expect(view.incoming).toEqual([{ faucetId: 'bech32:X', amount: 80n }]);
+    });
+  });
+});
+
+describe('executedBytesToView fee rate', () => {
+  it('executedBytesToView keeps a fee-tagged native note in the outflow on a block that charges nothing', () => {
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
+      executedTransaction: () => ({
+        accountId: () => 'acctId',
+        inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+        outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(7n)] }),
+        accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) }),
+        blockHeader: () => ({ verificationBaseFee: () => 0 })
+      })
+    });
+    const view = executedBytesToView('execB64');
+    expect(view.outgoing).toEqual([{ faucetId: 'bech32:native', amount: 7n }]);
+    expect(view.outputNotesCreated).toBe(1);
   });
 });

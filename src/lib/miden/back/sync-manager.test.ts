@@ -199,6 +199,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetId: () => mockGetFaucetIdSetting(),
   getVerificationBaseFee: () => Promise.resolve(mockBaseFee),
+  refreshVerificationBaseFee: () => Promise.resolve(mockBaseFee),
   getClaimFloorBaseFee: () => Promise.resolve(mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 
