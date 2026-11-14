@@ -1,4 +1,4 @@
-name: Main signing-effects integration and no-spend provider plans GREEN
+name: Original Epoch read-only route diagnosis and exact swap-cost audit
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -9,81 +9,13 @@ concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  contracts:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - run: |
-          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
-          rm playwright/e2e/tests/mainnet/mainnet-epoch-readonly-plan.spec.ts playwright/e2e/tests/mainnet/mainnet-near-readonly-plan.spec.ts playwright/e2e/helpers/mainnet-near-readonly-plan-runtime.ts
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: ./.github/actions/yarn-install
-      - name: Execute the exact production SDK bootstrap before provider construction
-        run: |
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import {readFileSync} from 'node:fs';
-          import {execFileSync} from 'node:child_process';
-          import YAML from 'yaml';
-          const workflow=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8'));
-          const step=workflow.jobs['mainnet-nightly'].steps.find(step=>step.name==='Build read-only Epoch SDK');
-          assert.ok(step?.run);execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
-          NODE
-          yarn esbuild playwright/e2e/helpers/mainnet-epoch-provider.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-provider.mjs
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import {epochReadOnlyProvider} from './node_modules/.cache/nightly-epoch-provider.mjs';
-          const actor='0x0000000000000000000000000000000000000001';
-          const first=epochReadOnlyProvider('https://readonly.epoch.test',42161,actor);
-          for(const chain of [1,42161,first.sdk.MIDEN_VIRTUAL_CHAIN_ID]){
-            const provider=epochReadOnlyProvider('https://readonly.epoch.test',chain,actor);
-            assert.equal(provider.config.walletClient.account.address.toLowerCase(),actor);
-            assert.equal(provider.sdk.solveIntent,undefined);
-            assert.equal(provider.sdk.createIntent,undefined);
-          }
-          console.log('Actual installed read-only provider SDK loads for every supported chain; no funded method exposed.');
-          NODE
-      - name: Connected SDK, Guardian, native-asset and approval-effect integration
-        run: yarn jest src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/lib/miden/transaction/transactions.guardian-offscreen.test.ts src/lib/miden/swap/test-hooks.test.ts src/lib/miden-chain/native-asset.test.ts src/lib/miden/transaction/proposal-effect-guard.test.ts src/lib/miden/transaction/effect-checked-signer.test.ts --maxWorkers=2 --watch=false
-      - name: SDK and mainnet contracts, actual discovery, types and lint
-        run: |
-          set -euo pipefail
-          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
-          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
-          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts --maxWorkers=2 --watch=false
-          yarn playwright test --config playwright.mainnet.config.ts --list | tee mainnet-listed-tests.txt
-          grep -Eq 'Total: [1-9][0-9]* tests' mainnet-listed-tests.txt
-          yarn ts
-          yarn lint:e2e
-      - name: Owned formatter patch
-        if: always()
-        run: |
-          yarn prettier --write .github/workflows/e2e-mainnet-nightly.yml scripts/mainnet-swap-workflow.test.ts
-          git diff --binary -- .github/workflows/e2e-mainnet-nightly.yml scripts/mainnet-swap-workflow.test.ts > epoch-bootstrap-owned-format.patch
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: epoch-bootstrap-owned-format
-          path: epoch-bootstrap-owned-format.patch
-          if-no-files-found: error
   readonly:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     env:
       E2E_NETWORK: mainnet
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
-      E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
-      MAINNET_EPOCH_MODE: prepare
-      MAINNET_NEAR_MODE: prepare
-      MAINNET_LOOP_RECOVERY_CLEARED: 'true'
-      MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: '1997018'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,10 +27,10 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
-          run-id: 43609538291
+          run-id: 43619310746
           github-token: ${{ github.token }}
-          name: mainnet-swap-final-43609538291
-          path: test-results/mainnet-swap-state
+          name: mainnet-epoch-final-43619310746
+          path: test-results/mainnet-epoch-state
       - name: Exact production SDK bootstrap
         run: |
           node --input-type=module <<'NODE'
@@ -122,26 +54,21 @@ jobs:
           done
           exit 1
       - run: yarn test:e2e:blockchain:build
-      - name: Read-only live Epoch and NEAR plan viability; never persist authorities
+      - name: Inspect original balances and preview route only; NEVER submit
         run: |
           umask 077
-          before=$(sha256sum test-results/mainnet-swap-state/roundtrip.json)
+          before=$(sha256sum test-results/mainnet-epoch-state/roundtrip.json)
           code=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-readonly-plan-results" xvfb-run -a yarn playwright test mainnet-epoch-readonly-plan.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/epoch-readonly-plan.log" 2>&1 || code=$?
-          if [ "$code" -eq 0 ]; then
-            E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-readonly-plan-results" xvfb-run -a yarn playwright test mainnet-near-readonly-plan.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-readonly-plan.log" 2>&1 || code=$?
-          fi
-          test "$before" = "$(sha256sum test-results/mainnet-swap-state/roundtrip.json)" || { echo '::error::Read-only plan changed the retained swap checkpoint'; exit 1; }
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-route-readonly-results" xvfb-run -a yarn playwright test mainnet-epoch-route-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/epoch-route-readonly.log" 2>&1 || code=$?
+          test "$before" = "$(sha256sum test-results/mainnet-epoch-state/roundtrip.json)"
           node --input-type=module <<'NODE'
           import {existsSync,readFileSync} from 'node:fs';
-          const allowed=['purpose','eligible','account','chainId','principal','forwardMinimum','reverseMinimum','worstCaseCostUsdMicros','lossBudgetUsdMicros','epochWorstCostReserved','noLivePolicy','grantPersisted','sdkAuthorityIssued'];
-          for(const provider of ['epoch','near']){
-            const path=`test-results/${provider}-readonly-preview.json`;
-            if(!existsSync(path)){console.log(`${provider}: blocked before approved preview; private process output stays runner-local.`);continue;}
-            const value=JSON.parse(readFileSync(path,'utf8'));
-            if(!value||Object.keys(value).some(key=>!allowed.includes(key))||value.grantPersisted!==false||value.sdkAuthorityIssued!==false)throw new Error('Unexpected public preview');
-            console.log(JSON.stringify(value));
-          }
+          const path='test-results/epoch-route-readonly-result.json';
+          if(!existsSync(path))throw new Error('Probe blocked before approved diagnosis; private output remains local');
+          const value=JSON.parse(readFileSync(path,'utf8'));
+          const keys=['purpose','sourceRunId','checkpointUnchanged','balancesUnchanged','grantPersisted','sdkAuthorityIssued','quoteAmount','quoteSymbol','minimum','reachedReview','blockedAt','errorClass','sourceLocation','quoteEnabled','quoteLoading','hasToken','hasAmount','quoteErrored','lastPhase'];
+          if(Object.keys(value).some(key=>!keys.includes(key))||value.grantPersisted!==false||value.sdkAuthorityIssued!==false)throw new Error('Unexpected public diagnostic');
+          console.log(JSON.stringify(value));
           NODE
           exit "$code"
   cost-audit:
@@ -158,41 +85,41 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
-          run-id: 43609538291
+          run-id: 43619310746
           github-token: ${{ github.token }}
-          name: mainnet-swap-final-43609538291
+          name: mainnet-swap-final-43619310746
           path: test-results/fresh
       - uses: actions/download-artifact@v4
         with:
-          run-id: 43609538291
+          run-id: 43619310746
           github-token: ${{ github.token }}
-          name: mainnet-nightly-43609538291
+          name: mainnet-nightly-43619310746
           path: test-results/fresh-public
       - uses: actions/download-artifact@v4
         with:
-          run-id: 43609538291
+          run-id: 43619310746
           github-token: ${{ github.token }}
-          name: mainnet-swap-forward-sdk-authorized-43609538291
+          name: mainnet-swap-forward-sdk-authorized-43619310746
           path: test-results/forward-create
       - uses: actions/download-artifact@v4
         with:
-          run-id: 43609538291
+          run-id: 43619310746
           github-token: ${{ github.token }}
-          name: mainnet-swap-forward-claim-sdk-authorized-43609538291
+          name: mainnet-swap-forward-claim-sdk-authorized-43619310746
           path: test-results/forward-claim
       - uses: actions/download-artifact@v4
         with:
-          run-id: 43609538291
+          run-id: 43619310746
           github-token: ${{ github.token }}
-          name: mainnet-swap-reverse-sdk-authorized-43609538291
+          name: mainnet-swap-reverse-sdk-authorized-43619310746
           path: test-results/reverse-create
       - uses: actions/download-artifact@v4
         with:
-          run-id: 43609538291
+          run-id: 43619310746
           github-token: ${{ github.token }}
-          name: mainnet-swap-reverse-claim-sdk-authorized-43609538291
+          name: mainnet-swap-reverse-claim-sdk-authorized-43619310746
           path: test-results/reverse-claim
-      - name: Verify actual fresh swap and charge only its new cost once
+      - name: Independently verify both original swap claims and deduct only this run cost
         run: |
           yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          node scripts/fresh-swap-cost-audit.mjs
+          node scripts/merged-swap-cost-audit.mjs

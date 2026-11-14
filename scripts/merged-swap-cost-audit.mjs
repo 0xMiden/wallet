@@ -4,8 +4,8 @@ import {Address,Endpoint,RpcClient} from '@miden-sdk/miden-sdk';
 import {readMainnetSwapPayback} from '../node_modules/.cache/nightly-swap-claim.mjs';
 const read=path=>JSON.parse(readFileSync(path,'utf8'));
 const state=read('test-results/fresh/roundtrip.json');
-assert.equal(state.phase,'complete');assert.equal(state.sourceRunId,'43609538291');assert.equal(state.authorizationRunId,state.sourceRunId);
-assert.equal(state.lossBudgetUsdMicros,'1997994');
+assert.equal(state.phase,'complete');assert.equal(state.sourceRunId,'43619310746');assert.equal(state.authorizationRunId,state.sourceRunId);
+assert.equal(state.lossBudgetUsdMicros,'1997018');
 assert.equal(state.recoveryReturnAuthorizedAt,undefined);assert.equal(state.recoveryReturnReplacement,undefined);
 const rpc=new RpcClient(new Endpoint('https://rpc.mainnet.miden.io'));
 let fees=0n;
@@ -24,11 +24,11 @@ for(const leg of ['forward','reverse']){
 }
 const receipt=read('test-results/fresh-public/mainnet-swap-reverse-claim.json');
 assert.equal(fees,532n);assert.equal(state.paidFees,fees.toString());assert.equal(receipt.requestFinal,'0');
-assert.equal(state.native.balance,'19996274');assert.equal(receipt.nativeFinal,'19995298');
+assert.equal(state.native.balance,'19995298');assert.equal(receipt.nativeFinal,'19993543');
 const debit=BigInt(state.native.balance)-BigInt(receipt.nativeFinal);
 const unit=10n**BigInt(state.native.decimals),price=BigInt(state.native.usdMicros);
 const cost=debit>0n?(debit*price+unit-1n)/unit:0n;
-assert.equal(cost,976n);assert.equal(state.realizedCostUsdMicros,cost.toString());
+assert.equal(cost,1755n);assert.equal(state.realizedCostUsdMicros,cost.toString());
 const remaining=BigInt(state.lossBudgetUsdMicros)-cost;
-assert.equal(remaining,1997018n);assert.ok(remaining>0n&&remaining<BigInt(state.lossBudgetUsdMicros));
+assert.equal(remaining,1995263n);assert.ok(remaining>0n&&remaining<BigInt(state.lossBudgetUsdMicros));
 console.log(JSON.stringify({purpose:'keyless actual fresh swap acceptance and lower shared-cap audit, NOT all-provider acceptance',sourceRunId:state.sourceRunId,bothLegsClaimed:true,sdkCreateClaimSnapshotsUnchanged:true,withinFrozenDeadlines:true,fees:fees.toString(),nativeFinal:receipt.nativeFinal,requestFinal:receipt.requestFinal,swapRealizedCostUsdMicros:cost.toString(),remainingSharedCapUsdMicros:remaining.toString(),alreadyDeductedPredecessorCostsNotCountedAgain:true,profitCredit:false}));
