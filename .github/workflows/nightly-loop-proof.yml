@@ -1,63 +1,16 @@
-name: Full settled-to-first-return contract and no-spend preflight GREEN
+name: Eligibility native rate window GREEN
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
-  actions: read
 concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  contracts:
+  eligibility:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - run: |
-          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
-          rm playwright/e2e/tests/mainnet/mainnet-first-return-preflight.spec.ts
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: ./.github/actions/yarn-install
-      - name: Actual SDK complete settlement-to-first-grant contracts
-        run: |
-          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
-          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
-          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts --maxWorkers=2 --watch=false
-      - name: Actual mainnet registration, types and lint
-        if: always()
-        run: |
-          set -euo pipefail
-          yarn playwright test --config playwright.mainnet.config.ts --list | tee mainnet-listed-tests.txt
-          grep -Eq 'Total: [1-9][0-9]* tests' mainnet-listed-tests.txt
-          yarn ts
-          yarn lint:e2e
-      - name: Owned formatter patch
-        if: always()
-        run: |
-          yarn prettier --write playwright/e2e/helpers/mainnet-swap-claim.ts scripts/mainnet-swap-claim.test.mjs
-          git diff --binary -- playwright/e2e/helpers/mainnet-swap-claim.ts scripts/mainnet-swap-claim.test.mjs > first-return-phase-owned-format.patch
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: first-return-phase-owned-format
-          path: first-return-phase-owned-format.patch
-          if-no-files-found: error
-  readonly:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      E2E_NETWORK: mainnet
-      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
-      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
-      MAINNET_SWAP_MODE: authorize-recovery-return
-      MAINNET_SWAP_RECOVERY_RETURN_APPROVED: 'true'
-      MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: 'false'
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,34 +19,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: ./.github/actions/yarn-install
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 43527071078
-          github-token: ${{ github.token }}
-          name: mainnet-swap-final-43527071078
-          path: test-results/mainnet-swap-state
-      - uses: ./.github/actions/install-miden-client-cli
-      - uses: ./.github/actions/apt-drop-unused-repos
-      - run: npx playwright install --with-deps chromium
-      - uses: ./.github/actions/start-eligibility-fixture
-      - name: Build exact mainnet extension, no provider overlay
-        run: yarn test:e2e:blockchain:build
-      - name: Exact operator preflight, never persist a grant or sign
-        run: |
-          umask 077
-          before=$(sha256sum test-results/mainnet-swap-state/roundtrip.json)
-          code=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/first-grant-preflight-results" xvfb-run -a yarn playwright test mainnet-first-return-preflight.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/first-grant-preflight.log" 2>&1 || code=$?
-          test "$before" = "$(sha256sum test-results/mainnet-swap-state/roundtrip.json)" || { echo '::error::Read-only preflight changed the retained checkpoint'; exit 1; }
-          node --input-type=module <<'NODE'
-          import {existsSync,readFileSync} from 'node:fs';
-          const path='test-results/mainnet-first-return-preflight.json';
-          if(!existsSync(path)){console.log('Preflight stopped before approved diagnostics; private process output stays runner-local.');process.exit(1);}
-          const value=JSON.parse(readFileSync(path,'utf8'));
-          const allowed=['purpose','eligible','stage','errorCode','grantPersisted','sdkAuthorityIssued','sourceRunId','originalPhase','originalOrderId','paybackAmount','claimedAtBlock','nativeBefore','requestBefore','baseFee','frozenNativeFloor','quotedMinimum','lossBudgetUsdMicros','aggregateNativeCosts','originalAuthoritiesUnchanged','newWindowValidatedMs','noLivePolicy','consumeBlocked'];
-          if(!value||Object.keys(value).some(key=>!allowed.includes(key)))throw new Error('Unexpected preflight diagnostic fields');
-          if(value.grantPersisted!==false||value.sdkAuthorityIssued!==false)throw new Error('Preflight must never grant or sign');
-          console.log(JSON.stringify(value));
-          NODE
-          exit "$code"
+      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs services/feature-eligibility/staging-probe.test.mjs scripts/feature-eligibility-staging-probe.test.mjs scripts/feature-eligibility-staging-probe-recovery.test.mjs scripts/feature-eligibility-staging-inspect.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
+      - name: Real isolated native rate bindings with full window headroom
+        run: node services/feature-eligibility/run-staging-topology-workerd.mjs
+      - name: Store publishing and production artifact guards
+        run: node --test scripts/store-publishing/*.test.mjs
+      - name: Store artifact archive inspection
+        run: python3 scripts/store-publishing/inspect-artifact.test.py
+      - name: Production Worker bundle dry run, no deployment
+        run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/feature-eligibility/wrangler.jsonc
