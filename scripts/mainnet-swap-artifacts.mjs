@@ -33,6 +33,37 @@ export function swapStepAttempted(jobs, leg, provider = 'swap') {
   ]);
 }
 
+async function reconciledReadOnlyLegacyFailure(run, step, getArtifacts) {
+  // This immutable report stops at the reviewed source's first indexer read, before its AggLayer deposit call.
+  // shortcut: requires retained artifact metadata; archive the verified receipt before its retention expires.
+  const source = '46d7fcf8ac612ca48997753574b53b308e365070';
+  if (
+    run.id !== 43562192705 ||
+    run.head_sha !== source ||
+    run.head_branch !== 'main' ||
+    run.event !== 'schedule' ||
+    step.name !== 'Run the mainnet AggLayer loop' ||
+    step.status !== 'completed' ||
+    step.conclusion !== 'failure'
+  )
+    return false;
+  const result = await getArtifacts(run.id);
+  if (!Array.isArray(result?.artifacts)) throw new Error('Invalid legacy reconciliation artifact response');
+  const reports = result.artifacts.filter(item => item.name === 'mainnet-agglayer-43562192705');
+  if (reports.length !== 1) return false;
+  const [report] = reports;
+  return (
+    report.id === 14100963457 &&
+    report.expired === false &&
+    report.digest === 'sha256:dbf7bc5943653fc30cb53f633fc9db1e059f6ab06b17f850e9cfe5135cbcaedb' &&
+    report.workflow_run?.id === run.id &&
+    report.workflow_run.head_sha === source &&
+    report.workflow_run.head_branch === 'main' &&
+    report.workflow_run.repository_id === 853430876 &&
+    report.workflow_run.head_repository_id === 853430876
+  );
+}
+
 export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline = BASELINE_RUN, provider = 'swap') {
   validateProvider(provider);
   const orderedRuns = [...runs].sort((a, b) => b.id - a.id);
@@ -48,8 +79,10 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
           LEGACY_SPENDING_STEPS.includes(step.name) &&
           step.conclusion !== 'skipped' &&
           !(step.status === 'completed' && step.conclusion === 'success')
-        )
+        ) {
+          if (await reconciledReadOnlyLegacyFailure(run, step, getArtifacts)) continue;
           throw new Error(`Unresolved legacy activity in run ${run.id}; reconcile original outcomes before spending`);
+        }
       }
     }
   }
