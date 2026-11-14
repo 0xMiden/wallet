@@ -1,17 +1,16 @@
-name: Read-only issued Guardian swap approval expiry
+name: Parent-independent forward and reverse claim regression RED
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
 permissions:
   contents: read
-  actions: read
 concurrency:
   group: mainnet-loop-regression-proof
   cancel-in-progress: false
 jobs:
-  readonly:
+  contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,7 +20,8 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Prove original source approval bound elapsed and original public note remains absent
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/issued-return-approval-expiry-proof.mjs
+      - name: Actual SDK immutable payback and native debit preparation
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
+          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
