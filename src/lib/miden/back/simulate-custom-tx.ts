@@ -15,7 +15,7 @@ import {
   withWasmClientLock,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
-import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
+import { isKilledPipeline, isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { CustomSimulationTimeoutError } from './public-error';
@@ -60,10 +60,11 @@ const SIMULATION_TIMEOUT_MS = 20_000;
  * for — i.e. the notes this dry run is about to INTRODUCE, and the only ones
  * it may hide from the claimable UI.
  *
- * A lookup failure resolves the id as already-held (not quarantined): leaving
- * a dry-run-imported note visible is a cosmetic surprise, while hiding a note
+ * An ordinary lookup failure is already held (not quarantined): leaving a
+ * dry-run-imported note visible is a cosmetic surprise, while hiding a note
  * the user already owned removes their only view of their own funds. When the
  * lookup is broken for every id the quarantine simply degrades to a no-op.
+ * A trap and a killed pipeline are rethrown so the lock sees them.
  *
  * The caller syncs first: a note on chain that the client has not synced has no
  * record yet and would read as introduced.
@@ -89,14 +90,15 @@ async function idsNotAlreadyHeld(
   for (const id of ids) {
     // Per-iteration: an eviction during any lookup hands the mutex to a
     // successor without stopping this loop, and the next lookup would borrow a
-    // client somebody else is inside. The check sits OUTSIDE the try below —
-    // inside it, the poison would be swallowed as "already held" and the loop
-    // would carry on.
+    // client somebody else is inside. The check sits OUTSIDE the try below.
+    // The try rethrows a trap and a killed pipeline so the lock sees them; an
+    // ordinary failure is already held.
     assertWasmHoldCurrent(hold, 'before the provenance lookup');
     try {
       if (!(await client.getInputNote(id))) introduced.push(id);
-    } catch {
-      // Treated as already held — see above.
+    } catch (error) {
+      if (error instanceof WebAssembly.RuntimeError || isKilledPipeline(error)) throw error;
+      // An ordinary failure is already held, see above.
     }
   }
   return introduced;

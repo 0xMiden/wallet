@@ -253,6 +253,67 @@ describe('simulateCustomTransaction', () => {
     expect(quarantineNoteIds).toHaveBeenCalledWith([], expect.objectContaining({ abandoned: false }));
   });
 
+  it('rethrows a trap from a carried provenance lookup before the next id', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    getInputNote.mockRejectedValueOnce(trap);
+
+    await expect(
+      simulateCustomTransaction({
+        address: 'mtst1abc',
+        transactionRequest: 'reqB64',
+        importNotes: ['noteA', 'noteB']
+      })
+    ).resolves.toEqual({ error: 'unreachable' });
+    expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+    expect(getInputNote).toHaveBeenCalledTimes(1);
+    expect(quarantineNoteIds).not.toHaveBeenCalled();
+    expect(importNoteBytes).not.toHaveBeenCalled();
+    expect(executeForSummaryAtTip).not.toHaveBeenCalled();
+    expect(mockAbandonQuarantineAttempt).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a trap from an embedded provenance lookup before the next id', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockSimulatedBytesToView.mockReturnValueOnce({ viewConsumedNotes: [{ id: 'id:one' }, { id: 'id:two' }] });
+    getInputNote.mockRejectedValueOnce(trap);
+
+    await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).resolves.toEqual({
+      error: 'unreachable'
+    });
+    expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+    expect(getInputNote).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows a terminated client from a carried provenance lookup', async () => {
+    const terminated = new Error('Client terminated');
+    getInputNote.mockRejectedValueOnce(terminated);
+
+    await expect(
+      simulateCustomTransaction({
+        address: 'mtst1abc',
+        transactionRequest: 'reqB64',
+        importNotes: ['noteA', 'noteB']
+      })
+    ).rejects.toBe(terminated);
+    expect(mockAbandonQuarantineAttempt).toHaveBeenCalledTimes(1);
+    expect(getInputNote).toHaveBeenCalledTimes(1);
+    expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+    expect(quarantineNoteIds).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a killed pipeline wrapped around a poison from an embedded lookup', async () => {
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    mockSimulatedBytesToView.mockReturnValueOnce({ viewConsumedNotes: [{ id: 'id:one' }, { id: 'id:two' }] });
+    getInputNote.mockRejectedValueOnce(new Error('lookup failed', { cause: new WasmClientPoisonedError('watchdog') }));
+
+    await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).resolves.toEqual({
+      error: 'lookup failed'
+    });
+    expect(getInputNote).toHaveBeenCalledTimes(1);
+    expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+    expect(mockAbandonQuarantineAttempt).not.toHaveBeenCalled();
+  });
+
   it('syncs again after an import, before executing, for a carried note committed since the first sync', async () => {
     await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64', importNotes: ['noteA'] });
 
