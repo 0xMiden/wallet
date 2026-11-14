@@ -154,7 +154,7 @@ function claimAuthority(value: unknown): value is MainnetSwapClaimAuthority {
     )
   );
 }
-function valid(value: unknown): value is MainnetSwapCheckpoint {
+export function valid(value: unknown): value is MainnetSwapCheckpoint {
   if (
     !record(value) ||
     value.version !== 1 ||

@@ -21,6 +21,7 @@ import { remainingMainnetLoopBudget } from '../../helpers/mainnet-loop-budget';
 import {
   loadMainnetSwapCheckpoint,
   saveMainnetSwapCheckpoint,
+  valid as inspectMainnetSwapCheckpoint,
   mainnetSwapNextAction,
   mainnetSwapRequestExpiresAt,
   swapProceeds,
@@ -85,8 +86,8 @@ test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return;
   mkdirSync('test-results', { recursive: true });
   const messages=info.errors.map(error=>error.message??'').join('\n');
-  const known=[['quote-floor','Recovery return quote weakened the original minimum'],['source-proof','Original return upload or execution outcome is ambiguous'],['source-identity','Original return workflow is unresolved or foreign'],['absence-proof','Expired return replacement lacks exact unsubmitted original authority'],['base-fee','Native fee increased beyond the original recovery budget']].find(([,text])=>messages.includes(text));
-  writeFileSync('test-results/read-only-replacement-preflight.json',JSON.stringify({purpose:'read-only replacement preflight; no grant persisted or SDK authority',eligible:false,stage:claimStage,errorCode:known?.[0]??'unclassified',quotedMinimum:observedQuote,retainedMinimum:retainedFloor,grantPersisted:false,sdkAuthorityIssued:false}));
+  const known=[['quote-floor','Recovery return quote weakened the original minimum'],['source-proof','Original return upload or execution outcome is ambiguous'],['source-identity','Original return workflow is unresolved or foreign'],['absence-proof','Expired return replacement lacks exact unsubmitted original authority'],['base-fee','Native fee increased beyond the original recovery budget'],['checkpoint-codec','Invalid mainnet swap checkpoint']].find(([,text])=>messages.includes(text));
+  writeFileSync('test-results/read-only-replacement-preflight.json',JSON.stringify({purpose:'read-only replacement preflight; no grant persisted or SDK authority',eligible:false,stage:claimStage,errorCode:claimStage==='replacement-codec'?'checkpoint-codec':known?.[0]??'unclassified',quotedMinimum:observedQuote,retainedMinimum:retainedFloor,grantPersisted:false,sdkAuthorityIssued:false}));
   writeFileSync(
     'test-results/mainnet-swap-claim-failure.json',
     JSON.stringify(
@@ -640,6 +641,8 @@ test('read-only replacement candidate preflight; never persist or sign', async (
       claimStage='replacement-candidate';
       state = authorizeMainnetSwapReturnReplacement(state, proof, before, runId, new Date().toISOString(), absence);
     } else state = authorizeMainnetSwapRecoveryReturn(state, proof, before, runId, new Date().toISOString());
+    claimStage='replacement-codec';
+    expect(inspectMainnetSwapCheckpoint(state)).toBe(true);
     expect(state.recoveryReturnReplacement?.previous).toEqual(original.reverseRequestAuthority);
     expect(state.recoveryReturnAuthorizedAt).toBe(original.recoveryReturnAuthorizedAt);
     expect(state.forwardRequestAuthority).toEqual(original.forwardRequestAuthority);
