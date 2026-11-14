@@ -1,4 +1,4 @@
-name: Epoch restored-vault and fast-only route regression RED
+name: Epoch restored-vault, provider-neutral route and held native request GREEN
 on:
   push:
     branches: [wiktor/nightly-loop-proof]
@@ -11,7 +11,7 @@ concurrency:
 jobs:
   contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,4 +21,140 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - run: yarn jest scripts/mainnet-epoch-route.test.ts scripts/mainnet-epoch-readonly-completion.test.ts --runInBand --watch=false
+      - name: SDK and all mainnet contracts, discovery, canonical types and lint
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
+          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-send-request.test.mjs
+          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts --maxWorkers=2 --watch=false
+          rm playwright/e2e/tests/mainnet/mainnet-epoch-route-readonly.spec.ts
+          E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list
+          yarn ts
+          yarn tsc --noEmit --project playwright.mainnet.tsconfig.json
+          yarn lint:e2e
+      - name: Owned formatting only
+        if: success()
+        run: |
+          mkdir -p "$RUNNER_TEMP/owned-format"
+          sha256sum playwright/e2e/helpers/bridge.ts playwright/e2e/helpers/mainnet-epoch-runtime.ts scripts/mainnet-epoch-route.test.ts scripts/mainnet-epoch-readonly-completion.test.ts > "$RUNNER_TEMP/owned-format/source.sha256"
+          yarn prettier --write playwright/e2e/helpers/bridge.ts playwright/e2e/helpers/mainnet-epoch-runtime.ts scripts/mainnet-epoch-route.test.ts scripts/mainnet-epoch-readonly-completion.test.ts
+          git diff --binary -- playwright/e2e/helpers/bridge.ts playwright/e2e/helpers/mainnet-epoch-runtime.ts scripts/mainnet-epoch-route.test.ts scripts/mainnet-epoch-readonly-completion.test.ts > "$RUNNER_TEMP/owned-format/mainnet-loop-format.patch"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: epoch-native-preflight-owned-format
+          path: ${{ runner.temp }}/owned-format
+  readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43619310746
+          github-token: ${{ github.token }}
+          name: mainnet-epoch-final-43619310746
+          path: test-results/mainnet-epoch-state
+      - name: Exact production SDK bootstrap
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import YAML from 'yaml';
+          const doc=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8'));
+          const step=doc.jobs['mainnet-nightly'].steps.find(step=>step.name==='Build read-only Epoch SDK');
+          if(!step?.run)throw new Error('Missing SDK bootstrap');execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
+          NODE
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Start the owned-only actual provider snapshot
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/readonly-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/readonly-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          exit 1
+      - run: yarn test:e2e:blockchain:build
+      - name: Inspect original balances and held cancelled preview; NEVER execute
+        run: |
+          umask 077
+          before=$(sha256sum test-results/mainnet-epoch-state/roundtrip.json)
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-route-readonly-results" xvfb-run -a yarn playwright test mainnet-epoch-route-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/epoch-route-readonly.log" 2>&1 || code=$?
+          test "$before" = "$(sha256sum test-results/mainnet-epoch-state/roundtrip.json)"
+          node --input-type=module <<'NODE'
+          import {existsSync,readFileSync} from 'node:fs';
+          const path='test-results/epoch-route-readonly-result.json';
+          if(!existsSync(path))throw new Error('Probe blocked before approved diagnosis; private output remains local');
+          const value=JSON.parse(readFileSync(path,'utf8'));
+          const keys=['purpose','sourceRunId','checkpointUnchanged','balancesUnchanged','grantPersisted','sdkAuthorityIssued','quoteAmount','quoteSymbol','minimum','reachedReview','blockedAt','errorClass','sourceLocation','quoteEnabled','quoteLoading','hasToken','hasAmount','quoteErrored','lastPhase','nativeInitial','nativeObserved','localPreviewCancelled','originalStatusArray','originalStatusCount','previewNonceMatchesOriginal','actualCollateralInspected'];
+          if(Object.keys(value).some(key=>!keys.includes(key))||value.grantPersisted!==false||value.sdkAuthorityIssued!==false)throw new Error('Unexpected public diagnostic');
+          console.log(JSON.stringify(value));
+          NODE
+          exit "$code"
+  cost-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-loop-proof.yml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43619310746
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43619310746
+          path: test-results/fresh
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43619310746
+          github-token: ${{ github.token }}
+          name: mainnet-nightly-43619310746
+          path: test-results/fresh-public
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43619310746
+          github-token: ${{ github.token }}
+          name: mainnet-swap-forward-sdk-authorized-43619310746
+          path: test-results/forward-create
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43619310746
+          github-token: ${{ github.token }}
+          name: mainnet-swap-forward-claim-sdk-authorized-43619310746
+          path: test-results/forward-claim
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43619310746
+          github-token: ${{ github.token }}
+          name: mainnet-swap-reverse-sdk-authorized-43619310746
+          path: test-results/reverse-create
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 43619310746
+          github-token: ${{ github.token }}
+          name: mainnet-swap-reverse-claim-sdk-authorized-43619310746
+          path: test-results/reverse-claim
+      - name: Independently verify both original swap claims and deduct only this run cost
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          node scripts/merged-swap-cost-audit.mjs
