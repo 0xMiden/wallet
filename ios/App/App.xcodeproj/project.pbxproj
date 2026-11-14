@@ -12,6 +12,7 @@
 		EA1599000000000000000001 /* AppViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1599000000000000000002 /* AppViewControllerTests.swift */; };
 		E82100000000000000000001 /* UpdateAvailabilityLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000002 /* UpdateAvailabilityLogic.swift */; };
 		E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */; };
+		3859F48B956620297AC9F7A0 /* SecretClipboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86024DE12AB40132B1E7E3F5 /* SecretClipboardTests.swift */; };
 		E82100000000000000000010 /* UpdateAvailabilityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000011 /* UpdateAvailabilityPlugin.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
@@ -29,6 +30,7 @@
 		7BECE3022FA7691500F466A5 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = 7BECE3012FA7691500F466A5 /* P256K */; settings = {ATTRIBUTES = (Required, ); }; };
 		83CCE39C02FD0BF8DD39551F /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6B2865F76F213517CFCCD1 /* AppViewController.swift */; };
 		A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */; };
+		F51C034480B39F241125D70F /* SecretClipboardPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCA9F680CB0BA155E2ED1238 /* SecretClipboardPlugin.swift */; };
 		C4D5E6F708192A3B4C5D6E70 /* GuardianProbeHttpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D5E6F708192A3B4C5D6E71 /* GuardianProbeHttpPlugin.swift */; };
 		A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */; };
 		A1C4E9D207F1B3A65D2E8430 /* BackgroundExecutionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8431 /* BackgroundExecutionPlugin.swift */; };
@@ -54,6 +56,7 @@
 		EA1599000000000000000002 /* AppViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewControllerTests.swift; sourceTree = "<group>"; };
 		E82100000000000000000002 /* UpdateAvailabilityLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogic.swift; sourceTree = "<group>"; };
 		E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogicTests.swift; sourceTree = "<group>"; };
+		86024DE12AB40132B1E7E3F5 /* SecretClipboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretClipboardTests.swift; sourceTree = "<group>"; };
 		E82100000000000000000006 /* AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E82100000000000000000011 /* UpdateAvailabilityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityPlugin.swift; sourceTree = "<group>"; };
 		1A6B2865F76F213517CFCCD1 /* AppViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppViewController.swift; sourceTree = "<group>"; };
@@ -72,6 +75,7 @@
 		873F0344C8952CB5585102E0 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScreenshotGuardPlugin.swift; sourceTree = "<group>"; };
+		BCA9F680CB0BA155E2ED1238 /* SecretClipboardPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SecretClipboardPlugin.swift; sourceTree = "<group>"; };
 		C4D5E6F708192A3B4C5D6E71 /* GuardianProbeHttpPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GuardianProbeHttpPlugin.swift; sourceTree = "<group>"; };
 		A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HighRefreshRatePlugin.swift; sourceTree = "<group>"; };
 		A1C4E9D207F1B3A65D2E8431 /* BackgroundExecutionPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundExecutionPlugin.swift; sourceTree = "<group>"; };
@@ -137,6 +141,7 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 				21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */,
 				A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */,
+				BCA9F680CB0BA155E2ED1238 /* SecretClipboardPlugin.swift */,
 				C4D5E6F708192A3B4C5D6E71 /* GuardianProbeHttpPlugin.swift */,
 				A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */,
 				A1C4E9D207F1B3A65D2E8431 /* BackgroundExecutionPlugin.swift */,
@@ -156,6 +161,7 @@
 			isa = PBXGroup;
 			children = (
 				E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */,
+				86024DE12AB40132B1E7E3F5 /* SecretClipboardTests.swift */,
 				BCAD00000000000000000002 /* BreadPresentationTests.swift */,
 				BCAD00000000000000000004 /* BreadAuthTests.swift */,
 				EA1599000000000000000002 /* AppViewControllerTests.swift */,
@@ -290,6 +296,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */,
+				3859F48B956620297AC9F7A0 /* SecretClipboardTests.swift in Sources */,
 				BCAD00000000000000000001 /* BreadPresentationTests.swift in Sources */,
 				BCAD00000000000000000003 /* BreadAuthTests.swift in Sources */,
 				EA1599000000000000000001 /* AppViewControllerTests.swift in Sources */,
@@ -303,6 +310,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */,
+				F51C034480B39F241125D70F /* SecretClipboardPlugin.swift in Sources */,
 				C4D5E6F708192A3B4C5D6E70 /* GuardianProbeHttpPlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8430 /* BackgroundExecutionPlugin.swift in Sources */,
