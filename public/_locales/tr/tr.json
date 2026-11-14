@@ -993,6 +993,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "Bu işlem ayrıca, NFT gibi cüzdanın listeleyemediği bir varlığı da aktarır. Yalnızca güvendiğiniz takdirde devam edin.",
   "unknown": "Bilinmiyor",
+  "includesUnclaimedNotes": "Henüz talep etmediğiniz notes'u içerir",
   "inputNotesConsumed": "notes'lık girdi tüketildi",
   "outputNotesCreated": "Çıktı note'ları oluşturuldu",
   "transactionNoteFlow": "Note akışı",

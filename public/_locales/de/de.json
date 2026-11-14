@@ -992,6 +992,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "Bei dieser Transaktion wird zudem ein Vermögenswert bewegt, den die Wallet nicht auflisten kann, wie beispielsweise ein NFT. Fahren Sie nur fort, wenn Sie der Transaktion vertrauen.",
   "unknown": "Unbekannt",
+  "includesUnclaimedNotes": "Beinhaltet notes, die Sie noch nicht beansprucht haben",
   "inputNotesConsumed": "Verbrauchte Eingabe-notes",
   "outputNotesCreated": "Ausgabe: „notes“ wurde erstellt",
   "transactionFeeNote": "note zur Transaktionsgebühr",

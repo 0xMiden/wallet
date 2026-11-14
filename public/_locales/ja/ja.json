@@ -993,6 +993,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "また、この取引では、NFTなど、ウォレットに表示できない資産も移動します。信頼できる場合のみ、続行してください。",
   "unknown": "不明",
+  "includesUnclaimedNotes": "これには、まだ受け取り請求していないnotesが含まれます",
   "inputNotesConsumed": "notesの入力データが消費されました",
   "outputNotesCreated": "notes が出力されました",
   "transactionNoteFlow": "Noteフロー",

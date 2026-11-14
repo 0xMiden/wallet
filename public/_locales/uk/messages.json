@@ -4481,6 +4481,10 @@
     "message": "Невідомо",
     "englishSource": "Unknown"
   },
+  "includesUnclaimedNotes": {
+    "message": "Включає notes, які ви ще не отримали",
+    "englishSource": "Includes notes you have not claimed yet"
+  },
   "inputNotesConsumed": {
     "message": "Використано вхідні дані notes",
     "englishSource": "Input notes consumed"

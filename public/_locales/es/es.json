@@ -993,6 +993,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "Esta transacción también transfiere un activo que la cartera no puede mostrar, como un NFT. Continúa solo si confías en ella.",
   "unknown": "Desconocido",
+  "includesUnclaimedNotes": "Incluye los notes que aún no has reclamado.",
   "inputNotesConsumed": "Notas de entrada consumidas",
   "outputNotesCreated": "Notas de salida creadas",
   "transactionNoteFlow": "Flujo de Notes",

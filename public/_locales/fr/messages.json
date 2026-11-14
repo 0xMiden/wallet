@@ -4481,6 +4481,11 @@
     "message": "Inconnu",
     "englishSource": "Unknown"
   },
+  "includesUnclaimedNotes": {
+    "message": "Includes notes you have not claimed yet",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Includes notes you have not claimed yet"
+  },
   "inputNotesConsumed": {
     "message": "Notes d'entrée consommées",
     "englishSource": "Input notes consumed"

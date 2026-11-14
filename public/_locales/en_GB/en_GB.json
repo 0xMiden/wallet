@@ -993,6 +993,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it.",
   "unknown": "Unknown",
+  "includesUnclaimedNotes": "Includes notes you have not claimed yet",
   "inputNotesConsumed": "Input notes consumed",
   "outputNotesCreated": "Output notes created",
   "transactionNoteFlow": "Note flow",

@@ -4481,6 +4481,10 @@
     "message": "不明",
     "englishSource": "Unknown"
   },
+  "includesUnclaimedNotes": {
+    "message": "これには、まだ受け取り請求していないnotesが含まれます",
+    "englishSource": "Includes notes you have not claimed yet"
+  },
   "inputNotesConsumed": {
     "message": "notesの入力データが消費されました",
     "englishSource": "Input notes consumed"

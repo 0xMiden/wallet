@@ -4482,6 +4482,10 @@
     "message": "Nieznane",
     "englishSource": "Unknown"
   },
+  "includesUnclaimedNotes": {
+    "message": "Obejmuje to notes, których jeszcze nie odebrałeś",
+    "englishSource": "Includes notes you have not claimed yet"
+  },
   "inputNotesConsumed": {
     "message": "Zużycie energii w trybie pracy z podłączonym zasilaczem „notes”",
     "englishSource": "Input notes consumed"

@@ -993,6 +993,7 @@
   "nftFaucet": "Faucet",
   "unlistedAssetsWarning": "Эта транзакция также перемещает актив, который кошелек не может отобразить, например NFT. Продолжайте только в том случае, если доверяете ей.",
   "unknown": "Неизвестно",
+  "includesUnclaimedNotes": "Включает notes, которые вы ещё не получили",
   "inputNotesConsumed": "Входные notes использованы",
   "outputNotesCreated": "Создан файл «notes»",
   "transactionNoteFlow": "Поток Note",
