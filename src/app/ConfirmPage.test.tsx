@@ -14,7 +14,7 @@ import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import * as userVisibleErrors from 'lib/telemetry/user-visible-error';
 import { useLocation } from 'lib/woozie';
 
-import { declaredRequestToView, simulatedBytesToView, type TxAssetView } from './confirm/decode';
+import { simulatedBytesToView, type TxAssetView } from './confirm/decode';
 import { noteFlowFromSimulatedBytes, type NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import ConfirmPage from './ConfirmPage';
@@ -210,21 +210,10 @@ jest.mock('./confirm/note-flow', () => ({
 }));
 
 // Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
-// below assert on its actual mapping); the declared decode is stubbed so these
-// UI tests don't touch the WASM SDK, and the dry-run decode is stubbed only to
-// prove the window never calls it.
+// below assert on its actual mapping). `simulatedBytesToView` is stubbed so these
+// UI tests don't touch the WASM SDK, and to prove the window never calls it.
 jest.mock('./confirm/decode', () => ({
   ...jest.requireActual('./confirm/decode'),
-  declaredRequestToView: jest.fn(() => ({
-    outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [],
-    outgoingNfts: [],
-    incomingNfts: [],
-    unlistedAssets: 0,
-    inputNotesConsumed: 0,
-    outputNotesCreated: 1,
-    storageChanged: false
-  })),
   simulatedBytesToView: jest.fn()
 }));
 
@@ -274,7 +263,6 @@ const mockWord = Word as unknown as { deserialize: jest.Mock };
 const mockSigningInputs = SigningInputs as unknown as { deserialize: jest.Mock };
 const mockAddress = Address as unknown as { fromAccountId: jest.Mock };
 const mockTransactionAssetView = TransactionAssetView as unknown as jest.Mock;
-const mockDeclaredRequestToView = declaredRequestToView as unknown as jest.Mock;
 
 const UPON_REQUEST = 'UPON_REQUEST';
 const AUTO = 'AUTO';
@@ -1494,7 +1482,6 @@ describe('ConfirmPage custom transaction', () => {
 
     await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
     expect(acceptButton()).not.toBeDisabled();
-    expect(mockDeclaredRequestToView).not.toHaveBeenCalled();
   });
 
   it('shows that the transaction cannot be approved when simulation errors, and no declared view', async () => {
@@ -1509,7 +1496,6 @@ describe('ConfirmPage custom transaction', () => {
     expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('customTransactionNotSimulated', 'inline');
     expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
     expect(acceptButton()).toBeDisabled();
-    expect(mockDeclaredRequestToView).not.toHaveBeenCalled();
   });
 
   it('shows that the transaction cannot be approved when requestBytes is absent', async () => {

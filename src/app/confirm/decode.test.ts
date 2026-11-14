@@ -1,10 +1,6 @@
-import { Note, NoteFile, TransactionRequest, TransactionResult, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
-import fs from 'fs';
-import path from 'path';
+import { TransactionResult, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import {
-  declaredRequestToView,
-  declaredTransactionRequestToView,
   executedBytesToView,
   netOutflowByFaucet,
   toHoldingsView,
@@ -58,18 +54,8 @@ const feeNote = (amount: bigint, faucetId = NATIVE_FAUCET) => ({
 });
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  TransactionRequest: { deserialize: jest.fn() },
   TransactionResult: { deserialize: jest.fn() },
-  TransactionSummary: { deserialize: jest.fn() },
-  Note: { deserialize: jest.fn() },
-  // NoteFile is tried FIRST for importNotes (mirroring importNoteBytes); it
-  // throws by default ("bare Note, not a NoteFile") so the Note path is
-  // exercised by the existing tests. NoteFile-format tests override it.
-  NoteFile: {
-    deserialize: jest.fn(() => {
-      throw new Error('not a NoteFile');
-    })
-  }
+  TransactionSummary: { deserialize: jest.fn() }
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   // Input-aware: the account delta id is a bare string; faucet ids are the
@@ -390,110 +376,6 @@ describe('the network fee, on both decode paths', () => {
   });
 });
 
-describe('declaredRequestToView', () => {
-  it('derives bech32 outgoing from expected output notes and incoming from imported notes', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({
-      expectedOutputOwnNotes: () => [note([fa('fA', 10n)])]
-    });
-    (Note.deserialize as jest.Mock).mockReturnValueOnce(note([fa('fB', 3n)]));
-
-    const view = declaredRequestToView('reqB64', ['imported']);
-    expect(view).toEqual({
-      account: undefined,
-      outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
-      incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
-      outgoingNfts: [],
-      incomingNfts: [],
-      unlistedAssets: 0,
-      inputNotesConsumed: 1,
-      outputNotesCreated: 1,
-      storageChanged: false
-    });
-  });
-
-  it('handles a request with no output/imported notes', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
-    const view = declaredRequestToView('reqB64');
-    expect(view.outgoing).toEqual([]);
-    expect(view.incoming).toEqual([]);
-    expect(view.outputNotesCreated).toBe(0);
-    expect(view.inputNotesConsumed).toBe(0);
-  });
-
-  it('contributes [] for an output note whose assets() returns undefined', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({
-      expectedOutputOwnNotes: () => [{ assets: () => undefined }]
-    });
-    const view = declaredRequestToView('reqB64');
-    expect(view.outgoing).toEqual([]);
-    expect(view.outputNotesCreated).toBe(1);
-  });
-
-  it('derives incoming assets from a NoteFile-serialized importNote (Note parse would throw)', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
-    (NoteFile.deserialize as jest.Mock).mockReturnValueOnce({
-      note: () => note([fa('fB', 3n)]),
-      noteDetails: () => undefined
-    });
-    const view = declaredRequestToView('reqB64', ['nf']);
-    expect(view.incoming).toEqual([{ faucetId: 'bech32:fB', amount: 3n }]);
-    expect(view.inputNotesConsumed).toBe(1);
-  });
-
-  it('falls back to NoteFile.noteDetails() assets when note() is undefined', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
-    (NoteFile.deserialize as jest.Mock).mockReturnValueOnce({
-      note: () => undefined,
-      noteDetails: () => note([fa('fC', 7n)])
-    });
-    const view = declaredRequestToView('reqB64', ['nf']);
-    expect(view.incoming).toEqual([{ faucetId: 'bech32:fC', amount: 7n }]);
-  });
-
-  it('yields [] incoming for an importNote that is neither NoteFile nor Note', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
-    (Note.deserialize as jest.Mock).mockImplementationOnce(() => {
-      throw new Error('not a Note either');
-    });
-    const view = declaredRequestToView('reqB64', ['bad']);
-    expect(view.incoming).toEqual([]);
-    expect(view.inputNotesConsumed).toBe(1);
-  });
-});
-
-describe('the declared view of a carried note whose decode traps', () => {
-  const trap = new WebAssembly.RuntimeError('unreachable');
-  const throwTrap = () => {
-    throw trap;
-  };
-  const request = { expectedOutputOwnNotes: () => [] } as unknown as Parameters<
-    typeof declaredTransactionRequestToView
-  >[0];
-  const traps: Record<string, () => void> = {
-    'NoteFile.deserialize': () => (NoteFile.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
-    'Note.deserialize': () => (Note.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
-    'the asset read': () => (Note.deserialize as jest.Mock).mockReturnValueOnce({ assets: throwTrap })
-  };
-
-  it.each(Object.keys(traps))('returns no incoming assets when %s traps', name => {
-    traps[name]!();
-    expect(declaredTransactionRequestToView(request, ['imported']).incoming).toEqual([]);
-  });
-
-  it('returns no incoming assets when Note.deserialize fails ordinarily', () => {
-    (Note.deserialize as jest.Mock).mockImplementationOnce(() => {
-      throw new Error('bad note bytes');
-    });
-    expect(declaredTransactionRequestToView(request, ['imported']).incoming).toEqual([]);
-  });
-
-  it('keeps the trap option out of the declared view', () => {
-    const source = fs.readFileSync(path.join(__dirname, 'decode.ts'), 'utf8');
-    expect(source).not.toContain('rethrowTraps');
-    expect(source).not.toContain('NoteDecodeOptions');
-  });
-});
-
 describe('simulatedBytesToView', () => {
   // The dry run produces exactly one of these, decided by the ACCOUNT's authorization state:
   // a summary while authorization is pending, an executed transaction for every ordinary
@@ -643,23 +525,6 @@ describe('netOutflowByFaucet', () => {
 describe('NFTs on the approval view (#1600)', () => {
   const nftOut = nft('bech32:nftFaucet', '0xaa11bb22…cc33dd');
   const nftIn = nft('bech32:otherFaucet', '0x01020304…050607');
-
-  it('declared view lists the NFT of an output note and of an imported note, with no fungible amount', () => {
-    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({
-      expectedOutputOwnNotes: () => [note([], [nftOut])]
-    });
-    (Note.deserialize as jest.Mock).mockReturnValueOnce(note([], [nftIn]));
-
-    const view = declaredRequestToView('reqB64', ['imported']);
-
-    expect(view.outgoing).toEqual([]);
-    expect(view.outgoingNfts).toEqual([
-      { faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22…cc33dd', key: 'bech32:nftFaucet|0xaa11bb22…cc33dd' }
-    ]);
-    expect(view.incomingNfts).toEqual([
-      { faucetId: 'bech32:otherFaucet', assetId: '0x01020304…050607', key: 'bech32:otherFaucet|0x01020304…050607' }
-    ]);
-  });
 
   it('executed view lists the NFT of a created note and of a consumed note', () => {
     (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
@@ -986,9 +851,10 @@ describe('the notes a verified view lists', () => {
     });
 
     it('throws for a view that lists no notes', () => {
-      (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({ expectedOutputOwnNotes: () => [] });
-      const declared = declaredRequestToView('reqB64');
-      expect(() => toHoldingsView(declared, [])).toThrow('the view does not list its notes');
+      const { viewConsumedNotes, createdNotes, ...view } = heldView();
+      expect(viewConsumedNotes).toBeDefined();
+      expect(createdNotes).toBeDefined();
+      expect(() => toHoldingsView(view, [])).toThrow('the view does not list its notes');
     });
 
     it('folds hex and bech32 spellings and keeps the bech32 one', () => {

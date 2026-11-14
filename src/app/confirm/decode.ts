@@ -1,12 +1,4 @@
-import {
-  FungibleAsset,
-  NonFungibleAsset,
-  Note,
-  NoteFile,
-  TransactionRequest,
-  TransactionResult,
-  TransactionSummary
-} from '@miden-sdk/miden-sdk/lazy';
+import { FungibleAsset, NonFungibleAsset, TransactionResult, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
 import { canonicalWalletAccountId, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
@@ -111,27 +103,6 @@ const viewNft = (asset: NonFungibleAsset): ViewNft => ({ ...toNft(asset), key: n
 
 function noteNfts(note: NoteWithAssets | undefined): ViewNft[] {
   return noteNftAssets(note).map(viewNft);
-}
-
-/**
- * Assets of a carried `importNotes` entry, parsing a serialized NoteFile OR a
- * bare Note (the dApp chooses which, mirroring importNoteBytes). Handling only
- * one format would throw for the other and blank the declared incoming assets.
- */
-function importedNoteContents(b64: string): { amounts: AssetAmount[]; nfts: ViewNft[] } {
-  const bytes = b64ToU8(b64);
-  const contentsOf = (note: NoteWithAssets | undefined) => ({ amounts: noteAssets(note), nfts: noteNfts(note) });
-  try {
-    const nf = NoteFile.deserialize(bytes);
-    return contentsOf(nf.note() ?? nf.noteDetails());
-  } catch {
-    // Not a NoteFile — try a bare Note below.
-  }
-  try {
-    return contentsOf(Note.deserialize(bytes));
-  } catch {
-    return { amounts: [], nfts: [] };
-  }
 }
 
 /**
@@ -358,8 +329,7 @@ export function summaryBytesToView(summaryB64: string): TxAssetView {
  * ABSOLUTE (final balances, `AccountVaultPatch.updatedFungibleAssets()`), so it
  * cannot be read as an incoming/outgoing delta without the pre-state. Note flows
  * are the same quantities the summary view reports for the transactions this
- * screen previews, and unlike `declaredRequestToView` they are what execution
- * really produced rather than what the request declared.
+ * screen previews.
  */
 export function executedBytesToView(executedB64: string): TxAssetView {
   const executed = TransactionResult.deserialize(b64ToU8(executedB64)).executedTransaction();
@@ -381,46 +351,5 @@ export function executedBytesToView(executedB64: string): TxAssetView {
     storageChanged: !executed.accountPatch().storage().isEmpty(),
     viewConsumedNotes: inputNotes.notes().map(input => viewNoteOf(idOf(input), input.note())),
     createdNotes: userNotes.map(created => viewNoteOf(idOf(created), created))
-  };
-}
-
-/**
- * Declared (unverified) view decoded statically from the TransactionRequest:
- * outgoing = its expected output notes' assets; incoming = the assets of the
- * notes it consumes (carried as `importNotes`). No execution, so `account` and
- * `storageChanged` are unknown/false. These values are dApp-declared — the UI
- * must label them as such.
- */
-export function declaredRequestToView(requestB64: string, importNotes: string[] = []): TxAssetView {
-  const request = TransactionRequest.deserialize(b64ToU8(requestB64));
-  return declaredTransactionRequestToView(request, importNotes);
-}
-
-/**
- * Build the unverified asset view after the caller has established that the
- * serialized request is a valid `TransactionRequest`.
- *
- * Keeping deserialization separate lets request entry points reject malformed
- * bytes while still treating a failure to summarize a valid request as an
- * opaque transaction that the user may review.
- */
-export function declaredTransactionRequestToView(request: TransactionRequest, importNotes: string[] = []): TxAssetView {
-  const outputNotes = request.expectedOutputOwnNotes();
-  const imported = importNotes.map(b64 => importedNoteContents(b64));
-
-  return {
-    account: undefined,
-    outgoing: outputNotes.flatMap(n => noteAssets(n)),
-    incoming: imported.flatMap(note => note.amounts),
-    outgoingNfts: outputNotes.flatMap(n => noteNfts(n)),
-    incomingNfts: imported.flatMap(note => note.nfts),
-    unlistedAssets: 0,
-    // Only counts the carried `importNotes`; it may undercount notes consumed
-    // from the wallet's own store (referenced by inputNoteIds, not carried
-    // here as full note bytes). This is the explicitly-unverified "declared"
-    // view — the verified (simulated/executed) summary supersedes it.
-    inputNotesConsumed: importNotes.length,
-    outputNotesCreated: outputNotes.length,
-    storageChanged: false
   };
 }
