@@ -14,6 +14,14 @@ jobs:
           persist-credentials: false
       - name: Check the observation trust boundaries
         run: python .github/native-pilot/check-observation-boundaries.py
+      - name: Check bounded privileged-launcher syntax and rejected-context safety
+        shell: powershell
+        run: |
+          foreach ($file in @('.github/native-pilot/launch-protected-observation.ps1', '.github/native-pilot/check-protected-launcher.ps1')) {
+            $path = (Resolve-Path $file).Path
+            [IO.File]::WriteAllText($path, [IO.File]::ReadAllText($path).Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+          }
+          .github/native-pilot/check-protected-launcher.ps1
       - name: Parse and exercise the read-only observation on the CI fixture
         shell: powershell
         run: |
@@ -45,6 +53,7 @@ jobs:
             }
             New-Item -ItemType Directory 'native-observation-candidate' | Out-Null
             Copy-Item $script 'native-observation-candidate/observe-ui-session.ps1'
+            Copy-Item '.github/native-pilot/launch-protected-observation.ps1' 'native-observation-candidate/launch-protected-observation.ps1'
             Copy-Item (Join-Path $root 'native-driver-observation.json') 'native-observation-candidate/CI-FIXTURE-ONLY.json'
             $receipt = [ordered]@{
               purpose = 'Read-only UI/session diagnostic source; not an input driver or native wallet qualification'
@@ -52,6 +61,8 @@ jobs:
               targetProductSource = '35add7dbebd615fd57332f7ad802525dd0c131b4'
               runId = $env:GITHUB_RUN_ID
               scriptSha256 = (Get-FileHash $script -Algorithm SHA256).Hash.ToLowerInvariant()
+              launcherSha256 = (Get-FileHash '.github/native-pilot/launch-protected-observation.ps1' -Algorithm SHA256).Hash.ToLowerInvariant()
+              launcherValidation = 'Parent/child syntax and rejected-context safety only; no PsExec/SYSTEM launch in CI'
               ciFixtureSyntaxAndRuntime = 'passed'
               shadowGuestExecution = 'NOT RUN'
               credentialInput = 'NONE'
