@@ -576,6 +576,7 @@ describe('the Guardian request deadline (#312)', () => {
     nativeHttp.registerGuardianOrigin(CUSTOM);
     const controller = new AbortController();
     const reason = new Error('the probe attempt expired');
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(0);
     const unregister = registerProbeRequestBudget(controller.signal, 2_000);
     const request = track(globalThis.fetch(`${CUSTOM}/state`, { signal: controller.signal }));
     const settlement = track(nativeHttp.guardianNativeProbeSettlement(controller.signal));
@@ -597,6 +598,7 @@ describe('the Guardian request deadline (#312)', () => {
     } finally {
       settleNative({ status: 200, headers: {}, data: '{}' });
       unregister();
+      nowSpy.mockRestore();
     }
   });
 
