@@ -22,7 +22,8 @@ const mockVault = jest.fn();
 const mockQueue = jest.fn();
 const mockArm = jest.fn();
 const mockExport = jest.fn();
-jest.mock('@playwright/test', () => ({ expect: jest.fn() }));
+const mockRoute = jest.fn();
+jest.mock('@playwright/test', () => ({ expect: jest.requireActual('@playwright/test').expect }));
 jest.mock('viem', () => ({ ...jest.requireActual('viem'), createPublicClient: () => mockClient }));
 jest.mock('../playwright/e2e/ios/helpers/wc-counterparty', () => ({ WcCounterparty: jest.fn() }));
 jest.mock('../playwright/e2e/helpers/balance-truth', () => ({
@@ -37,7 +38,9 @@ jest.mock('../playwright/e2e/helpers/mainnet-consume-authorization', () => ({
 jest.mock('../playwright/e2e/helpers/mainnet-epoch-provider', () => ({}));
 jest.mock('../playwright/e2e/helpers/mainnet-epoch-request', () => ({}));
 jest.mock('../playwright/e2e/helpers/mainnet-epoch-ui', () => ({}));
-jest.mock('../playwright/e2e/helpers/bridge', () => ({}));
+jest.mock('../playwright/e2e/helpers/bridge', () => ({
+  openRouteStep: (...args: unknown[]) => mockRoute(...args)
+}));
 jest.mock('../playwright/e2e/helpers/epoch-quote', () => ({}));
 jest.mock('../playwright/e2e/helpers/swap', () => ({
   exportPublicInputNote: (...args: unknown[]) => mockExport(...args)
@@ -45,6 +48,7 @@ jest.mock('../playwright/e2e/helpers/swap', () => ({
 jest.mock('../playwright/e2e/helpers/mainnet-epoch-evm', () => ({ reconcileEpochEvmReceipts: () => true }));
 import {
   runEpochRefund,
+  runEpochForward,
   recoverEpochReturn,
   persistEpochEvmCheckpoint
 } from '../playwright/e2e/helpers/mainnet-epoch-runtime';
@@ -84,6 +88,7 @@ let directory: string;
 const wallet = { getAccountAddress: jest.fn(), refreshBalancesLanded: jest.fn(), page: {} };
 beforeEach(() => {
   jest.clearAllMocks();
+  mockVault.mockReset();
   directory = mkdtempSync(join(tmpdir(), 'epoch-readonly-completion-'));
   wallet.getAccountAddress.mockResolvedValue(refundState().account);
   wallet.refreshBalancesLanded.mockResolvedValue(undefined);
@@ -118,6 +123,41 @@ function pendingEvmState(): MainnetEpochCheckpoint {
     transactions: [{ kind: 'approve', nonce: 0, hash }]
   };
 }
+function freshForwardState(): MainnetEpochCheckpoint {
+  const now = new Date().toISOString();
+  return { ...epochCheckpointFixture(), createdAt: now, pricedAt: now };
+}
+it('waits for the restored native portfolio before the read-only Epoch route', async () => {
+  const state = freshForwardState();
+  wallet.getAccountAddress.mockResolvedValue(state.account);
+  mockVault.mockResolvedValueOnce(0n).mockResolvedValue(BigInt(state.native.balance));
+  mockClient.getBalance.mockResolvedValue(BigInt(state.evm.nativeBalance));
+  mockClient.readContract.mockResolvedValue(BigInt(state.evm.tokenBalance));
+  mockRoute.mockRejectedValue(new Error('read-only route reached'));
+  await expect(runEpochForward(actor, state, path(), state.sourceRunId, 'unused', new AbortController().signal))
+    .rejects.toThrow('read-only route reached');
+  expect(existsSync(path())).toBe(false);
+  noWrites();
+});
+it('never queues Epoch funding when the original portfolio does not converge', async () => {
+  const state = freshForwardState();
+  wallet.getAccountAddress.mockResolvedValue(state.account);
+  mockVault.mockResolvedValue(BigInt(state.native.balance) - 1n);
+  await expect(runEpochForward(actor, state, path(), state.sourceRunId, 'unused', new AbortController().signal))
+    .rejects.toThrow();
+  expect(mockRoute).not.toHaveBeenCalled();
+  expect(existsSync(path())).toBe(false);
+  noWrites();
+}, 35000);
+it('rejects a changed Epoch actor before reading its portfolio', async () => {
+  const state = freshForwardState();
+  wallet.getAccountAddress.mockResolvedValue('different-original-actor');
+  await expect(runEpochForward(actor, state, path(), state.sourceRunId, 'unused', new AbortController().signal))
+    .rejects.toThrow('Epoch Guardian actor or native portfolio changed');
+  expect(mockVault).not.toHaveBeenCalled();
+  expect(mockRoute).not.toHaveBeenCalled();
+  noWrites();
+});
 it('holds a signed EVM journal until its exact checkpoint upload is acknowledged', async () => {
   const state = pendingEvmState();
   const controller = new AbortController();
