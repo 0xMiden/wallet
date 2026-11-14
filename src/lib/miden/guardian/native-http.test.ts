@@ -567,6 +567,7 @@ describe('the Guardian request deadline (#312)', () => {
   });
 
   it('cancels a probe read when the caller aborts and keeps the late body as that error', async () => {
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(0);
     let settleNative: (value: unknown) => void = () => undefined;
     mockProbeRequest.mockReturnValue(
       new Promise(resolve => {
@@ -597,6 +598,7 @@ describe('the Guardian request deadline (#312)', () => {
     } finally {
       settleNative({ status: 200, headers: {}, data: '{}' });
       unregister();
+      nowSpy.mockRestore();
     }
   });
 
