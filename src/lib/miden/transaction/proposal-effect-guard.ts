@@ -123,7 +123,7 @@ export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetVi
  * `createdNotes` are the raw view's notes, not a second measure. This does not call `toHoldingsView`. Throws when the
  * view is not measured from holdings, or when the raw view did not list the notes it creates.
  */
-export function executeApprovalFromHoldings(
+function executeApprovalFromHoldings(
   holdings: TxAssetView,
   createdNotes: readonly ViewNote[] | undefined,
   introducedNoteIds: readonly string[]
@@ -139,16 +139,20 @@ export function executeApprovalFromHoldings(
 }
 
 /**
- * What an approval of `view` lets signing move, measured as `proposalEffectRefusal` measures a custom transaction:
- * from the account's holdings, crediting only `introducedNoteIds`, the consumed notes the request brought in. Throws
- * for a view that does not list its notes, or one already measured from holdings, which would count its held notes
- * twice.
+ * The holdings view of an approval of `view`, and what it lets signing move, measured as `proposalEffectRefusal`
+ * measures a custom transaction: from the account's holdings, crediting only `introducedNoteIds`, the consumed notes
+ * the request brought in. Throws for a view that does not list its notes, or one already measured from holdings, which
+ * would count its held notes twice. `view` is that one measure; `signing` is the allowance built from it.
  */
-export function executeApprovalOf(view: TxAssetView, introducedNoteIds: readonly string[]): IExecuteApproval {
+export function executeApprovalOf(
+  view: TxAssetView,
+  introducedNoteIds: readonly string[]
+): { view: TxAssetView; signing: IExecuteApproval } {
   if (view.heldNotesSpent !== undefined) throw new Error('the view is already measured from holdings');
-  const created = view.createdNotes;
-  if (created === undefined) throw new Error('the view does not list the notes it creates');
-  return executeApprovalFromHoldings(toHoldingsView(view, introducedNoteIds), created, introducedNoteIds);
+  const createdNotes = view.createdNotes;
+  if (createdNotes === undefined) throw new Error('the view does not list the notes it creates');
+  const holdings = toHoldingsView(view, introducedNoteIds);
+  return { view: holdings, signing: executeApprovalFromHoldings(holdings, createdNotes, introducedNoteIds) };
 }
 
 /** The refusal the effect check throws for `transaction`, with the localized sentence the row shows. */

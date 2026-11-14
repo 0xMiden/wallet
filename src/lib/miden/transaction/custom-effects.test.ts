@@ -35,6 +35,7 @@ interface TestView {
 const mockViews = new Map<string, TestView>();
 const mockRecipients = new Map<string, string[]>();
 const mockToHoldingsView = jest.fn();
+const mockExecuteApprovalOf = jest.fn();
 const bytesOf = (result: { summaryBytes?: string; executedBytes?: string }) =>
   result.summaryBytes ?? result.executedBytes ?? '';
 
@@ -48,6 +49,16 @@ jest.mock('app/confirm/decode', () => {
     toHoldingsView: (view: TestView, introducedNoteIds: readonly string[]) => {
       mockToHoldingsView(view, introducedNoteIds);
       return actual.toHoldingsView(view, introducedNoteIds);
+    }
+  };
+});
+
+jest.mock('./proposal-effect-guard', () => {
+  const actual = jest.requireActual('./proposal-effect-guard');
+  return {
+    ...actual,
+    get executeApprovalOf() {
+      return mockExecuteApprovalOf.mockImplementation(actual.executeApprovalOf);
     }
   };
 });
@@ -141,6 +152,7 @@ beforeEach(() => {
   mockViews.clear();
   mockRecipients.clear();
   mockToHoldingsView.mockClear();
+  mockExecuteApprovalOf.mockClear();
   mockHasSpendingLimits.mockReset();
   mockHasSpendingLimits.mockResolvedValue(false);
 });
@@ -203,8 +215,14 @@ describe('approveCustomSimulation', () => {
   });
 
   it('measures the dry run holdings once for the sheet, the allowance and the charge', () => {
-    const approval = approve(view());
+    const raw = view();
+    const approval = approve(raw);
+    const measured = mockExecuteApprovalOf.mock.results[0]?.value;
 
+    expect(mockExecuteApprovalOf).toHaveBeenCalledTimes(1);
+    expect(mockExecuteApprovalOf).toHaveBeenCalledWith(raw, ['0xcarried']);
+    expect(approval.view).toBe(measured.view);
+    expect(approval.signing).toBe(measured.signing);
     expect(mockToHoldingsView).toHaveBeenCalledTimes(1);
     expect(approval.spends).toEqual(approval.signing.approvedOutflow);
     expect(approval.spends).not.toBe(approval.signing.approvedOutflow);

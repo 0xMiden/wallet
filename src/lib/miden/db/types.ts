@@ -280,8 +280,9 @@ export interface IApprovedCustomEffects extends ICustomTransactionEffects {
 }
 
 /**
- * What an `execute` approval lets signing move, measured from the account's holdings (`executeApprovalOf`). The first
- * two go on the row's fields of the same name, the note ids on its `approvedEffects`.
+ * What an `execute` approval lets signing move. This allowance is `executeApprovalOf`'s `signing`, recorded with its
+ * holdings view by `approveCustomSimulation`. The first two go on the row's fields of the same name, the note ids on
+ * its `approvedEffects`.
  */
 export interface IExecuteApproval {
   approvedOutflow: IConsumedAssetTotal[];
@@ -965,9 +966,10 @@ export interface ITransaction {
    */
   approvedEffects?: IApprovedCustomEffects;
   /**
-   * Execute only: the per-faucet value the approval-time dry run showed leaving the account's holdings
-   * (`executeApprovalOf`), where a consumed note the account already held counts as value it spends. Signing lets at
-   * most this leave (`proposal-effect-guard.ts`); a row without it falls back to `spentAssetTotals`.
+   * Execute only: per-faucet value leaving the account's holdings. This allowance is `executeApprovalOf`'s `signing`,
+   * recorded with its holdings view by `approveCustomSimulation`. A consumed note the account already held counts as
+   * value it spends. Signing lets at most this leave (`proposal-effect-guard.ts`); a row without it falls back to
+   * `spentAssetTotals`.
    */
   approvedOutflow?: IConsumedAssetTotal[];
   /**

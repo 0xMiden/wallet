@@ -512,34 +512,40 @@ describe('execute', () => {
       const approval = executeApprovalOf(pswapView, introduced);
       const approved = row({
         ...execute(),
-        approvedOutflow: approval.approvedOutflow,
-        approvedNftOutflow: approval.approvedNftOutflow,
+        approvedOutflow: approval.signing.approvedOutflow,
+        approvedNftOutflow: approval.signing.approvedNftOutflow,
         approvedEffects: approvedEffects({
-          introducedNoteIds: approval.introducedNoteIds,
-          approvedOutputNoteIds: approval.approvedOutputNoteIds
+          introducedNoteIds: approval.signing.introducedNoteIds,
+          approvedOutputNoteIds: approval.signing.approvedOutputNoteIds
         })
       });
       expect(proposalEffectRefusal(approved, pswapView)).toBeUndefined();
     }
     // Brought in, the offer is credited; held, it is spent too.
-    expect(executeApprovalOf(pswapView, [offerId])).toEqual({
+    const credited = executeApprovalOf(pswapView, [offerId]);
+    expect(credited.signing).toEqual({
       approvedOutflow: [{ faucetId: 'bech32:fA', amount: 500n }],
       approvedNftOutflow: [],
       introducedNoteIds: [offerId],
       approvedOutputNoteIds: [pswapView.createdNotes?.[0]?.id]
     });
-    expect(executeApprovalOf(pswapView, [offerId, offerId]).introducedNoteIds).toEqual([offerId]);
-    expect(executeApprovalOf(pswapView, []).approvedOutflow).toEqual([{ faucetId: 'bech32:fA', amount: 500n }]);
+    expect(credited.view.heldNotesSpent).toBe(0);
+    expect(executeApprovalOf(pswapView, [offerId, offerId]).signing.introducedNoteIds).toEqual([offerId]);
+    const uncredited = executeApprovalOf(pswapView, []);
+    expect(uncredited.view.heldNotesSpent).toBe(1);
+    expect(uncredited.signing.approvedOutflow).toEqual([{ faucetId: 'bech32:fA', amount: 500n }]);
 
     const heldView = viewOf(spendsNote());
     const heldApproval = executeApprovalOf(heldView, []);
-    expect(heldApproval.approvedOutflow).toEqual([{ faucetId: 'bech32:fA', amount: 1050n }]);
+    expect(heldApproval.view.heldNotesSpent).toBe(1);
+    expect(heldApproval.view.outgoing).toEqual(heldApproval.signing.approvedOutflow);
+    expect(heldApproval.signing.approvedOutflow).toEqual([{ faucetId: 'bech32:fA', amount: 1050n }]);
     const fromHeld = row({
       ...execute(),
-      approvedOutflow: heldApproval.approvedOutflow,
+      approvedOutflow: heldApproval.signing.approvedOutflow,
       approvedEffects: approvedEffects({
-        introducedNoteIds: heldApproval.introducedNoteIds,
-        approvedOutputNoteIds: heldApproval.approvedOutputNoteIds
+        introducedNoteIds: heldApproval.signing.introducedNoteIds,
+        approvedOutputNoteIds: heldApproval.signing.approvedOutputNoteIds
       })
     });
     expect(proposalEffectRefusal(fromHeld, heldView)).toBeUndefined();
@@ -547,12 +553,12 @@ describe('execute', () => {
 
   it('records only keyed NFTs and refuses a view without its notes or one already measured from holdings', () => {
     const nftView = viewOf(nftOut);
-    expect(executeApprovalOf(nftView, []).approvedNftOutflow).toEqual(['fN|n1']);
+    expect(executeApprovalOf(nftView, []).signing.approvedNftOutflow).toEqual(['fN|n1']);
     const unkeyed = {
       ...nftView,
       createdNotes: [{ id: 'x', amounts: [], nfts: [{ faucetId: 'bech32:fN', assetId: 'n9' }] }]
     };
-    expect(executeApprovalOf(unkeyed, []).approvedNftOutflow).toEqual([]);
+    expect(executeApprovalOf(unkeyed, []).signing.approvedNftOutflow).toEqual([]);
     expect(() => executeApprovalOf({ ...nftView, createdNotes: undefined }, [])).toThrow();
     expect(() => executeApprovalOf({ ...nftView, heldNotesSpent: 0 }, [])).toThrow();
   });

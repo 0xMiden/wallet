@@ -16,7 +16,7 @@ import { hasSpendingLimits } from 'lib/miden/spending-limits/queue';
 import { spendsDigest } from 'lib/miden/spending-limits/types';
 
 import { CustomTransactionEffectsChangedError } from './constants';
-import { executeApprovalFromHoldings } from './proposal-effect-guard';
+import { executeApprovalOf } from './proposal-effect-guard';
 import type {
   IApprovedCustomEffects,
   IConsumedAssetTotal,
@@ -33,9 +33,9 @@ import type {
  *    approved effects. The wallet proposes the request only when the two are equal.
  * 3. The spending-limit charge comes from the generation-time effects. They must give the same spends as the row's
  *    `spentAssetTotals`, which the admission valued and which a spending-limit authorization binds.
- * 4. What leaves is measured from the account's holdings (`toHoldingsView`): a consumed note counts as brought in only
- *    when the approval dry run's provenance check found the request introduced it. The sheet, the spending-limit
- *    charge and the signing-time check all read that one measure.
+ * 4. What leaves is one measure, `executeApprovalOf`, from the account's holdings: a consumed note counts as brought
+ *    in only when the approval dry run's provenance check found the request introduced it. The sheet, the
+ *    spending-limit charge and the signing-time check all read that one measure.
  *
  * Two cases fail by design:
  * - A request that the wallet cannot simulate at approval. The wallet refuses it before any prompt.
@@ -168,15 +168,7 @@ export function approveCustomSimulation(
 ): ApprovedCustomSimulation | undefined {
   const decoded = decodeCustomEffects(dryRun);
   if (decoded === undefined) return undefined;
-  // One measure of the raw dry run. A holdings view would count its held notes twice, so the sheet, the allowance and
-  // the charge are all read off this view. Created notes are checked before that measure: a view that lists none
-  // would otherwise refuse with a different error.
-  if (decoded.view.heldNotesSpent !== undefined) throw new Error('the view is already measured from holdings');
-  const created = decoded.view.createdNotes;
-  if (created === undefined) throw new Error('the view does not list the notes it creates');
-  const introducedNoteIds = dryRun.introducedNoteIds ?? [];
-  const view = toHoldingsView(decoded.view, introducedNoteIds);
-  const signing = executeApprovalFromHoldings(view, created, introducedNoteIds);
+  const { view, signing } = executeApprovalOf(decoded.view, dryRun.introducedNoteIds ?? []);
   return {
     view,
     effects: {

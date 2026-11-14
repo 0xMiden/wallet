@@ -348,11 +348,11 @@ describe('proposal effect guard: properties over conservation-respecting transac
           const transaction = row({
             type: 'execute',
             requestBytes: new Uint8Array([1]),
-            approvedOutflow: approval.approvedOutflow,
-            approvedNftOutflow: approval.approvedNftOutflow,
+            approvedOutflow: approval.signing.approvedOutflow,
+            approvedNftOutflow: approval.signing.approvedNftOutflow,
             approvedEffects: approvedEffects({
-              introducedNoteIds: approval.introducedNoteIds,
-              approvedOutputNoteIds: approval.approvedOutputNoteIds
+              introducedNoteIds: approval.signing.introducedNoteIds,
+              approvedOutputNoteIds: approval.signing.approvedOutputNoteIds
             })
           });
           expect(proposalEffectRefusal(transaction, view)).toBeUndefined();
