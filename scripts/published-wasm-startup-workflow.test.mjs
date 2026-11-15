@@ -29,7 +29,7 @@ test('published-wasm workflow binds the fixed release and validates ZIP members 
   assert.match(text, /stat\.S_ISREG/);
   assert.match(text, /PurePosixPath/);
   assert.match(text, /is_absolute\(\)/);
-  assert.match(text, /"\.\." in/);
+  assert.match(text, /"\.\." not in name\.parts/);
   assert.match(text, /duplicate/);
   assert.match(text, /manifest\["version"\] == "1\.17\.8"/);
   assert.match(text, /current == expected/);
