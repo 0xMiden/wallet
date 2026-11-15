@@ -166,7 +166,7 @@ jest.mock('app/templates/history/useActivityClaimList', () => ({
     listItems: [],
     renderPendingItem: () => null,
     isLoadingNotes: false,
-    hidden: { failed: false }
+    hidden: { loaded: true, failed: false }
   })
 }));
 

@@ -48,7 +48,7 @@ jest.mock('lib/miden/front', () => ({
 jest.mock('app/templates/history/useActivityClaimList', () => ({
   useActivityClaimList: () => ({
     listItems: mockClaimItems,
-    hidden: { failed: mockHiddenNotesFailed },
+    hidden: { loaded: true, failed: mockHiddenNotesFailed },
     renderPendingItem: () => <div>Native review</div>,
     isLoadingNotes: false
   })
