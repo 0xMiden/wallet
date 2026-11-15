@@ -108,5 +108,6 @@ Quote loading removes the derived amount input while keeping the opposite input 
 - For #1945 and #1949, the user stopped Council and plan gates. Complete remaining fixes directly, self-review, and preserve ordinary automated CI acceptance without restarting panels.
 
 - A live gh watcher only collects status. Treat a CI failure as immediate work in the active orchestration turn; never equate a surviving watcher process with active failure recovery.
+- An upstream quote error proves rejection, not a correct integration. Before blaming the provider, compare a working reference's exact request fields, authentication, headers and transport with controlled dry requests; check feature branches as well as main. Unfunded downstream paths remain unproven.
 
 - Release1.17.8 validation runs RC CI and the release E2E/Mainnet batch in parallel, per explicit user correction. Do not serialize their setup behind RC CI.
