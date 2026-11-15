@@ -157,7 +157,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
             {hidden ? t('commandShowBalances') : t('commandHideBalances')}
           </Button>
         </div>
-        <p className="text-label text-muted">{t('commandWalletBalance')} · USD</p>
+        <p className="text-label text-muted">{t('commandWalletBalance')}</p>
         <p className="text-display text-ink">
           {hidden
             ? t('commandMaskedBalance')
