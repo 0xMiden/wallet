@@ -94,7 +94,7 @@ export async function openSettingsDrawer(
 ): Promise<Locator> {
   const buttonTestId = SETTINGS_TAB_BUTTON[drawer];
   await wallet.navigateTo('/');
-  await wallet.page.getByTestId('explore-page').waitFor({ state: 'visible', timeout: timeoutMs });
+  await wallet.page.getByTestId('command-shell').waitFor({ state: 'visible', timeout: timeoutMs });
   await wallet.navigateTo('/settings');
 
   const button = wallet.page.getByTestId(buttonTestId);

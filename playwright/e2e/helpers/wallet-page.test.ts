@@ -581,7 +581,7 @@ describe('ChromeWalletPage create paths', () => {
   const KEY_PAIR = `${'1'.padStart(64, '0')}:${'2'.padStart(64, '0')}`;
 
   /** What a Ready check reads: the store's state, and whether the home page is in the document. */
-  type ReadyFixture = { store?: Record<string, unknown>; home?: boolean };
+  type ReadyFixture = { store?: Record<string, unknown>; home?: 'command' | 'explore' };
 
   afterEach(() => {
     Reflect.deleteProperty(window, '__TEST_STORE__');
@@ -621,7 +621,9 @@ describe('ChromeWalletPage create paths', () => {
       const state = fixture.store;
       Object.defineProperty(window, '__TEST_STORE__', { configurable: true, value: { getState: () => state } });
     }
-    document.body.innerHTML = fixture.home ? '<div data-testid="explore-page"></div>' : '';
+    document.body.innerHTML = fixture.home
+      ? `<div data-testid="${fixture.home === 'command' ? 'command-shell' : 'explore-page'}"></div>`
+      : '';
     try {
       return await isReady();
     } finally {
@@ -635,22 +637,32 @@ describe('ChromeWalletPage create paths', () => {
       path: 'createWalletViaBypass',
       run: (wallet: ChromeWalletPage) => wallet.createNewWallet('Test1234!Wallet'),
       label: 'ChromeWalletPage.createWalletViaBypass(offchain)',
-      ready: [{ store: { currentAccount: ACCOUNT } }, { home: true }],
-      notReady: [{}, { store: { currentAccount: null } }]
+      ready: [{ store: { currentAccount: ACCOUNT } }, { home: 'command' }],
+      notReady: [
+        {},
+        { store: { currentAccount: null } },
+        { home: 'explore' },
+        { store: { currentAccount: ACCOUNT }, home: 'explore' }
+      ]
     },
     {
       path: 'recoverGuardianFromHotKey',
       run: (wallet: ChromeWalletPage) => wallet.recoverGuardianFromHotKey(KEY_PAIR),
       label: 'ChromeWalletPage.recoverGuardianFromHotKey',
-      ready: [{ store: { currentAccount: ACCOUNT } }, { home: true }],
-      notReady: [{}, { store: { currentAccount: null } }]
+      ready: [{ store: { currentAccount: ACCOUNT } }, { home: 'command' }],
+      notReady: [
+        {},
+        { store: { currentAccount: null } },
+        { home: 'explore' },
+        { store: { currentAccount: ACCOUNT }, home: 'explore' }
+      ]
     },
     {
       path: 'createGuardianWalletViaUi',
       run: (wallet: ChromeWalletPage) => wallet.createGuardianWalletViaUi('Test1234!Wallet', 'http://guardian.test'),
       label: 'ChromeWalletPage.createGuardianWalletViaUi',
-      ready: [{ home: true }],
-      notReady: [{}, { store: { currentAccount: ACCOUNT, accounts: [ACCOUNT] } }]
+      ready: [{ home: 'command' }],
+      notReady: [{}, { home: 'explore' }, { store: { currentAccount: ACCOUNT, accounts: [ACCOUNT] } }]
     },
     {
       path: 'restoreEncryptedWalletFile',
@@ -662,7 +674,7 @@ describe('ChromeWalletPage create paths', () => {
         }),
       label: 'ChromeWalletPage.restoreEncryptedWalletFile',
       ready: [{ store: { currentAccount: ACCOUNT, accounts: [ACCOUNT] } }],
-      notReady: [{}, { store: { currentAccount: ACCOUNT, accounts: [] } }, { home: true }]
+      notReady: [{}, { store: { currentAccount: ACCOUNT, accounts: [] } }, { home: 'command' }]
     }
   ])(
     "$path runs the Retry-aware wait after Confirmation's button, with its own Ready check",

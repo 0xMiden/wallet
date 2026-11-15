@@ -9,6 +9,7 @@ import { CommandDraftProvider } from './command-drafts';
 import type { CommandRoute } from './command-routes';
 import { CommandDock } from './CommandDock';
 import { CommandHeader } from './CommandHeader';
+import { CommandHomePrompts } from './CommandHomePrompts';
 import { CommandPalette } from './CommandPalette';
 import { CommandWorkbench } from './CommandWorkbench';
 
@@ -65,7 +66,12 @@ export function CommandShell({
           <div data-testid="command-shell" className="relative flex h-full min-h-0 w-full flex-col bg-page text-ink">
             <CommandHeader />
             <main className="relative min-h-0 flex-1 overflow-y-auto">
-              {route.kind === 'dashboard' && children}
+              {route.kind === 'dashboard' && (
+                <>
+                  {children}
+                  <CommandHomePrompts />
+                </>
+              )}
               <div
                 ref={setPortalHost}
                 data-command-portals="true"

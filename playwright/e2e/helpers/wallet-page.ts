@@ -635,15 +635,16 @@ export interface GuardianOperatorView {
 }
 
 /**
- * In the page: a create's home surface. The new home (Explore) has no stable "Send"/"Receive" text, so this signals on
- * the store's currentAccount.publicKey (register() populates it in place, with no reload) or the home page's testid.
+ * During creation, register() populates currentAccount before the consent interstitial closes. Once it closes,
+ * FullPage must render Command rather than silently passing on the legacy Explore page.
  */
 function walletAtHomeSurface(): boolean {
   const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } })
     .__TEST_STORE__;
   const pk = store?.getState?.().currentAccount?.publicKey ?? '';
+  if (document.querySelector('[data-testid="explore-page"]')) return false;
   if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
-  return !!document.querySelector('[data-testid="explore-page"]');
+  return !!document.querySelector('[data-testid="command-shell"]');
 }
 
 /**
@@ -826,15 +827,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     if (!rotationGateOwnsThePrompt) {
       // After the readiness wait, not before it: a short poll placed ahead of it
       // would be racing a `register()` that is allowed to run for two minutes.
-      // Still raced against `explore-page` rather than trusted to be instant,
-      // because the wait above can resolve on `currentAccount.publicKey` — which
-      // the service worker's own StateUpdated broadcast can publish while
-      // `Welcome.tsx` is still inside `waitForReadyState`, i.e. seconds before it
-      // navigates anywhere. Note that arm can no longer be the winning signal on a
-      // profile with no stored choice: the consent route is where the flow lands
-      // first, and `explore-page` only follows the decline below.
+      // The store can become ready before the consent interstitial closes;
+      // only the Command surface proves FullPage reached its actual home.
       await dismissTelemetryConsent(this.page, {
-        nextSurface: '[data-testid="explore-page"]',
+        nextSurface: '[data-testid="command-shell"]',
         timeoutMs: 60_000
       });
     }
@@ -1586,7 +1582,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('meet-guardian-continue').click();
     await this.page.getByTestId('onboarding-confirmation-submit').click();
     await this.waitForCreatedWalletReady('ChromeWalletPage.createGuardianWalletViaUi', 120_000, () =>
-      this.page.getByTestId('explore-page').isVisible()
+      this.page.getByTestId('command-shell').isVisible()
     );
     return this.getAccountAddress();
   }
@@ -1818,11 +1814,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const freshPage = await openFreshPage();
     this.currentPage = freshPage;
 
-    const explore = this.page.getByTestId('explore-page');
+    const home = this.page.getByTestId('command-shell');
     const unlock = this.page.getByTestId('unlock-password');
 
     // Wait for the reopened, already-onboarded wallet to settle on either the
-    // Explore surface (normal case, still unlocked) or the unlock screen.
+    // Command surface (normal case, still unlocked) or the unlock screen.
     //
     // On a normal page swap the service worker stays warm, so ONE 90s window is
     // ample. On the crash-recovery relaunch path the SW is COLD and must re-load
@@ -1834,7 +1830,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     for (let attempt = 1; attempt <= readinessAttempts; attempt++) {
       await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
       try {
-        await explore.or(unlock).first().waitFor({ timeout: 90_000 });
+        await home.or(unlock).first().waitFor({ timeout: 90_000 });
         break;
       } catch (err) {
         if (attempt === readinessAttempts) throw err;
@@ -1847,7 +1843,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     if (await unlock.isVisible().catch(() => false)) {
       await this.unlockWallet();
     } else {
-      await explore.waitFor({ timeout: 15_000 });
+      await home.waitFor({ timeout: 15_000 });
     }
 
     return relaunched;
@@ -3325,7 +3321,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     // Submitting reloads the page on the extension; wait for the home surface
     // to re-render.
-    await this.page.getByTestId('explore-page').waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('command-shell').waitFor({ timeout: 30_000 });
   }
 
   async setDelegateProofEnabled(enabled: boolean): Promise<void> {

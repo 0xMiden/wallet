@@ -10,6 +10,9 @@ import { useCommandDrafts } from './command-drafts';
 import { CommandShell } from './CommandShell';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('./CommandHomePrompts', () => ({
+  CommandHomePrompts: () => <div data-testid="command-home-prompts" />
+}));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   goBack: jest.fn(),
@@ -59,6 +62,21 @@ it.each([
   );
   fireEvent.click(screen.getByRole('button', { name: label }));
   expect(navigate).toHaveBeenCalledWith(path);
+});
+
+it('mounts the existing home notices only in the ready Command dashboard, not in a workbench', () => {
+  const { rerender } = render(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  expect(screen.getByTestId('command-home-prompts')).toBeVisible();
+  rerender(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+      <div>Send controller</div>
+    </CommandShell>
+  );
+  expect(screen.queryByTestId('command-home-prompts')).not.toBeInTheDocument();
 });
 
 it('keeps the existing Profile route visible in a narrow Command tab', () => {
