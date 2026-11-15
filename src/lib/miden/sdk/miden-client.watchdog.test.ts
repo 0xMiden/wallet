@@ -1433,6 +1433,10 @@ describe('poisoned client recovery', () => {
     retireWasmClientForUnheldTrap: (cause: unknown) => void;
   }
 
+  interface IsolatedLandedTrapLeaf {
+    retireLandedTrap: (error: unknown, landing: string, result: object | undefined) => void;
+  }
+
   const loadIsolated = async (freeImpl?: () => void) => {
     const free = jest.fn(freeImpl);
     const markPoisoned = jest.fn();
@@ -1449,11 +1453,14 @@ describe('poisoned client recovery', () => {
     // generation counter is module state, and a plain top-level import would
     // read a different instance than the one the lock module bumps.
     let poison!: { wasmClientGeneration: () => number };
+    // The landed-trap leaf too: the lock module installs its retirement into the leaf instance it imported.
+    let leaf!: IsolatedLandedTrapLeaf;
     await jest.isolateModulesAsync(async () => {
       mod = require('./miden-client');
       poison = require('./wasm-client-poison');
+      leaf = require('./landed-trap-retirement');
     });
-    return { mod, free, create, markPoisoned, poison };
+    return { mod, free, create, markPoisoned, poison, leaf };
   };
 
   it('reclaims the poisoned client once the abandoned operation finally settles', async () => {
@@ -2305,4 +2312,139 @@ describe('poisoned client recovery', () => {
       unsubscribe();
     }
   );
+
+  it('a landed trap disposes the client at once when nothing holds or yields the lock', async () => {
+    const { mod, leaf, free, create } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    await mod.getMidenClient();
+
+    leaf.retireLandedTrap(new WebAssembly.RuntimeError('unreachable'), 'row-a', undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(free).toHaveBeenCalledTimes(1);
+    await mod.getMidenClient();
+    expect(create).toHaveBeenCalledTimes(2);
+    unsubscribe();
+  });
+
+  it('one trap handed in under two landings is retired once', async () => {
+    // The leaf keys by row, so both calls reach the client: its per-cause guard is what retires once.
+    const { mod, leaf } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    await mod.getMidenClient();
+
+    leaf.retireLandedTrap(trap, 'row-b1', undefined);
+    leaf.retireLandedTrap(trap, 'row-b2', undefined);
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it('a landed trap under an unrelated hold poisons in place, frees once that hold settles, and logs the landing with the holder as a retainer', async () => {
+    const { mod, leaf, free, markPoisoned } = await loadIsolated();
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await mod.getMidenClient();
+
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const unrelated = mod.withWasmClientLock(
+      async () => {
+        await mod.getMidenClient();
+        await gate;
+        return 'its own value';
+      },
+      { label: 'unrelated read' }
+    );
+    await jest.advanceTimersByTimeAsync(0);
+
+    leaf.retireLandedTrap(new WebAssembly.RuntimeError('unreachable'), 'row-c', undefined);
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
+
+    release();
+    await expect(unrelated).resolves.toBe('its own value');
+    expect(mod.isWasmClientBusy()).toBe(false);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).toHaveBeenCalledTimes(1);
+
+    const pastSubmit = errorSpy.mock.calls.filter(
+      ([first]) => typeof first === 'string' && first.includes('past submit')
+    );
+    expect(pastSubmit).toHaveLength(1);
+    expect(pastSubmit[0]?.[1]).toEqual(expect.objectContaining({ landing: 'row-c', retainer: 'unrelated read' }));
+    const caughtByHolder = errorSpy.mock.calls.filter(call =>
+      call.some(arg => typeof arg === 'string' && arg.includes('caught by its own lock holder'))
+    );
+    expect(caughtByHolder).toEqual([]);
+    errorSpy.mockRestore();
+  });
+
+  it('a landed trap while a holder is suspended mid-yield frees only once the yield settles', async () => {
+    const { mod, leaf, free } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    await mod.getMidenClient();
+
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>(resolve => {
+      releaseYield = resolve;
+    });
+    const sibling = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
+    await jest.advanceTimersByTimeAsync(0);
+
+    leaf.retireLandedTrap(new WebAssembly.RuntimeError('unreachable'), 'row-d', undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
+
+    releaseYield();
+    await sibling;
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it('a landed retire runs inside the recovery cooldown and does not stamp it', async () => {
+    const { mod, leaf, markPoisoned, create } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    await mod.getMidenClient();
+
+    const wedged = mod.withWasmClientLock(() => new Promise<never>(() => {}));
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'realm-error' });
+    await jest.advanceTimersByTimeAsync(0);
+    dispatchTrapEvent();
+    await jest.advanceTimersByTimeAsync(0);
+    await wedgedRejects;
+
+    await mod.withWasmClientLock(async () => {
+      await mod.getMidenClient();
+      leaf.retireLandedTrap(new WebAssembly.RuntimeError('unreachable'), 'row-e1', undefined);
+    });
+    expect(markPoisoned).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenCalledTimes(2);
+    await mod.getMidenClient();
+    expect(create).toHaveBeenCalledTimes(3);
+
+    await jest.advanceTimersByTimeAsync(10_000); // past the eviction's recovery cooldown
+    leaf.retireLandedTrap(new WebAssembly.RuntimeError('unreachable'), 'row-e2', undefined);
+    expect(listener).toHaveBeenCalledTimes(3);
+    let outcome: unknown;
+    void mod
+      .withWasmClientLock(() => new Promise<never>(() => {}))
+      .catch((error: WasmClientPoisonedError) => {
+        outcome = { name: error.name, reason: error.reason };
+      });
+    await jest.advanceTimersByTimeAsync(0);
+    dispatchTrapEvent();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(outcome).toEqual({ name: 'WasmClientPoisonedError', reason: 'realm-error' });
+    expect(listener).toHaveBeenCalledTimes(4);
+    unsubscribe();
+  });
 });
