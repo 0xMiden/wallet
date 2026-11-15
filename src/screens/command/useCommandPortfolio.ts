@@ -66,14 +66,30 @@ export function useCommandPortfolio(scope: AccountScope) {
   const current = Boolean(
     proof?.capturedAt && proof.capturedAt <= Date.now() && Date.now() - proof.capturedAt <= CURRENT_MS
   );
-  const total = valuedBalanceTotal(pricedRows, tokenPrices).totalFiat;
+  const { totalFiat: total, previousFiat } = valuedBalanceTotal(pricedRows, tokenPrices);
   const value =
     current && hiddenReady && pricesStatus === 'ready' && (!held || pricedRows.length > 0) ? String(total) : null;
+  const move = total - previousFiat;
+  const percentage = (move / previousFiat) * 100;
+  const marketPriced = pricedRows.some(row => {
+    const quote = tokenQuote(tokenPrices, row.tokenId, row.metadata.symbol);
+    return quote && !isFixedQuote(quote) && Number.isFinite(quote.change24h);
+  });
+  const priceMovement24h =
+    value !== null &&
+    !isLoading &&
+    marketPriced &&
+    previousFiat > 0 &&
+    Number.isFinite(move) &&
+    Number.isFinite(percentage)
+      ? { absolute: move, percentage }
+      : null;
   const coverage: 'complete' | 'partial' = partial ? 'partial' : 'complete';
   return {
     assets: current && hiddenReady ? assets : [],
     tokenPrices,
     value,
+    priceMovement24h,
     coverage,
     coverageKey: `priced:${priced.sort().join(',')}|unpriced:${unpriced.sort().join(',')}`,
     capturedAt: proof?.capturedAt,

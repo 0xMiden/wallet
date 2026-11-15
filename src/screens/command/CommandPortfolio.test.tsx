@@ -32,7 +32,13 @@ const rows = [
 ];
 let resolvePreference: (() => void) | undefined;
 let mockCanRecord = false;
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+let mockMarketMove: { absolute: number; percentage: number } | null = null;
+let mockCurrent = true;
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, string>) => (values ? `${key} ${Object.values(values).join(' ')}` : key)
+  })
+}));
 jest.mock('lib/miden/portfolio-observations', () => {
   const actual = jest.requireActual<typeof import('lib/miden/portfolio-observations')>(
     'lib/miden/portfolio-observations'
@@ -75,11 +81,12 @@ jest.mock('./useCommandPortfolio', () => ({
   useCommandPortfolio: () => ({
     assets: rows,
     tokenPrices: {},
-    value: '6',
+    value: mockCurrent ? '6' : null,
+    priceMovement24h: mockMarketMove,
     coverage: 'partial',
     coverageKey: 'priced:priced|unpriced:unpriced',
     capturedAt,
-    current: true,
+    current: mockCurrent,
     canRecord: mockCanRecord
   })
 }));
@@ -88,6 +95,8 @@ beforeEach(async () => {
   store.hidden = true;
   store.pending = false;
   mockCanRecord = false;
+  mockMarketMove = null;
+  mockCurrent = true;
   useWalletStore.setState({ status: WalletStatus.Idle, currentAccount: null });
   await portfolioObservations.clear();
   jest.mocked(recordPortfolioObservation).mockReset().mockImplementation(realRecord);
@@ -135,6 +144,18 @@ it('waits for the saved privacy choice and omits all balances from rows, tooltip
   expect(screen.queryByText('4 OTHER')).not.toBeInTheDocument();
   expect(screen.queryByText('4 USD')).not.toBeInTheDocument();
   expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+});
+
+it('shows current-quantity 24h market-price movement separately, masked with privacy and absent on stale scope', () => {
+  mockMarketMove = { absolute: 1.5, percentage: 25 };
+  const view = render(<CommandPortfolio scope={scope} />);
+  expect(screen.queryByText(/1.50 USD/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/25%/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'commandShowBalances' }));
+  expect(screen.getByText(/commandMarketPriceMovement24h.*1.50.*25.00/)).toBeInTheDocument();
+  mockCurrent = false;
+  view.rerender(<CommandPortfolio scope={scope} />);
+  expect(screen.queryByText(/commandMarketPriceMovement24h/)).not.toBeInTheDocument();
 });
 
 it('persists the privacy choice across dashboard remounts', async () => {

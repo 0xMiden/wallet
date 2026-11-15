@@ -46,6 +46,7 @@ function Probe({ requested = scope }: { requested?: typeof scope }) {
     <output>
       {JSON.stringify({
         value: portfolio.value,
+        priceMovement24h: portfolio.priceMovement24h,
         coverage: portfolio.coverage,
         coverageKey: portfolio.coverageKey,
         assets: portfolio.assets.map(asset => asset.tokenId),
@@ -65,6 +66,27 @@ beforeEach(() => {
     tokenPrices: { priced: quote },
     tokenPricesStatus: 'ready'
   });
+});
+
+it('derives the separate 24h market-price move from current quantities, not observed history', () => {
+  useWalletStore.setState({ tokenPrices: { priced: { ...quote, change24h: 0.5 } } });
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  const view = render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain(
+    '"priceMovement24h":{"absolute":1.5,"percentage":33.33333333333333}'
+  );
+  view.rerender(<Probe requested={{ ...scope, rpcUrl: 'https://node-b' }} />);
+  expect(screen.getByRole('status').textContent).toContain('"priceMovement24h":null');
 });
 
 it('uses the existing landed store rows without starting a second balance polling hook', () => {

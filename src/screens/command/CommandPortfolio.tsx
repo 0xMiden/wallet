@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant, Card, SegmentedControl, SectionHeader } from 'components/ui';
+import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   recordPortfolioObservation,
   readPortfolioObservations,
@@ -166,6 +167,14 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
               : `${value} USD`}
         </p>
         {!hidden && coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
+        {!hidden && portfolio.current && portfolio.priceMovement24h && value !== null && (
+          <p className="text-caption text-muted">
+            {t('commandMarketPriceMovement24h', {
+              change: `${portfolio.priceMovement24h.absolute < 0 ? '-' : '+'}${toLocalFormat(Math.abs(portfolio.priceMovement24h.absolute), { decimalPlaces: 2 })}`,
+              percentage: `${portfolio.priceMovement24h.percentage < 0 ? '-' : '+'}${toLocalFormat(Math.abs(portfolio.priceMovement24h.percentage), { decimalPlaces: 2 })}`
+            })}
+          </p>
+        )}
         <Card surface="outline" className="mt-5" aria-busy={history?.key !== key} data-testid="command-history">
           <SectionHeader>{t('commandObservedHistory')}</SectionHeader>
           <SegmentedControl<HistoryRange>
