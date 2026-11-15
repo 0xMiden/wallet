@@ -237,8 +237,9 @@ describe('initiateB2AggBridge', () => {
     expect(call[1]).toBe(250n);
     expect(call[2]).toBe(`mlcl1${MIDEN_AGGLAYER_FAUCET_ID.slice(2)}`);
     expect(call[5]).toBe('agglayer');
-    expect(call[6]).toEqual(new Uint8Array([1, 2, 3]));
-    expect(call[7]).toBe(true);
+    expect(call[6]).toBe('0xb2a6');
+    expect(call[7]).toEqual(new Uint8Array([1, 2, 3]));
+    expect(call[8]).toBe(true);
   });
 
   it('threads the exact spending-limit authorization to atomic row insertion', async () => {
@@ -262,7 +263,7 @@ describe('initiateB2AggBridge', () => {
       spendingLimitAuthorization
     });
 
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![9]).toBe(spendingLimitAuthorization);
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![10]).toBe(spendingLimitAuthorization);
   });
 
   // Since protocol 0.17 a guarded (multisig) sender needs three words of fee auth args, and
@@ -288,7 +289,7 @@ describe('initiateB2AggBridge', () => {
     expect(mockFeeAwareBuilder.build).toHaveBeenCalledTimes(1);
     expect(mockFeeAwareBuilder.withFeeConversionSalt).not.toHaveBeenCalled();
     expect(TransactionRequestBuilder).not.toHaveBeenCalled();
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![6]).toEqual(new Uint8Array([1, 2, 3]));
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![7]).toEqual(new Uint8Array([1, 2, 3]));
   });
 
   it('abandons the initiation when the WASM lock hold is evicted while the fee-aware builder resolves', async () => {
@@ -369,7 +370,7 @@ describe('initiateB2AggBridge', () => {
     });
 
     expect(mockAgglayerExitTxHash).toHaveBeenCalledWith({ note: true });
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![10]).toBe('0xexit');
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![11]).toBe('0xexit');
   });
 
   // Signing may create only this note, so the row records the one note the request it queues creates.
@@ -382,7 +383,7 @@ describe('initiateB2AggBridge', () => {
       guardianProvider
     });
 
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![14]).toBe('0xb2a6');
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![6]).toBe('0xb2a6');
   });
 
   it.each([

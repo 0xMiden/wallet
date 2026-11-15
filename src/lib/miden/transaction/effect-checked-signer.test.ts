@@ -198,14 +198,10 @@ it.each(guardedTransfers)('passes %s signing within its persisted approval', asy
 
 // A bridged send or Earn deposit signs its pre-built request, so it may also create only the note that request built.
 const prebuiltTransfers: ITransaction['type'][] = ['bridged-send', 'earn-deposit'];
+const builtNote = (id: string) => ({ approvedOutputNoteIds: [id] });
 /** The row as its build recorded it: reviewed to move 500 fA in the one note `builtNoteId`. */
 const prebuilt = (type: ITransaction['type'], builtNoteId: string, amount = 500n) =>
-  row({
-    type,
-    faucetId: 'bech32:fA',
-    amount,
-    approvedEffects: { approvedOutputNoteIds: [builtNoteId] }
-  });
+  row({ type, faucetId: 'bech32:fA', amount, ...builtNote(builtNoteId) });
 
 it.each(prebuiltTransfers)('passes %s signing that creates only the note it was built with', async type => {
   const sign = baseSigner();

@@ -340,9 +340,7 @@ describe.each(['send', 'swap'] as const)('%s approved outflow', type => {
 
 // The one note a bridged send's or Earn deposit's request was built with, as its row records it.
 const BUILT = 'built-note';
-const builtNote = (id: string): Pick<ITransaction, 'approvedEffects'> => ({
-  approvedEffects: { approvedOutputNoteIds: [id] }
-});
+const builtNote = (id: string) => ({ approvedOutputNoteIds: [id] });
 
 describe('bridged-send and earn-deposit', () => {
   // Each provider's row and an Earn deposit's, with the reviewed source faucet and base-unit amount its constructor
@@ -452,8 +450,8 @@ describe('bridged-send and earn-deposit', () => {
 
     it.each([
       ['no recorded note', {}],
-      ['an empty record', { approvedEffects: { approvedOutputNoteIds: [] } }],
-      ['two recorded notes', { approvedEffects: { approvedOutputNoteIds: [BUILT, 'other-note'] } }]
+      ['an empty record', { approvedOutputNoteIds: [] }],
+      ['two recorded notes', { approvedOutputNoteIds: [BUILT, 'other-note'] }]
     ])('does not sign a row with %s, whatever its summary creates', async (_record, record) => {
       givenSummary(bridgesOut(100n));
       await expect(assertProposalEffectApproved({ ...queued(), ...record }, 'sum')).rejects.toThrow(

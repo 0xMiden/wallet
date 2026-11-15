@@ -16486,7 +16486,7 @@ describe('Guardian proposal effect check', () => {
       return { service, client };
     };
     // Reviewed to move 1000 of `faucet` in the one note its build recorded: the note `summary` gives that amount.
-    const builtNote = { approvedEffects: { approvedOutputNoteIds: ['note:faucet-1000'] } };
+    const builtNote = { approvedOutputNoteIds: ['note:faucet-1000'] };
     const bridge = (id: string) => ({
       id,
       type: 'bridged-send',
@@ -16551,7 +16551,7 @@ describe('Guardian proposal effect check', () => {
         mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
         const { service, client } = bridgeService(15);
 
-        const row = await run({ ...queued('built-other'), approvedEffects: { approvedOutputNoteIds: ['note:built'] } });
+        const row = await run({ ...queued('built-other'), approvedOutputNoteIds: ['note:built'] });
 
         expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
         expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
@@ -16566,6 +16566,27 @@ describe('Guardian proposal effect check', () => {
         expect(row.proposalEffectRefused).toBe(true);
       }
     );
+
+    // A row queued before its build recorded a note: it fails unsigned, and Retry would be refused the same way.
+    it('fails a legacy bridged send that recorded no note of its own, unsigned and unrun, without offering Retry', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+      const { service, client } = bridgeService(17);
+      const { approvedOutputNoteIds: _recorded, ...legacy } = bridge('bridge-legacy');
+
+      const row = await run(legacy);
+
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(17);
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this bridged-send transaction: its approved amounts could not ' +
+          'be read <- caused by Error: the transaction has no recorded note of its own'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+      expect(isRequeueableTransaction({ ...(row as unknown as ITransaction), bridgeProvider: 'agglayer' })).toBe(false);
+    });
 
     it('signs and runs an Earn deposit whose summary creates only the note it was built with', async () => {
       mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));

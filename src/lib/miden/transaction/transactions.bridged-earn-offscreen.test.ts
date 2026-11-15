@@ -562,7 +562,7 @@ const sendsOut = (amount: bigint) => ({
 
 // Each provider's row, reviewed to bridge 1000 of `faucet`, with the pre-built request every current row carries and
 // the one note its build recorded: the note `sendsOut(1000n)` creates.
-const builtNote = { approvedEffects: { approvedOutputNoteIds: ['note:1000'] } };
+const builtNote = { approvedOutputNoteIds: ['note:1000'] };
 const bridgeRows: Array<[string, Record<string, unknown>]> = [
   [
     'agglayer',
@@ -643,7 +643,7 @@ describe.each([
 
       const { failure, row } = await settle(`bs-other-note-${provider}`, {
         ...fields,
-        approvedEffects: { approvedOutputNoteIds: ['note:built'] }
+        approvedOutputNoteIds: ['note:built']
       });
 
       expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
@@ -668,6 +668,27 @@ describe.each([
     expect(signCallback).toHaveBeenCalledWith('0a', 'aa');
     expect(mockSubmit).toHaveBeenCalledTimes(1);
     expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+  });
+
+  // A row queued before its build recorded a note: it fails unsigned, and Retry would be refused the same way.
+  it('fails a legacy bridged send that recorded no note of its own, unsigned and unsent, without offering Retry', async () => {
+    mockDeserializeSigningInputs.mockReturnValue(sendsOut(1000n));
+
+    const { failure, row } = await settle('bs-legacy', {
+      requestBytes: new Uint8Array([0xa9]),
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending' }
+    });
+
+    expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(failure instanceof Error ? failure.message : undefined).toBe(
+      'Refused to sign this bridged-send transaction: its approved amounts could not be read'
+    );
+    expect(signCallback).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.proposalEffectRefused).toBe(true);
+    expect(isRequeueableTransaction({ ...row, bridgeProvider: bridgeProviderOf(row) })).toBe(false);
   });
 
   // Not requeued, unlike an Earn deposit: the row fails, unsigned and unsent, and the user retries it, an Epoch bridge

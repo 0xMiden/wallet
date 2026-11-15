@@ -146,7 +146,7 @@ describe('initiateUsdcxBurn', () => {
       '0x3600000000000000000000000000000000000000'
     );
     expect(readUsdcxDestinationBalance).not.toHaveBeenCalled();
-    expect(jest.mocked(initiateBridgedSendTransaction).mock.calls[0]?.[11]).toEqual({
+    expect(jest.mocked(initiateBridgedSendTransaction).mock.calls[0]?.[12]).toEqual({
       noteId: 'burn-note-id',
       destinationDomain: 26,
       destinationUsdc: '0x3600000000000000000000000000000000000000',
@@ -161,8 +161,8 @@ describe('initiateUsdcxBurn', () => {
     await initiateUsdcxBurn(args);
 
     const call: unknown[] = jest.mocked(initiateBridgedSendTransaction).mock.calls[0] ?? [];
-    expect(call[14]).toBe('burn-note-id');
-    expect(call[11]).toMatchObject({ noteId: 'burn-note-id' });
+    expect(call[6]).toBe('burn-note-id');
+    expect(call[12]).toMatchObject({ noteId: 'burn-note-id' });
   });
 
   it.each([

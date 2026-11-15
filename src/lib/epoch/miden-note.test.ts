@@ -112,7 +112,7 @@ describe('epoch id encoding (ifHextoBech32)', () => {
 
     // The SDK gets the committed note id; the stamped one only rides on the row (#1250).
     expect(result).toEqual({ success: true, noteId: 'note-1', txId: 'tx-bridge' });
-    const [senderArg, , faucetArg, , , , requestBytesArg, , sendParams] =
+    const [senderArg, , faucetArg, , , , , requestBytesArg, , sendParams] =
       mockInitiateBridgedSendTransaction.mock.calls[0]!;
     expect(faucetArg).toBe('mlcl1faucet');
     expect(senderArg).toBe('mlcl1sender');
@@ -148,8 +148,8 @@ describe('epoch id encoding (ifHextoBech32)', () => {
     expect(senderArg).toBe('mlcl1sender');
     expect(requestBytesArg).toEqual(new Uint8Array([1, 2, 3]));
     expect(sendParams).toEqual({ recipientId: 'mlcl1allocator', noteType: 'public', recallBlocks: 5_000 });
-    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![10]).toBeUndefined();
     expect(mockInitiateEarnDepositTransaction.mock.calls[0]![11]).toBeUndefined();
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![12]).toBeUndefined();
   });
 
   it('passes the deposit protocol and chain through to transaction initiation', async () => {
@@ -167,8 +167,8 @@ describe('epoch id encoding (ifHextoBech32)', () => {
       deps
     });
 
-    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![10]).toBe('1delta');
-    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![11]).toBe(8453);
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![11]).toBe('1delta');
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![12]).toBe(8453);
   });
 
   it('threads exact spending-limit authorizations to both atomic row insertions', async () => {
@@ -208,8 +208,8 @@ describe('epoch id encoding (ifHextoBech32)', () => {
       spendingLimitAuthorization: authorization
     });
 
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![9]).toBe(authorization);
-    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![8]).toBe(authorization);
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![10]).toBe(authorization);
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![9]).toBe(authorization);
   });
 
   // Signing may create only this note, so both rows record the id the collateral request was built with.
@@ -237,8 +237,8 @@ describe('epoch id encoding (ifHextoBech32)', () => {
       deps
     });
 
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![14]).toBe('note-stamped');
-    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![12]).toBe('note-stamped');
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![6]).toBe('note-stamped');
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![8]).toBe('note-stamped');
   });
 
   it('preserves structured spending-limit rejections for the calling flow', async () => {
