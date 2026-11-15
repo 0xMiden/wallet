@@ -32,6 +32,7 @@ import { reportOperation } from 'lib/telemetry/report-operation';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
+import { TERMINAL_STATUS_WRITE_ATTEMPTS, TERMINAL_STATUS_WRITE_BACKOFF_MS } from './constants';
 import {
   applyVerifiedLanding,
   landedTransactionIdFields,
@@ -515,22 +516,6 @@ const storedAccountIdFor = async (guardianProvider: GuardianAccountProvider, acc
     return accountId;
   }
 };
-
-/**
- * How many times to try writing the terminal status of a rotation that has
- * ALREADY committed on chain, and how long to space the attempts.
- *
- * Only reached when the first write already failed, so the cost is paid only on a
- * path that is going wrong. The point of more than one retry is that the failures
- * worth surviving here (an IndexedDB transaction abort under contention) recur
- * immediately and then clear, which is precisely the shape a single immediate
- * retry cannot survive. Small and bounded because the alternative to giving up is
- * not waiting forever: past this the row is reaped into Failed, which for a
- * committed rotation is a lie, so the budget exists to make that outcome rare
- * rather than to eliminate it (see the residual noted at the call site).
- */
-export const TERMINAL_STATUS_WRITE_ATTEMPTS = 4;
-export const TERMINAL_STATUS_WRITE_BACKOFF_MS = 250;
 
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,

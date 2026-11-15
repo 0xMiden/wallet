@@ -117,9 +117,7 @@ import {
   completeSendTransaction,
   completeSwapTransaction,
   completeSwitchGuardianTransaction,
-  completeUpdateProcedureThresholdTransaction,
-  TERMINAL_STATUS_WRITE_ATTEMPTS,
-  TERMINAL_STATUS_WRITE_BACKOFF_MS
+  completeUpdateProcedureThresholdTransaction
 } from './complete';
 import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
@@ -130,6 +128,8 @@ import {
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
+  TERMINAL_STATUS_WRITE_ATTEMPTS,
+  TERMINAL_STATUS_WRITE_BACKOFF_MS,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
 import { assertCustomEffectsApproved, customEffectsCheckAccess, verifyPreparedCustomRequest } from './custom-effects';
