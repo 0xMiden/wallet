@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
+import { CommandFlowBackProvider, FlowPresentationProvider, useCommandFlowBack } from 'components/flow/FlowPresentation';
+import { WorkbenchLayout } from 'components/flow/WorkbenchLayout';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { withdrawalAmount } from 'lib/epoch/withdraw-amount';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -12,6 +14,14 @@ import { goBack, navigate } from 'lib/woozie';
 import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnWithdrawReview from './EarnWithdrawReview';
 import type { EarnPosition } from './types';
+
+const commandFallbackBack = jest.fn();
+const EarnCommandReview = () => {
+  const back = useCommandFlowBack()?.activeBack;
+  return <WorkbenchLayout title="Earn" onBack={back ?? commandFallbackBack}>
+    <EarnWithdrawReview positionId="p" />
+  </WorkbenchLayout>;
+};
 
 const mockAccount: { publicKey: string; evmAddress?: string } = {
   publicKey: 'miden-account',
@@ -208,6 +218,16 @@ describe('EarnWithdrawReview', () => {
     expect(mockConfirmClick).toBeUndefined();
     expect(quotes.quoteEarnWithdrawal).not.toHaveBeenCalled();
     expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
+  });
+
+  it('uses the visible workbench Back for the actual withdrawal review, not a fallback', async () => {
+    mockSearch = '?amount=1';
+    mockPositions = [position];
+    commandFallbackBack.mockClear();
+    render(<FlowPresentationProvider value="command"><CommandFlowBackProvider><EarnCommandReview /></CommandFlowBackProvider></FlowPresentationProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(goBack).toHaveBeenCalledTimes(1);
+    expect(commandFallbackBack).not.toHaveBeenCalled();
   });
 
   it('renders the selected position and the full-withdraw route details', async () => {

@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
+import { CommandFlowBackProvider, FlowPresentationProvider, useCommandFlowBack } from 'components/flow/FlowPresentation';
+import { WorkbenchLayout } from 'components/flow/WorkbenchLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { earnMarketForVault, openEarnPosition } from 'lib/epoch';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
@@ -11,6 +13,14 @@ import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { EARN_DATA } from './data';
 import EarnDepositReview from './EarnDepositReview';
+
+const commandFallbackBack = jest.fn();
+const EarnCommandReview = ({ vaultId }: { vaultId: string }) => {
+  const back = useCommandFlowBack()?.activeBack;
+  return <WorkbenchLayout title="Earn" onBack={back ?? commandFallbackBack}>
+    <EarnDepositReview vaultId={vaultId} />
+  </WorkbenchLayout>;
+};
 
 // --- react-i18next: echo the key back, and fold interpolation options into the
 //     returned string so we can assert the interpolated route/reward values
@@ -45,6 +55,7 @@ const mockNavigate = jest.fn();
 
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
+  goBack: jest.fn(),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect">{to}</div>,
   useLocation: () => mockLocation
 }));
@@ -315,6 +326,14 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('EarnDepositReview', () => {
+  it('uses the visible workbench Back for the actual deposit review instead of a fallback', () => {
+    mockLocation.search = '?amount=1&collateral=0x537c15a622074e91188aa894456c52';
+    commandFallbackBack.mockClear();
+    render(<FlowPresentationProvider value="command"><CommandFlowBackProvider><EarnCommandReview vaultId={EARN_DATA.vaults[2]!.id} /></CommandFlowBackProvider></FlowPresentationProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(jest.requireMock<{ goBack: jest.Mock }>('lib/woozie').goBack).toHaveBeenCalledTimes(1);
+    expect(commandFallbackBack).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     mockAuthorizationAccountOverride = undefined;

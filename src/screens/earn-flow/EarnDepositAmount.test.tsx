@@ -6,6 +6,7 @@ import { TEST_MIDEN_USDC } from 'lib/epoch/testing/bridge-config';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 
 import { EARN_DATA } from './data';
 import EarnDepositAmount from './EarnDepositAmount';
@@ -184,6 +185,31 @@ jest.mock('lib/remote-config/values', () => ({
 }));
 
 const mockNavigate = navigate as jest.Mock;
+
+const DRAFT_SCOPE = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc.example' };
+
+it('restores the exact deposit amount after review Back and clears it on account scope change', () => {
+  const { rerender } = render(
+    <CommandDraftProvider scope={DRAFT_SCOPE}>
+      <EarnDepositAmount key="first" vaultId={EARN_DATA.vaults[2]!.id} />
+    </CommandDraftProvider>
+  );
+  fireEvent.change(screen.getByTestId('amount-input'), { target: { value: '1.000001' } });
+  fireEvent.click(screen.getByTestId('confirm'));
+  expect(navigate).toHaveBeenCalledWith(expect.stringContaining('amount=1.000001'));
+  rerender(
+    <CommandDraftProvider scope={DRAFT_SCOPE}>
+      <EarnDepositAmount key="after-review" vaultId={EARN_DATA.vaults[2]!.id} />
+    </CommandDraftProvider>
+  );
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '1.000001');
+  rerender(
+    <CommandDraftProvider scope={{ ...DRAFT_SCOPE, accountId: 'account-b' }}>
+      <EarnDepositAmount key="new-account" vaultId={EARN_DATA.vaults[2]!.id} />
+    </CommandDraftProvider>
+  );
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+});
 
 const FOUND_VAULT = EARN_DATA.vaults[2]!; // The Aave V3 USDC market on Base, which accepts deposits.
 const CLOSED_VAULT = EARN_DATA.vaults[1]!; // A Morpho market that accepts no deposits now.

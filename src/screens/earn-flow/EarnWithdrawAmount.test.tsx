@@ -4,6 +4,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 
 import EarnWithdrawAmount from './EarnWithdrawAmount';
 
@@ -45,6 +46,20 @@ jest.mock('./useEarnPositions', () => ({
 }));
 jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => 'en' }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+
+it('restores exact partial withdrawal after review Back but not for another position or RPC', () => {
+  const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc.example' };
+  const { rerender } = render(
+    <CommandDraftProvider scope={scope}><EarnWithdrawAmount key="first" positionId="p" /></CommandDraftProvider>
+  );
+  fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), { target: { value: '1.000000000000000001' } });
+  fireEvent.click(screen.getByRole('button', { name: 'review' }));
+  expect(navigate).toHaveBeenCalledWith('/earn/positions/p/withdraw/review?amount=1.000000000000000001');
+  rerender(<CommandDraftProvider scope={scope}><EarnWithdrawAmount key="return" positionId="p" /></CommandDraftProvider>);
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('1.000000000000000001');
+  rerender(<CommandDraftProvider scope={{ ...scope, rpcUrl: 'https://other.example' }}><EarnWithdrawAmount key="other-rpc" positionId="p" /></CommandDraftProvider>);
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('');
+});
 
 afterEach(() => {
   mockAvailable = '10.123456789012345678';

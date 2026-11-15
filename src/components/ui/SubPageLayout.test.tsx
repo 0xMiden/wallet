@@ -2,7 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
+import { CommandFlowBackProvider, FlowPresentationProvider, useCommandFlowBack } from 'components/flow/FlowPresentation';
+import { WorkbenchLayout } from 'components/flow/WorkbenchLayout';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 
 import { SubPageHeaderProvider, SubPageLayout, SubPageSection } from './SubPageLayout';
@@ -18,7 +19,28 @@ jest.mock('app/icons/v2', () => ({
 const body = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-slot="body"]')!;
 const footer = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-slot="footer"]');
 
+const CommandBack = ({ children }: { children: React.ReactNode }) => {
+  const back = useCommandFlowBack()?.activeBack;
+  return <WorkbenchLayout title="Earn" onBack={back} onMinimize={() => undefined}>{children}</WorkbenchLayout>;
+};
+
 describe('SubPageLayout', () => {
+  it('routes the one visible Command header Back to the active Earn review and clears it on unmount', () => {
+    const reviewBack = jest.fn();
+    const { rerender } = render(
+      <FlowPresentationProvider value="command"><CommandFlowBackProvider><CommandBack>
+        <SubPageLayout title="Review withdrawal" onBack={reviewBack}>Review</SubPageLayout>
+      </CommandBack></CommandFlowBackProvider></FlowPresentationProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(reviewBack).toHaveBeenCalledTimes(1);
+    rerender(
+      <FlowPresentationProvider value="command"><CommandFlowBackProvider><CommandBack>
+        <SubPageLayout title="Other screen">Other</SubPageLayout>
+      </CommandBack></CommandFlowBackProvider></FlowPresentationProvider>
+    );
+    expect(screen.queryByRole('button', { name: 'back' })).not.toBeInTheDocument();
+  });
   it('does not draw a duplicate page header inside a Command workbench', () => {
     render(
       <FlowPresentationProvider value="command">
