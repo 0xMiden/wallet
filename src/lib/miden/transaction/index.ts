@@ -1630,8 +1630,9 @@ const settleLandedGuardianRow = async (
     // Read before the write, which stamps the stage complete: the report names the stage the tail stopped at.
     const stored = await Repo.transactions.where({ id: transaction.id }).first();
     try {
+      // The stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there.
       await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-        ...landedRowFields(transaction, error),
+        ...landedRowFields(stored ?? transaction, error),
         completedAt: Math.floor(Date.now() / 1000) // seconds
       });
       if (stored) reportLandedTail(stored, error);

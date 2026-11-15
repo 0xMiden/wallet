@@ -663,6 +663,9 @@ export const landedTransactionIdFields = (landed: LandedWithoutResult | undefine
  * already recorded is kept under a label that says so, counting the owed notes the transport did not
  * acknowledge when the row records which it did.
  *
+ * A post-submit tail can throw after its relay ran (PR #2183), so a 'relayed' or 'confirmed' the row records is kept
+ * under the clean label whenever no positive count says the relay could not have run.
+ *
  * None of these rows is ever re-pushed: an apply that failed left the output notes out of this client's
  * store, so `sendPrivateOutput` has nothing to resend, and the row carries no note id to resend by. The
  * delivery sweep leaves such a row inert.
@@ -682,6 +685,8 @@ export const landedValueRowFields = (
   privateOutputNotes?: number
 ): { displayMessage: string; noteDelivery?: 'undelivered' } => {
   const displayMessage = applyLandedDisplayMessage(tx);
+  if (!privateOutputNotes && (tx.noteDelivery === 'relayed' || tx.noteDelivery === 'confirmed'))
+    return { displayMessage };
   if (tx.type === 'execute') {
     const owed =
       tx.noteDelivery === 'undelivered' ||
