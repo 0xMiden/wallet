@@ -345,7 +345,7 @@ describe('Receive - Address', () => {
     fireEvent.click(testContainer.querySelector('[data-testid="receive-asset-picker"]')!);
     fireEvent.click(document.body.querySelector('[data-testid="receive-asset-faucet-two"]')!);
     expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');
-    const bridge = testContainer.querySelector('[data-testid="receive-cross-chain"]');
+    const bridge = testContainer.querySelector<HTMLButtonElement>('[data-testid="receive-cross-chain"]');
     const guide = testContainer.querySelector('[data-testid="receive-asset-picker"]');
     expect(bridge).not.toBeNull();
     expect(testContainer.querySelector('[data-testid="receive-actions"]')).not.toContainElement(bridge);
