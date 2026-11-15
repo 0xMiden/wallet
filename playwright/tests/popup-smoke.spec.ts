@@ -24,6 +24,35 @@ const IGNORED_CONSOLE_ERRORS = [
 
 const isIgnoredConsoleError = (text: string) => IGNORED_CONSOLE_ERRORS.some(pattern => pattern.test(text));
 
+// Only known static routes are safe to print: never log extension IDs, query values or dynamic paths.
+const safeRequestLocation = (rawUrl: string) => {
+  try {
+    const url = new URL(rawUrl);
+    const origin =
+      url.protocol === 'chrome-extension:'
+        ? 'chrome-extension://[id]'
+        : url.origin === 'http://127.0.0.1:8551'
+          ? url.origin
+          : '[other-origin]';
+    const path = [
+      '/fullpage.html',
+      '/healthz',
+      '/v1/eligibility',
+      '/_fixture/config',
+      '/_fixture/response',
+      '/mainnet.json',
+      '/testnet.json',
+      '/devnet.json',
+      '/localnet.json'
+    ].includes(url.pathname)
+      ? url.pathname
+      : '/[other-path]';
+    return `${origin}${path}`;
+  } catch {
+    return '[unavailable]';
+  }
+};
+
 /**
  * `OpenSidePanel.tsx`'s root, and the only unambiguous hook for the side-panel
  * handoff screen: its "Your Wallet is ready!" title and its "Open wallet" button
@@ -50,16 +79,36 @@ test.describe('Fullpage UI', () => {
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const errors: string[] = [];
     const missing: string[] = [];
+    const failedResponses: string[] = [];
+    const errorSources: string[] = [];
+    const startedAt = Date.now();
+    expect(safeRequestLocation('https://user:private@untrusted.example/note/private?token=private')).toBe(
+      '[other-origin]/[other-path]'
+    );
+    expect(safeRequestLocation('http://127.0.0.1:8551/v1/eligibility?network=testnet')).toBe(
+      'http://127.0.0.1:8551/v1/eligibility'
+    );
 
     extensionContext.on('page', page => {
       page.on('response', response => {
-        if (response.status() !== 404) return;
-        const url = new URL(response.url());
-        missing.push(`${url.protocol}//${url.host}${url.pathname}`);
+        const status = response.status();
+        if (status < 400) return;
+        const location = safeRequestLocation(response.url());
+        if (status === 404 && missing.length < 8) missing.push(location);
+        if (failedResponses.length < 8) {
+          const request = response.request();
+          failedResponses.push(
+            `${Date.now() - startedAt}ms ${status} ${request.method()} ${request.resourceType()} ${location}`
+          );
+        }
       });
       page.on('console', message => {
         if (message.type() === 'error' && !isIgnoredConsoleError(message.text())) {
           errors.push(message.text());
+          if (errorSources.length < 8) {
+            const source = message.location();
+            errorSources.push(`${Date.now() - startedAt}ms ${safeRequestLocation(source.url)}:${source.lineNumber}`);
+          }
         }
       });
     });
@@ -71,7 +120,10 @@ test.describe('Fullpage UI', () => {
     // Wait for React to render content into #root (not just for #root to exist)
     await page.waitForSelector('#root > *', { timeout: 30000 });
 
-    expect(errors, `Missing request paths: ${JSON.stringify(missing)}`).toHaveLength(0);
+    expect(
+      errors,
+      `Missing request paths: ${JSON.stringify(missing)}; HTTP failures: ${JSON.stringify(failedResponses)}; console sources: ${JSON.stringify(errorSources)}`
+    ).toHaveLength(0);
   });
 
   // SKIPPED for the v0 UI: the create flow is now Guardian-mandatory (no "Fully
