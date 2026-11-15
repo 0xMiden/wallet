@@ -700,19 +700,10 @@ describe('completeSendTransaction', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('catches update status error gracefully (console.error logged)', async () => {
-    const spy = jest.spyOn(console, 'error').mockImplementation();
+  it('lets a failed Completed write leave the tail, so the landed arm records the row', async () => {
     const tx = makeSendTx();
-    // Don't push to txStore — updateTransactionStatus will throw 'No transaction found'
-    try {
-      await completeSendTransaction(tx, makeResult());
-    } catch {
-      // May or may not throw depending on the error path
-    }
-    // `toBeDefined` on a spy is always true: it held whether the failure was
-    // logged or the path was never reached at all.
-    expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
+    // Not in txStore, so updateTransactionStatus throws 'No transaction found'
+    await expect(completeSendTransaction(tx, makeResult())).rejects.toThrow('No transaction found');
   });
 });
 
