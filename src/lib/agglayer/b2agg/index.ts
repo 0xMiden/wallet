@@ -55,7 +55,7 @@ export async function createB2AggNote(
 }
 
 export interface B2AggBridgeDeps {
-  /** `signTransaction` from `useMidenContext()` — used by the background processor (mobile/desktop). */
+  /** `signTransaction` from `useMidenContext()` - used by the background processor (mobile/desktop). */
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   /** Guardian provider from `lib/miden/front/guardian-sync`. */
   guardianProvider: GuardianAccountProvider;
@@ -126,10 +126,10 @@ export async function initiateB2AggBridge(args: {
     );
     // The awaited note build parks (the lazy SDK load can be the long one), and
     // an eviction during it hands the mutex to a successor without stopping this
-    // callback — everything below is WASM work that would then run alongside the
+    // callback - everything below is WASM work that would then run alongside the
     // successor's, unmutexed. Everything in this hold is write PREP: the request
     // is only built and serialized here, submission happens later in the
-    // transaction pipeline, so aborting is always safe — and it must happen
+    // transaction pipeline, so aborting is always safe - and it must happen
     // BEFORE `initiateBridgedSendTransaction` queues a row, since a queued row
     // would hand the abandoned request to the processor as a fresh write.
     assertWasmHoldCurrent(hold, 'before the bridge request build');

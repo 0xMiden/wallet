@@ -4,7 +4,7 @@
  *
  * The Epoch SDK hands `createMidenP2IDNote` HEX account ids, and the wallet has to
  * store them in the SAME bech32 form every other producer of a transaction row uses
- * — otherwise `getTokenMetadata` misses (row renders as "Unknown" with the 6-decimal
+ * - otherwise `getTokenMetadata` misses (row renders as "Unknown" with the 6-decimal
  * fallback) and `matchesTokenId` drops the row out of that token's history. The
  * encoding must therefore follow the EFFECTIVE network (`getNetworkId()`), not a
  * hardcoded testnet HRP: on a localnet / devnet / mainnet build, or under a
@@ -45,7 +45,7 @@ jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
 
 // This suite is about ID ENCODING, not note construction. The collateral note is
 // built by `buildEpochCollateralRequestBytes`, which reaches deep into the SDK
-// (assets, note scripts, attachments) and has its own tests — stubbing it keeps
+// (assets, note scripts, attachments) and has its own tests - stubbing it keeps
 // these cases from drifting every time the builder gains a dependency.
 jest.mock('./collateral-note', () => ({
   buildEpochCollateralRequestBytes: jest.fn(async () => ({

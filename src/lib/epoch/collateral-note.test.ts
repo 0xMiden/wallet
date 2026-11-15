@@ -92,7 +92,7 @@ const revokeWasmHold = () => {
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => currentWasmHold,
-  // Re-implements the real comparison against the mock's current hold — a no-op
+  // Re-implements the real comparison against the mock's current hold - a no-op
   // here would make the eviction test below vacuously green.
   assertWasmHoldCurrent: (hold: object | null, where: string) => {
     if (hold !== null && hold === currentWasmHold) return;
@@ -158,7 +158,7 @@ beforeEach(() => {
 // key, and an asset rebuilt from faucet id + amount carries the default Disabled
 // flag. This path used to do precisely that, so an Epoch bridge or Earn deposit of
 // a callback-enabled collateral asset addressed an empty slot and was rejected by
-// the kernel — the whole flow failing at the first note it mints.
+// the kernel - the whole flow failing at the first note it mints.
 describe('the collateral asset is taken from the slot the sender actually holds', () => {
   it('derives it from the vault key, flag included', async () => {
     mockGetAccount.mockResolvedValue(accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')));
@@ -238,7 +238,7 @@ describe('the collateral asset is taken from the slot the sender actually holds'
 
 // #788 follow-up: an eviction during the account read hands the mutex to a
 // successor without stopping this callback, and the very next step reads
-// `vault().fungibleAssets()` on the returned account — a WASM call on an object
+// `vault().fungibleAssets()` on the returned account - a WASM call on an object
 // borrowed from the client's RefCell, i.e. the double borrow, not a stale read.
 // Everything in this hold is write PREP (nothing is submitted), so aborting is
 // always safe.

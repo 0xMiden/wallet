@@ -15,7 +15,7 @@ import { buildEpochCollateralRequestBytes } from './collateral-note';
 
 export interface BridgeNoteDeps {
   /**
-   * `signTransaction` action from `useMidenContext()` — needed by the
+   * `signTransaction` action from `useMidenContext()` - needed by the
    * background processor on mobile/desktop where there's no service worker.
    */
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
@@ -30,7 +30,7 @@ export interface BridgeNoteDeps {
  * The Epoch SDK's `createMidenP2IDNote` callback is handed HEX ids (earn.ts /
  * epoch-send.ts pass `normalizeMidenIdToHex` output), while every other producer
  * of a stored faucet/account id writes bech32 and every consumer matches on it
- * verbatim — `getTokenMetadata` looks the row's `faucetId` up in a store keyed by
+ * verbatim - `getTokenMetadata` looks the row's `faucetId` up in a store keyed by
  * the bech32 ids `fetchBalances` produces (an unknown key silently yields
  * "Unknown" / 6 decimals, it never triggers a fetch), and `matchesTokenId`
  * compares `tx.faucetId === tokenId` with the bech32 id of the open token.
@@ -39,8 +39,8 @@ export interface BridgeNoteDeps {
  * `getBech32AddressFromAccountId` does via `getNetworkId()`. A hardcoded testnet
  * HRP wrote `mtst1…` rows on localnet/devnet/mainnet builds (and under a
  * dev-settings endpoint override), where the same faucet is keyed `mlcl1…` etc.
- * The on-chain note is unaffected either way — `Address.fromBech32` recovers the
- * same AccountId regardless of HRP — so this is purely a lookup-key concern.
+ * The on-chain note is unaffected either way - `Address.fromBech32` recovers the
+ * same AccountId regardless of HRP - so this is purely a lookup-key concern.
  *
  * Non-hex input is already bech32 (callers pass the wallet's own `publicKey`) and
  * is returned untouched.
@@ -56,11 +56,11 @@ export interface CreateBridgeP2IDENoteArgs {
   faucetId: string;
   amount: string;
   allocatorId: string;
-  /** SDK-supplied RELATIVE reclaim window — used exactly as provided (never hardcoded). */
+  /** SDK-supplied RELATIVE reclaim window - used exactly as provided (never hardcoded). */
   recallBlocks: number;
-  /** SDK-supplied mandate-binding felts — written verbatim as the note attachment. */
+  /** SDK-supplied mandate-binding felts - written verbatim as the note attachment. */
   bindingAttachmentFelts: bigint[];
-  /** 0x EVM recipient — recorded on the bridge row (the note goes to the allocator). */
+  /** 0x EVM recipient - recorded on the bridge row (the note goes to the allocator). */
   destinationAddress: string;
   /** EVM destination chain id (Epoch). */
   destinationNetwork: number;
@@ -68,7 +68,7 @@ export interface CreateBridgeP2IDENoteArgs {
   /**
    * Fired the instant the `bridged-send` row is created (before proving/submit).
    * The send flow uses this to navigate to the generating-transaction screen
-   * WITH the txId — like a normal send — so the screen tracks the real row
+   * WITH the txId - like a normal send - so the screen tracks the real row
    * instead of racing an empty queue. Not provided by callers that drive their
    * own progress UI (e.g. the EvmConnectModal).
    */
@@ -82,14 +82,14 @@ export interface CreateBridgeP2IDENoteArgs {
  * `createMidenP2IDENote` callback for Miden→EVM intents:
  *
  * - SDK passes the faucet, amount, the allocator's Miden account id, the reclaim
- *   window (`recallBlocks`, allocator minimum + SDK drift buffer — used exactly
- *   as provided), and the mandate-binding attachment felts (smallocator PR #38 —
+ *   window (`recallBlocks`, allocator minimum + SDK drift buffer - used exactly
+ *   as provided), and the mandate-binding attachment felts (smallocator PR #38 -
  *   the allocator rejects notes whose attachment doesn't commit to the mandate).
  * - The public P2IDE note (with the binding attachment) is built HERE via
  *   `buildEpochCollateralRequestBytes` and persisted on the row as
  *   `requestBytes`, so both the standard pipeline (`newTransaction`) and the
  *   guardian custom-proposal path submit the exact same note. This row IS the
- *   bridge — the send pipeline proves + submits it and
+ *   bridge - the send pipeline proves + submits it and
  *   `completeBridgedSendTransaction` marks it "Bridged to EVM". There is no
  *   separate outer row.
  * - Service worker (extension) or in-page background processor
@@ -153,7 +153,7 @@ export async function createBridgeP2IDENote(
       reclaimNoteId
     );
 
-    // Row exists now (Queued) — let the caller navigate to the progress screen
+    // Row exists now (Queued) - let the caller navigate to the progress screen
     // before we block on proving/submission below.
     onRowCreated?.(txId);
 

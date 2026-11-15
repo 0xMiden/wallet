@@ -9,7 +9,7 @@
  * in a store keyed by the bech32 ids `fetchBalances` produces (a miss silently
  * yields "Unknown" + the 6-decimal fallback, it never triggers a fetch), and
  * `matchesTokenId` compares `tx.faucetId === tokenId` verbatim against the bech32
- * id of the open token — so a hex id also drops the row out of that token's
+ * id of the open token - so a hex id also drops the row out of that token's
  * history entirely.
  */
 // Every `withExpirationDelta` the B2AGG build makes, in order (#1081).
@@ -64,7 +64,7 @@ const revokeWasmHold = () => {
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => currentWasmHold,
-  // Re-implements the real comparison against the mock's current hold — a no-op
+  // Re-implements the real comparison against the mock's current hold - a no-op
   // here would make the eviction test below vacuously green.
   assertWasmHoldCurrent: (hold: object | null, where: string) => {
     if (hold !== null && hold === currentWasmHold) return;
@@ -313,8 +313,8 @@ describe('initiateB2AggBridge', () => {
 
   // #788 follow-up: the awaited note build parks (the lazy SDK load), and an
   // eviction during it hands the mutex to a successor without stopping this
-  // callback. Everything in the hold is write PREP — the request is only built
-  // and serialized, submission happens later in the pipeline — so aborting is
+  // callback. Everything in the hold is write PREP - the request is only built
+  // and serialized, submission happens later in the pipeline - so aborting is
   // always safe, and it must abort BEFORE a row is queued: a queued row would
   // hand the abandoned request to the processor as a fresh write.
   it('abandons the initiation when the WASM lock hold is evicted during the note build', async () => {

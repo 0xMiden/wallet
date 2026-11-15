@@ -32,14 +32,14 @@ export interface EpochCollateralNoteArgs {
   /**
    * RELATIVE blocks-until-reclaim window, exactly as supplied by the Epoch SDK's
    * mint callback (allocator minimum + SDK drift buffer). Never recompute or
-   * hardcode it — the SDK derives it from the allocator's live config.
+   * hardcode it - the SDK derives it from the allocator's live config.
    */
   recallBlocks: number;
   /**
    * Mandate-binding attachment felts, exactly as supplied by the Epoch SDK's
    * mint callback. The allocator recomputes the same EIP-712 witness hash from
    * the submitted mandate and rejects the note unless its attachment matches
-   * ("Miden note is not bound to the intent mandate") — so the felts must be
+   * ("Miden note is not bound to the intent mandate") - so the felts must be
    * written VERBATIM: no reordering, truncation, hashing, or `number` round-trips.
    */
   bindingAttachmentFelts: bigint[];
@@ -56,13 +56,13 @@ export interface EpochCollateralRequest {
 
 /**
  * Build (and serialize) the transaction request that mints an Epoch collateral
- * note — the smallocator PR #38 contract: a PUBLIC, reclaimable P2IDE note
+ * note - the smallocator PR #38 contract: a PUBLIC, reclaimable P2IDE note
  * addressed to the allocator, honoring the SDK-supplied `recallBlocks`, with the
  * SDK-supplied mandate-binding felts as its single attachment.
  *
  * `newSendTransactionRequest` cannot express the attachment, so the note is
  * built explicitly via `Note.createP2IDENote` and submitted as an own output
- * note — the same mechanism as the Agglayer B2AGG bridge note. The P2IDE serial
+ * note - the same mechanism as the Agglayer B2AGG bridge note. The P2IDE serial
  * number is random, so the returned bytes must be built ONCE and persisted on
  * the row (`requestBytes`); retries and the guardian propose/sign path reuse
  * the exact same bytes.
@@ -87,7 +87,7 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
   const feeSalt = randomFeeSalt();
   return withWasmClientLock(async hold => {
     // The collateral asset is REMOVED from the sender's vault, so it has to carry
-    // the vault key of the slot it is actually held in — the callback flag is part
+    // the vault key of the slot it is actually held in - the callback flag is part
     // of that key. Building it from faucet id + amount always yields the default
     // Disabled flag, so a collateral faucet issuing callback-ENABLED assets
     // addressed an empty slot and the kernel rejected the note ("failed to remove
@@ -102,7 +102,7 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
     const senderAccount = await midenClientProxy.getAccount(toAccountId(args.senderAccountId).toString());
     // Before touching the returned account: an eviction during the read above
     // hands the mutex to a successor without stopping this callback, and
-    // `resolveHeldFungibleAsset` reads `vault().fungibleAssets()` — a WASM call
+    // `resolveHeldFungibleAsset` reads `vault().fungibleAssets()` - a WASM call
     // on an object borrowed from the client's RefCell, so continuing would be
     // the double borrow, not a stale read. Everything in this hold is write
     // PREP (the request is only built and serialized here, nothing is
