@@ -84,6 +84,7 @@ import {
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction,
   initiateUpdateProcedureThresholdTransaction,
+  isRequeueableTransaction,
   LANDED_CONFIRM_BOUND_MS,
   LANDED_CONFIRM_POLL_MS,
   failInterruptedTransactions,
@@ -1872,7 +1873,7 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
-  it("Guardian send: a trap in the tail's tx-id read retires once under the row, with the trap itself", async () => {
+  it("Guardian send: a trap in the tail's tx-id read retires once under the row, with the trap itself, and records it landed", async () => {
     const txId = 'send-guardian-landing-id-trap';
     const retire = jest.fn();
     const restore = installLandedTrapRetirement(retire);
@@ -1897,12 +1898,42 @@ describe('generateTransaction - Guardian routing', () => {
       expect(retire).toHaveBeenCalledTimes(1);
       expect(retire.mock.calls[0]![0]).toBe(trap);
       expect(retire.mock.calls[0]![1]).toBe(txId);
-      // The Guardian catch ends the rejection; what it recorded is the trap's own text, past the submit.
-      expect(row.mayHaveSubmitted).toBe(true);
-      expect(row.error).toBe('RuntimeError: unreachable');
+      // The Guardian catch ends the rejection through its landed arm: the trap left no id to read.
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Sent' });
+      expect(row.error).toBeUndefined();
+      expect(row.transactionId).toBeUndefined();
     } finally {
       errSpy.mockRestore();
       restore();
+    }
+  });
+
+  // A Failed Guardian send offers a Retry that builds a fresh proposal, a second payment (PR #2183).
+  it('a Guardian send whose tail throws after the leaf resolved is Completed through the Guardian landed arm', async () => {
+    const landed = makeResult();
+    let armed = false;
+    // Armed by the leaf's apply, its last await, so every read past the leaf fails.
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw new Error('result read');
+        return landed.executedTransaction();
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      const row = await runGuardianSend('send-guardian-tail-throw', makeClientApi(result, apply));
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Sent' });
+      expect(row.error).toBeUndefined();
+      expect(isRequeueableTransaction(row)).toBe(false);
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
     }
   });
 

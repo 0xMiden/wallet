@@ -23,14 +23,19 @@ import {
   generateTransaction,
   generateTransactionsLoop,
   getUncompletedTransactions,
+  isRequeueableTransaction,
+  landedValueRowFields,
+  requeueFailedTransaction,
   safeGenerateTransactionsLoop,
   startBackgroundTransactionProcessing,
   verifyStuckTransactionsFromNode,
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
+import { isLandedTailError } from '../sdk/apply-after-submit';
 import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
 import { NoteTypeEnum } from '../types';
 
@@ -165,6 +170,12 @@ jest.mock('../activity/notes', () => ({
 jest.mock('../activity/helpers', () => ({
   interpretTransactionResult: jest.fn((tx: any) => ({ ...tx, displayMessage: 'Executed' }))
 }));
+
+// The real adoption, observed: a landed consume's arm must run it.
+jest.mock('../activity/bridge-in', () => {
+  const actual = jest.requireActual('../activity/bridge-in');
+  return { ...actual, adoptLandedConsume: jest.fn((consumeId: string) => actual.adoptLandedConsume(consumeId)) };
+});
 
 jest.mock('lib/platform', () => ({
   isAndroid: () => false,
@@ -594,6 +605,205 @@ describe('apply-after-submit on an execute', () => {
       expect(txStore[0]!.transactionId).toBe('landed-execute-hash');
     }
   );
+});
+
+// The leaf resolved, so the node holds the write: a throw from what follows must record the row as landed. A Failed row
+// with no crossing on record is one Retry re-executes, which pays a second time (PR #2183).
+describe('a throw after the leaf resolved', () => {
+  const queuedRow = (id: string, fields: Record<string, unknown>) =>
+    txStore.push({
+      id,
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'DEFAULT',
+      ...fields
+    });
+
+  const queuedExecute = (id: string, fields: Record<string, unknown> = {}) =>
+    queuedRow(id, { type: 'execute', requestBytes: new Uint8Array([7]), ...fields });
+
+  // The loop runs the queued row, whose write resolves through `write`, so whatever throws comes from its tail.
+  const runLoopWithWrite = async (write: jest.Mock) => {
+    installLocks();
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(),
+      newTransaction: write,
+      consumeNoteId: write,
+      waitForTransactionCommit: mockWaitForCommit,
+      sendPrivateNote: mockSendPrivateNote
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
+    } finally {
+      sdk.getMidenClient = origGetClient;
+      warnSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  };
+
+  const landedResult = (executed: Record<string, unknown>, serialize = () => new Uint8Array([])) => ({
+    executedTransaction: () => ({ id: () => ({ toHex: () => 'landed-id' }), ...executed }),
+    serialize
+  });
+
+  it('an execute whose completion throws after the leaf resolved is Completed with its landed id and offers no Retry', async () => {
+    queuedExecute('tx-tail-execute');
+    const write = jest.fn(async () =>
+      landedResult({
+        outputNotes: () => {
+          throw new Error('output notes read');
+        }
+      })
+    );
+
+    await runLoopWithWrite(write);
+
+    const row = txStore[0]!;
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, transactionId: 'landed-id' });
+    expect(isRequeueableTransaction(row)).toBe(false);
+    await expect(requeueFailedTransaction(row.id)).rejects.toThrow('is not retryable');
+    // A second lap finds nothing queued, so the write ran once.
+    await runLoopWithWrite(write);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it('an execute whose completion traps reading the executed transaction is still recorded landed', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    queuedExecute('tx-tail-execute-trap');
+    try {
+      await runLoopWithWrite(
+        jest.fn(async () => ({
+          executedTransaction: () => {
+            throw trap;
+          },
+          serialize: () => new Uint8Array([])
+        }))
+      );
+
+      const row = txStore[0]!;
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.transactionId).toBeUndefined();
+      expect(isRequeueableTransaction(row)).toBe(false);
+      expect(retire.mock.calls).toEqual([[trap, row.id]]);
+    } finally {
+      restore();
+    }
+  });
+
+  // The landed split answers this note's trap and keeps it, and the result's own interpretation then reads the same
+  // note and traps again: a trap from any completion read counts as landed.
+  it('an execute whose landed note read traps in interpretTransactionResult is Completed and offers no Retry', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    _gh.__noteTypeForTest = 'public';
+    const nativeAsset = require('lib/miden-chain/native-asset');
+    const origNativeAssetId = nativeAsset.getNativeAssetIdSync;
+    nativeAsset.getNativeAssetIdSync = () => 'native-faucet';
+    const helpers = require('../activity/helpers');
+    helpers.interpretTransactionResult.mockImplementationOnce(
+      jest.requireActual('../activity/helpers').interpretTransactionResult
+    );
+    const feeTagged = {
+      id: () => ({ toString: () => 'fee-tagged-note' }),
+      metadata: () => ({ noteType: () => 'public', tag: () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
+      assets: () => ({
+        nonFungibleAssets: () => [],
+        fungibleAssets: () => {
+          throw trap;
+        }
+      })
+    };
+    queuedExecute('tx-tail-interpret-trap');
+    try {
+      await runLoopWithWrite(
+        jest.fn(async () =>
+          landedResult({
+            blockHeader: () => ({ verificationBaseFee: () => 10000 }),
+            inputNotes: () => ({ notes: () => [] }),
+            outputNotes: () => ({ notes: () => [feeTagged] })
+          })
+        )
+      );
+
+      const row = txStore[0]!;
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, transactionId: 'landed-id' });
+      expect(isRequeueableTransaction(row)).toBe(false);
+      expect(retire.mock.calls).toEqual([[trap, row.id]]);
+    } finally {
+      nativeAsset.getNativeAssetIdSync = origNativeAssetId;
+      restore();
+    }
+  });
+
+  it("an execute's private notes left unrelayed by a tail throw are labelled undelivered", async () => {
+    queuedExecute('tx-tail-unrelayed', { secondaryAccountId: 'recipient' });
+    mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down'));
+    require('../activity/helpers').interpretTransactionResult.mockImplementationOnce(() => {
+      throw new Error('input notes read');
+    });
+    const note = {
+      id: () => ({ toString: () => 'private-note' }),
+      metadata: () => ({ noteType: () => 'private' }),
+      intoFull: () => ({ __note: 'private-note' })
+    };
+
+    await runLoopWithWrite(jest.fn(async () => landedResult({ outputNotes: () => ({ notes: () => [note] }) })));
+
+    const row = txStore[0]!;
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect({ displayMessage: row.displayMessage, noteDelivery: row.noteDelivery }).toEqual(
+      landedValueRowFields({ type: 'execute', accountId: 'acc-1', secondaryAccountId: 'recipient' }, 1)
+    );
+  });
+
+  it('an earn-deposit whose completion throws after the leaf resolved fails with its landed id and is not requeueable', async () => {
+    queuedRow('tx-tail-earn', {
+      type: 'earn-deposit',
+      requestBytes: new Uint8Array([9, 9]),
+      extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
+    });
+
+    await runLoopWithWrite(
+      jest.fn(async () =>
+        landedResult({ outputNotes: () => ({ notes: () => [] }) }, () => {
+          throw new Error('result serialize');
+        })
+      )
+    );
+
+    const row = txStore[0]!;
+    expect(row).toMatchObject({ status: ITransactionStatus.Failed, transactionId: 'landed-id' });
+    expect(isRequeueableTransaction(row)).toBe(false);
+  });
+
+  it('a consume whose completion throws after the leaf resolved is Completed and adopted', async () => {
+    queuedRow('tx-tail-consume', { type: 'consume', noteId: 'n-tail', displayIcon: 'RECEIVE' });
+
+    await runLoopWithWrite(
+      jest.fn(async () =>
+        landedResult({
+          inputNotes: () => {
+            throw new Error('input notes read');
+          }
+        })
+      )
+    );
+
+    const row = txStore[0]!;
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, transactionId: 'landed-id' });
+    expect(isRequeueableTransaction(row)).toBe(false);
+    expect(require('../activity/bridge-in').adoptLandedConsume).toHaveBeenCalledWith(row.id);
+  });
 });
 
 describe('completeCustomTransaction private-note delivery', () => {
@@ -2090,7 +2300,7 @@ describe('generateTransaction execute + consume default switch arms', () => {
     }
   });
 
-  it('a trap leaving a landed consume completion retires once under the row and reaches the loop as itself', async () => {
+  it("a trap leaving a landed consume completion retires once under the row and reaches the loop as the landed tail's cause", async () => {
     const retire = jest.fn();
     const restore = installLandedTrapRetirement(retire);
     const trap = new WebAssembly.RuntimeError('unreachable');
@@ -2118,7 +2328,9 @@ describe('generateTransaction execute + consume default switch arms', () => {
       consumeNoteId: jest.fn(async () => trappingResult)
     });
     try {
-      await expect(generateTransaction(txStore[0] as any, jest.fn(), false, {} as any)).rejects.toBe(trap);
+      const outcome = generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
+      await expect(outcome).rejects.toMatchObject({ cause: trap });
+      expect(isLandedTailError(await outcome.catch((error: unknown) => error))).toBe(true);
       expect(retire.mock.calls).toEqual([[trap, 'tx-consume-trap']]);
     } finally {
       sdk.getMidenClient = origGetClient;
