@@ -58,6 +58,7 @@ let mockPersistedRows: unknown[] = [];
 let mockEvmProvider: { request: jest.Mock; on: jest.Mock; removeListener: jest.Mock };
 let mockSpendingLimitAssessment: SpendingLimitAssessment | undefined;
 let mockOneClickReviewState: { correlationId?: string; recipient?: string } = {};
+let mockLastOneClickAmountChange: ((amount: string) => void) | undefined;
 const mockConnectExternal = jest.fn(async () => undefined);
 let mockEvmBalanceSnapshot = {
   chainId: 1,
@@ -168,6 +169,8 @@ jest.mock('./OneClickAmounts', () => ({
     offerAmount: string;
     externalAddress: string;
     onOfferAmountChange: (amount: string) => void;
+    onRequestAssetChange: (asset: OneClickAsset) => void;
+    requestAsset?: OneClickAsset;
     onExternalAddressChange: (address: string) => void;
     onConnectExternal?: () => void;
     connectedExternalAddress?: string;
@@ -175,27 +178,36 @@ jest.mock('./OneClickAmounts', () => ({
     routeError?: string;
     routeErrorId?: string | null;
     onContinue: () => void;
-  }) => (
-    <div>
-      <output data-testid="one-click-input-draft">
-        {props.offerAmount} / {props.externalAddress}
-      </output>
-      {props.routeError && <span data-testid="one-click-amounts-error">{props.routeError}</span>}
-      {props.routeErrorId && <span data-testid="one-click-amounts-error-id">{props.routeErrorId}</span>}
-      <input aria-label="amount" onChange={event => props.onOfferAmountChange(event.target.value)} />
-      <input aria-label="external address" onChange={event => props.onExternalAddressChange(event.target.value)} />
-      {props.onConnectExternal && (
-        <button type="button" onClick={props.onConnectExternal}>
-          Connect wallet
+  }) => {
+    mockLastOneClickAmountChange = props.onOfferAmountChange;
+    return (
+      <div>
+        <output data-testid="one-click-input-draft">
+          {props.offerAmount} / {props.externalAddress}
+        </output>
+        <output data-testid="one-click-request-asset">{props.requestAsset?.assetId}</output>
+        <button
+          type="button"
+          data-testid="one-click-select-other-asset"
+          onClick={() => props.onRequestAssetChange(otherEthereumAsset)}
+        />
+        {props.routeError && <span data-testid="one-click-amounts-error">{props.routeError}</span>}
+        {props.routeErrorId && <span data-testid="one-click-amounts-error-id">{props.routeErrorId}</span>}
+        <input aria-label="amount" onChange={event => props.onOfferAmountChange(event.target.value)} />
+        <input aria-label="external address" onChange={event => props.onExternalAddressChange(event.target.value)} />
+        {props.onConnectExternal && (
+          <button type="button" onClick={props.onConnectExternal}>
+            Connect wallet
+          </button>
+        )}
+        {props.connectedExternalAddress && <span>{props.connectedExternalAddress}</span>}
+        {props.evmBalance?.snapshot && <span>{props.evmBalance.snapshot.tokenBalance.toString()}</span>}
+        <button type="button" disabled={!props.canContinue} onClick={props.onContinue}>
+          Review route
         </button>
-      )}
-      {props.connectedExternalAddress && <span>{props.connectedExternalAddress}</span>}
-      {props.evmBalance?.snapshot && <span>{props.evmBalance.snapshot.tokenBalance.toString()}</span>}
-      <button type="button" disabled={!props.canContinue} onClick={props.onContinue}>
-        Review route
-      </button>
-    </div>
-  )
+      </div>
+    );
+  }
 }));
 jest.mock('./OneClickReview', () => ({
   OneClickReview: (props: {
@@ -203,6 +215,7 @@ jest.mock('./OneClickReview', () => ({
     recipient: string;
     onConfirm: () => void;
     onRefresh: () => void;
+    onBack: () => void;
     error?: string;
     errorId?: string | null;
     submitting?: boolean;
@@ -222,6 +235,9 @@ jest.mock('./OneClickReview', () => ({
         </button>
         <button type="button" onClick={props.onRefresh}>
           Refresh route
+        </button>
+        <button type="button" onClick={props.onBack}>
+          Back to amounts
         </button>
       </div>
     );
@@ -281,6 +297,12 @@ const ethereumAsset: OneClickAsset = {
   chainId: 1
 };
 const manualAsset: OneClickAsset = { assetId: 'sol:token', blockchain: 'sol', symbol: 'SOL', decimals: 9 };
+const otherEthereumAsset: OneClickAsset = {
+  ...ethereumAsset,
+  assetId: 'eth:other',
+  symbol: 'USDT',
+  contractAddress: '0x7777777777777777777777777777777777777777'
+};
 const networks: OneClickNetworkOption[] = [
   { id: 'miden', name: 'Miden', kind: 'miden' },
   { id: 'eth', name: 'Ethereum', kind: 'ethereum' },
@@ -454,6 +476,7 @@ beforeEach(() => {
   );
   mockSpendingLimitAssessment = undefined;
   mockOneClickReviewState = {};
+  mockLastOneClickAmountChange = undefined;
   mockEvmBalanceSnapshot = {
     chainId: 1,
     account: mockOriginAddress,
@@ -553,6 +576,122 @@ describe('OneClickFlow', () => {
     expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(`1.123456 / ${mockOriginAddress}`);
     expect(screen.queryByTestId('one-click-review')).not.toBeInTheDocument();
   });
+  it('restores exact unsigned 1Click input after review Back and Command minimize/reopen', async () => {
+    const scope = { accountId: mockAccountId, network: 'mainnet', rpcUrl: 'rpc' };
+    const routeConfig: OneClickConfig = {
+      ...config,
+      evmAssets: [
+        ...(config.evmAssets ?? []),
+        {
+          assetId: otherEthereumAsset.assetId,
+          blockchain: 'eth',
+          chainId: 1,
+          contractAddress: '0x7777777777777777777777777777777777777777',
+          decimals: 6,
+          symbol: 'USDT'
+        }
+      ]
+    };
+    const view = (shown: boolean) => (
+      <CommandDraftProvider scope={scope}>
+        <FlowPresentationProvider value="command">
+          {shown && (
+            <OneClickFlow
+              config={routeConfig}
+              assets={[midenAsset, ethereumAsset, otherEthereumAsset, manualAsset]}
+              networks={networks}
+              offerNetwork={networkFor('miden')}
+              requestNetwork={networkFor('eth')}
+              midenAddress={mockMidenAddress}
+              onBackToSwap={jest.fn()}
+            />
+          )}
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const { rerender } = render(view(true));
+    fireEvent.click(screen.getByTestId('one-click-select-other-asset'));
+    expect(screen.getByTestId('one-click-request-asset')).toHaveTextContent('eth:other');
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '1.123456' } });
+    fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review route' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Review route' }));
+    await screen.findByRole('button', { name: 'Back to amounts' });
+    fireEvent.click(screen.getByRole('button', { name: 'Back to amounts' }));
+    expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(`1.123456 / ${mockOriginAddress}`);
+    rerender(view(false));
+    rerender(view(true));
+    expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(`1.123456 / ${mockOriginAddress}`);
+    expect(screen.getByTestId('one-click-request-asset')).toHaveTextContent('eth:other');
+    expect(screen.queryByRole('button', { name: 'Confirm route' })).not.toBeInTheDocument();
+    expect(persistOneClickTrackingRow).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['account', { accountId: '0x444444444444444444444444444444', network: 'mainnet', rpcUrl: 'rpc' }],
+    ['network', { accountId: '0x111111111111111111111111111111', network: 'testnet', rpcUrl: 'rpc' }],
+    ['effective RPC', { accountId: '0x111111111111111111111111111111', network: 'mainnet', rpcUrl: 'other-rpc' }]
+  ])('clears the real Command 1Click draft on %s change and rejects a stale A-B-A input', (reason, changedScope) => {
+    const scope = { accountId: mockAccountId, network: 'mainnet', rpcUrl: 'rpc' };
+    const view = (nextScope: typeof scope) => (
+      <CommandDraftProvider scope={nextScope}>
+        <FlowPresentationProvider value="command">
+          <OneClickFlow
+            key={JSON.stringify(nextScope)}
+            config={config}
+            assets={[midenAsset, ethereumAsset, manualAsset]}
+            networks={networks}
+            offerNetwork={networkFor('miden')}
+            requestNetwork={networkFor('eth')}
+            midenAddress={mockMidenAddress}
+            onBackToSwap={jest.fn()}
+          />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const { rerender } = render(view(scope));
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '1.123456' } });
+    fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+    const staleAmountChange = mockLastOneClickAmountChange;
+    expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(`1.123456 / ${mockOriginAddress}`);
+    if (reason === 'account') mockAccountId = changedScope.accountId;
+    rerender(view(changedScope));
+    expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(/^\/$/);
+    act(() => staleAmountChange?.('999'));
+    mockAccountId = scope.accountId;
+    rerender(view(scope));
+    expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(/^\/$/);
+    expect(persistOneClickTrackingRow).not.toHaveBeenCalled();
+  });
+
+  it('drops the real Command 1Click draft and late input after lock/remount', () => {
+    const scope = { accountId: mockAccountId, network: 'mainnet', rpcUrl: 'rpc' };
+    const view = () => (
+      <CommandDraftProvider scope={scope}>
+        <FlowPresentationProvider value="command">
+          <OneClickFlow
+            config={config}
+            assets={[midenAsset, ethereumAsset, manualAsset]}
+            networks={networks}
+            offerNetwork={networkFor('miden')}
+            requestNetwork={networkFor('eth')}
+            midenAddress={mockMidenAddress}
+            onBackToSwap={jest.fn()}
+          />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const root = render(view());
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '1.123456' } });
+    fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+    const staleAmountChange = mockLastOneClickAmountChange;
+    root.rerender(null);
+    act(() => staleAmountChange?.('999'));
+    root.rerender(view());
+    expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(/^\/$/);
+    expect(persistOneClickTrackingRow).not.toHaveBeenCalled();
+  });
+
   it('blocks an amount one base unit above a large Miden balance', async () => {
     const zeroDecimalAsset: OneClickAsset = {
       assetId: 'miden:whole-token',

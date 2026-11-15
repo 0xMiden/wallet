@@ -134,58 +134,68 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// `components/Navigator` — replace the animated stack with a controllable stub:
-// render `renderRoute` for each route in `mockRenderedRoutes` (so both flow
-// steps mount at once for a single SwapManager instance), and hand back a
-// controllable navigator context.
-jest.mock('components/Navigator', () => ({
-  useNavigator: () => mockNav,
-  NavigatorProvider: ({ children }: { children: React.ReactNode }) => children,
-  Navigator: ({ renderRoute }: { renderRoute: (route: { name: string }, index: number) => React.ReactNode }) =>
-    mockRenderedRoutes.map((route, index) => (
-      <div key={route.name} data-nav-route={route.name}>
-        {renderRoute(route, index)}
-      </div>
-    ))
-}));
+// Most controller tests expose both steps via a lightweight navigator; review Back uses the real stack.
+let mockRealNavigator = false;
+jest.mock('components/Navigator', () => {
+  const actual = jest.requireActual<typeof import('components/Navigator')>('components/Navigator');
+  return {
+    useNavigator: () => (mockRealNavigator ? actual.useNavigator() : mockNav),
+    NavigatorProvider: (props: React.ComponentProps<typeof actual.NavigatorProvider>) =>
+      mockRealNavigator ? <actual.NavigatorProvider {...props} /> : <>{props.children}</>,
+    Navigator: (props: React.ComponentProps<typeof actual.Navigator>) =>
+      mockRealNavigator ? (
+        <actual.Navigator {...props} />
+      ) : (
+        mockRenderedRoutes.map((route, index) => (
+          <div key={route.name} data-nav-route={route.name}>
+            {props.renderRoute({ ...route, animationIn: 'push', animationOut: 'pop' }, index)}
+          </div>
+        ))
+      )
+  };
+});
 
 // The three swap-flow children are exercised by their own suites; stub them to
 // thin harnesses that surface every prop and forward every callback.
 let mockRealSwapDisplays = false;
 let mockRealSwapAmounts = false;
+let mockLastSwapOfferChange: ((amount: string) => void) | undefined;
 jest.mock('./SwapAmounts', () => {
   const { AmountInput } = jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput');
   return {
-    SwapAmounts: (props: import('./SwapAmounts').SwapAmountsProps) => (
-      <div data-testid="swap-amounts">
-        {mockRealSwapAmounts &&
-          React.createElement(jest.requireActual<typeof import('./SwapAmounts')>('./SwapAmounts').SwapAmounts, props)}
-        <span data-testid="sa-offer-token">{props.offerToken.symbol}</span>
-        <span data-testid="sa-request-token">{props.requestToken.symbol}</span>
-        <span data-testid="sa-offer-balance">{String(props.offerBalance)}</span>
-        <span data-testid="sa-offer-amount">{props.offerAmount}</span>
-        <span data-testid="sa-request-amount">{props.requestAmount}</span>
-        <span data-testid="sa-can-proceed">{String(props.canProceed)}</span>
-        <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
-        <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
-        <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
-        <span data-testid="sa-offer-loading">{String(props.offerLoading)}</span>
-        <span data-testid="sa-one-click-networks">
-          {(props.oneClickNetworks ?? []).map(network => network.id).join(',')}
-        </span>
-        <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
-        <AmountInput
-          data-testid="sa-request-input"
-          value={props.requestAmount}
-          loading={props.requestLoading}
-          onValueChange={amount => props.onRequestAmountChange(amount ?? '')}
-        />
-        <button data-testid="sa-select-offer" onClick={props.onSelectOfferToken} />
-        <button data-testid="sa-select-request" onClick={props.onSelectRequestToken} />
-        <button data-testid="sa-swap-direction" onClick={props.onSwapDirection} />
-        <button data-testid="sa-confirm" onClick={props.onConfirm} />
-      </div>
-    )
+    SwapAmounts: (props: import('./SwapAmounts').SwapAmountsProps) => {
+      mockLastSwapOfferChange = props.onOfferAmountChange;
+      return (
+        <div data-testid="swap-amounts">
+          {mockRealSwapAmounts &&
+            React.createElement(jest.requireActual<typeof import('./SwapAmounts')>('./SwapAmounts').SwapAmounts, props)}
+          <span data-testid="sa-offer-token">{props.offerToken.symbol}</span>
+          <span data-testid="sa-request-token">{props.requestToken.symbol}</span>
+          <span data-testid="sa-offer-balance">{String(props.offerBalance)}</span>
+          <span data-testid="sa-offer-amount">{props.offerAmount}</span>
+          <span data-testid="sa-request-amount">{props.requestAmount}</span>
+          <span data-testid="sa-can-proceed">{String(props.canProceed)}</span>
+          <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
+          <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
+          <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
+          <span data-testid="sa-offer-loading">{String(props.offerLoading)}</span>
+          <span data-testid="sa-one-click-networks">
+            {(props.oneClickNetworks ?? []).map(network => network.id).join(',')}
+          </span>
+          <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
+          <AmountInput
+            data-testid="sa-request-input"
+            value={props.requestAmount}
+            loading={props.requestLoading}
+            onValueChange={amount => props.onRequestAmountChange(amount ?? '')}
+          />
+          <button data-testid="sa-select-offer" onClick={props.onSelectOfferToken} />
+          <button data-testid="sa-select-request" onClick={props.onSelectRequestToken} />
+          <button data-testid="sa-swap-direction" onClick={props.onSwapDirection} />
+          <button data-testid="sa-confirm" onClick={props.onConfirm} />
+        </div>
+      );
+    }
   };
 });
 
@@ -205,6 +215,7 @@ jest.mock('./ReviewSwap', () => ({
         <span data-testid="rs-fill-seconds">{String(props.quote?.eta.estimatedSeconds)}</span>
         <span data-testid="rs-slippage">{String(props.slippageBps)}</span>
         <span data-testid="rs-request-edited">{String(props.requestEdited)}</span>
+        <button data-testid="rs-back" onClick={props.onGoBack} />
         <button data-testid="rs-set-slippage" onClick={() => props.onSlippageBpsChange(50)} />
         <input
           data-testid="rs-expiry"
@@ -505,6 +516,8 @@ const quoteAt = (
 
 beforeEach(() => {
   mockRealSwapRegistry = false;
+  mockRealNavigator = false;
+  mockLastSwapOfferChange = undefined;
   jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens')._setSwapTokensForTest(undefined);
   jest.clearAllMocks();
   mockVaultPreflight.mockReset().mockResolvedValue(undefined);
@@ -717,6 +730,91 @@ describe('SwapFlow / SwapManager', () => {
     expect(screen.getByTestId('rs-auto-consume')).toHaveTextContent('false');
     expect(mockInitiateSwap).not.toHaveBeenCalled();
   });
+  it('restores exact Command offer and settings after real review Back and minimize/reopen', async () => {
+    mockRealNavigator = true;
+    mockBalanceData = [...mockBalanceData, { tokenId: 'bech32-faucet-C', balance: 100 }];
+    mockAllBalancesReturn = { data: mockBalanceData };
+    const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
+    const view = (shown: boolean) => (
+      <CommandDraftProvider scope={scope}>
+        <FlowPresentationProvider value="command">{shown && <SwapFlow />}</FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const { rerender } = render(view(true));
+    setOffer('10');
+    fireEvent.click(screen.getByTestId('sa-confirm'));
+    await screen.findByTestId('rs-back');
+    fireEvent.click(screen.getByTestId('rs-set-slippage'));
+    fireEvent.click(screen.getByTestId('rs-auto-consume'));
+    fireEvent.click(screen.getByTestId('rs-back'));
+    await waitFor(() => expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10'));
+    expect(screen.queryByTestId('rs-back')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('sa-select-offer'));
+    act(() => mockDrawerProps.onSelect(mockTokenC));
+    expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('CCC');
+    expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
+    rerender(view(false));
+    rerender(view(true));
+    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
+    expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('CCC');
+    expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
+    expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+    mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 5n, {}, { slippageBps: 50 }) };
+    rerender(view(true));
+    expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+    fireEvent.click(screen.getByTestId('sa-confirm'));
+    await screen.findByTestId('rs-back');
+    expect(screen.getByTestId('rs-slippage')).toHaveTextContent('50');
+    expect(screen.getByTestId('rs-auto-consume')).toHaveTextContent('false');
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['account', { accountId: 'pk-2', network: 'testnet', rpcUrl: 'rpc' }],
+    ['network', { accountId: 'pk-1', network: 'devnet', rpcUrl: 'rpc' }],
+    ['effective RPC', { accountId: 'pk-1', network: 'testnet', rpcUrl: 'other-rpc' }]
+  ])('clears the real Command Swap draft on %s change and rejects a stale A-B-A input', (_reason, changedScope) => {
+    const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
+    const view = (nextScope: typeof scope) => (
+      <CommandDraftProvider scope={nextScope}>
+        <FlowPresentationProvider value="command">
+          <SwapFlow key={JSON.stringify(nextScope)} />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const { rerender } = render(view(scope));
+    setOffer('1.12345678');
+    const staleAmountChange = mockLastSwapOfferChange;
+    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('1.12345678');
+    if (_reason === 'account') mockAccountReturn = { publicKey: changedScope.accountId };
+    rerender(view(changedScope));
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    act(() => staleAmountChange?.('999'));
+    mockAccountReturn = { publicKey: 'pk-1' };
+    rerender(view(scope));
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
+  it('drops the real Command Swap draft and late input after lock/remount', () => {
+    const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
+    const view = () => (
+      <CommandDraftProvider scope={scope}>
+        <FlowPresentationProvider value="command">
+          <SwapFlow />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const root = render(view());
+    setOffer('1.12345678');
+    const staleAmountChange = mockLastSwapOfferChange;
+    root.rerender(null);
+    act(() => staleAmountChange?.('999'));
+    root.rerender(view());
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
   it('does not query below $1 and starts at exactly $1', async () => {
     jest.useFakeTimers();
     try {
