@@ -395,6 +395,7 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
   });
 
   it('still shows a summary when the fee read finds the fee absent', async () => {
+    mockSyncFee = null;
     mockRefreshVerificationBaseFee.mockResolvedValue(null);
     mockFeeKnownAbsent.mockReturnValue(true);
     sdk.SigningInputs = { deserialize: () => summarySigningInputs([]) };

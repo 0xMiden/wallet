@@ -864,7 +864,8 @@ describe('the chain fee the approval decodes with', () => {
 
   it('still prompts when the refresh finds the fee absent', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
-    mockFeeKnownAbsent.mockReturnValueOnce(true);
+    mockSyncFee.mockReturnValue(null);
+    mockFeeKnownAbsent.mockReturnValue(true);
 
     await raiseSheet(false);
 
