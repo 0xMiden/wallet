@@ -64,6 +64,8 @@ import {
   errorMessageParts,
   isGuardianCanonicalizationError,
   isPipelineKillLink,
+  isWasmTrap,
+  readWasmHandle,
   someInCauseChain
 } from '../sdk/sdk-error-code';
 import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
@@ -731,9 +733,9 @@ export class MultisigService {
 
   /**
    * The summary commitment of `requestBytes`, executed once at the tip on `client` in `hold`, plus the base64 payload
-   * and bound block read from that same summary. The WASM objects are freed only while the hold is still this flow's
-   * and no read trapped: after an eviction they belong to an abandoned flow, and a failing free on a trapped instance
-   * would replace the trap the lock retires.
+   * and bound block read from that same summary. The commitment word is read with `readWasmHandle`. `summary` and
+   * `request` are freed only while the hold is still this flow's and no trap was recorded: after an eviction they
+   * belong to an abandoned flow.
    */
   private async summaryCommitmentOf(
     hold: WasmLockHold,
@@ -747,23 +749,16 @@ export class MultisigService {
     try {
       summary = await executeForSummaryAtTip(client, this.accountId, request);
       assertWasmHoldCurrent(hold, `${label}: after the summary execution`);
-      const commitment = summary.toCommitment();
-      let commitmentHex: string;
-      try {
-        commitmentHex = normalizeProposalHexWord(commitment.toHex());
-      } catch (error) {
-        trapped = error instanceof WebAssembly.RuntimeError;
-        throw error;
-      } finally {
-        if (!trapped) commitment.free();
-      }
+      const commitmentHex = readWasmHandle(summary.toCommitment(), commitment =>
+        normalizeProposalHexWord(commitment.toHex())
+      );
       // Commitment, then the payload, then the bound block: the same two serializations `deriveProposalSummary` does,
       // after the commitment this id check compares. A layout error here is still before the push.
       const summaryBase64 = u8ToB64(summary.serialize());
       const boundBlockNum = summaryBoundBlockNum(summary);
       return { commitmentHex, summaryBase64, boundBlockNum };
     } catch (error) {
-      trapped = error instanceof WebAssembly.RuntimeError;
+      trapped = isWasmTrap(error);
       throw error;
     } finally {
       if (!trapped && getCurrentWasmLockHold() === hold) {
@@ -1301,18 +1296,9 @@ export class MultisigService {
         // `summary` and `salt` are borrows of the client's RefCell, so touching them
         // past an eviction IS the double borrow.
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
-        const commitment = summary.toCommitment();
-        let summaryCommitmentHex: string;
-        // As in summaryCommitmentOf: a trapped read does not free the commitment.
-        let trapped = false;
-        try {
-          summaryCommitmentHex = normalizeProposalHexWord(commitment.toHex());
-        } catch (error) {
-          trapped = error instanceof WebAssembly.RuntimeError;
-          throw error;
-        } finally {
-          if (!trapped) commitment.free();
-        }
+        const summaryCommitmentHex = readWasmHandle(summary.toCommitment(), commitment =>
+          normalizeProposalHexWord(commitment.toHex())
+        );
         return {
           summaryBase64: u8ToB64(summary.serialize()),
           summaryCommitmentHex,

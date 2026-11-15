@@ -9,6 +9,7 @@ import {
   GUARDIAN_RECOVERY_UNVERIFIED,
   GuardianRecoveryVerificationError
 } from '../sdk/guardian-recovery-errors';
+import { readWasmHandle } from '../sdk/sdk-error-code';
 
 /** One account the Guardian served for a derived key, with the facts later checks compare. Commitments are unprefixed lower-case. */
 export interface ServedGuardianState {
@@ -51,16 +52,9 @@ export async function readServedStateFacts(acc: Account, bytes: Uint8Array): Pro
   const hotCommitment = signerSlot(acc, false);
   const coldCommitment = signerSlot(acc, true);
   const guardianCommitment = readSlot(() => AccountInspector.getGuardianPublicKeyCommitment(acc));
-  const readHandle = <H extends { free(): void }, T>(handle: H, read: (h: H) => T): T => {
-    try {
-      return read(handle);
-    } finally {
-      handle.free();
-    }
-  };
-  const accountId = readHandle(acc.id(), id => id.toString());
-  const nonce = readHandle(acc.nonce(), felt => felt.asInt());
-  const commitment = readHandle(acc.to_commitment(), word => normalize(word.toHex()));
+  const accountId = readWasmHandle(acc.id(), id => id.toString());
+  const nonce = readWasmHandle(acc.nonce(), felt => felt.asInt());
+  const commitment = readWasmHandle(acc.to_commitment(), word => normalize(word.toHex()));
   return {
     bytes,
     accountIdHex: accountId,

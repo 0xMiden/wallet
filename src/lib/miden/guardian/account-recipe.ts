@@ -6,6 +6,8 @@ import {
   type ProcedureThreshold
 } from '@openzeppelin/miden-multisig-client';
 
+import { readWasmHandle } from '../sdk/sdk-error-code';
+
 export const GUARDIAN_ACCOUNT_THRESHOLD = 1;
 
 export const GUARDIAN_ACCOUNT_PROCEDURE_THRESHOLDS: readonly ProcedureThreshold[] = [
@@ -108,28 +110,9 @@ export async function rebuildGuardianAccount(
 ): Promise<{ accountIdHex: string; commitment: string }> {
   const builder: AccountBuild = { build: createMultisigAccount };
   const { account } = await builder.build(storesNothing, guardianAccountConfig(p));
-  // A free on an instance a trap aborted can throw and replace the trap the lock retires, so a trapped read frees nothing.
-  const read = <H extends { free(): void }>(handle: H, text: (h: H) => string): string => {
-    let trapped = false;
-    try {
-      return text(handle);
-    } catch (error) {
-      trapped = error instanceof WebAssembly.RuntimeError;
-      throw error;
-    } finally {
-      if (!trapped) handle.free();
-    }
-  };
-  let accountTrapped = false;
-  try {
-    return {
-      accountIdHex: read(account.id(), id => id.toString()),
-      commitment: read(account.to_commitment(), word => word.toHex().replace(/^0x/i, '').toLowerCase())
-    };
-  } catch (error) {
-    accountTrapped = error instanceof WebAssembly.RuntimeError;
-    throw error;
-  } finally {
-    if (!accountTrapped) account.free();
-  }
+  // `readWasmHandle` reads the built account and the handles it returns.
+  return readWasmHandle(account, acc => ({
+    accountIdHex: readWasmHandle(acc.id(), id => id.toString()),
+    commitment: readWasmHandle(acc.to_commitment(), word => word.toHex().replace(/^0x/i, '').toLowerCase())
+  }));
 }
