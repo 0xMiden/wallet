@@ -108,19 +108,28 @@ export async function rebuildGuardianAccount(
 ): Promise<{ accountIdHex: string; commitment: string }> {
   const builder: AccountBuild = { build: createMultisigAccount };
   const { account } = await builder.build(storesNothing, guardianAccountConfig(p));
+  // A free on an instance a trap aborted can throw and replace the trap the lock retires, so a trapped read frees nothing.
   const read = <H extends { free(): void }>(handle: H, text: (h: H) => string): string => {
+    let trapped = false;
     try {
       return text(handle);
+    } catch (error) {
+      trapped = error instanceof WebAssembly.RuntimeError;
+      throw error;
     } finally {
-      handle.free();
+      if (!trapped) handle.free();
     }
   };
+  let accountTrapped = false;
   try {
     return {
       accountIdHex: read(account.id(), id => id.toString()),
       commitment: read(account.to_commitment(), word => word.toHex().replace(/^0x/i, '').toLowerCase())
     };
+  } catch (error) {
+    accountTrapped = error instanceof WebAssembly.RuntimeError;
+    throw error;
   } finally {
-    account.free();
+    if (!accountTrapped) account.free();
   }
 }

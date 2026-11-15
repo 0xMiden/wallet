@@ -731,8 +731,9 @@ export class MultisigService {
 
   /**
    * The summary commitment of `requestBytes`, executed once at the tip on `client` in `hold`, plus the base64 payload
-   * and bound block read from that same summary. The WASM objects are freed only while the hold is still this flow's:
-   * after an eviction they belong to an abandoned flow.
+   * and bound block read from that same summary. The WASM objects are freed only while the hold is still this flow's
+   * and no read trapped: after an eviction they belong to an abandoned flow, and a failing free on a trapped instance
+   * would replace the trap the lock retires.
    */
   private async summaryCommitmentOf(
     hold: WasmLockHold,
@@ -742,6 +743,7 @@ export class MultisigService {
   ): Promise<{ commitmentHex: string; summaryBase64: string; boundBlockNum: number }> {
     const request = TransactionRequest.deserialize(requestBytes);
     let summary: Awaited<ReturnType<typeof executeForSummaryAtTip>> | undefined;
+    let trapped = false;
     try {
       summary = await executeForSummaryAtTip(client, this.accountId, request);
       assertWasmHoldCurrent(hold, `${label}: after the summary execution`);
@@ -749,16 +751,22 @@ export class MultisigService {
       let commitmentHex: string;
       try {
         commitmentHex = normalizeProposalHexWord(commitment.toHex());
+      } catch (error) {
+        trapped = error instanceof WebAssembly.RuntimeError;
+        throw error;
       } finally {
-        commitment.free();
+        if (!trapped) commitment.free();
       }
       // Commitment, then the payload, then the bound block: the same two serializations `deriveProposalSummary` does,
       // after the commitment this id check compares. A layout error here is still before the push.
       const summaryBase64 = u8ToB64(summary.serialize());
       const boundBlockNum = summaryBoundBlockNum(summary);
       return { commitmentHex, summaryBase64, boundBlockNum };
+    } catch (error) {
+      trapped = error instanceof WebAssembly.RuntimeError;
+      throw error;
     } finally {
-      if (getCurrentWasmLockHold() === hold) {
+      if (!trapped && getCurrentWasmLockHold() === hold) {
         summary?.free();
         request.free();
       }
@@ -1295,10 +1303,15 @@ export class MultisigService {
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
         const commitment = summary.toCommitment();
         let summaryCommitmentHex: string;
+        // As in summaryCommitmentOf: a trapped read does not free the commitment.
+        let trapped = false;
         try {
           summaryCommitmentHex = normalizeProposalHexWord(commitment.toHex());
+        } catch (error) {
+          trapped = error instanceof WebAssembly.RuntimeError;
+          throw error;
         } finally {
-          commitment.free();
+          if (!trapped) commitment.free();
         }
         return {
           summaryBase64: u8ToB64(summary.serialize()),
