@@ -454,9 +454,9 @@ describe('bridged-send and earn-deposit', () => {
       ['two recorded notes', { approvedOutputNoteIds: [BUILT, 'other-note'] }]
     ])('does not sign a row with %s, whatever its summary creates', async (_record, record) => {
       givenSummary(bridgesOut(100n));
-      await expect(assertProposalEffectApproved({ ...queued(), ...record }, 'sum')).rejects.toThrow(
-        ProposalEffectRefusedError
-      );
+      const refused = assertProposalEffectApproved({ ...queued(), ...record }, 'sum');
+      await expect(refused).rejects.toThrow(ProposalEffectRefusedError);
+      await expect(refused).rejects.toThrow('the transaction has no recorded note of its own');
     });
   });
 });

@@ -76,7 +76,11 @@ import {
   getClaimFeeAhead,
   readClaimFeeContext
 } from './claim-fee';
-import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR } from './constants';
+import {
+  BRIDGED_SEND_MISSING_REQUEST_ERROR,
+  EARN_DEPOSIT_MISSING_REQUEST_ERROR,
+  NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR
+} from './constants';
 import { getNoteHoldingTransactions } from './get';
 import { hotKeyRotationLockName, isLiveRotationRow } from './rotation-funding';
 import { holdsNotes } from './verdict-rules';
@@ -1090,6 +1094,8 @@ export const initiateSendTransaction = async (
  * proves + submits the request via `newTransaction`, then
  * `completeBridgedSendTransaction` records it. `ownNoteId` is the one note those
  * bytes create, which signing is bound to (`ITransaction.approvedOutputNoteIds`).
+ * A call without the bytes throws `BRIDGED_SEND_MISSING_REQUEST_ERROR` before the
+ * row is queued or its spend is booked.
  */
 export const initiateBridgedSendTransaction = async (
   accountId: string,
@@ -1099,7 +1105,7 @@ export const initiateBridgedSendTransaction = async (
   destinationNetwork: number,
   provider: IBridgeProvider,
   ownNoteId: string,
-  requestBytes?: Uint8Array,
+  requestBytes: Uint8Array,
   delegateTransaction?: boolean,
   sendParams?: IBridgedSendNoteParams,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
@@ -1108,6 +1114,7 @@ export const initiateBridgedSendTransaction = async (
   agglayerRoute?: AgglayerRecoveryConfig,
   epochAllocatorUrl?: string
 ): Promise<string> => {
+  if (!requestBytes?.length) throw new Error(BRIDGED_SEND_MISSING_REQUEST_ERROR);
   const dbTransaction = new BridgedSendTransaction(
     accountId,
     amount,

@@ -14,11 +14,10 @@
  * `getMidenClient(...)` leaf anymore.
  *
  * Routing:
- *   - earn-deposit and Agglayer bridged-send (pre-built request) →
+ *   - earn-deposit and every bridged send →
  *     `midenClientProxy.newTransaction(accountId, requestBytes, delegate, signer)`, where `signer` is the write's
- *     effect-checked signer. An earn-deposit without its bytes is refused before it mints.
- *   - a legacy Epoch bridged-send with no bytes → send-style recallable P2IDE note →
- *     `midenClientProxy.sendTransaction(tx, signer)`.
+ *     effect-checked signer. An earn-deposit without its bytes is refused before it mints. A bridged send without
+ *     its own request bytes, or without the one note those bytes recorded, is refused before the leaf.
  *
  * Funds-safety (analysed, not re-proven here - inherited from the shared proxy +
  * loop machinery): a wedge-kill → OperationAbortedError → the
@@ -244,6 +243,7 @@ const epochBridge = (id: string) =>
     faucetId: 'faucet',
     amount: 1000n,
     noteType: 'public',
+    approvedOutputNoteIds: ['note:epoch'],
     extraInputs: { provider: 'epoch', recallBlocks: 10, claimStatus: 'not-applicable', epochStatus: 'pending' }
   });
 
@@ -261,27 +261,23 @@ afterEach(() => {
 });
 
 describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (slice 7b)', () => {
-  it('Epoch bridged-send (no requestBytes) → midenClientProxy.sendTransaction(tx, signer) with a guarded signer; never the inline SW leaf', async () => {
-    const tx = await run('tx-bs-epoch', {
-      type: 'bridged-send',
-      secondaryAccountId: 'mtst1qallocator',
-      faucetId: 'faucet',
-      amount: 1000n,
-      noteType: 'public',
-      extraInputs: { provider: 'epoch', recallBlocks: 10 }
-    });
+  it('Epoch bridged-send with no request bytes is refused before any leaf', async () => {
+    await expect(
+      run('tx-bs-epoch', {
+        type: 'bridged-send',
+        secondaryAccountId: 'mtst1qallocator',
+        faucetId: 'faucet',
+        amount: 1000n,
+        noteType: 'public',
+        extraInputs: { provider: 'epoch', recallBlocks: 10 }
+      })
+    ).rejects.toThrow('the transaction has no request bytes of its own');
 
-    // Leaf routed through the proxy send with the FULL tx row and the write's effect-checked signer.
-    expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, expect.any(Function));
-    expect(mockProxySendTransaction.mock.calls[0]?.[1]).not.toBe(signCallback);
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
-    // The inline SW client leaf is entirely gone.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
     expect(mockInlineSendTransaction).not.toHaveBeenCalled();
-    // Finalized via the bridged-send completion with the proxy's result.
-    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
-    expect(mockComplete.earn).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).not.toHaveBeenCalled();
   });
 
   it.each(['agglayer', 'usdcx'])(
@@ -294,6 +290,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
         faucetId: 'faucet',
         amount: 2000n,
         delegateTransaction: true,
+        approvedOutputNoteIds: ['note:bridge'],
         extraInputs: { provider }
       });
 
@@ -681,14 +678,54 @@ describe.each([
 
     expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
     expect(failure instanceof Error ? failure.message : undefined).toBe(
-      'Refused to sign this bridged-send transaction: its approved amounts could not be read'
+      'Refused to sign this bridged-send transaction: the transaction has no recorded note of its own'
     );
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
     expect(signCallback).not.toHaveBeenCalled();
     expect(mockSubmit).not.toHaveBeenCalled();
     expect(mockComplete.bridged).not.toHaveBeenCalled();
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.proposalEffectRefused).toBe(true);
     expect(isRequeueableTransaction({ ...row, bridgeProvider: bridgeProviderOf(row) })).toBe(false);
+  });
+
+  // Checked before the chain fee is read, so an unknown fee cannot turn the refusal into a failure that offers Retry.
+  it('refuses a legacy bridged send before it reads the chain fee, even while that fee is unknown', async () => {
+    mockGetVerificationBaseFee.mockResolvedValue(null);
+
+    const { failure, row } = await settle('bs-legacy-fee', {
+      requestBytes: new Uint8Array([0xa9]),
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending' }
+    });
+
+    expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(mockGetVerificationBaseFee).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(row.proposalEffectRefused).toBe(true);
+    expect(isRequeueableTransaction({ ...row, bridgeProvider: bridgeProviderOf(row) })).toBe(false);
+  });
+
+  // An Earn deposit still reaches the signer: its bytes are present, and only the missing note refuses it there.
+  it('fails a legacy Earn deposit that recorded no note of its own, at the signer and unsent', async () => {
+    mockDeserializeSigningInputs.mockReturnValue(sendsOut(1000n));
+
+    const { failure, row } = await settle('earn-legacy', {
+      type: 'earn-deposit',
+      requestBytes: new Uint8Array([0xea, 0x51]),
+      secondaryAccountId: 'mtst1qallocator',
+      noteType: 'public',
+      extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
+    });
+
+    expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(failure instanceof Error ? failure.message : undefined).toBe(
+      'Refused to sign this earn-deposit transaction: the transaction has no recorded note of its own'
+    );
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(signCallback).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.proposalEffectRefused).toBe(true);
   });
 
   // Not requeued, unlike an Earn deposit: the row fails, unsigned and unsent, and the user retries it, an Epoch bridge

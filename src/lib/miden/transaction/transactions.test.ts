@@ -15,6 +15,7 @@ import {
   initiateSwapTransaction,
   initiateBridgedSendTransaction,
   initiateEarnDepositTransaction,
+  BRIDGED_SEND_MISSING_REQUEST_ERROR,
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   initiateConsumeTransaction,
   initiateConsumeTransactionFromId,
@@ -671,7 +672,7 @@ describe('transactions utilities', () => {
         1,
         'agglayer',
         '0xbuilt',
-        undefined,
+        new Uint8Array([1]),
         undefined,
         undefined,
         authorization,
@@ -688,6 +689,29 @@ describe('transactions utilities', () => {
         authorization
       );
     });
+
+    it.each<[string, Uint8Array | undefined]>([
+      ['missing', undefined],
+      ['empty', new Uint8Array()]
+    ])(
+      'refuses a bridged send whose request bytes are %s before queueing it or booking its spend',
+      async (_, bytes) => {
+        await expect(
+          initiateBridgedSendTransaction(
+            'account-a',
+            10n,
+            'faucet-a',
+            '0xrecipient',
+            1,
+            'agglayer',
+            '0xbuilt',
+            // @ts-expect-error the type requires the bytes; this is the run-time guard behind it
+            bytes
+          )
+        ).rejects.toThrow(BRIDGED_SEND_MISSING_REQUEST_ERROR);
+        expect(mockQueueOutgoingTransaction).not.toHaveBeenCalled();
+      }
+    );
 
     it('atomically persists the USDCx burn identity alongside its replayable request', async () => {
       const requestBytes = new Uint8Array([1, 2, 3]);
