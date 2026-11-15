@@ -102,23 +102,31 @@ const vaultsSection = () => screen.getByRole('region', { name: 'earnVaultsTitle'
 
 describe('Earn page', () => {
   it('keeps owned withdrawals selectable when new Command deposits are unavailable', () => {
-    mockEarnDeposit = { state: 'unavailable', reason: 'off' };
+    mockEarnDeposit = { state: 'unavailable', reason: 'off', detail: 'disabled' };
     render(
       <CommandDraftProvider scope={{ accountId: 'account', network: 'testnet', rpcUrl: 'https://rpc.example' }}>
-        <FlowPresentationProvider value="command"><Earn /></FlowPresentationProvider>
+        <FlowPresentationProvider value="command">
+          <Earn />
+        </FlowPresentationProvider>
       </CommandDraftProvider>
     );
-    expect(screen.getByTestId(`command-earn-deposit-${vaults[0].id}`)).toBeDisabled();
-    expect(screen.getByTestId(`command-earn-withdraw-${positions[0].id}`)).toBeEnabled();
+    expect(screen.getByTestId(`command-earn-deposit-${vaults[0]!.id}`)).toBeDisabled();
+    expect(screen.getByTestId(`command-earn-withdraw-${positions[0]!.id}`)).toBeEnabled();
   });
 
   it('selects a second live vault and position in Command without presenting the compact carousel', () => {
     const secondVault = { ...vaults[0], id: 'other-vault', name: 'Other market' };
     const secondPosition = { ...positions[0], id: 'other-position', name: 'Other position' };
-    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, vaults: [vaults[0], secondVault], positions: [positions[0], secondPosition] });
+    mockUseEarnPositions.mockReturnValue({
+      ...EARN_DATA,
+      vaults: [vaults[0], secondVault],
+      positions: [positions[0], secondPosition]
+    });
     render(
       <CommandDraftProvider scope={{ accountId: 'account', network: 'testnet', rpcUrl: 'https://rpc.example' }}>
-        <FlowPresentationProvider value="command"><Earn /></FlowPresentationProvider>
+        <FlowPresentationProvider value="command">
+          <Earn />
+        </FlowPresentationProvider>
       </CommandDraftProvider>
     );
     expect(screen.getByTestId('command-earn')).toBeInTheDocument();

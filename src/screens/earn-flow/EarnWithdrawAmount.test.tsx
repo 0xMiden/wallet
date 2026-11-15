@@ -1,10 +1,12 @@
 import React from 'react';
 
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
+import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 import { CommandDraftProvider } from 'screens/command/command-drafts';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 import EarnWithdrawAmount from './EarnWithdrawAmount';
 
@@ -14,6 +16,7 @@ jest.mock('react-i18next', () => ({
       key === 'earnWithdrawAvailable' ? `${key} ${args?.amount} ${args?.asset}` : key
   })
 }));
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
 jest.mock('lib/woozie', () => ({ navigate: jest.fn(), goBack: jest.fn() }));
 jest.mock('components/NetworkModeBanner', () => ({ NetworkModeBanner: () => null }));
 jest.mock('./components', () => ({
@@ -47,17 +50,59 @@ jest.mock('./useEarnPositions', () => ({
 jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => 'en' }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
+it('submits an exact partial withdrawal to review through one real Command footer and associated form', () => {
+  render(
+    <FlowPresentationProvider value="command">
+      <CommandFlowBackProvider>
+        <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+          <EarnWithdrawAmount positionId="p" />
+        </CommandWorkbench>
+      </CommandFlowBackProvider>
+    </FlowPresentationProvider>
+  );
+  const footer = screen.getByTestId('command-footer');
+  const confirm = within(footer).getByRole('button', { name: 'review' });
+  expect(confirm).toBeDisabled();
+  const form = document.getElementById('earn-withdraw-amount-form');
+  expect(form).toBeInstanceOf(HTMLFormElement);
+  expect(confirm).toHaveAttribute('type', 'submit');
+  expect(confirm).toHaveAttribute('form', 'earn-withdraw-amount-form');
+  fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), {
+    target: { value: '1.000000000000000001' }
+  });
+  expect(confirm).toBeEnabled();
+  expect(screen.getAllByRole('button', { name: 'review' })).toHaveLength(1);
+  expect(screen.getByRole('heading', { level: 2, name: 'Dummy Lending' })).toBeVisible();
+  expect(screen.getByTestId('earn-withdraw-amount-page').querySelector('[data-slot="footer"]')).toBeNull();
+  if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn withdraw amount form');
+  form.requestSubmit(confirm);
+  expect(navigate).toHaveBeenCalledTimes(1);
+  expect(navigate).toHaveBeenCalledWith('/earn/positions/p/withdraw/review?amount=1.000000000000000001');
+});
+
 it('restores exact partial withdrawal after review Back but not for another position or RPC', () => {
   const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc.example' };
   const { rerender } = render(
-    <CommandDraftProvider scope={scope}><EarnWithdrawAmount key="first" positionId="p" /></CommandDraftProvider>
+    <CommandDraftProvider scope={scope}>
+      <EarnWithdrawAmount key="first" positionId="p" />
+    </CommandDraftProvider>
   );
-  fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), { target: { value: '1.000000000000000001' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), {
+    target: { value: '1.000000000000000001' }
+  });
   fireEvent.click(screen.getByRole('button', { name: 'review' }));
   expect(navigate).toHaveBeenCalledWith('/earn/positions/p/withdraw/review?amount=1.000000000000000001');
-  rerender(<CommandDraftProvider scope={scope}><EarnWithdrawAmount key="return" positionId="p" /></CommandDraftProvider>);
+  rerender(
+    <CommandDraftProvider scope={scope}>
+      <EarnWithdrawAmount key="return" positionId="p" />
+    </CommandDraftProvider>
+  );
   expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('1.000000000000000001');
-  rerender(<CommandDraftProvider scope={{ ...scope, rpcUrl: 'https://other.example' }}><EarnWithdrawAmount key="other-rpc" positionId="p" /></CommandDraftProvider>);
+  rerender(
+    <CommandDraftProvider scope={{ ...scope, rpcUrl: 'https://other.example' }}>
+      <EarnWithdrawAmount key="other-rpc" positionId="p" />
+    </CommandDraftProvider>
+  );
   expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('');
 });
 

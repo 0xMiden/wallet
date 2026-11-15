@@ -539,7 +539,8 @@ export const ReviewTransaction: React.FC = () => {
 
   const runBridgeSend = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
-      if (!token || !publicKey || amountBaseUnits === undefined || epochQuoteUnavailable || !isCurrentSubmission()) return;
+      if (!token || !publicKey || amountBaseUnits === undefined || epochQuoteUnavailable || !isCurrentSubmission())
+        return;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;

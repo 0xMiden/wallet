@@ -1,19 +1,22 @@
 import React from 'react';
 
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
+import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import type { IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import type { NativeAssetChainMetadata } from 'lib/miden-chain/native-asset';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import type { TransactionSuccessLayoutProps } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 
 import { EarnWithdrawStatus } from './EarnWithdrawStatus';
 
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
+let mockRealSuccess = false;
 let mockAssetsMetadata: Record<string, AssetMetadata> = {};
 let mockNativeMetadata: NativeAssetChainMetadata | null = null;
 
@@ -43,6 +46,7 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
 jest.mock('lib/woozie', () => ({
   HistoryAction: jest.requireActual<typeof import('lib/woozie/history')>('lib/woozie/history').HistoryAction,
   useLocation: () => ({ trigger: null, state: null }),
@@ -110,6 +114,12 @@ jest.mock('screens/generating-transaction/TransactionSummaryBadge', () => ({
 jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () => ({
   TransactionSuccessLayout: (props: TransactionSuccessLayoutProps) => {
     mockSuccessProps = props;
+    if (mockRealSuccess) {
+      const { TransactionSuccessLayout } = jest.requireActual<
+        typeof import('screens/generating-transaction/success/TransactionSuccessLayout')
+      >('screens/generating-transaction/success/TransactionSuccessLayout');
+      return <TransactionSuccessLayout {...props} />;
+    }
     return (
       <div data-testid="success-layout">
         <span>{props.headerTitle}</span>
@@ -168,6 +178,7 @@ describe('EarnWithdrawStatus', () => {
     jest.clearAllMocks();
     mockRowState = { row: undefined, loaded: false };
     mockSuccessProps = undefined;
+    mockRealSuccess = false;
     mockAssetsMetadata = {};
     mockNativeMetadata = null;
   });
@@ -231,6 +242,45 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByText('transactionErrorDescription')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'close' }));
     expect(navigate).toHaveBeenCalledWith('/');
+  });
+
+  it('pins the processing status action in the outer Command footer', () => {
+    mockRowState = { row: makeRow(makeInputs()), loaded: true };
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'operation', id: 'withdraw-1' }} container={document.body}>
+            <EarnWithdrawStatus txId="withdraw-1" />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const footer = screen.getByTestId('command-footer');
+    expect(within(footer).getByRole('button', { name: 'hide' })).toBeEnabled();
+    expect(screen.getAllByRole('button', { name: 'hide' })).toHaveLength(1);
+    expect(screen.getByTestId('earn-withdraw-status-page').querySelector('[data-slot="footer"]')).toBeNull();
+  });
+
+  it('pins a submitted withdrawal receipt in the outer Command footer, without a second action row', () => {
+    mockRealSuccess = true;
+    mockRowState = { row: makeRow(makeInputs({ withdrawIntentNonce: 'owner:1' })), loaded: true };
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'operation', id: 'withdraw-1' }} container={document.body}>
+            <EarnWithdrawStatus txId="withdraw-1" />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const footer = screen.getByTestId('command-footer');
+    expect(within(footer).getByRole('button', { name: 'done' })).toBeEnabled();
+    expect(within(footer).getByRole('button', { name: 'viewInActivities' })).toBeEnabled();
+    expect(screen.getAllByRole('button', { name: 'done' })).toHaveLength(1);
+    expect(screen.getAllByTestId('command-footer')).toHaveLength(1);
+    expect(screen.getByTestId('command-workbench').querySelector('[data-flow-footer]')).toBeNull();
+    fireEvent.click(within(footer).getByRole('button', { name: 'done' }));
+    expect(navigate).toHaveBeenCalledTimes(1);
   });
 
   it('shows a submitted redeeming intent in the success layout', () => {

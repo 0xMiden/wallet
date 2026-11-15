@@ -10,7 +10,6 @@ import { accentForTransactionType } from 'components/flow/accent';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { marketUidChainId } from 'lib/epoch/market-uid';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -24,6 +23,8 @@ import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+
+import { EarnPageLayout } from './EarnPageLayout';
 
 /**
  * An earn row's icon is the earn slate wherever it is drawn, so the arrow beside it is too; the
@@ -105,6 +106,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
         headerTitle={t('success')}
         title={t('withdrawalStarted')}
         footerDescription={t('withdrawalStartedDescription')}
+        commandFooter
         accent={accentForTransactionType('earn-withdraw')}
         primaryAction={{ label: t('done'), onClick: onDone }}
         secondaryAction={{
@@ -153,7 +155,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
 
   return (
     // The shared pushed-page frame, like every other earn page: header, body, pinned action.
-    <SubPageLayout
+    <EarnPageLayout
       data-testid="earn-withdraw-status-page"
       title={t('transactionProcessingHeader')}
       onClose={onDone}
@@ -188,7 +190,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
             : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}
         </p>
       </section>
-    </SubPageLayout>
+    </EarnPageLayout>
   );
 };
 

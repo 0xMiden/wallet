@@ -3,6 +3,7 @@ import React from 'react';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { useFlowPresentation, useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { PageHeader } from 'components/PageHeader';
+import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 
 export interface FlowLayoutProps {
   /** Page title, e.g. "Choose recipient", "Review details", "Processing". */
@@ -23,6 +24,8 @@ export interface FlowLayoutProps {
   children: React.ReactNode;
   /** The page's CTAs, pinned to the bottom. */
   footer: React.ReactNode;
+  /** Keep an Earn status receipt's actions in the Command workbench's outer pinned footer. */
+  commandFooter?: boolean;
 }
 
 /**
@@ -41,10 +44,12 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
   focusTitleOnMount,
   tabRoot = false,
   children,
-  footer
+  footer,
+  commandFooter = false
 }) => {
   const command = useFlowPresentation() === 'command';
   useRegisterCommandFlowBack(onBack);
+  const pinnedFooter = useCommandWorkbenchSlots(command && commandFooter ? footer : null);
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col bg-app-bg">
       {!command && !tabRoot && (
@@ -68,10 +73,11 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
       <HomeGroupPaneBody
         title={command ? undefined : tabRoot ? title : undefined}
         top={command ? 'header' : tabRoot ? 'root' : 'header'}
-        footer={footer}
+        footer={command && commandFooter ? null : footer}
       >
         {children}
       </HomeGroupPaneBody>
+      {pinnedFooter}
     </div>
   );
 };

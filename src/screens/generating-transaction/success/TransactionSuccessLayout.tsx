@@ -230,6 +230,8 @@ export interface TransactionSuccessLayoutProps {
   children?: ReactNode;
   /** Paragraph shown above the footer buttons. */
   footerDescription?: ReactNode;
+  /** Earn's Command receipt pins these same actions in the outer workbench footer. */
+  commandFooter?: boolean;
   /** Primary call to action. */
   primaryAction: SuccessAction;
   /** Optional secondary call to action. */
@@ -247,6 +249,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   accent = 'brand',
   children,
   footerDescription,
+  commandFooter,
   primaryAction,
   secondaryAction,
   secondaryFirst = false,
@@ -286,6 +289,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
       <FlowLayout
         title={headerTitle || t('success')}
         onClose={onClose}
+        commandFooter={commandFooter}
         footer={
           <div className="flex w-full flex-col items-center gap-3">
             {footerDescription && <p className="text-center text-sm text-gray">{footerDescription}</p>}

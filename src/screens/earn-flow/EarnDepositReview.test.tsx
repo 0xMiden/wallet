@@ -2,7 +2,11 @@ import React from 'react';
 
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
-import { CommandFlowBackProvider, FlowPresentationProvider, useCommandFlowBack } from 'components/flow/FlowPresentation';
+import {
+  CommandFlowBackProvider,
+  FlowPresentationProvider,
+  useCommandFlowBack
+} from 'components/flow/FlowPresentation';
 import { WorkbenchLayout } from 'components/flow/WorkbenchLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { earnMarketForVault, openEarnPosition } from 'lib/epoch';
@@ -10,6 +14,7 @@ import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 import { EARN_DATA } from './data';
 import EarnDepositReview from './EarnDepositReview';
@@ -17,9 +22,11 @@ import EarnDepositReview from './EarnDepositReview';
 const commandFallbackBack = jest.fn();
 const EarnCommandReview = ({ vaultId }: { vaultId: string }) => {
   const back = useCommandFlowBack()?.activeBack;
-  return <WorkbenchLayout title="Earn" onBack={back ?? commandFallbackBack}>
-    <EarnDepositReview vaultId={vaultId} />
-  </WorkbenchLayout>;
+  return (
+    <WorkbenchLayout title="Earn" onBack={back ?? commandFallbackBack}>
+      <EarnDepositReview vaultId={vaultId} />
+    </WorkbenchLayout>
+  );
 };
 
 // --- react-i18next: echo the key back, and fold interpolation options into the
@@ -53,6 +60,7 @@ jest.mock('react-i18next', () => ({
 const mockLocation = { search: '' };
 const mockNavigate = jest.fn();
 
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => commandFallbackBack }));
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
   goBack: jest.fn(),
@@ -223,6 +231,8 @@ jest.mock('components/Button', () => ({
   Button: ({
     title,
     onClick,
+    type,
+    form,
     disabled,
     iconLeft,
     'aria-busy': busy,
@@ -230,12 +240,22 @@ jest.mock('components/Button', () => ({
   }: {
     title?: string;
     onClick?: () => void;
+    type?: 'button' | 'submit';
+    form?: string;
     disabled?: boolean;
     iconLeft?: React.ReactNode;
     'aria-busy'?: boolean;
     accent?: string;
   }) => (
-    <button aria-busy={busy} data-testid="open-position-btn" data-accent={accent} onClick={onClick} disabled={disabled}>
+    <button
+      aria-busy={busy}
+      type={type ?? 'button'}
+      form={form}
+      data-testid="open-position-btn"
+      data-accent={accent}
+      onClick={onClick}
+      disabled={disabled}
+    >
       {iconLeft}
       {title}
     </button>
@@ -326,10 +346,42 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('EarnDepositReview', () => {
+  it('places the real deposit review submit button in one Command footer and submits its original form once', async () => {
+    mockLocation.search = `?amount=1&collateral=${encodeURIComponent(USDC.faucetId)}`;
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+            <EarnDepositReview vaultId={AAVE_VAULT.id} />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    expect(screen.getByRole('heading', { level: 2, name: AAVE_VAULT.protocol })).toBeVisible();
+    const footer = screen.getByTestId('command-footer');
+    const confirm = within(footer).getByTestId('open-position-btn');
+    const form = document.getElementById('earn-deposit-review-form');
+    expect(form).toBeInstanceOf(HTMLFormElement);
+    expect(confirm).toHaveAttribute('form', 'earn-deposit-review-form');
+    expect(confirm).toHaveAttribute('type', 'submit');
+    expect(confirm).toBeEnabled();
+    expect(screen.getAllByTestId('open-position-btn')).toHaveLength(1);
+    expect(screen.getByTestId('earn-deposit-review-page').querySelector('[data-slot="footer"]')).toBeNull();
+    if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn deposit review form');
+    await act(async () => form.requestSubmit(confirm));
+    await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
+  });
+
   it('uses the visible workbench Back for the actual deposit review instead of a fallback', () => {
     mockLocation.search = '?amount=1&collateral=0x537c15a622074e91188aa894456c52';
     commandFallbackBack.mockClear();
-    render(<FlowPresentationProvider value="command"><CommandFlowBackProvider><EarnCommandReview vaultId={AAVE_VAULT.id} /></CommandFlowBackProvider></FlowPresentationProvider>);
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <EarnCommandReview vaultId={AAVE_VAULT.id} />
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
     expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(jest.requireMock<{ goBack: jest.Mock }>('lib/woozie').goBack).toHaveBeenCalledTimes(1);

@@ -13,7 +13,6 @@ import { TokenUsdValue } from 'components/TokenUsdValue';
 import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TokenAmount } from 'components/ui/TokenAmount';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { quoteEarnWithdrawal, type EarnWithdrawalQuote } from 'lib/epoch/earn-withdraw-quote';
@@ -35,6 +34,7 @@ import {
 import { EARN_PLACEHOLDER, placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnLoading } from './EarnLoading';
+import { EarnPageLayout } from './EarnPageLayout';
 import { EarnPosition } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -210,11 +210,17 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       {/* The shared pushed-page frame, so this review and the deposit review are one page shape.
           Until the position is found the header names the route, never a placeholder position,
           and the CTA waits with the body. */}
-      <SubPageLayout
+      <EarnPageLayout
         data-testid="earn-withdraw-review-page"
+        showCommandSubject
         title={found ? earnSubjectTitle(found) : t('withdraw')}
         subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
+        formId="earn-withdraw-review-form"
+        onSubmit={event => {
+          event.preventDefault();
+          void handleWithdraw();
+        }}
         headerActions={
           found && <EarnAssetMark asset={found.asset} network={found.network} faucetId={assetFaucetId} decorative />
         }
@@ -229,12 +235,13 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
               )}
               <Button
                 data-testid="earn-withdraw-review-confirm"
+                type="submit"
+                form="earn-withdraw-review-form"
                 aria-busy={isSubmitting || quotePending}
                 iconLeft={(isSubmitting || quotePending) && <Spinner size="sm" />}
                 title={isSubmitting ? t('withdrawing') : t('withdraw')}
                 variant={ButtonVariant.Primary}
                 accent="earn"
-                onClick={handleWithdraw}
                 disabled={isSubmitting || Boolean(validation) || !position.id || position.stale || !quote}
                 className="w-full max-w-none"
               />
@@ -441,7 +448,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
             </DetailCard>
           </>
         )}
-      </SubPageLayout>
+      </EarnPageLayout>
     </div>
   );
 };

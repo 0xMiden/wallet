@@ -3,7 +3,11 @@ import React from 'react';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
 import { IconName } from 'app/icons/v2';
-import { CommandFlowBackProvider, FlowPresentationProvider, useCommandFlowBack } from 'components/flow/FlowPresentation';
+import {
+  CommandFlowBackProvider,
+  FlowPresentationProvider,
+  useCommandFlowBack
+} from 'components/flow/FlowPresentation';
 import { WorkbenchLayout } from 'components/flow/WorkbenchLayout';
 import { goBack } from 'lib/woozie';
 
@@ -146,12 +150,22 @@ describe('EarnAssetMark', () => {
 
 const CommandEarnAmount = () => {
   const back = useCommandFlowBack()?.activeBack;
-  return <WorkbenchLayout title="Earn" onBack={back ?? (() => undefined)}><EarnFlowHeader subject={VAULT} /></WorkbenchLayout>;
+  return (
+    <WorkbenchLayout title="Earn" onBack={back ?? (() => undefined)}>
+      <EarnFlowHeader subject={VAULT} />
+    </WorkbenchLayout>
+  );
 };
 
 describe('EarnFlowHeader', () => {
   it('owns one visible Command Back on the actual amount step without a duplicate page header', () => {
-    render(<FlowPresentationProvider value="command"><CommandFlowBackProvider><CommandEarnAmount /></CommandFlowBackProvider></FlowPresentationProvider>);
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandEarnAmount />
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
     expect(screen.getAllByRole('button', { name: 'back' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(mockGoBack).toHaveBeenCalledTimes(1);

@@ -1,7 +1,7 @@
 import React, { createContext, useContext } from 'react';
 
 import { FlowFooter } from 'components/flow/FlowFooter';
-import { useFlowPresentation } from 'components/flow/FlowPresentation';
+import { useFlowPresentation, useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { PageHeader } from 'components/PageHeader';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { cn } from 'lib/ui/util';
@@ -115,6 +115,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   const title = header.title ?? inherited.title;
   const subtitle = header.subtitle ?? inherited.subtitle;
   const onBack = header.onBack ?? inherited.onBack;
+  useRegisterCommandFlowBack(onBack);
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
   // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
   // like a div one, so a page gains nothing and loses nothing by needing a form.

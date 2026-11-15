@@ -4,7 +4,10 @@ import { useTranslation } from 'react-i18next';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { Button } from 'components/Button';
 import { FeatureUnavailableNotice } from 'components/FeatureUnavailable';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
+import { SubPageSection } from 'components/ui/SubPageLayout';
 import { normalizeMidenIdToHex } from 'lib/epoch';
 import { typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
@@ -15,10 +18,12 @@ import { useFeatureAvailability } from 'lib/remote-config/use-feature-availabili
 import { useWalletStore } from 'lib/store';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { navigate } from 'lib/woozie';
+import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
+import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
 
-import { EarnFlowHeader, EarnVaultClosedNotice } from './components';
+import { EarnFlowHeader, EarnSubjectSubtitle, earnSubjectTitle, EarnVaultClosedNotice } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
@@ -34,7 +39,18 @@ const parseAmount = (value: string): number => Number(value.replace(/,/g, '')) |
 
 const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const { t } = useTranslation();
-  const [amount, setAmount] = useState('');
+  const command = useFlowPresentation() === 'command';
+  const drafts = useOptionalCommandDrafts();
+  const saved = drafts?.readDraft('earn');
+  const [input, setInput] = useState(() => ({
+    vaultId,
+    amount: saved?.mode === 'deposit' && saved.subjectId === vaultId ? saved.amount : ''
+  }));
+  const amount = input.vaultId === vaultId ? input.amount : '';
+  const setAmount = (value: string) => {
+    setInput({ vaultId, amount: value });
+    drafts?.writeDraft('earn', { mode: 'deposit', subjectId: vaultId, amount: value });
+  };
 
   // The `earn` flow begins at the amount screen and is settled by the review
   // route, so it has to outlive this component. `handedOff` is what keeps that
@@ -118,6 +134,50 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
     !typedAmountExceedsBalance(amount.replace(/,/g, ''), token.balance, token.decimals) &&
     !feeAssetMissing &&
     Boolean(vault.id);
+  const reviewDeposit = () => {
+    if (isValidAmount) {
+      handedOff.current = true;
+      navigate(
+        `/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}&collateral=${encodeURIComponent(token.id)}`
+      );
+    }
+  };
+  const commandFooter = useCommandWorkbenchSlots(
+    command && found && !pending && !balancesLoading && earnDeposit.state !== 'loading' ? (
+      <Button
+        title={t('confirm')}
+        type="submit"
+        form="earn-deposit-amount-form"
+        accent="earn"
+        disabled={!isValidAmount}
+        className="max-w-none"
+      />
+    ) : null
+  );
+  const amountField = (
+    <SelectAmount
+      embedded={command}
+      accent="earn"
+      pageInset
+      showAmountDivider={false}
+      showBalanceHelper={collateral !== null}
+      token={token}
+      amount={amount}
+      isValidAmount={isValidAmount}
+      label={t('earnDepositAmountLabel')}
+      confirmTitle={t('confirm')}
+      showNetworkPill={false}
+      // Say WHY Continue is dead. Without this the user sees a positive,
+      // in-balance amount and a disabled button with no explanation — the
+      // send and swap flows both name the same condition. `SelectAmount`
+      // translates the key itself, so pass the key rather than the text.
+      errorId="insufficientFeeAsset"
+      error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
+      onAmountChange={setAmount}
+      onSelectToken={() => undefined}
+      onConfirm={reviewDeposit}
+    />
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-amount-page">
@@ -164,7 +224,16 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
                 className="mx-4 mt-4 w-auto shrink-0"
               />
             ))}
-          <div className="min-h-0 flex-1">
+          <div className={command ? 'pt-7' : 'min-h-0 flex-1'}>
+            {command && found && (
+              <SubPageSection
+                titleAs="h2"
+                titleSize="md"
+                title={earnSubjectTitle(found)}
+                description={<EarnSubjectSubtitle subject={found} />}
+                className="mb-5"
+              />
+            )}
             {balanceReadFailed && balancesLoading ? (
               <EarnLoadError
                 message={t('earnBalanceLoadError')}
@@ -175,39 +244,23 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
               />
             ) : balancesLoading || earnDeposit.state === 'loading' ? (
               <EarnLoading />
-            ) : (
-              <SelectAmount
-                accent="earn"
-                pageInset
-                showAmountDivider={false}
-                showBalanceHelper={collateral !== null}
-                token={token}
-                amount={amount}
-                isValidAmount={isValidAmount}
-                label={t('earnDepositAmountLabel')}
-                confirmTitle={t('confirm')}
-                showNetworkPill={false}
-                // Say WHY Continue is dead. Without this the user sees a positive,
-                // in-balance amount and a disabled button with no explanation — the
-                // send and swap flows both name the same condition. `SelectAmount`
-                // translates the key itself, so pass the key rather than the text.
-                errorId="insufficientFeeAsset"
-                error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
-                onAmountChange={setAmount}
-                onSelectToken={() => undefined}
-                onConfirm={() => {
-                  if (isValidAmount) {
-                    handedOff.current = true;
-                    navigate(
-                      `/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}&collateral=${encodeURIComponent(token.id)}`
-                    );
-                  }
+            ) : command ? (
+              <form
+                id="earn-deposit-amount-form"
+                onSubmit={event => {
+                  event.preventDefault();
+                  reviewDeposit();
                 }}
-              />
+              >
+                {amountField}
+              </form>
+            ) : (
+              amountField
             )}
           </div>
         </>
       )}
+      {commandFooter}
     </div>
   );
 };

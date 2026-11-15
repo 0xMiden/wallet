@@ -1,12 +1,14 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { TEST_MIDEN_USDC } from 'lib/epoch/testing/bridge-config';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 import { CommandDraftProvider } from 'screens/command/command-drafts';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 import { EARN_DATA } from './data';
 import EarnDepositAmount from './EarnDepositAmount';
@@ -29,6 +31,7 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
   default: () => mockLegacyFeeIdentity ?? 'MIDEN-ID'
 }));
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
@@ -43,6 +46,12 @@ jest.mock('react-i18next', () => ({
 // surfaces which vault the page resolved (`data-vault-id`) so we can prove the
 // found-vault vs. default-vault branch without rendering the real header.
 jest.mock('./components', () => ({
+  earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+  EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) => (
+    <span>
+      {subject.asset} on {subject.network}
+    </span>
+  ),
   EarnFlowHeader: ({ subject }: { subject?: { id: string; protocol: string; asset: string; network: string } }) => (
     <div
       data-testid="earn-flow-header"
@@ -90,6 +99,7 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
       <div
         data-testid="select-amount"
         data-accent={props.accent}
+        data-embedded={String(props.embedded)}
         data-amount={props.amount}
         data-valid={String(props.isValidAmount)}
         data-label={String(props.label)}
@@ -105,8 +115,8 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
         data-token-fiat={String(props.token?.fiatPrice)}
       >
         <input data-testid="amount-input" onChange={e => props.onAmountChange(e.target.value)} />
-        <button data-testid="confirm" onClick={() => props.onConfirm?.()} />
-        <button data-testid="select-token" onClick={() => props.onSelectToken()} />
+        {!props.embedded && <button type="button" data-testid="confirm" onClick={() => props.onConfirm?.()} />}
+        <button type="button" data-testid="select-token" onClick={() => props.onSelectToken()} />
       </div>
     );
   }
@@ -188,6 +198,23 @@ const mockNavigate = navigate as jest.Mock;
 
 const DRAFT_SCOPE = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc.example' };
 
+it('restores the deposit amount after minimize and reopen without submitting it, but not after provider remount', () => {
+  const page = (open: boolean) => (
+    <CommandDraftProvider scope={DRAFT_SCOPE}>
+      {open ? <EarnDepositAmount vaultId={EARN_DATA.vaults[2]!.id} /> : <span>Minimized</span>}
+    </CommandDraftProvider>
+  );
+  const { rerender, unmount } = render(page(true));
+  fireEvent.change(screen.getByTestId('amount-input'), { target: { value: '1.000001' } });
+  rerender(page(false));
+  rerender(page(true));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '1.000001');
+  expect(navigate).not.toHaveBeenCalled();
+  unmount();
+  render(page(true));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+});
+
 it('restores the exact deposit amount after review Back and clears it on account scope change', () => {
   const { rerender } = render(
     <CommandDraftProvider scope={DRAFT_SCOPE}>
@@ -230,6 +257,34 @@ beforeEach(() => {
 });
 
 describe('EarnDepositAmount', () => {
+  it('uses the pinned Command footer and form for the actual amount step without a second page CTA', () => {
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+            <EarnDepositAmount vaultId={FOUND_VAULT.id} />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const footer = screen.getByTestId('command-footer');
+    const confirm = within(footer).getByRole('button', { name: 'confirm' });
+    const form = document.getElementById('earn-deposit-amount-form');
+    expect(form).toBeInstanceOf(HTMLFormElement);
+    expect(confirm).toHaveAttribute('type', 'submit');
+    expect(confirm).toHaveAttribute('form', 'earn-deposit-amount-form');
+    expect(confirm).toBeDisabled();
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-embedded', 'true');
+    expect(screen.getByRole('heading', { level: 2, name: FOUND_VAULT.protocol })).toBeVisible();
+    expect(screen.queryByTestId('confirm')).toBeNull();
+    setAmount('1.000001');
+    expect(confirm).toBeEnabled();
+    if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn deposit amount form');
+    form.requestSubmit(confirm);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith(expect.stringContaining('amount=1.000001'));
+  });
+
   it.each([
     [1, 0, 'true'],
     [0, 1, 'false']
