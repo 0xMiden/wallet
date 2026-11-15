@@ -8,6 +8,9 @@ updates:
       - /.github/actions/*
     schedule:
       interval: monthly
+    # A pin bump changes only CI, so its pull request takes the changelog waiver (scripts/check-changelog.test.sh).
+    labels:
+      - no changelog
     groups:
       github-actions:
         patterns:
