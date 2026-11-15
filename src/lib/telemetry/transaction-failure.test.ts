@@ -340,6 +340,17 @@ it('does not forward unknown assertion codes, error text, or poisoned metadata',
   expect(text).toContain('tx_other');
 });
 
+// A post-submit step failed on a transaction the network accepted, and the row was recorded completed (PR #2183).
+it('reports a landed outcome at warning, under its own name', async () => {
+  reportTransactionFailure({ type: 'consume', stage: 'guardian-synced', outcome: 'landed' as never });
+  await settle();
+  const [error, , options] = jest.mocked(captureCrash).mock.calls[0]!;
+  expect((error as Error).message).toMatch(
+    /^Transaction landed: tx_receive; stage confirming; confirming step guardian_synced;/
+  );
+  expect(options?.level).toBe('warning');
+});
+
 it('distinguishes an unknown outcome from a final failure', async () => {
   reportTransactionFailure({ type: 'send', outcome: 'unconfirmed' });
   await settle();
@@ -2223,6 +2234,7 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ['queue hidden', () => QUEUE_HIDDEN_BUCKETS, () => policyText('Hidden time while a queued row waited')],
   ['submit crossing', () => SUBMIT_CROSSINGS, () => policyText("The attempt's submit crossing")],
   ['submit record', () => [...SUBMIT_RECORDS, 'unavailable'], () => policyText('The startup check')],
+  ['outcome', () => FAILURE_OUTCOMES, () => policyParagraph('Handled transaction failures are also reported')],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]
   )

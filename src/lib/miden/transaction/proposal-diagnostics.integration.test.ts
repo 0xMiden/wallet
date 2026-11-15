@@ -28,6 +28,7 @@ const mockState: {
   resultSerialize?: Error;
   noInputNotes?: boolean;
   noAssets?: boolean;
+  applyFailure?: Error;
 } = {};
 const noteId = `0x${'ab'.repeat(32)}`;
 const transactionId = `0x${'bc'.repeat(32)}`;
@@ -64,7 +65,11 @@ const mockPrepareCustom = jest.fn(async (..._args: unknown[]) => {
   return {};
 });
 const mockSignProposal = jest.fn(async (..._args: unknown[]) => ({ metadata: { proposalType: 'consume' } }));
-const mockSubmit = jest.fn(async () => ({ apply: async () => {} }));
+const mockSubmit = jest.fn(async () => ({
+  apply: async () => {
+    if (mockState.applyFailure) throw mockState.applyFailure;
+  }
+}));
 const executedNote = {
   id: () => accountRef(noteId),
   metadata: () => ({ sender: () => accountRef('private-sender'), noteType: () => NoteType.Public }),
@@ -353,7 +358,7 @@ const consumeAtProposal =
 async function failureEvent(step: string, guard?: string, message = consumeAtProposal): Promise<void> {
   await failureEventWith({ proposalStep: step, proposalGuard: guard }, message);
 }
-async function failureEventWith(expected: Record<string, string | undefined>, message: string): Promise<void> {
+async function failureEventWith(expected: Record<string, string | undefined>, message: string): Promise<unknown> {
   await flush();
   expect(requests).toHaveLength(1);
   const request = requests[0];
@@ -396,6 +401,7 @@ async function failureEventWith(expected: Record<string, string | undefined>, me
   ]) {
     expect(wholeRequest).not.toContain(value);
   }
+  return event;
 }
 async function run(
   selected = account,
@@ -773,34 +779,48 @@ describe('with the offscreen pipeline', () => {
   });
 });
 
-// The claim's submit resolved, so a failure while recording its result leaves it landed, not failed (PR #2183): no
-// failure is reported, and the step stays on the error.
+const consumeLandedAfterSync = 'Transaction landed: tx_receive; stage confirming; confirming step guardian_synced; ';
+
+// The claim's submit resolved, so a failure while recording its result leaves it landed, not failed (PR #2183). It is
+// still reported, once, as a landed outcome at warning level, naming the step that failed.
 describe('a claim that fails while recording its result after the guardian sync', () => {
-  async function expectLandedOnce(stored: ITransaction | undefined): Promise<void> {
+  async function expectLandedOnce(
+    stored: ITransaction | undefined,
+    expected: Record<string, string | undefined>
+  ): Promise<void> {
     expect(stored?.status).toBe(ITransactionStatus.Completed);
     expect(mockSubmit).toHaveBeenCalledTimes(1);
-    await flush();
-    expect(requests).toHaveLength(0);
+    expect(await failureEventWith(expected, consumeLandedAfterSync)).toMatchObject({ level: 'warning' });
   }
 
   it.each([
     ['result_read', () => (mockState.resultRead = privateFailure())],
     ['result_serialize', () => (mockState.resultSerialize = privateFailure())]
-  ])('records the claim landed after a failed %s, which names the finishing step', async (step, arm) => {
+  ])('records the claim landed after a failed %s and reports it as the finishing step', async (step, arm) => {
     const error = arm();
-    await expectLandedOnce(await run());
+    await expectLandedOnce(await run(), { completionStep: step, completionGuard: undefined });
     expect(snapshotCrashDiagnostics(error)).toMatchObject({ completionStep: step });
   });
 
   it.each([
     ['no_input_notes', () => (mockState.noInputNotes = true)],
     ['no_fungible_assets', () => (mockState.noAssets = true)]
-  ])('records the claim landed after the %s check refuses its result', async (_guard, arm) => {
+  ])('records the claim landed after the %s check refuses its result and reports the refusal', async (guard, arm) => {
     arm();
-    await expectLandedOnce(await run());
+    await expectLandedOnce(await run(), { completionStep: 'result_read', completionGuard: guard });
   });
 
-  it('records the claim landed after a failed read of its own record', async () => {
+  // The leaf's own landed shape is unchanged: a Completed claim whose apply failed sends no report.
+  it('records a claim whose apply failed after its submit as landed and reports nothing, as before', async () => {
+    mockState.applyFailure = privateFailure();
+    const stored = await run();
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(requests).toHaveLength(0);
+  });
+
+  it('records the claim landed after a failed read of its own record and reports the row read', async () => {
     const error = privateFailure();
     let synced = false;
     let thrown = false;
@@ -818,7 +838,7 @@ describe('a claim that fails while recording its result after the guardian sync'
     Repo.transactions.hook('updating', markSynced);
     Repo.transactions.hook('reading', rejectRead);
     try {
-      await expectLandedOnce(await run());
+      await expectLandedOnce(await run(), { completionStep: 'row_read', completionGuard: undefined });
       expect(thrown).toBe(true);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(markSynced);
@@ -826,7 +846,7 @@ describe('a claim that fails while recording its result after the guardian sync'
     }
   });
 
-  it('records the claim landed after its completed-status write fails once', async () => {
+  it('records the claim landed after its completed-status write fails once and reports the status write', async () => {
     const error = privateFailure();
     let thrown = false;
     const rejectComplete = (changes: unknown) => {
@@ -842,7 +862,7 @@ describe('a claim that fails while recording its result after the guardian sync'
     };
     Repo.transactions.hook('updating', rejectComplete);
     try {
-      await expectLandedOnce(await run());
+      await expectLandedOnce(await run(), { completionStep: 'status_write', completionGuard: undefined });
       expect(thrown).toBe(true);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(rejectComplete);
