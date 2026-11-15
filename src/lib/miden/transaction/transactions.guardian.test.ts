@@ -13856,6 +13856,63 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  // No Guardian landed verdict names this type, and the arms below the landed check would requeue or fail a write the
+  // node already holds, so a landed tail of any value type is recorded Completed (PR #2183).
+  it('a Guardian row of a type with no named landed verdict whose tail throws is Completed, never falling through', async () => {
+    const txId = 'bridged-receive-tail-throw';
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createCustomProposal: jest.fn(async () => ({ id: 'prop-execute' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    const landed = makeResult();
+    let armed = false;
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw new Error('result read');
+        return landed.executedTransaction();
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result, apply)
+    });
+    const queued = {
+      id: txId,
+      type: 'bridged-receive',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4])
+    };
+    txStore.push({ ...queued, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await generateTransaction(
+        { ...queued, delegateTransaction: false } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.error).toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   // #1233: the retry asks the pipeline's own hold before it touches the client again. The store
   // still holds the initial account, so only the hold check can stop the second apply.
   it('Guardian send: an apply whose hold is lost after the first failure is not applied again (#1233)', async () => {
