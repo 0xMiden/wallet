@@ -13,13 +13,6 @@ export interface MainnetOneClickRoute {
   externalAddress?: string;
 }
 
-async function choose(page: Page, side: 'pay' | 'receive', network: string, assetId: string): Promise<void> {
-  await page.getByTestId(`one-click-${side}-network-picker`).click();
-  await page.getByTestId(`one-click-${side}-network-${network}`).click();
-  await page.getByTestId(`one-click-${side}-asset-picker`).click();
-  await page.getByTestId(`one-click-asset-${side}-${assetId}`).click();
-}
-
 export async function prepareMainnetOneClickReview(page: Page, route: MainnetOneClickRoute): Promise<void> {
   await selectMainnetOneClickAssets(page, route);
   if (route.amount) await page.getByTestId('one-click-pay-amount').fill(route.amount);
@@ -30,8 +23,15 @@ export async function prepareMainnetOneClickReview(page: Page, route: MainnetOne
 
 export async function selectMainnetOneClickAssets(page: Page, route: MainnetOneClickRoute): Promise<void> {
   await expect(page.getByTestId('one-click-pay-network-picker')).toBeVisible();
-  await choose(page, 'pay', route.payNetwork, route.payAssetId);
-  await choose(page, 'receive', route.receiveNetwork, route.receiveAssetId);
+  // A Miden/Miden pair still renders native amounts, without OneClick asset pickers.
+  await page.getByTestId('one-click-pay-network-picker').click();
+  await page.getByTestId(`one-click-pay-network-${route.payNetwork}`).click();
+  await page.getByTestId('one-click-receive-network-picker').click();
+  await page.getByTestId(`one-click-receive-network-${route.receiveNetwork}`).click();
+  await page.getByTestId('one-click-pay-asset-picker').click();
+  await page.getByTestId(`one-click-asset-pay-${route.payAssetId}`).click();
+  await page.getByTestId('one-click-receive-asset-picker').click();
+  await page.getByTestId(`one-click-asset-receive-${route.receiveAssetId}`).click();
   if (route.externalAddress) {
     await page.getByTestId('one-click-recipient-address').fill(route.externalAddress);
   }
