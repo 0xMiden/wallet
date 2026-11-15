@@ -3,7 +3,22 @@ import type { Page } from '@playwright/test';
 import { fakeConfirmationApp, type CreateAttemptOutcome } from './confirmation-app-fake';
 import { ChromeWalletPage } from './wallet-page';
 
-jest.mock('@playwright/test', () => ({ expect: jest.fn() }));
+jest.mock('@playwright/test', () => ({
+  expect: (locator: {
+    waitFor(options: { state: string; timeout?: number }): Promise<void>;
+    count(): Promise<number>;
+    isEnabled(): Promise<boolean>;
+  }) => ({
+    toBeVisible: (options: { timeout?: number }) => locator.waitFor({ state: 'visible', ...options }),
+    toHaveCount: async (expected: number) => {
+      const actual = await locator.count();
+      if (actual !== expected) throw new Error(`Expected ${expected} matches, got ${actual}`);
+    },
+    toBeEnabled: async () => {
+      if (!(await locator.isEnabled())) throw new Error('Command Review is disabled');
+    }
+  })
+}));
 
 function makePage(): Page {
   return {
@@ -34,6 +49,7 @@ function makeSendPage(
     click: jest.fn(async () => undefined),
     textContent: jest.fn(async () => ''),
     count: jest.fn(async () => 0),
+    isEnabled: jest.fn(async () => true),
     first() {
       return this;
     },
@@ -45,6 +61,7 @@ function makeSendPage(
     url: () => 'chrome-extension://test/fullpage.html#/',
     goto: jest.fn(async () => undefined),
     waitForFunction: jest.fn(async () => undefined),
+    waitForURL: jest.fn(async () => undefined),
     evaluate: jest.fn(async () => undefined),
     getByTestId: jest.fn(() => noopLocator),
     locator: jest.fn((selector: string) => {
