@@ -5,43 +5,14 @@
 // Exit 0: equal, ship the builder. Exit 1: different, stop for an owner decision. Exit 2: the script itself broke.
 import { MockWebClient, getWrappedSdk } from '@miden-sdk/miden-sdk';
 
+import { canonicalRequestBytes } from './canonical-request-bytes.mjs';
+
 const sdk = getWrappedSdk();
 
 // Two, so the requests compared are the multi-note shape Claim All sends.
 const MINTED_NOTES = 2;
 
-// Node order is ignored because the native build's HashMap writes each request's MerkleStore (the 255 empty-subtree
-// nodes) in a random order, so two identical requests are never byte-equal; every other byte is compared in place.
-// The store is a u64 LE count, then count x 96-byte (key, left, right) words, and an empty-subtree node has
-// left == right, which is how the section is found.
-const STORE_NODE_BYTES = 96;
-
-function isEmptySubtreeNode(bytes, at) {
-  return bytes.compare(bytes, at + 32, at + 64, at + 64, at + 96) === 0;
-}
-
-function canonicalBytes(request) {
-  const bytes = Buffer.from(request.serialize());
-  const stores = [];
-  for (let at = 0; at + 8 <= bytes.length; at++) {
-    const count = bytes.readBigUInt64LE(at);
-    if (count < 1n || count > 100_000n) continue;
-    const end = at + 8 + Number(count) * STORE_NODE_BYTES;
-    if (end > bytes.length) continue;
-    let allEmpty = true;
-    for (let node = at + 8; allEmpty && node < end; node += STORE_NODE_BYTES)
-      allEmpty = isEmptySubtreeNode(bytes, node);
-    if (allEmpty) stores.push({ at, count: Number(count), end });
-  }
-  if (stores.length !== 1)
-    throw new Error(`the MerkleStore section was not located exactly once (${stores.length} candidates)`);
-  const { at, count, end } = stores[0];
-  const nodes = [];
-  for (let i = 0; i < count; i++) {
-    nodes.push(bytes.subarray(at + 8 + i * STORE_NODE_BYTES, at + 8 + (i + 1) * STORE_NODE_BYTES));
-  }
-  return Buffer.concat([bytes.subarray(0, at + 8), ...nodes.sort(Buffer.compare), bytes.subarray(end)]);
-}
+const canonicalBytes = request => canonicalRequestBytes(request.serialize());
 
 async function inputNotesOf(client, accountId) {
   const records = await client.getConsumableNotes(accountId);

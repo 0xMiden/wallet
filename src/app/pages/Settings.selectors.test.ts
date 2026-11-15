@@ -8,7 +8,7 @@ import { SettingsSelectors } from './Settings.selectors';
 // numeric reverse-mapping keys). This covers every line the enum emits.
 
 describe('SettingsSelectors', () => {
-  // Verbatim expected mapping, one entry per source member (all 22).
+  // Verbatim expected mapping, one entry per source member.
   const EXPECTED: Record<string, string> = {
     GeneralButton: 'Settings/GeneralButton',
     LanguageButton: 'Settings/LanguageButton',
@@ -18,6 +18,7 @@ describe('SettingsSelectors', () => {
     RevealPrivateKeyButton: 'Settings/RevealPrivateKeyButton',
     RevealHotKeyButton: 'Settings/RevealHotKeyButton',
     KeysButton: 'Settings/KeysButton',
+    PasskeyUnlockButton: 'Settings/PasskeyUnlockButton',
     SpendingLimitsButton: 'Settings/SpendingLimitsButton',
     GuardianSettingsButton: 'Settings/GuardianSettingsButton',
     RecoveryPhraseButton: 'Settings/RecoveryPhraseButton',
