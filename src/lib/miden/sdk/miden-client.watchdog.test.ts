@@ -2447,4 +2447,65 @@ describe('poisoned client recovery', () => {
     expect(listener).toHaveBeenCalledTimes(4);
     unsubscribe();
   });
+
+  it.each<[string, (mod: IsolatedLockModule) => Promise<() => Promise<unknown>>]>([
+    ['with no holder', async () => async () => undefined],
+    [
+      'while a holder is suspended mid-yield',
+      async mod => {
+        let releaseYield!: () => void;
+        const yieldGate = new Promise<void>(resolve => {
+          releaseYield = resolve;
+        });
+        const sibling = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
+        await jest.advanceTimersByTimeAsync(0);
+        return async () => {
+          releaseYield();
+          return sibling;
+        };
+      }
+    ],
+    [
+      'by evicting the current holder',
+      async mod => {
+        const wedged = mod.withWasmClientLock(() => new Promise<never>(() => {}));
+        const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'realm-error' });
+        await jest.advanceTimersByTimeAsync(0);
+        return () => wedgedRejects;
+      }
+    ]
+  ])(
+    'a trap the realm listener retired %s is not retired again when a landed reader hands it in',
+    async (_kind, arrange) => {
+      const { mod, leaf, free, markPoisoned } = await loadIsolated();
+      const listener = jest.fn();
+      const unsubscribe = mod.onWasmClientPoisoned(listener);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      await mod.getMidenClient();
+      const settle = await arrange(mod);
+
+      window.dispatchEvent(new ErrorEvent('error', { error: trap, message: 'Uncaught RuntimeError: unreachable' }));
+      await jest.advanceTimersByTimeAsync(0);
+      expect(listener).toHaveBeenCalledTimes(1);
+      const successor = await mod.getMidenClient();
+      const marked = markPoisoned.mock.calls.length;
+      const freed = free.mock.calls.length;
+
+      leaf.retireLandedTrap(trap, 'listener-first', undefined);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(markPoisoned).toHaveBeenCalledTimes(marked);
+      expect(free).toHaveBeenCalledTimes(freed);
+      const pastSubmit = errorSpy.mock.calls.filter(
+        ([first]) => typeof first === 'string' && first.includes('past submit')
+      );
+      expect(pastSubmit).toEqual([]);
+      expect(await mod.getMidenClient()).toBe(successor);
+
+      await settle();
+      errorSpy.mockRestore();
+      unsubscribe();
+    }
+  );
 });
