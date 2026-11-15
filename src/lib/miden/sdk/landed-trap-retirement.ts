@@ -40,14 +40,16 @@ export function installLandedTrapRetirement(retire: LandedTrapRetirement): () =>
  * Anything but a trap (a kill, an eviction, an ordinary failure) is the caller's to answer and leaves the landing
  * open. So does a `result` recorded under another client generation: the client that read it is already gone, and
  * retiring now would take its successor. A result nobody recorded reads as current, since its reader reads it
- * synchronously after decoding it and no client can be replaced in between.
+ * synchronously after decoding it and no client can be replaced in between. With no retirement installed the
+ * landing also stays open, so a realm that loads the client module later still retires that row's next trap.
  */
 export function retireLandedTrap(error: unknown, landing: string, result: object | undefined): void {
-  if (!(error instanceof WebAssembly.RuntimeError) || retiredLandings.has(landing)) return;
+  const retire = installed;
+  if (!(error instanceof WebAssembly.RuntimeError) || retire === undefined || retiredLandings.has(landing)) return;
   const readAt = result === undefined ? undefined : readGenerations.get(result);
   if (readAt !== undefined && readAt !== wasmClientGeneration()) return;
   retiredLandings.add(landing);
-  installed?.(error, landing);
+  retire(error, landing);
 }
 
 /**
