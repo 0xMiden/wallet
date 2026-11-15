@@ -105,19 +105,13 @@ beforeEach(() => {
 it('blocks incoming and selected review while the hidden read is pending or fails', async () => {
   let resolveFirst!: (ids: unknown) => void;
   let rejectSecond!: (reason: Error) => void;
-  jest.mocked(fetchFromStorage)
-    .mockImplementationOnce(
-      () =>
-        new Promise(resolve => {
-          resolveFirst = resolve;
-        })
-    )
-    .mockImplementationOnce(
-      () =>
-        new Promise((_resolve, reject) => {
-          rejectSecond = reject;
-        })
-    );
+  const first = new Promise<unknown>(resolve => {
+    resolveFirst = resolve;
+  });
+  const second = new Promise<unknown>((_resolve, reject) => {
+    rejectSecond = reject;
+  });
+  jest.mocked(fetchFromStorage).mockReturnValueOnce(first).mockReturnValueOnce(second);
   const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
   const view = renderReceive();
   await waitFor(() => expect(fetchFromStorage).toHaveBeenCalledWith('activity-hidden-notes:account-address'));
