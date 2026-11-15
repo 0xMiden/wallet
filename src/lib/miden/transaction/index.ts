@@ -206,6 +206,7 @@ import {
   sameWalletAccountId,
   walletAccountIdToSdk
 } from '../sdk/helpers';
+import { retiringLandedTraps } from '../sdk/landed-trap-retirement';
 import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
@@ -2236,27 +2237,31 @@ const generateTransactionWithProvider = async (
     return;
   }
 
-  switch (transaction.type) {
-    case 'send':
-      await completeSendTransaction(transaction as SendTransaction, result);
-      break;
-    case 'consume':
-      await completeConsumeTransaction(transaction.id, result);
-      break;
-    case 'swap':
-      await completeSwapTransaction(transaction as SwapTransaction, result);
-      break;
-    case 'bridged-send':
-      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
-      break;
-    case 'earn-deposit':
-      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
-      break;
-    case 'execute':
-    default:
-      await completeCustomTransaction(transaction, result);
-      break;
-  }
+  // No lock and no realm listener sees a trap past submit outside any hold, and the Guardian catch ends one without
+  // rethrowing, so each landed row's post-submit tail retires the client for a trap that leaves it.
+  await retiringLandedTraps(transaction.id, result, async () => {
+    switch (transaction.type) {
+      case 'send':
+        await completeSendTransaction(transaction as SendTransaction, result);
+        break;
+      case 'consume':
+        await completeConsumeTransaction(transaction.id, result);
+        break;
+      case 'swap':
+        await completeSwapTransaction(transaction as SwapTransaction, result);
+        break;
+      case 'bridged-send':
+        await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
+        break;
+      case 'earn-deposit':
+        await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+        break;
+      case 'execute':
+      default:
+        await completeCustomTransaction(transaction, result);
+        break;
+    }
+  });
 };
 
 /**
@@ -3248,72 +3253,74 @@ const generateDirectSwitchGuardianTransaction = async (
     );
   }
 
-  // Same commit-wait as the proposal path: the new guardian must be seeded
-  // with the POST-switch state, so registration only runs after inclusion.
-  //
-  // A DISCARD is the clean case: the node has ruled that the rotation provably
-  // did not happen, so persisting the new endpoint and reporting "Guardian
-  // switched" would be a lie the user acts on, and it would hand the account to
-  // an operator with no on-chain authority over it. Fail the row and leave the
-  // vault naming the guardian that still holds the account.
-  //
-  // An INDETERMINATE failure is the hard one, because BOTH answers are unsafe.
-  // Skipping completion strands the vault on the operator this path exists
-  // because it cannot reach, and the row is terminal (`switch-guardian` is
-  // excluded from requeue and from Retry) so nothing retries. Completing anyway
-  // risks pointing the vault at an operator the chain never installed — a state
-  // with no symptom and no self-repair (see `didDirectSwitchLand`).
-  //
-  // So do not choose between them on a guess: ASK THE NODE whether it committed
-  // or discarded this transaction. Only when the node has no verdict — still
-  // pending, or no record at all — does this fall back to completing on no
-  // evidence, which is the lesser of the two harms: it at least leaves a
-  // reachable operator and a row whose audit fields say what happened. Note this
-  // asks about the TRANSACTION, not the account: `apply()` has already written
-  // the rotation into the local store, so an account read here would only ever
-  // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
-  const id = result.executedTransaction().id().toHex();
-  const discardedMessage =
-    `Direct guardian switch ${id} did not land: the node discarded it. ` +
-    'Leaving the stored guardian endpoint untouched.';
-  await stampPostSubmitStage(transaction.id, 'confirming');
-  let commitConfirmed = true;
-  try {
-    await midenClientProxy.waitForTransactionCommit(id);
-  } catch (waitError) {
-    if (isTransactionDiscardedError(waitError)) {
-      throw new GuardianWriteDiscardedError(discardedMessage, { cause: waitError });
+  await retiringLandedTraps(transaction.id, result, async () => {
+    // Same commit-wait as the proposal path: the new guardian must be seeded
+    // with the POST-switch state, so registration only runs after inclusion.
+    //
+    // A DISCARD is the clean case: the node has ruled that the rotation provably
+    // did not happen, so persisting the new endpoint and reporting "Guardian
+    // switched" would be a lie the user acts on, and it would hand the account to
+    // an operator with no on-chain authority over it. Fail the row and leave the
+    // vault naming the guardian that still holds the account.
+    //
+    // An INDETERMINATE failure is the hard one, because BOTH answers are unsafe.
+    // Skipping completion strands the vault on the operator this path exists
+    // because it cannot reach, and the row is terminal (`switch-guardian` is
+    // excluded from requeue and from Retry) so nothing retries. Completing anyway
+    // risks pointing the vault at an operator the chain never installed — a state
+    // with no symptom and no self-repair (see `didDirectSwitchLand`).
+    //
+    // So do not choose between them on a guess: ASK THE NODE whether it committed
+    // or discarded this transaction. Only when the node has no verdict — still
+    // pending, or no record at all — does this fall back to completing on no
+    // evidence, which is the lesser of the two harms: it at least leaves a
+    // reachable operator and a row whose audit fields say what happened. Note this
+    // asks about the TRANSACTION, not the account: `apply()` has already written
+    // the rotation into the local store, so an account read here would only ever
+    // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
+    const id = result.executedTransaction().id().toHex();
+    const discardedMessage =
+      `Direct guardian switch ${id} did not land: the node discarded it. ` +
+      'Leaving the stored guardian endpoint untouched.';
+    await stampPostSubmitStage(transaction.id, 'confirming');
+    let commitConfirmed = true;
+    try {
+      await midenClientProxy.waitForTransactionCommit(id);
+    } catch (waitError) {
+      if (isTransactionDiscardedError(waitError)) {
+        throw new GuardianWriteDiscardedError(discardedMessage, { cause: waitError });
+      }
+      commitConfirmed = false;
+      console.warn(
+        `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +
+          'asking the node whether the TRANSACTION committed or was discarded:',
+        waitError
+      );
     }
-    commitConfirmed = false;
-    console.warn(
-      `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +
-        'asking the node whether the TRANSACTION committed or was discarded:',
-      waitError
-    );
-  }
 
-  // Distinct from `!commitConfirmed`: the commit WAIT failing is routine and is
-  // very often resolved by the node read below. This is the residue — submitted,
-  // and no evidence either way. It rides to the receipt so the success screen
-  // stops asserting a confirmation nothing established.
-  let commitUnconfirmed = false;
-  if (!commitConfirmed) {
-    // Asked after an evicted wait too (#1233): the wait's hold was its own, the submit already
-    // resolved, the finalize holds this node anyway, and this is the only discard check. The
-    // verdict's own sync reads nothing after a watchdog eviction of its sync (`syncBeforeVerdict`).
-    const landed = await didDirectSwitchLand(id);
-    if (landed === false) throw new GuardianWriteDiscardedError(discardedMessage);
-    commitUnconfirmed = landed === undefined;
-    console.warn(
-      landed === true
-        ? `Direct guardian switch ${id} is confirmed on chain despite the failed commit wait; finalizing.`
-        : `Direct guardian switch ${id} could not be confirmed on chain either; finalizing anyway so the account ` +
-            'is not stranded on the unreachable operator.'
-    );
-  }
+    // Distinct from `!commitConfirmed`: the commit WAIT failing is routine and is
+    // very often resolved by the node read below. This is the residue — submitted,
+    // and no evidence either way. It rides to the receipt so the success screen
+    // stops asserting a confirmation nothing established.
+    let commitUnconfirmed = false;
+    if (!commitConfirmed) {
+      // Asked after an evicted wait too (#1233): the wait's hold was its own, the submit already
+      // resolved, the finalize holds this node anyway, and this is the only discard check. The
+      // verdict's own sync reads nothing after a watchdog eviction of its sync (`syncBeforeVerdict`).
+      const landed = await didDirectSwitchLand(id);
+      if (landed === false) throw new GuardianWriteDiscardedError(discardedMessage);
+      commitUnconfirmed = landed === undefined;
+      console.warn(
+        landed === true
+          ? `Direct guardian switch ${id} is confirmed on chain despite the failed commit wait; finalizing.`
+          : `Direct guardian switch ${id} could not be confirmed on chain either; finalizing anyway so the account ` +
+              'is not stranded on the unreachable operator.'
+      );
+    }
 
-  await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider, commitUnconfirmed);
-  await stampPostSubmitStage(transaction.id, 'complete');
+    await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider, commitUnconfirmed);
+    await stampPostSubmitStage(transaction.id, 'complete');
+  });
 };
 
 /**
@@ -4807,138 +4814,141 @@ const generateGuardianTransaction = async (
     throw error;
   }
 
-  recordLeftCandidate(transaction, service, proposalResult, proposalStamps);
+  // From the landing on, so a client replaced by the commit wait or the Guardian sync is not retired for this result.
+  await retiringLandedTraps(transaction.id, result, async () => {
+    recordLeftCandidate(transaction, service, proposalResult, proposalStamps);
 
-  // Clears the WORKER's copy of a prover outage, and only ever that one. Each
-  // realm holds its own `connectivity-state` module state, so this cannot reach
-  // the offscreen document's — which is why the offscreen leaf marks and clears
-  // its own, right where the prove happens.
-  //
-  // What this clears is the worker-realm mark from the inline leaf's delegated
-  // prove, on a build with the offscreen route off. The requeue path above
-  // (`index.ts`, gated on the row's stage being `proving`) is a third case and
-  // one that only the inline leaf can reach at all, since the offscreen leaf
-  // reports no stages and leaves the row at `sending`. Unconditional here rather
-  // than gated on which leaf ran: clearing a flag that was never set is a no-op,
-  // and the alternative is a condition that has to be kept in step with the
-  // routing predicate.
-  clearConnectivityIssue('prover');
+    // Clears the WORKER's copy of a prover outage, and only ever that one. Each
+    // realm holds its own `connectivity-state` module state, so this cannot reach
+    // the offscreen document's — which is why the offscreen leaf marks and clears
+    // its own, right where the prove happens.
+    //
+    // What this clears is the worker-realm mark from the inline leaf's delegated
+    // prove, on a build with the offscreen route off. The requeue path above
+    // (`index.ts`, gated on the row's stage being `proving`) is a third case and
+    // one that only the inline leaf can reach at all, since the offscreen leaf
+    // reports no stages and leaves the row at `sending`. Unconditional here rather
+    // than gated on which leaf ran: clearing a flag that was never set is a no-op,
+    // and the alternative is a condition that has to be kept in step with the
+    // routing predicate.
+    clearConnectivityIssue('prover');
 
-  // The tx id, re-derived from the (possibly offscreen-round-tripped) result
-  // rather than a separate handle: the offscreen pipeline returns only the
-  // serialized TransactionResult, and `executedTransaction()` survives that
-  // round-trip (slice 5b). Byte-identical to the former
-  // `submittedTransaction.id.toHex()`.
-  const id = result.executedTransaction().id().toHex();
+    // The tx id, re-derived from the (possibly offscreen-round-tripped) result
+    // rather than a separate handle: the offscreen pipeline returns only the
+    // serialized TransactionResult, and `executedTransaction()` survives that
+    // round-trip (slice 5b). Byte-identical to the former
+    // `submittedTransaction.id.toHex()`.
+    const id = result.executedTransaction().id().toHex();
 
-  // Before the commit wait, so the outgoing guardian can canonicalize the switch as soon as the
-  // block lands (#1233).
-  if (transaction.type === 'switch-guardian') await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
+    // Before the commit wait, so the outgoing guardian can canonicalize the switch as soon as the
+    // block lands (#1233).
+    if (transaction.type === 'switch-guardian') await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
 
-  // For switch-guardian, the new guardian must be seeded with the POST-switch
-  // account state. submit() returns after submission, not after inclusion, so
-  // without this wait finalizeGuardianSwitch would serialize the pre-switch
-  // account and register that stale state with the new guardian.
-  // For replace-hot-key, we wait so the WalletAccount.hotPublicKey swap in
-  // complete only happens once the on-chain rotation is final — otherwise a
-  // resync could race with stale on-chain state and pick the wrong canonical
-  // hot pubkey.
-  // For update-procedure-threshold, we wait so the post-completion guardian
-  // re-registration serializes the COMMITTED post-threshold state — otherwise it
-  // could push a pre-threshold blob and leave the guardian diverged again.
-  if (
-    transaction.type === 'switch-guardian' ||
-    transaction.type === 'replace-hot-key' ||
-    transaction.type === 'update-procedure-threshold'
-  ) {
-    await stampPostSubmitStage(transaction.id, 'confirming');
-    // Route the commit-wait through the proxy so it polls the SAME client that
-    // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
-    // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here
-    // would, flag-on, poll the dormant/unsynced SW client, time out at ~60s, fall
-    // through the guardian catch to cancelTransaction → Failed, and SKIP the
-    // structural completion below (e.g. leaving replace-hot-key's chain rotation done
-    // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
-    // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
-    await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type, transaction.accountId);
-  }
-
-  // Sync the cached hot service so the next consumer sees post-tx state.
-  //
-  // Skipped for the structural ops (replace-hot-key / update-procedure-threshold
-  // / switch-guardian): each runs on a transient/cold service and invalidates
-  // the cached hot service in its completion handler (clearGuardianServiceFor),
-  // so there's nothing useful to sync here. For switch-guardian specifically a
-  // sync here would also be MIS-ORDERED: completeSwitchGuardianTransaction must
-  // run finalizeGuardianSwitch (register on the new guardian) "before anything
-  // else touches the local cache or storage", and this runs before the
-  // completion switch below.
-  //
-  // Post-completion bookkeeping only: the transaction is already marked Completed
-  // and the on-chain submit succeeded, so a sync failure here must NOT propagate
-  // (it would flip a genuinely-successful transaction to Failed). The next sync
-  // tick reconciles.
-  if (
-    transaction.type !== 'replace-hot-key' &&
-    transaction.type !== 'update-procedure-threshold' &&
-    transaction.type !== 'switch-guardian'
-  ) {
-    await stampPostSubmitStage(transaction.id, 'guardian-syncing');
-    let synced = false;
-    try {
-      await service.sync();
-      synced = true;
-    } catch (error) {
-      console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
+    // For switch-guardian, the new guardian must be seeded with the POST-switch
+    // account state. submit() returns after submission, not after inclusion, so
+    // without this wait finalizeGuardianSwitch would serialize the pre-switch
+    // account and register that stale state with the new guardian.
+    // For replace-hot-key, we wait so the WalletAccount.hotPublicKey swap in
+    // complete only happens once the on-chain rotation is final — otherwise a
+    // resync could race with stale on-chain state and pick the wrong canonical
+    // hot pubkey.
+    // For update-procedure-threshold, we wait so the post-completion guardian
+    // re-registration serializes the COMMITTED post-threshold state — otherwise it
+    // could push a pre-threshold blob and leave the guardian diverged again.
+    if (
+      transaction.type === 'switch-guardian' ||
+      transaction.type === 'replace-hot-key' ||
+      transaction.type === 'update-procedure-threshold'
+    ) {
+      await stampPostSubmitStage(transaction.id, 'confirming');
+      // Route the commit-wait through the proxy so it polls the SAME client that
+      // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
+      // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here
+      // would, flag-on, poll the dormant/unsynced SW client, time out at ~60s, fall
+      // through the guardian catch to cancelTransaction → Failed, and SKIP the
+      // structural completion below (e.g. leaving replace-hot-key's chain rotation done
+      // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
+      // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
+      await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type, transaction.accountId);
     }
-    if (synced) await stampPostSubmitStage(transaction.id, 'guardian-synced');
-  }
 
-  switch (transaction.type) {
-    case 'send':
-      await completeSendTransaction(transaction as SendTransaction, result);
-      break;
-    case 'consume':
-      await completeConsumeTransaction(transaction.id, result);
-      break;
-    case 'switch-guardian':
-      await completeSwitchGuardianTransaction(
-        transaction as SwitchGuardianTransaction,
-        result,
-        service,
-        guardianProvider
-      );
-      break;
-    case 'replace-hot-key':
-      await completeReplaceHotKeyTransaction(transaction as ReplaceHotKeyTransaction, result, guardianProvider);
-      break;
-    case 'update-procedure-threshold':
-      await completeUpdateProcedureThresholdTransaction(
-        transaction as UpdateProcedureThresholdTransaction,
-        result,
-        service
-      );
-      break;
-    case 'swap':
-      await completeSwapTransaction(transaction as SwapTransaction, result);
-      break;
-    case 'bridged-send':
-      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
-      break;
-    case 'earn-deposit':
-      // Same completion as the non-Guardian path: extract the committed P2IDE
-      // collateral note id and mark the row Deposited. `createEarnP2IDENote` reads
-      // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
-      // routing this to the generic custom-tx completion would strand the deposit.
-      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
-      break;
-    case 'execute':
-    default:
-      await completeCustomTransaction(transaction, result);
-      break;
-  }
+    // Sync the cached hot service so the next consumer sees post-tx state.
+    //
+    // Skipped for the structural ops (replace-hot-key / update-procedure-threshold
+    // / switch-guardian): each runs on a transient/cold service and invalidates
+    // the cached hot service in its completion handler (clearGuardianServiceFor),
+    // so there's nothing useful to sync here. For switch-guardian specifically a
+    // sync here would also be MIS-ORDERED: completeSwitchGuardianTransaction must
+    // run finalizeGuardianSwitch (register on the new guardian) "before anything
+    // else touches the local cache or storage", and this runs before the
+    // completion switch below.
+    //
+    // Post-completion bookkeeping only: the transaction is already marked Completed
+    // and the on-chain submit succeeded, so a sync failure here must NOT propagate
+    // (it would flip a genuinely-successful transaction to Failed). The next sync
+    // tick reconciles.
+    if (
+      transaction.type !== 'replace-hot-key' &&
+      transaction.type !== 'update-procedure-threshold' &&
+      transaction.type !== 'switch-guardian'
+    ) {
+      await stampPostSubmitStage(transaction.id, 'guardian-syncing');
+      let synced = false;
+      try {
+        await service.sync();
+        synced = true;
+      } catch (error) {
+        console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
+      }
+      if (synced) await stampPostSubmitStage(transaction.id, 'guardian-synced');
+    }
 
-  await stampPostSubmitStage(transaction.id, 'complete');
+    switch (transaction.type) {
+      case 'send':
+        await completeSendTransaction(transaction as SendTransaction, result);
+        break;
+      case 'consume':
+        await completeConsumeTransaction(transaction.id, result);
+        break;
+      case 'switch-guardian':
+        await completeSwitchGuardianTransaction(
+          transaction as SwitchGuardianTransaction,
+          result,
+          service,
+          guardianProvider
+        );
+        break;
+      case 'replace-hot-key':
+        await completeReplaceHotKeyTransaction(transaction as ReplaceHotKeyTransaction, result, guardianProvider);
+        break;
+      case 'update-procedure-threshold':
+        await completeUpdateProcedureThresholdTransaction(
+          transaction as UpdateProcedureThresholdTransaction,
+          result,
+          service
+        );
+        break;
+      case 'swap':
+        await completeSwapTransaction(transaction as SwapTransaction, result);
+        break;
+      case 'bridged-send':
+        await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
+        break;
+      case 'earn-deposit':
+        // Same completion as the non-Guardian path: extract the committed P2IDE
+        // collateral note id and mark the row Deposited. `createEarnP2IDENote` reads
+        // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
+        // routing this to the generic custom-tx completion would strand the deposit.
+        await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+        break;
+      case 'execute':
+      default:
+        await completeCustomTransaction(transaction, result);
+        break;
+    }
+
+    await stampPostSubmitStage(transaction.id, 'complete');
+  });
 };
 
 export const generateTransactionsLoop = async (
