@@ -568,8 +568,10 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       // answer for a broken one is a new intent, not a fresh note.
       //
       // Scoped to `send` on both arms because `send` is the only type whose bytes
-      // this gate can drop; writing the flag onto a swap or bridged-send row would
-      // persist a signal nothing reads and imply a guard those types don't have.
+      // this gate can drop. A swap or bridged-send keeps its bytes whatever the
+      // flag says, and its leaf records its own crossing, so a flag written here
+      // from the stage alone would protect nothing and could refuse a later
+      // Retry that the row's own evidence clears.
       if (dbTx.type === 'send') {
         // Read off the LIVE row rather than the snapshot taken at the top of this
         // function: `verifySendLanded` above makes a network round trip, and
