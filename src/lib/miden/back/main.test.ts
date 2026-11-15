@@ -226,6 +226,7 @@ import type { MessageSenderLike } from 'lib/intercom/sender';
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { start } from './main';
@@ -1720,6 +1721,83 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.sign_id).toBe('sign-y');
+  });
+});
+
+describe('bounded E2E offscreen authorization storage', () => {
+  const key = 'e2e_mainnet_send_authorization';
+  const mode = process.env.MIDEN_E2E_TEST;
+  let getUrl: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    getUrl = Object.getOwnPropertyDescriptor(chrome.runtime, 'getURL');
+    process.env.MIDEN_E2E_TEST = 'true';
+    Object.defineProperty(chrome.runtime, 'getURL', {
+      configurable: true,
+      value: (path: string) => `chrome-extension://${OWN_EXTENSION_ID}/${path}`
+    });
+  });
+  afterEach(() => {
+    if (mode === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = mode;
+    if (getUrl) Object.defineProperty(chrome.runtime, 'getURL', getUrl);
+    else Reflect.deleteProperty(chrome.runtime, 'getURL');
+  });
+  const invoke = (
+    message: unknown,
+    sender = { ...ownSender, url: `chrome-extension://${OWN_EXTENSION_ID}/offscreen.html` },
+    reply = jest.fn()
+  ) => capturedRuntimeListeners[0]?.(message, sender, reply);
+  const read = { target: 'sw', type: 'OFFSCREEN_TEST_AUTHORIZATION_STORAGE', operation: 'get', keys: [key] };
+  it('reads only the public authorization through the owning service worker', async () => {
+    const policy = { nonce: 'original', accountId: 'actor', status: 'armed' };
+    await getStorageProvider().set({ [key]: policy });
+    const reply = jest.fn();
+    expect(invoke(read, undefined, reply)).toBe(true);
+    await flushStorage();
+    expect(reply).toHaveBeenCalledWith({ ok: true, value: { [key]: policy } });
+  });
+  it('persists an original waiting fingerprint without granting a release', async () => {
+    const policy = { nonce: 'original', accountId: 'actor', status: 'armed' };
+    const waiting = { ...policy, status: 'waiting', sha256: 'a'.repeat(64) };
+    await getStorageProvider().set({ [key]: policy });
+    const reply = jest.fn();
+    expect(
+      invoke({ target: 'sw', type: read.type, operation: 'set', items: { [key]: waiting } }, undefined, reply)
+    ).toBe(true);
+    await flushStorage();
+    expect(reply).toHaveBeenCalledWith({ ok: true });
+    expect(await getStorageProvider().get([key])).toEqual({ [key]: waiting });
+  });
+  it.each([
+    { ...read, keys: ['mnemonic'] },
+    {
+      target: 'sw',
+      type: read.type,
+      operation: 'set',
+      items: { [key]: { nonce: 'replacement', accountId: 'actor', status: 'waiting' } }
+    },
+    {
+      target: 'sw',
+      type: read.type,
+      operation: 'set',
+      items: { [key]: { nonce: 'original', accountId: 'actor', status: 'released' } }
+    },
+    { target: 'sw', type: read.type, operation: 'set', items: { [`${key}_required`]: {} } }
+  ])('rejects secret storage access, scope replacement and self-release: %j', async message => {
+    const original = { nonce: 'original', accountId: 'actor', status: 'armed' };
+    await getStorageProvider().set({ [key]: original });
+    const reply = jest.fn();
+    expect(invoke(message, undefined, reply)).toBe(true);
+    await flushStorage();
+    expect(reply).toHaveBeenCalledWith({ ok: false });
+    expect(await getStorageProvider().get([key])).toEqual({ [key]: original });
+  });
+  it('does not expose the relay in production or to a different realm or extension', () => {
+    process.env.MIDEN_E2E_TEST = 'false';
+    expect(invoke(read)).toBe(false);
+    process.env.MIDEN_E2E_TEST = 'true';
+    expect(invoke(read, { id: 'foreign', url: `chrome-extension://${OWN_EXTENSION_ID}/offscreen.html` })).toBe(false);
+    expect(invoke(read, { ...ownSender, url: `chrome-extension://${OWN_EXTENSION_ID}/fullpage.html` })).toBe(false);
   });
 });
 

@@ -67,7 +67,8 @@ describe('mainnet nightly workflow', () => {
 
     const agglayer = jobText('mainnet-agglayer');
     expect(agglayer).toContain('    needs: mainnet-nightly');
-    expect(agglayer).toContain("    if: ${{ !cancelled() && needs.mainnet-nightly.outputs.started == 'true' }}");
+    expect(agglayer).toContain("!cancelled() && !inputs.swaps_only && needs.mainnet-nightly.outputs.started == 'true'");
+    expect(agglayer).toContain("needs.mainnet-nightly.outputs.recovery_only != 'true'");
     expect(agglayer).toContain('    runs-on: ubuntu-latest');
     expect(agglayer).toContain("    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 230 || 185 }}");
     expect(agglayer).toContain(
