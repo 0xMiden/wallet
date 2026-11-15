@@ -50,8 +50,8 @@ const MIN_CALLS: Record<string, number> = {
   'src/lib/miden/activity/fee-notes.ts': 1,
   'src/lib/miden/activity/fee.ts': 2,
   'src/lib/miden/activity/helpers.ts': 1,
-  'src/lib/miden/transaction/complete.ts': 16,
-  'src/lib/miden/transaction/helper.ts': 1
+  'src/lib/miden/transaction/complete.ts': 18,
+  'src/lib/miden/transaction/helper.ts': 2
 };
 
 // A row object's id, or an id the enclosing function was handed. The chain's transaction id never names the row.

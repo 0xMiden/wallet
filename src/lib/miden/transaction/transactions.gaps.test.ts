@@ -663,6 +663,41 @@ describe('completeCustomTransaction private-note delivery', () => {
     }
   });
 
+  it('a trap converting a private note retires once under the row, counts the note undelivered, and still completes', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const firstTrap = new WebAssembly.RuntimeError('unreachable');
+    const trapping = (marker: string, error: Error) => ({
+      id: () => ({ toString: () => marker }),
+      metadata: () => ({ noteType: () => 'private' }),
+      intoFull: () => {
+        throw error;
+      }
+    });
+    txStore.push({
+      id: 'tx-private-trap',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const row = txStore.find(t => t.id === 'tx-private-trap');
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await completeCustomTransaction(
+        row,
+        makeResultWith([trapping('a', firstTrap), trapping('b', new WebAssembly.RuntimeError('unreachable'))])
+      );
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.noteDelivery).toBe('undelivered');
+      expect(retire.mock.calls).toEqual([[firstTrap, 'tx-private-trap']]);
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
   it('leaves noteDelivery unset when the transaction produced no private notes', async () => {
     _gh.__noteTypeForTest = 'public';
     txStore.push({
@@ -979,6 +1014,8 @@ describe('extractFullNote outer try/catch', () => {
       serialize: () => new Uint8Array([])
     } as any;
 
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
     const errSpy = jest.spyOn(console, 'error').mockImplementation();
     try {
       const { completeSendTransaction } = require('./index');
@@ -988,8 +1025,51 @@ describe('extractFullNote outer try/catch', () => {
         'Failed to extract full note from transaction result',
         expect.objectContaining({ error: expect.any(Error) })
       );
+      expect(retire).not.toHaveBeenCalled();
     } finally {
       errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it('a trap converting the sent note retires the client once under the send row, and the row still completes', async () => {
+    _gh.__noteTypeForTest = 'public';
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    txStore.push({
+      id: 'tx-send-trap',
+      type: 'send',
+      accountId: 'acc-1',
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const row = txStore.find(t => t.id === 'tx-send-trap');
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({
+          notes: () => [
+            {
+              intoFull: () => {
+                throw trap;
+              }
+            }
+          ]
+        })
+      }),
+      serialize: () => new Uint8Array([])
+    } as any;
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const { completeSendTransaction } = require('./index');
+      await completeSendTransaction(row, txResult);
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(retire.mock.calls).toEqual([[trap, 'tx-send-trap']]);
+    } finally {
+      errSpy.mockRestore();
+      restore();
     }
   });
 });
@@ -1123,6 +1203,49 @@ describe('waitForTransactionCompletion', () => {
         outputNotes: []
       });
       expect(retire.mock.calls).toEqual([[expect.any(WebAssembly.RuntimeError), 'tx-trapped']]);
+    } finally {
+      restore();
+      mockTransactionResultDeserialize.mockReset();
+    }
+  });
+
+  it('a trap decoding the stored result retires once under the row however often it is awaited, and answers as before', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    mockTransactionResultDeserialize.mockImplementation(() => {
+      throw new WebAssembly.RuntimeError('unreachable');
+    });
+    try {
+      txStore.push({
+        id: 'tx-undecodable',
+        status: ITransactionStatus.Completed,
+        transactionId: 'landed-hash',
+        resultBytes: new Uint8Array([9])
+      });
+      await expect(waitForTransactionCompletion('tx-undecodable')).resolves.toEqual({ errorMessage: 'unreachable' });
+      await expect(waitForTransactionCompletion('tx-undecodable')).resolves.toEqual({ errorMessage: 'unreachable' });
+      expect(retire.mock.calls).toEqual([[expect.any(WebAssembly.RuntimeError), 'tx-undecodable']]);
+    } finally {
+      restore();
+      mockTransactionResultDeserialize.mockReset();
+    }
+  });
+
+  it('an ordinary decode failure answers as before with no retire', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    mockTransactionResultDeserialize.mockImplementation(() => {
+      throw new Error('bad bytes');
+    });
+    try {
+      txStore.push({
+        id: 'tx-badbytes',
+        status: ITransactionStatus.Completed,
+        transactionId: 'landed-hash',
+        resultBytes: new Uint8Array([9])
+      });
+      await expect(waitForTransactionCompletion('tx-badbytes')).resolves.toEqual({ errorMessage: 'bad bytes' });
+      expect(retire).not.toHaveBeenCalled();
     } finally {
       restore();
       mockTransactionResultDeserialize.mockReset();
