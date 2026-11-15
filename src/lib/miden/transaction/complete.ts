@@ -75,6 +75,7 @@ import {
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
+import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isPoisonedPipeline } from '../sdk/sdk-error-code';
 import { isRecoveredSwapOrder } from '../swap/recovered-order';
@@ -142,6 +143,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       }
       notesToRelay.push({ noteId, fullNote: maybeFullNote });
     } catch (error) {
+      // No lock sees this trap: the read runs after the submit, outside any hold.
+      retireLandedTrap(error, transaction.id, result);
       console.error('Failed to convert output note into full note', { txId: transaction.id, error });
       undeliveredNotes++;
       relayDeadNoteIds.push(noteId);
@@ -1083,6 +1086,7 @@ const extractFullNote = (result: TransactionResult, landing: string): Note | und
 
     return fullNote;
   } catch (error) {
+    retireLandedTrap(error, landing, result);
     console.error('Failed to extract full note from transaction result', { error });
     return undefined;
   }

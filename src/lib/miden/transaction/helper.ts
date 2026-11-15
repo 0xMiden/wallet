@@ -29,6 +29,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
+import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 import { errorMessageParts, isPoisonedPipeline, type LandedTransaction } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
 
@@ -1252,6 +1253,7 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
               });
               return;
             }
+            // A trap here, or in a note read below, retires the realm client once per row before the answer.
             const txResult = TransactionResult.deserialize(tx.resultBytes);
             // The kernel's fee note is an output note too, and this array is the wallet's
             // PUBLIC dApp API (`window.miden.waitForTransaction`). Handing it out unsplit
@@ -1270,6 +1272,7 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
             };
             resolve(res);
           } catch (err) {
+            retireLandedTrap(err, transactionId, undefined);
             resolve({ errorMessage: err instanceof Error ? err.message : String(err) });
           }
         } else if (tx.status === ITransactionStatus.Failed) {
