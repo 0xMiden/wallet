@@ -51,6 +51,14 @@ The extension manifest version comes from `package.json`, NOT `public/manifest.j
 - **Background auto-ops**: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal), not `openLoadingFullPage`.
 - **Sanitized frontend state**: the frontend receives state via `toFront()`; vault/keys stay backend-only.
 
+## Amount displays
+
+Use `TokenAmount` or `UsdAmount` from `components/ui/TokenAmount` for user-facing monetary values. The default is `formatting="adaptive"`. Set `rounding="up"` for payments and fees, and `rounding="down"` for receipts and available balances. Use `formatting="exact"` for typed review amounts, approval values, and exact detail rows. Exact formatting does not round. Pass bigint base units with their known `decimals`; pass decimal strings and numbers without `decimals`. Do not guess a token scale.
+
+Keep each screen's text styles through `className` and `symbolClassName`. Use `animated` to retain the gradual `AnimatedNumber` transition; precision stays fixed during each transition. Do not create another amount display component or format values in JSX with base-unit converters. ESLint checks these paths.
+
+For translations, accessibility text, and APIs that require a string, use `formatAmountDisplay` or `amountFormatterFor` from `lib/i18n/amount-display`. These are the same policy used by the components. Keep exact transaction calculations, editable inputs, MAX values, and stored amounts separate. Never use a rounded display value as transaction input.
+
 ## Frontend UI, CSS, and Motion
 
 Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wallet UI, CSS, motion, layout, or interaction changes. Reuse existing wallet components and semantic theme tokens before adding primitives or literal styles. Keep component-specific animation out of `src/main.css`; route nontrivial motion through Framer Motion and the reduced-motion-aware spring helpers. Interactive UI must use accessible semantics, appropriate haptics, localization, and platform isolation, then be verified on every affected surface.

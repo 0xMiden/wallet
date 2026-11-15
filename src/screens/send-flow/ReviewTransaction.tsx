@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { formatUnits, parseUnits } from 'viem';
+import { parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
@@ -24,6 +24,7 @@ import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { usePreset } from 'lib/animation';
@@ -789,7 +790,7 @@ export const ReviewTransaction: React.FC = () => {
           data-testid="review-amount"
           className="mt-3"
           visual={<TokenLogo faucetId={tokenId} size="2xl" />}
-          value={`${amount} ${tokenLabel}`}
+          value={<TokenAmount amount={amount} symbol={tokenLabel} formatting="exact" />}
           subtitle={
             token?.scaleIsKnown && (
               <TokenUsdValue amount={amount} decimals={token.decimals} faucetId={token.id} symbol={token.name} />
@@ -892,7 +893,7 @@ export const ReviewTransaction: React.FC = () => {
                       )
                     }
                   >
-                    {`${formatUnits(burnMinimum, USDCX_DECIMALS)} USDCx`}
+                    <TokenAmount amount={burnMinimum} decimals={USDCX_DECIMALS} symbol="USDCx" formatting="exact" />
                   </DetailRow>
                   <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
                   {bridgeNetworkObj && amountBaseUnits !== undefined && (

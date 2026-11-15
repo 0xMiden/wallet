@@ -7,8 +7,8 @@ import { Button, ButtonVariant } from 'components/Button';
 import type { StoryHop } from 'components/tx-stage/tx-story';
 import { TxStory } from 'components/tx-stage/TxStory';
 import { Card } from 'components/ui/Card';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
 import { AssetAmount, NftAsset, TxAssetView } from './decode';
@@ -80,7 +80,7 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
  * asset, this slot is a number, and it sits inline with a +/- sign.
  */
 const quantityOf = (asset: ResolvedAsset): string =>
-  asset.scaleIsKnown ? formatAmount(asset.amount, asset.decimals) : '?';
+  asset.scaleIsKnown ? formatAmountDisplay(asset.amount, { decimals: asset.decimals, formatting: 'exact' }) : '?';
 
 /**
  * One NFT, named by what the wallet can read: a label, its short asset id and its faucet.

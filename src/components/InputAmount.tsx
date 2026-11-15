@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input-field';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { UsdAmount } from 'components/ui/TokenAmount';
 
 export interface InputAmountProps extends HTMLAttributes<HTMLDivElement> {
   className?: string;
@@ -86,7 +86,9 @@ export const InputAmount: React.FC<InputAmountProps> = ({
       {displayToggleCurrency && (
         <button className="flex items-center gap-x-1 cursor-pointer" type="button" onClick={onToggleCurrency}>
           {!displayFiat ? (
-            <p className="font-heading text-sm">${toAdaptiveFixed(fiatValue || value || 0)}</p>
+            <p className="font-heading text-sm">
+              <UsdAmount amount={fiatValue || value || 0} grouping={false} />
+            </p>
           ) : (
             <p className="font-heading text-sm">
               {fiatValue || value || 0} {currencyLabel}

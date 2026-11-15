@@ -5,7 +5,9 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { EARN_LENDER_FAMILY_NAMES, earnLenderFamily } from 'lib/epoch/pools';
+import { AmountRounding, formatAmountDisplay } from 'lib/i18n/amount-display';
 import { GC_DECIMALS } from 'lib/miden/arcade/gc-sale';
 import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -17,7 +19,6 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectEarnVault, selectMidenUsdc } from 'lib/remote-config/values';
-import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { USDCX_DECIMALS } from 'lib/usdcx/protocol';
 import { truncateAddress } from 'utils/string';
@@ -155,13 +156,13 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
         className
       )}
     >
-      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-ink text-xl dark:text-pure-white">
+      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-ink text-xl dark:text-pure-white [overflow-wrap:anywhere]">
         {lhs}
       </div>
       <span className="shrink-0" aria-hidden="true">
         {separator ?? <HorizontalArrowGlyph fill={fillForArrow} />}
       </span>
-      <div className="flex min-w-0 items-center gap-2 font-bold text-ink text-xl font-heading dark:text-pure-white">
+      <div className="flex min-w-0 items-center gap-2 font-bold text-ink text-xl font-heading dark:text-pure-white [overflow-wrap:anywhere]">
         {rhs}
       </div>
     </div>
@@ -186,10 +187,25 @@ interface ResolvedAsset {
  */
 // `amount` is absent when the faucet's scale is a guess: the side is named
 // without a quantity rather than shown at an invented one.
-const SwapAmountText: FC<{ amount?: string; symbol: string }> = ({ amount, symbol }) => (
+const SwapAmountText: FC<{ amount?: bigint; decimals?: number; symbol: string; rounding: AmountRounding }> = ({
+  amount,
+  decimals,
+  symbol,
+  rounding
+}) => (
   <span className="min-w-0 truncate whitespace-nowrap text-2xl font-extrabold">
-    {amount !== undefined && <span className="text-ink">{amount}</span>}
-    <span className="text-gray">{symbol}</span>
+    {amount !== undefined && decimals !== undefined ? (
+      <TokenAmount
+        amount={amount}
+        decimals={decimals}
+        symbol={symbol}
+        rounding={rounding}
+        className="text-ink"
+        symbolClassName="text-gray"
+      />
+    ) : (
+      <span className="text-gray">{symbol}</span>
+    )}
   </span>
 );
 
@@ -264,7 +280,7 @@ export const consumeAssetBreakdown = (
     return [
       {
         faucetId: gcPurchase.gcFaucetId,
-        label: `${formatAmount(BigInt(gcPurchase.expectedAmount), GC_DECIMALS)} GC`
+        label: `${formatAmountDisplay(BigInt(gcPurchase.expectedAmount), { decimals: GC_DECIMALS, rounding: 'down' })} GC`
       }
     ];
   }
@@ -289,7 +305,13 @@ export const consumeAssetBreakdown = (
     // resolved record rather than the placeholder's identity because the
     // placeholder is cached, and a stored copy is never `===` the constant.
     const symbol = midenTokenLabel(bridgeConfig, total.faucetId, resolved.symbol);
-    const label = hasKnownScale(resolved) ? `${formatAmount(total.amount, resolved.decimals)} ${symbol}` : symbol;
+    const label = hasKnownScale(resolved)
+      ? `${formatAmountDisplay(total.amount, {
+          decimals: resolved.decimals,
+          symbol: resolved.symbol,
+          rounding: 'down'
+        })} ${symbol}`
+      : symbol;
     return { faucetId: total.faucetId, label };
   });
 };
@@ -367,8 +389,12 @@ export const useTransactionSummaryBadgeContent = (
     const gcPurchase = transaction?.type === 'consume' ? transaction.extraInputs?.gcPurchase : undefined;
     if (gcPurchase) {
       return {
-        lhs: t('arcadeGcPurchaseUsdcx', { amount: formatAmount(BigInt(gcPurchase.fillAmount), USDCX_DECIMALS) }),
-        rhs: t('arcadeBalance', { balance: formatAmount(BigInt(gcPurchase.expectedAmount), GC_DECIMALS) }),
+        lhs: t('arcadeGcPurchaseUsdcx', {
+          amount: formatAmountDisplay(BigInt(gcPurchase.fillAmount), { decimals: USDCX_DECIMALS, rounding: 'up' })
+        }),
+        rhs: t('arcadeBalance', {
+          balance: formatAmountDisplay(BigInt(gcPurchase.expectedAmount), { decimals: GC_DECIMALS, rounding: 'down' })
+        }),
         fillForArrow: 'var(--action-swap)'
       };
     }
@@ -395,15 +421,17 @@ export const useTransactionSummaryBadgeContent = (
       const known = hasKnownScale(tokenMetadata) ? tokenMetadata : undefined;
       const scale = known ?? earnCollateral;
       const symbol = scale?.symbol ?? tokenMetadata?.symbol;
-      const amount =
-        transaction.amount !== undefined && scale ? formatAmount(transaction.amount, scale.decimals) : undefined;
       const marketUid: unknown = transaction.extraInputs?.marketUid;
       const rhs = typeof marketUid === 'string' ? earnMarketLabel(bridgeConfig, marketUid) : undefined;
 
       if (transaction.amount === undefined || !rhs || !symbol) return undefined;
 
       return {
-        lhs: amount ? `${amount} ${symbol}` : symbol,
+        lhs: scale ? (
+          <TokenAmount amount={transaction.amount} decimals={scale.decimals} symbol={symbol} rounding="up" />
+        ) : (
+          symbol
+        ),
         // A market label is one line: a Morpho market id the label shortens still needs the pill to clip, never
         // to spill out of its rounded frame.
         rhs: (
@@ -424,19 +452,23 @@ export const useTransactionSummaryBadgeContent = (
       if (transaction.amount === undefined || requestedRaw === undefined) return undefined;
 
       // Present but unscalable: name the side, withhold the quantity.
-      const offeredAmount = offered.scaleIsKnown ? formatAmount(transaction.amount, offered.decimals) : undefined;
-      const requestedAmount = requested.scaleIsKnown ? formatAmount(requestedRaw, requested.decimals) : undefined;
+      const offeredAmount = offered.scaleIsKnown ? transaction.amount : undefined;
+      const requestedAmount = requested.scaleIsKnown ? requestedRaw : undefined;
 
       return {
         lhs: (
           <SwapAmountText
             amount={offeredAmount}
+            decimals={offered.decimals}
+            rounding="up"
             symbol={midenTokenLabel(bridgeConfig, transaction.faucetId, offered.symbol)}
           />
         ),
         rhs: (
           <SwapAmountText
             amount={requestedAmount}
+            decimals={requested.decimals}
+            rounding="down"
             symbol={midenTokenLabel(bridgeConfig, requestedFaucetId, requested.symbol)}
           />
         ),
@@ -459,11 +491,12 @@ export const useTransactionSummaryBadgeContent = (
 
     if (transaction.amount === undefined || !recipient) return undefined;
 
-    // Present but unscalable: name the token, withhold the quantity.
-    const amount = hasKnownScale(tokenMetadata) ? formatAmount(transaction.amount, tokenMetadata.decimals) : undefined;
-
     return {
-      lhs: amount ? `${amount} ${symbol}` : symbol,
+      lhs: hasKnownScale(tokenMetadata) ? (
+        <TokenAmount amount={transaction.amount} decimals={tokenMetadata.decimals} symbol={symbol} rounding="up" />
+      ) : (
+        symbol
+      ),
       rhs: (
         <>
           <span className="min-w-0 truncate">{recipient}</span>
