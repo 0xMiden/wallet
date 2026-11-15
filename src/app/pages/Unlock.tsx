@@ -634,6 +634,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             <Button
               type="submit"
               title={t('unlock')}
+              className="self-center"
               isLoading={isSubmitting}
               disabled={!password || isDisabled || isSubmitting}
             />
