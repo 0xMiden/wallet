@@ -97,7 +97,18 @@ jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: jest.fn(() => Promise.resolve())
 }));
 
-import { readPortfolioObservations, recordPortfolioObservation } from 'lib/miden/portfolio-observations';
+jest.mock('lib/miden/portfolio-observations', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/portfolio-observations')>(
+    'lib/miden/portfolio-observations'
+  );
+  return { ...actual, prunePortfolioObservations: jest.fn(actual.prunePortfolioObservations) };
+});
+
+import {
+  prunePortfolioObservations,
+  readPortfolioObservations,
+  recordPortfolioObservation
+} from 'lib/miden/portfolio-observations';
 import { portfolioObservations } from 'lib/miden/repo';
 import { WalletStatus, type WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -111,6 +122,7 @@ beforeEach(() => {
   _g.__providerTest.getMidenClientCalls = 0;
   _g.__providerTest.backgroundLockRenders = 0;
   mockPreloadStorage.mockClear();
+  jest.mocked(prunePortfolioObservations).mockClear();
   useWalletStore.setState({ status: WalletStatus.Idle, accounts: [] });
 });
 
@@ -143,13 +155,17 @@ describe('MidenProvider', () => {
       hdIndex: 0,
       authScheme: 'falcon'
     });
-    useWalletStore.setState({
-      status: WalletStatus.Ready,
-      accounts: [account('account-retired'), account('account-kept')]
-    });
-    await waitFor(() => expect(useWalletStore.getState().status).toBe(WalletStatus.Ready));
+    act(() =>
+      useWalletStore.setState({
+        status: WalletStatus.Ready,
+        accounts: [account('account-retired'), account('account-kept')]
+      })
+    );
+    await waitFor(() => expect(prunePortfolioObservations).toHaveBeenCalledTimes(1));
     expect(await readPortfolioObservations(scope, 0)).toHaveLength(1);
-    useWalletStore.setState({ accounts: [account('account-kept')] });
+    act(() => useWalletStore.setState({ accounts: [account('account-kept'), account('account-retired')] }));
+    expect(prunePortfolioObservations).toHaveBeenCalledTimes(1);
+    act(() => useWalletStore.setState({ accounts: [account('account-kept')] }));
     await waitFor(async () => expect(await readPortfolioObservations(scope, 0)).toHaveLength(0));
     root.unmount();
     await portfolioObservations.clear();

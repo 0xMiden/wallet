@@ -16,9 +16,8 @@ export interface PortfolioObservation extends AccountScope {
 const BUCKET_MS = 15 * 60_000;
 const YEAR_MS = 365 * 24 * 60 * 60_000;
 const MAX_POINTS = 35_040;
-const observations = db.table<PortfolioObservation, [string, string, string, string, number]>(
-  Table.PortfolioObservations
-);
+const observations = () =>
+  db.table<PortfolioObservation, [string, string, string, string, number]>(Table.PortfolioObservations);
 const scopeKey = (scope: AccountScope): [string, string, string, 'USD'] => [
   scope.accountId,
   scope.network,
@@ -36,23 +35,24 @@ export async function recordPortfolioObservation(observation: PortfolioObservati
     Number(observation.value) < 0
   )
     return;
-  await db.transaction('rw', observations, async () => {
+  const table = observations();
+  await db.transaction('rw', table, async () => {
     const key: [string, string, string, 'USD', number] = [...scopeKey(observation), observation.bucket];
-    const previous = await observations.get(key);
-    if (!previous || observation.capturedAt >= previous.capturedAt) await observations.put(observation);
+    const previous = await table.get(key);
+    if (!previous || observation.capturedAt >= previous.capturedAt) await table.put(observation);
     const scope = scopeKey(observation);
-    await observations
+    await table
       .where('[accountId+network+rpcUrl+currency+capturedAt]')
       .between([...scope, 0], [...scope, Date.now() - YEAR_MS], true, false)
       .delete();
     if (!previous) {
-      const excess = await observations
+      const excess = await table
         .where('[accountId+network+rpcUrl+currency+capturedAt]')
         .between([...scope, 0], [...scope, Dexie.maxKey])
         .reverse()
         .offset(MAX_POINTS)
         .primaryKeys();
-      if (excess.length) await observations.bulkDelete(excess);
+      if (excess.length) await table.bulkDelete(excess);
     }
   });
 }
@@ -62,7 +62,7 @@ export async function readPortfolioObservations(
   from: number
 ): Promise<readonly PortfolioObservation[]> {
   const cutoff = Math.max(from, Date.now() - YEAR_MS);
-  const rows = await observations
+  const rows = await observations()
     .where('[accountId+network+rpcUrl+currency+bucket]')
     .between([...scopeKey(scope), Math.floor(cutoff / BUCKET_MS) * BUCKET_MS], [...scopeKey(scope), Dexie.maxKey])
     .toArray();
@@ -71,11 +71,10 @@ export async function readPortfolioObservations(
 
 export async function prunePortfolioObservations(retainedAccountIds: readonly string[]): Promise<void> {
   const retained = new Set(retainedAccountIds);
-  await db.transaction('rw', observations, async () => {
+  const table = observations();
+  await db.transaction('rw', table, async () => {
     const cutoff = Date.now() - YEAR_MS;
-    const removed = await observations
-      .filter(row => !retained.has(row.accountId) || row.capturedAt < cutoff)
-      .primaryKeys();
-    if (removed.length) await observations.bulkDelete(removed);
+    const removed = await table.filter(row => !retained.has(row.accountId) || row.capturedAt < cutoff).primaryKeys();
+    if (removed.length) await table.bulkDelete(removed);
   });
 }

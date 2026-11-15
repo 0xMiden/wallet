@@ -83,13 +83,13 @@ it('retains at most 35,040 points even when all 35,041 are within the one-year w
     .table(Table.PortfolioObservations)
     .bulkPut(Array.from({ length: 35_040 }, (_, index) => observation(now - (35_040 - index) * bucketMs)));
   const seededAt = performance.now();
+  console.info(`[portfolio-observations] seed=${Math.round(seededAt - start)}ms`);
   await recordPortfolioObservation(observation(now));
   const prunedAt = performance.now();
+  console.info(`[portfolio-observations] prune=${Math.round(prunedAt - seededAt)}ms`);
   const rows = await readPortfolioObservations(scope, 0);
   expect(rows).toHaveLength(35_040);
   expect(rows[0]?.bucket).toBe(now - 35_039 * bucketMs);
   expect(rows.at(-1)?.bucket).toBe(now);
-  console.info(
-    `[portfolio-observations] seed=${Math.round(seededAt - start)}ms prune=${Math.round(prunedAt - seededAt)}ms read=${Math.round(performance.now() - prunedAt)}ms`
-  );
+  console.info(`[portfolio-observations] read=${Math.round(performance.now() - prunedAt)}ms`);
 }, 120_000);

@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useMemo, useState } from 'react';
+import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 
 import { markReloadToRecover } from 'app/reload-to-recover';
 import { NoteToastProvider } from 'components/NoteToastProvider';
@@ -198,10 +198,19 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
   const { ready } = useMidenContext();
   const status = useWalletStore(state => state.status);
   const accounts = useWalletStore(state => state.accounts);
+  const lastPrunedAccounts = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!ready || status !== WalletStatus.Ready) return;
-    void prunePortfolioObservations(accounts.map(account => account.publicKey)).catch(() => {
+    if (!ready || status !== WalletStatus.Ready) {
+      lastPrunedAccounts.current = null;
+      return;
+    }
+    const accountIds = accounts.map(account => account.publicKey).sort();
+    const listKey = JSON.stringify(accountIds);
+    if (lastPrunedAccounts.current === listKey) return;
+    lastPrunedAccounts.current = listKey;
+    void prunePortfolioObservations(accountIds).catch(() => {
+      if (lastPrunedAccounts.current === listKey) lastPrunedAccounts.current = null;
       // History is local, best-effort data; failure must not hold wallet readiness or financial actions.
       console.warn('[portfolio] account history cleanup failed');
     });
