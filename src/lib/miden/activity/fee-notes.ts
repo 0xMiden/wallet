@@ -199,10 +199,11 @@ export function splitExecutedOutputNotes(
 }
 
 /**
- * {@link splitExecutedOutputNotes} for a reader past submit and outside any hold, where no lock can retire a trapped
- * client and a landed row that failed would offer a Retry that pays twice. A trap in a fee check identifies no fee
- * note, as an unknown fee does, and keeps every note a user note with no further WASM call, while a kill and a trap
- * from the output-note read itself still propagate.
+ * {@link splitExecutedOutputNotes} for a reader past submit and outside any hold, where a landed row that failed would
+ * offer a Retry that pays twice. A trap in a fee check identifies no fee note, as an unknown fee does, and keeps every
+ * note a user note with no further WASM call, while a kill and a trap from the output-note read itself still
+ * propagate. No lock is held here, so the trapped client is not retired: later calls run on it until one traps under
+ * a lock (a known limit, like the older catches CLAUDE.md lists).
  */
 export function splitLandedOutputNotes(executed: ExecutedOutputs): {
   feeNote: OutputNote | undefined;
