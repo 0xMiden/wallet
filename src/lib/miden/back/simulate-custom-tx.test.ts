@@ -1083,6 +1083,16 @@ describe('introduced-note provenance', () => {
       expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
     });
 
+    it('decodes no note flow when the approval gives no result', async () => {
+      const result = await simulateCustomTransaction(input);
+
+      expect(mockApproveCustomSimulation).toHaveBeenCalledTimes(1);
+      expect(result).not.toHaveProperty('approval');
+      expect(result).not.toHaveProperty('approvalFailure');
+      expect(result).not.toHaveProperty('noteFlow');
+      expect(mockNoteFlowFromSimulatedBytes).not.toHaveBeenCalled();
+    });
+
     it('keeps the approval when only the note flow fails ordinarily, and logs it', async () => {
       const failure = new Error('bad note bytes');
       mockApproveCustomSimulation.mockImplementation(() => APPROVAL);
