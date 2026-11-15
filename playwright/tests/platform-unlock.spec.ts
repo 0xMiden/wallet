@@ -337,10 +337,18 @@ test('real Chrome virtual PRF enrolls, unlocks after reload and preserves passwo
   await request(page, { type: 'LOCK_REQUEST' });
   await expect(page.getByTestId('unlock-password')).toBeVisible();
   const confirmation = await extensionContext.newPage();
-  await confirmation.setViewportSize({ width: 420, height: 640 });
+  await confirmation.setViewportSize({ width: 1100, height: 800 });
   await confirmation.goto(`chrome-extension://${extensionId}/confirm.html#?id=platform-acceptance`);
   await expect(confirmation.getByRole('button', { name: 'Unlock with passkey', exact: true })).toBeVisible();
   await expect(confirmation.getByLabel('Password', { exact: true })).toBeVisible();
+  const passwordActionBounds = await confirmation.locator('button[type="submit"]').boundingBox();
+  const passkeyActionBounds = await confirmation
+    .getByRole('button', { name: 'Unlock with passkey', exact: true })
+    .boundingBox();
+  expect(passwordActionBounds).not.toBeNull();
+  expect(passkeyActionBounds).not.toBeNull();
+  expect(passwordActionBounds?.x).toBe(passkeyActionBounds?.x);
+  expect(passwordActionBounds?.width).toBe(passkeyActionBounds?.width);
   expect(
     await confirmation.evaluate(() => {
       const calls: unknown = Reflect.get(window, '__platformCalls');
