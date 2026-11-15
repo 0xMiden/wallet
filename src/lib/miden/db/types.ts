@@ -1201,7 +1201,7 @@ export interface ITransaction {
    * chain submit cannot be ruled out, and never unset. Guards the cached
    * `requestBytes` of a guardian recallable `send` from being rebuilt, since
    * those bytes pin the note id that lets the node reject a duplicate while the
-   * first copy is in flight. Retry also asks before it replays them, because
+   * first copy is in flight. Retry also asks before it reuses them, because
    * once that copy commits the node accepts the duplicate.
    *
    * A per-attempt `stage` cannot carry this, for two independent reasons.

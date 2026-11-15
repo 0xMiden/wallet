@@ -82,8 +82,9 @@ export function OrphanedTransactionRecovery(): null {
         // if `submit()` landed before the kill, the tx IS on chain. The row is
         // marked Failed, and `requeueFailedTransaction` refuses a manual Retry on
         // `send`, `swap` or `bridged-send` while a submit cannot be ruled out,
-        // whether it rebuilds its request or replays its `requestBytes`: the node
-        // rejects a replayed note only while the first copy is in flight.
+        // whether it rebuilds its request or reuses the note its `requestBytes`
+        // pin: the node rejects a duplicate note only while the first copy is in
+        // flight.
         // `consume` and a nullifier-listing `execute` stay retryable on purpose:
         // each replays a spent nullifier, which the node rejects rather than
         // duplicates. An `execute` that lists none is refused the same way once

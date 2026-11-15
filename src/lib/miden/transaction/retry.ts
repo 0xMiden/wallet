@@ -297,7 +297,8 @@ export interface RetryOptions {
    * starts, so Retry honours it only while it still names the row's attempt; one given before another surface's
    * Retry ran a newer attempt counts as absent. Taken as the premise being false, so both crossing markers are
    * cleared in the requeue write rather than stepped over, except a `send`'s `mayHaveSubmitted` while it holds
-   * `requestBytes`: that crossing pins the bytes, so the acknowledged Retry replays them rather than rebuilding.
+   * `requestBytes`: that crossing pins the bytes, so the acknowledged Retry re-creates their note rather than drawing a
+   * new serial.
    */
   acknowledged?: { attemptId: string | null };
 }
@@ -418,11 +419,11 @@ const planRequeue = async (
   }
 
   // A send, swap or bridged-send is refused while a submit cannot be ruled out, whether it rebuilds its request or
-  // replays its `requestBytes`, since the node rejects a replayed note only while the first copy is in flight. The
-  // signals are a recorded crossing (`mayHaveSubmitted`, a live cancel) or the coarse reading that the row left the
-  // queue at all. The coarse one also catches failures that were provably pre-submit, which is why the refusal is
-  // acknowledgeable: the user can tell the two apart from their balance, and a refusal with no exit is what makes
-  // people re-send by hand.
+  // reuses the note its `requestBytes` pin, since the node rejects a duplicate note only while the first copy is in
+  // flight. The signals are a recorded crossing (`mayHaveSubmitted`, a live cancel) or the coarse reading that the row
+  // left the queue at all. The coarse one also catches failures that were provably pre-submit, which is why the
+  // refusal is acknowledgeable: the user can tell the two apart from their balance, and a refusal with no exit is what
+  // makes people re-send by hand.
   const live =
     pipelineMayStillBeRunning(tx.cancelledInFlightAt) ||
     ((tx.type === 'execute' || tx.type === 'swap' || tx.type === 'bridged-send') && latestEndMayStillRun(tx));

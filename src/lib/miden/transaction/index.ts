@@ -1083,7 +1083,7 @@ async function requeueTransactionForRetry(
   // gates, but it cannot prove anything about an EARLIER attempt on the same
   // row, which is what the flag actually records. So the bytes are kept: the
   // reused serial pins the note id, which the node rejects as a duplicate while
-  // the first copy is in flight, and Retry asks before it replays them, at the
+  // the first copy is in flight, and Retry asks before it reuses them, at the
   // cost of retrying against the reclaim height built on the first attempt.
   // Reversing that would need the crossing tracked per attempt, not per row.
   //
@@ -2503,9 +2503,9 @@ const consumeServiceFor = async (
  * The P2IDE note's serial number is random, so the request must be built ONCE and
  * the SAME bytes reused for both `createCustomProposal` and
  * `signAndCreateTransactionRequest` - persisted on the row so a retry after a
- * restart reuses them, which is also what lets the node reject a duplicate submit
+ * restart reuses them, which is also what lets the node reject the duplicate note
  * while the first copy is in flight (the reused serial pins the note id); Retry asks
- * before it replays them. A retry only rebuilds them when the row
+ * before it reuses them. A retry only rebuilds them when the row
  * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. `recallBlocks` is a RELATIVE
  * blocks-until-recall offset, converted to an absolute reclaim height here
  * (`syncHeight + recallBlocks`) - the guardian-path counterpart of the
