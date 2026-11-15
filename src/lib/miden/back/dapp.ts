@@ -22,7 +22,7 @@ import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
 import { summaryToView, toHoldingsView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
-import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, type NoteFlow } from 'app/confirm/note-flow';
+import { noteFlowFromTransaction, type NoteFlow } from 'app/confirm/note-flow';
 import { toSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import {
   MidenDAppDisconnectRequest,
@@ -171,11 +171,7 @@ import {
 } from '../transaction';
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { deterministicKernelFailureCopy } from '../transaction/constants';
-import {
-  approveCustomSimulation,
-  type ApprovedCustomSimulation,
-  type CustomDryRunResult
-} from '../transaction/custom-effects';
+import type { ApprovedCustomSimulation } from '../transaction/custom-effects';
 import { TransactionQueuedError } from '../transaction/initiate';
 
 /**
@@ -1717,8 +1713,8 @@ export function makeSimulateHandler(
    * shows this object rather than a decode of its own, so the two cannot differ.
    */
   approvedView: TxAssetView | undefined,
-  /** The dry run the approval measured; only its note flow is read here. */
-  simulated?: CustomDryRunResult
+  /** The note flow the approval dry run measured inside its hold, so the handler decodes nothing. */
+  noteFlow?: NoteFlow
 ) {
   return async (req: MidenRequest): Promise<MidenDAppSimulateTransactionResponse | undefined> => {
     if (req?.type !== MidenMessageType.DAppSimulateTransactionRequest || (req as any).id !== id) {
@@ -1729,12 +1725,6 @@ export function makeSimulateHandler(
         type: MidenMessageType.DAppSimulateTransactionResponse,
         error: 'the request has no approved effects to show'
       };
-    }
-    let noteFlow: NoteFlow | undefined;
-    try {
-      noteFlow = simulated && noteFlowFromSimulatedBytes(simulated);
-    } catch (e) {
-      console.error('Custom transaction note details unavailable:', e);
     }
     // The executed transaction is already authorized, so only the view leaves the service worker.
     return {
@@ -2420,40 +2410,43 @@ const generatePromisifyTransaction = async (
       // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
       throw dappSendFailure(e);
     };
-    let simulated: SimulateCustomTxResult;
+    let dryRun: { feeUnknown: boolean; simulated: SimulateCustomTxResult };
     try {
-      simulated = await withUnlocked(async () => {
+      dryRun = await withUnlocked(async () => {
+        // Read before the dry run, whose hold measures the approval: a summary's fee note is told apart by the fee
+        // this realm just read. The read takes no WASM lock.
+        const chainFee = await refreshVerificationBaseFee();
+        const feeUnknown = chainFee === null && !isVerificationBaseFeeKnownAbsent();
         try {
-          return await simulateCustomTransaction({
+          const simulated = await simulateCustomTransaction({
             address: customTransaction.address,
             transactionRequest: customTransaction.transactionRequest,
             importNotes: customTransaction.importNotes
           });
+          return { feeUnknown, simulated };
         } catch (e) {
           if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) throw e;
           console.error('Failed to simulate a custom transaction for approval', e);
-          return { error: consentReason(e) };
+          return { feeUnknown, simulated: { error: consentReason(e) } };
         }
       });
     } catch (e) {
       if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) return releaseRefusedRequest(e);
       throw pipelineKillIn(e) ?? e;
     }
+    const { feeUnknown, simulated } = dryRun;
     try {
-      // A summary's fee note is told apart by the fee this realm just read. An unknown fee is refused before
-      // any prompt, on the same predicate the signing paths use. An executed dry run splits on its own header.
-      if (simulated.summaryBytes) {
-        const chainFee = await refreshVerificationBaseFee();
-        if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) {
-          throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
-        }
+      // An unknown fee is refused before any prompt, on the same predicate the signing paths use. An executed dry run
+      // splits on its own header.
+      if (simulated.summaryBytes && feeUnknown) {
+        throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
       }
       const approval = approvedSimulationOrRefusal(simulated);
       const effectLines = await formatSimulatedCustomEffects(approval.view);
       const customLimit = await customSpendingLimitState(customTransaction.address, approval.spends);
       return {
         transactionMessages: [...formatCustomTransactionPreview(customTransaction), ...effectLines],
-        simulated,
+        noteFlow: simulated.noteFlow,
         customLimit,
         approvedView: approval.view,
         approvedEffects: approval.effects,
@@ -2481,14 +2474,8 @@ const generatePromisifyTransaction = async (
       waits
     );
     if (sheetData === undefined) return;
-    const { transactionMessages, customLimit, simulated, approvedEffects, approvedOutflow, approvedNftOutflow } =
+    const { transactionMessages, customLimit, noteFlow, approvedEffects, approvedOutflow, approvedNftOutflow } =
       sheetData;
-    let noteFlow: ReturnType<typeof noteFlowFromSimulatedBytes>;
-    try {
-      noteFlow = noteFlowFromSimulatedBytes(simulated);
-    } catch (error) {
-      console.error('Custom transaction note details unavailable:', error);
-    }
 
     const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
@@ -2576,8 +2563,8 @@ const generatePromisifyTransaction = async (
     },
     // The sheet shows the approval this request queues with, so it shows what the policy charges and signing allows.
     handleSimulate: async simulateReq => {
-      const { approvedView, simulated } = await sheet.data();
-      return makeSimulateHandler(id, approvedView, simulated)(simulateReq);
+      const { approvedView, noteFlow } = await sheet.data();
+      return makeSimulateHandler(id, approvedView, noteFlow)(simulateReq);
     },
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
@@ -3963,20 +3950,12 @@ export class CustomTransactionNotSimulatedError extends PublicError {
  * Case that fails by design: a request that the wallet cannot simulate at approval. The wallet does not show the
  * effects that the dApp declares in place of a dry run, so it refuses the request before any prompt. A dry run whose
  * holdings cannot be measured (a view that does not list its notes, or a held note whose assets cannot be read) is
- * refused the same way, so no row is queued without the note ids signing checks.
+ * refused the same way, so no row is queued without the note ids signing checks. The dry run measured the approval
+ * inside its hold, so nothing is decoded here.
  */
 function approvedSimulationOrRefusal(simulated: SimulateCustomTxResult): ApprovedCustomSimulation {
-  let approval: ApprovedCustomSimulation | undefined;
-  let failure: unknown = simulated.error;
-  try {
-    approval = approveCustomSimulation(simulated);
-  } catch (e) {
-    // A trap here is outside any hold, as the sheet's own decode always was; it reaches the console and refuses.
-    // A finished dry run is not abandoned here. A kill or a simulation timeout stays retryable.
-    if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) throw e;
-    failure = e;
-  }
-  if (approval !== undefined) return approval;
+  if (simulated.approval !== undefined) return simulated.approval;
+  const failure = simulated.approvalFailure ?? simulated.error;
   console.error('Failed to simulate a custom transaction for approval', failure);
   throw new CustomTransactionNotSimulatedError(
     failure === undefined ? 'the simulation gave no result' : consentReason(failure)
