@@ -916,6 +916,84 @@ describe('a throw after the leaf resolved', () => {
     expect(isRequeueableTransaction(row)).toBe(false);
     expect(require('../activity/bridge-in').adoptLandedConsume).toHaveBeenCalledWith(row.id);
   });
+
+  // The id read is where a Cancel finalizes the row. The landed id is stamped after that, and these cases assert that
+  // stamp alone: the loop already skips a second cancel once the row has left the queue.
+  const failDuringIdRead = (id: string) => ({
+    executedTransaction: () => ({
+      id: () => ({
+        toHex: () => {
+          const row = txStore.find(stored => stored.id === id);
+          if (row) row.status = ITransactionStatus.Failed;
+          return 'landed-id';
+        }
+      }),
+      outputNotes: () => ({ notes: () => [] }),
+      inputNotes: () => ({ notes: () => [] })
+    }),
+    serialize: () => new Uint8Array([])
+  });
+
+  const runLoopAgainst = async (client: Record<string, unknown>) => {
+    installLocks();
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(),
+      waitForTransactionCommit: mockWaitForCommit,
+      sendPrivateNote: mockSendPrivateNote,
+      ...client
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
+    } finally {
+      sdk.getMidenClient = origGetClient;
+      warnSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  };
+
+  it('a loop send whose tail throws after the row is already Failed keeps Failed and records the landed id', async () => {
+    const id = 'tx-tail-send-already-failed';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SEND'
+    });
+
+    await runLoopAgainst({ sendTransaction: jest.fn(async () => failDuringIdRead(id)) });
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.transactionId).toBe('landed-id');
+  });
+
+  it('a loop epoch bridged-send that is already Failed still records the landed id', async () => {
+    const id = 'tx-tail-epoch-already-failed';
+    queuedRow(id, {
+      type: 'bridged-send',
+      requestBytes: new Uint8Array([9]),
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200,
+        reclaimNoteId: 'note-stamped'
+      }
+    });
+
+    await runLoopAgainst({ newTransaction: jest.fn(async () => failDuringIdRead(id)) });
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.transactionId).toBe('landed-id');
+  });
 });
 
 // A relay the row records as made, or as confirmed, is its own outcome: no landed label may overwrite it (PR #2183).

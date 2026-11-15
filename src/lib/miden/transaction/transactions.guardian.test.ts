@@ -1991,6 +1991,161 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  // A Cancel during the id read finalizes the row before the landed arm. The id still has to land on that Failed row,
+  // and the arm must not write a second status over it.
+  const armIdReadThatFailsTheRow = (txId: string) => {
+    const landed = makeResult();
+    let armed = false;
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        const executed = landed.executedTransaction();
+        if (!armed) return executed;
+        return {
+          ...executed,
+          id: () => ({
+            toHex: () => {
+              const row = txStore.find(r => r.id === txId);
+              if (row) {
+                row.status = ITransactionStatus.Failed;
+                row.cancelledInFlightAt = 1;
+              }
+              return 'exec-tx-hash';
+            }
+          })
+        };
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    return { result, apply };
+  };
+
+  it('a Guardian send whose tail throws after the row is already Failed keeps Failed and records the landed id', async () => {
+    const txId = 'send-guardian-tail-already-failed';
+    const { result, apply } = armIdReadThatFailsTheRow(txId);
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      noteType: 'private',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result, apply)
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          noteType: 'private',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      const row = txStore.find(r => r.id === txId)!;
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.transactionId).toBe('exec-tx-hash');
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('a Guardian Epoch bridged-send whose tail throws after the row is already Failed records the landed id and does not cancel again', async () => {
+    const txId = 'bridge-guardian-tail-already-failed';
+    const { result, apply } = armIdReadThatFailsTheRow(txId);
+    const transaction = {
+      id: txId,
+      type: 'bridged-send',
+      accountId: 'guardian-acc',
+      amount: '1000',
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200,
+        reclaimNoteId: 'note-stamped'
+      },
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => new Uint8Array([54, 55, 56]) });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-already-failed-proposal', nonce: 11 },
+        requestBytes: new Uint8Array([141, 142, 143])
+      })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: Object.assign(makeClientApi(result, apply), {
+        sync: jest.fn(async () => ({ blockNum: () => 100 }))
+      })
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await generateTransaction(
+        transaction as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      const row = txStore.find(r => r.id === txId)!;
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.transactionId).toBe('exec-tx-hash');
+      // The id read already failed the row. A second cancel is the one `clearCancelledInFlight` runs on the way in.
+      expect(row.cancelledInFlightAt).toBe(1);
+      expect(warnSpy.mock.calls.filter(call => String(call[0]).includes('[cancelTransaction] ignored'))).toEqual([]);
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   const arrangeTipSend = (blockNumbers = [42], syncHeight = 100) => {
     const txId = 'send-guardian-tip';
     txStore.push({

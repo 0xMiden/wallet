@@ -1276,9 +1276,9 @@ const writeLandedCompleted = async (txId: string, error: unknown): Promise<ITran
   return undefined;
 };
 
-/** What a landed arm's log says failed: the leaf's local apply (`applied`), or a step of the tail after it. */
-const landedFailureText = (error: unknown, applied = 'local apply failed'): string =>
-  isLandedTailError(error) ? 'a post-submit step failed after the transaction landed' : applied;
+/** What a landed arm's log says failed: the leaf's local apply, or a step of the tail after it. */
+const landedFailureText = (error: unknown): string =>
+  isLandedTailError(error) ? 'a post-submit step failed after the transaction landed' : 'local apply failed';
 
 /** The error a landed row's Failed write names: the tail's own, so its report and its copy read as they did before. */
 const landedFailureOf = (error: unknown): unknown => landedTailErrorIn(error)?.cause ?? error;
@@ -1584,97 +1584,38 @@ const requireBridgeSubmitClaim = async (transaction: ITransaction): Promise<void
 };
 
 /**
- * The landed verdict of a Guardian row whose submit resolved: one whose local apply then failed (the apply-after-submit
- * error, #1233), or whose post-submit tail threw (`LandedTailError`, PR #2183). False only for an apply-after-submit
- * error on a type with no landed verdict, which takes the Guardian catch's other arms.
+ * The only status verdict for a non-structural row whose submit already resolved, shared by the Guardian catch and
+ * the loop catch: its local apply failed, or its post-submit tail threw. The landed id is stamped before the row is
+ * read, and that stamp is not gated on the row still being queued, so a Cancel or the reaper that finalized it during
+ * the tail still leaves the id on the receipt. A missing row and a stored structural row stop after the stamp. A
+ * result-awaiting row (an earn deposit, or an Epoch bridged-send) records its collateral note and is failed, so the
+ * caller waiting on `resultBytes` stops; one that has already left the queue is not failed again. Every other stored
+ * row is Completed. `attemptId` is the attempt the catch picked the row with, which is what the cancel compares.
  */
-const settleLandedGuardianRow = async (
-  transaction: Transaction,
-  error: unknown,
-  guardianProvider: GuardianAccountProvider
-): Promise<boolean> => {
-  // A structural op whose submit landed and whose local apply then failed never ran its
-  // completion handler, so the vault hot pointer, the guardian registration or the cached
-  // threshold map is un-reconciled. Cancelling would strand the account. Run the
-  // finalization the happy path would, minus a threshold update's re-register (the local
-  // store still holds the pre-update account). Its tail never throws `LandedTailError`
-  // (`runLandedTail`), so only the apply-after-submit error reaches this arm.
-  if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
-    try {
-      await reconcileStructuralApplyFailure(transaction, guardianProvider, landedFactsOf(error));
-    } catch (reconcileError) {
-      console.error('Structural-op landed reconcile failed; cancelling (apply-after-submit)', reconcileError);
-      // A rotation or threshold update fails on the reconcile's verdict error; a switch only on the
-      // node's discard, as the direct path's discard does (#1233).
-      await cancelTransactionAfterPipelineStopped(
-        transaction,
-        transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
-          ? reconcileError
-          : error,
-        transaction.attemptId
-      );
+const settleLandedValueRow = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
+  await recordLandedTransactionId(txId, error);
+  const tx = await Repo.transactions.where({ id: txId }).first();
+  if (tx === undefined) return;
+  // A structural tail is left to the node's verdict, and an apply-after-submit on one is reconciled by the Guardian
+  // catch before it reaches here. A stored structural row has no status write on this path.
+  if (STRUCTURAL_GUARDIAN_TYPES.includes(tx.type)) return;
+  if (isResultAwaitingRow(tx)) {
+    console.warn(
+      `${tx.type} submitted but ${landedFailureText(error)} - marking Failed so the awaiting caller stops waiting:`,
+      error
+    );
+    await recordBridgeNoteLanded(tx.id);
+    if (!hasLeftQueue(tx)) {
+      await cancelTransactionAfterPipelineStopped(tx, landedFailureOf(error), attemptId);
     }
-    return true;
+    return;
   }
-  // Value-moving guardian op (consume/send/swap/execute) whose submit landed on
-  // chain but whose LOCAL apply or post-submit tail failed. The tx IS live - cancelling
-  // would leave it terminally Failed while the note is spent on chain (conservation loss),
-  // and verifyStuckTransactionsFromNode only scans in-progress rows so it can't
-  // recover a Failed one. Mirror generateTransactionsLoop's generic
-  // landed handler: mark Completed so the next sync
-  // reconciles the note state via ConsumedExternal.
-  //
-  // The result-awaiting exception among value-moving guardian ops
-  // (earn-deposit and EPOCH bridged-send): their callers read `resultBytes` /
-  // `outputNoteIds` back off the finished row, and a post-submit failure
-  // leaves no TransactionResult to repopulate them
-  // from. Marking the row Completed (as the branch below does
-  // for send/consume/swap/execute/agglayer bridged-send) would hang the awaiting
-  // Epoch flow forever; see the `isResultAwaitingRow` doc comment for the full
-  // mechanism. Fail the row instead so the caller resolves via its error branch.
-  // Mirrors generateTransactionsLoop's non-guardian guard; neither row can be
-  // blindly re-queued into a duplicate collateral note (both are excluded from
-  // `REQUEUEABLE_TYPES` - earn-deposit outright, bridged-send for the Epoch
-  // provider, which is the only provider that takes this collateral-note path).
-  // (The 409, 429, prover-outage and unreachable arms of the Guardian catch DO requeue an
-  // earn-deposit, with its bytes, but only on a pre-submit failure; a Failed row
-  // is terminal.)
-  if (isResultAwaitingRow(transaction)) {
-    console.warn(
-      `[Guardian] ${transaction.type} submitted but ${landedFailureText(error, 'post-submit reconcile failed')} - marking Failed so the awaiting caller stops waiting:`,
-      error
-    );
-    await recordBridgeNoteLanded(transaction.id);
-    await recordLandedTransactionId(transaction.id, error);
-    await cancelTransactionAfterPipelineStopped(transaction, landedFailureOf(error), transaction.attemptId);
-    return true;
-  }
-  // `bridged-send` is in this list too, and by the ordering above it can only
-  // be an Agglayer (Slow) row here - an Epoch one returned from the
-  // result-awaiting branch. Its B2AGG note is on chain, so it must be marked
-  // Completed like any other landed value-moving op; leaving it to fall through
-  // to `cancelTransaction` would hide the L1 claim UI on funds that already left
-  // the account (see the `isResultAwaitingRow` doc comment). A landed tail of any other type takes this verdict
-  // too, as the loop arm gives every type, so a `LandedTailError` never reaches the catch's requeue arms.
-  if (
-    isLandedTailError(error) ||
-    transaction.type === 'consume' ||
-    transaction.type === 'send' ||
-    transaction.type === 'swap' ||
-    transaction.type === 'execute' ||
-    transaction.type === 'bridged-send'
-  ) {
-    console.warn(
-      `[Guardian] submit landed but ${landedFailureText(error)} - marking Completed; sync will reconcile:`,
-      error
-    );
-    // From the stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there.
-    const written = await writeLandedCompleted(transaction.id, error);
-    if (written) reportLandedTail(written, error);
-    if (transaction.type === 'consume') await adoptLandedConsume(transaction.id);
-    return true;
-  }
-  return false;
+  console.warn(`A submit landed but ${landedFailureText(error)} - marking Completed; sync will reconcile:`, error);
+  // From the stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there. A row that
+  // has left the queue is left as it is, including the id stamped above.
+  const written = await writeLandedCompleted(txId, error);
+  if (written) reportLandedTail(written, error);
+  if (tx.type === 'consume') await adoptLandedConsume(tx.id);
 };
 
 export const generateTransaction = async (
@@ -1774,7 +1715,7 @@ const generateTransactionWithProvider = async (
       // and requeue arm below, each of which would requeue or fail a write the node already holds, and never reaches
       // them.
       if (isLandedTailError(error)) {
-        await settleLandedGuardianRow(transaction, error, guardianProvider);
+        await settleLandedValueRow(transaction.id, error, transaction.attemptId);
         return;
       }
       // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
@@ -1786,8 +1727,31 @@ const generateTransactionWithProvider = async (
       }
       // The leaf's landed shape (#1233): every leaf wraps a failure after its submit resolved in the apply-after-submit
       // error, so a canonicalization refusal here was raised before submit and must take the non-landed arms below.
-      if (isApplyAfterSubmitError(error) && (await settleLandedGuardianRow(transaction, error, guardianProvider)))
+      // A structural op never ran its completion handler, so the vault hot pointer, the guardian registration or the
+      // cached threshold map is un-reconciled. Cancelling would strand the account. Run the finalization the happy
+      // path would, minus a threshold update's re-register (the local store still holds the pre-update account). Its
+      // tail never throws `LandedTailError` (`runLandedTail`), so only the apply-after-submit error reaches this arm.
+      if (isApplyAfterSubmitError(error)) {
+        if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
+          try {
+            await reconcileStructuralApplyFailure(transaction, guardianProvider, landedFactsOf(error));
+          } catch (reconcileError) {
+            console.error('Structural-op landed reconcile failed; cancelling (apply-after-submit)', reconcileError);
+            // A rotation or threshold update fails on the reconcile's verdict error; a switch only on the
+            // node's discard, as the direct path's discard does (#1233).
+            await cancelTransactionAfterPipelineStopped(
+              transaction,
+              transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
+                ? reconcileError
+                : error,
+              transaction.attemptId
+            );
+          }
+          return;
+        }
+        await settleLandedValueRow(transaction.id, error, transaction.attemptId);
         return;
+      }
       // An offscreen wedge-kill (deadline / `closeDocument`) surfaces as a
       // retryable OperationAbortedError (issue #260). It is NOT special-cased here:
       // it falls through to `cancelTransaction` → Failed, exactly like the proven
@@ -5068,56 +5032,6 @@ const generateGuardianTransaction = async (
   });
 };
 
-/**
- * The landed verdict of a non-Guardian row whose submit resolved: one whose local apply then failed (the
- * apply-after-submit error, #1233), or whose post-submit tail threw (`LandedTailError`, PR #2183).
- */
-const settleLandedLoopRow = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
-  const tx = await Repo.transactions.where({ id: txId }).first();
-
-  // Result-awaiting rows (earn-deposit, EPOCH bridged-send) must NOT be marked
-  // Completed here: their callers read `resultBytes`/`outputNoteIds` back off
-  // the completed row and this generic post-submit path has no
-  // `TransactionResult` to repopulate them from (the apply threw before we could
-  // capture it). See the `isResultAwaitingRow` doc comment. Fail the row instead
-  // so the caller resolves via the error branch and gives up cleanly; the
-  // landed P2IDE collateral note is recorded so the activity row offers Reclaim
-  // funds at its recall height, and neither is blindly re-queued into a
-  // duplicate collateral note. An AGGLAYER `bridged-send` is deliberately NOT in
-  // this branch - nothing awaits it, its note is on chain, and failing it would
-  // hide the L1 claim UI.
-  if (tx && isResultAwaitingRow(tx)) {
-    logger.warning(
-      `${tx.type} submitted but ${landedFailureText(error)}; marking Failed so the awaiting caller stops waiting`
-    );
-    await recordBridgeNoteLanded(tx.id);
-    if (!hasLeftQueue(tx)) {
-      await recordLandedTransactionId(tx.id, error);
-      await cancelTransactionAfterPipelineStopped(tx, landedFailureOf(error), attemptId);
-    }
-    return;
-  }
-
-  logger.warning(`Transaction submitted but ${landedFailureText(error)}; marking Completed, sync will reconcile`);
-  // Guardian ops never reach here: they route through the guardian branch of
-  // `generateTransaction`, whose own catch handles apply-after-submit: Failed for the
-  // result-awaiting ops (earn-deposit, Epoch bridged-send), Completed for the other
-  // value-moving ops, and `reconcileStructuralApplyFailure` for the three structural
-  // ops. This generic path covers the non-guardian ops the guard above leaves (send,
-  // consume, swap, execute and Agglayer bridged-send), whose note states, if any, the
-  // next sync reconciles via ConsumedExternal.
-  //
-  // A private send's note, or an execute's private notes, that no relay acknowledged are labelled undelivered, and a
-  // delivery already recorded as relayed is kept (`landedValueRowFields`, which every landed writer shares so none can
-  // disagree about one landed row).
-  // A row a concurrent writer finalized is skipped: it already has a terminal state, and a throw here would leave the
-  // loop's own catch.
-  const written = await writeLandedCompleted(txId, error);
-  if (written === undefined) return;
-  reportLandedTail(written, error);
-  if (written.type === 'consume') await adoptLandedConsume(written.id);
-};
-
 export const generateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
@@ -5224,7 +5138,7 @@ export const generateTransactionsLoop = async (
     // arms below, each of which would requeue or fail a write the node already holds, and a Failed row's Retry would
     // submit it again.
     if (isLandedTailError(e)) {
-      await settleLandedLoopRow(nextTransaction.id, e, nextTransaction.attemptId);
+      await settleLandedValueRow(nextTransaction.id, e, nextTransaction.attemptId);
       return false;
     }
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
@@ -5331,7 +5245,7 @@ export const generateTransactionsLoop = async (
     // ConsumedExternal. Retrying would hit the node's nullifier check
     // and produce a misleading "already consumed" error.
     if (isApplyAfterSubmitError(e)) {
-      await settleLandedLoopRow(nextTransaction.id, e, nextTransaction.attemptId);
+      await settleLandedValueRow(nextTransaction.id, e, nextTransaction.attemptId);
       return false;
     }
 
