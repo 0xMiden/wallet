@@ -12,6 +12,7 @@
 import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+import { installLandedTrapRetirement } from 'lib/miden/sdk/landed-trap-retirement';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { captureCrash } from 'lib/telemetry/crash';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
@@ -144,7 +145,7 @@ jest.mock('../sdk/miden-client', () => {
     },
     getCurrentWasmLockHold: () => gapsHold,
     // The shared post-await re-check (#788 follow-up). Re-implements the
-    // comparison against THIS mock's current hold — a no-op stub here would make
+    // comparison against THIS mock's current hold - a no-op stub here would make
     // the request-build eviction tests below vacuously green.
     assertWasmHoldCurrent: (hold: object | null, where: string) => {
       if (hold !== null && gapsHold === hold) return;
@@ -193,7 +194,7 @@ jest.mock('../helpers', () => ({
 }));
 
 // The guardian request builders read the caller's Account (a borrow of the
-// shared client) — the eviction tests below assert they are never reached past
+// shared client) - the eviction tests below assert they are never reached past
 // an eviction. Hoisted `var`s: the jest.mock factory runs before const/let inits.
 // eslint-disable-next-line no-var
 var mockGapsBuildSendRequest = jest.fn((): { serialize: () => Uint8Array } => ({
@@ -380,12 +381,12 @@ const runLoopWithFailingSend = async (makeError: () => unknown = applyAfterSubmi
 };
 
 describe('apply-after-submit on a private send', () => {
-  // "Submit landed, local apply threw." The row must stay Completed — the
-  // transaction is on chain and re-queueing it would spend again — but for a
+  // "Submit landed, local apply threw." The row must stay Completed - the
+  // transaction is on chain and re-queueing it would spend again - but for a
   // PRIVATE send that verdict hides a second fact the row cannot otherwise express:
   // the apply threw before `completeSendTransaction` ran, and that is the only code
   // that hands the note to the transport. So the note was never relayed, and no
-  // amount of syncing fixes it — sync reconciles what the chain knows, and the chain
+  // amount of syncing fixes it - sync reconciles what the chain knows, and the chain
   // holds a commitment, not the note body the recipient needs.
   it('marks a private send Completed but records the note as undelivered', async () => {
     txStore.push({
@@ -404,7 +405,7 @@ describe('apply-after-submit on a private send', () => {
 
     await runLoopWithFailingSend();
 
-    // Completed, because the transaction really did land — Failed would offer a
+    // Completed, because the transaction really did land - Failed would offer a
     // Retry that spends a second time.
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     // ...but not as an unqualified success.
@@ -581,8 +582,8 @@ describe('completeCustomTransaction private-note delivery', () => {
 
   it('waits for the commit ONCE for a transaction carrying several private notes', async () => {
     // The wait used to sit inside the per-note loop, so note N+1's relay waited out
-    // note N's commit — a full commit interval of extra exposure per note, in which a
-    // realm teardown loses the remaining relays — and re-asked the same question about
+    // note N's commit - a full commit interval of extra exposure per note, in which a
+    // realm teardown loses the remaining relays - and re-asked the same question about
     // the same transaction id each time.
     txStore.push({
       id: 'tx-multi',
@@ -834,7 +835,7 @@ describe('a custom transaction that strands a private note says so', () => {
       errSpy.mockRestore();
     }
 
-    // On chain, so Completed — failing it would be untrue and would offer a Retry
+    // On chain, so Completed - failing it would be untrue and would offer a Retry
     // that spends the assets a second time.
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Completed - a private note could not be delivered');
@@ -906,7 +907,7 @@ describe('a custom transaction that strands a private note says so', () => {
       errSpy.mockRestore();
     }
 
-    // Completed, because the transaction really is on chain — Failed would offer a
+    // Completed, because the transaction really is on chain - Failed would offer a
     // Retry that spends a second time.
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toContain('could not be delivered');
@@ -1010,7 +1011,7 @@ describe('generateTransactionsLoop early returns', () => {
 
   it('still picks up a queued transaction when the note-import pass throws (#777)', async () => {
     // The whole pipeline funnels through this one loop, so aborting the lap on an
-    // import failure stops every send, swap and claim in the wallet — and an
+    // import failure stops every send, swap and claim in the wallet - and an
     // eviction abandons the import hold, so nothing about the queue changes and the
     // next lap fails the same way. The dependent consume is the smaller loss: it is
     // marked Failed with nothing submitted, the note stays claimable, and a later
@@ -1054,7 +1055,7 @@ describe('waitForConsumeTx timeout', () => {
     jest.useFakeTimers();
     try {
       // Push a queued (non-terminal) row so the subscriber sees it but doesn't
-      // resolve/reject — only the timeout path can win.
+      // resolve/reject - only the timeout path can win.
       txStore.push({ id: 'tx-pending', status: ITransactionStatus.Queued });
       const promise = waitForConsumeTx('tx-pending');
       // Catch the rejection synchronously so the unhandled-rejection guard
@@ -1092,6 +1093,40 @@ describe('waitForTransactionCompletion', () => {
       txHash: 'on-chain-hash',
       outputNotes: [Buffer.from([0x01, 0x02]).toString('base64')]
     });
+  });
+
+  it('retires once for a landed row whose every decoded result traps in its fee-rate read, however often it is awaited', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    // The waiter decodes the stored bytes again on every call, so each call reads a new result and traps anew.
+    mockTransactionResultDeserialize.mockImplementation(() => ({
+      executedTransaction: () => ({
+        blockHeader: () => {
+          throw new WebAssembly.RuntimeError('unreachable');
+        },
+        outputNotes: () => ({ notes: () => [] })
+      })
+    }));
+    try {
+      txStore.push({
+        id: 'tx-trapped',
+        status: ITransactionStatus.Completed,
+        transactionId: 'landed-hash',
+        resultBytes: new Uint8Array([9])
+      });
+      await expect(waitForTransactionCompletion('tx-trapped')).resolves.toEqual({
+        txHash: 'landed-hash',
+        outputNotes: []
+      });
+      await expect(waitForTransactionCompletion('tx-trapped')).resolves.toEqual({
+        txHash: 'landed-hash',
+        outputNotes: []
+      });
+      expect(retire.mock.calls).toEqual([[expect.any(WebAssembly.RuntimeError), 'tx-trapped']]);
+    } finally {
+      restore();
+      mockTransactionResultDeserialize.mockReset();
+    }
   });
 
   it('resolves with timed-out errorMessage when the timer fires before completion', async () => {
@@ -1151,7 +1186,7 @@ describe('safeGenerateTransactionsLoop', () => {
       if (typeof arg === 'object' && arg.id === 'fail-stage') {
         triggered++;
         // First .modify() call (setTransactionStage from generateTransaction)
-        // throws synchronously — generateTransaction throws, generateTransactionsLoop
+        // throws synchronously - generateTransaction throws, generateTransactionsLoop
         // catches, returns false. After the first throw allow normal behaviour
         // so the loop's own cancelTransaction call can still mark the row Failed.
         if (triggered === 1) {
@@ -1178,7 +1213,7 @@ describe('safeGenerateTransactionsLoop', () => {
 describe('startBackgroundTransactionProcessing', () => {
   it('iterates the loop with a 5s wait when there are still uncompleted transactions', async () => {
     jest.useFakeTimers();
-    // Make navigator.locks always unavailable on this test — safeGenerateTransactionsLoop
+    // Make navigator.locks always unavailable on this test - safeGenerateTransactionsLoop
     // returns undefined and the queued row stays Queued, so hasMore stays true on the
     // first iteration and the 5s setTimeout fires.
     const nav = (globalThis as any).navigator || {};
@@ -1262,7 +1297,7 @@ describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
       noteId: 'note-bad',
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 1,
-      // FRESH — still well inside MIN_PROCESSING_TIME_BEFORE_STUCK (60s). An Invalid
+      // FRESH - still well inside MIN_PROCESSING_TIME_BEFORE_STUCK (60s). An Invalid
       // note can NEVER be consumed, so the reaper must fail it immediately with the
       // specific reason rather than wait out the grace window like a 'not-landed'
       // note (W1: restores the fast-fail the #3a refactor collapsed into 'not-landed').
@@ -1292,7 +1327,7 @@ describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
       noteId: 'note-unv',
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 1,
-      // 2 minutes ago — comfortably beyond MIN_PROCESSING_TIME_BEFORE_STUCK (60s).
+      // 2 minutes ago - comfortably beyond MIN_PROCESSING_TIME_BEFORE_STUCK (60s).
       processingStartedAt: Math.floor(Date.now() / 1000) - 120
     });
     const sdk = require('../sdk/miden-client');
@@ -1339,9 +1374,9 @@ describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
 // asks the node (via verifyConsumeLanded) whether the input note landed as
 // consumed: only 'landed-local' (a note consumed by THIS client's own tracked tx,
 // provably mine) → Completed (the note WAS claimed). 'landed-external'
-// (ConsumedExternal — consumed but NOT provably mine, e.g. a reclaimable P2IDE the
+// (ConsumedExternal - consumed but NOT provably mine, e.g. a reclaimable P2IDE the
 // sender reclaimed), 'not-landed', 'invalid', and 'unknown' → the funds-safe Failed.
-// A false 'Received' is impossible — only a LOCAL consumed state completes the row.
+// A false 'Received' is impossible - only a LOCAL consumed state completes the row.
 describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', () => {
   const stubProvider: any = { getGuardianClient: async () => null };
   const dummySign = jest.fn(async () => new Uint8Array([1]));
@@ -1423,7 +1458,7 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
 
   it('a lock-recovery (WasmClientPoisonedError) kill rides the same node adjudication: LOCAL-consumed → Completed', async () => {
     // Issue #775: a watchdog/trap eviction abandons the pipeline exactly like an
-    // offscreen deadline kill does — the outcome is unknown, so the killed
+    // offscreen deadline kill does - the outcome is unknown, so the killed
     // consume must be node-verified, not blindly Failed while the note IS
     // consumed on chain.
     const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
@@ -1450,7 +1485,7 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     ['the pre-flight sync itself is killed', deadlineKill, true, 1],
     ['the consume is killed after pickup', watchdogKill, false, 2]
   ])(
-    're-syncs before adjudicating only when the sync was not what died — %s (#777)',
+    're-syncs before adjudicating only when the sync was not what died - %s (#777)',
     async (_label, kill, killDuringSync, expectedSyncs) => {
       // The adjudication normally opens with a fresh sync so the note state is
       // current. When the thing that just died IS the pre-flight sync, that fresh
@@ -1485,7 +1520,7 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       // 1 = the pre-flight sync only (the adjudication skipped its own);
       // 2 = pre-flight plus the adjudication's.
       expect(syncState).toHaveBeenCalledTimes(expectedSyncs);
-      // Either way the row is still adjudicated — skipping the sync must not skip
+      // Either way the row is still adjudicated - skipping the sync must not skip
       // the read.
       expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Completed);
     }
@@ -1537,7 +1572,7 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
 
   it('node reports the note ConsumedExternal (NOT provably mine) → funds-safe Failed, never a false Received', async () => {
     // ConsumedExternal = nullifier on chain but the consuming tx was not this
-    // client's — for a reclaimable P2IDE the SENDER may have reclaimed it. Marking
+    // client's - for a reclaimable P2IDE the SENDER may have reclaimed it. Marking
     // this Received would tell the user they got funds a third party actually took,
     // so the killed-consume path must fail it (funds-safe: a re-consume harmlessly
     // collides on the nullifier and the next sync reconciles).
@@ -1554,7 +1589,7 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
   });
 
   // FUNDS-2: the two Processing* states mean our consuming tx WAS submitted and
-  // applied locally — the opposite of "not consumed". They used to fall through
+  // applied locally - the opposite of "not consumed". They used to fall through
   // verifyConsumeLanded's catch-all to 'not-landed', so a killed consume whose
   // claim had already reached the node was terminal-failed.
   it.each(['ProcessingAuthenticated', 'ProcessingUnauthenticated'])(
@@ -1567,7 +1602,7 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
         const row = txStore.find(r => r.id === `nk-${noteState}`)!;
         expect(row.status).toBe(ITransactionStatus.GeneratingTransaction);
         expect(row.status).not.toBe(ITransactionStatus.Failed);
-        // Not completed either — the block is not committed yet.
+        // Not completed either - the block is not committed yet.
         expect(row.displayMessage).not.toBe('Received');
       } finally {
         restore();
@@ -1725,7 +1760,7 @@ describe('generateTransaction execute + consume default switch arms', () => {
       initiatedAt: 1
     });
     // Build a TransactionResult-like object that completeConsumeTransaction
-    // can fully consume — input notes with sender/metadata/fungible-assets.
+    // can fully consume - input notes with sender/metadata/fungible-assets.
     const fullResult = {
       executedTransaction: () => ({
         id: () => ({ toHex: () => 'guardian-consume-hash' }),
@@ -1846,7 +1881,7 @@ describe('generateTransaction execute + consume default switch arms', () => {
 describe('guardian request-build holds stop at an eviction (#788 follow-up)', () => {
   // An evicted hold ABANDONS the callback rather than cancelling it: the mutex
   // belongs to a successor the instant the watchdog fires, so the build's next
-  // WASM call — including reads on an Account borrowed earlier — would be a
+  // WASM call - including reads on an Account borrowed earlier - would be a
   // second borrow of a client somebody else is inside. Every site driven here is
   // provably pre-submit (nothing has even been proposed yet), so stopping is
   // funds-safe by construction.
@@ -1947,7 +1982,7 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
         await generateTransaction(row, jest.fn(), false, provider as any);
       }
     );
-    // The returned Account is a borrow of the client a successor now owns —
+    // The returned Account is a borrow of the client a successor now owns -
     // the request build reads its vault, so it must never run.
     expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();
     expect(service.createCustomProposal).not.toHaveBeenCalled();
