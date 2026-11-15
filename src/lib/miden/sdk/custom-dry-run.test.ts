@@ -10,7 +10,10 @@ import { dryRunRequest } from './dry-run-request';
 import type { WasmLockHold } from './miden-client';
 import { WasmClientPoisonedError } from './wasm-client-poison';
 
-jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ TransactionRequest: { deserialize: () => ({}) } }));
+const mockDeserialize = jest.fn((_bytes: Uint8Array) => ({}));
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  TransactionRequest: { deserialize: (bytes: Uint8Array) => mockDeserialize(bytes) }
+}));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({ executeForSummaryAtTip: jest.fn() }));
 jest.mock('lib/miden/sdk/miden-client', () => ({ assertWasmHoldCurrent: jest.fn() }));
 jest.mock('lib/miden/sdk/custom-request', () => ({ prepareCustomRequestBytes: jest.fn() }));
@@ -62,6 +65,11 @@ it('dryRunRequest prepares the request and runs the custom dry run on the prepar
 
   await expect(dryRunRequest(wrapped, '0xaccount', requestBytes, hold)).resolves.toEqual({ executedBytes: 'b64:1' });
   expect(prepareCustomRequestBytes).toHaveBeenCalledWith(client, '0xaccount', requestBytes, hold);
+  // The summary and the local fallback each deserialize the prepared bytes themselves, never the caller's.
+  expect(mockDeserialize).toHaveBeenCalledTimes(2);
+  const [summaryCall, fallbackCall] = mockDeserialize.mock.calls;
+  expect(summaryCall?.[0]).toBe(prepared);
+  expect(fallbackCall?.[0]).toBe(prepared);
   expect(jest.mocked(assertWasmHoldCurrent).mock.calls.map(call => call[1])).toEqual([
     'before the dry run',
     'after the dry run request preparation',
