@@ -1803,6 +1803,75 @@ describe('generateTransaction - Guardian routing', () => {
     expect(multisigService.sync).toHaveBeenCalled();
   });
 
+  // The Guardian send above, with the client handed in, so a test can make its leaf or its result trap.
+  const runGuardianSend = async (txId: string, client: ReturnType<typeof makeClientApi>) => {
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+    return txStore.find(r => r.id === txId)!;
+  };
+
+  // The landed boundary starts after the leaf resolves: one that started inside it would retire this trap as landed.
+  it('Guardian send: a trap the leaf throws before its submit retires nothing under the landed rule', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const client = makeClientApi(makeResult());
+    client.transactions.executeRequest.mockRejectedValueOnce(trap);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const row = await runGuardianSend('send-guardian-presubmit-trap', client);
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(retire).not.toHaveBeenCalled();
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Failed,
+        displayMessage: 'Failed',
+        error: 'RuntimeError: unreachable'
+      });
+      expect(row.transactionId).toBeUndefined();
+      expect(row.mayHaveSubmitted).toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
   const arrangeTipSend = (blockNumbers = [42], syncHeight = 100) => {
     const txId = 'send-guardian-tip';
     txStore.push({

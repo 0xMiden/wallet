@@ -381,6 +381,42 @@ const runLoopWithFailingSend = async (makeError: () => unknown = applyAfterSubmi
   }
 };
 
+// The landed boundary starts after the write resolves: one that started inside the write would retire this trap as a
+// landed one.
+describe('a trap the write throws before its submit resolves', () => {
+  it('retires nothing under the landed rule and leaves the row as it fails today', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    txStore.push({
+      id: 'tx-presubmit-trap',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await runLoopWithFailingSend(() => trap);
+      expect(retire).not.toHaveBeenCalled();
+      expect(txStore[0]).toMatchObject({
+        status: ITransactionStatus.Failed,
+        displayMessage: 'Failed',
+        error: 'RuntimeError: unreachable'
+      });
+      expect(txStore[0]!.transactionId).toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+});
+
 describe('apply-after-submit on a private send', () => {
   // "Submit landed, local apply threw." The row must stay Completed - the
   // transaction is on chain and re-queueing it would spend again - but for a
