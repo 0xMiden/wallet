@@ -1581,8 +1581,8 @@ const requireBridgeSubmitClaim = async (transaction: ITransaction): Promise<void
 
 /**
  * The landed verdict of a Guardian row whose submit resolved: one whose local apply then failed (the apply-after-submit
- * error, #1233), or whose post-submit tail threw (`LandedTailError`, PR #2183). False for a type with no landed verdict,
- * which takes the Guardian catch's other arms.
+ * error, #1233), or whose post-submit tail threw (`LandedTailError`, PR #2183). False only for an apply-after-submit
+ * error on a type with no landed verdict, which takes the Guardian catch's other arms.
  */
 const settleLandedGuardianRow = async (
   transaction: Transaction,
@@ -1650,8 +1650,10 @@ const settleLandedGuardianRow = async (
   // result-awaiting branch. Its B2AGG note is on chain, so it must be marked
   // Completed like any other landed value-moving op; leaving it to fall through
   // to `cancelTransaction` would hide the L1 claim UI on funds that already left
-  // the account (see the `isResultAwaitingRow` doc comment).
+  // the account (see the `isResultAwaitingRow` doc comment). A landed tail of any other type takes this verdict
+  // too, as the loop arm gives every type, so a `LandedTailError` never reaches the catch's requeue arms.
   if (
+    isLandedTailError(error) ||
     transaction.type === 'consume' ||
     transaction.type === 'send' ||
     transaction.type === 'swap' ||
@@ -1762,8 +1764,12 @@ const generateTransactionWithProvider = async (
       );
     } catch (error) {
       // A throw after the leaf resolved is a landed row (PR #2183). It is settled before the locked arm and every kill
-      // and requeue arm below, each of which would requeue or fail a write the node already holds.
-      if (isLandedTailError(error) && (await settleLandedGuardianRow(transaction, error, guardianProvider))) return;
+      // and requeue arm below, each of which would requeue or fail a write the node already holds, and never reaches
+      // them.
+      if (isLandedTailError(error)) {
+        await settleLandedGuardianRow(transaction, error, guardianProvider);
+        return;
+      }
       // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
       // don't cancel. Re-throw so generateTransactionsLoop's locked-requeue path
       // leaves the tx Queued for retry after unlock instead of marking it Failed
