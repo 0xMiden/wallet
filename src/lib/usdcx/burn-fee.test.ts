@@ -26,6 +26,8 @@ const mockLock = {
   holds: [] as object[],
   options: [] as unknown[]
 };
+// Every trap that rejected a hold's callback: the real lock retires the client for exactly these.
+const trapsFromTheHold: unknown[] = [];
 async function mockWithWasmClientLock<T>(operation: (hold: object) => Promise<T>, options?: unknown): Promise<T> {
   mockLock.options.push(options);
   const previous = mockLock.tail;
@@ -38,6 +40,9 @@ async function mockWithWasmClientLock<T>(operation: (hold: object) => Promise<T>
   mockLock.holds.push(hold);
   try {
     return await operation(hold);
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) trapsFromTheHold.push(error);
+    throw error;
   } finally {
     release();
   }
@@ -106,6 +111,7 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     mockLock.tail = Promise.resolve();
     mockLock.holds = [];
     mockLock.options = [];
+    trapsFromTheHold.length = 0;
     mockInlineRealm = true;
     mockInitBridgeConfig.mockResolvedValue(undefined);
     mockNativeAsset.mockResolvedValue(NATIVE);
@@ -134,6 +140,7 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       expect(mockDryRun).toHaveBeenCalledTimes(1);
       expect(mockDryRun).toHaveBeenCalledWith('hex:mm1sender', REQUEST_BYTES, mockLock.holds[0]);
       expect(mockView).toHaveBeenCalledWith({ executedBytes: 'executed' });
+      expect(mockView).toHaveBeenCalledTimes(1);
       expect(mockProxySyncState).not.toHaveBeenCalled();
       expect(mockGetMidenClient).not.toHaveBeenCalled();
       // The dry run's deadline starts once the lock is held: inline it is the hold's own ceiling, offscreen the
@@ -182,6 +189,7 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     await jest.advanceTimersByTimeAsync(0);
     expect(mockLock.holds).toHaveLength(1);
     expect(mockDryRun).not.toHaveBeenCalled();
+    expect(mockView).not.toHaveBeenCalled();
     expect(mockSimulate).not.toHaveBeenCalled();
   });
 
@@ -283,6 +291,19 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     mockDryRun.mockRejectedValue(trap);
 
     await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).rejects.toBe(trap);
+    expect(trapsFromTheHold).toEqual([trap]);
+  });
+
+  it('a trap from decoding the dry run rejects the hold and is rethrown', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockView.mockImplementation(() => {
+      throw trap;
+    });
+
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).rejects.toBe(trap);
+    // The decode's fee checks rethrow a trap, so it must reach the lock that retires the client.
+    expect(trapsFromTheHold).toEqual([trap]);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('answers failed, through its guard, when the dry run gives nothing to decode', async () => {
