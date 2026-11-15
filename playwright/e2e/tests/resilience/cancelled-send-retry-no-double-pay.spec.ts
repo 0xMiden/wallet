@@ -28,14 +28,15 @@ import { armRecallBlocks } from '../../helpers/recall';
  * terminal: the `setStage('submitting')` that would have recorded the broadcast,
  * and the completion write that would have captured the transaction id. The row
  * is left frozen at whichever PRE-submit stage it held when the cancel landed,
- * with no id — and Retry reads exactly those two facts as proof that nothing was
+ * with no id - and Retry reads exactly those two facts as proof that nothing was
  * broadcast. It drops the cached `requestBytes`, the rebuilt request draws a
  * fresh note serial, and the chain has no reason to reject it. The recipient is
  * paid a second time.
  *
- * The cached bytes are the whole defence: they pin the note serial, and the note
- * id derived from that serial is the ONLY reason a duplicate submit is rejected.
- * `markMayHaveSubmitted` is what preserves them — a sticky flag the leaf stamps
+ * Retry asks before it replays a send that may have submitted, and the cached
+ * bytes pin the note serial, whose note id is what lets the node reject a
+ * duplicate submit while the first copy is in flight.
+ * `markMayHaveSubmitted` is what preserves them - a sticky flag the leaf stamps
  * before broadcasting, deliberately exempt from the terminal-row guard that
  * suppresses the stage write.
  *
@@ -60,7 +61,7 @@ import { armRecallBlocks } from '../../helpers/recall';
  * The shape is nonetheless a deliberate composite rather than a transcript of
  * one production row: it carries the reaper's reason at the INLINE pipeline's
  * stage. A real reaper cancel caught at 'proving' would not persist that string
- * — `cancelTransaction` passes an error through verbatim only for the user
+ * - `cancelTransaction` passes an error through verbatim only for the user
  * cancel and the startup interruption, and routes everything else through
  * `resolveTransactionErrorMessage`, which rewrites at 'proving'. So the stuck
  * reason arrives there as the prover-failed copy, demoted to `rawError`. (It
@@ -75,7 +76,7 @@ import { armRecallBlocks } from '../../helpers/recall';
  *     deliberately not. At 'sending' the `!failedPreSubmit` disjunct makes
  *     `submitPossible` true on its own, the cached bytes survive with or
  *     without the crossing stamp, and the first falsifiability claim below
- *     would quietly stop holding — removing the stamp would no longer produce a
+ *     would quietly stop holding - removing the stamp would no longer produce a
  *     double payment.
  *
  * `verifySendLanded` returns `'unknown'` precisely when the row carries no
@@ -105,7 +106,7 @@ import { armRecallBlocks } from '../../helpers/recall';
  *
  * Falsifiability, in both directions:
  *   - Remove the leaf's crossing stamp and the flag is absent, Retry drops the
- *     bytes, a fresh serial is drawn and B is credited TWICE — the balance
+ *     bytes, a fresh serial is drawn and B is credited TWICE - the balance
  *     assertion goes red.
  *   - If Retry silently did nothing at all, B would trivially stay at one
  *     payment and this spec would be a false green, so it also asserts the row
@@ -119,7 +120,7 @@ const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
 const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
 
 // Long enough that the note stays un-reclaimable for the whole run on either
-// block cadence — this spec is about duplicate payment, and a window that
+// block cadence - this spec is about duplicate payment, and a window that
 // expired mid-run would let a recall confuse the balance it asserts on.
 const RECALL_BLOCKS = 100_000;
 
@@ -174,7 +175,7 @@ type DexieConstructor = new (databaseName: string) => {
 };
 
 /**
- * Rewrite a landed send into the row a mid-flight cancel leaves behind — the
+ * Rewrite a landed send into the row a mid-flight cancel leaves behind - the
  * stuck-row reaper's, whose error string leaves Retry reachable (see the
  * header, which also covers why this pairing is a composite).
  *
@@ -183,7 +184,7 @@ type DexieConstructor = new (databaseName: string) => {
  * completion evidence (`transactionId`, `outputNoteIds`, `completedAt`) that was
  * never captured because the completion write threw. `requestBytes` and
  * `mayHaveSubmitted` are deliberately left EXACTLY as the real pipeline wrote
- * them — they are the subject of the test, and planting them would be assuming
+ * them - they are the subject of the test, and planting them would be assuming
  * the answer.
  *
  * Two things a real reaper cancel also does are left out.
@@ -196,7 +197,7 @@ type DexieConstructor = new (databaseName: string) => {
  * on this run only because `mayHaveSubmitted` short-circuits the `submitPossible`
  * disjunction ahead of it; strip the crossing stamp, as the first falsifiability
  * claim below does, and a live marker would be reached, keep the cached bytes on
- * its own and produce no double payment — the mutation would stop killing the
+ * its own and produce no double payment - the mutation would stop killing the
  * test. Omitting it plants the same verdict an expired stamp gives
  * (`pipelineMayStillBeRunning` is false for both), i.e. a user retrying after
  * the window has passed.
@@ -222,7 +223,7 @@ async function plantCancelledMidFlightShape(page: import('@playwright/test').Pag
         // Frozen mid-prove: `setTransactionStage` refused to advance it once the
         // cancel made the row terminal.
         row.stage = 'proving';
-        // Never captured — `updateTransactionStatus` threw on the terminal row.
+        // Never captured - `updateTransactionStatus` threw on the terminal row.
         delete row.transactionId;
         delete row.outputNoteIds;
         delete row.completedAt;
@@ -241,7 +242,7 @@ async function plantCancelledMidFlightShape(page: import('@playwright/test').Pag
   }
 }
 
-test.describe('infra resilience — a cancelled send is not paid twice on retry', () => {
+test.describe('infra resilience - a cancelled send is not paid twice on retry', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('retrying a send that was cancelled after it broadcast credits the recipient exactly once', async ({
@@ -287,7 +288,7 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
     await steps.step(
       'recallable_send_that_really_lands',
       async () => {
-        // Recallable, because a plain send never caches `requestBytes` — the
+        // Recallable, because a plain send never caches `requestBytes` - the
         // guardian recallable path is the only send that has anything to protect
         // (`ensureGuardianRecallableSendRequestBytes`). `claimAllNotes` reloads
         // the page, so this must be armed after it.
@@ -335,7 +336,7 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
       const guard = await readGuardFields(walletA.page, sendRowId);
       expect(
         guard.mayHaveSubmitted,
-        'the guardian leaf must stamp mayHaveSubmitted before it submits — without it, Retry has nothing to ' +
+        'the guardian leaf must stamp mayHaveSubmitted before it submits - without it, Retry has nothing to ' +
           'distinguish a broadcast send from one that died while proving'
       ).toBe(true);
       expect(guard.hasRequestBytes, 'a recallable send must cache the requestBytes that pin its note serial').toBe(
@@ -363,28 +364,33 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
         const retryButton = walletA.page.getByTestId('history-retry-button');
         await retryButton.waitFor({ state: 'visible', timeout: 60_000 });
         await retryButton.click({ timeout: 30_000 });
+        // The row left the queue and recorded its crossing, so Retry asks first and the user answers Retry anyway.
+        const retryAnywayButton = walletA.page.getByTestId('history-retry-anyway-button');
+        await retryAnywayButton.waitFor({ state: 'visible', timeout: 30_000 });
+        await retryAnywayButton.click({ timeout: 30_000 });
 
         // Falsifiability: a Retry that threw or no-opped would leave B at one
         // payment for reasons that have nothing to do with the guard. The row
         // must actually be picked back up. (`requeueFailedTransaction` used to
-        // throw here for a DIFFERENT reason — its landed-verdict branch called
-        // `updateTransactionStatus` on the Failed row it is defined over — which
+        // throw here for a DIFFERENT reason - its landed-verdict branch called
+        // `updateTransactionStatus` on the Failed row it is defined over - which
         // is why the error surface is asserted too.)
         await expect(
           walletA.page.getByTestId('history-retry-error'),
           'Retry reported an error instead of requeueing the row'
         ).toHaveCount(0, { timeout: 15_000 });
 
-        // Either Queued or GeneratingTransaction — which one is caught depends on
+        // Either Queued or GeneratingTransaction - which one is caught depends on
         // how fast the loop picks it up, and the point is only that it left the
         // terminal state the plant put it in.
         await waitForTransactionRow(walletA.page, sendRowId, row => row !== null && row.status !== TxStatus.Failed, {
-          what: 'the retried row to leave Failed — if it never does, this spec proves nothing about the guard',
+          what: 'the retried row to leave Failed - if it never does, this spec proves nothing about the guard',
           timeoutMs: 60_000
         });
 
         // THE ASSERTION. The resubmit reuses the cached request, so the note id
-        // is the one already on chain and the node rejects the duplicate. B is
+        // is the one already on chain, which the node rejects as a duplicate
+        // while the first copy is in flight. B is
         // never credited a second time. Sampled across the window rather than
         // read once at the end, so a second note that lands and is then
         // reclaimed still trips it.

@@ -2503,8 +2503,9 @@ const consumeServiceFor = async (
  * The P2IDE note's serial number is random, so the request must be built ONCE and
  * the SAME bytes reused for both `createCustomProposal` and
  * `signAndCreateTransactionRequest` - persisted on the row so a retry after a
- * restart reuses them, which is also what makes a duplicate submit rejectable
- * (the reused serial pins the note id). A retry only rebuilds them when the row
+ * restart reuses them, which is also what lets the node reject a duplicate submit
+ * while the first copy is in flight (the reused serial pins the note id); Retry asks
+ * before it replays them. A retry only rebuilds them when the row
  * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. `recallBlocks` is a RELATIVE
  * blocks-until-recall offset, converted to an absolute reclaim height here
  * (`syncHeight + recallBlocks`) - the guardian-path counterpart of the

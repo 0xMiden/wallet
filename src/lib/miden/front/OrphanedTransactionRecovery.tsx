@@ -29,13 +29,13 @@ export function __resetColdStartSweepForTests(): void {
  * uncompleted row exists.
  *
  * Off-extension there is no service worker, and until this component existed nothing
- * played that role. `generateTransactionsLoop` — the only other caller of
- * `cancelStuckTransactions()` — has to be driven by something, and the two managers
+ * played that role. `generateTransactionsLoop` - the only other caller of
+ * `cancelStuckTransactions()` - has to be driven by something, and the two managers
  * that ARE always mounted both bail before touching it: `NativeNoteAutoConsumeManager`
  * returns early with no claimable native notes, and `SwapSettlementManager` only kicks
  * the loop when `settleSwapOrders` queues something. So an iOS/Android app killed
- * mid-send left its row in `GeneratingTransaction` forever — neither resumed nor
- * reaped, its inputs still reserved — until the user happened to start another
+ * mid-send left its row in `GeneratingTransaction` forever - neither resumed nor
+ * reaped, its inputs still reserved - until the user happened to start another
  * transaction or open that exact `/generating-transaction/<id>` route.
  *
  * (A `TransactionProgressModal` component used to carry a comment claiming it was
@@ -74,22 +74,21 @@ export function OrphanedTransactionRecovery(): null {
         // The age-gated `cancelStuckTransactions()` this replaces was an order of
         // magnitude too slow to unblock the queue: MAX_WAIT_BEFORE_CANCEL is 30
         // minutes on Tauri desktop, while `generateTransactionsLoop` returns early
-        // whenever ANY row is `GeneratingTransaction` — so a crash mid-send froze
+        // whenever ANY row is `GeneratingTransaction` - so a crash mid-send froze
         // every subsequent send/claim/swap at Queued for the rest of that window.
         // (`startBackgroundTransactionProcessing` gives up after ~5 minutes of it.)
         //
         // Deliberately no auto-retry, for the same reason the SW sweep has none:
         // if `submit()` landed before the kill, the tx IS on chain. The row is
         // marked Failed, and `requeueFailedTransaction` refuses a manual Retry on
-        // `send` or `swap` outright while a submit cannot be ruled out, since
-        // replaying one of those builds a new note with a new serial and would
-        // move the funds twice. `consume`, a nullifier-listing `execute`, and an
-        // Agglayer `bridged-send` stay retryable on purpose: each replays an
-        // identical request - a spent nullifier or the persisted `requestBytes` -
-        // which the node rejects rather than duplicates. An `execute` that lists
-        // none is refused the same way once it may have submitted
-        // (`executeMayHaveSubmitted`, #1081), and requeued otherwise. See
-        // REBUILT_REQUEST_TYPES in lib/miden/transaction/retry.ts.
+        // `send`, `swap` or `bridged-send` while a submit cannot be ruled out,
+        // whether it rebuilds its request or replays its `requestBytes`: the node
+        // rejects a replayed note only while the first copy is in flight.
+        // `consume` and a nullifier-listing `execute` stay retryable on purpose:
+        // each replays a spent nullifier, which the node rejects rather than
+        // duplicates. An `execute` that lists none is refused the same way once
+        // it may have submitted (`executeMayHaveSubmitted`, #1081), and requeued
+        // otherwise. See RESUBMIT_GUARDED_TYPES in lib/miden/transaction/retry.ts.
         await failInterruptedTransactions();
         if (disposed) return;
 
