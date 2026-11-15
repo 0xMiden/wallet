@@ -4,12 +4,6 @@
 
 - [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
 - [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
-- [FEATURE][extension] Command Swap restores unsigned offers and settings across minimize, shows a read-only receive estimate, and keeps the separately gated 1Click route in the same workbench with fresh quote and funding checks.
-- [FEATURE][extension] Fullscreen Receive shares the current wallet address and network, remembers an unsigned asset choice, and reviews real pending transfers before native claim acceptance.
-- [FEATURE][extension] Send in the fullscreen Command workbench keeps one editable amount and recipient, restores unsigned choices across Back and minimize, and uses the existing review, fee reserve and signing checks.
-- [FEATURE][extension] Show the fullscreen Command dashboard's live wallet portfolio, local observed USD history and a saved hide-balances control without changing compact wallet data or transaction admission.
-- [FEATURE][extension] Add a guarded fullscreen Command shell with direct access to the existing Send, Receive, Swap, Earn and Bridge screens, scoped unsigned drafts and a keyboard action palette; compact, native, locked and confirmation views retain their existing presentation.
-- [FEATURE][extension] Open the unlocked wallet in a new fullscreen tab from a prominent button on the compact Home and action pages; a failed tab opening keeps the compact wallet available to retry.
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).
 - [FIX][all] Off mobile the recovery phrase stays hidden until Show is pressed and hides again when the window loses focus, the desktop window is kept out of screen captures while secret material is on screen, and new wallet and backup-file passwords need at least 12 characters (existing passwords still unlock).
 - [FIX][all] Off mobile a revealed private key or everyday key stays hidden until Show is pressed and hides again when the window loses focus.
@@ -42,6 +36,12 @@
 - [FIX][all] Swap settlement claims a payback automatically only when the order's paybacks add up to the fill the order recorded; any other payback is claimed by hand from the claim list (on the extension it may also be claimed as an ordinary transfer).
 - [FIX][all] Automatic claims wait until the network fee is known, or the network is known to charge none, so the wallet never claims a note worth less than its fee while the fee is unknown; claiming by hand is unaffected.
 - [FIX][all] Show spinners while Earn data, balances, quotes, retries, and submissions load (#2095).
+- [FEATURE][extension] Command Swap restores unsigned offers and settings across minimize, shows a read-only receive estimate, and keeps the separately gated 1Click route in the same workbench with fresh quote and funding checks.
+- [FEATURE][extension] Fullscreen Receive shares the current wallet address and network, remembers an unsigned asset choice, and reviews real pending transfers before native claim acceptance.
+- [FEATURE][extension] Send in the fullscreen Command workbench keeps one editable amount and recipient, restores unsigned choices across Back and minimize, and uses the existing review, fee reserve and signing checks.
+- [FEATURE][extension] Show the fullscreen Command dashboard's live wallet portfolio, local observed USD history and a saved hide-balances control without changing compact wallet data or transaction admission.
+- [FEATURE][extension] Add a guarded fullscreen Command shell with direct access to the existing Send, Receive, Swap, Earn and Bridge screens, scoped unsigned drafts and a keyboard action palette; compact, native, locked and confirmation views retain their existing presentation.
+- [FEATURE][extension] Open the unlocked wallet in a new fullscreen tab from a prominent button on the compact Home and action pages; a failed tab opening keeps the compact wallet available to retry.
 - [FIX][mobile] The Home action bar's pill follows a swipe between Home pages, instead of moving only after the new page has settled.
 - [FIX][mobile] The claim list's first view, drawn from its cache before the live read, shows only payments to the account and notes of its own swap orders, on mobile and desktop.
 - [FIX][extension] The background service answers wallet requests only from the extension's own pages, and signs for its offscreen document only while a transaction or dry run it started is running; a content script can only forward dApp requests. The offscreen document answers only the extension's own pages and its service worker. Incoming-transfer and failure notifications now also appear while web pages are open; only the wallet's own open pages suppress them.

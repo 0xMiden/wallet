@@ -12,7 +12,8 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
 import { TextField } from 'components/ui/TextField';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { TokenAmount } from 'components/ui/TokenAmount';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { OneClickEvmBalanceSnapshot } from 'lib/one-click/evm-balance';
 import { OneClickAsset } from 'lib/one-click/types';
@@ -178,7 +179,10 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
           helper={
             offerBalance === undefined ? undefined : (
               <span className="font-heading text-base font-bold text-text-muted">
-                {t('availableAmount', { amount: offerBalance, symbol: offerAsset?.symbol })}
+                {t('availableAmount', {
+                  amount: formatAmountDisplay(offerBalance, { symbol: offerAsset?.symbol, rounding: 'down' }),
+                  symbol: offerAsset?.symbol
+                })}
               </span>
             )
           }
@@ -189,7 +193,11 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
           <div data-testid="one-click-receive-output">
             <DetailCard surface="fill">
               <DetailRow label={t('youReceive')} stacked>
-                {quoteLoading ? t('calculatingQuote') : previewAmount || t('calculatingQuote')}
+                {quoteLoading
+                  ? t('calculatingQuote')
+                  : previewAmount
+                    ? formatAmountDisplay(previewAmount, { symbol: requestAsset?.symbol, rounding: 'down' })
+                    : t('calculatingQuote')}
               </DetailRow>
               {receivePicker}
             </DetailCard>
@@ -197,7 +205,11 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
         ) : (
           <AmountInput
             label={t('youReceive')}
-            value={previewAmount}
+            value={
+              previewAmount
+                ? formatAmountDisplay(previewAmount, { symbol: requestAsset?.symbol, rounding: 'down' })
+                : ''
+            }
             onValueChange={() => undefined}
             tokenSelector={receivePicker}
             accent="swap"
@@ -228,12 +240,21 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
             {evmBalance.status === 'ready' && evmBalance.snapshot ? (
               <div className="flex flex-col gap-1">
                 <span>
-                  {formatBigInt(evmBalance.snapshot.spendableTokenBalance, offerAsset.decimals)} {offerAsset.symbol}
+                  <TokenAmount
+                    amount={evmBalance.snapshot.spendableTokenBalance}
+                    decimals={offerAsset.decimals}
+                    symbol={offerAsset.symbol}
+                    rounding="down"
+                  />
                 </span>
                 {evmBalance.snapshot.gasReserve > 0n && (
                   <span>
                     {t('oneClickGasReserve', {
-                      amount: formatBigInt(evmBalance.snapshot.gasReserve, 18),
+                      amount: formatAmountDisplay(evmBalance.snapshot.gasReserve, {
+                        decimals: 18,
+                        symbol: evmBalance.gasSymbol,
+                        rounding: 'up'
+                      }),
                       symbol: evmBalance.gasSymbol
                     })}
                   </span>
