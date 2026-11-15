@@ -1,4 +1,4 @@
-import { IDBCursor } from 'fake-indexeddb';
+import { IDBCursor, IDBIndex } from 'fake-indexeddb';
 
 import {
   prunePortfolioObservations,
@@ -79,8 +79,12 @@ it('avoids advancing a cursor by the full retention cap when only a few scoped r
       observation(now - bucketMs, { accountId: 'account-b' })
     ]);
   const advance = jest.spyOn(IDBCursor.prototype, 'advance');
+  const count = jest.spyOn(IDBIndex.prototype, 'count');
+  const keys = jest.spyOn(IDBIndex.prototype, 'getAllKeys');
   await recordPortfolioObservation(observation(now));
   expect(advance).not.toHaveBeenCalled();
+  expect(count).not.toHaveBeenCalled();
+  expect(keys).toHaveBeenCalled();
   expect((await readPortfolioObservations(scope, 0)).map(row => row.bucket)).toEqual([
     now - 2 * bucketMs,
     now - bucketMs,

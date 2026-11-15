@@ -49,8 +49,9 @@ export async function recordPortfolioObservation(observation: PortfolioObservati
       const scoped = table
         .where('[accountId+network+rpcUrl+currency+capturedAt]')
         .between([...scope, 0], [...scope, Dexie.maxKey]);
-      const excess = (await scoped.count()) - MAX_POINTS;
-      if (excess > 0) await table.bulkDelete(await scoped.limit(excess).primaryKeys());
+      const keys = await scoped.primaryKeys();
+      const excess = keys.length - MAX_POINTS;
+      if (excess > 0) await table.bulkDelete(keys.slice(0, excess));
     }
   });
 }
