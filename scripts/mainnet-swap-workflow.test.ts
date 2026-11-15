@@ -312,9 +312,13 @@ describe('funded nightly swap workflow', () => {
     expect(hold).toContain('240_000');
   });
   it('never uploads browser folders, private process logs, profiles or raw note files', () => {
+    let uploads = 0;
     for (const job of Object.values(jobs).map(object)) {
       if (!Array.isArray(job.steps)) throw new Error('Missing job steps');
-      for (const entry of job.steps.filter(record).filter(value => value.uses === 'actions/upload-artifact@v4')) {
+      for (const entry of job.steps
+        .filter(record)
+        .filter(value => typeof value.uses === 'string' && value.uses.startsWith('actions/upload-artifact@'))) {
+        uploads++;
         const paths = object(entry.with).path;
         expect(typeof paths).toBe('string');
         for (const path of String(paths).trim().split(/\s+/)) {
@@ -323,6 +327,7 @@ describe('funded nightly swap workflow', () => {
         }
       }
     }
+    expect(uploads).toBeGreaterThan(0);
   });
   it.each([true, false])('installs xvfb only when missing (installed: %s)', installed => {
     const bin = mkdtempSync(resolve(tmpdir(), 'nightly-xvfb-'));

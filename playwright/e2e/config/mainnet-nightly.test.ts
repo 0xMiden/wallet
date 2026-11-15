@@ -99,7 +99,7 @@ describe('mainnet nightly workflow', () => {
     const playwright = agglayer.indexOf('yarn playwright test mainnet-agglayer-loop.spec.ts');
     expect(guard).toBeGreaterThanOrEqual(0);
     expect(guard).toBeLessThan(playwright);
-    expect(guard).toBeLessThan(agglayer.indexOf('uses: actions/checkout@v4'));
+    expect(guard).toBeLessThan(agglayer.indexOf('uses: actions/checkout@'));
     expect(agglayer.slice(guard, playwright)).toContain('exit 1');
     expect(jobText('mainnet-nightly')).not.toContain('E2E_MAINNET_EVM_KEY is empty');
   });
