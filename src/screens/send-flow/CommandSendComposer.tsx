@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useId } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -26,6 +26,7 @@ export function CommandSendComposer({
   route
 }: CommandSendComposerProps): React.ReactElement {
   const { t } = useTranslation();
+  const formId = useId();
   const canReview =
     !routeBlocked &&
     recipient.isValidAddress &&
@@ -36,27 +37,36 @@ export function CommandSendComposer({
     amount.isValidAmount;
   const outlets = useCommandWorkbenchSlots(
     <Button
-      type="button"
+      type="submit"
+      form={formId}
       title={t('reviewDetails')}
       variant={ButtonVariant.Primary}
       accent="send"
       data-testid="command-send-review"
       disabled={!canReview}
-      onClick={onReview}
       className="w-full max-w-none"
     />,
     route
   );
 
   return (
-    <div data-testid="command-send-composer" className="flex flex-col gap-4">
-      <SelectRecipient
-        {...recipient}
-        embedded
-        onAddressChange={event => onRecipientChange(event.target.value)}
-        onConfirm={onReview}
-      />
-      <SendAmount {...amount} embedded onConfirm={onReview} />
+    <div data-testid="command-send-composer">
+      <form
+        id={formId}
+        className="flex flex-col gap-4"
+        onSubmit={event => {
+          event.preventDefault();
+          if (canReview) onReview();
+        }}
+      >
+        <SelectRecipient
+          {...recipient}
+          embedded
+          onAddressChange={event => onRecipientChange(event.target.value)}
+          onConfirm={onReview}
+        />
+        <SendAmount {...amount} embedded onConfirm={onReview} />
+      </form>
       {outlets}
     </div>
   );

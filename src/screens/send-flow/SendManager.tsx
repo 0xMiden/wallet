@@ -842,6 +842,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A cross-chain send carries its network + route along, so the review page
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
+    if (reviewHandoffRef.current) return;
     if (
       !token ||
       !amount ||

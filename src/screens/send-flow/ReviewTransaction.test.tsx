@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 
+import { userEvent } from '@storybook/test';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
@@ -58,6 +59,8 @@ afterAll(() => _setSwapTokensForTest(undefined));
 // they are legal to reference from hoisted jest.mock factories.
 // ---------------------------------------------------------------------------
 let mockSearch = '';
+let mockReviewNetwork = 'devnet';
+let mockReviewRpcUrl = 'https://rpc.review.example';
 let mockFullPage = false;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockIsNewRecipient: boolean | undefined;
@@ -137,7 +140,8 @@ afterEach(() => {
 });
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveRpcUrl: () => 'https://rpc.review.example',
+  getEffectiveRpcUrl: () => mockReviewRpcUrl,
+  getEffectiveNetworkName: () => mockReviewNetwork,
   getTestNetworkNameKey: () => 'testnet'
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
@@ -602,6 +606,8 @@ beforeEach(() => {
 
   // Base route state.
   mockSearch = '';
+  mockReviewNetwork = 'devnet';
+  mockReviewRpcUrl = 'https://rpc.review.example';
   mockFullPage = false;
   mockPublicKey = 'pubkey-1';
   mockIsNewRecipient = undefined;
@@ -649,18 +655,27 @@ describe('Command Send review controller', () => {
     );
     const submit = screen.getByTestId('send-review-submit');
     expect(submit.closest('footer')).toHaveAttribute('data-command-footer', 'true');
+    expect(submit).toHaveAttribute('type', 'submit');
+    const form = screen.getByTestId('command-send-review');
+    expect(submit).toHaveAttribute('form', form.id);
+    if (!(submit instanceof HTMLButtonElement)) throw new Error('Submit must be a button');
+    expect(submit.form).toBe(form);
     expect(screen.getAllByTestId('send-review-submit')).toHaveLength(1);
     expect(screen.getAllByTestId('command-workbench')).toHaveLength(1);
   });
 
-  it('refuses concurrent Enter/click while admission is pending and uses the same private initiator', async () => {
+  it('refuses concurrent form Enter/click while admission is pending and uses the same private initiator', async () => {
     setValidRoute();
     const pending = deferred();
     mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
     renderCommandReview();
     expect(screen.getByTestId('command-send-review')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('send-review-submit'));
-    fireEvent.click(screen.getByTestId('send-review-submit'));
+    const form = screen.getByTestId('command-send-review');
+    expect(form.tagName).toBe('FORM');
+    const submit = screen.getByTestId('send-review-submit');
+    submit.focus();
+    await userEvent.keyboard('{Enter}');
+    await userEvent.click(submit);
     pending.resolve();
     await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledTimes(1);
@@ -691,17 +706,19 @@ describe('Command Send review controller', () => {
       </>
     );
   }
-  const openSession = (recall?: CommandSendRecall) => {
+  const reviewSession = (recall?: CommandSendRecall) => (
+    <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}>
+      <FlowPresentationProvider value="command">
+        <ReviewSession recall={recall} />
+      </FlowPresentationProvider>
+    </CommandDraftProvider>
+  );
+  const openSession = (recall?: CommandSendRecall, balancesLoaded = true) => {
     mockSearch = 'amount=7.123456&to=0xrecipient&tokenId=tok1';
-    mockBalanceData = [VALID_TOKEN];
-    render(
-      <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}>
-        <FlowPresentationProvider value="command">
-          <ReviewSession recall={recall} />
-        </FlowPresentationProvider>
-      </CommandDraftProvider>
-    );
+    mockBalanceData = balancesLoaded ? [VALID_TOKEN] : undefined;
+    const view = render(reviewSession(recall));
     fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+    return view;
   };
 
   it('requires the existing spending-limit challenge in Command before any native send', async () => {
@@ -747,6 +764,101 @@ describe('Command Send review controller', () => {
     expect(confirmMock).not.toHaveBeenCalled();
   });
 
+  it.each(['network', 'RPC'] as const)(
+    'refuses a pending real review admission after %s changes and does not revive its draft on return',
+    async kind => {
+      mockSearch = 'amount=7.123456&to=0xrecipient&tokenId=tok1';
+      mockBalanceData = [VALID_TOKEN];
+      const pending = deferred();
+      mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+      const scope = { accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' };
+      const review = (nextScope: typeof scope) => (
+        <CommandDraftProvider scope={nextScope}>
+          <FlowPresentationProvider value="command">
+            <DraftReader />
+            <ReviewSession />
+          </FlowPresentationProvider>
+        </CommandDraftProvider>
+      );
+      const view = render(review(scope));
+      fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+      expect(screen.getByTestId('command-send-draft')).toHaveTextContent('7.123456');
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      if (kind === 'network') mockReviewNetwork = 'testnet';
+      else mockReviewRpcUrl = 'https://another-rpc.example';
+      view.rerender(review({ ...scope, [kind === 'network' ? 'network' : 'rpcUrl']: 'changed' }));
+      await act(async () => pending.resolve());
+      expect(initiateMock).not.toHaveBeenCalled();
+      expect(confirmMock).not.toHaveBeenCalled();
+      mockReviewNetwork = 'devnet';
+      mockReviewRpcUrl = 'https://rpc.review.example';
+      view.rerender(review(scope));
+      expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+      expect(initiateMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not submit or resurrect a real pending review draft across account A → B → A', async () => {
+    setValidRoute();
+    const pending = deferred();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+    function PreparedReview() {
+      const { writeDraft } = useCommandDrafts();
+      const [ready, setReady] = useState(false);
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              writeDraft('send', { amount: '5', recipientAddress: '0xrecipient', tokenId: 'tok1' });
+              setReady(true);
+            }}
+          >
+            Prepare review
+          </button>
+          <DraftReader />
+          {ready && <ReviewTransaction />}
+        </>
+      );
+    }
+    const review = (accountId: string) => (
+      <CommandShell
+        key={accountId}
+        scope={{ accountId, network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <PreparedReview />
+      </CommandShell>
+    );
+    const view = render(review('pubkey-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare review' }));
+    expect(screen.getByTestId('command-send-draft')).toHaveTextContent('0xrecipient');
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    mockPublicKey = 'account-b';
+    view.rerender(review('account-b'));
+    expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+    mockPublicKey = 'pubkey-1';
+    view.rerender(review('pubkey-1'));
+    await act(async () => pending.resolve());
+    expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('abandons a pending review on lock/remount without reviving an old draft or submitting', async () => {
+    const pending = deferred();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+    const view = openSession();
+    expect(screen.getByTestId('saved-review-input')).toHaveTextContent('7.123456');
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    view.unmount(); // Locked wallet removes the review and its draft provider.
+    await act(async () => pending.resolve());
+    renderCommandReview();
+    expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
   it('restores public and Never across review Back without retaining authorization', async () => {
     openSession();
     fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
@@ -779,6 +891,40 @@ describe('Command Send review controller', () => {
       expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 42, false)
     );
   });
+
+  it.each([
+    ['Never', { kind: 'never' } as CommandSendRecall, 'never', undefined],
+    [
+      'custom',
+      {
+        kind: 'scheduled',
+        date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        time: '23:59',
+        blocks: '42'
+      } as CommandSendRecall,
+      'expiresInSeconds',
+      42
+    ]
+  ])(
+    'keeps restored %s after late balance readiness without seeding the seven-day default',
+    async (_name, recall, label, blocks) => {
+      const view = openSession(recall, false);
+      expect(screen.getByTestId('saved-review-input')).toHaveTextContent(`"kind":"${recall.kind}"`);
+      mockBalanceData = [VALID_TOKEN];
+      view.rerender(reviewSession(recall));
+      await openAdvancedOptions();
+      expect(screen.getByTestId('review-row-expiration')).toHaveTextContent(label);
+      expect(screen.getByTestId('recall-drawer')).toHaveAttribute(
+        'data-recall-time',
+        recall.kind === 'scheduled' ? '23:59' : '12:00'
+      );
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() =>
+        expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, blocks, false)
+      );
+      expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
+    }
+  );
 
   it('refuses an expired restored custom date until Never is explicitly reselected', () => {
     openSession({ kind: 'scheduled', date: new Date(0).toISOString(), time: '09:37', blocks: '42' });

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -111,6 +111,7 @@ const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> 
 export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
   const command = useFlowPresentation() === 'command';
+  const formId = useId();
   const commandDrafts = useOptionalCommandDrafts();
   const [restoredDraft] = useState(() => (command ? commandDrafts?.readDraft('send') : undefined));
   const networkFeeDetails = useNetworkFeeEstimateDetails();
@@ -822,6 +823,14 @@ export const ReviewTransaction: React.FC = () => {
   const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
 
+  const submitDisabled =
+    bridgeBlocked ||
+    tokenHeld ||
+    isSubmitting ||
+    scaleIsUnknown ||
+    amountExceedsPrecision ||
+    (isUsdcxBurn && !!burnValidationError) ||
+    recallInvalid;
   const ReviewLayout = command ? CommandSendReview : SendStepLayout;
   return (
     <div className={command ? 'flex flex-col' : 'flex h-full min-h-0 flex-col bg-app-bg'}>
@@ -829,6 +838,10 @@ export const ReviewTransaction: React.FC = () => {
       <ReviewLayout
         title={t('reviewDetails')}
         onBack={() => goBack()}
+        formId={command ? formId : undefined}
+        onFormSubmit={() => {
+          if (!submitDisabled) void onSubmit();
+        }}
         // Abandons the send: without the draft the next Send opens empty. Back keeps it to restore the form.
         onClose={() => {
           if (!command) clearSendDraft();
@@ -841,27 +854,20 @@ export const ReviewTransaction: React.FC = () => {
               <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
             )}
             <Button
-              type="button"
+              type={command ? 'submit' : 'button'}
+              form={command ? formId : undefined}
               // The CTA names the consequence of a non-default choice, so a public send is never
               // confirmed by a button that reads like a private one.
               title={sharePrivately ? t('sendPayment') : t('sendPublicly')}
               variant={ButtonVariant.Primary}
               accent="send"
-              onClick={onSubmit}
+              onClick={command ? undefined : onSubmit}
               isLoading={isSubmitting}
               // Disabled rather than merely rejected on press: the reason is known
               // before the user reaches for the button, and letting them tap a live
               // CTA only to be refused reads as a wallet fault rather than a
               // deliberate refusal.
-              disabled={
-                bridgeBlocked ||
-                tokenHeld ||
-                isSubmitting ||
-                scaleIsUnknown ||
-                amountExceedsPrecision ||
-                (isUsdcxBurn && !!burnValidationError) ||
-                recallInvalid
-              }
+              disabled={submitDisabled}
               data-testid="send-review-submit"
               className="w-full max-w-none"
             />

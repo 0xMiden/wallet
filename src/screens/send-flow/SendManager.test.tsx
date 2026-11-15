@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 import { FlowLayout } from 'components/flow/FlowLayout';
@@ -63,6 +64,7 @@ let mockSearch = '';
 let mockCardStack: { name: string }[] = [{ name: SendFlowStep.SelectRecipient }];
 let mockRenderRouteName: string | undefined;
 let mockRealNavigator = false;
+let mockLastAmountChange: ((value: string) => void) | undefined;
 
 let mockSelectedToken: any = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
 let mockSelectedContact: any = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
@@ -283,11 +285,17 @@ jest.mock('./SendAmount', () => ({
         <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
         <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
         <span data-testid="sa-network">{props.network ?? ''}</span>
-        <button data-testid="sa-receive" onClick={props.onReceive} />
-        <input data-testid="sa-input" onChange={(e: any) => props.onAmountChange(e.target.value)} />
-        <button data-testid="sa-selecttoken" onClick={props.onSelectToken} />
-        {props.onBack && <button data-testid="sa-back" onClick={props.onBack} />}
-        <button data-testid="sa-confirm" onClick={props.onConfirm} />
+        <button type="button" data-testid="sa-receive" onClick={props.onReceive} />
+        <input
+          data-testid="sa-input"
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            mockLastAmountChange = props.onAmountChange;
+            props.onAmountChange(e.target.value);
+          }}
+        />
+        <button type="button" data-testid="sa-selecttoken" onClick={props.onSelectToken} />
+        {props.onBack && <button type="button" data-testid="sa-back" onClick={props.onBack} />}
+        <button type="button" data-testid="sa-confirm" onClick={props.onConfirm} />
       </div>
     )
 }));
@@ -533,6 +541,7 @@ beforeEach(() => {
   mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
   mockRenderRouteName = undefined;
   mockRealNavigator = false;
+  mockLastAmountChange = undefined;
   mockEpochAmount = undefined;
   mockUsdcxTokenId = undefined;
   mockUnsupportedSendTokens.clear();
@@ -729,13 +738,15 @@ describe('Command Send uses the real SendManager form', () => {
 
   it.each(['loading', 'unsupported', 'error'] as const)(
     'refuses Command Review and direct Enter while Slow registry is %s',
-    status => {
+    async status => {
       mockTokenRoutes = { epoch: true, agglayer: true };
       mockSlowStatus = status;
       openBridge();
       fireEvent.click(screen.getByTestId('route-select-slow'));
       expect(screen.getByTestId('route-selected')).toHaveTextContent('agglayer');
       expect(screen.getByTestId('command-send-review')).toBeDisabled();
+      screen.getByTestId('sa-input').focus();
+      await userEvent.keyboard('{Enter}');
       fireEvent.click(screen.getByTestId('route-confirm'));
       expect(navigateMock).not.toHaveBeenCalled();
       expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
@@ -747,17 +758,19 @@ describe('Command Send uses the real SendManager form', () => {
     ['fastBridgeOut', 'unavailable'],
     ['bridgeOut', 'loading'],
     ['bridgeOut', 'unavailable']
-  ] as const)('refuses a %s feature while %s even via Enter', (feature, state) => {
+  ] as const)('refuses a %s feature while %s even via Enter', async (feature, state) => {
     mockRouteFeatureAvailability = { [feature]: state === 'loading' ? { state } : { state, reason: 'off' } };
     if (feature === 'bridgeOut') mockTokenRoutes = { epoch: true, agglayer: true };
     openBridge();
     if (feature === 'bridgeOut') fireEvent.click(screen.getByTestId('route-select-slow'));
     expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    screen.getByTestId('sa-input').focus();
+    await userEvent.keyboard('{Enter}');
     fireEvent.click(screen.getByTestId('route-confirm'));
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  it('refuses USDCx once it becomes unavailable without changing the recipient or amount', () => {
+  it('refuses USDCx once it becomes unavailable without changing the recipient or amount', async () => {
     mockUsdcxTokenId = 'T1';
     const view = openBridge();
     expect(screen.getByTestId('route-selected')).toHaveTextContent('usdcx');
@@ -765,9 +778,39 @@ describe('Command Send uses the real SendManager form', () => {
     view.rerender(bridgeCommand());
     expect(screen.getByTestId('route-selected')).toHaveTextContent('usdcx');
     expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    screen.getByTestId('sa-input').focus();
+    await userEvent.keyboard('{Enter}');
     fireEvent.click(screen.getByTestId('route-confirm'));
     expect(navigateMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+  });
+
+  it('uses the pinned footer as the amount form submit on Enter, with one review handoff after a click', async () => {
+    openBridge();
+    const field = screen.getByTestId('sa-input');
+    const submit = screen.getByTestId('command-send-review');
+    const form = field.closest('form');
+    expect(form).not.toBeNull();
+    expect(submit).toHaveAttribute('type', 'submit');
+    expect(submit).toHaveAttribute('form', form?.id);
+    if (!(submit instanceof HTMLButtonElement)) throw new Error('Review must be a button');
+    expect(submit.form).toBe(form);
+    field.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(submit);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps token and route pickers non-submitting inside the composed form', () => {
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    openBridge();
+    expect(screen.getByTestId('command-send-review')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('sa-selecttoken'));
+    expect(screen.getByTestId('td-open')).toHaveTextContent('true');
+    fireEvent.click(screen.getByTestId('route-select-slow'));
+    expect(screen.getByTestId('route-selected')).toHaveTextContent('agglayer');
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('allows the admitted Slow route through the same guarded Review handler', () => {
@@ -846,6 +889,60 @@ describe('Command Send uses the real SendManager form', () => {
     fireEvent.click(screen.getByTestId('td-select'));
     fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '7.123456' } });
     expect(screen.getByTestId('sa-amount')).toHaveTextContent('7.123456');
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['account', { accountId: 'different-account', network: 'devnet', rpcUrl: 'https://testnet.example' }],
+    ['network', { accountId: 'me-pk', network: 'testnet', rpcUrl: 'https://testnet.example' }],
+    ['RPC', { accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://other.example' }]
+  ])('clears a real Send draft on %s change and refuses its stale callback across A → B → A', (_kind, changedScope) => {
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, scaleIsKnown: true, balance: 500, fiatPrice: 1 };
+    const scope = { accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' };
+    const command = (nextScope: typeof scope) => (
+      <CommandShell key={JSON.stringify(nextScope)} scope={nextScope} route={{ kind: 'flow', action: 'send' }}>
+        <SendFlow isLoading={false} />
+      </CommandShell>
+    );
+    const view = render(command(scope));
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '333.123456' } });
+    const staleAmountChange = mockLastAmountChange;
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('333.123456');
+    view.rerender(command(changedScope));
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    act(() => staleAmountChange?.('999'));
+    view.rerender(command(scope));
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('drops the real Send draft and late input after lock/remount', () => {
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, scaleIsKnown: true, balance: 500, fiatPrice: 1 };
+    const view = render(bridgeCommand());
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '333.123456' } });
+    const staleAmountChange = mockLastAmountChange;
+    view.rerender(null); // Lock removes CommandShell and its memory-only draft provider.
+    act(() => staleAmountChange?.('999'));
+    view.rerender(bridgeCommand());
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
     expect(screen.getByTestId('command-send-review')).toBeDisabled();
     expect(navigateMock).not.toHaveBeenCalled();
   });

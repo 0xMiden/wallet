@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { CommandSendComposer } from './CommandSendComposer';
@@ -56,6 +57,28 @@ it('presents a direct recipient and one editable amount, using the controller re
   fireEvent.change(screen.getByRole('textbox', { name: 'Amount' }), { target: { value: '7.123456' } });
   expect(amount.onAmountChange).toHaveBeenCalledWith('7.123456');
   fireEvent.click(screen.getByTestId('command-send-review'));
+  expect(onReview).toHaveBeenCalledTimes(1);
+});
+
+it('submits the actual amount form through its pinned footer on Enter', async () => {
+  const onReview = jest.fn();
+  render(
+    <CommandSendComposer
+      recipient={recipient}
+      onRecipientChange={jest.fn()}
+      amount={amount}
+      onReview={onReview}
+      route={null}
+    />
+  );
+  const field = screen.getByRole('textbox', { name: 'Amount' });
+  const review = screen.getByTestId('command-send-review');
+  const form = field.closest('form');
+  expect(form).not.toBeNull();
+  expect(review).toHaveAttribute('type', 'submit');
+  expect(review).toHaveAttribute('form', form?.id);
+  field.focus();
+  await userEvent.keyboard('{Enter}');
   expect(onReview).toHaveBeenCalledTimes(1);
 });
 
