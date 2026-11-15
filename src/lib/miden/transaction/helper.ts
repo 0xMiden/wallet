@@ -14,7 +14,7 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 import { type SignCallbackReason } from './sign-callback';
 import { RESULT_BYTES_RETENTION_MS } from './trim-result-bytes';
 import { crossedCandidateNonce, latestEntry, upsertEvidenceEntry } from './verdict-rules';
-import { splitExecutedOutputNotes } from '../activity/fee-notes';
+import { splitLandedOutputNotes } from '../activity/fee-notes';
 import { compareAccountIds } from '../activity/utils';
 import {
   hasLeftQueue,
@@ -1260,7 +1260,7 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
             // would get the fee note whenever the kernel ordered it first, and every site
             // reading `.length` counted one note too many. Silent at fee 0, since the
             // kernel skips the fee branch entirely.
-            const { userNotes } = splitExecutedOutputNotes(txResult.executedTransaction());
+            const { userNotes } = splitLandedOutputNotes(txResult.executedTransaction());
             const res = {
               txHash: tx.transactionId!,
               outputNotes: userNotes

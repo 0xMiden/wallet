@@ -12,6 +12,7 @@ import { netOutflowByFaucet } from 'app/confirm/decode';
 import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 
@@ -464,6 +465,51 @@ describe('requestSign measures a transaction summary once, before the popup', ()
     expect(await refusedBeforePopup()).toEqual(
       new Error(`${MidenDAppErrorType.InvalidParams}: RuntimeError: unreachable`)
     );
+  });
+
+  const wrappedKill = () => {
+    const poison = new WasmClientPoisonedError('watchdog', new Error('x'));
+    return { poison, wrapped: new Error('wrapped', { cause: poison }) };
+  };
+
+  it('refuses before the popup when decoding the payload hits a kill, wrapped or not', async () => {
+    const { poison, wrapped } = wrappedKill();
+    sdk.SigningInputs = {
+      deserialize: () => {
+        throw wrapped;
+      }
+    };
+
+    expect(await refusedBeforePopup()).toBe(poison);
+  });
+
+  it('refuses before the popup when measuring the summary hits a kill', async () => {
+    const { poison, wrapped } = wrappedKill();
+    sdk.SigningInputs = {
+      deserialize: () => ({
+        variantType: 0,
+        transactionSummaryPayload: () => ({
+          accountDelta: () => {
+            throw wrapped;
+          }
+        })
+      })
+    };
+
+    const error = await refusedBeforePopup();
+
+    expect(error).not.toEqual(new Error(`${MidenDAppErrorType.NotGranted}: wrapped`));
+    expect(error).toBe(poison);
+  });
+
+  it('refuses before the popup when the note flow hits a kill', async () => {
+    const { poison, wrapped } = wrappedKill();
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw wrapped;
+    });
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toBe(poison);
   });
 
   it('still hands the popup the measured holdings, without a note flow, when the note flow read fails', async () => {

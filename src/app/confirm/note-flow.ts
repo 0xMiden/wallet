@@ -12,6 +12,7 @@ import {
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { toNft, type NftAsset } from 'lib/miden/sdk/nft-asset';
+import { rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import type { AssetAmount } from './decode';
@@ -73,7 +74,8 @@ export interface StorageChange {
 function attempt<T>(read: () => T): T | undefined {
   try {
     return read();
-  } catch {
+  } catch (error) {
+    rethrowTrapOrKill(error);
     return undefined;
   }
 }
@@ -131,7 +133,8 @@ function kindFromScript(script: NamedNoteScript | undefined, scriptRoot: string)
       const name = script.standardNoteName();
       if (typeof name === 'string') return kindFromReportedName(name);
       return 'custom';
-    } catch {
+    } catch (error) {
+      rethrowTrapOrKill(error);
       return 'unknown';
     }
   }

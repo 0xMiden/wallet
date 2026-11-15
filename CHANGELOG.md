@@ -4,6 +4,7 @@
 
 - [FEATURE][chrome] Add optional passkey unlock for eligible password wallets in Chrome 140+, with side-panel setup, confirmation-window unlock, and unchanged password fallback (#846).
 
+- [FEATURE][all] Home hides dust tokens, those worth less than a tenth of a cent, behind a Hide dust tokens switch in General Settings that is on by default; the native token always stays listed.
 - [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
 - [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).
@@ -52,6 +53,7 @@
 - [FIX][all] Restoring a Guardian account from its recovery phrase now checks the account data the guardian returns before restoring it: the recovery key must be the account's, a deployed account must match the Miden network, and an account not yet on the network must be the one this recovery phrase created. Otherwise nothing is restored.
 - [FIX][all] A dApp custom transaction's approval counts notes the account already held among what leaves it and names them on the sheet, signing allows only the notes that approval showed being created, and the chain fee is read fresh for every check.
 - [FIX][all] A dApp's request to sign a transaction summary shows what leaves the account's holdings, measured once after a fresh chain fee read, and is refused before any sheet when that cannot be measured or the fee is unknown.
+- [FIX][all] Before a transaction is submitted, a WebAssembly trap inside the wallet's WASM lock, while it tells the network fee note apart from its other notes or reads a dApp request's diagnostics or dry run, now retires the broken client instead of answering from it. After a transaction lands, a trap in a fee check is answered there instead of failing the transaction.
 
 ## 1.17.11 (2026-11-09)
 
