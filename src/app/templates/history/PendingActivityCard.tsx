@@ -11,9 +11,9 @@ import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
-import { formatBigInt } from 'lib/i18n/numbers';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
@@ -95,7 +95,13 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const feeNoticeId = useId();
   const [expanded, setExpanded] = useState(false);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
-  const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
+  const amount = hasKnownScale(note.metadata)
+    ? formatAmountDisplay(BigInt(note.amount), {
+        decimals: note.metadata.decimals,
+        rounding: 'down',
+        minimumFractionDigits: 3
+      })
+    : undefined;
   const tokenLabel = midenTokenLabel(bridgeConfig, note.faucetId, note.metadata.symbol);
   const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
   // A note served from the cache waits for the live read before it can be accepted.

@@ -6,11 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { storyFromNoteFlow, sumAssets, type StoryAsset, type StoryHop } from 'components/tx-stage/tx-story';
 import { TxStory } from 'components/tx-stage/TxStory';
 import { Card } from 'components/ui/Card';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
 import type { AssetAmount } from './decode';
@@ -63,7 +63,7 @@ const NoteAsset: React.FC<{ asset: AssetAmount }> = ({ asset }) => {
         setResolved({
           key: assetKey,
           label: hasKnownScale(metadata)
-            ? `${formatAmount(asset.amount, metadata.decimals)} ${metadata.symbol || truncateAddress(asset.faucetId)}`
+            ? `${formatAmountDisplay(asset.amount, { decimals: metadata.decimals, formatting: 'exact' })} ${metadata.symbol || truncateAddress(asset.faucetId)}`
             : undefined
         });
       })
@@ -141,7 +141,7 @@ async function assetLabel(assets: StoryAsset[]): Promise<string> {
       try {
         const metadata = await loadConfirmationTokenMetadata(asset.faucetId);
         if (!hasKnownScale(metadata)) return '';
-        return `${formatAmount(asset.amount, metadata.decimals)} ${metadata.symbol || truncateAddress(asset.faucetId)}`;
+        return `${formatAmountDisplay(asset.amount, { decimals: metadata.decimals, formatting: 'exact' })} ${metadata.symbol || truncateAddress(asset.faucetId)}`;
       } catch {
         return '';
       }
