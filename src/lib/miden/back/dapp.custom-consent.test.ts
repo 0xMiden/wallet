@@ -858,4 +858,42 @@ describe('the chain fee the approval decodes with', () => {
 
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
   });
+
+  describe('a fee read that throws counts as an unknown fee', () => {
+    const readFailure = new Error('storage unavailable');
+    let warnSpy: jest.SpyInstance;
+    beforeEach(() => {
+      mockRefreshVerificationBaseFee.mockRejectedValueOnce(readFailure);
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => warnSpy.mockRestore());
+
+    it('refuses a summary dry run with the unknown-fee reason, after one dry run', async () => {
+      let message = '';
+      await requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+        () => {
+          throw new Error('the request was not refused');
+        },
+        (error: Error) => {
+          message = error.message;
+        }
+      );
+
+      expect(message).toBe(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+      expect(mockSimulate).toHaveBeenCalledTimes(1);
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+      expect(warnSpy).toHaveBeenCalledWith(expect.any(String), readFailure);
+    });
+
+    it('still prompts an executed dry run, after one dry run', async () => {
+      mockSimulate.mockResolvedValue({ executedBytes: 'execB64' });
+      mockExecutedBytesToView.mockReturnValue(emptyView);
+
+      await raiseSheet(false);
+
+      expect(mockSimulate).toHaveBeenCalledTimes(1);
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    });
+  });
 });
