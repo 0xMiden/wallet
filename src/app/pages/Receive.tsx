@@ -84,14 +84,15 @@ const ReceiveManager: React.FC<ReceiveProps> = ({ presentation }) => {
     navigate('/bridge/deposit');
   }, []);
 
-  if (command) return (
-    <CommandReceive
-      address={address}
-      onBridgeDeposit={openBridgeDeposit}
-      bridgeAvailability={bridgeAvailability}
-      bridgeOffered={bridgeOffered}
-    />
-  );
+  if (command)
+    return (
+      <CommandReceive
+        address={address}
+        onBridgeDeposit={openBridgeDeposit}
+        bridgeAvailability={bridgeAvailability}
+        bridgeOffered={bridgeOffered}
+      />
+    );
   return (
     <HomeGroupPaneRoot testId="receive-flow">
       <AddressTab

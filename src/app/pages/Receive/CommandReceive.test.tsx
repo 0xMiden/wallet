@@ -5,6 +5,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Receive } from 'app/pages/Receive';
 import { CommandShell } from 'screens/command/CommandShell';
 
+// The global Jest mock returns full addresses; this test needs the real privacy formatter.
+jest.unmock('utils/string');
+
 const scope = { accountId: 'a', network: 'testnet', rpcUrl: 'rpc-a' };
 const mockNote = {
   note: {

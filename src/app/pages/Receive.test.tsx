@@ -347,13 +347,15 @@ describe('Receive - Address', () => {
     expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');
     const bridge = testContainer.querySelector('[data-testid="receive-cross-chain"]');
     const guide = testContainer.querySelector('[data-testid="receive-asset-picker"]');
-    expect(bridge).toBeInTheDocument();
+    expect(bridge).not.toBeNull();
     expect(testContainer.querySelector('[data-testid="receive-actions"]')).not.toContainElement(bridge);
-    expect(bridge!.closest('[data-testid="receive-bridge-utility"]')).toBeInTheDocument();
+    expect(bridge!.closest('[data-testid="receive-bridge-utility"]')).not.toBeNull();
     expect(guide!.compareDocumentPosition(bridge!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(testContainer.querySelectorAll('[data-testid="receive-cross-chain"]')).toHaveLength(1);
     fireEvent.click(bridge!);
-    expect(jest.requireMock<typeof import('lib/woozie')>('lib/woozie').navigate).toHaveBeenCalledWith('/bridge/deposit');
+    expect(jest.requireMock<typeof import('lib/woozie')>('lib/woozie').navigate).toHaveBeenCalledWith(
+      '/bridge/deposit'
+    );
     await renderCommand(false);
     await renderCommand(true);
     expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');
