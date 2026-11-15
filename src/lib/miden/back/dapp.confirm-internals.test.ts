@@ -157,9 +157,16 @@ jest.mock('lib/miden/spending-limits/queue', () => ({
   hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
 }));
 
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
-}));
+const mockDryRun = jest.fn(
+  async (..._args: unknown[]): Promise<Record<string, unknown>> => ({ summaryBytes: 'confirm-sim-sum' })
+);
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return {
+    simulateCustomTransaction: jest.fn(async (...args: unknown[]) => measureApprovalDryRun(await mockDryRun(...args)))
+  };
+});
 
 // A summary's approval, custom or signBytes, reads the chain fee before it decodes and refuses when that read is
 // unknown.
@@ -649,9 +656,7 @@ describe('requestConfirm runs an approval once (#1584)', () => {
     introducedNoteIds: string[]
   ) => {
     const note = ([id, amount]: [string, bigint]) => ({ id, amounts: [{ faucetId: 'faucet-x', amount }], nfts: [] });
-    jest
-      .requireMock('./simulate-custom-tx')
-      .simulateCustomTransaction.mockResolvedValueOnce({ summaryBytes: 'confirm-sim-sum', introducedNoteIds });
+    mockDryRun.mockResolvedValueOnce({ summaryBytes: 'confirm-sim-sum', introducedNoteIds });
     mockSimulatedView = {
       ...mockEmptySimulatedView,
       account: 'a1',
@@ -1308,11 +1313,9 @@ describe('requestConfirm stops its auto-decline on the first payload request and
   });
 
   it('never declines while the build that follows the unlock runs', async () => {
-    jest
-      .requireMock('./simulate-custom-tx')
-      .simulateCustomTransaction.mockImplementationOnce(
-        () => new Promise(resolve => setTimeout(() => resolve({ summaryBytes: 'confirm-sim-sum' }), 15_000))
-      );
+    mockDryRun.mockImplementationOnce(
+      () => new Promise(resolve => setTimeout(() => resolve({ summaryBytes: 'confirm-sim-sum' }), 15_000))
+    );
     const popup = await openLockedCustom();
     await jest.advanceTimersByTimeAsync(110_000);
     unlock();

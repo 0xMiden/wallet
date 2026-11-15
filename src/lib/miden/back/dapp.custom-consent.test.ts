@@ -102,9 +102,22 @@ jest.mock('lib/miden/back/vault', () => ({
 
 /** The dry run itself is covered by `simulate-custom-tx.test.ts`. */
 const mockSimulate = jest.fn();
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: (...args: unknown[]) => mockSimulate(...args)
-}));
+let mockInDryRun = false;
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return {
+    simulateCustomTransaction: async (...args: unknown[]) => {
+      const dryRun = await mockSimulate(...args);
+      mockInDryRun = true;
+      try {
+        return measureApprovalDryRun(dryRun);
+      } finally {
+        mockInDryRun = false;
+      }
+    }
+  };
+});
 
 /**
  * Decoding a `TransactionSummary` is covered by `app/confirm/decode.test.ts`
@@ -252,6 +265,24 @@ describe('the mobile/desktop custom-transaction sheet states the simulated effec
     expect(mockRequestConfirmation.mock.calls[0]![0]).toMatchObject({
       noteFlow: { inputCount: 0, inputs: [], outputs: [] }
     });
+  });
+
+  it('decodes the approval and the note flow only while the dry run runs, never after it returns', async () => {
+    const outside: string[] = [];
+    mockSummaryBytesToView.mockImplementation(() => {
+      if (!mockInDryRun) outside.push('approval');
+      return emptyView;
+    });
+    mockNoteFlowFromBytes.mockImplementation(() => {
+      if (!mockInDryRun) outside.push('note flow');
+      return { inputCount: 0, inputs: [], outputs: [] };
+    });
+
+    await raiseSheet(false);
+
+    expect(mockSummaryBytesToView).toHaveBeenCalled();
+    expect(mockNoteFlowFromBytes).toHaveBeenCalled();
+    expect(outside).toEqual([]);
   });
 
   it('dry-runs the request the user is being asked about, on the bound account', async () => {
@@ -764,17 +795,17 @@ describe('the outflow an approval records', () => {
 });
 
 /**
- * A summary's fee note is told apart only by the chain fee this realm just read, so the approval reads it before it
- * decodes one and refuses when that read is unknown. An executed dry run reads the fee of its own block and needs no
- * re-read.
+ * A summary's fee note is told apart only by the chain fee this realm just read, so the approval reads it before the
+ * dry run, whose hold measures the approval. Only a summary is refused when that read is unknown: an executed dry run
+ * splits on the fee of its own block.
  */
 describe('the chain fee the approval decodes with', () => {
-  it('re-reads the chain fee before decoding a summary, and not for an executed dry run', async () => {
+  it('reads the chain fee once, before the dry run, for a summary and for an executed dry run', async () => {
     await raiseSheet(false);
 
     expect(mockRefreshVerificationBaseFee).toHaveBeenCalledTimes(1);
     expect(mockRefreshVerificationBaseFee.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockSummaryBytesToView.mock.invocationCallOrder[0]!
+      mockSimulate.mock.invocationCallOrder[0]!
     );
 
     jest.clearAllMocks();
@@ -783,7 +814,10 @@ describe('the chain fee the approval decodes with', () => {
     await raiseSheet(false);
 
     expect(mockExecutedBytesToView).toHaveBeenCalledWith('execB64');
-    expect(mockRefreshVerificationBaseFee).not.toHaveBeenCalled();
+    expect(mockRefreshVerificationBaseFee).toHaveBeenCalledTimes(1);
+    expect(mockRefreshVerificationBaseFee.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockSimulate.mock.invocationCallOrder[0]!
+    );
   });
 
   it('refuses a summary dry run before any prompt when the refresh does not know the fee', async () => {
@@ -809,6 +843,16 @@ describe('the chain fee the approval decodes with', () => {
   it('still prompts when the refresh finds the fee absent', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
     mockFeeKnownAbsent.mockReturnValueOnce(true);
+
+    await raiseSheet(false);
+
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('still prompts an executed dry run when the fee read does not know the fee', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
+    mockSimulate.mockResolvedValue({ executedBytes: 'execB64' });
+    mockExecutedBytesToView.mockReturnValue(emptyView);
 
     await raiseSheet(false);
 

@@ -45,9 +45,14 @@ jest.mock('lib/miden/note-quarantine', () => ({
 const mockSimulateCustomTransaction = jest.fn((..._args: unknown[]) =>
   Promise.resolve({ executedBytes: 'exec' } as Record<string, unknown>)
 );
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: (...args: unknown[]) => mockSimulateCustomTransaction(...args)
-}));
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return {
+    simulateCustomTransaction: async (...args: unknown[]) =>
+      measureApprovalDryRun(await mockSimulateCustomTransaction(...args))
+  };
+});
 
 // Only the decoder is stood in: what the bytes decode TO is decode.test.ts's subject, while this
 // file's subject is what the gate does with the result. `netOutflowByFaucet` stays REAL, so these

@@ -165,9 +165,11 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
  * The approval needs a dry run that succeeds, so the stub gives one, and the
  * decode of its bytes gives a view that moves nothing.
  */
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
-}));
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return { simulateCustomTransaction: jest.fn(async () => measureApprovalDryRun({ summaryBytes: 'sumB64' })) };
+});
 
 // A custom summary's approval reads the chain fee before it decodes and refuses when that read is unknown.
 jest.mock('lib/miden-chain/native-asset', () => ({

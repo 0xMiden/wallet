@@ -131,9 +131,13 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 
 /** The dry run itself is covered by `simulate-custom-tx.test.ts`; here it gives the view the sheet must show. */
 const mockSimulate = jest.fn();
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: (...args: unknown[]) => mockSimulate(...args)
-}));
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return {
+    simulateCustomTransaction: async (...args: unknown[]) => measureApprovalDryRun(await mockSimulate(...args))
+  };
+});
 
 // A summary's approval, custom or signBytes, reads the chain fee before it decodes and refuses when that read is
 // unknown. A signBytes summary is then measured on the fee and native faucet that read cached.

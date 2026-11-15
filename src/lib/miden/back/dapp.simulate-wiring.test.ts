@@ -1,5 +1,5 @@
 import { simulatedBytesToView, type TxAssetView } from 'app/confirm/decode';
-import { noteFlowFromSimulatedBytes } from 'app/confirm/note-flow';
+import { noteFlowFromSimulatedBytes, type NoteFlow } from 'app/confirm/note-flow';
 import { SpendingLimitAssessmentDetails } from 'lib/miden/spending-limits/queue';
 import { MidenDAppSimulateTransactionRequest, MidenMessageType } from 'lib/miden/types';
 
@@ -142,6 +142,11 @@ describe('makeSimulateHandler', () => {
     type: MidenMessageType.DAppSimulateTransactionRequest,
     id: 'confirm-id'
   };
+  const flow: NoteFlow = {
+    inputCount: 0,
+    inputs: [],
+    outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId: 'fA', amount: 500n }] }]
+  };
 
   /** What the approval measured from the holdings: a held 1000 spent, so 1050 leaves where the vault nets 50. */
   const approvedView = (): TxAssetView => ({
@@ -169,7 +174,7 @@ describe('makeSimulateHandler', () => {
   });
 
   it('answers with the approval view it is given, never simulating or decoding the view again', async () => {
-    const out = await makeSimulateHandler('confirm-id', approvedView(), { summaryBytes: 'sumB64' })(simulateRequest);
+    const out = await makeSimulateHandler('confirm-id', approvedView(), undefined)(simulateRequest);
 
     expect(out).toEqual({
       type: MidenMessageType.DAppSimulateTransactionResponse,
@@ -179,41 +184,24 @@ describe('makeSimulateHandler', () => {
     expect(simulatedBytesToView).not.toHaveBeenCalled();
   });
 
-  it("carries the dry run's note flow beside the view and never the dry-run bytes", async () => {
-    jest.mocked(noteFlowFromSimulatedBytes).mockReturnValueOnce({
-      inputCount: 0,
-      inputs: [],
-      outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId: 'fA', amount: 500n }] }]
-    });
+  it('answers with the approval view and the note flow the dry run measured, decoding nothing', async () => {
+    const out = await makeSimulateHandler('confirm-id', decodedView(), flow)(simulateRequest);
 
-    const out = await makeSimulateHandler('confirm-id', decodedView(), { executedBytes: 'execB64' })(simulateRequest);
-
-    expect(noteFlowFromSimulatedBytes).toHaveBeenCalledWith({ executedBytes: 'execB64' });
+    expect(noteFlowFromSimulatedBytes).not.toHaveBeenCalled();
+    expect(simulatedBytesToView).not.toHaveBeenCalled();
     expect(out?.effects?.view).toEqual(wireView);
     expect(out?.effects?.noteFlow?.outputs[0]?.assets).toEqual([{ faucetId: 'fA', amount: '500' }]);
-    expect(out).not.toHaveProperty('executedBytes');
-    expect(JSON.stringify(out)).not.toContain('execB64');
   });
 
-  it('keeps the view when only the note flow cannot be decoded', async () => {
-    jest.mocked(noteFlowFromSimulatedBytes).mockImplementationOnce(() => {
-      throw new Error('bad note bytes');
-    });
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  it('answers the view alone when the dry run measured no note flow', async () => {
+    const out = await makeSimulateHandler('confirm-id', decodedView(), undefined)(simulateRequest);
 
-    try {
-      const out = await makeSimulateHandler('confirm-id', decodedView(), { summaryBytes: 'sumB64' })(simulateRequest);
-
-      expect(out).toEqual({ type: MidenMessageType.DAppSimulateTransactionResponse, effects: { view: wireView } });
-      expect(out?.effects).not.toHaveProperty('noteFlow');
-      expect(consoleError).toHaveBeenCalled();
-    } finally {
-      consoleError.mockRestore();
-    }
+    expect(out).toEqual({ type: MidenMessageType.DAppSimulateTransactionResponse, effects: { view: wireView } });
+    expect(out?.effects).not.toHaveProperty('noteFlow');
   });
 
   it('answers an error and no effects when it has no approval view', async () => {
-    const out = await makeSimulateHandler('confirm-id', undefined, { summaryBytes: 'sumB64' })(simulateRequest);
+    const out = await makeSimulateHandler('confirm-id', undefined)(simulateRequest);
 
     expect(out).toEqual({
       type: MidenMessageType.DAppSimulateTransactionResponse,
