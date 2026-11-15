@@ -221,6 +221,10 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
 
   const originAsset = offerAsset;
   const destinationAsset = requestAsset;
+  const backToAmounts = useCallback(() => {
+    setScreen('amounts');
+    setWetQuote(undefined);
+  }, []);
   useRegisterCommandFlowBack(
     screen === 'review' && wetQuote && wetRequest && originAsset && destinationAsset && !trackingLookupFailed
       ? undefined
@@ -958,10 +962,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
           recoveryNotice={initialRecovery !== undefined}
           error={error}
           errorId={error ? errorId : null}
-          onBack={() => {
-            setScreen('amounts');
-            setWetQuote(undefined);
-          }}
+          onBack={backToAmounts}
           onRefresh={() => void refreshWetQuote()}
           onConfirm={() => void confirm()}
         />

@@ -111,6 +111,7 @@ jest.mock('lib/one-click/client', () => ({
   requestOneClickQuote: jest.fn()
 }));
 jest.mock('lib/telemetry/use-user-visible-error', () => ({ useUserVisibleError: jest.fn() }));
+jest.mock('components/NetworkModeBanner', () => ({ NetworkModeBanner: () => null }));
 jest.mock('lib/one-click/tracking', () => ({
   claimOneClickEvmDepositAttempt: jest.fn(async () => undefined),
   getOneClickTransactions: jest.fn(async () => mockPersistedRows),
@@ -209,20 +210,14 @@ jest.mock('./OneClickAmounts', () => ({
     );
   }
 }));
+let mockRenderRealOneClickReview = false;
 jest.mock('./OneClickReview', () => ({
-  OneClickReview: (props: {
-    quote: OneClickQuoteResponse;
-    recipient: string;
-    onConfirm: () => void;
-    onRefresh: () => void;
-    onBack: () => void;
-    error?: string;
-    errorId?: string | null;
-    submitting?: boolean;
-    confirmDisabled?: boolean;
-    fundingError?: string;
-    recoveryNotice?: boolean;
-  }) => {
+  OneClickReview: (props: React.ComponentProps<typeof import('./OneClickReview').OneClickReview>) => {
+    if (mockRenderRealOneClickReview) {
+      const RealOneClickReview =
+        jest.requireActual<typeof import('./OneClickReview')>('./OneClickReview').OneClickReview;
+      return <RealOneClickReview {...props} />;
+    }
     mockOneClickReviewState = { correlationId: props.quote.correlationId, recipient: props.recipient };
     return (
       <div>
@@ -430,6 +425,7 @@ async function settlePreviewDebounce(): Promise<void> {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRenderRealOneClickReview = false;
   jest
     .mocked(getOneClickTransactions)
     .mockReset()
@@ -528,6 +524,40 @@ describe('OneClickFlow', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Header Back' }));
     expect(onBackToSwap).toHaveBeenCalledTimes(1);
+  });
+  it('keeps the real Command 1Click review mounted when the header Back owner updates', async () => {
+    mockRenderRealOneClickReview = true;
+    const onBackToSwap = jest.fn();
+    function CommandHost() {
+      const back = useCommandFlowBack()?.activeBack;
+      return (
+        <FlowPresentationProvider value="command">
+          <button onClick={back}>Header Back</button>
+          <OneClickFlow
+            config={config}
+            assets={[midenAsset, ethereumAsset, manualAsset]}
+            networks={networks}
+            offerNetwork={networkFor('miden')}
+            requestNetwork={networkFor('eth')}
+            midenAddress={mockMidenAddress}
+            onBackToSwap={onBackToSwap}
+          />
+        </FlowPresentationProvider>
+      );
+    }
+    render(
+      <CommandFlowBackProvider>
+        <CommandHost />
+      </CommandFlowBackProvider>
+    );
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review route' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Review route' }));
+    expect(await screen.findByTestId('one-click-review-hero')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Header Back' }));
+    expect(screen.getByTestId('one-click-input-draft')).toBeInTheDocument();
+    expect(onBackToSwap).not.toHaveBeenCalled();
   });
   it('routes Command header Back to the active 1Click controller while a recovery quote is refreshing', async () => {
     const request: OneClickQuoteRequest = {
