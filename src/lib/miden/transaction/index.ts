@@ -1082,10 +1082,10 @@ async function requeueTransactionForRetry(
   // is set. That arm CAN prove pre-submit from its error text, unlike the stage
   // gates, but it cannot prove anything about an EARLIER attempt on the same
   // row, which is what the flag actually records. So the bytes are kept: the
-  // reused serial pins the note id, making a duplicate rejected rather than
-  // paid twice, at the cost of retrying against the reclaim height built on the
-  // first attempt. Reversing that would need the crossing tracked per attempt,
-  // not per row.
+  // reused serial pins the note id, which the node rejects as a duplicate while
+  // the first copy is in flight, and Retry asks before it replays them, at the
+  // cost of retrying against the reclaim height built on the first attempt.
+  // Reversing that would need the crossing tracked per attempt, not per row.
   //
   // Folded into the status write rather than a second `modify`: as two writes, a
   // service-worker death between them left the row Queued with its stale bytes
