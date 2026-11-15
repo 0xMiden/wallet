@@ -321,6 +321,33 @@ const summarySites: Array<[string, (failure: Error) => void, string, number]> = 
     },
     'Guardian summary notes do not decode',
     1
+  ],
+  [
+    "the fee note's tag read",
+    failure => {
+      mockSummary.outputNotes = () => ({
+        notes: () => [
+          {
+            id: () => ({ toString: () => 'fee-note' }),
+            intoFull: () => undefined,
+            assets: () => ({
+              fungibleAssets: () => [{ faucetId: () => 'fee', amount: () => 3n }],
+              nonFungibleAssets: () => []
+            }),
+            metadata: () => ({
+              tag: () => {
+                throw failure;
+              },
+              sender: () => 'account',
+              noteType: () => 1
+            })
+          },
+          summaryUserNote
+        ]
+      });
+    },
+    'Guardian summary notes do not decode',
+    1
   ]
 ];
 // A fresh trap per site: the lock module is shared by every row, and it retires a trap object only once.

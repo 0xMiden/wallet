@@ -162,7 +162,7 @@ import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
 import { describeNft, toNft, type NftAsset } from '../sdk/nft-asset';
 import { normalizedCommitment, noteDetailsCommitment, type NoteDetailsParts } from '../sdk/note-details-commitment';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
-import { causeChain, isPipelineKillLink, pipelineKillIn } from '../sdk/sdk-error-code';
+import { causeChain, isPipelineKillLink, pipelineKillIn, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -788,7 +788,7 @@ const generatePromisifySign = async (
             summary = signingInputs.transactionSummaryPayload();
           }
         } catch (decodeError) {
-          if (decodeError instanceof WebAssembly.RuntimeError) throw decodeError;
+          rethrowTrapOrKill(decodeError);
           console.error('[DApp] Could not decode the signingInputs payload for the approval sheet:', decodeError);
         }
         if (!summary) return undefined;
@@ -800,7 +800,7 @@ const generatePromisifySign = async (
         try {
           noteFlow = noteFlowFromTransaction(summary);
         } catch (noteError) {
-          if (noteError instanceof WebAssembly.RuntimeError) throw noteError;
+          rethrowTrapOrKill(noteError);
           console.error('[DApp] Signing summary note details unavailable:', noteError);
         }
         return { view, noteFlow };
@@ -3847,7 +3847,7 @@ function measuredSigningHoldings(summary: TransactionSummary): TxAssetView {
   try {
     return toHoldingsView(summaryToView(summary), []);
   } catch (measureError) {
-    if (measureError instanceof WebAssembly.RuntimeError) throw measureError;
+    rethrowTrapOrKill(measureError);
     const reason = measureError instanceof Error ? measureError.message : String(measureError);
     throw new Error(`${MidenDAppErrorType.NotGranted}: ${reason}`);
   }

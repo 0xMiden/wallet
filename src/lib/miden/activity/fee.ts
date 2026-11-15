@@ -2,7 +2,7 @@ import type { TransactionResult } from '@miden-sdk/miden-sdk';
 
 import { formatAmount } from 'lib/shared/format';
 
-import { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes } from './fee-notes';
+import { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes, splitLandedOutputNotes } from './fee-notes';
 import type { FeePaid } from './fee-notes';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -19,9 +19,9 @@ export type { UserOutputNote, FeePaid } from './fee-notes';
  * magnitude. The vault delta is not usable either: the SDK exposes the post-state
  * absolutely, not as a difference.
  *
- * Absorbs a missing or throwing accessor: this runs while recording a transaction the
- * user has already sent, and losing the whole row to it would be worse than losing the
- * fee figure.
+ * A fee-check trap is answered by {@link splitLandedOutputNotes}, while a read after the split still drops the
+ * figure. This runs while recording a transaction the user has already sent, and losing the whole row to that later
+ * read would be worse than losing the fee figure.
  *
  * An EVICTION is the one exception and propagates. Every accessor here borrows from the
  * WASM client's RefCell, so once the watchdog has handed the mutex to a successor these
@@ -31,7 +31,7 @@ export type { UserOutputNote, FeePaid } from './fee-notes';
  */
 export function feePaidFromResult(result: TransactionResult): FeePaid | undefined {
   try {
-    const { feeNote } = splitExecutedOutputNotes(result.executedTransaction());
+    const { feeNote } = splitLandedOutputNotes(result.executedTransaction());
     if (!feeNote) {
       return undefined;
     }
