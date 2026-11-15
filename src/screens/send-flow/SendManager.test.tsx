@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
+import { FlowLayout } from 'components/flow/FlowLayout';
 import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   publishMockBridgeSnapshot
@@ -12,6 +13,7 @@ import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+import { CommandShell } from 'screens/command/CommandShell';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
@@ -59,6 +61,7 @@ let mockPathname = '/send';
 let mockSearch = '';
 let mockCardStack: { name: string }[] = [{ name: SendFlowStep.SelectRecipient }];
 let mockRenderRouteName: string | undefined;
+let mockRealNavigator = false;
 
 let mockSelectedToken: any = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
 let mockSelectedContact: any = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
@@ -162,47 +165,70 @@ const walletStoreState = {
 // ---------------------------------------------------------------------------
 // Module mocks.
 // ---------------------------------------------------------------------------
-jest.mock('components/Navigator', () => ({
-  __esModule: true,
-  useNavigator: () => ({ navigateTo: navigateToMock, goBack: goBackMock, cardStack: mockCardStack }),
-  NavigatorProvider: ({ children, initialRouteName, initialRouteNames }: any) => (
-    <div data-testid="nav-provider" data-initial-stack={(initialRouteNames ?? [initialRouteName]).join(',')}>
-      {children}
-    </div>
-  ),
-  Navigator: ({ renderRoute }: any) => {
-    const name = mockRenderRouteName ?? mockCardStack[mockCardStack.length - 1]?.name;
-    return <div data-testid="navigator">{renderRoute({ name, animationIn: 'push', animationOut: 'pop' }, 0)}</div>;
-  }
-}));
+jest.mock('screens/command/CommandHomePrompts', () => ({ CommandHomePrompts: () => null }));
+
+jest.mock('components/Navigator', () => {
+  const actual = jest.requireActual<typeof import('components/Navigator')>('components/Navigator');
+  return {
+    __esModule: true,
+    useNavigator: () =>
+      mockRealNavigator
+        ? actual.useNavigator()
+        : { navigateTo: navigateToMock, goBack: goBackMock, cardStack: mockCardStack },
+    NavigatorProvider: ({ children, initialRouteName, initialRouteNames, ...props }: any) =>
+      mockRealNavigator ? (
+        <actual.NavigatorProvider initialRouteNames={initialRouteNames} {...props}>
+          {children}
+        </actual.NavigatorProvider>
+      ) : (
+        <div data-testid="nav-provider" data-initial-stack={(initialRouteNames ?? [initialRouteName]).join(',')}>
+          {children}
+        </div>
+      ),
+    Navigator: ({ renderRoute }: any) => {
+      if (mockRealNavigator) return <actual.Navigator renderRoute={renderRoute} />;
+      const name = mockRenderRouteName ?? mockCardStack[mockCardStack.length - 1]?.name;
+      return <div data-testid="navigator">{renderRoute({ name, animationIn: 'push', animationOut: 'pop' }, 0)}</div>;
+    }
+  };
+});
 
 jest.mock('./SelectRecipient', () => ({
-  SelectRecipient: (props: any) => (
-    <div data-testid="select-recipient">
-      <span data-testid="sr-address">{props.address}</span>
-      <span data-testid="sr-network">{props.network ?? ''}</span>
-      <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
-      <span data-testid="sr-evidence">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
-      <span data-testid="sr-error">{props.error ?? ''}</span>
-      <textarea data-testid="sr-input" onChange={props.onAddressChange} />
-      <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
-      <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
-      <span data-testid="sr-networks">{JSON.stringify(props.networks.map((n: any) => n.id))}</span>
-      <button data-testid="sr-addressbook" onClick={props.onAddressBook} />
-      <button data-testid="sr-addcontact" onClick={props.onAddContact} />
-      <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
-      {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
-      {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
-      {props.networks.map((network: { id: string }) => (
-        <button
-          key={network.id}
-          data-testid={`sr-network-${network.id}`}
-          onClick={() => props.onSelectNetwork(network.id)}
-        />
-      ))}
-      <button data-testid="sr-confirm" onClick={props.onConfirm} />
-    </div>
-  )
+  SelectRecipient: (props: any) =>
+    mockRealNavigator ? (
+      <FlowLayout title="Recipient" onBack={props.onBack} footer={<button onClick={props.onConfirm}>Continue</button>}>
+        <div data-testid="select-recipient">
+          <button data-testid="sr-network-sepolia" onClick={() => props.onSelectNetwork('sepolia')} />
+          <textarea data-testid="sr-input" onChange={props.onAddressChange} />
+          <button data-testid="sr-confirm" onClick={props.onConfirm} />
+        </div>
+      </FlowLayout>
+    ) : (
+      <div data-testid="select-recipient">
+        <span data-testid="sr-address">{props.address}</span>
+        <span data-testid="sr-network">{props.network ?? ''}</span>
+        <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
+        <span data-testid="sr-evidence">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
+        <span data-testid="sr-error">{props.error ?? ''}</span>
+        <textarea data-testid="sr-input" onChange={props.onAddressChange} />
+        <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
+        <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
+        <span data-testid="sr-networks">{JSON.stringify(props.networks.map((n: any) => n.id))}</span>
+        <button data-testid="sr-addressbook" onClick={props.onAddressBook} />
+        <button data-testid="sr-addcontact" onClick={props.onAddContact} />
+        <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
+        {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
+        {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
+        {props.networks.map((network: { id: string }) => (
+          <button
+            key={network.id}
+            data-testid={`sr-network-${network.id}`}
+            onClick={() => props.onSelectNetwork(network.id)}
+          />
+        ))}
+        <button data-testid="sr-confirm" onClick={props.onConfirm} />
+      </div>
+    )
 }));
 
 jest.mock('./ScanQrDrawer', () => ({
@@ -220,30 +246,37 @@ jest.mock('./ScanQrDrawer', () => ({
 }));
 
 jest.mock('./SendAmount', () => ({
-  SendAmount: (props: any) => (
-    <div data-testid="select-amount">
-      <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
-      <span data-testid="sa-token-id">{props.token ? props.token.id : ''}</span>
-      <span data-testid="sa-fiat-price">{props.token ? String(props.token.fiatPrice) : ''}</span>
-      <span data-testid="sa-balance">{props.token ? String(props.token.balance) : ''}</span>
-      <span data-testid="sa-decimals">{props.token ? String(props.token.decimals) : ''}</span>
-      <span data-testid="sa-scale-known">{props.token ? String(props.token.scaleIsKnown) : ''}</span>
-      <span data-testid="sa-amount">{props.amount}</span>
-      <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
-      <span data-testid="sa-max-disabled">{String(!!props.maxDisabled)}</span>
-      <span data-testid="sa-token-held">{String(!!props.tokenHeld)}</span>
-      <span data-testid="sa-error">{props.error ?? ''}</span>
-      <span data-testid="sa-diagnostics">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
-      <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
-      <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
-      <span data-testid="sa-network">{props.network ?? ''}</span>
-      <button data-testid="sa-receive" onClick={props.onReceive} />
-      <input data-testid="sa-input" onChange={(e: any) => props.onAmountChange(e.target.value)} />
-      <button data-testid="sa-selecttoken" onClick={props.onSelectToken} />
-      {props.onBack && <button data-testid="sa-back" onClick={props.onBack} />}
-      <button data-testid="sa-confirm" onClick={props.onConfirm} />
-    </div>
-  )
+  SendAmount: (props: any) =>
+    mockRealNavigator ? (
+      <FlowLayout title="Amount" onBack={props.onBack} footer={<button onClick={props.onConfirm}>Continue</button>}>
+        <div data-testid="select-amount">
+          <button data-testid="sa-confirm" onClick={props.onConfirm} />
+        </div>
+      </FlowLayout>
+    ) : (
+      <div data-testid="select-amount">
+        <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
+        <span data-testid="sa-token-id">{props.token ? props.token.id : ''}</span>
+        <span data-testid="sa-fiat-price">{props.token ? String(props.token.fiatPrice) : ''}</span>
+        <span data-testid="sa-balance">{props.token ? String(props.token.balance) : ''}</span>
+        <span data-testid="sa-decimals">{props.token ? String(props.token.decimals) : ''}</span>
+        <span data-testid="sa-scale-known">{props.token ? String(props.token.scaleIsKnown) : ''}</span>
+        <span data-testid="sa-amount">{props.amount}</span>
+        <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
+        <span data-testid="sa-max-disabled">{String(!!props.maxDisabled)}</span>
+        <span data-testid="sa-token-held">{String(!!props.tokenHeld)}</span>
+        <span data-testid="sa-error">{props.error ?? ''}</span>
+        <span data-testid="sa-diagnostics">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
+        <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
+        <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
+        <span data-testid="sa-network">{props.network ?? ''}</span>
+        <button data-testid="sa-receive" onClick={props.onReceive} />
+        <input data-testid="sa-input" onChange={(e: any) => props.onAmountChange(e.target.value)} />
+        <button data-testid="sa-selecttoken" onClick={props.onSelectToken} />
+        {props.onBack && <button data-testid="sa-back" onClick={props.onBack} />}
+        <button data-testid="sa-confirm" onClick={props.onConfirm} />
+      </div>
+    )
 }));
 
 jest.mock('./SelectToken', () => ({
@@ -357,17 +390,22 @@ jest.mock('./useEpochQuote', () => ({
 }));
 
 jest.mock('./SendRoute', () => ({
-  SendRoute: (props: any) => (
-    <>
-      <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
-      <span data-testid="route-selected">{props.route}</span>
-      <span data-testid="route-usdcx">{String(props.usdcxAvailable)}</span>
-      <span data-testid="route-usdcx-payout">
-        {props.usdcxPayout ? `${props.usdcxPayout.chainId}:${props.usdcxPayout.amount}` : ''}
-      </span>
-      <button data-testid="route-confirm" onClick={props.onConfirm} />
-    </>
-  )
+  SendRoute: (props: any) =>
+    mockRealNavigator ? (
+      <FlowLayout title="Route" onBack={props.onBack} footer={<button onClick={props.onConfirm}>Confirm</button>}>
+        <div data-testid="select-route" />
+      </FlowLayout>
+    ) : (
+      <>
+        <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
+        <span data-testid="route-selected">{props.route}</span>
+        <span data-testid="route-usdcx">{String(props.usdcxAvailable)}</span>
+        <span data-testid="route-usdcx-payout">
+          {props.usdcxPayout ? `${props.usdcxPayout.chainId}:${props.usdcxPayout.amount}` : ''}
+        </span>
+        <button data-testid="route-confirm" onClick={props.onConfirm} />
+      </>
+    )
 }));
 
 // The burn fee dry run behind `useBurnFeeReserve`; it never answers unless a case says otherwise.
@@ -423,6 +461,9 @@ jest.mock('lib/store', () => ({
   })
 }));
 jest.mock('lib/woozie', () => ({
+  createLocationState: () => ({ historyPosition: 1, href: '/send' }),
+  goBack: () => goBackMock(),
+  listen: () => () => undefined,
   navigate: (...a: any[]) => navigateMock(...a),
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
 }));
@@ -476,6 +517,7 @@ beforeEach(() => {
   mockSearch = '';
   mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
   mockRenderRouteName = undefined;
+  mockRealNavigator = false;
   mockEpochAmount = undefined;
   mockUsdcxTokenId = undefined;
   mockUnsupportedSendTokens.clear();
@@ -644,6 +686,34 @@ describe('stale transaction modal dismissal', () => {
 // ---------------------------------------------------------------------------
 // Mobile back handler branches.
 // ---------------------------------------------------------------------------
+describe('Command header with the real Send Navigator', () => {
+  it('pops Route to Amount and Amount to Recipient without leaving Send', async () => {
+    mockRealNavigator = true;
+    render(
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <SendFlow isLoading={false} />
+      </CommandShell>
+    );
+
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xabc' } });
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
+    fireEvent.click(screen.getByTestId('sr-confirm'));
+    expect(await screen.findByTestId('select-amount')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('sa-confirm'));
+    expect(await screen.findByTestId('select-route')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(await screen.findByTestId('select-amount')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(await screen.findByTestId('select-recipient')).toBeInTheDocument();
+    expect(goBackMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('on-screen step back button', () => {
   it('opens a fresh flow on the recipient step', () => {
     renderFlow();

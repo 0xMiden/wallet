@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
-import { useFlowPresentation } from 'components/flow/FlowPresentation';
+import { useFlowPresentation, useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { PageHeader } from 'components/PageHeader';
 
 export interface FlowLayoutProps {
@@ -44,6 +44,7 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
   footer
 }) => {
   const command = useFlowPresentation() === 'command';
+  useRegisterCommandFlowBack(onBack);
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col bg-app-bg">
       {!command && !tabRoot && (

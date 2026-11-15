@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useState } from 'react';
 
 import * as Dialog from '@radix-ui/react-dialog';
 
-import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
+import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 
 import { CommandDraftProvider } from './command-drafts';
@@ -62,35 +62,37 @@ export function CommandShell({
   return (
     <CommandDraftProvider scope={scope}>
       <FlowPresentationProvider value="command">
-        <Dialog.Root open={paletteOpen} onOpenChange={setPaletteOpen}>
-          <div data-testid="command-shell" className="relative flex h-full min-h-0 w-full flex-col bg-page text-ink">
-            <CommandHeader />
-            <main className="relative min-h-0 flex-1 overflow-y-auto">
-              {route.kind === 'dashboard' && (
-                <>
-                  {children}
-                  <CommandHomePrompts />
-                </>
-              )}
-              <div
-                ref={setPortalHost}
-                data-command-portals="true"
-                className={route.kind === 'dashboard' ? '' : 'mx-auto h-full max-w-5xl p-4'}
-              />
-              {route.kind !== 'dashboard' && portalHost && (
-                <CommandWorkbench
-                  key={route.kind === 'operation' ? `operation:${route.id}` : `flow:${route.action}`}
-                  route={route}
-                  container={portalHost}
-                >
-                  {children}
-                </CommandWorkbench>
-              )}
-            </main>
-            <CommandDock />
-            <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} container={portalHost} />
-          </div>
-        </Dialog.Root>
+        <CommandFlowBackProvider>
+          <Dialog.Root open={paletteOpen} onOpenChange={setPaletteOpen}>
+            <div data-testid="command-shell" className="relative flex h-full min-h-0 w-full flex-col bg-page text-ink">
+              <CommandHeader />
+              <main className="relative min-h-0 flex-1 overflow-y-auto">
+                {route.kind === 'dashboard' && (
+                  <>
+                    {children}
+                    <CommandHomePrompts />
+                  </>
+                )}
+                <div
+                  ref={setPortalHost}
+                  data-command-portals="true"
+                  className={route.kind === 'dashboard' ? '' : 'mx-auto h-full max-w-5xl p-4'}
+                />
+                {route.kind !== 'dashboard' && portalHost && (
+                  <CommandWorkbench
+                    key={route.kind === 'operation' ? `operation:${route.id}` : `flow:${route.action}`}
+                    route={route}
+                    container={portalHost}
+                  >
+                    {children}
+                  </CommandWorkbench>
+                )}
+              </main>
+              <CommandDock />
+              <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} container={portalHost} />
+            </div>
+          </Dialog.Root>
+        </CommandFlowBackProvider>
       </FlowPresentationProvider>
     </CommandDraftProvider>
   );

@@ -4,6 +4,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { useCommandFlowBack } from 'components/flow/FlowPresentation';
 import { WorkbenchLayout } from 'components/flow/WorkbenchLayout';
 import { navigate } from 'lib/woozie';
 
@@ -19,7 +20,8 @@ export function CommandWorkbench({
   children: React.ReactNode;
 }): React.ReactElement {
   const { t } = useTranslation();
-  const back = useBackWithFallback();
+  const fallbackBack = useBackWithFallback();
+  const activeBack = useCommandFlowBack()?.activeBack;
   const title =
     route.kind === 'flow' ? t(route.action === 'bridge' ? 'commandBridge' : route.action) : t('commandOperation');
   return (
@@ -37,7 +39,7 @@ export function CommandWorkbench({
           className="relative h-full min-h-0 w-full outline-none"
         >
           <Dialog.Title className="sr-only">{title}</Dialog.Title>
-          <WorkbenchLayout title={title} onBack={back} onMinimize={() => navigate('/')}>
+          <WorkbenchLayout title={title} onBack={activeBack ?? fallbackBack} onMinimize={() => navigate('/')}>
             {children}
           </WorkbenchLayout>
         </Dialog.Content>

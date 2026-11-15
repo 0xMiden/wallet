@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MotionConfig } from 'framer-motion';
 
+import { FlowLayout } from 'components/flow/FlowLayout';
 import { AlertSheet } from 'components/ui/AlertSheet';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -46,6 +47,29 @@ it('renders one active workbench and navigates via the five dock destinations', 
   expect(screen.getAllByTestId('command-shell')).toHaveLength(1);
   expect(screen.getByText('Real swap controller')).toBeInTheDocument();
   expect(screen.queryByText('Real send controller')).not.toBeInTheDocument();
+});
+
+it('uses the active flow step Back, then falls back to route history after the step unmounts', () => {
+  const stepBack = jest.fn();
+  const { rerender } = render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+      <FlowLayout title="Amount" onBack={stepBack} footer={<button>Continue</button>}>
+        <p>Amount step</p>
+      </FlowLayout>
+    </CommandShell>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(stepBack).toHaveBeenCalledTimes(1);
+  expect(goBack).not.toHaveBeenCalled();
+
+  rerender(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <div>Receive controller</div>
+    </CommandShell>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(stepBack).toHaveBeenCalledTimes(1);
+  expect(goBack).toHaveBeenCalledTimes(1);
 });
 
 it.each([
