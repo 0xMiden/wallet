@@ -811,6 +811,49 @@ describe('a throw after the leaf resolved', () => {
     expect(row.noteDelivery).toBe('undelivered');
   });
 
+  // A row left in progress is reaped into Failed, which Retry can re-execute: the landed write is retried as an
+  // IndexedDB abort under contention needs.
+  it('a landed execute whose first Completed write aborts is retried and ends Completed', async () => {
+    const where: jest.Mock = require('lib/miden/repo').transactions.where;
+    const plain = where.getMockImplementation()!;
+    let aborted = false;
+    where.mockImplementation((arg: any) => {
+      const query = plain(arg);
+      if (typeof arg === 'string') return query;
+      return {
+        ...query,
+        modify: async (fn: (tx: any) => unknown) => {
+          const row = txStore.find(t => t.id === arg.id);
+          const probe = row && { ...row, stageTimestamps: { ...(row.stageTimestamps ?? {}) } };
+          if (probe && !aborted && (fn(probe), probe.status === ITransactionStatus.Completed)) {
+            aborted = true;
+            throw Object.assign(new Error('Transaction aborted'), { name: 'AbortError' });
+          }
+          return query.modify(fn);
+        }
+      };
+    });
+    queuedExecute('tx-tail-write-abort');
+    try {
+      await runLoopWithWrite(
+        jest.fn(async () =>
+          landedResult({
+            outputNotes: () => {
+              throw new Error('output notes read');
+            }
+          })
+        )
+      );
+    } finally {
+      where.mockImplementation(plain);
+    }
+
+    const row = txStore[0]!;
+    expect(aborted).toBe(true);
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, transactionId: 'landed-id' });
+    expect(isRequeueableTransaction(row)).toBe(false);
+  });
+
   it('an earn-deposit whose completion throws after the leaf resolved fails with its landed id and is not requeueable', async () => {
     queuedRow('tx-tail-earn', {
       type: 'earn-deposit',

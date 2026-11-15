@@ -1937,6 +1937,51 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  it('a Guardian send whose tail throws and whose first Completed write aborts is retried and ends Completed', async () => {
+    const landed = makeResult();
+    let armed = false;
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw new Error('result read');
+        return landed.executedTransaction();
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    const where: jest.Mock = jest.requireMock('lib/miden/repo').transactions.where;
+    const plain = where.getMockImplementation()!;
+    let aborted = false;
+    where.mockImplementation((query: { id: string }) => {
+      const plainQuery = plain(query);
+      return {
+        ...plainQuery,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const row = txStore.find(r => r.id === query.id);
+          const probe = row && { ...row, stageTimestamps: { ...(row.stageTimestamps ?? {}) } };
+          if (probe && !aborted && (fn(probe), probe.status === ITransactionStatus.Completed)) {
+            aborted = true;
+            throw Object.assign(new Error('Transaction aborted'), { name: 'AbortError' });
+          }
+          return plainQuery.modify(fn);
+        }
+      };
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      const row = await runGuardianSend('send-guardian-tail-write-abort', makeClientApi(result, apply));
+      expect(aborted).toBe(true);
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(isRequeueableTransaction(row)).toBe(false);
+    } finally {
+      where.mockImplementation(plain);
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   const arrangeTipSend = (blockNumbers = [42], syncHeight = 100) => {
     const txId = 'send-guardian-tip';
     txStore.push({
