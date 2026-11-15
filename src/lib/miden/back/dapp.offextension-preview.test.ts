@@ -517,6 +517,21 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     warnSpy.mockRestore();
   });
 
+  it('refuses a summary before any prompt when the fee read throws', async () => {
+    const readFailure = new Error('storage unavailable');
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockRefreshVerificationBaseFee.mockRejectedValue(readFailure);
+    sdk.SigningInputs = { deserialize: () => summarySigningInputs([]) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(`${DECLINED}: ${getMessage('chainFeeUnknown')}`)
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.any(String), readFailure);
+    warnSpy.mockRestore();
+  });
+
   it('still prompts for a payload that does not decode when the fee read does not know the fee', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValue(null);
     sdk.SigningInputs = {
