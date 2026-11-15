@@ -1265,7 +1265,8 @@ export class MidenClientInterface {
       }
       const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
       const p2ideRoot = NoteScript.p2ide().root().toHex();
-      for (const output of splitExecutedOutputNotes(summary).userNotes) {
+      // A past summary has no fee rate of its own.
+      for (const output of splitExecutedOutputNotes(summary, 'recorded').userNotes) {
         if (output.id().toString() !== noteId) continue;
         let note = output.intoFull();
         if (!note && output.metadata().noteType() === NoteType.Public) {

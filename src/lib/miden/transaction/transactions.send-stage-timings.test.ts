@@ -165,7 +165,8 @@ jest.mock('lib/platform', () => ({
 // A checked write decides the chain fee before it runs.
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getVerificationBaseFee: jest.fn(async () => 0)
+  getVerificationBaseFee: jest.fn(async () => 0),
+  refreshVerificationBaseFee: jest.fn(async () => 0)
 }));
 
 jest.mock('shared/logger', () => ({

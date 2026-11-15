@@ -50,6 +50,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000'),
   getNativeAssetIdSync: jest.fn(() => '0xfee0000000000000000000000000000000'),
   getVerificationBaseFee: jest.fn(async () => 10000),
+  refreshVerificationBaseFee: jest.fn(async () => 10000),
   getVerificationBaseFeeSync: jest.fn(() => 10000)
 }));
 jest.mock('lib/miden/assets/faucet-id-setting', () => ({
@@ -72,7 +73,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionSummary: {
     deserialize: () => {
       const removed = [{ faucetId: () => ({ __faucet: 'faucet' }), amount: () => 1000n }];
+      let noteCount = 0;
       const note = (assets: typeof removed) => ({
+        id: () => ({ toString: () => `stub-note-${++noteCount}` }),
         assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
       });
       return {

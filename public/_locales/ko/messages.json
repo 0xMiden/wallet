@@ -3227,6 +3227,10 @@
     "message": "복구 문구 숨김",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "비공개 키 숨김",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "표시",
     "englishSource": "Show"
@@ -4480,6 +4484,10 @@
   "unknown": {
     "message": "알 수 없음",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "아직 청구하지 않은 notes를 포함합니다",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "notes가 소비되었습니다.",
@@ -7476,6 +7484,14 @@
   "tokenHiddenNotice": {
     "message": "홈에서 숨김. 이는 지갑에 남아 있으며, 해당 전송 내역은 여전히 청구할 수 있습니다.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "더스트 토큰 숨기기",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "자산 목록에서 0.001달러 미만의 토큰을 숨깁니다. 네이티브 토큰은 항상 표시됩니다.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "숨겨진 자산",

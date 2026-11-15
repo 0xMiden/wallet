@@ -3227,6 +3227,10 @@
     "message": "備用密句已隱藏",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "私鑰隱藏",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "顯示",
     "englishSource": "Show"
@@ -4480,6 +4484,10 @@
   "unknown": {
     "message": "未知",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "包含您尚未領取的notes",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "已消耗的輸入notes",
@@ -7476,6 +7484,14 @@
   "tokenHiddenNotice": {
     "message": "隱藏於「主錢包」之外。它仍保留在您的錢包中，且其轉帳仍可被領取。",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "隱藏微量代幣",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "將價值低於 0.001 美元的代幣從您的資產清單中隱藏。原生代幣始終保持可見。",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "隱藏資產",

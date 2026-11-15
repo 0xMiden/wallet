@@ -92,9 +92,11 @@ import {
 } from './index';
 import { keptCandidateHoldUntil } from './verdict-rules';
 import { getConnectivityState, resetConnectivityState } from '../activity/connectivity-state';
+import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import {
   ConsumeTransaction,
+  IApprovedCustomEffects,
   ISubmitEvidence,
   ITransaction,
   ITransactionStage,
@@ -192,9 +194,13 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
 // The effects check of an `execute` row is covered by `custom-effects.test.ts`. Here the generation-time dry run
 // gives the approved effects, so the row goes on to its proposal.
 const mockVerifyPreparedCustomRequest = jest.fn(async (..._args: unknown[]) => undefined);
+type AssertCustomEffectsApproved = typeof import('./custom-effects').assertCustomEffectsApproved;
+const mockAssertCustomEffectsApproved = jest.fn<void, Parameters<AssertCustomEffectsApproved>>(() => undefined);
 jest.mock('./custom-effects', () => ({
   customEffectsCheckAccess: (...args: unknown[]) => ({ args }),
-  verifyPreparedCustomRequest: (...args: unknown[]) => mockVerifyPreparedCustomRequest(...args)
+  verifyPreparedCustomRequest: (...args: unknown[]) => mockVerifyPreparedCustomRequest(...args),
+  assertCustomEffectsApproved: (...args: Parameters<AssertCustomEffectsApproved>) =>
+    mockAssertCustomEffectsApproved(...args)
 }));
 
 jest.mock('lib/settings/constants', () => ({}));
@@ -389,6 +395,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000'),
   getNativeAssetIdSync: jest.fn(() => '0xfee0000000000000000000000000000000'),
   getVerificationBaseFee: jest.fn(async () => 10000),
+  refreshVerificationBaseFee: jest.fn(async () => 10000),
   // Unknown, so no output note is set aside as the fee note.
   getVerificationBaseFeeSync: jest.fn(() => null),
   isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
@@ -15929,7 +15936,14 @@ describe('Guardian proposal effect check', () => {
     faucetId: () => ({ __faucet: faucet }),
     amount: () => amount
   });
-  const note = (assets: Asset[]) => ({ assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] }) });
+  // A note's id stands for its contents, as a real note's id does.
+  const note = (assets: Asset[]) => {
+    const id = assets.map(asset => `${asset.faucetId().__faucet}-${asset.amount()}`).join('+');
+    return {
+      id: () => ({ toString: () => `note:${id}` }),
+      assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
+    };
+  };
   // A summary as the SDK hands it over: the net vault delta, the notes consumed and the notes created.
   const summary = ({ removed = [], added = [] }: { removed?: Asset[]; added?: Asset[] }) => ({
     accountDelta: () => ({
@@ -15943,9 +15957,24 @@ describe('Guardian proposal effect check', () => {
     }),
     inputNotes: () => ({
       numNotes: () => added.length,
-      notes: () => added.map(asset => ({ note: () => note([asset]) }))
+      notes: () => added.map(asset => ({ id: note([asset]).id, note: () => note([asset]) }))
     }),
     outputNotes: () => ({ numNotes: () => removed.length, notes: () => removed.map(asset => note([asset])) })
+  });
+  // The effects a custom transaction's approval recorded: it brought in no note and created `approvedOutputNoteIds`.
+  const approvedEffects = (approvedOutputNoteIds: string[]): IApprovedCustomEffects => ({
+    shape: 'summary',
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    recipients: [],
+    inputNotesConsumed: 0,
+    outputNotesCreated: approvedOutputNoteIds.length,
+    storageChanged: false,
+    introducedNoteIds: [],
+    approvedOutputNoteIds
   });
 
   const serviceWith = (proposal: Record<string, unknown>, abandonCandidate = jest.fn(async (_nonce: number) => {})) => {
@@ -16024,7 +16053,7 @@ describe('Guardian proposal effect check', () => {
       entered = resolve;
     });
     const keptWhileFeePending: unknown[] = [];
-    nativeAsset.getVerificationBaseFee.mockImplementation(async () => {
+    nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => {
       keptWhileFeePending.push(txStore.find(row => row.id === 'claim-pending-fee')?.guardianCandidate);
       entered();
       return feePending;
@@ -16058,14 +16087,14 @@ describe('Guardian proposal effect check', () => {
       expect(row.guardianCandidate).toBeUndefined();
       expect(service.abandonCandidate).toHaveBeenCalledWith(11);
     } finally {
-      nativeAsset.getVerificationBaseFee.mockReset();
-      nativeAsset.getVerificationBaseFee.mockImplementation(async () => 10000);
+      nativeAsset.refreshVerificationBaseFee.mockReset();
+      nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
     }
   });
 
   it('requeues a claim when the chain fee is not known yet, and fails a custom transaction at once', async () => {
     const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
-    nativeAsset.getVerificationBaseFee.mockResolvedValue(null);
+    nativeAsset.refreshVerificationBaseFee.mockResolvedValue(null);
     nativeAsset.isVerificationBaseFeeKnownAbsent.mockReturnValue(false);
     try {
       mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('usdcx', 2n)] }));
@@ -16096,8 +16125,8 @@ describe('Guardian proposal effect check', () => {
       expect(executed.nextEligibleAt).toBeUndefined();
       expect(executed.proposalEffectRefused).toBeUndefined();
     } finally {
-      nativeAsset.getVerificationBaseFee.mockReset();
-      nativeAsset.getVerificationBaseFee.mockImplementation(async () => 10000);
+      nativeAsset.refreshVerificationBaseFee.mockReset();
+      nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
       nativeAsset.isVerificationBaseFeeKnownAbsent.mockReset();
       nativeAsset.isVerificationBaseFeeKnownAbsent.mockImplementation(() => false);
     }
@@ -16112,7 +16141,8 @@ describe('Guardian proposal effect check', () => {
       type: 'execute',
       accountId: 'guardian-acc',
       requestBytes: new Uint8Array([4, 4]),
-      spentAssetTotals: [{ faucetId: 'fA', amount: 100n }]
+      spentAssetTotals: [{ faucetId: 'fA', amount: 100n }],
+      approvedEffects: approvedEffects(['note:fa-100'])
     });
 
     expect(service.createCustomProposal).toHaveBeenCalledTimes(1);
@@ -16120,7 +16150,8 @@ describe('Guardian proposal effect check', () => {
     expect(service.abandonCandidate).toHaveBeenCalledWith(4);
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.rawError).toBe(
-      'ProposalEffectRefusedError: Refused to sign this execute transaction: 101 of fA leaves (approved 100)'
+      'ProposalEffectRefusedError: Refused to sign this execute transaction: 101 of fA leaves (approved 100); ' +
+        'creates a note that was not approved (note:fa-101)'
     );
   });
 
@@ -16133,7 +16164,8 @@ describe('Guardian proposal effect check', () => {
       type: 'execute',
       accountId: 'guardian-acc',
       requestBytes: new Uint8Array([4, 4]),
-      spentAssetTotals: [{ faucetId: 'fA', amount: 100n }]
+      spentAssetTotals: [{ faucetId: 'fA', amount: 100n }],
+      approvedEffects: approvedEffects(['note:fa-100'])
     });
 
     expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-ok', expect.any(Uint8Array));
@@ -16156,7 +16188,10 @@ describe('Guardian proposal effect check', () => {
     outputNotes: () => ({
       numNotes: () => 1,
       notes: () => [
-        { assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [nftAsset('fN', '0xone')] }) }
+        {
+          id: () => ({ toString: () => 'note:nft' }),
+          assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [nftAsset('fN', '0xone')] })
+        }
       ]
     })
   };
@@ -16174,7 +16209,8 @@ describe('Guardian proposal effect check', () => {
       accountId: 'guardian-acc',
       requestBytes: new Uint8Array([4, 4]),
       spentAssetTotals: [],
-      approvedNftOutflow
+      approvedNftOutflow,
+      approvedEffects: approvedEffects(['note:nft'])
     });
 
     expect(row.status).toBe(status);
@@ -16200,7 +16236,8 @@ describe('Guardian proposal effect check', () => {
         accountId: 'guardian-acc',
         requestBytes: new Uint8Array([4, 4]),
         spentAssetTotals: [],
-        approvedOutflow: [{ faucetId: 'fA', amount: 100n }]
+        approvedOutflow: [{ faucetId: 'fA', amount: 100n }],
+        approvedEffects: approvedEffects([`note:fa-${sent}`])
       });
 
       expect(row.status).toBe(status);
@@ -16298,5 +16335,120 @@ describe('Guardian proposal effect check', () => {
     expect(row.rawError).toBe(
       'ProposalEffectRefusedError: Refused to sign this send transaction: its approved amounts could not be read <- caused by Error: the transaction has no valid approved asset and amount'
     );
+  });
+
+  // A kernel fee note of 100 is above a cached base of 2 (ceiling 60) and within a base of 10000 (ceiling 300000).
+  // The refresh has to fill that cache before the dry run and the proposal, or the note stays a user note.
+  it('reads the chain fee before an approved custom proposal, so a kernel fee note stays the fee', async () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    const nativeFaucet: string = nativeAsset.getNativeAssetIdSync();
+    const feeAsset = {
+      faucetId: () => ({ __faucet: nativeFaucet }),
+      amount: () => 100n
+    };
+    const feeNote = {
+      id: () => ({ toString: () => 'note:fee' }),
+      metadata: () => ({ tag: () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
+      recipientDigest: () => ({ toHex: () => '0xfeed' }),
+      assets: () => ({ fungibleAssets: () => [feeAsset], nonFungibleAssets: () => [] })
+    };
+    mockDeserializeSummary.mockReturnValue({
+      accountDelta: () => ({
+        id: () => 'guardian-acc',
+        vault: () => ({
+          removedFungibleAssets: () => [feeAsset],
+          addedFungibleAssets: () => [],
+          numAssets: () => 1
+        }),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote] })
+    });
+    const realAssertCustomEffectsApproved =
+      jest.requireActual<typeof import('./custom-effects')>('./custom-effects').assertCustomEffectsApproved;
+    mockAssertCustomEffectsApproved.mockImplementation(realAssertCustomEffectsApproved);
+    nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => 2);
+    nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => {
+      nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => 10000);
+      return 10000;
+    });
+    const seen: { dryRun?: number | null; proposal?: number | null } = {};
+    mockVerifyPreparedCustomRequest.mockImplementationOnce(async () => {
+      seen.dryRun = nativeAsset.getVerificationBaseFeeSync();
+    });
+    const proposal = { id: 'prop-fee-note', nonce: 5, metadata: {}, txSummary: 'ZmVl' };
+    const service = serviceWith(proposal);
+    service.createCustomProposal.mockImplementation(async () => {
+      seen.proposal = nativeAsset.getVerificationBaseFeeSync();
+      return proposal;
+    });
+    try {
+      const row = await run({
+        id: 'execute-fee-note',
+        type: 'execute',
+        accountId: 'guardian-acc',
+        requestBytes: new Uint8Array([4, 4]),
+        spentAssetTotals: [],
+        approvedEffects: {
+          shape: 'summary',
+          outgoing: [],
+          incoming: [],
+          outgoingNfts: [],
+          incomingNfts: [],
+          unlistedAssets: 0,
+          recipients: [],
+          inputNotesConsumed: 0,
+          outputNotesCreated: 0,
+          fee: { faucetId: nativeFaucet, amount: 100n },
+          storageChanged: false,
+          introducedNoteIds: [],
+          approvedOutputNoteIds: []
+        }
+      });
+
+      expect(seen.proposal).toBe(10000);
+      expect(seen.dryRun).toBe(10000);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Completed);
+    } finally {
+      nativeAsset.getVerificationBaseFeeSync.mockReset();
+      nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => null);
+      nativeAsset.refreshVerificationBaseFee.mockReset();
+      nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
+      nativeAsset.isVerificationBaseFeeKnownAbsent.mockReset();
+      nativeAsset.isVerificationBaseFeeKnownAbsent.mockImplementation(() => false);
+      mockAssertCustomEffectsApproved.mockReset();
+      mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
+      mockVerifyPreparedCustomRequest.mockReset();
+      mockVerifyPreparedCustomRequest.mockImplementation(async () => undefined);
+    }
+  });
+
+  it('fails an approved custom transaction before proposing when the chain fee is unknown', async () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    nativeAsset.refreshVerificationBaseFee.mockResolvedValue(null);
+    nativeAsset.isVerificationBaseFeeKnownAbsent.mockReturnValue(false);
+    try {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('usdcx', 2n)] }));
+      const service = serviceWith({ id: 'prop-fee-approved', nonce: 3, metadata: {}, txSummary: 'ZmVl' });
+      const executed = await run({
+        id: 'execute-fee-unknown-approved',
+        type: 'execute',
+        accountId: 'guardian-acc',
+        requestBytes: new Uint8Array([4, 4]),
+        approvedEffects: approvedEffects(['note:fa-100'])
+      });
+
+      expect(service.createCustomProposal).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(executed.status).toBe(ITransactionStatus.Failed);
+      expect(executed.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+    } finally {
+      nativeAsset.refreshVerificationBaseFee.mockReset();
+      nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
+      nativeAsset.isVerificationBaseFeeKnownAbsent.mockReset();
+      nativeAsset.isVerificationBaseFeeKnownAbsent.mockImplementation(() => false);
+    }
   });
 });

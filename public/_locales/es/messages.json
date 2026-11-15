@@ -3227,6 +3227,10 @@
     "message": "Frase de recuperación oculta",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Clave privada oculta",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Mostrar",
     "englishSource": "Show"
@@ -4480,6 +4484,10 @@
   "unknown": {
     "message": "Desconocido",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Incluye los notes que aún no has reclamado.",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Notas de entrada consumidas",
@@ -7482,6 +7490,14 @@
   "tokenHiddenNotice": {
     "message": "Oculto desde «Inicio». Permanece en tu monedero y sus transferencias aún pueden reclamarse.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "Ocultar tokens de polvo",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Oculta de tu lista de activos los tokens con un valor inferior a 0,001 $. El token nativo siempre permanece visible.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Activos ocultos",

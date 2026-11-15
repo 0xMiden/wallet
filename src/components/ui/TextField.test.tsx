@@ -8,6 +8,12 @@ import TextFieldDefault, { SECRET_REVEAL_MS, TextField, type TextFieldProps } fr
 
 jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
+const mockHandleSecretCopy = jest.fn();
+jest.mock('lib/ui/secret-clipboard', () => ({
+  ...jest.requireActual('lib/ui/secret-clipboard'),
+  handleSecretCopyEvent: (...args: unknown[]) => mockHandleSecretCopy(...args)
+}));
+
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 describe('TextField — exports & defaults', () => {
@@ -550,6 +556,30 @@ describe('TextField — secret', () => {
     render(<TextField value="not a secret" onChange={jest.fn()} />);
     expect(cover()).toBeNull();
   });
+
+  // For a caller whose own mask decides when the value is on screen: the field keeps every other
+  // secret guard, and only its cover and reveal timer step aside.
+  it('with secretCover off, never covers and keeps focus past the reveal window, still as a secret', () => {
+    jest.useFakeTimers();
+    try {
+      render(<TextField secret secretCover={false} multiline value="my private key" onChange={jest.fn()} />);
+      const field = screen.getByRole('textbox');
+      expect(cover()).toBeNull();
+
+      act(() => field.focus());
+      act(() => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS);
+      });
+      expect(field).toHaveFocus();
+      act(() => field.blur());
+      expect(cover()).toBeNull();
+      expect(field).toHaveAttribute('autocomplete', 'off');
+      expect(field).toHaveAttribute('spellcheck', 'false');
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('TextField: placeholder on focus (#503)', () => {
@@ -732,4 +762,56 @@ it('forwards backup evidence once without putting diagnostics on the native fiel
   act(() => jest.advanceTimersByTime(1000));
   expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   jest.useRealTimers();
+});
+
+describe('TextField - copy out of a secret', () => {
+  beforeEach(() => {
+    mockHandleSecretCopy.mockReset();
+  });
+
+  it('routes a copy out of a secret field through the secret clipboard', () => {
+    render(<TextField secret multiline readOnly value="abcdef" />);
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox');
+    field.focus();
+    field.setSelectionRange(1, 4);
+
+    fireEvent.copy(field);
+
+    expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.any(Event), 'bcd');
+  });
+
+  it('routes a copy out of a single-line secret field too', () => {
+    render(<TextField secret readOnly value="abcdef" />);
+    const field = screen.getByRole<HTMLInputElement>('textbox');
+    field.focus();
+    field.setSelectionRange(0, 2);
+
+    fireEvent.copy(field);
+
+    expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.any(Event), 'ab');
+  });
+
+  it('leaves a copy out of an ordinary field alone', () => {
+    render(<TextField multiline readOnly value="abcdef" />);
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox');
+    field.focus();
+    field.setSelectionRange(1, 4);
+
+    fireEvent.copy(field);
+
+    expect(mockHandleSecretCopy).not.toHaveBeenCalled();
+  });
+
+  it("still runs the caller's own onCopy on a secret field", () => {
+    const onCopy = jest.fn();
+    render(<TextField secret multiline readOnly value="abcdef" onCopy={onCopy} />);
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox');
+    field.focus();
+    field.setSelectionRange(1, 4);
+
+    fireEvent.copy(field);
+
+    expect(onCopy).toHaveBeenCalledTimes(1);
+    expect(mockHandleSecretCopy).toHaveBeenCalledTimes(1);
+  });
 });

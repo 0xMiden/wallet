@@ -248,6 +248,13 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
       )}
 
       <div className="tx-stage-list flex flex-col w-full border-b border-gray-100 pb-4">
+        {/* Notes the account already held are value it spends, counted in what leaves above. */}
+        {isVerified && (view.heldNotesSpent ?? 0) > 0 && (
+          <div className="flex flex-row w-full items-center justify-between pb-1">
+            <span className="text-text-muted">{t('includesUnclaimedNotes')}</span>
+            <span data-testid="tx-held-notes-spent">{view.heldNotesSpent}</span>
+          </div>
+        )}
         <div className="flex flex-row w-full items-center justify-between pb-1">
           <span className="text-text-muted">{t('inputNotesConsumed')}</span>
           <span>{view.inputNotesConsumed}</span>

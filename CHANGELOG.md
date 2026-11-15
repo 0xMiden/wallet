@@ -3,15 +3,19 @@
 ## 1.17.12 (TBD)
 
 - [FIX][ci] Make staging topology cleanup a single-use continuation of its latest predecessor while preserving the original identity and cumulative cleanup budget (#1894).
+- [FEATURE][all] Home hides dust tokens, those worth less than a tenth of a cent, behind a Hide dust tokens switch in General Settings that is on by default; the native token always stays listed.
+- [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
 - [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).
 - [FIX][all] Off mobile the recovery phrase stays hidden until Show is pressed and hides again when the window loses focus, the desktop window is kept out of screen captures while secret material is on screen, and new wallet and backup-file passwords need at least 12 characters (existing passwords still unlock).
+- [FIX][all] Off mobile a revealed private key or everyday key stays hidden until Show is pressed and hides again when the window loses focus.
 - [FIX][all] Cancel timed-out Guardian discovery reads so later recovery attempts can use shared permits (#2080).
 - [FIX][all] Keep a settled Guardian probe selectable when confirming chain read is unavailable (#2080).
 - [CHANGE][all] A dApp's consumable notes carry standardPayment, true only for a P2ID or P2IDE payment, so the dApp can leave other notes out.
 - [BREAKING][all] A dApp's signBytes(data, "word"), and signBytes(data, "signingInputs") with a Blind or Arbitrary payload, now signs a domain-separated commitment that cannot authorize a transaction: the commitment of SigningInputs.newArbitrary([tag, ...payload]), where the tag is Poseidon2 of "miden-wallet/sign-bytes/v1". A transaction summary is signed as before, and the approval sheet says such a signature cannot authorize a transaction. The response also carries the signed word as signedCommitment. Migration: verify with publicKey.verify(signedCommitment, signature), or compute the word with domainSeparatedSignCommitment(data, kind) from @miden-sdk/miden-sdk 0.17.10.
 - [FEATURE][all] The send review tags a recipient this account has never sent to, and that is not a saved contact or one of your accounts, as New recipient beside the full address, as a cue to check it before sending.
 - [FIX][all] dApp execute: the wallet proposes a custom transaction only when its simulated effects equal the approved ones. The approval needs a simulation that succeeds (a request that cannot be simulated is refused before any prompt, and no sheet shows the effects the site declares), the queued row records the approved effects, and generation simulates the prepared request again and fails the row before its proposal on any difference; the spending-limit charge is the generation-time value. The network fee is part of the approved-effects comparison.
+- [FIX][mobile] A recovery phrase or private key copied from the wallet leaves the clipboard after 60 seconds unless something else was copied since, and is marked sensitive: Android hides it from clipboard previews and iOS keeps it off your other devices.
 - [FIX][android] Keep parked dApp windows hidden and non-interactive through warmup and managed close.
 - [CHANGE][all] Distinguish cursor open from iteration failures and report closed eligibility request failure families without raw response details.
 - [FIX][ios] WalletConnect responses are matched to their requests by request id, so a lost, duplicate or late wallet answer can no longer resolve a different request; a request that expires or whose session ends is rejected with its own origin, which the failure reports read as Android's.
@@ -46,6 +50,9 @@
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 - [FIX][all] Badge credit stays on a completed Mainnet send, swap, claim, or bridge receipt. A recovered receipt counts only after a fresh canonical Guardian read, and a backup cannot supply that credit.
 - [FIX][all] Restoring a Guardian account from its recovery phrase now checks the account data the guardian returns before restoring it: the recovery key must be the account's, a deployed account must match the Miden network, and an account not yet on the network must be the one this recovery phrase created. Otherwise nothing is restored.
+- [FIX][all] A dApp custom transaction's approval counts notes the account already held among what leaves it and names them on the sheet, signing allows only the notes that approval showed being created, and the chain fee is read fresh for every check.
+- [FIX][all] A dApp's request to sign a transaction summary shows what leaves the account's holdings, measured once after a fresh chain fee read, and is refused before any sheet when that cannot be measured or the fee is unknown.
+- [FIX][all] Before a transaction is submitted, a WebAssembly trap inside the wallet's WASM lock, while it tells the network fee note apart from its other notes or reads a dApp request's diagnostics or dry run, now retires the broken client instead of answering from it. After a transaction lands, a trap in a fee check is answered there instead of failing the transaction.
 
 ## 1.17.11 (2026-11-09)
 

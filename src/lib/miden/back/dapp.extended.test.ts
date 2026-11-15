@@ -112,7 +112,10 @@ jest.mock('lib/platform/storage-adapter', () => ({
 let mockBaseFee: number | null = null;
 jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFee: async () => mockBaseFee,
-  getNativeAssetId: async () => 'native-faucet'
+  // Not `mockBaseFee`: that value steers the consume preview's MAX fee, and a null there would refuse the summary.
+  refreshVerificationBaseFee: async () => 2,
+  getNativeAssetId: async () => 'native-faucet',
+  isVerificationBaseFeeKnownAbsent: () => false
 }));
 
 const mockGetTokenMetadata = jest.fn();
@@ -161,7 +164,9 @@ jest.mock('app/confirm/decode', () => ({
     unlistedAssets: 0,
     inputNotesConsumed: 0,
     outputNotesCreated: 0,
-    storageChanged: false
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: []
   }),
   simulatedOutputRecipients: () => []
 }));

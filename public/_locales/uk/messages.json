@@ -3227,6 +3227,10 @@
     "message": "Прихована фраза відновлення",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Прихований приватний ключ",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Показати",
     "englishSource": "Show"
@@ -4480,6 +4484,10 @@
   "unknown": {
     "message": "Невідомо",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Включає notes, які ви ще не отримали",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Використано вхідні дані notes",
@@ -7478,6 +7486,14 @@
   "tokenHiddenNotice": {
     "message": "Приховано від Home. Воно залишається у вашому гаманці, і його перекази все ще можна отримати.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "Приховати токени «dust»",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Приховує токени вартістю менше ніж 0,001 долара зі списку ваших активів. Нативний токен завжди залишається видимим.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Приховані активи",
