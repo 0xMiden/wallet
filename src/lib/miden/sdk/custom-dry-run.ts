@@ -80,7 +80,7 @@ export async function dryRunPreparedCustomRequest(
   // fallback executes anything.
   assertWasmHoldCurrent(hold, 'before the local execution fallback');
   // Ordinary (non-guardian) account: nothing is pending authorization, so
-  // there is no summary — but the dry run itself is still available and is
+  // there is no summary - but the dry run itself is still available and is
   // the same ground truth. `executeRequest` executes locally and submits,
   // proves and persists NOTHING (SDK: "does not submit it to the network
   // nor update the local database"), so it stays a dry run.
@@ -91,7 +91,7 @@ export async function dryRunPreparedCustomRequest(
     accountIdHex,
     TransactionRequest.deserialize(preparedBytes)
   );
-  // `result.serialize()` borrows the same client — same rule as the
+  // `result.serialize()` borrows the same client - same rule as the
   // summary above. Still pre-submit: executeRequest broadcasts nothing.
   assertWasmHoldCurrent(hold, 'before the result serialize');
   return { executedBytes: u8ToB64(executed.result.serialize()) };
