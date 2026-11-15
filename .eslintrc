@@ -309,7 +309,6 @@
         "src/lib/miden/sdk/miden-client-interface.ts",
         "src/lib/miden/back/miden-client-proxy.ts",
         "src/offscreen/main.ts",
-        "src/lib/miden/sdk/dry-run-request.ts",
         "src/lib/miden/sdk/custom-dry-run.ts",
         "src/lib/miden/transaction/index.ts"
       ],

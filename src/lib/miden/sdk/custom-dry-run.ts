@@ -1,13 +1,13 @@
 import { MidenClient, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
+import { assertWasmHoldCurrent, type WasmLockHold } from 'lib/miden/sdk/miden-client';
+import { rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
 import {
   isAlreadyAuthorizedError,
   isSummaryFeeFaucetMissing,
   isSummarySigningUnavailable
-} from 'lib/miden/sdk/dry-run-request';
-import { assertWasmHoldCurrent, type WasmLockHold } from 'lib/miden/sdk/miden-client';
-import { rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
+} from 'lib/miden/sdk/summary-fallback';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 /**
@@ -74,7 +74,7 @@ export async function dryRunPreparedCustomRequest(
     throw summaryFailure;
   }
   if (isSummarySigningUnavailable(summaryFailure) || isSummaryFeeFaucetMissing(summaryFailure)) {
-    console.warn('[simulate-custom-tx] the summary client cannot execute; falling back to local execution');
+    console.warn('[dry-run] the summary client cannot execute; falling back to local execution');
   }
   // The rejection still ends the executeForSummaryAtTip parking await, so re-check before the
   // fallback executes anything.
