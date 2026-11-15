@@ -173,7 +173,6 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   const [screen, setScreen] = useState<'amounts' | 'review' | 'instructions'>(() =>
     initialRecovery ? 'review' : 'amounts'
   );
-  useRegisterCommandFlowBack(screen === 'review' ? undefined : onBackToSwap);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<OneClickFlowErrorKey>();
@@ -222,6 +221,11 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
 
   const originAsset = offerAsset;
   const destinationAsset = requestAsset;
+  useRegisterCommandFlowBack(
+    screen === 'review' && wetQuote && wetRequest && originAsset && destinationAsset && !trackingLookupFailed
+      ? undefined
+      : onBackToSwap
+  );
   const outbound = originAsset?.blockchain === 'miden' && destinationAsset?.blockchain !== 'miden';
   const inbound =
     originAsset !== undefined && originAsset.blockchain !== 'miden' && destinationAsset?.blockchain === 'miden';

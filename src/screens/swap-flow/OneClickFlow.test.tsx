@@ -529,7 +529,7 @@ describe('OneClickFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Header Back' }));
     expect(onBackToSwap).toHaveBeenCalledTimes(1);
   });
-  it('routes Command header Back to the active 1Click controller while a recovery quote is refreshing', () => {
+  it('routes Command header Back to the active 1Click controller while a recovery quote is refreshing', async () => {
     const request: OneClickQuoteRequest = {
       amount: '1000000',
       originAsset: midenAsset,
@@ -560,13 +560,23 @@ describe('OneClickFlow', () => {
       return <button onClick={back}>Header Back</button>;
     }
     render(
-      <CommandFlowBackProvider><FlowPresentationProvider value="command">
-        <HeaderBack />
-        <OneClickFlow config={config} assets={[midenAsset, ethereumAsset]} networks={networks.slice(0, 2)}
-          offerNetwork={networkFor('miden')} requestNetwork={networkFor('eth')}
-          midenAddress={mockMidenAddress} initialRecovery={recovery} onBackToSwap={onBackToSwap} />
-      </FlowPresentationProvider></CommandFlowBackProvider>
+      <CommandFlowBackProvider>
+        <FlowPresentationProvider value="command">
+          <HeaderBack />
+          <OneClickFlow
+            config={config}
+            assets={[midenAsset, ethereumAsset]}
+            networks={networks.slice(0, 2)}
+            offerNetwork={networkFor('miden')}
+            requestNetwork={networkFor('eth')}
+            midenAddress={mockMidenAddress}
+            initialRecovery={recovery}
+            onBackToSwap={onBackToSwap}
+          />
+        </FlowPresentationProvider>
+      </CommandFlowBackProvider>
     );
+    await flushFlowMicrotasks();
     expect(screen.getByRole('button', { name: 'backToSwap' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Header Back' }));
     expect(onBackToSwap).toHaveBeenCalledTimes(1);
