@@ -331,9 +331,11 @@ test('publishing workflow is manual, main-only, protected and pins trusted autom
   assert.match(text, /cancel-in-progress: false/);
 });
 
-test('workflow uses bounded OIDC credentials and never persists or archives authentication material', () => {
-  const text = readFileSync(new URL('../../.github/workflows/publish-stores.yml', import.meta.url), 'utf8');
-  assert.match(text, /uses: google-github-actions\/auth@v3/);
+// The action by name only: action-pins.test.ts holds its pin and tag comment.
+const AUTH_STEP = /uses: google-github-actions\/auth@\S+(?: #.*)?$/m;
+
+function assertCredentialBounds(text) {
+  assert.match(text, AUTH_STEP);
   assert.match(text, /service_account: bread-wallet-play-publisher@bread-wallet-publishing\.iam\.gserviceaccount\.com/);
   assert.match(
     text,
@@ -347,6 +349,19 @@ test('workflow uses bounded OIDC credentials and never persists or archives auth
   assert.match(text, /name: Preserve publication state/);
   assert.match(text, /publish-plan\.mjs export/);
   assert.doesNotMatch(text, /path:.*(?:private|credentials|\.p8|\.log)/);
+}
+
+test('workflow uses bounded OIDC credentials and never persists or archives authentication material', () => {
+  assertCredentialBounds(readFileSync(new URL('../../.github/workflows/publish-stores.yml', import.meta.url), 'utf8'));
+});
+
+test('credential bounds follow the auth action when its pin and tag comment change', () => {
+  const text = readFileSync(new URL('../../.github/workflows/publish-stores.yml', import.meta.url), 'utf8');
+  const step = /^( +)uses: google-github-actions\/auth@.*$/gm;
+  assert.equal(text.match(step)?.length, 1);
+  const bumped = text.replace(step, (_line, indent) => `${indent}uses: google-github-actions/auth@000 # v3.1.0`);
+  assert.match(bumped, /^ +uses: google-github-actions\/auth@000 # v3\.1\.0$/m);
+  assertCredentialBounds(bumped);
 });
 
 async function workspace(t, extra = {}) {
