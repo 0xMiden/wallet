@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][all] Keep documentation and E2E gallery deployments compatible with SHA-pinned action policies.
 - [CHANGE][all] Show distinct token names and an expandable full Faucet ID with copy feedback on token details.
 - [FEATURE][all] Home hides dust tokens, those worth less than a tenth of a cent, behind a Hide dust tokens switch in General Settings that is on by default; the native token always stays listed.
 - [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
