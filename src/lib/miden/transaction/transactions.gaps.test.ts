@@ -673,6 +673,30 @@ describe('a throw after the leaf resolved', () => {
     expect(write).toHaveBeenCalledTimes(1);
   });
 
+  // The row is Completed, so its report is the landed outcome at warning, naming the tail's own error (PR #2183).
+  it("reports a landed execute's tail failure once, as a landed outcome", async () => {
+    queuedExecute('tx-tail-reported');
+    await runLoopWithWrite(
+      jest.fn(async () =>
+        landedResult({
+          outputNotes: () => {
+            throw new TypeError('output notes read');
+          }
+        })
+      )
+    );
+
+    const reports = jest
+      .mocked(captureCrash)
+      .mock.calls.filter(([report]) => report instanceof Error && report.name === 'WalletTransactionFailure');
+    expect(reports).toHaveLength(1);
+    const [report, , options] = reports[0]!;
+    expect((report as Error).message).toMatch(/^Transaction landed: tx_dapp;/);
+    // The tail's own error, not the wrapper: the report reads its class off the top-level error.
+    expect((report as Error).message).toContain('; thrown type_error.');
+    expect(options?.level).toBe('warning');
+  });
+
   it('an execute whose completion traps reading the executed transaction is still recorded landed', async () => {
     const retire = jest.fn();
     const restore = installLandedTrapRetirement(retire);
