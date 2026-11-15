@@ -537,7 +537,7 @@ describe('requestSign measures a transaction summary once, before the popup', ()
   });
 });
 
-describe('requestConfirm intercom handler — unknown port', () => {
+describe('requestConfirm intercom handler - unknown port', () => {
   it('ignores requests from unknown ports', async () => {
     const p = dapp.requestSign('https://test.xyz', {
       type: MidenDAppMessageType.SignRequest,
@@ -927,7 +927,7 @@ describe('requestConfirm runs an approval once (#1584)', () => {
   });
 });
 
-describe('requestConfirm — window already fullscreen', () => {
+describe('requestConfirm - window already fullscreen', () => {
   it('skips window.update when confirmWin.state is fullscreen', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.create.mockResolvedValueOnce({ id: 777, left: 99, state: 'fullscreen' });
@@ -946,7 +946,7 @@ describe('requestConfirm — window already fullscreen', () => {
   });
 });
 
-describe('requestConfirm — closeWindow error handling', () => {
+describe('requestConfirm - closeWindow error handling', () => {
   it('does not crash when windows.get throws during close', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.get.mockRejectedValueOnce(new Error('window gone'));
@@ -964,7 +964,7 @@ describe('requestConfirm — closeWindow error handling', () => {
   });
 });
 
-describe('requestPermission (extension) — public-key fetch failure', () => {
+describe('requestPermission (extension) - public-key fetch failure', () => {
   it('fails the confirmation, persists no session and leaves the dApp to the auto-decline when the pubkey fetch fails', async () => {
     const origin = 'https://new-dapp.xyz';
     const mc = _g.__dappConfInternals.midenClient;
@@ -1046,7 +1046,7 @@ const simulatedViewFixture = {
   createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'faucet-x', amount: 50n }], nfts: [] }]
 };
 
-describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
+describe('requestConfirm - DAppSimulateTransactionRequest branch', () => {
   afterEach(() => {
     mockSimulatedView = undefined;
   });
@@ -1136,7 +1136,7 @@ describe('a custom request made while locked (#1414)', () => {
   });
 });
 
-describe('requestConfirm — custom tx quarantine release', () => {
+describe('requestConfirm - custom tx quarantine release', () => {
   it('releases the simulation quarantine after a successful confirm', async () => {
     const p = dapp.requestTransaction('https://test.xyz', {
       type: MidenDAppMessageType.TransactionRequest,

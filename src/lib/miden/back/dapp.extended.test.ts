@@ -1966,7 +1966,7 @@ describe("a non-extension write carries the resolver's delegate flag", () => {
 // These avoid `requestConfirm` (which throws in non-extension) by using
 // the Auto-permission early-return branch.
 
-describe('requestAssets — Auto permission', () => {
+describe('requestAssets - Auto permission', () => {
   beforeEach(() => {
     _g.__dappTestMockGetAccount.mockResolvedValue({
       vault: () => ({
@@ -1998,7 +1998,7 @@ describe('requestAssets — Auto permission', () => {
   });
 });
 
-describe('requestConsumableNotes — Auto permission', () => {
+describe('requestConsumableNotes - Auto permission', () => {
   it('returns ConsumableNotesResponse via the auto branch', async () => {
     (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
       { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }

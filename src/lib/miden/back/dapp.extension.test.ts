@@ -753,7 +753,7 @@ const arrangeSignerAccount = () => {
   });
 };
 
-describe('requestSign — extension flow', () => {
+describe('requestSign - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     // Kick off requestSign - it'll register a listener and call windows.create.
@@ -879,7 +879,7 @@ describe('requestPermission existing-permission early-return', () => {
   });
 });
 
-describe('requestImportPrivateNote — extension flow', () => {
+describe('requestImportPrivateNote - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestImportPrivateNote('https://miden.xyz', {
@@ -893,7 +893,7 @@ describe('requestImportPrivateNote — extension flow', () => {
   });
 });
 
-describe('requestPrivateNotes — extension flow', () => {
+describe('requestPrivateNotes - extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
     _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([]);
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
@@ -1005,7 +1005,7 @@ describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', ()
   });
 });
 
-describe('requestConsumableNotes — extension flow', () => {
+describe('requestConsumableNotes - extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
     _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
@@ -1019,7 +1019,7 @@ describe('requestConsumableNotes — extension flow', () => {
   });
 });
 
-describe('requestAssets — extension flow', () => {
+describe('requestAssets - extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
       vault: () => ({
@@ -1042,7 +1042,7 @@ describe('requestAssets — extension flow', () => {
   });
 });
 
-describe('requestTransaction — extension flow', () => {
+describe('requestTransaction - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestTransaction('https://miden.xyz', {
@@ -1062,7 +1062,7 @@ describe('requestTransaction — extension flow', () => {
   });
 });
 
-describe('requestSendTransaction — extension flow', () => {
+describe('requestSendTransaction - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestSendTransaction('https://miden.xyz', {
@@ -1082,7 +1082,7 @@ describe('requestSendTransaction — extension flow', () => {
   });
 });
 
-describe('requestConsumeTransaction — extension flow', () => {
+describe('requestConsumeTransaction - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestConsumeTransaction('https://miden.xyz', {
@@ -1824,7 +1824,7 @@ describe('Full confirmation cycles in extension mode', () => {
    * never granted. Approving the sheet does not help: the sheet shows the
    * payload, not whose key will sign it.
    */
-  describe('requestSign — the key must belong to the account the session authorized', () => {
+  describe('requestSign - the key must belong to the account the session authorized', () => {
     const request = (sourcePublicKey: string) =>
       ({
         type: MidenDAppMessageType.SignRequest,
