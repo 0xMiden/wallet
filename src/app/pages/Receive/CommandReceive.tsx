@@ -42,7 +42,8 @@ export function CommandReceive({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const pickerTrigger = useRef<HTMLButtonElement>(null);
-  const selectedNote = listItems.find(item => item.note.id === selectedNoteId);
+  const privacyReady = hidden.loaded && !hidden.failed;
+  const selectedNote = privacyReady ? listItems.find(item => item.note.id === selectedNoteId) : undefined;
 
   const closePicker = useCallback(() => setPickerOpen(false), []);
   useEffect(() => {
@@ -84,12 +85,10 @@ export function CommandReceive({
                 {t('activityFetchingHistoryAndNotes')}
               </p>
             )}
-            {listItems.length === 0 ? (
-              !isLoadingNotes &&
-              !hidden.failed && (
-                <EmptyState icon={IconName.Receive} size="compact" title={t('receiveNoPendingTransfers')} />
-              )
-            ) : (
+            {privacyReady && listItems.length === 0 && !isLoadingNotes && (
+              <EmptyState icon={IconName.Receive} size="compact" title={t('receiveNoPendingTransfers')} />
+            )}
+            {privacyReady && listItems.length > 0 && (
               <ListGroup surface="fill">
                 {listItems.map(item => {
                   const symbol = item.note.metadata.symbol;
