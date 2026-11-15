@@ -84,6 +84,18 @@ it('names a pending incoming note with its real amount, asset and native status'
   expect(screen.getByTestId('receive-note-note-one')).toHaveTextContent('pending');
 });
 
+it('uses the existing privacy-safe sender label rather than exposing the entire sender address', () => {
+  const senderAddress = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5_qruqqypuyph';
+  mockClaimItems = [{ ...mockNote, note: { ...mockNote.note, senderAddress } }];
+  render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  expect(screen.getByTestId('receive-note-note-one')).toHaveTextContent('mtst1apl...5qv5');
+  expect(screen.getByTestId('receive-note-note-one')).not.toHaveTextContent(senderAddress);
+});
+
 it('distinguishes native in-progress claims from held attempts awaiting confirmation', () => {
   mockClaimItems = [{ ...mockNote, status: 'claiming' }];
   const view = render(

@@ -17,6 +17,7 @@ import { useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useCommandDrafts } from 'screens/command/command-drafts';
+import { truncateAddress } from 'utils/string';
 
 export function CommandReceive({ address, onBridgeDeposit }: { address: string; onBridgeDeposit: () => void }) {
   const { t } = useTranslation();
@@ -74,6 +75,9 @@ export function CommandReceive({ address, onBridgeDeposit }: { address: string; 
               <ListGroup surface="fill">
                 {listItems.map(item => {
                   const symbol = item.note.metadata.symbol;
+                  const sender = item.note.senderAddress
+                    ? truncateAddress(item.note.senderAddress, false, 8, 4)
+                    : t('unknown');
                   const amount = hasKnownScale(item.note.metadata)
                     ? formatBigInt(BigInt(item.note.amount), item.note.metadata.decimals)
                     : undefined;
@@ -81,7 +85,7 @@ export function CommandReceive({ address, onBridgeDeposit }: { address: string; 
                     <ListRow
                       key={item.note.id}
                       title={amount === undefined ? symbol : `${amount} ${symbol}`}
-                      subtitle={`${t('from')}: ${item.note.senderAddress || t('unknown')}`}
+                      subtitle={`${t('from')}: ${sender}`}
                       trailing={
                         <StatusBadge
                           size="sm"
