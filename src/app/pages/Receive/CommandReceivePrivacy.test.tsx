@@ -129,7 +129,8 @@ it('blocks incoming and selected review while the hidden read is pending or fail
   fireEvent.click(screen.getByTestId('receive-note-visible'));
   expect(screen.getByTestId('receive-note-review')).toHaveTextContent('Review visible');
 
-  const reread = jest.mocked(registerStorageReread).mock.calls[0][0];
+  const reread = jest.mocked(registerStorageReread).mock.calls[0]?.[0];
+  if (!reread) throw new Error('Hidden-note reread was not registered');
   act(() => {
     void reread();
   });
