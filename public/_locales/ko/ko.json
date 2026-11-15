@@ -1640,6 +1640,7 @@
   "couldNotCheckUnlockMethod": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 다시 시도해 주세요.",
   "receiveQrColorAction": "QR 코드 색상 변경",
   "receiveAt": "받는 주소",
+  "receiveNoPendingTransfers": "검토할 입금 내역 없음",
   "earnTitle": "내 수익",
   "moreInfoAbout": "$label$ 자세히 보기",
   "swapExpiryLabel": "지정된 시간 내에 체결되지 않으면 취소하십시오.",

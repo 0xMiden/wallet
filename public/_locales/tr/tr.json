@@ -1639,6 +1639,7 @@
   "couldNotCheckUnlockMethod": "Bu cüzdanın kilit açma yöntemini kontrol edilemedi. Lütfen tekrar deneyin.",
   "receiveQrColorAction": "QR kodu rengini değiştir",
   "receiveAt": "Şu adrese al",
+  "receiveNoPendingTransfers": "İncelenecek gelen transfer yok",
   "earnTitle": "Kazançlarınız",
   "moreInfoAbout": "$label$ hakkında daha fazla bilgi",
   "swapExpiryLabel": "Şu süre içinde doldurulmazsa iptal et",

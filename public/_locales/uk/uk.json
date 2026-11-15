@@ -1638,6 +1638,7 @@
   "couldNotCheckUnlockMethod": "Не вдалося перевірити спосіб розблокування цього гаманця. Спробуйте ще раз.",
   "receiveQrColorAction": "Змінити колір QR-коду",
   "receiveAt": "Отримати на",
+  "receiveNoPendingTransfers": "Відсутні вхідні перекази для перевірки",
   "earnTitle": "Ваш дохід",
   "moreInfoAbout": "Докладніше про $label$",
   "swapExpiryLabel": "Скасувати, якщо не виконано протягом",

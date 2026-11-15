@@ -1640,6 +1640,7 @@
   "couldNotCheckUnlockMethod": "无法验证此钱包的解锁方式。请重试。",
   "receiveQrColorAction": "更改二维码颜色",
   "receiveAt": "接收地址",
+  "receiveNoPendingTransfers": "无待审核的入账转账",
   "earnTitle": "您的收益",
   "moreInfoAbout": "关于$label$的更多信息",
   "swapExpiryLabel": "若未在……内成交则取消",

@@ -7474,6 +7474,10 @@
     "message": "接收地址",
     "englishSource": "Receive at"
   },
+  "receiveNoPendingTransfers": {
+    "message": "无待审核的入账转账",
+    "englishSource": "No incoming transfers to review"
+  },
   "earnTitle": {
     "message": "您的收益",
     "englishSource": "Your Earnings"

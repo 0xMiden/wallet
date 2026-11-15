@@ -1640,6 +1640,7 @@
   "couldNotCheckUnlockMethod": "このウォレットのロック解除方法を確認できませんでした。もう一度お試しください。",
   "receiveQrColorAction": "QRコードの色を変更",
   "receiveAt": "受取先",
+  "receiveNoPendingTransfers": "確認すべき着金はありません",
   "earnTitle": "あなたの収益",
   "moreInfoAbout": "$label$ の詳細",
   "swapExpiryLabel": "指定時間内に約定しなかった場合はキャンセルする",

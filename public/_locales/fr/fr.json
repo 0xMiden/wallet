@@ -1636,6 +1636,7 @@
   "couldNotCheckUnlockMethod": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Réessayez.",
   "receiveQrColorAction": "Changer la couleur du QR code",
   "receiveAt": "Recevoir sur",
+  "receiveNoPendingTransfers": "Aucun virement entrant à examiner",
   "earnTitle": "Vos gains",
   "moreInfoAbout": "Plus d'informations sur $label$",
   "swapExpiryLabel": "Annuler si non exécuté dans un délai de",

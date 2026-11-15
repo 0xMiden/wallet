@@ -1631,6 +1631,7 @@
   "couldNotCheckUnlockMethod": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Bitte versuchen Sie es erneut.",
   "receiveQrColorAction": "Farbe des QR-Codes ändern",
   "receiveAt": "Empfangen an",
+  "receiveNoPendingTransfers": "Keine eingehenden Überweisungen zur Überprüfung",
   "earnTitle": "Deine Erträge",
   "moreInfoAbout": "Weitere Informationen zu $label$",
   "swapExpiryLabel": "Stornieren, wenn nicht innerhalb von",

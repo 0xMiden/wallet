@@ -1634,6 +1634,7 @@
   "couldNotCheckUnlockMethod": "No se ha podido comprobar el método de desbloqueo de esta cartera. Inténtalo de nuevo.",
   "receiveQrColorAction": "Cambiar el color del código QR",
   "receiveAt": "Recibir en",
+  "receiveNoPendingTransfers": "No hay transferencias entrantes que revisar",
   "earnTitle": "Tus ganancias",
   "moreInfoAbout": "Más información sobre $label$",
   "swapExpiryLabel": "Cancelar si no se ha ejecutado en un plazo de",

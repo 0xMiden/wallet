@@ -1640,6 +1640,7 @@
   "couldNotCheckUnlockMethod": "無法驗證此錢包的解鎖方式。請重試。",
   "receiveQrColorAction": "更改 QR Code 顏色",
   "receiveAt": "接收地址",
+  "receiveNoPendingTransfers": "無待審核的入帳轉帳",
   "earnTitle": "您的收益",
   "moreInfoAbout": "關於$label$的更多資訊",
   "swapExpiryLabel": "若未在...內成交，則取消",

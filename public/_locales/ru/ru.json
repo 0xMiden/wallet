@@ -1636,6 +1636,7 @@
   "couldNotCheckUnlockMethod": "Не удалось проверить метод разблокировки этого кошелька. Попробуйте ещё раз.",
   "receiveQrColorAction": "Изменить цвет QR-кода",
   "receiveAt": "Получить на",
+  "receiveNoPendingTransfers": "Нет входящих переводов для проверки",
   "earnTitle": "Ваш доход",
   "moreInfoAbout": "Подробнее о $label$",
   "swapExpiryLabel": "Отменить, если не исполнено в течение",

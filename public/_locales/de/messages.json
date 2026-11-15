@@ -7483,6 +7483,10 @@
     "message": "Empfangen an",
     "englishSource": "Receive at"
   },
+  "receiveNoPendingTransfers": {
+    "message": "Keine eingehenden Überweisungen zur Überprüfung",
+    "englishSource": "No incoming transfers to review"
+  },
   "earnTitle": {
     "message": "Deine Erträge",
     "englishSource": "Your Earnings"

@@ -7478,6 +7478,10 @@
     "message": "Recevoir sur",
     "englishSource": "Receive at"
   },
+  "receiveNoPendingTransfers": {
+    "message": "Aucun virement entrant à examiner",
+    "englishSource": "No incoming transfers to review"
+  },
   "earnTitle": {
     "message": "Vos gains",
     "englishSource": "Your Earnings"

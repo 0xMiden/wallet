@@ -1638,6 +1638,7 @@
   "couldNotCheckUnlockMethod": "Nie udało się sprawdzić metody odblokowania tego portfela. Spróbuj ponownie.",
   "receiveQrColorAction": "Zmień kolor kodu QR",
   "receiveAt": "Odbierz na",
+  "receiveNoPendingTransfers": "Brak przychodzących przelewów do sprawdzenia",
   "earnTitle": "Twoje zarobki",
   "moreInfoAbout": "Więcej informacji o $label$",
   "swapExpiryLabel": "Anuluj, jeśli nie zostanie zrealizowane w ciągu",
