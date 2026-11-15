@@ -4,11 +4,11 @@
  *
  * These value-moving writes used to run INLINE on the SW client
  * (`withWasmClientLock(() => getMidenClient(options).sendTransaction/newTransaction)`).
- * Slice 7b routes their LEAF write through `midenClientProxy` — exactly like the
- * send/execute cases moved in slice 5b — so it can run WHOLE-OP offscreen when
+ * Slice 7b routes their LEAF write through `midenClientProxy` - exactly like the
+ * send/execute cases moved in slice 5b - so it can run WHOLE-OP offscreen when
  * MIDEN_USE_OFFSCREEN_CLIENT is on. The proxy's own flag routing (flag-off →
  * byte-identical inline SW client; flag-on → offscreen dispatch) is proven in
- * `miden-client-proxy.test.ts`; these tests pin the DELEGATION seam — that the
+ * `miden-client-proxy.test.ts`; these tests pin the DELEGATION seam - that the
  * non-guardian `generateTransaction` switch hands each leaf to the proxy with the
  * exact args the former inline block passed, and NEVER touches the inline
  * `getMidenClient(...)` leaf anymore.
@@ -20,7 +20,7 @@
  *   - a legacy Epoch bridged-send with no bytes → send-style recallable P2IDE note →
  *     `midenClientProxy.sendTransaction(tx, signer)`.
  *
- * Funds-safety (analysed, not re-proven here — inherited from the shared proxy +
+ * Funds-safety (analysed, not re-proven here - inherited from the shared proxy +
  * loop machinery): a wedge-kill → OperationAbortedError → the
  * `generateTransactionsLoop` catch → cancelTransaction → Failed with NO auto-requeue
  * (earn-deposit is excluded from REQUEUEABLE_TYPES; bridged-send is user-retry-only,
@@ -94,7 +94,7 @@ jest.mock('lib/miden/guardian', () => {
 });
 
 // The inline SW client leaf (`getMidenClient(...)`). After slice 7b nothing on the
-// non-guardian bridged/earn path may touch it — assert its send/newTransaction spies
+// non-guardian bridged/earn path may touch it - assert its send/newTransaction spies
 // stay untouched.
 const mockInlineSendTransaction = jest.fn(async () => makeResult());
 const mockInlineNewTransaction = jest.fn(async () => makeResult());
@@ -340,7 +340,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
   // and had no such check, so after `openEarnPosition` gave up (its 5-min wait
   // timed out → `updateEarnDepositStatus(..., 'failed')`, which patches
   // extraInputs ONLY and leaves the row Queued) the FIFO loop still submitted the
-  // P2IDE collateral note — stranding the funds until the reclaim height while the
+  // P2IDE collateral note - stranding the funds until the reclaim height while the
   // activity row read "Deposited to lending".
   it('earn-deposit refuses to submit once the caller abandoned the Epoch intent', async () => {
     mockGetVerificationBaseFee.mockResolvedValue(null);
@@ -513,7 +513,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
 
     expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, expect.any(Function), undefined);
     expect(mockProxyNewTransaction.mock.calls[0]?.[3]).not.toBe(signCallback);
-    // The proxy is the ONLY leaf — the switch never forks on the flag itself.
+    // The proxy is the ONLY leaf - the switch never forks on the flag itself.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
   });
 });
