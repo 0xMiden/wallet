@@ -42,8 +42,7 @@ jest.mock('framer-motion', () => {
   };
 });
 
-// Pending (claimable) notes live in the Activity tab's Pending filter - see
-// ActivityPendingHistory.test.tsx for the claim-flow coverage. Receive is address-only.
+// Command Receive shares Activity's native pending-note controller; compact remains address-only.
 
 // Echoes the interpolated values so a test can tell which network reached the copy.
 jest.mock('react-i18next', () => ({
@@ -80,6 +79,7 @@ jest.mock('app/icons/v2', () => ({
     Checkmark: 'Checkmark',
     CopyNew: 'CopyNew',
     CrossChain: 'CrossChain',
+    Receive: 'Receive',
     Share: 'Share',
     WarningFill: 'WarningFill'
   }
@@ -345,7 +345,15 @@ describe('Receive - Address', () => {
     fireEvent.click(testContainer.querySelector('[data-testid="receive-asset-picker"]')!);
     fireEvent.click(document.body.querySelector('[data-testid="receive-asset-faucet-two"]')!);
     expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');
-    expect(testContainer.querySelector('[data-testid="receive-actions"]')).toHaveClass('flex-col');
+    const bridge = testContainer.querySelector('[data-testid="receive-cross-chain"]');
+    const guide = testContainer.querySelector('[data-testid="receive-asset-picker"]');
+    expect(bridge).toBeInTheDocument();
+    expect(testContainer.querySelector('[data-testid="receive-actions"]')).not.toContainElement(bridge);
+    expect(bridge!.closest('[data-testid="receive-bridge-utility"]')).toBeInTheDocument();
+    expect(guide!.compareDocumentPosition(bridge!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(testContainer.querySelectorAll('[data-testid="receive-cross-chain"]')).toHaveLength(1);
+    fireEvent.click(bridge!);
+    expect(jest.requireMock<typeof import('lib/woozie')>('lib/woozie').navigate).toHaveBeenCalledWith('/bridge/deposit');
     await renderCommand(false);
     await renderCommand(true);
     expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');

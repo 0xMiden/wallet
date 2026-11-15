@@ -21,16 +21,17 @@ import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
-import { isBridgeInOfferedOnNetwork, useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
   address: string;
   onBridgeDeposit: () => void;
+  bridgeAvailability: FeatureAvailability;
+  bridgeOffered: boolean;
   presentation?: FlowPresentation;
 }
 
@@ -120,7 +121,35 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
   );
 };
 
-export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit, presentation = 'compact' }) => {
+// One bridge action in both presentations; only its placement changes.
+export function ReceiveBridgeTile({
+  onBridgeDeposit,
+  availability
+}: {
+  onBridgeDeposit: () => void;
+  availability: FeatureAvailability;
+}) {
+  const { t } = useTranslation();
+  return (
+    <ReceiveActionTile
+      icon={IconName.CrossChain}
+      iconSize="sm"
+      title={t('crossChain')}
+      caption={t('receiveCrossChainCaption')}
+      onClick={onBridgeDeposit}
+      disabled={isFeatureBlocked(availability)}
+      data-testid="receive-cross-chain"
+    />
+  );
+}
+
+export const AddressTab: React.FC<AddressTabProps> = ({
+  address,
+  onBridgeDeposit,
+  bridgeAvailability,
+  bridgeOffered,
+  presentation = 'compact'
+}) => {
   const { t } = useTranslation();
   const networkKey = getTestNetworkNameKey();
   const network = networkKey ? t(networkKey) : null;
@@ -214,16 +243,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     await copyAddress();
   }, [copyAddress, shareText, t]);
 
-  // Cross Chain opens every bridge-in route, so it stays enabled while one of them can start.
-  // A network whose document configures no bridge-in route (mainnet's) has no Cross Chain, and no outage to report
-  // either. With no accepted document nothing says what the network configures, so the tile stays, greyed, over its
-  // notice. The same predicate is the fast-poll hold, so a hidden entry does not hold.
-  const hasDocument = useBridgeConfigSnapshot().config !== null;
-  const crossChain = useBridgeInAvailability({
-    hold: availability => isBridgeInOfferedOnNetwork(hasDocument, availability)
-  });
-  const crossChainOnNetwork = isBridgeInOfferedOnNetwork(hasDocument, crossChain);
-
   const content = (
     <>
       {/* Every line of the page is Nunito: the body styles that read `--font-sans` (the tiles'
@@ -298,8 +317,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
         </div>
 
         <div className="mt-2 flex shrink-0 flex-col gap-2">
-          {/* Compact keeps the two tiles side by side; Command makes Bridge a separate utility. */}
-          <div className={cn('flex gap-2.5', presentation === 'command' && 'flex-col')} data-testid="receive-actions">
+          <div className="flex gap-2.5" data-testid="receive-actions">
             <ReceiveActionTile
               icon={IconName.Share}
               title={t('share')}
@@ -307,23 +325,13 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               onClick={() => void handleShare()}
               data-testid="receive-share"
             />
-            {/* Drawn on every platform. The extension once hid it because the Reown relay closed its
-                socket (code 3000): the page's placeholder Buffer encoded the relay token from zero
-                bytes. public/globals.js no longer installs one. */}
-            {crossChainOnNetwork && (
-              <ReceiveActionTile
-                icon={IconName.CrossChain}
-                iconSize="sm"
-                title={t('crossChain')}
-                caption={t('receiveCrossChainCaption')}
-                // No source named here: the bridge screen lists the chains the remote config offers.
-                onClick={onBridgeDeposit}
-                disabled={isFeatureBlocked(crossChain)}
-                data-testid="receive-cross-chain"
-              />
+            {presentation !== 'command' && bridgeOffered && (
+              <ReceiveBridgeTile onBridgeDeposit={onBridgeDeposit} availability={bridgeAvailability} />
             )}
           </div>
-          {crossChainOnNetwork && <FeatureUnavailableNotice availability={crossChain} variant="inline" />}
+          {presentation !== 'command' && bridgeOffered && (
+            <FeatureUnavailableNotice availability={bridgeAvailability} variant="inline" />
+          )}
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —
               between the address and the actions it split the page in two. */}

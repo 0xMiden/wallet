@@ -90,6 +90,10 @@ jest.mock('lib/remote-config/token-labels', () => ({
   midenTokenLabel: (_snapshot: unknown, _faucetId: string, symbol: string) => symbol
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/usdcx/use-bridge-in-availability', () => ({
+  useBridgeInAvailability: () => ({ state: 'available' }),
+  isBridgeInOfferedOnNetwork: () => false
+}));
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({
   useActivityHiddenNotes: () => ({ ids: new Set(), loaded: true, hide: jest.fn(), restore: jest.fn() })
 }));
@@ -103,7 +107,8 @@ jest.mock('lib/ui/drawer', () => ({
 }));
 jest.mock('app/pages/Receive/AddressTab', () => ({
   AddressTab: ({ address }: { address: string }) =>
-    React.createElement('div', { 'data-testid': 'real-receive-address' }, address)
+    React.createElement('div', { 'data-testid': 'real-receive-address' }, address),
+  ReceiveBridgeTile: () => null
 }));
 jest.mock('lib/woozie', () => ({ useLocation: () => ({ pathname: '/receive' }), navigate: jest.fn() }));
 const mockClaim = {

@@ -29,7 +29,8 @@ beforeEach(() => {
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('app/pages/Receive/AddressTab', () => ({
-  AddressTab: ({ address }: { address: string }) => <div data-testid="receive-current-address">{address}</div>
+  AddressTab: ({ address }: { address: string }) => <div data-testid="receive-current-address">{address}</div>,
+  ReceiveBridgeTile: () => <button data-testid="receive-cross-chain">Bridge</button>
 }));
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'account-address' }),
@@ -48,6 +49,11 @@ jest.mock('app/templates/history/useActivityClaimList', () => ({
     renderPendingItem: () => <div>Native review</div>,
     isLoadingNotes: false
   })
+}));
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({ config: {} }) }));
+jest.mock('lib/usdcx/use-bridge-in-availability', () => ({
+  useBridgeInAvailability: () => ({ state: 'available' }),
+  isBridgeInOfferedOnNetwork: () => true
 }));
 jest.mock('lib/telemetry', () => ({ beginFlow: () => ({ complete: () => {}, cancel: () => {} }) }));
 jest.mock('lib/woozie', () => ({
@@ -70,8 +76,10 @@ it('shows the real receiving address before incoming notes, with asset guidance 
   const address = screen.getByTestId('receive-current-address');
   const incoming = screen.getByTestId('receive-note-note-one');
   const guidance = screen.getByTestId('receive-asset-picker');
+  const bridge = screen.getByTestId('receive-cross-chain');
   expect(address.compareDocumentPosition(incoming) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(incoming.compareDocumentPosition(guidance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(guidance.compareDocumentPosition(bridge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 it('names a pending incoming note with its real amount, asset and native status', () => {

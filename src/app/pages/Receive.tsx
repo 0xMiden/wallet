@@ -5,8 +5,10 @@ import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { CommandReceive } from 'app/pages/Receive/CommandReceive';
 import { useFlowPresentation, type FlowPresentation } from 'components/flow/FlowPresentation';
 import { useAccount } from 'lib/miden/front';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
+import { isBridgeInOfferedOnNetwork, useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { navigate, useLocation } from 'lib/woozie';
 
 export interface ReceiveProps {
@@ -23,6 +25,12 @@ const ReceiveManager: React.FC<ReceiveProps> = ({ presentation }) => {
   const command = (presentation ?? flowPresentation) === 'command';
   const { pathname } = useLocation();
   const address = account.publicKey;
+  const hasBridgeDocument = useBridgeConfigSnapshot().config !== null;
+  // The same network-offer rule keeps unavailable Bridge visible and controls its polling hold.
+  const bridgeAvailability = useBridgeInAvailability({
+    hold: availability => isBridgeInOfferedOnNetwork(hasBridgeDocument, availability)
+  });
+  const bridgeOffered = isBridgeInOfferedOnNetwork(hasBridgeDocument, bridgeAvailability);
 
   /**
    * `receive_share` is a view flow, and this surface's purpose is to put a
@@ -76,10 +84,22 @@ const ReceiveManager: React.FC<ReceiveProps> = ({ presentation }) => {
     navigate('/bridge/deposit');
   }, []);
 
-  if (command) return <CommandReceive address={address} onBridgeDeposit={openBridgeDeposit} />;
+  if (command) return (
+    <CommandReceive
+      address={address}
+      onBridgeDeposit={openBridgeDeposit}
+      bridgeAvailability={bridgeAvailability}
+      bridgeOffered={bridgeOffered}
+    />
+  );
   return (
     <HomeGroupPaneRoot testId="receive-flow">
-      <AddressTab address={address} onBridgeDeposit={openBridgeDeposit} />
+      <AddressTab
+        address={address}
+        onBridgeDeposit={openBridgeDeposit}
+        bridgeAvailability={bridgeAvailability}
+        bridgeOffered={bridgeOffered}
+      />
     </HomeGroupPaneRoot>
   );
 };

@@ -3,8 +3,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
-import { AddressTab } from 'app/pages/Receive/AddressTab';
+import { AddressTab, ReceiveBridgeTile } from 'app/pages/Receive/AddressTab';
 import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
+import { FeatureUnavailableNotice } from 'components/FeatureUnavailable';
 import { useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { EmptyState } from 'components/ui/EmptyState';
 import { ListGroup } from 'components/ui/ListGroup';
@@ -15,11 +16,22 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useCommandDrafts } from 'screens/command/command-drafts';
 import { truncateAddress } from 'utils/string';
 
-export function CommandReceive({ address, onBridgeDeposit }: { address: string; onBridgeDeposit: () => void }) {
+export function CommandReceive({
+  address,
+  onBridgeDeposit,
+  bridgeAvailability,
+  bridgeOffered
+}: {
+  address: string;
+  onBridgeDeposit: () => void;
+  bridgeAvailability: FeatureAvailability;
+  bridgeOffered: boolean;
+}) {
   const { t } = useTranslation();
   const drafts = useCommandDrafts();
   const selectedFaucetId = drafts.readDraft('receive')?.faucetId;
@@ -48,7 +60,13 @@ export function CommandReceive({ address, onBridgeDeposit }: { address: string; 
     <div data-testid="command-receive" className="grid gap-6 lg:grid-cols-2">
       <div className="min-w-0 space-y-4">
         <SectionHeader size="lg">{t('receiveAt')}</SectionHeader>
-        <AddressTab address={address} onBridgeDeposit={onBridgeDeposit} presentation="command" />
+        <AddressTab
+          address={address}
+          onBridgeDeposit={onBridgeDeposit}
+          bridgeAvailability={bridgeAvailability}
+          bridgeOffered={bridgeOffered}
+          presentation="command"
+        />
       </div>
       <div className="min-w-0 space-y-4">
         <SectionHeader size="lg">{selectedNote ? t('activityAcceptTransfer') : t('transfersSection')}</SectionHeader>
@@ -123,6 +141,12 @@ export function CommandReceive({ address, onBridgeDeposit }: { address: string; 
             onClick={() => setPickerOpen(true)}
           />
         </ListGroup>
+        {bridgeOffered && (
+          <div data-testid="receive-bridge-utility" className="space-y-2">
+            <ReceiveBridgeTile onBridgeDeposit={onBridgeDeposit} availability={bridgeAvailability} />
+            <FeatureUnavailableNotice availability={bridgeAvailability} variant="inline" />
+          </div>
+        )}
       </div>
       <Drawer
         open={pickerOpen}
