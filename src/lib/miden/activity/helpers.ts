@@ -1,7 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
-import { splitExecutedOutputNotes } from './fee-notes';
+import { splitLandedOutputNotes } from './fee-notes';
 import { compareAccountIds } from './utils';
 import { ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -98,7 +98,7 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
   let displayIcon = transaction.displayIcon;
   let secondaryAccountId = transaction.secondaryAccountId;
   const inputNotes = result.executedTransaction().inputNotes().notes();
-  const { userNotes: userOutputNotes } = splitExecutedOutputNotes(result.executedTransaction());
+  const { userNotes: userOutputNotes } = splitLandedOutputNotes(result.executedTransaction());
 
   // Both totals ACCUMULATE across notes, and both faucet sets are deduped across
   // the whole loop (not per note). A custom (`execute`) transaction can consume or

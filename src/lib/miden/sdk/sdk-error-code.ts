@@ -212,6 +212,18 @@ export function pipelineKillIn(err: unknown): unknown {
 }
 
 /**
+ * The first line of a catch inside a WASM hold that falls back on an ordinary failure. The lock retires a poisoned
+ * client only when a `WebAssembly.RuntimeError` reaches it, so a trap is thrown as that same object. A caught kill must
+ * not read as the catch's verdict on the request, so it is thrown as the link {@link pipelineKillIn} finds. Returns
+ * for anything else, a terminated client under an apply-after-submit error included: that write landed.
+ */
+export function rethrowTrapOrKill(error: unknown): void {
+  if (typeof WebAssembly !== 'undefined' && error instanceof WebAssembly.RuntimeError) throw error;
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) throw kill;
+}
+
+/**
  * A killed pipeline that tore nothing down: every kill in `err`'s cause chain is an
  * offscreen read failed on its own deadline while a critical op held the document
  * (`deadline-no-kill`). Only that read was lost; the realm and its client run on. A

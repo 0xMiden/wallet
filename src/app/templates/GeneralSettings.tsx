@@ -11,6 +11,7 @@ import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { BACKGROUND_LOCK_DELAYS, backgroundLockDelay, type BackgroundLockDelay } from 'lib/lock-up';
 import { isDesktop, isMobile } from 'lib/platform';
 import type { ThemeSetting } from 'lib/settings/constants';
+import { setHideDustTokensSetting, useHideDustTokens } from 'lib/settings/dust';
 import {
   getThemeSetting,
   isAutoConsumeEnabled,
@@ -49,6 +50,10 @@ const GeneralSettings: FC = () => {
     setTheme(next);
   }, []);
 
+  const hideDustEnabled = useHideDustTokens();
+  const handleHideDustChange = useCallback((evt: React.ChangeEvent<HTMLInputElement>) => {
+    setHideDustTokensSetting(evt.target.checked);
+  }, []);
   const autoLockItems = useMemo<SegmentedControlItem<BackgroundLockDelay>[]>(
     () => BACKGROUND_LOCK_DELAYS.map(minutes => ({ id: minutes, label: t('autoLockMinutes', { minutes }) })),
     [t]
@@ -149,6 +154,22 @@ const GeneralSettings: FC = () => {
           />
         </SubPageSection>
       )}
+
+      <SubPageSection
+        title={t('assets')}
+        icon={<Icon name={IconName.Coins} fill="currentColor" />}
+        footnote={t('hideDustTokensDescription')}
+      >
+        <ListGroup surface="plain">
+          <SettingToggle
+            checked={hideDustEnabled}
+            onChange={handleHideDustChange}
+            name="hideDustTokensEnabled"
+            testID={GeneralSettingsSelectors.HideDustToggle}
+            title={t('hideDustTokens')}
+          />
+        </ListGroup>
+      </SubPageSection>
 
       <SubPageSection
         title={t('advanced')}

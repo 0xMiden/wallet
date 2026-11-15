@@ -4,13 +4,13 @@ import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { getNativeAssetIdSync, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { rethrowTrapOrKill } from '../sdk/sdk-error-code';
 
 /**
  * Fee-note identification, kept in a LEAF module on purpose.
  *
- * `splitExecutedOutputNotes` has to be callable from every completion path, the confirm
- * sheet and the dApp-facing serializer -- and `fee.ts` reaches `lib/shared/format`, which
+ * `splitExecutedOutputNotes` and `splitLandedOutputNotes` have to be callable from every
+ * completion path, the confirm sheet and the dApp-facing serializer -- and `fee.ts` reaches `lib/shared/format`, which
  * pulls in `lib/miden/front`. Importing that chain from those modules broke eight unrelated
  * jest suites at module load. The rule that only one module may read raw output notes is
  * only adoptable if that module is cheap to import, so the primitives live here and `fee.ts`
@@ -40,20 +40,37 @@ export type FeePaid = {
   faucetId: string;
 };
 
+/** A landed fee check trapped, so this note cannot be ruled out as the kernel's fee. */
+const UNRULED = Symbol('unruled');
+
+/**
+ * On the landed path, record a fee-check trap and return true so only that check is answered. With no ledger a trap
+ * is rethrown, and a kill always propagates.
+ */
+function answerLandedTrap(err: unknown, traps: WebAssembly.RuntimeError[] | undefined): boolean {
+  if (traps !== undefined && typeof WebAssembly !== 'undefined' && err instanceof WebAssembly.RuntimeError) {
+    traps.push(err);
+    return true;
+  }
+  rethrowTrapOrKill(err);
+  return false;
+}
+
 /**
  * Whether an output note carries the fee tag. NOT sufficient on its own — see below.
  *
- * Tolerates a missing accessor but lets an EVICTION through, for the reason given on
- * `feePaidFromResult`: these accessors borrow from the client's RefCell, so a swallowed
- * poison error would answer this question from a client another flow is inside.
+ * Tolerates a missing accessor but lets a TRAP or a KILL through (`rethrowTrapOrKill`), as
+ * every fee check below does unless the landed split passes `traps`, which records a trap
+ * instead. These accessors run in the client's WASM instance, so a swallowed trap would
+ * leave the hold this runs in on an instance its lock never retires, and a swallowed kill
+ * would answer for a pipeline that was stopped.
  */
-function hasFeeTag(note: OutputNote): boolean {
+function hasFeeTag(note: OutputNote, traps?: WebAssembly.RuntimeError[]): boolean | typeof UNRULED {
   try {
     return note.metadata()?.tag()?.asU32() === TX_FEE_NOTE_TAG;
   } catch (err) {
-    if (isWasmClientPoisonedError(err)) {
-      throw err;
-    }
+    // Landed: the tag is unknown, so the faucet and amount checks decide whether the note can be ruled out.
+    if (answerLandedTrap(err, traps)) return UNRULED;
     return false;
   }
 }
@@ -64,7 +81,7 @@ function hasFeeTag(note: OutputNote): boolean {
  * Also `undefined` for a note that carries an NFT: the fee note holds one fungible asset and nothing else, and being
  * taken for it removes a note from the approval sheet, which must never happen to a note holding an NFT.
  */
-function soleFungibleFaucet(note: OutputNote): string | undefined {
+function soleFungibleFaucet(note: OutputNote, traps?: WebAssembly.RuntimeError[]): string | undefined | typeof UNRULED {
   try {
     if ((note.assets()?.nonFungibleAssets() ?? []).length > 0) {
       return undefined;
@@ -76,9 +93,8 @@ function soleFungibleFaucet(note: OutputNote): string | undefined {
     }
     return getBech32AddressFromAccountId(first.faucetId());
   } catch (err) {
-    if (isWasmClientPoisonedError(err)) {
-      throw err;
-    }
+    // Landed: a trap cannot rule the note out. An ordinary failure is not a candidate.
+    if (answerLandedTrap(err, traps)) return UNRULED;
     return undefined;
   }
 }
@@ -90,16 +106,59 @@ function feeCeiling(verificationBaseFee: number): bigint | undefined {
 }
 
 /** Whether the note's first fungible amount is at most `ceiling`; false when it cannot be read. */
-function withinFeeCeiling(note: OutputNote, ceiling: bigint): boolean {
+function withinFeeCeiling(
+  note: OutputNote,
+  ceiling: bigint,
+  traps?: WebAssembly.RuntimeError[]
+): boolean | typeof UNRULED {
   try {
     const amount = (note.assets()?.fungibleAssets() ?? [])[0]?.amount();
     return amount !== undefined && BigInt(amount) <= ceiling;
   } catch (err) {
-    if (isWasmClientPoisonedError(err)) {
-      throw err;
-    }
+    if (answerLandedTrap(err, traps)) return UNRULED;
     return false;
   }
+}
+
+function feeCandidateVerdict(
+  note: OutputNote,
+  nativeFaucetId: string,
+  ceiling: 'kernel' | 'recorded',
+  kernelCeiling: bigint | undefined,
+  traps: WebAssembly.RuntimeError[] | undefined
+): 'candidate' | 'unruled' | 'no' {
+  const tagged = hasFeeTag(note, traps);
+  // UNRULED is a symbol, so it is tested before the truthiness check.
+  if (tagged === UNRULED) return unknownTagVerdict(note, nativeFaucetId, ceiling, kernelCeiling, traps);
+  if (!tagged) return 'no';
+  const faucet = soleFungibleFaucet(note, traps);
+  if (faucet === UNRULED) return 'unruled';
+  if (faucet !== nativeFaucetId) return 'no';
+  if (ceiling === 'recorded') return 'candidate';
+  if (kernelCeiling === undefined) return 'no';
+  const within = withinFeeCeiling(note, kernelCeiling, traps);
+  if (within === UNRULED) return 'unruled';
+  return within ? 'candidate' : 'no';
+}
+
+/**
+ * A landed note whose tag read trapped may be a fee-tagged candidate, so it is ruled out only by a faucet that is not
+ * the sole native one or an amount over the ceiling; anything else, a faucet or amount trap included, is ambiguous.
+ */
+function unknownTagVerdict(
+  note: OutputNote,
+  nativeFaucetId: string,
+  ceiling: 'kernel' | 'recorded',
+  kernelCeiling: bigint | undefined,
+  traps: WebAssembly.RuntimeError[] | undefined
+): 'unruled' | 'no' {
+  const faucet = soleFungibleFaucet(note, traps);
+  if (ceiling === 'kernel' && kernelCeiling === undefined) return 'no';
+  // Read even when the faucet rules the note out, so an amount trap is still recorded.
+  const within =
+    kernelCeiling !== undefined && ceiling === 'kernel' ? withinFeeCeiling(note, kernelCeiling, traps) : true;
+  if (faucet !== UNRULED && faucet !== nativeFaucetId) return 'no';
+  return within === false ? 'no' : 'unruled';
 }
 
 /**
@@ -146,24 +205,39 @@ export function partitionFeeNote(
   verificationBaseFee: number | null,
   ceiling: 'kernel' | 'recorded' = 'kernel'
 ): { feeNote: OutputNote | undefined; userNotes: UserOutputNote[] } {
+  return partitionNotes(notes, nativeFaucetId, verificationBaseFee, ceiling);
+}
+
+function partitionNotes(
+  notes: OutputNote[],
+  nativeFaucetId: string | null,
+  verificationBaseFee: number | null,
+  ceiling: 'kernel' | 'recorded' = 'kernel',
+  traps?: WebAssembly.RuntimeError[]
+): { feeNote: OutputNote | undefined; userNotes: UserOutputNote[] } {
   // `'kernel'` measures `feeCeiling`. `'recorded'` must not call it.
   const kernelCeiling =
     ceiling === 'kernel' && verificationBaseFee !== null && verificationBaseFee > 0
       ? feeCeiling(verificationBaseFee)
       : undefined;
-  const candidates =
+  const candidates: OutputNote[] = [];
+  let unruled = false;
+  if (
     verificationBaseFee !== null &&
     verificationBaseFee > 0 &&
     nativeFaucetId !== null &&
     (ceiling === 'recorded' || kernelCeiling !== undefined)
-      ? notes.filter(
-          note =>
-            hasFeeTag(note) &&
-            soleFungibleFaucet(note) === nativeFaucetId &&
-            (ceiling === 'recorded' || (kernelCeiling !== undefined && withinFeeCeiling(note, kernelCeiling)))
-        )
-      : [];
-  const feeNote = candidates.length === 1 ? candidates[0] : undefined;
+  ) {
+    for (const note of notes) {
+      const verdict = feeCandidateVerdict(note, nativeFaucetId, ceiling, kernelCeiling, traps);
+      if (verdict === 'candidate') candidates.push(note);
+      if (verdict === 'unruled') unruled = true;
+    }
+  }
+  // A note that cannot be ruled out (a fee-tagged note whose faucet or amount check trapped, or a note whose tag read
+  // trapped that its faucet and amount do not rule out) makes the split ambiguous exactly as a second candidate does:
+  // no note is the fee.
+  const feeNote = !unruled && candidates.length === 1 ? candidates[0] : undefined;
   // The ONE place the brand is minted. Sound when a fee note was identified: that note is
   // the only one the predicate matched and it is filtered out. In the AMBIGUOUS branch the
   // unresolved candidates are branded too -- deliberately, per the docblock above: two
@@ -173,39 +247,80 @@ export function partitionFeeNote(
   return { feeNote, userNotes };
 }
 
+type ExecutedOutputs = {
+  outputNotes: () => { notes: () => OutputNote[] };
+  blockHeader?: () => { verificationBaseFee: () => number };
+};
+
 /**
- * The ONLY place in the wallet that reads an executed transaction's raw output notes.
+ * The ONLY place in the wallet that reads an executed transaction's raw output notes, with
+ * {@link splitLandedOutputNotes}.
  *
  * `ExecutedTransaction.outputNotes()` returns the kernel's fee note alongside the user's,
  * so every caller has to split them -- and the ones that forgot did not fail, they silently
  * picked or counted the wrong note on a fee-charging chain while staying green at fee 0.
  * Routing every read through here means a caller cannot forget: it gets the split back or
- * nothing. The `no-restricted-syntax` rule bans every `.outputNotes()` call, and this call
- * is the one disable.
+ * nothing. The `no-restricted-syntax` rule bans every `.outputNotes()` call, and the read
+ * both splits share is the one disable.
+ *
+ * A trap or a kill in a fee check is thrown as itself, so the WASM hold a caller runs in
+ * retires the client instead of trusting an answer read from it.
  */
 export function splitExecutedOutputNotes(
-  executed: {
-    outputNotes: () => { notes: () => OutputNote[] };
-    blockHeader?: () => { verificationBaseFee: () => number };
-  },
+  executed: ExecutedOutputs,
   ceiling: 'kernel' | 'recorded' = 'kernel'
 ): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
 } {
-  // The kernel charged against the reference block's rate, which the realm cache can lag behind.
-  const baseFee = executed.blockHeader
-    ? headerBaseFee(executed.blockHeader.bind(executed))
-    : getVerificationBaseFeeSync();
-  // eslint-disable-next-line no-restricted-syntax -- sanctioned outputNotes() read
-  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), baseFee, ceiling);
+  const notes = readOutputNotes(executed);
+  return partitionNotes(notes, getNativeAssetIdSync(), executedBaseFee(executed), ceiling);
 }
 
-function headerBaseFee(read: () => { verificationBaseFee: () => number }): number | null {
+/**
+ * {@link splitExecutedOutputNotes} for a reader past submit and outside any hold, where a landed row that failed would
+ * offer a Retry that pays twice. The check that trapped does not take its note as the fee: a tag trap leaves the tag
+ * unknown, the faucet and amount checks still run, a note they rule out is not a candidate, and one they cannot rule
+ * out makes the split ambiguous, as a faucet or amount trap on a fee-tagged note does. A header trap identifies none,
+ * and the split logs the trap. A kill and
+ * a trap from the output-note read itself still propagate. No lock is held here, so the trapped client is not retired:
+ * later calls run on it until one traps under a lock (a known limit, like the older catches CLAUDE.md lists).
+ */
+export function splitLandedOutputNotes(executed: ExecutedOutputs): {
+  feeNote: OutputNote | undefined;
+  userNotes: UserOutputNote[];
+} {
+  const notes = readOutputNotes(executed);
+  const traps: WebAssembly.RuntimeError[] = [];
+  const split = partitionNotes(notes, getNativeAssetIdSync(), executedBaseFee(executed, traps), 'kernel', traps);
+  if (traps.length > 0) {
+    console.warn('[fee-notes] landed fee split answered a trap', traps);
+  }
+  return split;
+}
+
+/** Read before any fee check, so a split that answers a trap still has the notes. */
+function readOutputNotes(executed: ExecutedOutputs): OutputNote[] {
+  // eslint-disable-next-line no-restricted-syntax -- sanctioned outputNotes() read
+  return executed.outputNotes().notes();
+}
+
+/** The kernel charged against the reference block's rate, which the realm cache can lag behind. */
+function executedBaseFee(executed: ExecutedOutputs, traps?: WebAssembly.RuntimeError[]): number | null {
+  return executed.blockHeader
+    ? headerBaseFee(executed.blockHeader.bind(executed), traps)
+    : getVerificationBaseFeeSync();
+}
+
+function headerBaseFee(
+  read: () => { verificationBaseFee: () => number },
+  traps?: WebAssembly.RuntimeError[]
+): number | null {
   try {
     return read().verificationBaseFee();
   } catch (err) {
-    if (isWasmClientPoisonedError(err)) throw err;
+    // Landed: a header trap is an unknown fee, so no note is the fee.
+    answerLandedTrap(err, traps);
     return null;
   }
 }

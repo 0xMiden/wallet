@@ -722,3 +722,13 @@ After v1.17.9 published at 10:22 UTC, moved the #2035 amount-normalization note 
 RED: the first two named suites ran 104 tests, with five expected failures for redundant integer zeroes and caret behavior, plus one empty-input test setup failure corrected before implementation. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.
 
 Review found `.15` and `-.15` were left without a leading zero despite the accepted plan. Added both failing cases, then normalized them to `0.15` and `-0.15`. The two named suites now pass all 107 tests; named ESLint passes.
+
+# PR #2149 - nightly extension merge goal (2026-11-15)
+
+- [ ] Integrate current main and preserve the user-correction lesson in the existing isolated branch.
+- [ ] Pass current-head CI, unchanged 95% coverage and connected internal review.
+- [ ] Explain the failing NEAR planner case with controlled read-only evidence; do not infer fault from healthy quotes.
+- [ ] Complete genuine serialized swap/Epoch/NEAR funded acceptance and independent settlement/cost audits within the original remaining allowance.
+- [ ] Obtain required external approval and normally squash-merge without an admin bypass.
+
+Current evidence: paired quote watch 43710907682 attempts 1 and 2 each returned twelve valid signed quotes, with actual wallet bodies matching the official SDK inputs. Neither captured a failure. Funded NEAR send/return remains unproven. Last independently audited costs are 39,106 micro-USD spent and 1,960,894 remaining, with all funded principal settled. Refresh inventory and authority before any financial dispatch; all prior financial payloads remain consumed.

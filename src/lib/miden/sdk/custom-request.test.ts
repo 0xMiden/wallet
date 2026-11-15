@@ -288,3 +288,32 @@ it('checks its lock after the diagnostic account read before returning authored 
     }
   ]);
 });
+
+it('rejects with a trap from the auth diagnostics before the fee-aware builder, recording the failure', async () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  request.authArg.mockImplementationOnce(() => {
+    throw trap;
+  });
+  const observations: unknown[] = [];
+  await expect(
+    prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, value => observations.push(value))
+  ).rejects.toBe(trap);
+  expect(feeAwareRequestBuilder).not.toHaveBeenCalled();
+  expect(observations[observations.length - 1]).toMatchObject({ authPreparation: 'failed' });
+});
+
+it('rejects with a trap from the diagnostic account read before the fee-aware builder', async () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  getAccount.mockRejectedValueOnce(trap);
+  await expect(prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, () => undefined)).rejects.toBe(trap);
+  expect(feeAwareRequestBuilder).not.toHaveBeenCalled();
+});
+
+it('rejects with the terminated client a diagnostic account read meets, as itself', async () => {
+  const terminated = new Error('Client terminated');
+  getAccount.mockRejectedValueOnce(terminated);
+  await expect(prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, () => undefined)).rejects.toBe(
+    terminated
+  );
+  expect(feeAwareRequestBuilder).not.toHaveBeenCalled();
+});
