@@ -19,7 +19,7 @@ const commandFallbackBack = jest.fn();
 const EarnCommandReview = () => {
   const back = useCommandFlowBack()?.activeBack;
   return <WorkbenchLayout title="Earn" onBack={back ?? commandFallbackBack}>
-    <EarnWithdrawReview positionId="p" />
+    <EarnWithdrawReview positionId={position.id} />
   </WorkbenchLayout>;
 };
 
@@ -225,6 +225,8 @@ describe('EarnWithdrawReview', () => {
     mockPositions = [position];
     commandFallbackBack.mockClear();
     render(<FlowPresentationProvider value="command"><CommandFlowBackProvider><EarnCommandReview /></CommandFlowBackProvider></FlowPresentationProvider>);
+    await confirmEnabled();
+    expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(goBack).toHaveBeenCalledTimes(1);
     expect(commandFallbackBack).not.toHaveBeenCalled();

@@ -329,7 +329,8 @@ describe('EarnDepositReview', () => {
   it('uses the visible workbench Back for the actual deposit review instead of a fallback', () => {
     mockLocation.search = '?amount=1&collateral=0x537c15a622074e91188aa894456c52';
     commandFallbackBack.mockClear();
-    render(<FlowPresentationProvider value="command"><CommandFlowBackProvider><EarnCommandReview vaultId={EARN_DATA.vaults[2]!.id} /></CommandFlowBackProvider></FlowPresentationProvider>);
+    render(<FlowPresentationProvider value="command"><CommandFlowBackProvider><EarnCommandReview vaultId={AAVE_VAULT.id} /></CommandFlowBackProvider></FlowPresentationProvider>);
+    expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(jest.requireMock<{ goBack: jest.Mock }>('lib/woozie').goBack).toHaveBeenCalledTimes(1);
     expect(commandFallbackBack).not.toHaveBeenCalled();
