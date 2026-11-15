@@ -1,4 +1,5 @@
 import { simulatedBytesToView } from 'app/confirm/decode';
+import { noteFlowFromSimulatedBytes, type NoteFlow } from 'app/confirm/note-flow';
 import {
   abandonQuarantineAttempt,
   beginQuarantineAttempt,
@@ -16,6 +17,7 @@ import {
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import { pipelineKillIn, rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
+import { approveCustomSimulation, type ApprovedCustomSimulation } from 'lib/miden/transaction/custom-effects';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { CustomSimulationTimeoutError } from './public-error';
@@ -46,6 +48,12 @@ export interface SimulateCustomTxResult {
    * these consumed notes, so every other one is value the account spends.
    */
   introducedNoteIds?: string[];
+  /** The approval, measured in the dry run's hold. Unset when the dry run failed, gave no result or did not measure. */
+  approval?: ApprovedCustomSimulation;
+  /** Why the approval did not measure, for the caller's refusal. An ordinary failure, never a trap or a kill. */
+  approvalFailure?: unknown;
+  /** The notes the dry run consumes and creates. Unset when `approval` is, or when they do not decode. */
+  noteFlow?: NoteFlow;
 }
 
 // Every decode of the dApp's note bytes runs inside the dry run's hold, so a trap is rethrown for the lock to retire
@@ -126,6 +134,31 @@ function consumedNoteIds(dryRun: {
 }
 
 /**
+ * Adds the approval and the note flow to a dry run's result. Runs only inside the dry run's hold: its fee checks
+ * rethrow a trap, and only that hold's lock can retire the client that trapped. An ordinary approval failure is kept as
+ * `approvalFailure`, and a note flow that does not decode is logged and left out. Exported so a suite standing in for
+ * the dry run measures as it does.
+ */
+export function measureApprovalDryRun(dryRun: SimulateCustomTxResult): SimulateCustomTxResult {
+  let approval: ApprovedCustomSimulation | undefined;
+  try {
+    approval = approveCustomSimulation(dryRun);
+  } catch (error) {
+    rethrowTrapOrKill(error);
+    return { ...dryRun, approvalFailure: error };
+  }
+  if (approval === undefined) return dryRun;
+  let noteFlow: NoteFlow | undefined;
+  try {
+    noteFlow = noteFlowFromSimulatedBytes(dryRun);
+  } catch (error) {
+    rethrowTrapOrKill(error);
+    console.error('Custom transaction note details unavailable:', error);
+  }
+  return { ...dryRun, approval, noteFlow };
+}
+
+/**
  * Locally executes a custom transaction to derive its ground truth WITHOUT
  * proving or submitting: a dry run. Syncs, judges against the synced client
  * which carried notes the request introduced, imports those, and syncs again
@@ -137,7 +170,9 @@ function consumedNoteIds(dryRun: {
  * `executedBytes` (the TransactionResult) when the account is already fully
  * authorized, which is every ordinary single-sig account on the 0.16 line. Both
  * describe the same executed transaction; the confirm UI decodes whichever
- * arrives.
+ * arrives. The same hold then measures the approval and the note flow
+ * (`measureApprovalDryRun`). The caller reads the chain fee first, because a
+ * summary's fee note is told apart by the fee this realm just read.
  * All WASM work runs inside a single `withWasmClientLock` scope (the client is
  * single-threaded). An ordinary failure resolves to `{ error }`, and so does a
  * WebAssembly trap once the lock has retired the client. A killed pipeline
@@ -266,10 +301,12 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         const carried = new Set(carriedIds.map(id => id.toLowerCase()));
         const embeddedIds = consumed.ids.filter(id => !carried.has(id.toLowerCase()));
         const embeddedIntroduced = await idsNotAlreadyHeld(client, embeddedIds, hold);
-        return {
+        // An evicted hold measures nothing, since a trap in its decode would reach no lock.
+        assertWasmHoldCurrent(hold, 'before the approval decode');
+        return measureApprovalDryRun({
           ...dryRun,
           introducedNoteIds: [...introducedIds, ...embeddedIntroduced].map(id => id.toLowerCase())
-        };
+        });
       });
     } catch (e: any) {
       // An abandonment is reported as an interruption, not as its internal
