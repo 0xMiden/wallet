@@ -57,7 +57,7 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   // runs this factory before the consts above are initialized.
   getMidenClient: () => getMidenClient(),
   getCurrentWasmLockHold: () => currentWasmHold,
-  // Re-implements the real comparison against the mock's current hold — a no-op
+  // Re-implements the real comparison against the mock's current hold - a no-op
   // here would make every eviction test below vacuously green.
   assertWasmHoldCurrent: (hold: object | null, where: string) => {
     if (hold !== null && hold === currentWasmHold) return;
@@ -458,11 +458,11 @@ describe('simulateCustomTransaction', () => {
     expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 
-  // Regression: web-sdk 0.16 inverted `executeForSummary`'s contract — the summary
+  // Regression: web-sdk 0.16 inverted `executeForSummary`'s contract - the summary
   // only exists while authorization is PENDING, and a transaction that executes
   // successfully now rejects with `TRANSACTION_ALREADY_AUTHORIZED`. That is every
   // ordinary single-sig account, so the confirm screen's verified (ground-truth)
-  // asset view — the anti-phishing control — was unreachable for all of them and
+  // asset view - the anti-phishing control - was unreachable for all of them and
   // the UI showed the loss as a transient "could not verify by simulation".
   it.each([
     ['an error carrying the SDK code', Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })],
@@ -473,7 +473,7 @@ describe('simulateCustomTransaction', () => {
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
-    // Executed locally against the same account — nothing proven or submitted.
+    // Executed locally against the same account - nothing proven or submitted.
     expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: expect.any(Uint8Array) });
     expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });

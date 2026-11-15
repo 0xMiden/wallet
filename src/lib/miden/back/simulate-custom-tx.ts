@@ -35,7 +35,7 @@ export interface SimulateCustomTxResult {
   /**
    * Base64 serialized TransactionResult when the account was already fully
    * authorized, so execution produced no summary (see `simulateCustomTransaction`).
-   * Carries the same ground truth — it IS the executed transaction.
+   * Carries the same ground truth - it IS the executed transaction.
    */
   executedBytes?: string;
   /** Human-oriented error message when the dry run could not be produced. */
@@ -57,7 +57,7 @@ const SIMULATION_TIMEOUT_MS = 20_000;
 
 /**
  * The subset of `ids` the client does NOT already have an input-note record
- * for — i.e. the notes this dry run is about to INTRODUCE, and the only ones
+ * for - i.e. the notes this dry run is about to INTRODUCE, and the only ones
  * it may hide from the claimable UI.
  *
  * An ordinary lookup failure is already held (not quarantined): leaving a
@@ -133,7 +133,7 @@ function consumedNoteIds(dryRun: {
  * nothing; notes the request embedded are judged after it returns.
  *
  * Returns `summaryBytes` (a TransactionSummary) when authorization is still
- * pending — a guardian/multisig account below its signing threshold — and
+ * pending - a guardian/multisig account below its signing threshold - and
  * `executedBytes` (the TransactionResult) when the account is already fully
  * authorized, which is every ordinary single-sig account on the 0.16 line. Both
  * describe the same executed transaction; the confirm UI decodes whichever
@@ -149,7 +149,7 @@ function consumedNoteIds(dryRun: {
  *
  * The whole locked operation races against `SIMULATION_TIMEOUT_MS` so a slow
  * import/sync/execute can never hang the confirm screen's "verifying…" state
- * forever. The race is done OUTSIDE `withWasmClientLock` — racing inside it
+ * forever. The race is done OUTSIDE `withWasmClientLock` - racing inside it
  * would let a subsequent lock holder start while this abandoned WASM work is
  * still executing, risking the recursive-use/unsafe-aliasing crash the
  * `withWasmClientLock` guardian code warns about. The locked work can reject
@@ -158,7 +158,7 @@ function consumedNoteIds(dryRun: {
  * abandoned work eventually finishes.
  *
  * Residual limitation: a slow `syncState` (or import/execute) still holds the
- * WASM lock until it completes or the #775 watchdog evicts it — the timeout
+ * WASM lock until it completes or the #775 watchdog evicts it - the timeout
  * only bounds how long the UI waits, not how long the lock is held. What an
  * eviction no longer leaves behind is a live hazard: the callback re-checks
  * its hold at every transition below, so the abandoned dry run stops at its
@@ -175,8 +175,8 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // The client build is a parking await (on a cold start it is the long
         // one); an eviction during it hands the mutex to a successor without
         // stopping this callback, so every WASM call below would be a second
-        // borrow of a client somebody else is inside. This is a dry run —
-        // nothing here ever submits — so every transition through the end of
+        // borrow of a client somebody else is inside. This is a dry run -
+        // nothing here ever submits - so every transition through the end of
         // the callback is guardable, and the hold is re-checked at each one.
         assertWasmHoldCurrent(hold, 'after the client build');
 
@@ -191,7 +191,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
 
         // Quarantine BEFORE importing: these notes are about to land in the
         // real client DB purely so `executeForSummaryAtTip` can resolve them for
-        // the dry run — the user hasn't approved anything yet. Quarantining
+        // the dry run - the user hasn't approved anything yet. Quarantining
         // first (rather than after the import loop) means a failure partway
         // through the loop still leaves every already-imported note hidden.
         //
@@ -208,7 +208,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // pending 1000 and send 1050 for a charge of 50. Only this check knows which ids were already
         // held, and its verdict never comes from the request, so a request cannot claim membership.
         await quarantineNoteIds(introducedIds, attempt);
-        // The quarantine write is Dexie, not WASM — but it is still an await,
+        // The quarantine write is Dexie, not WASM - but it is still an await,
         // and the watchdog does not pause for it, so the check has to sit
         // between it and the next WASM call rather than before it (same
         // precedent as the sync-manager's quarantine read).
@@ -222,7 +222,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         const introduced = new Set(introducedIds);
         let imported = false;
         for (const noteB64 of input.importNotes ?? []) {
-          // Per-iteration, and the count is dApp-controlled — one guard before
+          // Per-iteration, and the count is dApp-controlled - one guard before
           // the loop only covers the first import.
           assertWasmHoldCurrent(hold, 'before the note import');
           const [id] = importedNoteIds([noteB64], IN_HOLD);
