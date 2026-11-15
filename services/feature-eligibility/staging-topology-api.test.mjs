@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as topology from './staging-topology-api.mjs';
 
 const create = topology.createTopologyReadApi ?? (() => async () => null);
+const deleteScript = topology.createTopologyScriptDeleter ?? (() => async () => false);
 const accountId = 'a'.repeat(32);
 const token = 'synthetic-token-for-test-only';
 
@@ -24,6 +25,48 @@ test('read adapter calls only fixed account paths without returning credentials'
   assert.equal(JSON.stringify(response).includes(token), false);
 });
 
+test('read adapter returns only the account and script workers.dev settings', async () => {
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async url =>
+      Response.json(
+        new URL(url).pathname.endsWith('/workers/subdomain')
+          ? { success: true, errors: [], result: { subdomain: 'wallet-topology', private: 'sentinel' } }
+          : {
+              success: true,
+              errors: [],
+              result: { enabled: true, previews_enabled: false, private: 'sentinel' }
+            }
+      )
+  });
+  assert.deepEqual(await api('/workers/subdomain'), {
+    success: true,
+    errors: [],
+    result: { subdomain: 'wallet-topology' }
+  });
+  assert.deepEqual(await api('/workers/scripts/miden-elig-topology-12345-1/subdomain'), {
+    success: true,
+    errors: [],
+    result: { enabled: true, previews_enabled: false }
+  });
+  assert.equal(await api('/workers/scripts/production/subdomain'), null);
+});
+
+test('read adapter rejects malformed workers.dev settings', async () => {
+  const response = value => create({ accountId, token, fetchImpl: async () => Response.json(value) });
+  assert.equal(
+    await response({ success: true, errors: [], result: { subdomain: 'bad.example' } })('/workers/subdomain'),
+    null
+  );
+  assert.equal(
+    await response({ success: true, errors: [], result: { enabled: true } })(
+      '/workers/scripts/miden-elig-topology-12345-1/subdomain'
+    ),
+    null
+  );
+});
+
 test('read adapter rejects arbitrary paths before network access', async () => {
   let calls = 0;
   const api = create({
@@ -36,6 +79,51 @@ test('read adapter rejects arbitrary paths before network access', async () => {
   });
   assert.equal(await api('/workers/scripts/../production'), null);
   assert.equal(calls, 0);
+});
+
+test('read adapter propagates phase-budget aborts to the in-flight fetch', async () => {
+  const phase = new AbortController();
+  let requestSignal;
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async (_url, init) => {
+      requestSignal = init.signal;
+      await new Promise(resolve => init.signal.addEventListener('abort', resolve, { once: true }));
+      return Response.json({ success: false, errors: [] });
+    }
+  });
+  const request = api('/account', { signal: phase.signal });
+  phase.abort();
+  await request;
+  assert.equal(requestSignal.aborted, true);
+});
+
+test('script deleter accepts only the exact topology worker path without force options', async () => {
+  const calls = [];
+  const remove = deleteScript({
+    accountId,
+    token,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return Response.json({ success: true, errors: [], result: {} });
+    }
+  });
+  assert.equal(await remove('miden-elig-topology-12345-1'), true);
+  assert.equal(await remove('production-worker'), false);
+  assert.equal(calls.length, 1);
+  assert.equal(
+    calls[0].url,
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/miden-elig-topology-12345-1`
+  );
+  assert.equal(calls[0].init.method, 'DELETE');
+  assert.equal(new URL(calls[0].url).search, '');
+  assert.equal(Object.hasOwn(calls[0].init, 'body'), false);
+});
+
+test('script deleter accepts Cloudflare’s successful bodyless response', async () => {
+  const remove = deleteScript({ accountId, token, fetchImpl: async () => new Response(null, { status: 200 }) });
+  assert.equal(await remove('miden-elig-topology-12345-1'), true);
 });
 
 test('read adapter rejects oversized provider bodies', async () => {
@@ -56,18 +144,63 @@ test('read adapter retains only a valid target-script absence receipt', async ()
 
 test('read adapter does not start a request after the total deadline', async () => {
   let calls = 0;
-  const times = [0, 119_999, 120_000];
+  let clock = 1_800_000_000_000;
   const api = create({
     accountId,
     token,
-    now: () => times.shift() ?? 120_000,
+    now: () => clock,
+    startedAt: clock,
     fetchImpl: async () => {
       calls++;
       return Response.json({ success: true });
     }
   });
+  clock += 120_000;
   assert.equal(await api('/account'), null);
   assert.equal(calls, 0);
+});
+
+test('read adapter gives cleanup its own bounded deadline after preflight expires', async () => {
+  let clock = 1_800_000_000_000;
+  let calls = 0;
+  const api = create({
+    accountId,
+    token,
+    now: () => clock,
+    startedAt: clock,
+    fetchImpl: async () => {
+      calls++;
+      return Response.json({ success: true, errors: [], result: { id: accountId } });
+    }
+  });
+
+  clock += 120_000;
+  assert.equal(await api('/account', { phase: 'preflight' }), null);
+  assert.deepEqual(await api('/account', { phase: 'cleanup' }), {
+    success: true,
+    errors: [],
+    result: { id: accountId }
+  });
+  clock += 120_000;
+  assert.equal(await api('/account', { phase: 'cleanup' }), null);
+  assert.equal(calls, 1);
+});
+
+test('read adapter caps both phases at 250 requests and the shared total at 500', async () => {
+  let calls = 0;
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () => {
+      calls++;
+      return Response.json({ success: true, errors: [], result: { id: accountId } });
+    }
+  });
+  for (let index = 0; index < 250; index++) assert.equal((await api('/account')).success, true);
+  assert.equal(await api('/account'), null);
+  for (let index = 0; index < 250; index++) assert.equal((await api('/account', { phase: 'cleanup' })).success, true);
+  assert.equal(await api('/account', { phase: 'cleanup' }), null);
+  assert.equal(calls, 500);
 });
 
 test('read adapter strips unrelated setting values while retaining fixed ownership markers', async () => {

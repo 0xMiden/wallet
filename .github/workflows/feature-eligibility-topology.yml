@@ -1,0 +1,155 @@
+name: Eligibility staging topology acceptance
+run-name: cleanup_run_id=${{ inputs.cleanup_run_id }} cleanup_attempt=${{ inputs.cleanup_attempt }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Deploy and exercise once, or clean one exact prior run
+        type: choice
+        options: [run, cleanup]
+        default: run
+        required: true
+      cleanup_run_id:
+        description: Exact prior topology workflow run ID for cleanup only
+        type: string
+        required: false
+      cleanup_attempt:
+        description: Exact prior workflow attempt for cleanup only
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: feature-eligibility-staging-probe
+  cancel-in-progress: false
+
+jobs:
+  topology:
+    if: >-
+      github.repository == '0xMiden/wallet' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: feature-eligibility-production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Validate fixed operation
+        env:
+          TOPOLOGY_OPERATION: ${{ inputs.operation }}
+          CLEANUP_RUN_ID: ${{ inputs.cleanup_run_id }}
+          CLEANUP_ATTEMPT: ${{ inputs.cleanup_attempt }}
+        shell: bash
+        run: |
+          if [[ "$TOPOLOGY_OPERATION" == run ]]; then
+            test -z "$CLEANUP_RUN_ID" && test -z "$CLEANUP_ATTEMPT"
+          elif [[ "$TOPOLOGY_OPERATION" == cleanup ]]; then
+            [[ "$CLEANUP_RUN_ID" =~ ^[1-9][0-9]{0,17}$ ]] && [[ "$CLEANUP_ATTEMPT" =~ ^[1-9][0-9]{0,5}$ ]]
+          else
+            exit 1
+          fi
+      - name: Bundle exact topology Worker
+        if: inputs.operation == 'run'
+        run: >-
+          npx --yes wrangler@4.151.3 deploy
+          --config services/feature-eligibility/wrangler.topology-test.jsonc
+          --dry-run
+          --outdir "$RUNNER_TEMP/topology-bundle"
+          --metafile "$RUNNER_TEMP/topology-bundle/metafile.json"
+      - name: Observe inventory and prepare exact run artifact
+        if: inputs.operation == 'run'
+        id: prepare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TOPOLOGY_BUNDLE_DIRECTORY: ${{ runner.temp }}/topology-bundle
+          TOPOLOGY_BUNDLE_METAFILE: ${{ runner.temp }}/topology-bundle/metafile.json
+        run: node scripts/feature-eligibility-staging-topology.mjs prepare
+      - name: Retain pre-deployment recovery artifact
+        if: inputs.operation == 'run' && steps.prepare.outcome == 'success'
+        id: prepared_artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: eligibility-topology-prepared-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/eligibility-topology-prepared/*
+          if-no-files-found: error
+          retention-days: 3
+      - name: Deploy and exercise all synthetic scenarios
+        if: inputs.operation == 'run' && steps.prepared_artifact.outcome == 'success'
+        id: execute
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/feature-eligibility-staging-topology.mjs execute
+      - name: Clean exact current run
+        if: always() && inputs.operation == 'run' && steps.prepared_artifact.outcome == 'success' && steps.execute.outcome != 'skipped'
+        id: cleanup_current
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/feature-eligibility-staging-topology.mjs cleanup
+      - name: Verify prior run and artifact provenance
+        if: inputs.operation == 'cleanup'
+        id: recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLEANUP_RUN_ID: ${{ inputs.cleanup_run_id }}
+          CLEANUP_ATTEMPT: ${{ inputs.cleanup_attempt }}
+        run: node scripts/feature-eligibility-staging-topology-recovery.mjs prepare
+      - name: Download exact prepared artifact
+        if: inputs.operation == 'cleanup'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          repository: 0xMiden/wallet
+          run-id: ${{ inputs.cleanup_run_id }}
+          artifact-ids: ${{ steps.recovery.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/eligibility-topology-prepared
+      - name: Download exact prior result artifact
+        if: inputs.operation == 'cleanup'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          repository: 0xMiden/wallet
+          run-id: ${{ inputs.cleanup_run_id }}
+          artifact-ids: ${{ steps.recovery.outputs.result_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/eligibility-topology-prior-result
+      - name: Retain unchanged prepared artifact for continuation
+        if: inputs.operation == 'cleanup'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: eligibility-topology-prepared-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/eligibility-topology-prepared/*
+          if-no-files-found: error
+          retention-days: 3
+      - name: Recover exact prior Worker cleanup
+        if: inputs.operation == 'cleanup'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TOPOLOGY_RECOVERY_FILE: ${{ runner.temp }}/eligibility-topology-recovery/recovery.json
+          TOPOLOGY_PRIOR_RESULT_FILE: ${{ runner.temp }}/eligibility-topology-prior-result/result.json
+          CLEANUP_RUN_ID: ${{ inputs.cleanup_run_id }}
+          CLEANUP_ATTEMPT: ${{ inputs.cleanup_attempt }}
+        run: node scripts/feature-eligibility-staging-topology.mjs cleanup-recovered
+      - name: Retain sanitized topology evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: eligibility-topology-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/eligibility-topology-result/result.json
+          if-no-files-found: error
+          retention-days: 3
