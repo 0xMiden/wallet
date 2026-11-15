@@ -3351,6 +3351,18 @@
     "message": "Saldo portfela",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "24-godzinna zmiana ceny rynkowej przy aktualnej wartości portfela: $change$ USD ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "Ukryj salda",
     "englishSource": "Hide balances"

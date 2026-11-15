@@ -3351,6 +3351,18 @@
     "message": "Баланс кошелька",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "Изменение рыночной цены за 24 часа по активам по текущей цене: $change$ долларов США ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "Скрыть остатки",
     "englishSource": "Hide balances"

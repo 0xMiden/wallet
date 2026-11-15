@@ -3351,6 +3351,18 @@
     "message": "钱包余额",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "按当前价格计算的持仓24小时市场价格变动：$change$美元（$percentage$%）",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "隐藏余额",
     "englishSource": "Hide balances"

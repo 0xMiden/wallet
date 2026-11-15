@@ -3351,6 +3351,18 @@
     "message": "Saldo da carteira",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "Variação do preço de mercado em 24 horas nas participações com preço atual: $change$ USD ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "Ocultar saldos",
     "englishSource": "Hide balances"

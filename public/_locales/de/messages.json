@@ -3352,6 +3352,18 @@
     "message": "Wallet-Guthaben",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "24-Stunden-Marktpreisentwicklung der Bestände zum aktuellen Kurs: $change$ USD ($percentage$ %)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "Guthaben ausblenden",
     "englishSource": "Hide balances"

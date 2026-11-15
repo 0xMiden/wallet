@@ -3351,6 +3351,18 @@
     "message": "Saldo de la cartera",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "Variación del precio de mercado en las últimas 24 horas para las posiciones a precio actual: $change$ USD ($percentage$ %)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "Ocultar saldos",
     "englishSource": "Hide balances"

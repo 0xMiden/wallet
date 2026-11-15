@@ -3351,6 +3351,18 @@
     "message": "Solde du portefeuille",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "Évolution du cours de marché sur 24 h pour les avoirs au prix actuel : $change$ USD ($percentage$ %)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "Masquer les soldes",
     "englishSource": "Hide balances"

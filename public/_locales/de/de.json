@@ -721,6 +721,7 @@
   "commandFullscreenOpenFailed": "Vollbildmodus konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.",
   "commandPortfolio": "Portfolio",
   "commandWalletBalance": "Wallet-Guthaben",
+  "commandMarketPriceMovement24h": "24-Stunden-Marktpreisentwicklung der Bestände zum aktuellen Kurs: $change$ USD ($percentage$ %)",
   "commandHideBalances": "Guthaben ausblenden",
   "commandShowBalances": "Guthaben anzeigen",
   "commandMaskedBalance": "Versteckt",

@@ -722,6 +722,7 @@
   "commandFullscreenOpenFailed": "Не вдалося відкрити у повноекранному режимі. Спробуйте ще раз.",
   "commandPortfolio": "Портфель",
   "commandWalletBalance": "Баланс гаманця",
+  "commandMarketPriceMovement24h": "Зміна ринкової ціни за останні 24 години для активів за поточною ціною: $change$ доларів США ($percentage$%)",
   "commandHideBalances": "Приховати залишки",
   "commandShowBalances": "Показати залишки",
   "commandMaskedBalance": "Приховано",

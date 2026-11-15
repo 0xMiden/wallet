@@ -3351,6 +3351,18 @@
     "message": "지갑 잔액",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "현재 가격 기준 보유 자산의 24시간 시세 변동: $change$ USD ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "잔액 숨기기",
     "englishSource": "Hide balances"

@@ -722,6 +722,7 @@
   "commandFullscreenOpenFailed": "無法開啟全螢幕模式。請重試。",
   "commandPortfolio": "投資組合",
   "commandWalletBalance": "錢包餘額",
+  "commandMarketPriceMovement24h": "按當前價格計算的持倉 24 小時市場價格波動：$change$ 美元（$percentage$%）",
   "commandHideBalances": "隱藏餘額",
   "commandShowBalances": "顯示餘額",
   "commandMaskedBalance": "隱藏",

@@ -722,6 +722,7 @@
   "commandFullscreenOpenFailed": "Не удалось перейти в полноэкранный режим. Попробуйте ещё раз.",
   "commandPortfolio": "Портфель",
   "commandWalletBalance": "Баланс кошелька",
+  "commandMarketPriceMovement24h": "Изменение рыночной цены за 24 часа по активам по текущей цене: $change$ долларов США ($percentage$%)",
   "commandHideBalances": "Скрыть остатки",
   "commandShowBalances": "Показать балансы",
   "commandMaskedBalance": "Скрыто",

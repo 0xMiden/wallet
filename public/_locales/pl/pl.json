@@ -722,6 +722,7 @@
   "commandFullscreenOpenFailed": "Nie udało się otworzyć trybu pełnoekranowego. Spróbuj ponownie.",
   "commandPortfolio": "Portfel",
   "commandWalletBalance": "Saldo portfela",
+  "commandMarketPriceMovement24h": "24-godzinna zmiana ceny rynkowej przy aktualnej wartości portfela: $change$ USD ($percentage$%)",
   "commandHideBalances": "Ukryj salda",
   "commandShowBalances": "Pokaż salda",
   "commandMaskedBalance": "Ukryte",

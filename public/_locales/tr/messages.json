@@ -3351,6 +3351,18 @@
     "message": "Cüzdan bakiyesi",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "Mevcut fiyatla hesaplanan varlıkların 24 saatlik piyasa fiyatı hareketi: $change$ USD ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "Bakiyeleri gizle",
     "englishSource": "Hide balances"

@@ -722,6 +722,7 @@
   "commandFullscreenOpenFailed": "Não foi possível abrir em tela cheia. Tente novamente.",
   "commandPortfolio": "Portfólio",
   "commandWalletBalance": "Saldo da carteira",
+  "commandMarketPriceMovement24h": "Variação do preço de mercado em 24 horas nas participações com preço atual: $change$ USD ($percentage$%)",
   "commandHideBalances": "Ocultar saldos",
   "commandShowBalances": "Mostrar saldos",
   "commandMaskedBalance": "Oculto",

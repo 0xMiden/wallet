@@ -3351,6 +3351,18 @@
     "message": "ウォレットの残高",
     "englishSource": "Wallet balance"
   },
+  "commandMarketPriceMovement24h": {
+    "message": "現在の価格での保有資産における24時間の市場価格変動：$change$米ドル（$percentage$％）",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
   "commandHideBalances": {
     "message": "残高を非表示にする",
     "englishSource": "Hide balances"

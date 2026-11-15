@@ -722,6 +722,7 @@
   "commandFullscreenOpenFailed": "Couldn’t open fullscreen. Try again.",
   "commandPortfolio": "Portfolio",
   "commandWalletBalance": "Wallet balance",
+  "commandMarketPriceMovement24h": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
   "commandHideBalances": "Hide balances",
   "commandShowBalances": "Show balances",
   "commandMaskedBalance": "Hidden",
