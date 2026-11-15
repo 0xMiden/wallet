@@ -7,11 +7,12 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation, useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { formatBigInt, stringToBigInt } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, formatBigInt, stringToBigInt } from 'lib/i18n/numbers';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -48,6 +49,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate, HistoryAction } from 'lib/woozie';
+import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
 import { isValidEthereumAddress } from 'utils/miden';
 
 import { OneClickAmounts, type OneClickAmountsErrorKey } from './OneClickAmounts';
@@ -110,6 +112,12 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   onBackToSwap
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
+  const commandDrafts = useOptionalCommandDrafts();
+  const writeCommandDraft = commandDrafts?.writeDraft;
+  const clearCommandDraft = commandDrafts?.clearDraft;
+  const [savedDraft] = useState(() => (command && !initialRecovery ? commandDrafts?.readDraft('swap') : undefined));
+  const savedOneClick = savedDraft?.engine === 'one-click' ? savedDraft : undefined;
   const account = useAccount();
   const tokensMetadata = useAllTokensBaseMetadata();
   const { data: balances = [] } = useAllBalances(account.publicKey, tokensMetadata);
@@ -127,17 +135,32 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   const [offerNetwork, setOfferNetwork] = useState(initialOfferNetwork);
   const [requestNetwork, setRequestNetwork] = useState(initialRequestNetwork);
   const [offerAsset, setOfferAsset] = useState<OneClickAsset | undefined>(
-    () => recoveryOriginAsset ?? assets.find(asset => asset.blockchain === initialOfferNetwork.id)
+    () =>
+      recoveryOriginAsset ??
+      assets.find(
+        asset => asset.assetId === savedOneClick?.payAssetId && asset.blockchain === initialOfferNetwork.id
+      ) ??
+      assets.find(asset => asset.blockchain === initialOfferNetwork.id)
   );
   const [requestAsset, setRequestAsset] = useState<OneClickAsset | undefined>(
-    () => recoveryDestinationAsset ?? assets.find(asset => asset.blockchain === initialRequestNetwork.id)
+    () =>
+      recoveryDestinationAsset ??
+      assets.find(
+        asset => asset.assetId === savedOneClick?.receiveAssetId && asset.blockchain === initialRequestNetwork.id
+      ) ??
+      assets.find(asset => asset.blockchain === initialRequestNetwork.id)
   );
   const [offerAmount, setOfferAmount] = useState(() =>
     initialRecovery && recoveryOriginAsset
       ? formatBigInt(BigInt(initialRecovery.request.amount), recoveryOriginAsset.decimals)
-      : ''
+      : savedOneClick?.payNetworkId === initialOfferNetwork.id &&
+          savedOneClick?.receiveNetworkId === initialRequestNetwork.id
+        ? savedOneClick.payAmount
+        : ''
   );
-  const [externalAddress, setExternalAddress] = useState(() => initialRecovery?.request.recipient ?? '');
+  const [externalAddress, setExternalAddress] = useState(
+    () => initialRecovery?.request.recipient ?? savedOneClick?.externalAddress ?? ''
+  );
   const recoveredEvmAttempt =
     initialRecovery?.direction === 'evm-to-miden' &&
     (initialRecovery.evmSubmission === 'known' || initialRecovery.evmSubmission === 'attempted');
@@ -150,6 +173,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   const [screen, setScreen] = useState<'amounts' | 'review' | 'instructions'>(() =>
     initialRecovery ? 'review' : 'amounts'
   );
+  useRegisterCommandFlowBack(screen === 'review' ? undefined : onBackToSwap);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<OneClickFlowErrorKey>();
@@ -170,6 +194,31 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   const knownBroadcastRef = useRef(false);
   const challengeIdentity = useRef<string>();
   const quoteOperation = useRef(false);
+
+  const offerAssetId = offerAsset?.assetId;
+  const requestAssetId = requestAsset?.assetId;
+  useEffect(() => {
+    if (!command || !writeCommandDraft || initialRecovery || !offerAssetId || !requestAssetId) return;
+    writeCommandDraft('swap', {
+      engine: 'one-click',
+      payNetworkId: offerNetwork.id,
+      receiveNetworkId: requestNetwork.id,
+      payAssetId: offerAssetId,
+      receiveAssetId: requestAssetId,
+      payAmount: offerAmount,
+      externalAddress
+    });
+  }, [
+    command,
+    writeCommandDraft,
+    initialRecovery,
+    offerNetwork.id,
+    requestNetwork.id,
+    offerAssetId,
+    requestAssetId,
+    offerAmount,
+    externalAddress
+  ]);
 
   const originAsset = offerAsset;
   const destinationAsset = requestAsset;
@@ -219,7 +268,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   );
 
   const amountBaseUnits = useMemo(() => {
-    if (!originAsset) return undefined;
+    if (!originAsset || amountExceedsTokenDecimals(offerAmount, originAsset.decimals)) return undefined;
     try {
       return stringToBigInt(offerAmount, originAsset.decimals);
     } catch {
@@ -606,6 +655,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       setSubmitting(true);
       try {
         const txId = await initiateOneClickMidenDeposit(input, authorization);
+        if (command) clearCommandDraft?.('swap');
         if (isExtension()) requestSWTransactionProcessing();
         navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
       } finally {
@@ -614,7 +664,17 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
         challengeIdentity.current = undefined;
       }
     },
-    [trackingInput, midenFaucet, account.publicKey, assessSpendingLimit, readSpendingLimit, t, consentIdentity]
+    [
+      trackingInput,
+      midenFaucet,
+      account.publicKey,
+      assessSpendingLimit,
+      readSpendingLimit,
+      t,
+      consentIdentity,
+      command,
+      clearCommandDraft
+    ]
   );
 
   const confirm = useCallback(async () => {
@@ -680,6 +740,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
         }
       }
       const rowId = await persistOneClickTrackingRow(input);
+      if (command) clearCommandDraft?.('swap');
       persistedRowId = rowId;
       setTrackingRowId(rowId);
       if (inboundEvm) {
@@ -762,7 +823,9 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     evm,
     config,
     midenFaucet,
-    consentIdentity
+    consentIdentity,
+    command,
+    clearCommandDraft
   ]);
 
   const handleChallenge = useCallback(

@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MotionConfig } from 'framer-motion';
 
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { ReviewLayout } from 'components/review';
 import { AlertSheet } from 'components/ui/AlertSheet';
 import { goBack, navigate } from 'lib/woozie';
 import { CommandSendReview } from 'screens/send-flow/CommandSendReview';
@@ -13,6 +14,7 @@ import { CommandShell } from './CommandShell';
 import { useCommandWorkbenchSlots } from './CommandWorkbench';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 jest.mock('./CommandHomePrompts', () => ({
   CommandHomePrompts: () => <div data-testid="command-home-prompts" />
 }));
@@ -72,6 +74,46 @@ it('places the active Send review footer in the workbench footer and clears it o
   );
   expect(screen.queryByRole('button', { name: 'Submit payment' })).not.toBeInTheDocument();
   expect(screen.queryByTestId('command-footer')).not.toBeInTheDocument();
+});
+
+it('holds Command header Back while Swap review is submitting rather than falling through to history', () => {
+  render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'swap' }}>
+      <ReviewLayout
+        hero={<span>Swap terms</span>}
+        primary={{ label: 'Swap', onPress: jest.fn(), loading: true }}
+        secondary={{ label: 'Back', onPress: jest.fn(), disabled: true }}
+      >
+        <span>Rate and payout</span>
+      </ReviewLayout>
+    </CommandShell>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(goBack).not.toHaveBeenCalled();
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+it('returns to the still-mounted Swap composer footer when the review step unmounts', () => {
+  function Composer() {
+    return useCommandWorkbenchSlots(<button>Review swap</button>);
+  }
+  function Review() {
+    return useCommandWorkbenchSlots(<button>Place swap</button>);
+  }
+  const { rerender } = render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'swap' }}>
+      <Composer />
+      <Review />
+    </CommandShell>
+  );
+  expect(screen.getByTestId('command-footer')).toContainElement(screen.getByRole('button', { name: 'Place swap' }));
+  rerender(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'swap' }}>
+      <Composer />
+    </CommandShell>
+  );
+  expect(screen.getByTestId('command-footer')).toContainElement(screen.getByRole('button', { name: 'Review swap' }));
+  expect(screen.queryByRole('button', { name: 'Place swap' })).not.toBeInTheDocument();
 });
 
 it('updates one live Send footer and one secondary-details disclosure, then clears both with the owner', () => {

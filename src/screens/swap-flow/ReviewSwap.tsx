@@ -4,6 +4,7 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { ReviewLayout } from 'components/review';
 import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
@@ -172,6 +173,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   submitting = false
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const networkFeeDetails = useNetworkFeeEstimateDetails();
   const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
@@ -266,7 +268,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         }
         value={
           <span className="inline-flex items-center gap-1">
-            {`${requestAmount} ${requestLabel}`}
+            {`${command ? t('swapApproxAmount', { amount: requestAmount }) : requestAmount} ${requestLabel}`}
             <SwapTokenInfoButton faucetId={requestToken.faucetId} label={requestLabel} />
           </span>
         }

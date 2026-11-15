@@ -2,6 +2,11 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import {
+  CommandFlowBackProvider,
+  FlowPresentationProvider,
+  useCommandFlowBack
+} from 'components/flow/FlowPresentation';
 import type { SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { IOneClickTrackingData } from 'lib/miden/db/types';
@@ -18,6 +23,7 @@ import {
 } from 'lib/one-click/tracking';
 import { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 
 import { OneClickFlow } from './OneClickFlow';
 import { OneClickNetworkOption } from './OneClickPickers';
@@ -27,6 +33,7 @@ import {
 } from '../../../playwright/e2e/helpers/fake-one-click-service';
 
 jest.unmock('lib/i18n/numbers');
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 let mockAccountId = '0x111111111111111111111111111111';
 let mockConfirmResult: Promise<boolean> = Promise.resolve(true);
@@ -158,6 +165,8 @@ jest.mock('lib/store', () => ({
 jest.mock('./OneClickAmounts', () => ({
   OneClickAmounts: (props: {
     canContinue: boolean;
+    offerAmount: string;
+    externalAddress: string;
     onOfferAmountChange: (amount: string) => void;
     onExternalAddressChange: (address: string) => void;
     onConnectExternal?: () => void;
@@ -168,6 +177,9 @@ jest.mock('./OneClickAmounts', () => ({
     onContinue: () => void;
   }) => (
     <div>
+      <output data-testid="one-click-input-draft">
+        {props.offerAmount} / {props.externalAddress}
+      </output>
       {props.routeError && <span data-testid="one-click-amounts-error">{props.routeError}</span>}
       {props.routeErrorId && <span data-testid="one-click-amounts-error-id">{props.routeErrorId}</span>}
       <input aria-label="amount" onChange={event => props.onOfferAmountChange(event.target.value)} />
@@ -469,6 +481,78 @@ beforeEach(() => {
 let nextWetQuoteExpired = false;
 
 describe('OneClickFlow', () => {
+  it('keeps the Command header Back on the active 1Click controller', () => {
+    const onBackToSwap = jest.fn();
+    function HeaderBack() {
+      const back = useCommandFlowBack()?.activeBack;
+      return <button onClick={back}>Header Back</button>;
+    }
+    render(
+      <CommandFlowBackProvider>
+        <FlowPresentationProvider value="command">
+          <HeaderBack />
+          <OneClickFlow
+            config={config}
+            assets={[midenAsset, ethereumAsset, manualAsset]}
+            networks={networks}
+            offerNetwork={networkFor('miden')}
+            requestNetwork={networkFor('eth')}
+            midenAddress={mockMidenAddress}
+            onBackToSwap={onBackToSwap}
+          />
+        </FlowPresentationProvider>
+      </CommandFlowBackProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Header Back' }));
+    expect(onBackToSwap).toHaveBeenCalledTimes(1);
+  });
+  it('refuses to quote an amount with more digits than its selected origin asset scale', async () => {
+    jest.useFakeTimers();
+    try {
+      renderFlow(midenAsset, ethereumAsset);
+      fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1.1234567' } });
+      fireEvent.change(screen.getByRole('textbox', { name: 'external address' }), {
+        target: { value: mockOriginAddress }
+      });
+      await act(async () => jest.advanceTimersByTime(351));
+      expect(requestOneClickQuote).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
+      fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1.123456' } });
+      await act(async () => jest.advanceTimersByTime(351));
+      expect(requestOneClickQuote).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  it('recovers only unsigned one-click inputs after Command minimize without carrying an executable quote', () => {
+    const scope = { accountId: mockAccountId, network: 'mainnet', rpcUrl: 'rpc' };
+    const Flow = ({ shown }: { shown: boolean }) => (
+      <CommandDraftProvider scope={scope}>
+        <FlowPresentationProvider value="command">
+          {shown && (
+            <OneClickFlow
+              config={config}
+              assets={[midenAsset, ethereumAsset, manualAsset]}
+              networks={networks}
+              offerNetwork={networkFor('miden')}
+              requestNetwork={networkFor('eth')}
+              midenAddress={mockMidenAddress}
+              onBackToSwap={jest.fn()}
+            />
+          )}
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const { rerender } = render(<Flow shown />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1.123456' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'external address' }), {
+      target: { value: mockOriginAddress }
+    });
+    rerender(<Flow shown={false} />);
+    rerender(<Flow shown />);
+    expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(`1.123456 / ${mockOriginAddress}`);
+    expect(screen.queryByTestId('one-click-review')).not.toBeInTheDocument();
+  });
   it('blocks an amount one base unit above a large Miden balance', async () => {
     const zeroDecimalAsset: OneClickAsset = {
       assetId: 'miden:whole-token',

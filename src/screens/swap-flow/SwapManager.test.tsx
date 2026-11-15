@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 
+import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { applyOverrideFor } from 'lib/miden/metadata/overrides';
@@ -15,6 +16,7 @@ import { parseBridgeConfig, type BridgeConfig } from 'lib/remote-config/schema';
 import testnet from 'lib/remote-config/testing/testnet.json';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 
 // Import after the mocks are registered.
 import { SwapFlow } from './SwapManager';
@@ -293,6 +295,14 @@ jest.mock('lib/miden/swap/tokens', () => ({
     mockQuotesBySymbol === undefined ? prices.AAA : mockQuotesBySymbol[symbol],
   normalizedFaucetId:
     jest.requireActual<typeof import('lib/miden/swap/faucet-ids')>('lib/miden/swap/faucet-ids').normalizedFaucetId,
+  getSwapTokenByFaucetId: (faucetId?: string) =>
+    faucetId
+      ? mockRealSwapRegistry
+        ? jest
+            .requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens')
+            .getSwapTokenByFaucetId(faucetId)
+        : mockGetSwapTokens().find(token => token.faucetId === faucetId)
+      : undefined,
   getSwapTokens: () =>
     mockRealSwapRegistry
       ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getSwapTokens()
@@ -631,6 +641,82 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('SwapFlow / SwapManager', () => {
+  it('opens the Command token picker without installing a changing Back handler', () => {
+    render(
+      <CommandFlowBackProvider>
+        <FlowPresentationProvider value="command">
+          <SwapFlow />
+        </FlowPresentationProvider>
+      </CommandFlowBackProvider>
+    );
+    fireEvent.click(screen.getByTestId('sa-select-offer'));
+    expect(screen.getByTestId('swap-token-drawer')).toHaveAttribute('data-open', 'true');
+  });
+  it('holds the reviewed receive amount when a live Command quote rebuilds the ask', async () => {
+    mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+    const view = () => (
+      <FlowPresentationProvider value="command">
+        <SwapFlow />
+      </FlowPresentationProvider>
+    );
+    const { rerender } = render(view());
+    setOffer('10');
+    expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+    mockSwapQuoteResult = { loading: false, quote: quoteAt('3', 9n) };
+    rerender(view());
+    expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9');
+    expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+    mockQuoteNow.mockResolvedValue(quoteAt('3', 9n));
+    await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+    expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceMoved');
+    expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('9');
+    expect(mockVaultPreflight).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+    expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 9n, false, 120, true, 5);
+  });
+
+  it('requires a second review activation when fresh solver terms differ from the Command review', async () => {
+    mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+    render(
+      <FlowPresentationProvider value="command">
+        <SwapFlow />
+      </FlowPresentationProvider>
+    );
+    setOffer('10');
+    mockQuoteNow.mockResolvedValue(quoteAt('3', 5n));
+    await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+    expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceMoved');
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
+  it('recovers exact unsigned offer and review settings after minimizing the Command flow', () => {
+    const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
+    const TestShell = ({ shown }: { shown: boolean }) => (
+      <FlowPresentationProvider value="command">{shown && <SwapFlow />}</FlowPresentationProvider>
+    );
+    const { rerender } = render(
+      <CommandDraftProvider scope={scope}>
+        <TestShell shown />
+      </CommandDraftProvider>
+    );
+    setOffer('1.12345678');
+    fireEvent.click(screen.getByTestId('rs-set-slippage'));
+    fireEvent.click(screen.getByTestId('rs-auto-consume'));
+    rerender(
+      <CommandDraftProvider scope={scope}>
+        <TestShell shown={false} />
+      </CommandDraftProvider>
+    );
+    rerender(
+      <CommandDraftProvider scope={scope}>
+        <TestShell shown />
+      </CommandDraftProvider>
+    );
+    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('1.12345678');
+    expect(screen.getByTestId('rs-slippage')).toHaveTextContent('50');
+    expect(screen.getByTestId('rs-auto-consume')).toHaveTextContent('false');
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
   it('does not query below $1 and starts at exactly $1', async () => {
     jest.useFakeTimers();
     try {

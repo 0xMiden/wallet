@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FEATURE][extension] Command Swap restores unsigned offers and settings across minimize, shows a read-only receive estimate, and keeps the separately gated 1Click route in the same workbench with fresh quote and funding checks.
 - [FEATURE][extension] Fullscreen Receive shares the current wallet address and network, remembers an unsigned asset choice, and reviews real pending transfers before native claim acceptance.
 - [FEATURE][extension] Send in the fullscreen Command workbench keeps one editable amount and recipient, restores unsigned choices across Back and minimize, and uses the existing review, fee reserve and signing checks.
 - [FEATURE][extension] Show the fullscreen Command dashboard's live wallet portfolio, local observed USD history and a saved hide-balances control without changing compact wallet data or transaction admission.

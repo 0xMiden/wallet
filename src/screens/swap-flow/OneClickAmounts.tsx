@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
@@ -17,6 +19,7 @@ import { OneClickAsset } from 'lib/one-click/types';
 import { WalletContact } from 'lib/shared/types';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 
 import { OneClickAssetPicker, OneClickNetworkOption, OneClickNetworkPicker } from './OneClickPickers';
 import type { OneClickFlowErrorKey } from './OneClickReview';
@@ -96,6 +99,8 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
+  const formId = useId();
   useUserVisibleError(evmBalance?.status === 'error' ? 'oneClickBalanceUnavailable' : null, 'notice');
   const payPicker = (
     <div className="flex flex-wrap items-center gap-2">
@@ -129,25 +134,44 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
   const contactNetwork = externalAddressNetwork?.logoNetwork ?? externalAddressNetwork?.id;
   const matchedContacts = contacts.filter(contact => contact.network === contactNetwork);
   const linkedRefund = externalAddressLabel === 'refund' && !externalAddressEditable;
+  const review = (
+    <Button
+      type={command ? 'submit' : 'button'}
+      form={command ? formId : undefined}
+      title={quoteLoading ? t('calculatingQuote') : t('reviewSwap')}
+      variant={ButtonVariant.Primary}
+      accent="swap"
+      onClick={command ? undefined : onContinue}
+      disabled={!canContinue || quoteLoading}
+      data-testid="one-click-review-submit"
+      className="w-full max-w-none"
+    />
+  );
+  const outlets = useCommandWorkbenchSlots(command ? review : null);
+  const Body = command ? 'form' : 'div';
 
   return (
-    <HomeGroupPaneBody
-      footer={
-        <Button
-          title={quoteLoading ? t('calculatingQuote') : t('reviewSwap')}
-          variant={ButtonVariant.Primary}
-          accent="swap"
-          onClick={onContinue}
-          disabled={!canContinue || quoteLoading}
-          data-testid="one-click-review-submit"
-          className="w-full max-w-none"
-        />
-      }
-    >
-      <div className="flex flex-col gap-5">
+    <HomeGroupPaneBody footer={command ? undefined : review} top={command ? 'header' : 'root'}>
+      <Body
+        id={command ? formId : undefined}
+        className="flex flex-col gap-5"
+        onSubmit={event => {
+          event.preventDefault();
+          if (canContinue && !quoteLoading) onContinue();
+        }}
+        onKeyDown={event => {
+          if (command && event.key === 'Enter' && event.target instanceof HTMLInputElement) {
+            event.preventDefault();
+            if (canContinue && !quoteLoading) onContinue();
+          }
+        }}
+      >
         <AmountInput
           label={t('youPay')}
           value={offerAmount}
+          preservePrecision={command}
+          decimalsLimit={command ? (offerAsset?.decimals ?? 0) : undefined}
+          maxLength={command ? 80 : undefined}
           onValueChange={value => onOfferAmountChange(value ?? '')}
           tokenSelector={payPicker}
           accent="swap"
@@ -161,18 +185,29 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
           aria-label={t('youPay')}
           data-testid="one-click-pay-amount"
         />
-        <AmountInput
-          label={t('youReceive')}
-          value={previewAmount}
-          onValueChange={() => undefined}
-          tokenSelector={receivePicker}
-          accent="swap"
-          loading={quoteLoading}
-          disabled
-          showDivider={false}
-          aria-label={t('youReceive')}
-          data-testid="one-click-receive-amount"
-        />
+        {command ? (
+          <div data-testid="one-click-receive-output">
+            <DetailCard surface="fill">
+              <DetailRow label={t('youReceive')} stacked>
+                {quoteLoading ? t('calculatingQuote') : previewAmount || t('calculatingQuote')}
+              </DetailRow>
+              {receivePicker}
+            </DetailCard>
+          </div>
+        ) : (
+          <AmountInput
+            label={t('youReceive')}
+            value={previewAmount}
+            onValueChange={() => undefined}
+            tokenSelector={receivePicker}
+            accent="swap"
+            loading={quoteLoading}
+            disabled
+            showDivider={false}
+            aria-label={t('youReceive')}
+            data-testid="one-click-receive-amount"
+          />
+        )}
         {evmBalance && externalAddressLabel === 'refund' && offerAsset && (
           <Notice
             errorId={evmBalance.status === 'error' ? 'oneClickBalanceUnavailable' : null}
@@ -270,7 +305,8 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
             {t(routeError)}
           </ErrorLine>
         )}
-      </div>
+      </Body>
+      {outlets}
     </HomeGroupPaneBody>
   );
 };
