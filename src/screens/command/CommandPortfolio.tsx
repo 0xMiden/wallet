@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant, Card, SegmentedControl, SectionHeader } from 'components/ui';
-import { toLocalFormat } from 'lib/i18n/numbers';
+import { getAdaptiveDecimalPlaces, toLocalFormat } from 'lib/i18n/numbers';
 import {
   recordPortfolioObservation,
   readPortfolioObservations,
@@ -99,7 +99,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
 
   const actual = useMemo(() => (history?.key === key ? history.rows : []), [history, key]);
   const points = useMemo(
-    () => actual.filter(row => row.bucket >= Date.now() - RANGES[range] * DAY_MS),
+    () => actual.filter(row => row.capturedAt >= Date.now() - RANGES[range] * DAY_MS),
     [actual, range]
   );
   // Pick actual rows only; never interpolate into a missing bucket or across a coverage change.
@@ -115,7 +115,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
   const sampleIndex = selected === null ? samples.length - 1 : Math.min(selected, samples.length - 1);
   const sample = samples[sampleIndex];
   const inspected = sample
-    ? `${new Date(sample.capturedAt).toLocaleString()} · ${hidden ? t('commandMaskedBalance') : `${sample.value} USD${sample.coverage === 'partial' ? ` · ${t('commandPartialCoverage')}` : ''}`}`
+    ? `${new Date(sample.capturedAt).toLocaleString()} · ${hidden ? t('commandMaskedBalance') : `${toLocalFormat(sample.value, { decimalPlaces: getAdaptiveDecimalPlaces(sample.value) })} USD${sample.coverage === 'partial' ? ` · ${t('commandPartialCoverage')}` : ''}`}`
     : '';
   const values = samples.map(row => Number(row.value));
   const min = Math.min(...values);
@@ -123,7 +123,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
   const rangeMs = RANGES[range] * DAY_MS;
   const rangeStart = Date.now() - rangeMs;
   const chartPoints = samples.map(row => ({
-    x: Math.max(0, Math.min(100, (100 * (row.bucket - rangeStart)) / rangeMs)),
+    x: Math.max(0, Math.min(100, (100 * (row.capturedAt - rangeStart)) / rangeMs)),
     y: 90 - (80 * (Number(row.value) - min)) / span,
     row
   }));
@@ -164,7 +164,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
             ? t('commandMaskedBalance')
             : !portfolio.current || value === null
               ? t('commandBalanceUnavailable')
-              : `${value} USD`}
+              : `${toLocalFormat(value, { decimalPlaces: getAdaptiveDecimalPlaces(value) })} USD`}
         </p>
         {!hidden && coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
         {!hidden && portfolio.current && portfolio.priceMovement24h && value !== null && (

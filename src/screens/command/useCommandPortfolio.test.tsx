@@ -89,6 +89,31 @@ it('derives the separate 24h market-price move from current quantities, not obse
   expect(screen.getByRole('status').textContent).toContain('"priceMovement24h":null');
 });
 
+it('keeps current token identities when quote service is loading or failed, without publishing cached fiat', () => {
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  const view = render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"assets":["priced"]');
+  expect(screen.getByRole('status').textContent).toContain('"value":"6"');
+  for (const status of ['loading', 'error'] as const) {
+    act(() => useWalletStore.setState({ tokenPricesStatus: status }));
+    view.rerender(<Probe />);
+    expect(screen.getByRole('status').textContent).toContain('"assets":["priced"]');
+    expect(screen.getByRole('status').textContent).toContain('"value":null');
+    expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+    expect(screen.getByRole('status').textContent).toContain('"priceMovement24h":null');
+  }
+});
+
 it('uses the existing landed store rows without starting a second balance polling hook', () => {
   render(<Probe />);
   expect(mockUseAllBalances).not.toHaveBeenCalled();

@@ -4,12 +4,14 @@ import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
 import { ListGroup, ListRow, SectionHeader } from 'components/ui';
+import { getAdaptiveDecimalPlaces, toLocalFormat } from 'lib/i18n/numbers';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
 import { isNominalQuote } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
+import { useWalletStore } from 'lib/store';
 
 export function CommandAssets({
   assets,
@@ -23,6 +25,7 @@ export function CommandAssets({
   current: boolean;
 }): React.ReactElement {
   const { t } = useTranslation();
+  const pricesReady = useWalletStore(state => state.tokenPricesStatus === 'ready');
   return (
     <section>
       <SectionHeader size="xl">{t('assets')}</SectionHeader>
@@ -32,6 +35,7 @@ export function CommandAssets({
           const known = hasKnownScale(asset.metadata);
           const now = Date.now();
           const available =
+            pricesReady &&
             known &&
             quote &&
             !isNominalQuote(quote) &&
@@ -53,7 +57,7 @@ export function CommandAssets({
                     : !Number.isFinite(asset.balance)
                       ? t('commandBalanceUnavailable')
                       : known
-                        ? `${asset.balance} ${asset.metadata.symbol}`
+                        ? `${toLocalFormat(asset.balance, { decimalPlaces: getAdaptiveDecimalPlaces(asset.balance) })} ${asset.metadata.symbol}`
                         : t('assetValueUnknownScale')
               }
               value={
@@ -62,7 +66,7 @@ export function CommandAssets({
                   : !current
                     ? t('commandBalanceUnavailable')
                     : available
-                      ? `${asset.balance * quote.price} USD`
+                      ? `${toLocalFormat(asset.balance * quote.price, { decimalPlaces: getAdaptiveDecimalPlaces(asset.balance * quote.price) })} USD`
                       : t('commandPriceUnavailable')
               }
             />

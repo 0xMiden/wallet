@@ -34,6 +34,7 @@ let resolvePreference: (() => void) | undefined;
 let mockCanRecord = false;
 let mockMarketMove: { absolute: number; percentage: number } | null = null;
 let mockCurrent = true;
+let mockValue = '6';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, string>) => (values ? `${key} ${Object.values(values).join(' ')}` : key)
@@ -81,7 +82,7 @@ jest.mock('./useCommandPortfolio', () => ({
   useCommandPortfolio: () => ({
     assets: rows,
     tokenPrices: {},
-    value: mockCurrent ? '6' : null,
+    value: mockCurrent ? mockValue : null,
     priceMovement24h: mockMarketMove,
     coverage: 'partial',
     coverageKey: 'priced:priced|unpriced:unpriced',
@@ -97,10 +98,84 @@ beforeEach(async () => {
   mockCanRecord = false;
   mockMarketMove = null;
   mockCurrent = true;
-  useWalletStore.setState({ status: WalletStatus.Idle, currentAccount: null });
+  mockValue = '6';
+  useWalletStore.setState({ status: WalletStatus.Idle, currentAccount: null, tokenPricesStatus: 'ready' });
   await portfolioObservations.clear();
   jest.mocked(recordPortfolioObservation).mockReset().mockImplementation(realRecord);
   jest.mocked(readPortfolioObservations).mockReset().mockImplementation(actualObservations.readPortfolioObservations);
+});
+
+afterEach(() => jest.restoreAllMocks());
+
+it('keeps an observation just inside the 1W edge and plots its captured time', async () => {
+  store.hidden = false;
+  const now = capturedAt + 2 * 60_000;
+  jest.spyOn(Date, 'now').mockReturnValue(now);
+  const cutoff = now - 7 * 24 * 60 * 60_000;
+  await realRecord({
+    ...scope,
+    bucket: cutoff - 2 * 60_000 - bucketMs,
+    capturedAt: cutoff - 3 * 60_000,
+    currency: 'USD',
+    value: '1',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  await realRecord({
+    ...scope,
+    bucket: cutoff - 2 * 60_000,
+    capturedAt: cutoff + 60_000,
+    currency: 'USD',
+    value: '4',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - bucketMs,
+    capturedAt: capturedAt - bucketMs,
+    currency: 'USD',
+    value: '6',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  render(<CommandPortfolio scope={scope} />);
+  fireEvent.click(screen.getByRole('radio', { name: '1W' }));
+  const chart = await screen.findByTestId('command-chart');
+  expect(chart.querySelectorAll('circle')).toHaveLength(2);
+  expect(Number(chart.querySelector('circle')?.getAttribute('cx'))).toBeGreaterThan(0);
+  fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
+  expect(screen.getByRole('status').textContent).toContain('4.00 USD');
+  expect(screen.getByRole('status').textContent).not.toContain('1.00 USD');
+});
+
+it('formats the current and inspected USD values without floating-point tails', async () => {
+  store.hidden = false;
+  mockValue = '0.30000000000000004';
+  await realRecord({
+    ...scope,
+    currency: 'USD',
+    bucket: capturedAt - 2 * bucketMs,
+    capturedAt: capturedAt - 2 * bucketMs,
+    value: '0.10000000000000001',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  await realRecord({
+    ...scope,
+    currency: 'USD',
+    bucket: capturedAt - bucketMs,
+    capturedAt: capturedAt - bucketMs,
+    value: mockValue,
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  render(<CommandPortfolio scope={scope} />);
+  expect(screen.getByText('0.30 USD')).toBeInTheDocument();
+  await screen.findByTestId('command-chart');
+  fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
+  expect(screen.getByRole('status').textContent).toContain('0.10 USD');
+  expect(screen.queryByText(/0\.30000000000000004/)).not.toBeInTheDocument();
 });
 
 it('waits for the saved privacy choice and omits all balances from rows, tooltip and output while masked', async () => {
@@ -129,7 +204,7 @@ it('waits for the saved privacy choice and omits all balances from rows, tooltip
     </Suspense>
   );
   expect(screen.getByText('pending')).toBeInTheDocument();
-  expect(screen.queryByText('6 USD')).not.toBeInTheDocument();
+  expect(screen.queryByText('6.00 USD')).not.toBeInTheDocument();
   store.pending = false;
   resolvePreference?.();
   root.rerender(
@@ -139,10 +214,10 @@ it('waits for the saved privacy choice and omits all balances from rows, tooltip
   );
   await waitFor(() => expect(screen.getByTestId('command-history')).toHaveAttribute('aria-busy', 'false'));
   expect(screen.getAllByText('commandMaskedBalance').length).toBeGreaterThan(1);
-  expect(screen.queryByText('6 USD')).not.toBeInTheDocument();
-  expect(screen.queryByText('2 ETH')).not.toBeInTheDocument();
-  expect(screen.queryByText('4 OTHER')).not.toBeInTheDocument();
-  expect(screen.queryByText('4 USD')).not.toBeInTheDocument();
+  expect(screen.queryByText('6.00 USD')).not.toBeInTheDocument();
+  expect(screen.queryByText('2.00 ETH')).not.toBeInTheDocument();
+  expect(screen.queryByText('4.00 OTHER')).not.toBeInTheDocument();
+  expect(screen.queryByText('4.00 USD')).not.toBeInTheDocument();
   expect(screen.queryByRole('slider')).not.toBeInTheDocument();
 });
 
@@ -163,10 +238,10 @@ it('persists the privacy choice across dashboard remounts', async () => {
   await waitFor(() => expect(screen.getByTestId('command-history')).toHaveAttribute('aria-busy', 'false'));
   expect(screen.getAllByText('commandMaskedBalance').length).toBeGreaterThan(1);
   fireEvent.click(screen.getByRole('button', { name: 'commandShowBalances' }));
-  expect(screen.getAllByText('6 USD')).toHaveLength(2);
+  expect(screen.getAllByText('6.00 USD')).toHaveLength(2);
   view.unmount();
   render(<CommandPortfolio scope={scope} />);
-  expect(screen.getAllByText('6 USD')).toHaveLength(2);
+  expect(screen.getAllByText('6.00 USD')).toHaveLength(2);
 });
 
 it('reveals labelled USD, unknown-priced holdings and the same observed chart sample by mouse and keyboard', async () => {
@@ -190,8 +265,8 @@ it('reveals labelled USD, unknown-priced holdings and the same observed chart sa
     coverageKey: 'priced:priced|unpriced:unpriced'
   });
   render(<CommandPortfolio scope={scope} />);
-  expect(screen.getAllByText('6 USD')).toHaveLength(2);
-  expect(screen.getByText('2 ETH')).toBeInTheDocument();
+  expect(screen.getAllByText('6.00 USD')).toHaveLength(2);
+  expect(screen.getByText('2.00 ETH')).toBeInTheDocument();
   expect(screen.getAllByText('commandPriceUnavailable')).toHaveLength(1);
   const chart = await screen.findByTestId('command-chart');
   const rect = chart.getBoundingClientRect();
@@ -201,7 +276,7 @@ it('reveals labelled USD, unknown-priced holdings and the same observed chart sa
   const mouseValue = screen.getByRole('status').textContent;
   fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
   expect(screen.getByRole('status').textContent).toBe(mouseValue);
-  expect(mouseValue).toContain('4 USD');
+  expect(mouseValue).toContain('4.00 USD');
   expect(screen.getByText('commandHistoryGaps')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('radio', { name: '1W' }));
   expect(screen.getByRole('radio', { name: '1W' })).toHaveAttribute('aria-checked', 'true');
@@ -254,9 +329,9 @@ it('positions samples by observation time, and mouse and keyboard inspect the sa
   Object.defineProperty(rect, 'width', { value: 100 });
   jest.spyOn(chart, 'getBoundingClientRect').mockReturnValue(rect);
   fireEvent.mouseMove(chart, { clientX: Number(circles[1]?.getAttribute('cx')) });
-  expect(screen.getByRole('status').textContent).toContain('5 USD');
+  expect(screen.getByRole('status').textContent).toContain('5.00 USD');
   fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } });
-  expect(screen.getByRole('status').textContent).toContain('5 USD');
+  expect(screen.getByRole('status').textContent).toContain('5.00 USD');
 });
 
 it('keeps balances usable when the optional history write fails, and refuses an old account scope', async () => {
@@ -276,10 +351,10 @@ it('keeps balances usable when the optional history write fails, and refuses an 
   const view = render(<CommandPortfolio scope={scope} />);
   await waitFor(() => expect(screen.getByTestId('command-history')).toHaveAttribute('aria-busy', 'false'));
   expect(save).not.toHaveBeenCalled();
-  expect(screen.getAllByText('6 USD')).toHaveLength(2);
+  expect(screen.getAllByText('6.00 USD')).toHaveLength(2);
   act(() => useWalletStore.setState({ currentAccount: account('account-a') }));
   await waitFor(() => expect(warn).toHaveBeenCalledWith('[portfolio] observation unavailable'));
-  expect(screen.getAllByText('6 USD')).toHaveLength(2);
+  expect(screen.getAllByText('6.00 USD')).toHaveLength(2);
   view.unmount();
   save.mockReset();
   warn.mockRestore();
