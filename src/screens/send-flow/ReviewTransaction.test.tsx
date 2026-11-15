@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -26,6 +27,7 @@ import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';
 import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, navigate } from 'lib/woozie';
+import { CommandDraftProvider, type CommandSendRecall, useCommandDrafts } from 'screens/command/command-drafts';
 import { isValidMidenAddress } from 'utils/miden';
 
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
@@ -441,6 +443,8 @@ jest.mock('utils/miden', () => {
 });
 
 jest.mock('./RecallCalendarDrawer', () => ({
+  combineDateAndTime:
+    jest.requireActual<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer').combineDateAndTime,
   SECONDS_PER_BLOCK: 3,
   dateTimeToRecallBlocks: jest.fn(() => 999),
   RecallCalendarDrawer: (props: any) => (
@@ -451,10 +455,13 @@ jest.mock('./RecallCalendarDrawer', () => ({
       <button data-testid="recall-pick-blocks" onClick={() => props.onRecallBlocksChange('42')}>
         recall-blocks
       </button>
-      <button data-testid="recall-pick-time" onClick={() => props.onRecallTimeChange('changed-time')}>
+      <button data-testid="recall-pick-time" onClick={() => props.onRecallTimeChange('09:37')}>
         recall-time
       </button>
-      <button data-testid="recall-pick-date" onClick={() => props.onRecallDateChange(new Date(0))}>
+      <button
+        data-testid="recall-pick-date"
+        onClick={() => props.onRecallDateChange(new Date(Date.now() + 86_400_000))}
+      >
         recall-date
       </button>
     </div>
@@ -607,6 +614,201 @@ beforeEach(() => {
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
   delete (globalThis as any).__TEST_SET_SHARE_PRIVATELY__;
+});
+
+describe('Command Send review controller', () => {
+  function DraftReader() {
+    const { readDraft } = useCommandDrafts();
+    const draft = readDraft('send');
+    return <output data-testid="command-send-draft">{JSON.stringify(draft)}</output>;
+  }
+  const renderCommandReview = () =>
+    render(
+      <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}>
+        <FlowPresentationProvider value="command">
+          <DraftReader />
+          <ReviewTransaction />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+
+  it('refuses concurrent Enter/click while admission is pending and uses the same private initiator', async () => {
+    setValidRoute();
+    const pending = deferred();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+    renderCommandReview();
+    expect(screen.getByTestId('command-send-review')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    pending.resolve();
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledTimes(1);
+  });
+
+  function ReviewSession({ recall }: { recall?: CommandSendRecall }) {
+    const drafts = useCommandDrafts();
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button
+          onClick={() => {
+            if (!drafts.readDraft('send'))
+              drafts.writeDraft('send', {
+                amount: '7.123456',
+                recipientAddress: '0xrecipient',
+                tokenId: 'tok1',
+                recall
+              });
+            setOpen(true);
+          }}
+        >
+          Open review
+        </button>
+        <button onClick={() => setOpen(false)}>Leave review</button>
+        <output data-testid="saved-review-input">{JSON.stringify(drafts.readDraft('send'))}</output>
+        {open && <ReviewTransaction />}
+      </>
+    );
+  }
+  const openSession = (recall?: CommandSendRecall) => {
+    mockSearch = 'amount=7.123456&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [VALID_TOKEN];
+    render(
+      <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}>
+        <FlowPresentationProvider value="command">
+          <ReviewSession recall={recall} />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+  };
+
+  it('requires the existing spending-limit challenge in Command before any native send', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    renderCommandReview();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument());
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(initiateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+    await waitFor(() =>
+      expect(initiateMock).toHaveBeenCalledWith(
+        'pubkey-1',
+        '0xrecipient',
+        'tok1',
+        'private',
+        12345n,
+        999,
+        false,
+        expect.objectContaining({ accountId: 'pubkey-1', revision: 'revision-1' })
+      )
+    );
+  });
+
+  it('does not start a send after the account changes while admission is pending', async () => {
+    setValidRoute();
+    const pending = deferred();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+    const view = renderCommandReview();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    mockPublicKey = 'another-account';
+    view.rerender(
+      <CommandDraftProvider scope={{ accountId: 'another-account', network: 'devnet', rpcUrl: 'rpc' }}>
+        <FlowPresentationProvider value="command">
+          <DraftReader />
+          <ReviewTransaction />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    await act(async () => pending.resolve());
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('restores public and Never across review Back without retaining authorization', async () => {
+    openSession();
+    fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
+    fireEvent.click(screen.getByTestId('recall-pick-never'));
+    expect(screen.getByTestId('saved-review-input')).toHaveTextContent('"kind":"never"');
+    fireEvent.click(screen.getByRole('button', { name: 'Leave review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('sendPublicly');
+    await openAdvancedOptions();
+    expect(screen.queryByTestId('review-advanced-options-summary')).not.toBeInTheDocument();
+    expect(screen.getByTestId('review-row-expiration')).toHaveTextContent('never');
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'public', 12345n, undefined, false)
+    );
+  });
+
+  it('restores the literal custom date/time/relative blocks instead of the default seven days', async () => {
+    openSession();
+    fireEvent.click(screen.getByTestId('recall-pick-date'));
+    fireEvent.click(screen.getByTestId('recall-pick-time'));
+    fireEvent.click(screen.getByTestId('recall-pick-blocks'));
+    expect(screen.getByTestId('saved-review-input')).toHaveTextContent('"blocks":"42"');
+    fireEvent.click(screen.getByRole('button', { name: 'Leave review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+    expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-recall-time', '09:37');
+    expect(screen.getByTestId('saved-review-input')).toHaveTextContent('"blocks":"42"');
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 42, false)
+    );
+  });
+
+  it('refuses an expired restored custom date until Never is explicitly reselected', () => {
+    openSession({ kind: 'scheduled', date: new Date(0).toISOString(), time: '09:37', blocks: '42' });
+    expect(screen.getByTestId('review-error')).toHaveTextContent('recallTimeInPast');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(initiateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('recall-pick-never'));
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
+
+  it('revalidates a Command deep link rather than trusting its missing network', () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [VALID_TOKEN];
+    renderCommandReview();
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a review URL after its draft recipient was edited', () => {
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [VALID_TOKEN];
+    function Seed() {
+      const { writeDraft } = useCommandDrafts();
+      const [ready, setReady] = useState(false);
+      return (
+        <>
+          <button
+            onClick={() => {
+              writeDraft('send', { amount: '5', recipientAddress: '0xdifferent', tokenId: 'tok1' });
+              setReady(true);
+            }}
+          >
+            Edit recipient
+          </button>
+          {ready && <ReviewTransaction />}
+        </>
+      );
+    }
+    render(
+      <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}>
+        <FlowPresentationProvider value="command">
+          <Seed />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Edit recipient' }));
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

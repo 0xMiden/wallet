@@ -29,6 +29,7 @@ const EASE = [0.32, 0.72, 0, 1] as const;
 const DURATION = 0.28;
 
 export interface SelectRecipientProps {
+  embedded?: boolean;
   networks?: readonly BridgeNetwork[];
   address: string;
   isValidAddress: boolean;
@@ -66,6 +67,7 @@ export interface SelectRecipientProps {
 }
 
 export const SelectRecipient: React.FC<SelectRecipientProps> = ({
+  embedded,
   address,
   isValidAddress,
   error,
@@ -147,6 +149,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
 
   return (
     <SendStepLayout
+      embedded={embedded}
       tabRoot
       title={t('sendTo')}
       footer={

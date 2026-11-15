@@ -5,8 +5,10 @@ import type { SendDraft } from 'screens/send-flow/send-draft';
 
 import type { CommandAction } from './command-routes';
 
+export type CommandSendRecall = { kind: 'never' } | { kind: 'scheduled'; date?: string; time: string; blocks?: string };
+
 export interface CommandDrafts {
-  send: SendDraft & { privacy?: 'public' | 'private'; reclaim?: boolean };
+  send: SendDraft & { privacy?: 'public' | 'private'; recall?: CommandSendRecall };
   receive: { faucetId: string };
   swap: {
     payTokenId: string;
@@ -27,6 +29,7 @@ export interface CommandDrafts {
 interface DraftContext {
   readDraft: <K extends CommandAction>(action: K) => CommandDrafts[K] | undefined;
   writeDraft: <K extends CommandAction>(action: K, draft: CommandDrafts[K]) => void;
+  clearDraft: (action: CommandAction) => void;
   clearDrafts: () => void;
 }
 
@@ -65,17 +68,29 @@ export function CommandDraftProvider({
     },
     [generation]
   );
+  const clearDraft = useCallback(
+    (action: CommandAction) => {
+      if (current.current.generation !== generation) return;
+      delete current.current.drafts[action];
+      refresh();
+    },
+    [generation]
+  );
   const clearDrafts = useCallback(() => {
     if (current.current.generation !== generation) return;
     current.current.drafts = {};
     refresh();
   }, [generation]);
 
-  return <Context.Provider value={{ readDraft, writeDraft, clearDrafts }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ readDraft, writeDraft, clearDraft, clearDrafts }}>{children}</Context.Provider>;
+}
+
+export function useOptionalCommandDrafts(): DraftContext | null {
+  return useContext(Context);
 }
 
 export function useCommandDrafts(): DraftContext {
-  const context = useContext(Context);
+  const context = useOptionalCommandDrafts();
   if (!context) throw new Error('Command drafts require a Command shell');
   return context;
 }

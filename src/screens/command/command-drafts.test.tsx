@@ -55,6 +55,36 @@ it('keeps literal decimals across route changes in one scope and discards them o
   expect(screen.getByText('empty')).toBeInTheDocument();
 });
 
+it('clears only the completed Send draft without discarding another action input', () => {
+  function Probe() {
+    const { readDraft, writeDraft, clearDraft } = useCommandDrafts();
+    return (
+      <>
+        <button
+          onClick={() => {
+            writeDraft('send', { amount: '7.123456', recipientAddress: 'recipient', tokenId: 'token' });
+            writeDraft('receive', { faucetId: 'receive-faucet' });
+          }}
+        >
+          Save two
+        </button>
+        <button onClick={() => clearDraft('send')}>Complete Send</button>
+        <output>
+          {readDraft('send')?.amount ?? 'empty'} / {readDraft('receive')?.faucetId ?? 'empty'}
+        </output>
+      </>
+    );
+  }
+  render(
+    <CommandDraftProvider scope={{ accountId: 'a', network: 'n', rpcUrl: 'r' }}>
+      <Probe />
+    </CommandDraftProvider>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save two' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Complete Send' }));
+  expect(screen.getByText('empty / receive-faucet')).toBeInTheDocument();
+});
+
 it('rejects a late write from a stale scope callback', () => {
   let lateWrite: (() => void) | undefined;
   function Probe() {

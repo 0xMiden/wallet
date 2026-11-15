@@ -14,6 +14,7 @@ import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 import { CommandShell } from 'screens/command/CommandShell';
+import { MidenAddressError } from 'utils/miden';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
@@ -686,9 +687,37 @@ describe('stale transaction modal dismissal', () => {
 // ---------------------------------------------------------------------------
 // Mobile back handler branches.
 // ---------------------------------------------------------------------------
-describe('Command header with the real Send Navigator', () => {
-  it('pops Route to Amount and Amount to Recipient without leaving Send', async () => {
-    mockRealNavigator = true;
+describe('Command Send uses the real SendManager form', () => {
+  it('edits recipient and exact six-decimal amount together, then restores both after review Back', () => {
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, balance: 500, fiatPrice: 1 };
+    const command = (review: boolean) => (
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        {review ? <div data-testid="review-placeholder" /> : <SendFlow isLoading={false} />}
+      </CommandShell>
+    );
+    const view = render(command(false));
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '7.123456' } });
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7.123456');
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('amount=7.123456'));
+    view.rerender(command(true));
+    view.rerender(command(false));
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('0xrecipient');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7.123456');
+  });
+
+  it('refuses canonical self-send and wrong-network addresses without a review handoff', () => {
     render(
       <CommandShell
         scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
@@ -697,14 +726,78 @@ describe('Command header with the real Send Navigator', () => {
         <SendFlow isLoading={false} />
       </CommandShell>
     );
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'me-pk' } });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    isValidMidenAddressMock.mockImplementation(() => {
+      throw new MidenAddressError('wrong-network');
+    });
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'mtst1other' } });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenAddressWrongNetwork');
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
 
+  it('refuses an unknown-scale token and keeps the amount literal for correction', () => {
+    mockSelectedToken = { id: 'T1', name: 'Unknown', decimals: 6, scaleIsKnown: false, balance: 500, fiatPrice: 0 };
+    render(
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <SendFlow isLoading={false} />
+      </CommandShell>
+    );
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '7.123456' } });
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7.123456');
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('restores 333.123456 on minimize/reopen, but not after an account-scope remount', () => {
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, balance: 500, fiatPrice: 1 };
+    const command = (open: boolean, accountId = 'me-pk') => (
+      <CommandShell
+        key={accountId}
+        scope={{ accountId, network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        {open ? <SendFlow isLoading={false} /> : null}
+      </CommandShell>
+    );
+    const view = render(command(true));
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '333.123456' } });
+    view.rerender(command(false));
+    view.rerender(command(true));
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('0xrecipient');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('333.123456');
+    useAccountMock.mockReturnValue({ publicKey: 'different-account' });
+    view.rerender(command(true, 'different-account'));
+    expect(screen.getByTestId('sr-address')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+  });
+});
+
+describe('compact Send with the real Navigator', () => {
+  it('pops Route to Amount and Amount to Recipient without leaving Send', async () => {
+    mockRealNavigator = true;
+    renderFlow();
     fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xabc' } });
     fireEvent.click(screen.getByTestId('sr-network-sepolia'));
     fireEvent.click(screen.getByTestId('sr-confirm'));
     expect(await screen.findByTestId('select-amount')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('sa-confirm'));
     expect(await screen.findByTestId('select-route')).toBeInTheDocument();
-
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(await screen.findByTestId('select-amount')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'back' }));

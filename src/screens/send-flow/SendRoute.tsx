@@ -17,6 +17,7 @@ export interface SendRouteProps extends Omit<
   'slowStatus' | 'fastAvailability' | 'slowAvailability'
 > {
   faucetId: string;
+  embedded?: boolean;
   destinationChainId?: number;
   onBack: () => void;
   onConfirm: () => void;
@@ -25,6 +26,7 @@ export interface SendRouteProps extends Omit<
 /** The send flow's cross-chain route step, on the shared step frame. */
 export const SendRoute: React.FC<SendRouteProps> = ({
   faucetId,
+  embedded,
   destinationChainId,
   onBack,
   onConfirm,
@@ -68,6 +70,7 @@ export const SendRoute: React.FC<SendRouteProps> = ({
 
   return (
     <SendStepLayout
+      embedded={embedded}
       title={t('bridgeChooseRoute')}
       onBack={onBack}
       footer={

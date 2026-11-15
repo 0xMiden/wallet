@@ -12,6 +12,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
@@ -44,7 +45,7 @@ import {
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature } from 'lib/remote-config/availability';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
@@ -60,6 +61,7 @@ import { USDCX_DECIMALS } from 'lib/usdcx/constant';
 import { useBurnMinimum } from 'lib/usdcx/use-burn-minimum';
 import { isUsdcxWithdrawalAvailable, UsdcxBurnError, usdcxMinimumBurnShortfall } from 'lib/usdcx/withdrawal';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
+import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
 import { EvmUsdValue } from 'screens/generating-transaction/EvmUsdValue';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
@@ -70,7 +72,13 @@ import {
   isEpochBridgeNetwork,
   isUsdcxBridgeNetwork
 } from './bridge-networks';
-import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
+import { CommandSendReview } from './CommandSendReview';
+import {
+  combineDateAndTime,
+  dateTimeToRecallBlocks,
+  RecallCalendarDrawer,
+  SECONDS_PER_BLOCK
+} from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
@@ -102,11 +110,33 @@ const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> 
  */
 export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
+  const commandDrafts = useOptionalCommandDrafts();
+  const [restoredDraft] = useState(() => (command ? commandDrafts?.readDraft('send') : undefined));
   const networkFeeDetails = useNetworkFeeEstimateDetails();
   const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const { search } = useLocation();
   const { fullPage } = useAppEnv();
   const { publicKey } = useAccount();
+  const activeAccount = useRef(publicKey);
+  activeAccount.current = publicKey;
+  const networkName = getEffectiveNetworkName();
+  const rpcUrl = getEffectiveRpcUrl();
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const isCurrentSubmission = useCallback(
+    () =>
+      mounted.current &&
+      activeAccount.current === publicKey &&
+      getEffectiveNetworkName() === networkName &&
+      getEffectiveRpcUrl() === rpcUrl,
+    [publicKey, networkName, rpcUrl]
+  );
 
   const { signTransaction } = useMidenContext();
 
@@ -204,7 +234,7 @@ export const ReviewTransaction: React.FC = () => {
 
   // Private by default. The user changes it under Advanced options (the "Transfer type" row
   // opens `TransferTypeDrawer`); the E2E hook below can also flip it.
-  const [sharePrivately, setSharePrivately] = useState(true);
+  const [sharePrivately, setSharePrivately] = useState(restoredDraft?.privacy !== 'public');
   const transferType: TransferType = sharePrivately ? 'private' : 'public';
   const [showTransferType, setShowTransferType] = useState(false);
   // Collapsed by default: the rows under it are the choices most sends never touch, and the
@@ -224,17 +254,43 @@ export const ReviewTransaction: React.FC = () => {
     };
   }, []);
 
-  const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
-  const [recallTime, setRecallTime] = useState('12:00');
-  const [recallBlocks, setRecallBlocks] = useState<string | undefined>(undefined);
+  const [recallDate, setRecallDate] = useState<Date | undefined>(() =>
+    restoredDraft?.recall?.kind === 'scheduled' && restoredDraft.recall.date
+      ? new Date(restoredDraft.recall.date)
+      : undefined
+  );
+  const [recallTime, setRecallTime] = useState(
+    restoredDraft?.recall?.kind === 'scheduled' ? restoredDraft.recall.time : '12:00'
+  );
+  const [recallBlocks, setRecallBlocks] = useState<string | undefined>(
+    restoredDraft?.recall?.kind === 'scheduled' ? restoredDraft.recall.blocks : undefined
+  );
   const [showCalendar, setShowCalendar] = useState(false);
   // "Never" = no reclaim height → the send goes out as a plain P2ID note. Tracked
   // separately from `recallDate` (undefined both before seeding AND when "Never" is
   // chosen) so the expiration label can tell the two apart.
-  const [recallNever, setRecallNever] = useState(false);
+  const [recallNever, setRecallNever] = useState(restoredDraft?.recall?.kind === 'never');
   // Marks the recall height as user-chosen (a date or "Never") so the async
   // default-seeding effect below never clobbers an explicit choice (race guard).
-  const recallTouchedRef = useRef(false);
+  const recallTouchedRef = useRef(!!restoredDraft?.recall);
+
+  // Only unsigned choices join the in-memory input draft; a fee, assessment or authorization never does.
+  const writeCommandDraft = commandDrafts?.writeDraft;
+  const readCommandDraft = commandDrafts?.readDraft;
+  useEffect(() => {
+    if (!command || !writeCommandDraft || !readCommandDraft) return;
+    const current = readCommandDraft('send');
+    if (!current) return;
+    writeCommandDraft('send', {
+      ...current,
+      privacy: sharePrivately ? 'private' : 'public',
+      recall: recallTouchedRef.current
+        ? recallNever
+          ? { kind: 'never' }
+          : { kind: 'scheduled', date: recallDate?.toISOString(), time: recallTime, blocks: recallBlocks }
+        : current.recall
+    });
+  }, [command, writeCommandDraft, readCommandDraft, sharePrivately, recallNever, recallDate, recallTime, recallBlocks]);
 
   // E2E-only hook: the shortest window RecallCalendarDrawer offers is 30 minutes,
   // so no click path produces a recall a test can wait out — and without one, the
@@ -350,13 +406,13 @@ export const ReviewTransaction: React.FC = () => {
     async (spends: readonly IConsumedAssetTotal[]): Promise<boolean> => {
       if (!publicKey) return false;
       const configuration = await readSpendingLimit(publicKey);
-      if (configuration === undefined) return false;
+      if (configuration === undefined || !isCurrentSubmission()) return false;
       setSpendingLimitChallenge({
         unpriced: { accountId: publicKey, spends: [...spends], revision: configuration.revision }
       });
       return true;
     },
-    [publicKey, readSpendingLimit]
+    [publicKey, readSpendingLimit, isCurrentSubmission]
   );
   // `token` is undefined until balances load; an absent token is handled by the
   // deep-link guard below, so only a LOADED token with an unreadable scale
@@ -374,18 +430,20 @@ export const ReviewTransaction: React.FC = () => {
       // Epoch): a transaction row now exists, which is what "the user sent"
       // means here. Its later on-chain fate belongs to the progress screen.
       settleSendFlow(flow => flow.complete());
-      clearSendDraft();
+      if (!isCurrentSubmission()) return;
+      if (!command) clearSendDraft();
+      else commandDrafts?.clearDraft('send');
       navigate(
         `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(txId)}`,
         HistoryAction.Replace
       );
     },
-    [fullPage]
+    [fullPage, command, commandDrafts, isCurrentSubmission]
   );
 
   const runSameChainSend = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
-      if (!token || !publicKey || amountBaseUnits === undefined) return;
+      if (!token || !publicKey || amountBaseUnits === undefined || !isCurrentSubmission()) return;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
@@ -451,13 +509,14 @@ export const ReviewTransaction: React.FC = () => {
       recallBlocks,
       sharePrivately,
       to,
-      token
+      token,
+      isCurrentSubmission
     ]
   );
 
   const runBridgeSend = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
-      if (!token || !publicKey || amountBaseUnits === undefined) return;
+      if (!token || !publicKey || amountBaseUnits === undefined || !isCurrentSubmission()) return;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
@@ -493,6 +552,7 @@ export const ReviewTransaction: React.FC = () => {
             failureId = 'agglayerTokenUnsupported';
             throw new Error(t('agglayerTokenUnsupported'));
           }
+          if (!isCurrentSubmission()) return;
           const txId = await initiateB2AggBridge({
             destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
@@ -561,12 +621,25 @@ export const ReviewTransaction: React.FC = () => {
       signTransaction,
       t,
       to,
-      token
+      token,
+      isCurrentSubmission
     ]
   );
 
+  const recallInvalid =
+    command &&
+    !!restoredDraft?.recall &&
+    !isBridge &&
+    !recallNever &&
+    (!recallDate ||
+      !Number.isFinite(recallDate.getTime()) ||
+      !/^\d{2}:\d{2}$/.test(recallTime) ||
+      combineDateAndTime(recallDate, recallTime) <= new Date() ||
+      !recallBlocks ||
+      !/^[1-9]\d*$/.test(recallBlocks));
+  const submittingRef = useRef(false);
   const onSubmit = useCallback(async () => {
-    if (bridgeBlocked || tokenHeld) return;
+    if (submittingRef.current || bridgeBlocked || tokenHeld || recallInvalid) return;
     if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
@@ -574,17 +647,22 @@ export const ReviewTransaction: React.FC = () => {
       return;
     }
     const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
+    submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError(undefined);
     setSubmitErrorId(undefined);
     try {
       const assessment = await assessSpendingLimit(publicKey, spends);
+      if (!isCurrentSubmission()) {
+        setIsSubmitting(false);
+        return;
+      }
       if (assessment !== undefined && assessment.breach !== undefined) {
         setSpendingLimitChallenge({ assessment, spends });
         setIsSubmitting(false);
         return;
       }
-      if (!(await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector))) {
+      if (!(await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector)) || !isCurrentSubmission()) {
         setIsSubmitting(false);
         return;
       }
@@ -610,10 +688,13 @@ export const ReviewTransaction: React.FC = () => {
       setSubmitError(error instanceof Error ? error.message : String(error));
       setSubmitErrorId('raw_send_submit_failed');
       setIsSubmitting(false);
+    } finally {
+      submittingRef.current = false;
     }
   }, [
     bridgeBlocked,
     tokenHeld,
+    recallInvalid,
     amountBaseUnits,
     assessSpendingLimit,
     isBridge,
@@ -623,7 +704,8 @@ export const ReviewTransaction: React.FC = () => {
     runBridgeSend,
     runSameChainSend,
     t,
-    token
+    token,
+    isCurrentSubmission
   ]);
 
   const handleSpendingLimitResult = useCallback(
@@ -668,7 +750,16 @@ export const ReviewTransaction: React.FC = () => {
   // recipient is valid here too: it routes through the bridge. Self-sends are
   // rejected (SendManager blocks them at entry; this covers direct routing).
   const paramsInvalid =
-    !tokenId || !(parseFloat(amount) > 0) || !isValidRecipientAddress(to) || sameWalletAccountId(to, publicKey ?? '');
+    !tokenId ||
+    !(parseFloat(amount) > 0) ||
+    !isValidRecipientAddress(to) ||
+    sameWalletAccountId(to, publicKey ?? '') ||
+    (command &&
+      !!restoredDraft &&
+      (restoredDraft.tokenId !== tokenId ||
+        restoredDraft.amount !== amount ||
+        restoredDraft.recipientAddress !== to ||
+        (isBridge && (restoredDraft.bridgeNetwork !== network || restoredDraft.bridgeRoute !== route))));
   // A cross-chain send must know its destination network, otherwise the review
   // rows and the submit path have nothing to act on.
   const bridgeParamsInvalid =
@@ -683,12 +774,13 @@ export const ReviewTransaction: React.FC = () => {
   const precisionErrorId = amountExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined;
   const reviewError = scaleIsUnknown
     ? t('unknownTokenScale')
-    : (submitError ?? (precisionErrorId ? t(precisionErrorId) : burnValidationError));
+    : (submitError ??
+      (precisionErrorId ? t(precisionErrorId) : recallInvalid ? t('recallTimeInPast') : burnValidationError));
   const reviewErrorId = scaleIsUnknown
     ? 'unknownTokenScale'
     : submitError !== undefined
       ? submitErrorId
-      : (precisionErrorId ?? burnValidationErrorId);
+      : (precisionErrorId ?? (recallInvalid ? 'recallTimeInPast' : burnValidationErrorId));
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
     return <Redirect to="/send" />;
   }
@@ -730,20 +822,22 @@ export const ReviewTransaction: React.FC = () => {
   const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
 
+  const ReviewLayout = command ? CommandSendReview : SendStepLayout;
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg">
+    <div className={command ? 'flex flex-col' : 'flex h-full min-h-0 flex-col bg-app-bg'}>
       <NetworkModeBanner />
-      <SendStepLayout
+      <ReviewLayout
         title={t('reviewDetails')}
         onBack={() => goBack()}
         // Abandons the send: without the draft the next Send opens empty. Back keeps it to restore the form.
         onClose={() => {
-          clearSendDraft();
+          if (!command) clearSendDraft();
+          else commandDrafts?.clearDraft('send');
           navigate('/');
         }}
         footer={
           <div className="flex flex-col gap-2">
-            {(scaleIsUnknown || submitError || amountExceedsPrecision || burnValidationError) && (
+            {(scaleIsUnknown || submitError || amountExceedsPrecision || burnValidationError || recallInvalid) && (
               <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
             )}
             <Button
@@ -765,7 +859,8 @@ export const ReviewTransaction: React.FC = () => {
                 isSubmitting ||
                 scaleIsUnknown ||
                 amountExceedsPrecision ||
-                (isUsdcxBurn && !!burnValidationError)
+                (isUsdcxBurn && !!burnValidationError) ||
+                recallInvalid
               }
               data-testid="send-review-submit"
               className="w-full max-w-none"
@@ -989,7 +1084,7 @@ export const ReviewTransaction: React.FC = () => {
             {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
           </p>
         ) : null}
-      </SendStepLayout>
+      </ReviewLayout>
 
       {!isBridge && (
         <TransferTypeDrawer
