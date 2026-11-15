@@ -124,6 +124,14 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 jest.mock('app/confirm/decode', () => ({
   simulatedBytesToView: (result: { summaryBytes?: string; executedBytes?: string }) => mockSimulatedBytesToView(result)
 }));
+const mockApproveCustomSimulation = jest.fn((_dryRun: unknown): unknown => undefined);
+const mockNoteFlowFromSimulatedBytes = jest.fn((_dryRun: unknown): unknown => undefined);
+jest.mock('lib/miden/transaction/custom-effects', () => ({
+  approveCustomSimulation: (dryRun: unknown) => mockApproveCustomSimulation(dryRun)
+}));
+jest.mock('app/confirm/note-flow', () => ({
+  noteFlowFromSimulatedBytes: (dryRun: unknown) => mockNoteFlowFromSimulatedBytes(dryRun)
+}));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length])),
   u8ToB64: jest.fn((u: Uint8Array) => `b64:${Array.from(u).join('-')}`)
@@ -131,6 +139,8 @@ jest.mock('lib/shared/helpers', () => ({
 
 beforeEach(() => {
   mockSimulatedBytesToView.mockReset().mockImplementation(() => ({ viewConsumedNotes: [] }));
+  mockApproveCustomSimulation.mockReset().mockImplementation(() => undefined);
+  mockNoteFlowFromSimulatedBytes.mockReset().mockImplementation(() => undefined);
 });
 
 describe('simulateCustomTransaction', () => {
@@ -656,6 +666,19 @@ describe('simulateCustomTransaction', () => {
       await expectHoldLoss(simulateCustomTransaction(input), 'before the result serialize');
       expect(serialize).not.toHaveBeenCalled();
     });
+
+    it('during the last embedded provenance lookup: nothing is measured', async () => {
+      mockSimulatedBytesToView.mockReturnValueOnce({ viewConsumedNotes: [{ id: 'id:embedded' }] });
+      getInputNote.mockImplementationOnce(async () => {
+        revokeWasmHold();
+        return null;
+      });
+
+      const simulation = simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+      await expectHoldLoss(simulation, 'before the approval decode');
+      expect(mockApproveCustomSimulation).not.toHaveBeenCalled();
+    });
   });
 
   it('a simulation timeout rejects with CustomSimulationTimeoutError', async () => {
@@ -994,6 +1017,111 @@ describe('introduced-note provenance', () => {
     });
 
     expect(result).toEqual({ executedBytes: 'b64:9-9', introducedNoteIds: ['id:notea'] });
+  });
+
+  describe('the approval and the note flow are measured inside the hold', () => {
+    const APPROVAL = { view: { outgoing: [] }, effects: {}, signing: {}, spends: [] };
+    const FLOW = { inputCount: 0, inputs: [], outputs: [] };
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const input = { address: 'mtst1sender', transactionRequest: 'reqB64' };
+
+    it('measures them from the dry run and its introduced notes while the hold is current', async () => {
+      let measuredInHold = false;
+      mockApproveCustomSimulation.mockImplementation(() => {
+        measuredInHold = currentWasmHold !== null;
+        return APPROVAL;
+      });
+      mockNoteFlowFromSimulatedBytes.mockImplementation(() => FLOW);
+
+      const result = await simulateCustomTransaction({ ...input, importNotes: ['noteA'] });
+
+      expect(mockApproveCustomSimulation).toHaveBeenCalledWith({
+        summaryBytes: 'b64:1-2-3',
+        introducedNoteIds: ['id:notea']
+      });
+      expect(measuredInHold).toBe(true);
+      expect(result).toEqual({
+        summaryBytes: 'b64:1-2-3',
+        introducedNoteIds: ['id:notea'],
+        approval: APPROVAL,
+        noteFlow: FLOW
+      });
+    });
+
+    it('lets a trap from the approval decode reach the lock and decodes no note flow', async () => {
+      mockApproveCustomSimulation.mockImplementation(() => {
+        throw trap;
+      });
+
+      await expect(simulateCustomTransaction(input)).resolves.toEqual({ error: 'unreachable' });
+      expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+      expect(mockNoteFlowFromSimulatedBytes).not.toHaveBeenCalled();
+    });
+
+    it('lets a trap from the note-flow decode reach the lock', async () => {
+      mockApproveCustomSimulation.mockImplementation(() => APPROVAL);
+      mockNoteFlowFromSimulatedBytes.mockImplementation(() => {
+        throw trap;
+      });
+
+      await expect(simulateCustomTransaction(input)).resolves.toEqual({ error: 'unreachable' });
+      expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+    });
+
+    it('keeps an ordinary approval failure for the refusal and decodes no note flow', async () => {
+      const failure = new Error('a held note does not list its assets');
+      mockApproveCustomSimulation.mockImplementation(() => {
+        throw failure;
+      });
+
+      const result = await simulateCustomTransaction(input);
+
+      expect(result.approvalFailure).toBe(failure);
+      expect(result.approval).toBeUndefined();
+      expect(result.summaryBytes).toBe('b64:1-2-3');
+      expect(mockNoteFlowFromSimulatedBytes).not.toHaveBeenCalled();
+      expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+    });
+
+    it('keeps the approval when only the note flow fails ordinarily, and logs it', async () => {
+      const failure = new Error('bad note bytes');
+      mockApproveCustomSimulation.mockImplementation(() => APPROVAL);
+      mockNoteFlowFromSimulatedBytes.mockImplementation(() => {
+        throw failure;
+      });
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      try {
+        const result = await simulateCustomTransaction(input);
+
+        expect(result.approval).toBe(APPROVAL);
+        expect(result.noteFlow).toBeUndefined();
+        expect(consoleError).toHaveBeenCalledWith('Custom transaction note details unavailable:', failure);
+        expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it('rethrows a kill the approval decode meets as the kill and abandons the quarantine', async () => {
+      const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+      const poison = new WasmClientPoisonedError('watchdog');
+      mockApproveCustomSimulation.mockImplementation(() => {
+        throw new Error('not a summary', { cause: poison });
+      });
+
+      await expect(simulateCustomTransaction(input)).rejects.toBe(poison);
+      expect(mockAbandonQuarantineAttempt).toHaveBeenCalledTimes(1);
+    });
+
+    it('measures nothing when the consumed notes cannot be read', async () => {
+      mockSimulatedBytesToView.mockReturnValueOnce({});
+
+      await expect(simulateCustomTransaction(input)).resolves.toEqual({
+        error: 'the view does not list the notes it consumes'
+      });
+      expect(mockApproveCustomSimulation).not.toHaveBeenCalled();
+    });
   });
 });
 
