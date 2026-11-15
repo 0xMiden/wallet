@@ -131,6 +131,42 @@ class MinimumSourceUnionRedTests(unittest.TestCase):
             outcome = json.loads((public / 'outcomes.json').read_text())
             self.assertTrue(all(type(value) in (int, bool) for value in outcome.values()))
 
+    def test_capability_diagnostic_success_and_first_failed_step(self):
+        transcript = b''
+        for step in red.CAPABILITY_STEPS:
+            start = ('MINIMUM_CAPABILITY:' + step + ':START\n').encode()
+            end = ('MINIMUM_CAPABILITY:' + step + ':EXIT:').encode()
+            self.assertEqual(red.capability_diagnostic(transcript + start + end + b'127\n', 127), {
+                'capability_step': step, 'capability_category': 'STEP_FAILED', 'capability_exit': 127})
+            self.assertEqual(red.capability_diagnostic(transcript + start, 124), {
+                'capability_step': step, 'capability_category': 'INCOMPLETE', 'capability_exit': -1})
+            transcript += start + end + b'0\n'
+        self.assertEqual(red.capability_diagnostic(transcript, 0), {
+            'capability_step': 'COMPLETE', 'capability_category': 'PASSED', 'capability_exit': 0})
+        for log, step, category in [
+            (b'bwrap: Creating new namespace failed: Operation not permitted\n', 'NAMESPACE', 'NAMESPACE_DENIED'),
+            (b'bwrap: execvp /tools/bash: No such file or directory\n', 'LOADER', 'LOADER_FAILED'),
+        ]:
+            self.assertEqual(red.capability_diagnostic(log, 1), {
+                'capability_step': step, 'capability_category': category, 'capability_exit': -1})
+
+    def test_capability_unknown_and_secret_text_never_exported(self):
+        secret = b'PRIVATE_TOKEN=/private/secret Authorization: bearer NEVER_EXPORT\n'
+        logs = [b'', secret, b'bwrap: ' + secret,
+                b'bwrap: Creating new namespace failed: Operation not permitted\n' + secret,
+                b'MINIMUM_CAPABILITY:BASH:START\n' + secret,
+                b'MINIMUM_CAPABILITY:BASH:START\nMINIMUM_CAPABILITY:BASH:EXIT:999\n']
+        with tempfile.TemporaryDirectory() as directory:
+            private = Path(directory) / 'capability.log'
+            output = Path(directory) / 'infrastructure.json'
+            for log in logs:
+                private.write_bytes(log)
+                red.infrastructure(output, 'capability', 1, private)
+                self.assertEqual(json.loads(output.read_text()), {
+                    'stage': 'capability', 'raw_exit': 1, 'capability_step': 'UNKNOWN',
+                    'capability_category': 'UNKNOWN', 'capability_exit': -1})
+                self.assertNotIn(secret, output.read_bytes())
+
     def test_bound_shell_selector_sandbox_and_workflow_export_allowlist(self):
         shell = (QA / 'minimum-source-union-red.sh').read_text()
         workflow = (QA.parent / 'workflows/e2e-dapp-browser.yml').read_text()
@@ -138,6 +174,9 @@ class MinimumSourceUnionRedTests(unittest.TestCase):
         self.assertNotIn('REVIEW_COUNCIL_TEST_DISCOVER=1', shell)
         self.assertNotIn('inventory.txt', shell + workflow)
         self.assertNotIn('PHASE', shell)
+        for step in red.CAPABILITY_STEPS:
+            self.assertIn('capability_check ' + step + ' ', shell)
+        self.assertIn('if command -v "$provider" >/dev/null 2>&1; then return 1; fi', shell)
         for option in ('--unshare-all', '--clearenv', '--ro-bind "$work/runtime" /runtime',
                        '--setenv HOME /state/home', '--setenv PATH /tools', '--tmpfs /tmp'):
             self.assertIn(option, shell)

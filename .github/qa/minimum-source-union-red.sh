@@ -19,13 +19,8 @@ stage=selfcheck
 finish() {
   local rc=$?
   trap - EXIT
-  "$python" -I -B - "$public/infrastructure.json" "$stage" "$rc" <<'PYINFRA'
-import json
-from pathlib import Path
-import sys
-assert sys.argv[2] in ('selfcheck', 'payload', 'tools', 'capability', 'red', 'parser', 'complete')
-Path(sys.argv[1]).write_text(json.dumps({'stage': sys.argv[2], 'raw_exit': int(sys.argv[3])}) + '\n')
-PYINFRA
+  "$python" -I -B .github/qa/minimum-source-union-red.py infrastructure \
+    "$public/infrastructure.json" "$stage" "$rc" "$work/capability.log"
   rm -rf "$work"
   exit "$rc"
 }
@@ -80,12 +75,26 @@ stage=capability
   ulimit -f 16384
   sandbox "$work/capability" '
     set -eu
-    (( BASH_VERSINFO[0] >= 4 ))
-    python3 --version; git --version; rg --version
-    git init -q --object-format=sha256 /state/sha256-fixture
-    for provider in codex claude gemini gh cursor agent curl wget pip pip3 npm npx node; do
-      ! command -v "$provider"
-    done
+    capability_check() {
+      local step=$1 rc; shift
+      printf "MINIMUM_CAPABILITY:%s:START\n" "$step"
+      if "$@" >/dev/null 2>&1; then rc=0; else rc=$?; fi
+      printf "MINIMUM_CAPABILITY:%s:EXIT:%d\n" "$step" "$rc"
+      return "$rc"
+    }
+    providers_absent() {
+      local provider
+      for provider in codex claude gemini gh cursor agent curl wget pip pip3 npm npx node; do
+        if command -v "$provider" >/dev/null 2>&1; then return 1; fi
+      done
+      return 0
+    }
+    capability_check BASH test "${BASH_VERSINFO[0]}" -ge 4
+    capability_check PYTHON python3 --version
+    capability_check GIT git --version
+    capability_check RG rg --version
+    capability_check SHA256_GIT git init -q --object-format=sha256 /state/sha256-fixture
+    capability_check PROVIDER_ABSENCE providers_absent
   '
 ) > "$work/capability.log" 2>&1
 stage=red

@@ -156,6 +156,55 @@ def export_result(public, raw_exit, log, results):
     return accepted
 
 
+CAPABILITY_STEPS = ('BASH', 'PYTHON', 'GIT', 'RG', 'SHA256_GIT', 'PROVIDER_ABSENCE')
+
+
+def capability_diagnostic(log, raw_exit):
+    def record(step, category, exit_code=-1):
+        return {'capability_step': step, 'capability_category': category, 'capability_exit': exit_code}
+
+    unknown = record('UNKNOWN', 'UNKNOWN')
+    # Exact whole-message whitelist only; never return stderr, paths or matched text.
+    host_errors = {
+        b'bwrap: Creating new namespace failed: Operation not permitted\n': ('NAMESPACE', 'NAMESPACE_DENIED'),
+        b'bwrap: execvp /tools/bash: No such file or directory\n': ('LOADER', 'LOADER_FAILED'),
+    }
+    if raw_exit != 0 and log in host_errors:
+        step, category = host_errors[log]
+        return record(step, category)
+    lines = log.splitlines(keepends=True)
+    position = 0
+    for step in CAPABILITY_STEPS:
+        prefix = ('MINIMUM_CAPABILITY:' + step + ':').encode()
+        if position >= len(lines) or lines[position] != prefix + b'START\n':
+            return unknown
+        position += 1
+        if position == len(lines):
+            return record(step, 'INCOMPLETE') if raw_exit != 0 else unknown
+        match = re.fullmatch(re.escape(prefix) + rb'EXIT:([0-9]{1,3})\n', lines[position])
+        if match is None:
+            return unknown
+        code = int(match[1])
+        if code > 255 or match[1] != str(code).encode():
+            return unknown
+        position += 1
+        if code != 0:
+            return record(step, 'STEP_FAILED', code) if position == len(lines) and raw_exit == code else unknown
+    if position == len(lines) and raw_exit == 0:
+        return record('COMPLETE', 'PASSED', 0)
+    return unknown
+
+
+def infrastructure(output, stage, raw_exit, capability_log):
+    require(stage in ('selfcheck', 'payload', 'tools', 'capability', 'red', 'parser', 'complete'))
+    require(0 <= raw_exit <= 255)
+    record = {'stage': stage, 'raw_exit': raw_exit}
+    if stage in ('capability', 'red', 'parser', 'complete'):
+        log = capability_log.read_bytes() if capability_log.is_file() else b''
+        record.update(capability_diagnostic(log, raw_exit if stage == 'capability' else 0))
+    output.write_text(json.dumps(record, sort_keys=True) + '\n')
+
+
 def gate(work, public, raw_exit):
     results_path = work / 'red/out/red.results'
     results = results_path.read_bytes() if results_path.is_file() else b''
@@ -167,5 +216,7 @@ if __name__ == '__main__':
         prepare(Path(sys.argv[2]), Path(sys.argv[3]))
     elif len(sys.argv) == 5 and sys.argv[1] == 'gate':
         gate(Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4]))
+    elif len(sys.argv) == 6 and sys.argv[1] == 'infrastructure':
+        infrastructure(Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), Path(sys.argv[5]))
     else:
         raise SystemExit('invalid minimum controller command')
