@@ -81,7 +81,12 @@ it('retains only the selected faucet over minimize and clears it on account, net
   view.rerender(makeShell(scope, false));
   view.rerender(makeShell(scope));
   expect(screen.getByTestId('receive-selected-asset')).toHaveTextContent('TWO');
-  for (const changed of [{ ...scope, accountId: 'b' }, { ...scope, network: 'devnet' }, { ...scope, rpcUrl: 'rpc-b' }, scope]) {
+  for (const changed of [
+    { ...scope, accountId: 'b' },
+    { ...scope, network: 'devnet' },
+    { ...scope, rpcUrl: 'rpc-b' },
+    scope
+  ]) {
     view.rerender(makeShell(changed));
     expect(screen.getByTestId('receive-selected-asset')).toHaveTextContent('selectAToken');
   }

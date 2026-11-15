@@ -286,16 +286,13 @@ beforeEach(() => {
 });
 
 function RealCommandReceive() {
-  return React.createElement(
-    CommandDraftProvider,
-    {
-      scope: { accountId: 'scope', network: mockEndpoint.network, rpcUrl: mockEndpoint.rpc },
-      children: React.createElement(FlowPresentationProvider, {
-        value: 'command',
-        children: React.createElement(Receive)
-      })
-    }
-  );
+  return React.createElement(CommandDraftProvider, {
+    scope: { accountId: 'scope', network: mockEndpoint.network, rpcUrl: mockEndpoint.rpc },
+    children: React.createElement(FlowPresentationProvider, {
+      value: 'command',
+      children: React.createElement(Receive)
+    })
+  });
 }
 
 it('reviews a live incoming note before queuing exactly that note through the native claim controller', async () => {

@@ -7,7 +7,6 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { PageActiveContext } from 'app/layouts/page-active';
-import { CommandDraftProvider } from 'screens/command/command-drafts';
 import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
@@ -16,6 +15,7 @@ import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig } from 'lib/remote-config/schema';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 
 import { Receive } from './Receive';
 
