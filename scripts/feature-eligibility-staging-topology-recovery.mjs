@@ -57,8 +57,34 @@ export async function prepareTopologyRecovery(input, effects) {
   );
   const workflow = await effects.github(`/actions/workflows/${prior.workflow_id}`);
   requireValue(workflow?.id === prior.workflow_id && workflow.path === WORKFLOW);
+  const listArtifacts = async runId => {
+    const artifacts = [];
+    let total;
+    for (let page = 1; ; page++) {
+      requireValue(page <= 10);
+      const listing = await effects.github(`/actions/runs/${runId}/artifacts?per_page=100&page=${page}`);
+      requireValue(
+        Array.isArray(listing?.artifacts) &&
+          Number.isSafeInteger(listing.total_count) &&
+          listing.total_count >= 0 &&
+          listing.total_count <= 1000 &&
+          listing.artifacts.length <= 100 &&
+          (total === undefined || total === listing.total_count)
+      );
+      total = listing.total_count;
+      artifacts.push(...listing.artifacts);
+      requireValue(artifacts.length <= total);
+      if (artifacts.length === total) break;
+      requireValue(listing.artifacts.length === 100);
+    }
+    return artifacts;
+  };
+  const marker = /^cleanup_run_id=([1-9][0-9]{0,17}) cleanup_attempt=([1-9][0-9]{0,5})$/;
+  const seenRuns = new Set();
   let historyTotal;
   let historyCount = 0;
+  let previousRunNumber = Number.MAX_SAFE_INTEGER;
+  let parentFound = false;
   for (let page = 1; ; page++) {
     requireValue(page <= MAX_HISTORY_RUNS / 100);
     const listing = await effects.github(
@@ -68,41 +94,43 @@ export async function prepareTopologyRecovery(input, effects) {
       Array.isArray(listing?.workflow_runs) &&
         Number.isSafeInteger(listing.total_count) &&
         listing.total_count >= 0 &&
-        listing.total_count <= MAX_HISTORY_RUNS &&
         listing.workflow_runs.length <= 100 &&
         (historyTotal === undefined || historyTotal === listing.total_count)
     );
     historyTotal = listing.total_count;
     historyCount += listing.workflow_runs.length;
-    requireValue(historyCount <= historyTotal);
+    requireValue(historyCount <= historyTotal && historyCount <= MAX_HISTORY_RUNS);
     for (const candidate of listing.workflow_runs) {
-      if (candidate?.id === Number(effects.context.runId)) continue;
-      const marker = /^cleanup_run_id=([1-9][0-9]{0,17}) cleanup_attempt=([1-9][0-9]{0,5})$/;
-      const parent = typeof candidate?.name === 'string' ? marker.exec(candidate.name) : null;
-      requireValue(!parent || parent[1] !== input.runId || parent[2] !== input.runAttempt);
+      requireValue(
+        Number.isSafeInteger(candidate?.id) &&
+          candidate.id > 0 &&
+          Number.isSafeInteger(candidate.run_number) &&
+          candidate.run_number > 0 &&
+          candidate.run_number < previousRunNumber &&
+          !seenRuns.has(candidate.id)
+      );
+      previousRunNumber = candidate.run_number;
+      seenRuns.add(candidate.id);
+      if (candidate.id === prior.id) {
+        requireValue(validRun(candidate) && candidate.run_attempt === prior.run_attempt && candidate.run_number === prior.run_number);
+        parentFound = true;
+        break;
+      }
+      if (candidate.id === Number(effects.context.runId)) continue;
+      requireValue(typeof candidate.name === 'string');
+      const parent = marker.exec(candidate.name);
+      requireValue(!candidate.name.startsWith(`cleanup_run_id=${input.runId} `) || parent !== null);
+      requireValue(parent?.[1] !== input.runId || parent?.[2] !== input.runAttempt);
+    }
+    if (parentFound) {
+      requireValue(historyCount === historyTotal || listing.workflow_runs.length === 100);
+      break;
     }
     if (historyCount === historyTotal) break;
     requireValue(listing.workflow_runs.length === 100);
   }
-  const artifacts = [];
-  let total;
-  for (let page = 1; ; page++) {
-    requireValue(page <= 10);
-    const listing = await effects.github(`/actions/runs/${input.runId}/artifacts?per_page=100&page=${page}`);
-    requireValue(
-      Array.isArray(listing?.artifacts) &&
-        Number.isSafeInteger(listing.total_count) &&
-        listing.total_count >= 0 &&
-        listing.total_count <= 1000 &&
-        listing.artifacts.length <= 100 &&
-        (total === undefined || total === listing.total_count)
-    );
-    total = listing.total_count;
-    artifacts.push(...listing.artifacts);
-    requireValue(artifacts.length <= total);
-    if (artifacts.length === total) break;
-    requireValue(listing.artifacts.length === 100);
-  }
+  requireValue(parentFound);
+  const artifacts = await listArtifacts(input.runId);
   requireValue(new Set(artifacts.map(value => value.id)).size === artifacts.length);
   const artifactFor = name => {
     const matches = artifacts.filter(value => value.name === name);

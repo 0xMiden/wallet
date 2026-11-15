@@ -206,6 +206,65 @@ test('provider read deadline stops before issuing another request', async () => 
   assert.equal(calls.length, 24);
 });
 
+test('a persisted provider read abandoned at the post-persistence deadline is rolled back', async () => {
+  let clock = 0;
+  const apiCalls = [];
+  const persisted = [];
+  const budget = topology.createTopologyApiBudget(
+    async path => {
+      apiCalls.push(path);
+      return {};
+    },
+    {
+      now: () => clock,
+      startedAt: 0,
+      onRequest: async stats => {
+        persisted.push(stats);
+        clock = 120_000;
+      }
+    }
+  );
+
+  await assert.rejects(budget.preflight('/account'), /deadline/);
+
+  assert.deepEqual(apiCalls, []);
+  assert.equal(budget.stats().preflight, 0);
+  assert.equal(persisted.at(-1).preflight, 0);
+  assert.equal(persisted.at(-1).total, 0);
+});
+
+test('a failed rollback persistence remains fail-closed before provider I/O', async () => {
+  let clock = 0;
+  let writes = 0;
+  let persistedCalls;
+  const apiCalls = [];
+  const budget = topology.createTopologyApiBudget(
+    async path => {
+      apiCalls.push(path);
+      return {};
+    },
+    {
+      now: () => clock,
+      startedAt: 0,
+      onRequest: async stats => {
+        writes++;
+        if (writes === 1) {
+          persistedCalls = stats.preflight;
+          clock = 120_000;
+          return;
+        }
+        throw new Error('rollback persistence failed');
+      }
+    }
+  );
+
+  await assert.rejects(budget.preflight('/account'), /rollback persistence failed/);
+
+  assert.deepEqual(apiCalls, []);
+  assert.equal(budget.stats().preflight, 0);
+  assert.equal(persistedCalls, 1);
+});
+
 test('cleanup remains available within its own deadline after preflight expires', async () => {
   let clock = 0;
   const calls = [];
@@ -333,6 +392,32 @@ test('a privacy-unknown worker is not exercised but can be cleaned after positiv
   });
   assert.deepEqual(deleted, [manifest.scriptName]);
   assert.equal(result.cleanup, 'removed');
+  assert.equal(result.ownershipDiagnostic, undefined);
+});
+
+test('cleanup preserves only the sanitized ownership mismatch diagnostic and never deletes', async () => {
+  const good = apiFixture();
+  const deleted = [];
+  const result = await cleanup({
+    accountId,
+    manifest,
+    options,
+    api: async path =>
+      path.endsWith('/script-settings')
+        ? { success: true, errors: [], result: { logpush: false, observability: null, tail_consumers: null } }
+        : good(path),
+    deleteScript: async name => {
+      deleted.push(name);
+      return true;
+    }
+  });
+
+  assert.deepEqual(result, {
+    cleanup: 'blocked',
+    reason: 'ownership_mismatch',
+    ownershipDiagnostic: { gate: 'script_tail_consumers', form: 'unexpected_type' }
+  });
+  assert.deepEqual(deleted, []);
 });
 
 test('cleanup refuses deletion when exact bundle ownership or dependent tail-consumer state is unknown', async () => {

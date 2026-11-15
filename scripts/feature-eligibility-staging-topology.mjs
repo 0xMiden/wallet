@@ -417,7 +417,7 @@ function targetAbsent(value) {
   );
 }
 
-async function execute(env) {
+export async function execute(env, { createReadApi = createTopologyReadApi, runCommand = command } = {}) {
   const identity = currentIdentity(env);
   const { accountId, token, accountSha256 } = accountCredentials(env);
   const { paths, value, bundle } = await loadPrepared(env, { identity, accountSha256 });
@@ -435,7 +435,7 @@ async function execute(env) {
     phase: 'ready'
   };
   const persist = () => writeRunState(paths.state, state);
-  const api = createTopologyReadApi({ accountId, token, now: Date.now, startedAt: value.startedAt });
+  const api = createReadApi({ accountId, token, now: Date.now, startedAt: value.startedAt });
   const budget = createTopologyApiBudget(api, {
     now: Date.now,
     startedAt: value.startedAt,
@@ -475,7 +475,7 @@ async function execute(env) {
     state.phase = 'deploying';
     result.deploymentAttempted = true;
     await persist();
-    const deployed = await command(
+    const deployed = await runCommand(
       'npx',
       [
         '--yes',
@@ -507,6 +507,9 @@ async function execute(env) {
         expiresAt: value.expiresAt,
         maxRuns: value.maxRuns,
         inventory: []
+      },
+      onMismatch: value => {
+        result.ownershipDiagnostic = { gate: value.gate, form: value.form };
       }
     });
     if (ownership?.status !== 'observed') fail('deployed_worker_ownership_not_verified');
@@ -540,7 +543,11 @@ async function execute(env) {
   return result.reason === 'complete' ? 0 : 1;
 }
 
-async function cleanup(env, recovered = false) {
+export async function cleanup(
+  env,
+  recovered = false,
+  { createReadApi = createTopologyReadApi, createScriptDeleter = createTopologyScriptDeleter } = {}
+) {
   const credentials = accountCredentials(env);
   let identity;
   let recovery;
@@ -628,7 +635,7 @@ async function cleanup(env, recovered = false) {
     preflightStartedAt: loaded.value.startedAt,
     now: Date.now
   });
-  const api = createTopologyReadApi({
+  const api = createReadApi({
     accountId: credentials.accountId,
     token: credentials.token,
     now: Date.now,
@@ -657,7 +664,7 @@ async function cleanup(env, recovered = false) {
   }
   const result = await cleanupTopologyWorker({
     api: budget.cleanup,
-    deleteScript: createTopologyScriptDeleter(credentials),
+    deleteScript: createScriptDeleter(credentials),
     accountId: credentials.accountId,
     manifest: loaded.value.manifest,
     options: {
@@ -679,6 +686,7 @@ async function cleanup(env, recovered = false) {
     deploymentAttempted: state?.deploymentAttempted ?? 'unknown',
     cleanup: result.cleanup,
     reason: result.reason,
+    ...(result.ownershipDiagnostic ? { ownershipDiagnostic: result.ownershipDiagnostic } : {}),
     providerReads: budget.stats()
   };
   await writeResult(env, final);

@@ -140,7 +140,11 @@ export function createTopologyApiBudget(
     calls[phase]++;
     if (onRequest) await onRequest(stats());
     remaining = starts[phase] + PROVIDER_DEADLINE_MS - now();
-    if (!Number.isFinite(remaining) || remaining <= 0) throw new Error('provider read deadline exhausted');
+    if (!Number.isFinite(remaining) || remaining <= 0) {
+      calls[phase]--;
+      if (onRequest) await onRequest(stats());
+      throw new Error('provider read deadline exhausted');
+    }
     const controller = new AbortController();
     const timeoutMs = Math.min(PROVIDER_READ_TIMEOUT_MS, remaining);
     let timer;
@@ -301,7 +305,7 @@ function isTargetAbsent(value) {
   );
 }
 
-export async function cleanupTopologyWorker({ api, deleteScript, accountId, manifest, options } = {}) {
+export async function cleanupTopologyWorker({ api, deleteScript, accountId, manifest, options, onMismatch } = {}) {
   try {
     if (
       typeof api !== 'function' ||
@@ -317,14 +321,24 @@ export async function cleanupTopologyWorker({ api, deleteScript, accountId, mani
     if (isTargetAbsent(before)) return { cleanup: 'absent', reason: 'complete' };
     if (before?.success !== true || !Array.isArray(before.errors) || before.errors.length)
       return { cleanup: 'blocked', reason: 'ownership_mismatch' };
+    let ownershipDiagnostic;
     const owned = await checkTopologyOwnership({
       api: read,
       accountId,
       manifest,
       options,
+      onMismatch: value => {
+        ownershipDiagnostic = { gate: value.gate, form: value.form };
+        if (typeof onMismatch === 'function') onMismatch(ownershipDiagnostic);
+      },
       allowPrivacyMismatchForCleanup: true
     });
-    if (!owned) return { cleanup: 'blocked', reason: 'ownership_mismatch' };
+    if (!owned)
+      return {
+        cleanup: 'blocked',
+        reason: 'ownership_mismatch',
+        ...(ownershipDiagnostic ? { ownershipDiagnostic } : {})
+      };
     if ((await deleteScript(expected.scriptName)) !== true) return { cleanup: 'blocked', reason: 'cleanup_failed' };
     if (!isTargetAbsent(await read(path))) return { cleanup: 'blocked', reason: 'cleanup_failed' };
     return { cleanup: 'removed', reason: 'complete' };
