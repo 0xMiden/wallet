@@ -159,19 +159,74 @@ def export_result(public, raw_exit, log, results):
 CAPABILITY_STEPS = ('BASH', 'PYTHON', 'GIT', 'RG', 'SHA256_GIT', 'PROVIDER_ABSENCE')
 
 
-def capability_diagnostic(log, raw_exit):
+# Upstream v0.9.0 bubblewrap.c:991,1006,2906-2919,3394; utils.c:38-74.
+# These message formats do not qualify Ubuntu's patched binary or establish AppArmor as a cause.
+BWRAP_ERRORS = {
+    b'bwrap: setting up uid map: Permission denied\n': 'UID_MAP_DENIED',
+    b'bwrap: setting up uid map: Operation not permitted\n': 'UID_MAP_DENIED',
+    b'bwrap: setting up gid map: Permission denied\n': 'GID_MAP_DENIED',
+    b'bwrap: setting up gid map: Operation not permitted\n': 'GID_MAP_DENIED',
+    b'bwrap: Creating new namespace failed: Operation not permitted\n': 'NAMESPACE_DENIED',
+    b'bwrap: Creating new namespace failed: Permission denied\n': 'NAMESPACE_DENIED',
+    b"bwrap: No permissions to creating new namespace, likely because the kernel does not allow non-privileged user namespaces. On e.g. debian this can be enabled with 'sysctl kernel.unprivileged_userns_clone=1'.\n": 'NAMESPACE_DENIED',
+    b'bwrap: Creating new namespace failed, likely because the kernel does not support user namespaces.  bwrap must be installed setuid on such systems.\n': 'NAMESPACE_UNSUPPORTED',
+    b'bwrap: Creating new namespace failed: nesting depth or /proc/sys/user/max_*_namespaces exceeded (ENOSPC)\n': 'NAMESPACE_LIMIT',
+    b'bwrap: execvp /tools/bash: No such file or directory\n': 'LOADER_FAILED',
+}
+KERNEL_SETTINGS = ('kernel.apparmor_restrict_unprivileged_userns',
+                   'kernel.unprivileged_userns_clone', 'user.max_user_namespaces')
+
+
+def private_bytes(path):
+    try:
+        with path.open('rb') as stream:
+            return stream.read(4097)
+    except OSError:
+        return b''
+
+
+def private_exit(path):
+    raw = private_bytes(path)
+    if re.fullmatch(rb'(0|[1-9][0-9]{0,2})\n', raw) and int(raw) <= 255:
+        return int(raw)
+    return -1
+
+
+def kernel_eligibility(proc_sys=Path('/proc/sys')):
+    result = {}
+    for name in KERNEL_SETTINGS:
+        raw = private_bytes(proc_sys / name.replace('.', '/'))
+        result[name] = ('ZERO' if int(raw) == 0 else 'POSITIVE') if re.fullmatch(rb'[0-9]{1,20}\n?', raw) else 'UNKNOWN'
+    return result
+
+
+def namespace_probe_diagnostic(code):
+    category = 'NOT_ATTESTED' if code == -1 else 'FAILED'
+    if code == 0:
+        category = 'PASSED'
+    elif code == 124:
+        category = 'TIMEOUT'
+    elif code in (126, 127):
+        category = 'UNAVAILABLE'
+    return {'namespace_probe_exit': code, 'namespace_probe_category': category}
+
+
+def selfcheck_attestation(work):
+    count = private_bytes(work / 'selfcheck.count')
+    passed = private_exit(work / 'selfcheck.exit') == 0 and re.fullmatch(rb'[1-9][0-9]{0,5}\n', count) is not None
+    return {'selfcheck_category': 'PASSED' if passed else 'NOT_ATTESTED',
+            'selfcheck_count': int(count) if passed else -1}
+
+
+def capability_diagnostic(log, stderr, raw_exit):
     def record(step, category, exit_code=-1):
-        return {'capability_step': step, 'capability_category': category, 'capability_exit': exit_code}
+        return {'capability_step': step, 'capability_category': category, 'capability_exit': exit_code,
+                'capability_error_category': BWRAP_ERRORS.get(stderr, 'UNKNOWN') if stderr else 'NONE'}
 
     unknown = record('UNKNOWN', 'UNKNOWN')
-    # Exact whole-message whitelist only; never return stderr, paths or matched text.
-    host_errors = {
-        b'bwrap: Creating new namespace failed: Operation not permitted\n': ('NAMESPACE', 'NAMESPACE_DENIED'),
-        b'bwrap: execvp /tools/bash: No such file or directory\n': ('LOADER', 'LOADER_FAILED'),
-    }
-    if raw_exit != 0 and log in host_errors:
-        step, category = host_errors[log]
-        return record(step, category)
+    # Only controlled stdout establishes child entry; stderr never participates in marker parsing.
+    if not log and raw_exit != 0:
+        return record('SANDBOX_LAUNCH', 'SANDBOX_LAUNCH_FAILED', raw_exit)
     lines = log.splitlines(keepends=True)
     position = 0
     for step in CAPABILITY_STEPS:
@@ -195,13 +250,15 @@ def capability_diagnostic(log, raw_exit):
     return unknown
 
 
-def infrastructure(output, stage, raw_exit, capability_log):
-    require(stage in ('selfcheck', 'payload', 'tools', 'capability', 'red', 'parser', 'complete'))
+def infrastructure(output, stage, raw_exit, work):
+    require(stage in ('selfcheck', 'payload', 'tools', 'namespace_probe', 'capability', 'red', 'parser', 'complete'))
     require(0 <= raw_exit <= 255)
-    record = {'stage': stage, 'raw_exit': raw_exit}
+    record = {'stage': stage, 'raw_exit': raw_exit, 'kernel_eligibility': kernel_eligibility()}
+    record.update(selfcheck_attestation(work))
+    record.update(namespace_probe_diagnostic(private_exit(work / 'namespace-probe.exit')))
     if stage in ('capability', 'red', 'parser', 'complete'):
-        log = capability_log.read_bytes() if capability_log.is_file() else b''
-        record.update(capability_diagnostic(log, raw_exit if stage == 'capability' else 0))
+        record.update(capability_diagnostic(private_bytes(work / 'capability.log'),
+                      private_bytes(work / 'capability.stderr'), raw_exit if stage == 'capability' else 0))
     output.write_text(json.dumps(record, sort_keys=True) + '\n')
 
 

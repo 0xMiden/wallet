@@ -136,36 +136,85 @@ class MinimumSourceUnionRedTests(unittest.TestCase):
         for step in red.CAPABILITY_STEPS:
             start = ('MINIMUM_CAPABILITY:' + step + ':START\n').encode()
             end = ('MINIMUM_CAPABILITY:' + step + ':EXIT:').encode()
-            self.assertEqual(red.capability_diagnostic(transcript + start + end + b'127\n', 127), {
-                'capability_step': step, 'capability_category': 'STEP_FAILED', 'capability_exit': 127})
-            self.assertEqual(red.capability_diagnostic(transcript + start, 124), {
-                'capability_step': step, 'capability_category': 'INCOMPLETE', 'capability_exit': -1})
+            self.assertEqual(red.capability_diagnostic(transcript + start + end + b'127\n', b'', 127), {
+                'capability_step': step, 'capability_category': 'STEP_FAILED', 'capability_exit': 127,
+                'capability_error_category': 'NONE'})
+            self.assertEqual(red.capability_diagnostic(transcript + start, b'', 124), {
+                'capability_step': step, 'capability_category': 'INCOMPLETE', 'capability_exit': -1,
+                'capability_error_category': 'NONE'})
             transcript += start + end + b'0\n'
-        self.assertEqual(red.capability_diagnostic(transcript, 0), {
-            'capability_step': 'COMPLETE', 'capability_category': 'PASSED', 'capability_exit': 0})
-        for log, step, category in [
-            (b'bwrap: Creating new namespace failed: Operation not permitted\n', 'NAMESPACE', 'NAMESPACE_DENIED'),
-            (b'bwrap: execvp /tools/bash: No such file or directory\n', 'LOADER', 'LOADER_FAILED'),
-        ]:
-            self.assertEqual(red.capability_diagnostic(log, 1), {
-                'capability_step': step, 'capability_category': category, 'capability_exit': -1})
+        # Unknown stderr cannot obscure controlled success/first-tool markers.
+        self.assertEqual(red.capability_diagnostic(transcript, b'unknown private stderr', 0), {
+            'capability_step': 'COMPLETE', 'capability_category': 'PASSED', 'capability_exit': 0,
+            'capability_error_category': 'UNKNOWN'})
+        for stderr, category in red.BWRAP_ERRORS.items():
+            self.assertEqual(red.capability_diagnostic(b'', stderr, 1), {
+                'capability_step': 'SANDBOX_LAUNCH', 'capability_category': 'SANDBOX_LAUNCH_FAILED',
+                'capability_exit': 1, 'capability_error_category': category})
 
     def test_capability_unknown_and_secret_text_never_exported(self):
         secret = b'PRIVATE_TOKEN=/private/secret Authorization: bearer NEVER_EXPORT\n'
-        logs = [b'', secret, b'bwrap: ' + secret,
-                b'bwrap: Creating new namespace failed: Operation not permitted\n' + secret,
-                b'MINIMUM_CAPABILITY:BASH:START\n' + secret,
-                b'MINIMUM_CAPABILITY:BASH:START\nMINIMUM_CAPABILITY:BASH:EXIT:999\n']
         with tempfile.TemporaryDirectory() as directory:
-            private = Path(directory) / 'capability.log'
-            output = Path(directory) / 'infrastructure.json'
-            for log in logs:
-                private.write_bytes(log)
-                red.infrastructure(output, 'capability', 1, private)
-                self.assertEqual(json.loads(output.read_text()), {
-                    'stage': 'capability', 'raw_exit': 1, 'capability_step': 'UNKNOWN',
-                    'capability_category': 'UNKNOWN', 'capability_exit': -1})
+            work = Path(directory)
+            output = work / 'infrastructure.json'
+            for markers, stderr in ((b'', secret), (b'', b'bwrap: setting up uid map: Permission denied\n' + secret),
+                                    (secret, secret)):
+                (work / 'capability.log').write_bytes(markers)
+                (work / 'capability.stderr').write_bytes(stderr)
+                (work / 'namespace-probe.stdout').write_bytes(secret)
+                (work / 'namespace-probe.stderr').write_bytes(secret)
+                red.infrastructure(output, 'capability', 1, work)
+                record = json.loads(output.read_text())
+                self.assertEqual(record['capability_category'], 'UNKNOWN' if markers else 'SANDBOX_LAUNCH_FAILED')
+                self.assertEqual(record['capability_error_category'], 'UNKNOWN')
                 self.assertNotIn(secret, output.read_bytes())
+            start = b'MINIMUM_CAPABILITY:PYTHON:START\n'
+            bash = b'MINIMUM_CAPABILITY:BASH:START\nMINIMUM_CAPABILITY:BASH:EXIT:0\n'
+            result = red.capability_diagnostic(bash + start + b'MINIMUM_CAPABILITY:PYTHON:EXIT:127\n', secret, 127)
+            self.assertEqual(result['capability_step'], 'PYTHON')
+            self.assertEqual(result['capability_category'], 'STEP_FAILED')
+            for log in (secret, bash + start + secret, bash + b'MINIMUM_CAPABILITY:PYTHON:START\nMINIMUM_CAPABILITY:PYTHON:EXIT:999\n'):
+                self.assertEqual(red.capability_diagnostic(log, secret, 1)['capability_category'], 'UNKNOWN')
+
+    def test_kernel_eligibility_only_zero_positive_or_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc = Path(directory)
+            self.assertEqual(set(red.kernel_eligibility(proc).values()), {'UNKNOWN'})
+            for raw, expected in [(b'0\n', 'ZERO'), (b'1\n', 'POSITIVE'), (b'65536\n', 'POSITIVE'),
+                                  (b'-1\n', 'UNKNOWN'), (b'PRIVATE_TOKEN=secret', 'UNKNOWN'),
+                                  (b'9' * 5000, 'UNKNOWN')]:
+                for name in red.KERNEL_SETTINGS:
+                    path = proc / name.replace('.', '/')
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(raw)
+                self.assertEqual(red.kernel_eligibility(proc), dict.fromkeys(red.KERNEL_SETTINGS, expected))
+
+    def test_namespace_probe_status_is_numeric_and_coarse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'namespace-probe.exit'
+            for code, category in [(-1, 'NOT_ATTESTED'), (0, 'PASSED'), (1, 'FAILED'),
+                                   (124, 'TIMEOUT'), (126, 'UNAVAILABLE'), (127, 'UNAVAILABLE'), (137, 'FAILED')]:
+                if code >= 0:
+                    path.write_text(str(code) + '\n')
+                actual = red.private_exit(path)
+                self.assertEqual(red.namespace_probe_diagnostic(actual), {
+                    'namespace_probe_exit': code, 'namespace_probe_category': category})
+            for raw in (b'999\n', b'0\nsecret', b'PRIVATE_TOKEN=secret'):
+                path.write_bytes(raw)
+                self.assertEqual(red.private_exit(path), -1)
+
+    def test_selfcheck_attestation_requires_zero_return_and_actual_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work / 'selfcheck.count').write_bytes(b'37\n')
+            self.assertEqual(red.selfcheck_attestation(work)['selfcheck_category'], 'NOT_ATTESTED')
+            (work / 'selfcheck.exit').write_bytes(b'0\n')
+            self.assertEqual(red.selfcheck_attestation(work), {'selfcheck_category': 'PASSED', 'selfcheck_count': 37})
+            (work / 'selfcheck.exit').write_bytes(b'1\n')
+            self.assertEqual(red.selfcheck_attestation(work)['selfcheck_category'], 'NOT_ATTESTED')
+            (work / 'selfcheck.exit').write_bytes(b'0\n')
+            (work / 'selfcheck.count').write_bytes(b'37\nPRIVATE_TOKEN=secret')
+            self.assertEqual(red.selfcheck_attestation(work)['selfcheck_count'], -1)
 
     def test_bound_shell_selector_sandbox_and_workflow_export_allowlist(self):
         shell = (QA / 'minimum-source-union-red.sh').read_text()
@@ -177,6 +226,10 @@ class MinimumSourceUnionRedTests(unittest.TestCase):
         for step in red.CAPABILITY_STEPS:
             self.assertIn('capability_check ' + step + ' ', shell)
         self.assertIn('if command -v "$provider" >/dev/null 2>&1; then return 1; fi', shell)
+        self.assertIn('> "$work/capability.log" 2> "$work/capability.stderr"', shell)
+        self.assertEqual(shell.count('/usr/bin/unshare --user --map-root-user /usr/bin/true'), 1)
+        self.assertIn('timeout --signal=TERM --kill-after=1s 5s env -i', shell)
+        self.assertIn('printf \'0\\n\' > "$work/selfcheck.exit"', shell)
         for option in ('--unshare-all', '--clearenv', '--ro-bind "$work/runtime" /runtime',
                        '--setenv HOME /state/home', '--setenv PATH /tools', '--tmpfs /tmp'):
             self.assertIn(option, shell)
@@ -188,4 +241,7 @@ class MinimumSourceUnionRedTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    program = unittest.main(exit=False)
+    if not program.result.wasSuccessful():
+        raise SystemExit(1)
+    print(program.result.testsRun)

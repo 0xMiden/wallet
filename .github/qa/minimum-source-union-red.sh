@@ -20,14 +20,16 @@ finish() {
   local rc=$?
   trap - EXIT
   "$python" -I -B .github/qa/minimum-source-union-red.py infrastructure \
-    "$public/infrastructure.json" "$stage" "$rc" "$work/capability.log"
+    "$public/infrastructure.json" "$stage" "$rc" "$work"
   rm -rf "$work"
   exit "$rc"
 }
 trap finish EXIT
 # CI-only controller data self-checks; never executes B/M or invokes this shell as a test.
 timeout --signal=TERM --kill-after=5s 45s "$python" -I -B \
-  .github/qa/test_minimum_source_union_red.py > "$work/selfcheck.log" 2>&1
+  .github/qa/test_minimum_source_union_red.py > "$work/selfcheck.count" 2> "$work/selfcheck.log"
+# Attest only after the bounded command returned zero, never from authored source counts.
+printf '0\n' > "$work/selfcheck.exit"
 stage=payload
 "$python" -I -B .github/qa/minimum-source-union-red.py prepare "$work" "$public" > "$work/payload.log" 2>&1
 stage=tools
@@ -69,6 +71,15 @@ sandbox() {
     --setenv GIT_CONFIG_NOSYSTEM 1 --setenv GIT_CONFIG_GLOBAL /state/gitconfig \
     /tools/bash --noprofile --norc -c "$@"
 }
+# Infrastructure-only userns probe: true is the sole child; never a payload fallback.
+stage=namespace_probe
+set +e
+timeout --signal=TERM --kill-after=1s 5s env -i PATH=/usr/bin:/bin LC_ALL=C \
+  /usr/bin/unshare --user --map-root-user /usr/bin/true \
+  > "$work/namespace-probe.stdout" 2> "$work/namespace-probe.stderr"
+probe_rc=$?
+set -e
+printf '%d\n' "$probe_rc" > "$work/namespace-probe.exit"
 # Namespace/tool failure is fatal; loopback remains down, never host-network fallback.
 stage=capability
 (
@@ -96,7 +107,7 @@ stage=capability
     capability_check SHA256_GIT git init -q --object-format=sha256 /state/sha256-fixture
     capability_check PROVIDER_ABSENCE providers_absent
   '
-) > "$work/capability.log" 2>&1
+) > "$work/capability.log" 2> "$work/capability.stderr"
 stage=red
 set +e
 (
