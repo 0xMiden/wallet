@@ -31,7 +31,12 @@ import { TelemetryStep } from 'lib/telemetry/types';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
-import { errorToMessage, isGuardianNotFound, isMainnetAccessCodeRejected } from 'screens/onboarding/error-message';
+import {
+  errorToMessage,
+  isGuardianNotFound,
+  isGuardianRecoveryRefusal,
+  isMainnetAccessCodeRejected
+} from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { NO_GUARDIAN_ID, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
@@ -633,6 +638,10 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
           // copy suggests a public import, which a pasted key cannot use (the screen hides it).
           lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
           lookupFailureId = keyPairPayload ? 'importHotKeyNoAccount' : 'guardianAccountNotFound';
+        } else if (isGuardianRecoveryRefusal(error)) {
+          // The refusal message is already localized, so the screen shows that sentence.
+          lookupFailure = failure;
+          lookupFailureId = ownMessage ? 'raw_import_recovery_lookup_failed' : 'smthWentWrong';
         } else if (isLikelyNetworkError(error)) {
           // A raw "Failed to fetch" / RPC timeout message is not translated; show the
           // operator-unreachable notice instead.

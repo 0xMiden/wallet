@@ -18,7 +18,8 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { TextField } from 'components/ui/TextField';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { TokenAmount } from 'components/ui/TokenAmount';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { SWAP_VERDICT_LABEL_KEYS, swapEtaBlocksSubmit, SwapQuote, swapVerdict } from 'lib/miden/swap/quote';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
@@ -74,7 +75,7 @@ function expectedOverAsk(quote: SwapQuote, decimals: number): string | undefined
   const expected = quote.eta.expectedRequestedAmount;
   if (expected === null || !/^\d+$/.test(expected)) return undefined;
   const amount = BigInt(expected);
-  return amount > quote.requestedAmount ? formatBigInt(amount, decimals) : undefined;
+  return amount > quote.requestedAmount ? formatAmountDisplay(amount, { decimals, rounding: 'down' }) : undefined;
 }
 
 function fillWarningKey(quote?: SwapQuote): string | undefined {
@@ -266,7 +267,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         }
         value={
           <span className="inline-flex items-center gap-1">
-            {`${requestAmount} ${requestLabel}`}
+            <TokenAmount amount={requestAmount} symbol={requestLabel} formatting="exact" />
             <SwapTokenInfoButton faucetId={requestToken.faucetId} label={requestLabel} />
           </span>
         }
@@ -342,7 +343,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         {requestEdited && (
           <DetailRow label={t('swapExactPayAmount')} stacked data-testid="swap-exact-pay-row">
             <span className="break-all">
-              {offerAmount} {offerLabel}
+              <TokenAmount amount={offerAmount} symbol={offerLabel} formatting="exact" />
             </span>
           </DetailRow>
         )}

@@ -17,12 +17,15 @@ import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
+import { deriveGuardianAccountSeed, guardianAccountConfig } from './account-recipe';
 import { GuardianProbeTimeoutError, isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { isGuardianKeyCommitment } from './key-commitment';
 import { withGuardianProbe } from './native-http';
 import { guardianRegisterBackoffMs, withGuardianRateLimitRetry } from './serialize';
 import type { AssertLive } from '../sdk/miden-client-interface';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+
+export { GUARDIAN_ACCOUNT_SEED_DOMAIN, deriveGuardianAccountSeed } from './account-recipe';
 
 /**
  * Resolve the guardian operator endpoint for a Guardian account: its own
@@ -383,20 +386,6 @@ export async function fetchGuardianCreateKey(
   }
 }
 
-export const GUARDIAN_ACCOUNT_SEED_DOMAIN = 'miden-wallet/guardian-account-seed/v1';
-
-/**
- * The builder's account seed, derived one-way from the cold key's seed so the
- * seed a new account stores never carries key material.
- */
-export async function deriveGuardianAccountSeed(coldSeed: Uint8Array): Promise<Uint8Array> {
-  const domain = new TextEncoder().encode(GUARDIAN_ACCOUNT_SEED_DOMAIN);
-  const input = new Uint8Array(domain.length + coldSeed.length);
-  input.set(domain);
-  input.set(coldSeed, domain.length);
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', input));
-}
-
 /**
  * Create a 3-key Guardian account: a random hot ECDSA key (held outside the
  * WASM keystore, behind the secure-hot-key facade), an HD-derived cold ECDSA
@@ -409,7 +398,7 @@ export async function deriveGuardianAccountSeed(coldSeed: Uint8Array): Promise<U
  * @param createKey - The guardian's key and rate-limit budget, from
  *   `fetchGuardianCreateKey`.
  * @param coldSeed - HD-derived seed for the cold key only; the account's own
- *   seed is derived from it (`deriveGuardianAccountSeed`). Random if absent
+ *   seed is derived from it and both other keys (`deriveGuardianAccountSeed`). Random if absent
  *   (only appropriate for tests / non-recoverable flows).
  * @param assertLive - The caller's WASM lock hold re-check. Every WASM call
  *   after a parking await runs it first; an evicted flow is abandoned, not
@@ -427,8 +416,7 @@ export async function createGuardianAccount(
   }
 
   try {
-    // The only await before the keys, re-checked at once so an evicted flow mints nothing.
-    const accountSeed = await deriveGuardianAccountSeed(coldSeed);
+    // Re-checked before either key exists, so an evicted flow mints nothing.
     assertLive('before the keys');
 
     // Cold key — HD-derived, lives in SDK keystore, used for cold-routed flows
@@ -447,45 +435,23 @@ export async function createGuardianAccount(
     // wrapped under SE (iOS) or Keystore/StrongBox (Android) inside the native
     // plugin and surfaces here only as opaque ciphertext.
     const hot = await secureHotKey.generateHotKey();
+    // Bound to the hot and guardian keys the config carries, so it waits for the hot key.
+    const accountSeed = await deriveGuardianAccountSeed(coldSeed, hot.commitmentHex, createKey.guardianCommitment);
 
     const client = new MultisigClient(webClient, {
       guardianEndpoint: createKey.guardianEndpoint,
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
     assertLive('before the account build');
-    // Signer order is [hot, cold] by convention — the migration plan diagrams
-    // and downstream role-routing code assume this layout.
+    // A seed recovery rebuilds a not-yet-deployed account from this same config to check it.
     const multisig = await client.create(
-      {
-        threshold: 1,
-        signerCommitments: [hot.commitmentHex, coldCommitmentHex],
+      guardianAccountConfig({
+        hotCommitment: hot.commitmentHex,
+        coldCommitment: coldCommitmentHex,
         guardianCommitment: createKey.guardianCommitment,
         guardianPublicKey: createKey.guardianPubkey,
-        // No `guardianEnabled` since multisig-client 0.17: the builder now
-        // rejects a config without a guardian commitment outright, so every
-        // account it creates is guarded and the flag had nothing left to
-        // select. We only ever passed `true`, so behavior is unchanged.
-        storageMode: 'private',
-        signatureScheme: 'ecdsa',
-        seed: accountSeed,
-        procedureThresholds: [
-          {
-            procedure: 'update_guardian',
-            threshold: 2
-          },
-          // `update_procedure_threshold` edits the overrides, so it has to cost
-          // at least as much as the strictest one it can lower. Left at the
-          // account threshold of 1, the hardening above was decorative: either
-          // single signer could drop `update_guardian` back to 1 and then
-          // switch the guardian alone. Enforced by the builder (and by
-          // `AuthMultisig::new` on the Rust side) since multisig-client 0.17,
-          // which rejects the unguarded shape outright.
-          {
-            procedure: 'update_procedure_threshold',
-            threshold: 2
-          }
-        ]
-      },
+        initSeed: accountSeed
+      }),
       new EcdsaSigner(coldSk)
     );
 

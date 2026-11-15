@@ -18,13 +18,13 @@ type SpendingLimitWirePayload = { assessment: SerializedSpendingLimitAssessment 
 export type SerializedError = string | [string, any[]];
 
 /**
- * Turn every `bigint` in an assessment into its canonical decimal string, dependency-free (no
+ * Turn every `bigint` in a value into its canonical decimal string, dependency-free (no
  * `lib/miden` import - see the file-level comment). This intentionally does NOT validate the
- * shape the way `toSerializedSpendingLimitAssessment` does: the receiver,
- * `parseSerializedSpendingLimitAssessment`, already validates every field and fails closed, so
- * nothing about safety depends on the sender re-validating here.
+ * shape: each receiver (`parseSerializedSpendingLimitAssessment`, `fromSimulatedEffectsWire`)
+ * validates every amount and fails closed, so nothing about safety depends on the sender
+ * re-validating here.
  */
-function serializeBigints(value: unknown): any {
+export function serializeBigints(value: unknown): any {
   return JSON.parse(JSON.stringify(value, (_key, v) => (typeof v === 'bigint' ? v.toString() : v)));
 }
 

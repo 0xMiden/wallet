@@ -2,8 +2,8 @@ import { AuthSecretKey } from '@miden-sdk/miden-sdk';
 
 import { expect, test } from '../fixtures/two-wallets';
 
-const WALLET_PASSWORD = 'Test1234!';
-const FILE_PASSWORD = 'Backup1234!';
+const WALLET_PASSWORD = 'Test1234!Wallet';
+const FILE_PASSWORD = 'Backup1234!File';
 const RESTORED_PASSWORD = 'Restored1234!';
 const IMPORTED_ACCOUNT_NAME = 'Restored signer';
 const CHALLENGE_WORD = `0x${Array.from({ length: 32 }, (_, index) =>

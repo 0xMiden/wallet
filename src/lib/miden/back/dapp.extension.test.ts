@@ -191,6 +191,12 @@ jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
 }));
 
+// A custom summary's approval re-reads the chain fee before it decodes; the read is the node's, not this suite's.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: jest.fn(async () => 2)
+}));
+
 jest.mock('app/confirm/decode', () => ({
   ...jest.requireActual('app/confirm/decode'),
   simulatedBytesToView: () => ({
@@ -201,7 +207,9 @@ jest.mock('app/confirm/decode', () => ({
     unlistedAssets: 0,
     inputNotesConsumed: 0,
     outputNotesCreated: 0,
-    storageChanged: false
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: []
   }),
   simulatedOutputRecipients: () => []
 }));
@@ -3121,7 +3129,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
 
     expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume-1' });
     expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({ type: 'consume', noteId: '0xreal-note' });
-    expect(_g.__dappExtTest.lastPayloadResponse.payload.transactionMessages).toContain('Amount, +45');
+    expect(_g.__dappExtTest.lastPayloadResponse.payload.transactionMessages).toContain('Amount, +0.000045');
     expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).toHaveBeenCalledWith(
       'miden-account-1',
       '0xreal-note',

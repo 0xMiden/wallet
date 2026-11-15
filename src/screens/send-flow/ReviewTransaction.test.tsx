@@ -350,7 +350,6 @@ jest.mock('lib/epoch', () => ({
 
 jest.mock('lib/i18n/numbers', () => ({
   formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
-  toAdaptiveFixed: (v: number) => v.toFixed(2),
   stringToBigInt: jest.fn(),
   // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
   // return, so the guard has to call the real helper.
@@ -888,7 +887,7 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 ');
+    expect(screen.getByTestId('review-amount').textContent).toBe('5');
 
     // onSubmit early-returns because there is no token: nothing fires.
     await act(async () => {

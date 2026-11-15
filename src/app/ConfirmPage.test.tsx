@@ -14,7 +14,9 @@ import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import * as userVisibleErrors from 'lib/telemetry/user-visible-error';
 import { useLocation } from 'lib/woozie';
 
-import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
+import { simulatedBytesToView, type TxAssetView } from './confirm/decode';
+import { noteFlowFromSimulatedBytes, type NoteFlow } from './confirm/note-flow';
+import { toSimulatedEffectsWire } from './confirm/simulated-wire';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
@@ -205,50 +207,15 @@ jest.mock('./confirm/TransactionAssetView', () => ({
 
 jest.mock('./confirm/note-flow', () => ({
   ...jest.requireActual('./confirm/note-flow'),
-  noteFlowFromSimulatedBytes: jest.fn(() => ({ inputCount: 0, inputs: [], outputs: [] }))
+  noteFlowFromSimulatedBytes: jest.fn()
 }));
 
-// Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
-// below assert on its actual mapping); only the custom-tx decode entry points
-// are stubbed so these UI tests don't touch the WASM SDK.
-jest.mock('./confirm/decode', () => {
-  const view = (account: string, incoming: { faucetId: string; amount: bigint }[] = []) => ({
-    account,
-    outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming,
-    outgoingNfts: [],
-    incomingNfts: [],
-    unlistedAssets: 0,
-    inputNotesConsumed: incoming.length,
-    outputNotesCreated: 1,
-    storageChanged: false
-  });
-  const summaryBytesToView = jest.fn(() => view('mtst1acct', [{ faucetId: 'fB', amount: 3n }]));
-  const executedBytesToView = jest.fn(() => view('mtst1executed'));
-  return {
-    ...jest.requireActual('./confirm/decode'),
-    declaredRequestToView: jest.fn(() => ({
-      outgoing: [{ faucetId: 'fA', amount: 10n }],
-      incoming: [],
-      outgoingNfts: [],
-      incomingNfts: [],
-      unlistedAssets: 0,
-      inputNotesConsumed: 0,
-      outputNotesCreated: 1,
-      storageChanged: false
-    })),
-    summaryBytesToView,
-    executedBytesToView,
-    // Dispatches to the two stubs above. The real selector calls its builders module-internally,
-    // where a jest.mock override cannot reach them, so without this the page would decode these
-    // fixture strings for real.
-    simulatedBytesToView: jest.fn((result: { summaryBytes?: string; executedBytes?: string }) => {
-      if (result.summaryBytes) return summaryBytesToView();
-      if (result.executedBytes) return executedBytesToView();
-      return undefined;
-    })
-  };
-});
+// Partial mock: `simulatedBytesToView` is stubbed so these UI tests don't touch the WASM SDK, and to prove
+// the window never calls it.
+jest.mock('./confirm/decode', () => ({
+  ...jest.requireActual('./confirm/decode'),
+  simulatedBytesToView: jest.fn()
+}));
 
 jest.mock('./atoms/Alert', () => {
   const actual = jest.requireActual<typeof import('./atoms/Alert')>('./atoms/Alert');
@@ -296,8 +263,6 @@ const mockWord = Word as unknown as { deserialize: jest.Mock };
 const mockSigningInputs = SigningInputs as unknown as { deserialize: jest.Mock };
 const mockAddress = Address as unknown as { fromAccountId: jest.Mock };
 const mockTransactionAssetView = TransactionAssetView as unknown as jest.Mock;
-const mockDeclaredRequestToView = declaredRequestToView as unknown as jest.Mock;
-const mockSummaryBytesToView = summaryBytesToView as unknown as jest.Mock;
 
 const UPON_REQUEST = 'UPON_REQUEST';
 const AUTO = 'AUTO';
@@ -1055,14 +1020,15 @@ describe('sign payload — signingInputs', () => {
 
   const makeAsset = (id: string, amount: number) => ({
     faucetId: () => ({ toString: () => id }),
-    amount: () => amount
+    amount: () => BigInt(amount)
   });
 
   const transactionSummary = ({
     vaultEmpty = false,
     storageEmpty = false,
     removed = [] as any[],
-    added = [] as any[]
+    added = [] as any[],
+    inputs = [] as any[]
   }) => {
     const vault = {
       isEmpty: () => vaultEmpty,
@@ -1077,21 +1043,24 @@ describe('sign payload — signingInputs', () => {
     };
     const ts = {
       accountDelta: () => accountDelta,
-      inputNotes: () => ({ numNotes: () => 2, notes: () => [] }),
+      inputNotes: () => ({ numNotes: () => (inputs.length > 0 ? inputs.length : 2), notes: () => inputs }),
       // `notes()` as well: summary output notes now go through the fee split, because
       // `fee::pay_fee` runs in auth BEFORE the summary is built.
       outputNotes: () => ({
         numNotes: () => 3,
         notes: () => [
           {
+            id: () => ({ toString: () => 'stub-note-1' }),
             assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
             metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
           },
           {
+            id: () => ({ toString: () => 'stub-note-2' }),
             assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
             metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
           },
           {
+            id: () => ({ toString: () => 'stub-note-3' }),
             assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
             metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
           }
@@ -1116,29 +1085,61 @@ describe('sign payload — signingInputs', () => {
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
+  /** The holdings the background measured, empty unless a case says otherwise. */
+  const measuredView = (fields: Partial<TxAssetView> = {}): TxAssetView => ({
+    account: 'mtst1accbech_wxyz',
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false,
+    heldNotesSpent: 0,
+    viewConsumedNotes: [],
+    createdNotes: [],
+    ...fields
+  });
+
+  const bech32ById = () =>
+    mockAddress.fromAccountId.mockImplementation((id: any) => ({
+      toBech32: () => `bech32:${typeof id === 'string' ? id : id.toString()}`
+    }));
+
   // Pixel-level rendering (asset rows, amount/symbol formatting, storage
   // warning) is owned by `TransactionAssetView` and covered in
   // `TransactionAssetView.test.tsx`. `TransactionAssetView` is stubbed here
   // (see the `jest.mock` above) so these tests assert only that the
   // sign->TransactionSummary branch routes through it with the correct
-  // mode/view/onDownload wiring — i.e. that ConfirmPage computes the right
-  // `TxAssetView` via `summaryToView` and hands it off.
+  // mode/view/onDownload wiring, i.e. that ConfirmPage shows the holdings the
+  // background measured (`signingEffects`) and never measures the summary itself.
   it('renders a TransactionSummary via the verified TransactionAssetView', () => {
-    // Input-aware so each faucet id resolves to its own bech32 — proving the
-    // view maps assets by the bech32 faucet address (getBech32AddressFromAccountId),
-    // not AccountId.toString() (hex), which is what makes non-Miden metadata resolve.
-    mockAddress.fromAccountId.mockImplementation((id: any) => ({
-      toBech32: () => `bech32:${typeof id === 'string' ? id : id.toString()}`
-    }));
-    setPayload(siPayload());
-    mockSigningInputs.deserialize.mockReturnValue(
-      transactionSummary({
-        vaultEmpty: false,
-        storageEmpty: false,
-        removed: [makeAsset('rem1', 100), makeAsset('rem-null', 200)],
-        added: [makeAsset('add1', 300), makeAsset('add-null', 400)]
-      })
-    );
+    const view = measuredView({
+      account: 'bech32:acc-id',
+      outgoing: [
+        { faucetId: 'bech32:rem1', amount: 100n },
+        { faucetId: 'bech32:rem-null', amount: 200n }
+      ],
+      incoming: [
+        { faucetId: 'bech32:add1', amount: 300n },
+        { faucetId: 'bech32:add-null', amount: 400n }
+      ],
+      inputNotesConsumed: 2,
+      outputNotesCreated: 3,
+      storageChanged: true,
+      createdNotes: ['stub-note-1', 'stub-note-2', 'stub-note-3'].map(id => ({ id, amounts: [], nfts: [] }))
+    });
+    const noteFlow: NoteFlow = {
+      inputCount: 2,
+      inputs: [],
+      outputs: ['stub-note-1', 'stub-note-2', 'stub-note-3'].map(id => ({
+        id,
+        kind: 'custom' as const,
+        visibility: 'public' as const
+      }))
+    };
+    setPayload({ ...siPayload(), signingEffects: toSimulatedEffectsWire(view, noteFlow) });
     render(<ConfirmPage />);
 
     const assetView = screen.getByTestId('asset-view');
@@ -1147,41 +1148,99 @@ describe('sign payload — signingInputs', () => {
     // A summary signature can authorize a transaction, so it never says it cannot.
     expect(screen.queryByText('opaqueSignatureNotATransaction')).not.toBeInTheDocument();
     expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
 
-    // The view handed to TransactionAssetView is the ground-truth mapping of
-    // the executed TransactionSummary (summaryToView), not a re-derivation.
-    // Faucet ids are resolved to bech32 (metadata cache key), not hex.
+    // The view handed to TransactionAssetView is the background's measure, its amounts bigints again; the note
+    // lists stay behind on the wire.
     expect(mockTransactionAssetView).toHaveBeenCalledTimes(1);
-    const { view, noteFlow } = mockTransactionAssetView.mock.calls[0][0];
-    expect(noteFlow).toMatchObject({ inputCount: 2, outputs: expect.any(Array) });
-    expect(noteFlow.outputs).toHaveLength(3);
-    expect(view).toEqual({
-      account: 'bech32:acc-id',
-      outgoing: [
-        { faucetId: 'bech32:rem1', amount: 100 },
-        { faucetId: 'bech32:rem-null', amount: 200 }
-      ],
-      incoming: [
-        { faucetId: 'bech32:add1', amount: 300 },
-        { faucetId: 'bech32:add-null', amount: 400 }
-      ],
-      outgoingNfts: [],
-      incomingNfts: [],
-      unlistedAssets: 0,
-      inputNotesConsumed: 2,
-      outputNotesCreated: 3,
-      storageChanged: true
-    });
+    const shown = mockTransactionAssetView.mock.calls[0][0];
+    const { viewConsumedNotes: _consumed, createdNotes: _created, ...onWire } = view;
+    expect(shown.view).toEqual(onWire);
+    expect(shown.noteFlow).toEqual(noteFlow);
   });
 
-  it('renders a TransactionSummary with an empty vault and empty storage', () => {
-    mockAddress.fromAccountId.mockReturnValue({ toBech32: () => 'mtst1accbech_wxyz' });
+  it("shows the background's held-note count and outgoing amount without decoding", () => {
+    setPayload({
+      ...siPayload(),
+      signingEffects: toSimulatedEffectsWire(
+        measuredView({ outgoing: [{ faucetId: 'bech32:X', amount: 1000n }], inputNotesConsumed: 1, heldNotesSpent: 1 })
+      )
+    });
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified');
+    expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
+    const { view } = mockTransactionAssetView.mock.calls[0][0];
+    expect(view.outgoing).toContainEqual({ faucetId: 'bech32:X', amount: 1000n });
+    expect(view.heldNotesSpent).toBe(1);
+  });
+
+  it('shows the amounts the background measured, not a decode of its own', () => {
+    bech32ById();
+    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ removed: [makeAsset('rem1', 100)] }));
+    const { view } = toSimulatedEffectsWire(measuredView());
+    setPayload({
+      ...siPayload(),
+      signingEffects: { view: { ...view, outgoing: [{ faucetId: 'bech32:wire', amount: '7' }] } }
+    });
+    render(<ConfirmPage />);
+
+    expect(mockTransactionAssetView.mock.calls[0][0].view.outgoing).toEqual([{ faucetId: 'bech32:wire', amount: 7n }]);
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
+  });
+
+  it('renders the opaque-signature warning for measured holdings that do not parse, without decoding', () => {
+    bech32ById();
+    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ removed: [makeAsset('rem1', 100)] }));
+    const { view } = toSimulatedEffectsWire(measuredView());
+    setPayload({
+      ...siPayload(),
+      signingEffects: { view: { ...view, outgoing: [{ faucetId: 'bech32:wire', amount: 'nope' }] } }
+    });
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
+  });
+
+  it('shows a summary with no background measure as unmeasured even when that summary lists its assets', () => {
+    bech32ById();
     setPayload(siPayload());
-    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ vaultEmpty: true, storageEmpty: true }));
+    const decoded = transactionSummary({
+      removed: [makeAsset('X', 1000)],
+      inputs: [
+        {
+          id: () => ({ toString: () => 'held-note' }),
+          note: () => ({
+            assets: () => ({
+              fungibleAssets: () => [makeAsset('X', 1000)],
+              nonFungibleAssets: () => []
+            })
+          })
+        }
+      ]
+    });
+    const transactionSummaryPayload = jest.fn(decoded.transactionSummaryPayload);
+    mockSigningInputs.deserialize.mockReturnValue({ ...decoded, transactionSummaryPayload });
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
+    expect(mockTransactionAssetView).not.toHaveBeenCalled();
+    expect(transactionSummaryPayload).not.toHaveBeenCalled();
+  });
+
+  it("shows the background's empty holdings without decoding", () => {
+    setPayload({ ...siPayload(), signingEffects: toSimulatedEffectsWire(measuredView()) });
     render(<ConfirmPage />);
 
     const assetView = screen.getByTestId('asset-view');
     expect(assetView).toHaveAttribute('data-mode', 'verified');
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
 
     const { view } = mockTransactionAssetView.mock.calls[0][0];
     expect(view.outgoing).toEqual([]);
@@ -1189,17 +1248,27 @@ describe('sign payload — signingInputs', () => {
     expect(view.storageChanged).toBe(false);
   });
 
-  it('downloads the full summary binary when the download button is clicked', async () => {
-    mockAddress.fromAccountId.mockReturnValue({ toBech32: () => 'mtst1accbech_wxyz' });
-    setPayload(siPayload());
-    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ vaultEmpty: true, storageEmpty: true }));
+  it('downloads the signing-inputs bytes as transaction_summary.bin without decoding', async () => {
+    setPayload({ ...siPayload(), signingEffects: toSimulatedEffectsWire(measuredView()) });
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByText('downloadFullSummary')).toBeInTheDocument());
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('downloadFullSummary'));
 
-    expect(createObjSpy).toHaveBeenCalled();
-    expect(clickSpy).toHaveBeenCalled();
+    const anchor: HTMLAnchorElement = clickSpy.mock.contexts[0];
+    expect(anchor.download).toBe('transaction_summary.bin');
+    const blob: Blob = createObjSpy.mock.calls[0][0];
+    const downloaded = await new Promise<Buffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result instanceof ArrayBuffer) resolve(Buffer.from(reader.result));
+        else reject(new Error('expected the download blob to read as bytes'));
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(blob);
+    });
+    expect(downloaded).toEqual(Buffer.from(b64('signing-bytes'), 'base64'));
     // The revoke is scheduled on a 0ms timeout after the click.
     await waitFor(() => expect(revokeObjSpy).toHaveBeenCalled());
   });
@@ -1451,36 +1520,49 @@ describe('ConfirmPage custom transaction', () => {
     ...over
   });
 
-  it('swaps the declared view for the verified view after simulation', async () => {
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
+  const verifiedView = (account: string): TxAssetView => ({
+    account,
+    outgoing: [{ faucetId: 'fA', amount: 10n }],
+    incoming: [{ faucetId: 'fB', amount: 3n }],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 1,
+    outputNotesCreated: 1,
+    storageChanged: false
+  });
+
+  it('shows the verified view after simulation', async () => {
+    const noteFlow: NoteFlow = { inputCount: 0, inputs: [], outputs: [] };
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ view: verifiedView('mtst1acct'), noteFlow });
     setPayload(customPayload());
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1acct');
     expect((ctx as any).simulateCustomTransaction).toHaveBeenCalledWith('req-1');
+    expect(mockTransactionAssetView.mock.calls.at(-1)?.[0]).toMatchObject({ mode: 'verified', noteFlow });
   });
 
-  // Regression: on web-sdk 0.16 an ordinary single-sig account produces NO
-  // TransactionSummary (executeForSummary rejects TRANSACTION_ALREADY_AUTHORIZED),
-  // so the dry run returns the executed transaction instead. Ignoring it left the
-  // verified asset view unreachable for every such account, with the loss shown as
-  // a transient "could not verify by simulation".
-  it('shows the verified view from the executed transaction when no summary is produced', async () => {
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ executedBytes: 'execB64' });
+  // The executed dry run of a fully authorized account stays in the background; the window renders only the view
+  // the background decoded from it, so it has nothing of its own to decode.
+  it('renders the verified view the background decoded, whatever the account kind', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ view: verifiedView('mtst1executed') });
     setPayload(customPayload());
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1executed');
     expect(screen.queryByText('couldNotVerifyBySimulation')).not.toBeInTheDocument();
+    expect(simulatedBytesToView).not.toHaveBeenCalled();
+    expect(noteFlowFromSimulatedBytes).not.toHaveBeenCalled();
   });
 
   // The user approves only the simulated view: the sheet never shows the declared view in its place.
   const acceptButton = () => screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton);
 
   it('blocks the approval until the simulated view is on the sheet', async () => {
-    let finish: (value: { summaryBytes: string }) => void = () => undefined;
+    let finish: (value: { view: TxAssetView }) => void = () => undefined;
     (ctx as any).simulateCustomTransaction.mockReturnValue(
       new Promise(resolve => {
         finish = resolve;
@@ -1494,12 +1576,11 @@ describe('ConfirmPage custom transaction', () => {
     expect(acceptButton()).toBeDisabled();
 
     await act(async () => {
-      finish({ summaryBytes: 'sumB64' });
+      finish({ view: verifiedView('mtst1acct') });
     });
 
     await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
     expect(acceptButton()).not.toBeDisabled();
-    expect(mockDeclaredRequestToView).not.toHaveBeenCalled();
   });
 
   it('shows that the transaction cannot be approved when simulation errors, and no declared view', async () => {
@@ -1514,7 +1595,6 @@ describe('ConfirmPage custom transaction', () => {
     expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('customTransactionNotSimulated', 'inline');
     expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
     expect(acceptButton()).toBeDisabled();
-    expect(mockDeclaredRequestToView).not.toHaveBeenCalled();
   });
 
   it('shows that the transaction cannot be approved when requestBytes is absent', async () => {
@@ -1526,19 +1606,15 @@ describe('ConfirmPage custom transaction', () => {
     expect(acceptButton()).toBeDisabled();
   });
 
-  it('logs and shows that the transaction cannot be approved when the simulated summary does not decode', async () => {
-    mockSummaryBytesToView.mockImplementationOnce(() => {
-      throw new Error('bad summary bytes');
-    });
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
+  // A dry run the background could not decode answers with no view.
+  it('shows that the transaction cannot be approved when the background returns no view', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({});
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() =>
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Custom transaction simulation failed:', expect.any(Error))
-    );
-    expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
     expect(screen.queryByTestId('asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
   });
 
   it('shows that the transaction cannot be approved when simulation rejects', async () => {

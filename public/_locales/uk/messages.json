@@ -3223,6 +3223,14 @@
     "message": "Створіть резервну копію вашого гаманця",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Прихована фраза відновлення",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "Прихований приватний ключ",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Показати",
     "englishSource": "Show"
@@ -3364,12 +3372,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 символів, 1 цифра",
-    "englishSource": "8 characters, 1 number"
+    "message": "Щонайменше 12 символів",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Щонайменше 8 символів, серед яких має бути принаймні 1 цифра",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Використовуйте щонайменше 12 символів. Цифри, символи та поєднання великих і малих літер роблять пароль надійнішим.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Збережіть ці 12 слів і покладіть їх у надійне місце.",
@@ -4393,6 +4401,18 @@
     "message": "Ми не змогли знайти резервну копію на цьому Guardian. Перевірте URL-адресу або виберіть інший Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Ваші рахунки не можна було відновити: guardian повернув дані рахунку, які не збігаються з вашою фразою відновлення. Нічого не було відновлено.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Ваші рахунки не вдалося відновити: копія рахунку, що зберігається у guardian, ще не збігається з даними мережі Miden. Нічого не було відновлено. Спробуйте ще раз через кілька хвилин.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Не вдалося підключитися до мережі Miden для перевірки ваших рахунків. Ваша фраза відновлення правильна. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "Цей «guardian» працює в іншій мережі Miden, тому він не може відновити обліковий запис тут.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4464,6 +4484,10 @@
   "unknown": {
     "message": "Невідомо",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Включає notes, які ви ще не отримали",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Використано вхідні дані notes",
@@ -7467,6 +7491,14 @@
     "message": "Приховано від Home. Воно залишається у вашому гаманці, і його перекази все ще можна отримати.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Приховати токени «dust»",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Приховує токени вартістю менше ніж 0,001 долара зі списку ваших активів. Нативний токен завжди залишається видимим.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
+  },
   "hiddenAssets": {
     "message": "Приховані активи",
     "englishSource": "Hidden assets"
@@ -8679,5 +8711,71 @@
   "arcadePostingPolicy": {
     "message": "Кожна гра встановлює власні ставки, виплати та повернення коштів. Ознайомтеся з її правилами перед підтвердженням транзакції.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Автоматичне блокування",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Блокує гаманець, якщо він перебував у фоновому режимі протягом такого тривалого часу.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ хв",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "Очікування повернення",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Готові до отримання",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Повернення коштів",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Повернення коштів",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Ваші кошти залишаються на Miden. Ви можете отримати їх після блоку $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Отримайте свої кошти, щоб повернути їх у свій гаманець.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Ваші кошти повертаються на ваш гаманець.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Ваші кошти повернулися до вашого гаманця.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Кошти, надіслані на ваш рахунок.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Ця note була використана, але виплата не підтверджена. Перевірте пункт призначення та свій баланс у Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Не вдалося перевірити стан коштів. Спробуйте ще раз.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

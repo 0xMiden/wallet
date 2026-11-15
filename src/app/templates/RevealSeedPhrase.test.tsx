@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
@@ -35,6 +36,7 @@ const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 let mockHistoryPosition = 1;
 const mockClipboardWrite = jest.fn();
+const mockWriteSecret = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name?: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { Checkmark: 'Checkmark', CopyNew: 'CopyNew', EyeOff: 'EyeOff' }
+  IconName: { Checkmark: 'Checkmark', CopyNew: 'CopyNew', Eye: 'Eye', EyeOff: 'EyeOff' }
 }));
 
 // Mirrors the real header's focus contract rather than stubbing it away: the title is
@@ -189,6 +191,10 @@ jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
+jest.mock('lib/ui/secret-clipboard', () => ({
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
+}));
+
 // The warning's Close and back go through useBackWithFallback, which reads live
 // history: pop when there is an entry to pop, else route to the Settings root.
 jest.mock('lib/woozie', () => ({
@@ -227,6 +233,7 @@ describe('RevealSeedPhrase', () => {
     mockSecret = null;
     mockSeedStatus = 'stored';
     mockClipboardWrite.mockResolvedValue(undefined);
+    mockWriteSecret.mockResolvedValue(undefined);
     mockIsMobile = false;
     mockHistoryPosition = 1;
     mockHasHardwareProtector.mockResolvedValue(false);
@@ -290,6 +297,13 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'view')!.click();
     });
     await flush();
+  };
+
+  // Off mobile the words stay masked until Show.
+  const pressShow = async (container: HTMLElement) => {
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="seed-reveal-toggle"]')!.click();
+    });
   };
 
   const renderAndView = async () => {
@@ -933,6 +947,7 @@ describe('RevealSeedPhrase', () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
     const container = await renderAndView();
+    await pressShow(container);
 
     expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
     expect(mockSetSecret).toHaveBeenCalledWith('alpha beta gamma delta');
@@ -956,7 +971,27 @@ describe('RevealSeedPhrase', () => {
       copyBtn.click();
     });
     expect(mockHapticLight).toHaveBeenCalled();
-    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'alpha beta gamma delta' });
+    expect(mockWriteSecret).toHaveBeenCalledWith('alpha beta gamma delta');
+    expect(mockClipboardWrite).not.toHaveBeenCalled();
+  });
+
+  // Only a revealed private key hides itself after SECRET_REVEAL_MS; a phrase is being written down.
+  it('keeps a shown phrase on screen past SECRET_REVEAL_MS', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
+    const container = await renderAndView();
+    jest.useFakeTimers();
+    try {
+      await pressShow(container);
+      await act(async () => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+      });
+
+      expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+      expect(container.querySelector('[data-testid="seed-reveal-toggle"]')!.textContent).toContain('hide');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('shows the "copied" state once the write lands (the shared glyph morphed to a check + the label rolled to copied)', async () => {
@@ -976,14 +1011,14 @@ describe('RevealSeedPhrase', () => {
   // 20s, and a user who read "Copied" believes they hold a backup.
   it('keeps the copy label when the clipboard write is refused', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
-    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    mockWriteSecret.mockRejectedValue(new Error('write refused'));
     const container = await renderAndView();
 
     await act(async () => {
       (buttonWithText(container, 'copyToClipboard') as HTMLButtonElement).click();
     });
 
-    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(mockWriteSecret).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[data-copy-label] [data-present="true"]')!.textContent).toBe('copyToClipboard');
     expect(container.querySelector('[data-copy-icon] [data-name="Checkmark"]')).toBeNull();
   });
@@ -1008,6 +1043,7 @@ describe('RevealSeedPhrase', () => {
   it('draws the revealed words on the shared fill surface, with copy as a shared pill', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     const container = await renderAndView();
+    await pressShow(container);
 
     const grid = container.querySelector('[data-testid="seed-word-0"]')!.closest('.rounded-2xl')!;
     expect(grid).toHaveClass('bg-fill', 'rounded-2xl');
@@ -1015,6 +1051,63 @@ describe('RevealSeedPhrase', () => {
     // No lone white block and no bordered one-off copy button any more.
     expect(container.querySelector('.bg-white')).toBeNull();
     expect(container.querySelector('.border-border-card')).toBeNull();
+  });
+
+  it('off mobile the phrase is not in the DOM while masked, and Show reveals it', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+    expect(container.textContent).not.toContain('alpha');
+    const toggle = container.querySelector('[data-testid="seed-reveal-toggle"]')!;
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle.textContent).toBe('show');
+
+    await pressShow(container);
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle.textContent).toBe('hide');
+  });
+
+  it('off mobile the phrase hides again when the window loses focus', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    await pressShow(container);
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'));
+    });
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+  });
+
+  it('off mobile the phrase hides again when the document is hidden', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    await pressShow(container);
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    }
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+  });
+
+  it('on mobile the phrase shows at once with no Show control', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+    expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toBeNull();
   });
 
   it('runs handleHide from the revealed-view PageHeader back button', async () => {
@@ -1053,6 +1146,7 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'view')!.click();
     });
     await flush();
+    await pressShow(container);
 
     expect(container.textContent).toContain('alpha');
     const wordsTitle = container.querySelector('[data-testid="nh-title"]');
@@ -1126,6 +1220,7 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'retry')!.click();
     });
     await flush();
+    await pressShow(container);
 
     expect(container.querySelector('[data-tone="negative"]')).toBeNull();
     expect(container.textContent).toContain('alpha');
@@ -1490,6 +1585,25 @@ describe('RevealSeedPhrase', () => {
 
     expect(mockGoBack).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('starts masked again when a new secret replaces one that auto-hid', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    await pressShow(container);
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+
+    mockSecret = null;
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+    await clickView(container);
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+    expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toHaveAttribute('aria-pressed', 'false');
   });
 
   // -------------------------------------------------------------------------

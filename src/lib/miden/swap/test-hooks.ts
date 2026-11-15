@@ -218,6 +218,7 @@ export function installSwapConsumeHooks(): void {
             assertWasmHoldCurrent(hold, 'pswap-fill-handoff after the import');
             await signMc.syncState();
             assertWasmHoldCurrent(hold, 'pswap-fill-handoff after the second sync');
+            // eslint-disable-next-line no-restricted-syntax -- E2E-only PSWAP write, installed under MIDEN_E2E_TEST
             const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
               account: a.accountId,
               note: importedId,
@@ -311,6 +312,7 @@ export function installSwapConsumeHooks(): void {
           assertWasmHoldCurrent(hold, 'pswap-fill after the client build');
           await signMc.syncState();
           assertWasmHoldCurrent(hold, 'pswap-fill after sync');
+          // eslint-disable-next-line no-restricted-syntax -- E2E-only PSWAP write, installed under MIDEN_E2E_TEST
           const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
             account: a.accountId,
             note: noteId,
@@ -395,6 +397,7 @@ export function installSwapConsumeHooks(): void {
           assertWasmHoldCurrent(hold, 'pswap-cancel after the client build');
           await signMc.syncState();
           assertWasmHoldCurrent(hold, 'pswap-cancel after sync');
+          // eslint-disable-next-line no-restricted-syntax -- E2E-only PSWAP write, installed under MIDEN_E2E_TEST
           const result = await (signMc as unknown as { client: any }).client.pswap.cancelByOrder({
             orderId: a.orderId
           });

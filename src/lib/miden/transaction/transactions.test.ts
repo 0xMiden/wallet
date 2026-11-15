@@ -53,6 +53,16 @@ jest.mock('lib/miden/swap/balance', () => ({
 
 jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
 
+jest.mock('lib/miden-chain/native-asset', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset');
+  return {
+    ...actual,
+    getVerificationBaseFee: jest.fn(actual.getVerificationBaseFee),
+    refreshVerificationBaseFee: jest.fn(actual.refreshVerificationBaseFee),
+    getVerificationBaseFeeSync: jest.fn(actual.getVerificationBaseFeeSync)
+  };
+});
+
 jest.mock('../spending-limits/queue', () => ({
   spendsOf: (transaction: { faucetId: string; amount: bigint }) => [
     { faucetId: transaction.faucetId, amount: transaction.amount }
@@ -855,6 +865,7 @@ describe('transactions utilities', () => {
       amount: '100',
       senderAddress: 'sender',
       isBeingClaimed: false,
+      standardPayment: true,
       type: NoteTypeEnum.Private
     };
 
@@ -1307,7 +1318,14 @@ describe('transactions utilities', () => {
       }
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
-      const result = await initiateConsumeTransactionFromId('account-1', 'note-456');
+      const result = await initiateConsumeTransactionFromId(
+        'account-1',
+        'note-456',
+        undefined,
+        undefined,
+        undefined,
+        'bridge_reclaim'
+      );
 
       expect(mockTransactionsAdd).toHaveBeenCalled();
       expect(typeof result).toBe('string');
@@ -1922,6 +1940,24 @@ describe('transactions utilities', () => {
     });
 
     describe('the in-realm submit crossing (#1081)', () => {
+      const nativeAsset =
+        jest.requireMock<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset');
+      const actualNativeAsset =
+        jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset');
+      beforeEach(() => {
+        jest.mocked(nativeAsset.getVerificationBaseFee).mockResolvedValue(0);
+        jest.mocked(nativeAsset.refreshVerificationBaseFee).mockResolvedValue(0);
+        jest.mocked(nativeAsset.getVerificationBaseFeeSync).mockReturnValue(0);
+      });
+      afterEach(() => {
+        jest.mocked(nativeAsset.getVerificationBaseFee).mockImplementation(actualNativeAsset.getVerificationBaseFee);
+        jest
+          .mocked(nativeAsset.refreshVerificationBaseFee)
+          .mockImplementation(actualNativeAsset.refreshVerificationBaseFee);
+        jest
+          .mocked(nativeAsset.getVerificationBaseFeeSync)
+          .mockImplementation(actualNativeAsset.getVerificationBaseFeeSync);
+      });
       const guardianProvider = {
         getAccounts: async () => [],
         getPublicKeyForCommitment: async () => '',
@@ -2125,7 +2161,8 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     // The execute is effect-checked, so the chain fee is decided before it runs.
     jest.doMock('lib/miden-chain/native-asset', () => ({
       ...jest.requireActual('lib/miden-chain/native-asset'),
-      getVerificationBaseFee: jest.fn(async () => 0)
+      getVerificationBaseFee: jest.fn(async () => 0),
+      refreshVerificationBaseFee: jest.fn(async () => 0)
     }));
 
     jest.doMock('./cancel', () => {

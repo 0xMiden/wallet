@@ -3,9 +3,8 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
-import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem } from 'components/ui/AssetListItem';
-import { adaptiveFormatterFor } from 'lib/i18n/numbers';
+import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { normalizedFaucetId, SwapToken } from 'lib/miden/swap/tokens';
@@ -91,8 +90,6 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 const fiatValue = balancesLoading
                   ? undefined
                   : listedFiatValue(tokenPrices, token.priceSymbol, balance, scaleIsKnown);
-                const formatQuantity = adaptiveFormatterFor(balance);
-                const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
                 const priceStatus = balancesLoading
                   ? token.priceSymbol
                     ? t('loading')
@@ -114,15 +111,20 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                     name={label}
                     amount={
                       !balancesLoading && scaleIsKnown ? (
-                        <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${label}`} />
+                        <TokenAmount
+                          amount={balance}
+                          symbol={label}
+                          animated
+                          rounding="down"
+                          trimTrailingZeros={false}
+                          minimumFractionDigits={2}
+                        />
                       ) : (
                         label
                       )
                     }
                     price={
-                      fiatValue === undefined ? undefined : (
-                        <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
-                      )
+                      fiatValue === undefined ? undefined : <UsdAmount amount={fiatValue} animated grouping={false} />
                     }
                     priceStatus={priceStatus}
                     selected={token.faucetId === currentFaucetId}
