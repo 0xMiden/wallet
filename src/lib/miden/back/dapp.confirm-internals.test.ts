@@ -184,9 +184,12 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 const mockNoteFlowFromTransaction = jest.fn((transaction: unknown) =>
   jest.requireActual('app/confirm/note-flow').noteFlowFromTransaction(transaction)
 );
+// The dry run's note flow, which the fixture summary bytes cannot decode: none unless a case gives one.
+const mockNoteFlowFromSimulatedBytes = jest.fn((_result: unknown): unknown => undefined);
 jest.mock('app/confirm/note-flow', () => ({
   ...jest.requireActual('app/confirm/note-flow'),
-  noteFlowFromTransaction: (transaction: unknown) => mockNoteFlowFromTransaction(transaction)
+  noteFlowFromTransaction: (transaction: unknown) => mockNoteFlowFromTransaction(transaction),
+  noteFlowFromSimulatedBytes: (result: unknown) => mockNoteFlowFromSimulatedBytes(result)
 }));
 
 // This suite supplies the dry-run view directly so fixture summary bytes are not decoded.
@@ -285,6 +288,8 @@ beforeEach(() => {
   mockFeeKnownAbsent.mockReturnValue(false);
   mockSyncFee.mockReset();
   mockSyncFee.mockReturnValue(2);
+  mockNoteFlowFromSimulatedBytes.mockReset();
+  mockNoteFlowFromSimulatedBytes.mockReturnValue(undefined);
   jest.useFakeTimers({ legacyFakeTimers: false });
 });
 
@@ -1095,6 +1100,46 @@ describe('requestConfirm - DAppSimulateTransactionRequest branch', () => {
     expect(browser.windows.remove).not.toHaveBeenCalled();
 
     // Clean up by auto-declining.
+    jest.advanceTimersByTime(121_000);
+    p.catch(() => {});
+  });
+
+  it('answers the simulate request with the note flow the dry run measured, decoding nothing again', async () => {
+    mockSimulatedView = simulatedViewFixture;
+    const flow = (faucetId: string) => ({
+      inputCount: 0,
+      inputs: [],
+      outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId, amount: 500n }] }]
+    });
+    mockNoteFlowFromSimulatedBytes.mockReturnValueOnce(flow('faucet-flow')).mockReturnValue(flow('faucet-other'));
+    const p = dapp.requestTransaction('https://test.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'a1',
+      transaction: {
+        payload: {
+          address: 'a1',
+          recipientAddress: 'bob',
+          transactionRequest: 'b64req'
+        }
+      }
+    } as never);
+    await jest.advanceTimersByTimeAsync(0);
+
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const url = browser.windows.create.mock.calls.at(-1)?.[0]?.url || '';
+    const id = url.match(/id=([^&]+)/)?.[1];
+    expect(id).toBeTruthy();
+
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'sim-flow-port' };
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+    const result = await listener({ type: MidenMessageType.DAppSimulateTransactionRequest, id }, port);
+
+    expect(mockNoteFlowFromSimulatedBytes).toHaveBeenCalledTimes(1);
+    expect(mockNoteFlowFromSimulatedBytes).toHaveBeenCalledWith({ summaryBytes: 'confirm-sim-sum' });
+    expect(fromSimulatedEffectsWire(result.effects).noteFlow).toEqual(flow('faucet-flow'));
+    expect(browser.windows.remove).not.toHaveBeenCalled();
+
     jest.advanceTimersByTime(121_000);
     p.catch(() => {});
   });
