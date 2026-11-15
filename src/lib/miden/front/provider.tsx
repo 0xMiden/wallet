@@ -9,6 +9,7 @@ import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-curren
 import { BackgroundLockManager } from 'lib/lock-up/BackgroundLockManager';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { prunePortfolioObservations } from 'lib/miden/portfolio-observations';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
@@ -19,6 +20,8 @@ import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 import { mirrorBackgroundSettings } from 'lib/settings/helpers';
+import { WalletStatus } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, TokensMetadataProvider } from './assets';
@@ -193,6 +196,16 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
  */
 const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
   const { ready } = useMidenContext();
+  const status = useWalletStore(state => state.status);
+  const accounts = useWalletStore(state => state.accounts);
+
+  useEffect(() => {
+    if (!ready || status !== WalletStatus.Ready) return;
+    void prunePortfolioObservations(accounts.map(account => account.publicKey)).catch(() => {
+      // History is local, best-effort data; failure must not hold wallet readiness or financial actions.
+      console.warn('[portfolio] account history cleanup failed');
+    });
+  }, [ready, status, accounts]);
 
   // On extension: send SyncRequest to service worker every 3s (replaces AutoSync)
   useSyncTrigger();

@@ -3812,6 +3812,34 @@ describe('HomePrompts', () => {
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending&view=list');
   });
 
+  it('keeps the pending-notes notice but hides its monetary body in Command privacy mode', async () => {
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const notes: PendingNoteValue[] = [
+      {
+        id: 'pending-price',
+        amount: '125000000',
+        faucetId: TEST_TOKEN_IETH.faucetId,
+        metadata: { symbol: TEST_TOKEN_IETH.symbol, name: 'Ether', decimals: TEST_TOKEN_IETH.decimals }
+      }
+    ];
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={{ ETH: { price: 2, change24h: 0, percentageChange24h: 0 } }}
+        maskMonetaryValues
+      />
+    );
+    await act(async () => {});
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('commandMaskedBalance');
+    expect(screen.queryByText('$2.50')).not.toBeInTheDocument();
+  });
+
   it('revalues stable pending notes on verified price asset changes and removes an unavailable total', async () => {
     _setSwapTokensForTest(undefined);
     mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');

@@ -11,6 +11,7 @@ import { CommandDock } from './CommandDock';
 import { CommandHeader } from './CommandHeader';
 import { CommandHomePrompts } from './CommandHomePrompts';
 import { CommandPalette } from './CommandPalette';
+import { CommandPortfolio } from './CommandPortfolio';
 import { CommandWorkbench } from './CommandWorkbench';
 
 export function CommandShell({
@@ -69,7 +70,7 @@ export function CommandShell({
               <main className="relative min-h-0 flex-1 overflow-y-auto">
                 {route.kind === 'dashboard' && (
                   <>
-                    {children}
+                    <CommandPortfolio scope={scope} />
                     <CommandHomePrompts />
                   </>
                 )}

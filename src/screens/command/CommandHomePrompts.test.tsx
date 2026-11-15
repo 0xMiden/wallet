@@ -23,7 +23,8 @@ jest.mock('app/templates/HomePrompts', () => ({
     balancesLoading,
     claimableNotes,
     fundingNotes,
-    tokenPrices
+    tokenPrices,
+    maskMonetaryValues
   }: {
     account: { publicKey: string };
     balances: unknown[];
@@ -31,6 +32,7 @@ jest.mock('app/templates/HomePrompts', () => ({
     claimableNotes: unknown[];
     fundingNotes?: unknown[];
     tokenPrices: unknown;
+    maskMonetaryValues: boolean;
   }) => (
     <div
       data-testid="home-prompts-inputs"
@@ -40,6 +42,7 @@ jest.mock('app/templates/HomePrompts', () => ({
       data-attention={claimableNotes === mockManualNotes ? 'filtered' : 'wrong'}
       data-funding={fundingNotes === undefined ? 'unloaded' : fundingNotes === mockRawNotes ? 'unfiltered' : 'wrong'}
       data-prices={tokenPrices === mockPrices ? 'current' : 'wrong'}
+      data-masked={String(maskMonetaryValues)}
     />
   )
 }));
@@ -55,6 +58,7 @@ jest.mock('lib/miden/front/auto-managed-notes', () => ({
   excludeAutoManagedNotes: (...args: [unknown, string, boolean, number]) => mockExcludeAutoManagedNotes(...args)
 }));
 jest.mock('lib/settings/helpers', () => ({ isAutoConsumeEnabled: () => true }));
+jest.mock('./useCommandPrivacy', () => ({ useCommandPrivacy: () => [true, jest.fn()] }));
 jest.mock('lib/store', () => ({
   useWalletStore: (pick: (state: { tokenPrices: typeof mockPrices }) => unknown) => pick({ tokenPrices: mockPrices })
 }));
@@ -73,6 +77,7 @@ it('hands the existing notice controller current account, balances, prices and d
   expect(prompts).toHaveAttribute('data-attention', 'filtered');
   expect(prompts).toHaveAttribute('data-funding', 'unfiltered');
   expect(prompts).toHaveAttribute('data-prices', 'current');
+  expect(prompts).toHaveAttribute('data-masked', 'true');
   expect(mockExcludeAutoManagedNotes).toHaveBeenCalledWith(mockRawNotes, 'native-fee-token', true, 5);
   mockCached = true;
   view.rerender(<CommandHomePrompts />);

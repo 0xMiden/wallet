@@ -1,0 +1,90 @@
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
+import { readBalanceSnapshot } from 'lib/miden/balance-snapshot';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { tokenQuote } from 'lib/miden/swap/tokens';
+import type { AccountScope } from 'lib/miden-chain/account-scope';
+import { isNominalQuote } from 'lib/prices/binance';
+import { isFixedQuote } from 'lib/prices/fixed';
+import { useWalletStore } from 'lib/store';
+
+const CURRENT_MS = 15 * 60_000;
+const EMPTY_ROWS: TokenBalanceData[] = [];
+
+export function useCommandPortfolio(scope: AccountScope) {
+  const storedRows = useWalletStore(state => state.balances[scope.accountId]);
+  const isLoading = useWalletStore(
+    state => state.balancesLoading[scope.accountId] ?? state.balances[scope.accountId] === undefined
+  );
+  const rows = storedRows ?? EMPTY_ROWS;
+  const tokenPrices = useWalletStore(state => state.tokenPrices);
+  const pricesStatus = useWalletStore(state => state.tokenPricesStatus);
+  const { isHidden, loaded: hiddenReady } = useHiddenTokens(scope.accountId);
+
+  let held = false;
+  const pricedRows: TokenBalanceData[] = [];
+  let partial = false;
+  let staleQuote = false;
+  const priced: string[] = [];
+  const unpriced: string[] = [];
+  const assets = rows.filter(row => !isHidden(row.tokenId));
+  for (const row of assets) {
+    if (!Number.isFinite(row.balance) || row.balance <= 0) continue;
+    held = true;
+    const quote = tokenQuote(tokenPrices, row.tokenId, row.metadata.symbol);
+    if (
+      !hasKnownScale(row.metadata) ||
+      !quote ||
+      isNominalQuote(quote) ||
+      !Number.isFinite(quote.price) ||
+      quote.price <= 0
+    ) {
+      partial = true;
+      unpriced.push(row.tokenId);
+      continue;
+    }
+    if (
+      !isFixedQuote(quote) &&
+      (!quote.observedAt || Date.now() - quote.observedAt > CURRENT_MS || quote.observedAt > Date.now())
+    ) {
+      staleQuote = true;
+      partial = true;
+      unpriced.push(row.tokenId);
+      continue;
+    }
+    const value = row.balance * quote.price;
+    if (!Number.isFinite(value)) {
+      partial = true;
+      unpriced.push(row.tokenId);
+      continue;
+    }
+    pricedRows.push(row);
+    priced.push(row.tokenId);
+  }
+  const proof = storedRows === rows ? readBalanceSnapshot(rows, scope) : null;
+  const current = Boolean(
+    proof?.capturedAt && proof.capturedAt <= Date.now() && Date.now() - proof.capturedAt <= CURRENT_MS
+  );
+  const total = valuedBalanceTotal(pricedRows, tokenPrices).totalFiat;
+  const value =
+    current && hiddenReady && pricesStatus === 'ready' && (!held || pricedRows.length > 0) ? String(total) : null;
+  const coverage: 'complete' | 'partial' = partial ? 'partial' : 'complete';
+  return {
+    assets: current && hiddenReady ? assets : [],
+    tokenPrices,
+    value,
+    coverage,
+    coverageKey: `priced:${priced.sort().join(',')}|unpriced:${unpriced.sort().join(',')}`,
+    capturedAt: proof?.capturedAt,
+    current: current && !isLoading,
+    canRecord:
+      current &&
+      rows.length > 0 &&
+      !isLoading &&
+      hiddenReady &&
+      pricesStatus === 'ready' &&
+      !staleQuote &&
+      value !== null
+  };
+}

@@ -14,6 +14,9 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 jest.mock('./CommandHomePrompts', () => ({
   CommandHomePrompts: () => <div data-testid="command-home-prompts" />
 }));
+jest.mock('./CommandPortfolio', () => ({
+  CommandPortfolio: () => <div data-testid="command-portfolio">Live wallet portfolio</div>
+}));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   goBack: jest.fn(),
@@ -95,6 +98,7 @@ it('mounts the existing home notices only in the ready Command dashboard, not in
     </CommandShell>
   );
   expect(screen.getByTestId('command-home-prompts')).toBeVisible();
+  expect(screen.getByTestId('command-portfolio')).toBeVisible();
   rerender(
     <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
       <div>Send controller</div>
@@ -152,12 +156,17 @@ it('keeps a provider consumer’s unsigned literal draft on minimize and clears 
   expect(navigate).toHaveBeenCalledWith('/');
   rerender(
     <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  rerender(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
       <Probe />
     </CommandShell>
   );
   expect(screen.getByText('7.123456')).toBeInTheDocument();
   rerender(
-    <CommandShell scope={{ ...scope, accountId: 'account-b' }} route={{ kind: 'dashboard' }}>
+    <CommandShell scope={{ ...scope, accountId: 'account-b' }} route={{ kind: 'flow', action: 'send' }}>
       <Probe />
     </CommandShell>
   );

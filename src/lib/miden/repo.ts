@@ -21,7 +21,8 @@ import { PersistedSpendingLimit } from './spending-limits/types';
 
 export enum Table {
   Transactions = 'transactions',
-  SpendingLimits = 'spendingLimits'
+  SpendingLimits = 'spendingLimits',
+  PortfolioObservations = 'portfolioObservations'
 }
 
 /**
@@ -52,7 +53,7 @@ export const SPENDING_LIMITS_V17_STORE = indexes('[accountId+faucetId]', 'accoun
 /** The current `transactions` shape (2): the 1.7 indexes plus `type`. */
 export const TRANSACTIONS_V2_STORE = indexes(TRANSACTIONS_V17_STORE, 'type');
 
-const TRANSACTIONS_V3_2_STORE = indexes(
+export const TRANSACTIONS_V3_2_STORE = indexes(
   TRANSACTIONS_V2_STORE,
   '[badgeNetwork+status+type]',
   '[badgeNetwork+status+type+badgeEvidenceRevision]',
@@ -404,6 +405,13 @@ function defineSchema(target: Dexie): void {
         });
     });
 
+  target.version(3.3).stores({
+    [Table.Transactions]: TRANSACTIONS_V3_2_STORE,
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE,
+    [Table.PortfolioObservations]:
+      '[accountId+network+rpcUrl+currency+bucket],accountId,[accountId+network+rpcUrl+currency+capturedAt]'
+  });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -652,6 +660,7 @@ function isPlaceableInitiatedAt(value: unknown): value is number {
 }
 
 export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
+export const portfolioObservations = db.table(Table.PortfolioObservations);
 
 /**
  * Builds an independent, uniquely-named database running the exact same version chain as the

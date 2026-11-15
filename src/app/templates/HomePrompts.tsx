@@ -251,6 +251,8 @@ interface HomePromptsProps {
   // mint land and left arrival to the balance alone.
   fundingNotes: readonly PendingNoteValue[] | undefined;
   tokenPrices: TokenPrices;
+  /** Command-only display mask; calculation and prompt lifecycle still use the unmasked values. */
+  maskMonetaryValues?: boolean;
 }
 
 export const HomePrompts: FC<HomePromptsProps> = ({
@@ -259,7 +261,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   balancesLoading,
   claimableNotes,
   fundingNotes,
-  tokenPrices
+  tokenPrices,
+  maskMonetaryValues = false
 }) => {
   const { t } = useTranslation();
   useBridgeConfigSnapshot({ load: false });
@@ -1078,9 +1081,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
                 ? {
                     icon: IconName.Checkmark,
                     label: t('faucetPromptFunded'),
-                    subLabel: formattedFundedMintUsdTotal
-                      ? t('faucetPromptFundedSub', { amount: formattedFundedMintUsdTotal })
-                      : t('faucetPromptFundedSubGeneric'),
+                    subLabel:
+                      formattedFundedMintUsdTotal && !maskMonetaryValues
+                        ? t('faucetPromptFundedSub', { amount: formattedFundedMintUsdTotal })
+                        : t('faucetPromptFundedSubGeneric'),
                     tone: 'positive' as const
                   }
                 : undefined
@@ -1097,7 +1101,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             // The count carries the fact; the money is the `bodyValue`, so it is read rather
             // than scanned past in the middle of a sentence.
             body: t(WALLET_PROMPT_DEFINITIONS[type].bodyKey, { count: pendingNoteIds.length }),
-            bodyValue: formattedPendingNotesUsdTotal
+            bodyValue:
+              formattedPendingNotesUsdTotal && maskMonetaryValues
+                ? t('commandMaskedBalance')
+                : formattedPendingNotesUsdTotal
           };
         case WalletPromptType.HotKeyHardwareUnavailable:
           return {
@@ -1134,6 +1141,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       faucetStatusIndicator,
       formattedFundedMintUsdTotal,
       formattedPendingNotesUsdTotal,
+      maskMonetaryValues,
       fundingReady,
       fundWallet,
       rearmedWhileMintClaimable,

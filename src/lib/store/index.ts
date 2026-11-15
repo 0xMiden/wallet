@@ -260,7 +260,7 @@ export function withLandedBalances(
     balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
   };
   const finalRows = result.balances[accountAddress];
-  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot);
+  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot, accountAddress);
   return result;
 }
 

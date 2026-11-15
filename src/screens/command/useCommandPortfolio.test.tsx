@@ -1,0 +1,198 @@
+import React from 'react';
+
+import { act, render, screen } from '@testing-library/react';
+
+import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { useWalletStore } from 'lib/store';
+
+import { useCommandPortfolio } from './useCommandPortfolio';
+
+const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://node-a' };
+let rows: TokenBalanceData[] = [];
+const mockUseAllBalances = jest.fn();
+let hidden = false;
+let hiddenReady = true;
+const quote = { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now() };
+
+jest.mock('lib/miden/front', () => ({
+  useAllBalances: () => mockUseAllBalances(),
+  useAllTokensBaseMetadata: () => ({})
+}));
+jest.mock('app/hooks/useHiddenTokens', () => ({
+  useHiddenTokens: () => ({ loaded: hiddenReady, isHidden: (id: string) => hidden && id === 'hidden' })
+}));
+jest.mock('lib/miden/swap/tokens', () => ({
+  tokenQuote: (prices: Record<string, typeof quote>, id: string) => prices[id]
+}));
+jest.mock('lib/prices/binance', () => ({ isNominalQuote: (price: { price: number }) => price.price === 1 }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveRpcUrl: () => 'https://node-a'
+}));
+
+const row = (tokenId: string, balance: number, unknown = false): TokenBalanceData => ({
+  tokenId,
+  tokenSlug: tokenId,
+  metadata: { symbol: tokenId, name: tokenId, decimals: 6, scaleIsUnknown: unknown },
+  balance,
+  balanceBaseUnits: String(balance * 1_000_000),
+  fiatPrice: 2,
+  change24h: 0
+});
+function Probe({ requested = scope }: { requested?: typeof scope }) {
+  const portfolio = useCommandPortfolio(requested);
+  return (
+    <output>
+      {JSON.stringify({
+        value: portfolio.value,
+        coverage: portfolio.coverage,
+        coverageKey: portfolio.coverageKey,
+        assets: portfolio.assets.map(asset => asset.tokenId),
+        canRecord: portfolio.canRecord
+      })}
+    </output>
+  );
+}
+
+beforeEach(() => {
+  rows = [row('priced', 3)];
+  hidden = false;
+  hiddenReady = true;
+  mockUseAllBalances.mockClear();
+  useWalletStore.setState({
+    balances: { 'account-a': rows },
+    tokenPrices: { priced: quote },
+    tokenPricesStatus: 'ready'
+  });
+});
+
+it('uses the existing landed store rows without starting a second balance polling hook', () => {
+  render(<Probe />);
+  expect(mockUseAllBalances).not.toHaveBeenCalled();
+});
+
+it('refuses a zero placeholder even if a provenance proof was attached before native discovery', () => {
+  rows = [];
+  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPricesStatus: 'ready' });
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+});
+
+it('requires a successful current RPC read and a ready quote before publishing a USD observation', () => {
+  const { rerender } = render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+  expect(screen.getByRole('status').textContent).toContain('"value":null');
+  expect(screen.getByRole('status').textContent).toContain('"assets":[]');
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  rerender(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":"6"');
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":true');
+  rerender(<Probe requested={{ ...scope, rpcUrl: 'https://node-b' }} />);
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+  expect(screen.getByRole('status').textContent).toContain('"value":null');
+  expect(screen.getByRole('status').textContent).toContain('"assets":[]');
+});
+
+it('does not reveal assets or a subtotal until the hidden-token choice is loaded', () => {
+  hiddenReady = false;
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":null');
+  expect(screen.getByRole('status').textContent).toContain('"assets":[]');
+});
+
+it('does not record a partial USD figure when holdings have unknown scale, missing or stale prices, or hidden assets', () => {
+  rows = [row('priced', 3), row('unpriced', 4), row('hidden', 5), row('unknown', 6, true)];
+  hidden = true;
+  useWalletStore.setState({
+    balances: { 'account-a': rows },
+    tokenPrices: { priced: quote, hidden: quote, unknown: quote },
+    tokenPricesStatus: 'ready'
+  });
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"coverage":"partial"');
+  expect(screen.getByRole('status').textContent).toContain('"coverageKey":"priced:priced|unpriced:unknown,unpriced"');
+  expect(screen.getByRole('status').textContent).toContain('"assets":["priced","unpriced","unknown"]');
+  expect(screen.getByRole('status').textContent).toContain('"value":"6"');
+});
+
+it('refuses nominal or stale quotes and a balance proof from an old read', () => {
+  rows = [row('priced', 3)];
+  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: { priced: { ...quote, price: 1 } } });
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  const view = render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":null');
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+  act(() =>
+    useWalletStore.setState({ tokenPrices: { priced: { ...quote, observedAt: Date.now() - 2 * 15 * 60_000 } } })
+  );
+  view.rerender(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+  act(() => useWalletStore.setState({ tokenPrices: { priced: quote } }));
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now() - 2 * 15 * 60_000
+    },
+    scope.accountId
+  );
+  view.rerender(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+});

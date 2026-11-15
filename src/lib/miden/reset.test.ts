@@ -9,6 +9,7 @@ const mockDbDelete = jest.fn();
 const mockDbOpen = jest.fn();
 const mockTransactionsClear = jest.fn();
 const mockSpendingLimitsClear = jest.fn();
+const mockPortfolioObservationsClear = jest.fn();
 jest.mock('lib/miden/repo', () => ({
   db: {
     delete: () => mockDbDelete(),
@@ -19,6 +20,9 @@ jest.mock('lib/miden/repo', () => ({
   },
   spendingLimits: {
     clear: () => mockSpendingLimitsClear()
+  },
+  portfolioObservations: {
+    clear: () => mockPortfolioObservationsClear()
   }
 }));
 
@@ -122,6 +126,7 @@ beforeEach(() => {
     mockDbOpen,
     mockTransactionsClear,
     mockSpendingLimitsClear,
+    mockPortfolioObservationsClear,
     mockBrowserStorageRemove,
     mockForgetDeveloperNetworkChoice,
     _g.__resetTest.prefStub.remove
@@ -133,6 +138,18 @@ beforeEach(() => {
 });
 
 describe('clearStorage', () => {
+  it('still drops observations if a transaction-table clear rejects after the vault wipe', async () => {
+    mockTransactionsClear.mockRejectedValueOnce(new Error('transaction table blocked'));
+    await expect(clearStorage()).rejects.toThrow('transaction table blocked');
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops observations on both soft and key-value-only wallet wipes', async () => {
+    await clearStorage(false);
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+    await clearStorage();
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(2);
+  });
   it('clears the transactions table by default and never deletes the DB', async () => {
     await clearStorage();
     expect(mockTransactionsClear).toHaveBeenCalled();
@@ -429,7 +446,7 @@ describe('resetStorageDestructive', () => {
     expect(mockDbDelete).not.toHaveBeenCalled();
   });
 
-  it('clears the transactions and spending limits when the delete rejects', async () => {
+  it('clears the transactions, spending limits and observations when the delete rejects', async () => {
     const deleteError = new Error('delete blocked');
     mockDbDelete.mockRejectedValueOnce(deleteError);
 
@@ -437,6 +454,7 @@ describe('resetStorageDestructive', () => {
 
     expect(mockTransactionsClear).toHaveBeenCalledTimes(1);
     expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
   });
 
   it('still drops the developer network choice, and rejects with the delete error, when the delete rejects', async () => {
@@ -549,6 +567,7 @@ describe('clearClientStorage', () => {
     sessionStorage.setItem('draft', 'd');
 
     await clearClientStorage();
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
 
     expect(Object.keys(localStorage)).toEqual(['miden_wallet_endpoint_overrides']);
     expect(sessionStorage.getItem('open-link:taken')).toBe(

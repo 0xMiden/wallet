@@ -153,6 +153,12 @@ jest.mock('components/MainnetCountdownBanner', () => ({
   MainnetCountdownBanner: () => <div data-testid="mainnet-countdown-banner" />
 }));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
+jest.mock('screens/command/CommandPortfolio', () => ({
+  CommandPortfolio: () => <div data-testid="command-portfolio" />
+}));
+jest.mock('screens/command/CommandHomePrompts', () => ({
+  CommandHomePrompts: () => <div data-testid="command-notices" />
+}));
 jest.mock('app/pages/Earn', () => ({ __esModule: true, default: () => <div data-testid="earn-page" /> }));
 jest.mock('app/pages/Me', () => ({ __esModule: true, default: () => <div data-testid="me" /> }));
 jest.mock('app/pages/MyBadges', () => ({ __esModule: true, default: () => <div data-testid="my-badges" /> }));
@@ -315,6 +321,13 @@ function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null
 }
 
 describe('Command routing', () => {
+  it('mounts the real Command dashboard slot without a hidden Explore page', () => {
+    mockExtension.value = true;
+    renderAt('/', { ...ready, fullPage: true });
+    expect(screen.getByTestId('command-portfolio')).toBeInTheDocument();
+    expect(screen.getByTestId('command-notices')).toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
   afterEach(() => act(() => backgroundLockPending.set(false)));
 
   it('renders one shell and just the active controller for an extension FullPage', () => {

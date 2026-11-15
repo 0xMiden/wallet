@@ -9,8 +9,11 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { isAutoConsumeEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 
-/** Reuse the real Home notices while the Command portfolio slot awaits Task 3. */
+import { useCommandPrivacy } from './useCommandPrivacy';
+
+/** This remains Command's single balance-polling owner and keeps the real Home notice lifecycle. */
 export function CommandHomePrompts(): React.ReactElement {
+  const [maskMonetaryValues] = useCommandPrivacy();
   const account = useAccount();
   const metadata = useAllTokensBaseMetadata();
   const { data: balances = [], isLoading: balancesLoading } = useAllBalances(account.publicKey, metadata);
@@ -32,6 +35,7 @@ export function CommandHomePrompts(): React.ReactElement {
       claimableNotes={manuallyClaimableNotes}
       fundingNotes={claimableNotesAreCached ? undefined : claimableNotes}
       tokenPrices={tokenPrices}
+      maskMonetaryValues={maskMonetaryValues}
     />
   );
 }
