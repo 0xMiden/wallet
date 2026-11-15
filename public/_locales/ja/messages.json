@@ -3343,6 +3343,62 @@
     "message": "全画面表示できませんでした。もう一度お試しください。",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "ポートフォリオ",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "ウォレットの残高",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "残高を非表示にする",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "残高を表示する",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "非表示",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "残高利用不可",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "価格不明",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "部分的な評価 — 一部の資産には検証済みの米ドル価格が設定されていない",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "ウォレットの履歴",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "履歴の範囲",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "まだ観察例が不十分です",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "一部の間隔や評価範囲が欠落しています",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "観測された履歴を検査する",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "本デバイスに関する注意事項のみ。空白は埋めない。",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "はじめに",
     "englishSource": "Get started"

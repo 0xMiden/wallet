@@ -3343,6 +3343,62 @@
     "message": "Nie udało się otworzyć trybu pełnoekranowego. Spróbuj ponownie.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "Portfel",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "Saldo portfela",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "Ukryj salda",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Pokaż salda",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Ukryte",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Saldo niedostępne",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Cena niedostępna",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Wycena częściowa – niektóre aktywa nie mają zweryfikowanej ceny w USD",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Historia portfela",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Zakres historii",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Zbyt mało obserwacji",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Brakuje niektórych przedziałów czasowych lub zakresu wyceny",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Sprawdź historię obserwacji",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Uwagi dotyczą wyłącznie tego urządzenia. Luki nie są wypełniane.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Zacznij",
     "englishSource": "Get started"

@@ -3343,6 +3343,62 @@
     "message": "Não foi possível abrir em tela cheia. Tente novamente.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "Portfólio",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "Saldo da carteira",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "Ocultar saldos",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Mostrar saldos",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Oculto",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Saldo indisponível",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Preço indisponível",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Avaliação parcial — alguns ativos não possuem preço verificado em dólares americanos",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Histórico da carteira observado",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Intervalo do histórico",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Ainda não há observações suficientes",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Faltam alguns intervalos ou cobertura de avaliação",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Inspecionar o histórico observado",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Observações exclusivas sobre este dispositivo. Lacunas não são preenchidas.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Comece agora",
     "englishSource": "Get started"

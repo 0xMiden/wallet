@@ -3343,6 +3343,62 @@
     "message": "Impossible d’afficher en plein écran. Veuillez réessayer.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "Portefeuille",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "Solde du portefeuille",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "Masquer les soldes",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Afficher les soldes",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Caché",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Solde indisponible",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Prix indisponible",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Évaluation partielle — certains actifs n’ont pas de cours en USD vérifié",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Historique du portefeuille observé",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Plage historique",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Pas encore suffisamment d’observations",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Il manque certains intervalles ou certaines couvertures d’évaluation",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Consulter l’historique des transactions observées",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Remarques concernant uniquement cet appareil. Les espaces vides ne sont pas comblés.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Commencer",
     "englishSource": "Get started"

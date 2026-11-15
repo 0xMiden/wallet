@@ -3343,6 +3343,62 @@
     "message": "Не удалось перейти в полноэкранный режим. Попробуйте ещё раз.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "Портфель",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "Баланс кошелька",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "Скрыть остатки",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Показать балансы",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Скрыто",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Баланс недоступен",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Цена недоступна",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Частичная оценка — у некоторых активов отсутствует подтверждённая цена в долларах США",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "История кошелька по наблюдениям",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Диапазон истории",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Пока недостаточно наблюдений",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Отсутствуют некоторые интервалы или диапазоны оценки",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Проверьте историю наблюдений",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Замечания касаются исключительно данного устройства. Пробелы не заполняются.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Начать работу",
     "englishSource": "Get started"

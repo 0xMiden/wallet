@@ -3343,6 +3343,62 @@
     "message": "No se ha podido abrir en pantalla completa. Inténtalo de nuevo.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "Cartera",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "Saldo de la cartera",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "Ocultar saldos",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Mostrar saldos",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Oculto",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Saldo no disponible",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Precio no disponible",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Valoración parcial: algunos activos no tienen un precio verificado en USD",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Historial de la cartera observado",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Intervalo de historial",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Aún no hay suficientes observaciones",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Faltan algunos intervalos o la cobertura de valoración",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Revisar el historial observado",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Observaciones exclusivas sobre este dispositivo. Las lagunas no se rellenan.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Empezar",
     "englishSource": "Get started"

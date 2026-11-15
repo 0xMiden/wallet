@@ -3343,6 +3343,62 @@
     "message": "전체 화면으로 열 수 없습니다. 다시 시도해 주세요.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "포트폴리오",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "지갑 잔액",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "잔액 숨기기",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "잔액 표시",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "숨김",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "잔액 조회 불가",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "가격 미제공",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "부분 평가 - 일부 자산은 검증된 USD 가격이 없습니다",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "관찰된 지갑 내역",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "내역 범위",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "아직 충분한 관찰 결과가 없습니다",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "일부 간격이나 평가 범위가 누락되어 있습니다.",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "관찰된 내역 확인",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "이 장치에 대한 관찰 사항만 해당됩니다. 빈칸은 채워지지 않습니다.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "시작하기",
     "englishSource": "Get started"

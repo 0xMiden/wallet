@@ -3343,6 +3343,62 @@
     "message": "Couldn’t open fullscreen. Try again.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "Portfolio",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "Wallet balance",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "Hide balances",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Show balances",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Hidden",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Balance unavailable",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Price unavailable",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Partial valuation - some assets have no verified USD price",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Observed wallet history",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "History range",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Not enough observations yet",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Some intervals or valuation coverage are missing",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Inspect observed history",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Observations on this device only. Gaps are not filled.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Get started",
     "englishSource": "Get started"

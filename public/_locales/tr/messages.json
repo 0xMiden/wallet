@@ -3343,6 +3343,62 @@
     "message": "Tam ekran açılmadı. Lütfen tekrar deneyin.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "Portföy",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "Cüzdan bakiyesi",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "Bakiyeleri gizle",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Bakiyeleri göster",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Gizli",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Bakiye mevcut değil",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Fiyat mevcut değil",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Kısmi değerleme - bazı varlıkların doğrulanmış USD fiyatı yoktur",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Gözlemlenen cüzdan geçmişi",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Geçmiş aralığı",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Henüz yeterli gözlem yok",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Bazı aralıklar veya değerleme kapsamı eksik",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Gözlemlenen geçmişi inceleyin",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Yalnızca bu cihazla ilgili gözlemler. Boşluklar doldurulmaz.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Başlayın",
     "englishSource": "Get started"

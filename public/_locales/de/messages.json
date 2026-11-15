@@ -3344,6 +3344,62 @@
     "message": "Vollbildmodus konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "Portfolio",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "Wallet-Guthaben",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "Guthaben ausblenden",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Guthaben anzeigen",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Versteckt",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Guthaben nicht verfügbar",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Preis nicht verfügbar",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Teilweise Bewertung – für einige Vermögenswerte liegt kein verifizierter USD-Preis vor",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Beobachtete Wallet-Historie",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Zeitraum der Historie",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Noch nicht genügend Beobachtungen",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Einige Intervalle oder Bewertungsbereiche fehlen",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Beobachtete Historie prüfen",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Anmerkungen beziehen sich ausschließlich auf dieses Gerät. Lücken werden nicht ausgefüllt.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Los geht’s",
     "englishSource": "Get started"

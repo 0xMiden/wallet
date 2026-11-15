@@ -3343,6 +3343,62 @@
     "message": "無法開啟全螢幕模式。請重試。",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "投資組合",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "錢包餘額",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "隱藏餘額",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "顯示餘額",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "隱藏",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "餘額不可用",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "價格無法取得",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "部分估值——部分資產尚無經核實的美元價格",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "觀察到的錢包交易紀錄",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "歷史範圍",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "目前觀察結果尚不足",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "部分區間或估值範圍有所遺漏",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "檢視已觀察到的歷史紀錄",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "僅針對此裝置的說明。空缺處不予填補。",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "開始使用",
     "englishSource": "Get started"

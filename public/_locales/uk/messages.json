@@ -3343,6 +3343,62 @@
     "message": "Не вдалося відкрити у повноекранному режимі. Спробуйте ще раз.",
     "englishSource": "Couldn’t open fullscreen. Try again."
   },
+  "commandPortfolio": {
+    "message": "Портфель",
+    "englishSource": "Portfolio"
+  },
+  "commandWalletBalance": {
+    "message": "Баланс гаманця",
+    "englishSource": "Wallet balance"
+  },
+  "commandHideBalances": {
+    "message": "Приховати залишки",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Показати залишки",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Приховано",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Баланс недоступний",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Ціна недоступна",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Часткова оцінка — деякі активи не мають підтвердженої ціни в доларах США",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Історія операцій з гаманцем",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Діапазон історії",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Поки що недостатньо спостережень",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Відсутні деякі інтервали або охоплення оцінки",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Переглянути історію спостережень",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Зауваження стосуються лише цього пристрою. Пропуски не заповнюються.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Почніть",
     "englishSource": "Get started"
