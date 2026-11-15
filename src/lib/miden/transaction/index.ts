@@ -1276,6 +1276,10 @@ const writeLandedCompleted = async (txId: string, error: unknown): Promise<ITran
   return undefined;
 };
 
+/** What a landed arm's log says failed: the leaf's local apply (`applied`), or a step of the tail after it. */
+const landedFailureText = (error: unknown, applied = 'local apply failed'): string =>
+  isLandedTailError(error) ? 'a post-submit step failed after the transaction landed' : applied;
+
 /** The error a landed row's Failed write names: the tail's own, so its report and its copy read as they did before. */
 const landedFailureOf = (error: unknown): unknown => landedTailErrorIn(error)?.cause ?? error;
 
@@ -1637,7 +1641,7 @@ const settleLandedGuardianRow = async (
   // is terminal.)
   if (isResultAwaitingRow(transaction)) {
     console.warn(
-      `[Guardian] ${transaction.type} submitted but post-submit reconcile failed - marking Failed so the awaiting caller stops waiting:`,
+      `[Guardian] ${transaction.type} submitted but ${landedFailureText(error, 'post-submit reconcile failed')} - marking Failed so the awaiting caller stops waiting:`,
       error
     );
     await recordBridgeNoteLanded(transaction.id);
@@ -1660,7 +1664,10 @@ const settleLandedGuardianRow = async (
     transaction.type === 'execute' ||
     transaction.type === 'bridged-send'
   ) {
-    console.warn('[Guardian] submit landed but local apply failed - marking Completed; sync will reconcile:', error);
+    console.warn(
+      `[Guardian] submit landed but ${landedFailureText(error)} - marking Completed; sync will reconcile:`,
+      error
+    );
     // From the stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there.
     const written = await writeLandedCompleted(transaction.id, error);
     if (written) reportLandedTail(written, error);
@@ -5079,7 +5086,9 @@ const settleLandedLoopRow = async (txId: string, error: unknown, attemptId: stri
   // this branch - nothing awaits it, its note is on chain, and failing it would
   // hide the L1 claim UI.
   if (tx && isResultAwaitingRow(tx)) {
-    logger.warning(`${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`);
+    logger.warning(
+      `${tx.type} submitted but ${landedFailureText(error)}; marking Failed so the awaiting caller stops waiting`
+    );
     await recordBridgeNoteLanded(tx.id);
     if (!hasLeftQueue(tx)) {
       await recordLandedTransactionId(tx.id, error);
@@ -5088,7 +5097,7 @@ const settleLandedLoopRow = async (txId: string, error: unknown, attemptId: stri
     return;
   }
 
-  logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
+  logger.warning(`Transaction submitted but ${landedFailureText(error)}; marking Completed, sync will reconcile`);
   // Guardian ops never reach here: they route through the guardian branch of
   // `generateTransaction`, whose own catch handles apply-after-submit: Failed for the
   // result-awaiting ops (earn-deposit, Epoch bridged-send), Completed for the other
