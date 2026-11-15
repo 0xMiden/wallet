@@ -13,6 +13,8 @@ import * as Repo from 'lib/miden/repo';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transaction/cancel';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
+import { decodePlatformBytes, wrapPlatformVaultKey } from 'lib/platform-auth/crypto';
+import { PLATFORM_UNLOCK_STORAGE_KEY } from 'lib/platform-auth/types';
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -601,6 +603,39 @@ describe('Vault (static)', () => {
       expect(typeof sink).toBe('function');
       vault.retire();
       expect((globalThis as any).__vaultTestRealmUninstalled).toBe(sink);
+    });
+  });
+
+  describe('platform credential setup', () => {
+    const id = 'AQIDBA';
+    const secret = 'E'.repeat(42) + 'A';
+    const accounts = [{ publicKey: 'guardian-acc-1', name: 'Guardian', isPublic: true, type: WalletType.Guardian }];
+    async function seedPlatformVault() {
+      await seedVault('pw-correct', { accounts, ownMnemonic: true });
+      const primary = await getPlain<string>(keys.vaultKeyPassword);
+      if (!primary) throw new Error('Missing fixture password protector');
+      const raw = await Passworder.decryptVaultKeyWithPassword(primary, 'pw-correct');
+      const wrappedKey = await wrapPlatformVaultKey(raw, decodePlatformBytes(secret), decodePlatformBytes(id));
+      await savePlain(PLATFORM_UNLOCK_STORAGE_KEY, {
+        version: 1,
+        credentialId: id,
+        prfSalt: 'A'.repeat(43),
+        backupEligible: true,
+        wrappedKey
+      });
+      return primary;
+    }
+    it('opens the existing Guardian data without replacing the password protector', async () => {
+      const primary = await seedPlatformVault();
+      const vault = await Vault.setupWithPlatformCredential(id, secret);
+      expect(await vault.fetchAccounts()).toEqual(accounts);
+      expect(await vault.isOwnMnemonic()).toBe(true);
+      expect(await getPlain(keys.vaultKeyPassword)).toBe(primary);
+      expect(await (await Vault.setup('pw-correct')).fetchAccounts()).toEqual(accounts);
+    });
+    it('does not construct an authenticated vault from a wrong PRF', async () => {
+      await seedPlatformVault();
+      await expect(Vault.setupWithPlatformCredential(id, 'A'.repeat(43))).rejects.toThrow(PublicError);
     });
   });
 
