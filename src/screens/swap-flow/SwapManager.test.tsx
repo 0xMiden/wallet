@@ -793,6 +793,8 @@ describe('SwapFlow / SwapManager', () => {
     mockAccountReturn = { publicKey: 'pk-1' };
     rerender(view(scope));
     expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    act(() => staleAmountChange?.('777'));
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
     expect(mockInitiateSwap).not.toHaveBeenCalled();
   });
 
@@ -811,6 +813,8 @@ describe('SwapFlow / SwapManager', () => {
     root.rerender(null);
     act(() => staleAmountChange?.('999'));
     root.rerender(view());
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    act(() => staleAmountChange?.('777'));
     expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
     expect(mockInitiateSwap).not.toHaveBeenCalled();
   });

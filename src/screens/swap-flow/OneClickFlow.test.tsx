@@ -529,6 +529,49 @@ describe('OneClickFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Header Back' }));
     expect(onBackToSwap).toHaveBeenCalledTimes(1);
   });
+  it('routes Command header Back to the active 1Click controller while a recovery quote is refreshing', () => {
+    const request: OneClickQuoteRequest = {
+      amount: '1000000',
+      originAsset: midenAsset,
+      destinationAsset: ethereumAsset,
+      refundTo: mockMidenAddress,
+      recipient: mockOriginAddress,
+      deadline: '2000-01-01T00:00:00.000Z',
+      slippageTolerance: 100
+    };
+    const recovery: IOneClickTrackingData = {
+      direction: 'miden-to-evm',
+      request,
+      quote: quoteFor(request, false, true),
+      config,
+      network: 'mainnet',
+      accountId: mockAccountId,
+      accountAddress: mockMidenAddress,
+      originAsset: midenAsset,
+      destinationAsset: ethereumAsset,
+      faucetId: midenAsset.faucetId!,
+      amount: request.amount,
+      phase: 'failed'
+    };
+    jest.mocked(requestOneClickQuote).mockImplementation(() => new Promise<OneClickQuoteResponse>(() => {}));
+    const onBackToSwap = jest.fn();
+    function HeaderBack() {
+      const back = useCommandFlowBack()?.activeBack;
+      return <button onClick={back}>Header Back</button>;
+    }
+    render(
+      <CommandFlowBackProvider><FlowPresentationProvider value="command">
+        <HeaderBack />
+        <OneClickFlow config={config} assets={[midenAsset, ethereumAsset]} networks={networks.slice(0, 2)}
+          offerNetwork={networkFor('miden')} requestNetwork={networkFor('eth')}
+          midenAddress={mockMidenAddress} initialRecovery={recovery} onBackToSwap={onBackToSwap} />
+      </FlowPresentationProvider></CommandFlowBackProvider>
+    );
+    expect(screen.getByRole('button', { name: 'backToSwap' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Header Back' }));
+    expect(onBackToSwap).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses to quote an amount with more digits than its selected origin asset scale', async () => {
     jest.useFakeTimers();
     try {
@@ -661,6 +704,8 @@ describe('OneClickFlow', () => {
     mockAccountId = scope.accountId;
     rerender(view(scope));
     expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(/^\/$/);
+    act(() => staleAmountChange?.('777'));
+    expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(/^\/$/);
     expect(persistOneClickTrackingRow).not.toHaveBeenCalled();
   });
 
@@ -688,6 +733,8 @@ describe('OneClickFlow', () => {
     root.rerender(null);
     act(() => staleAmountChange?.('999'));
     root.rerender(view());
+    expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(/^\/$/);
+    act(() => staleAmountChange?.('777'));
     expect(screen.getByTestId('one-click-input-draft')).toHaveTextContent(/^\/$/);
     expect(persistOneClickTrackingRow).not.toHaveBeenCalled();
   });
