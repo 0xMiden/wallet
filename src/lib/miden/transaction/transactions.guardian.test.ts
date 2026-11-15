@@ -90,6 +90,7 @@ import {
   requeueFailedTransaction,
   SESSION_STARTED_AT
 } from './index';
+import { isRequeueableTransaction } from './retry';
 import { keptCandidateHoldUntil } from './verdict-rules';
 import { getConnectivityState, resetConnectivityState } from '../activity/connectivity-state';
 import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
@@ -16450,5 +16451,111 @@ describe('Guardian proposal effect check', () => {
       nativeAsset.isVerificationBaseFeeKnownAbsent.mockReset();
       nativeAsset.isVerificationBaseFeeKnownAbsent.mockImplementation(() => false);
     }
+  });
+
+  // An Agglayer bridged send's proposal is held to the faucet and amount its row reviewed, whichever realm then runs it.
+  describe.each([
+    ['inline', undefined],
+    ['offscreen', 'true']
+  ])('bridged send (%s)', (_realm, flag) => {
+    beforeEach(() => {
+      if (flag === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      else process.env.MIDEN_USE_OFFSCREEN_CLIENT = flag;
+      mockDispatchGuardianPipeline.mockReset();
+      mockDispatchGuardianPipeline.mockImplementation(async () => makeResult());
+    });
+    afterEach(() => {
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+    });
+
+    const rebasedBytes = new Uint8Array([171, 172, 173]);
+    const bridgeService = (nonce: number) => {
+      const proposal = { id: `prop-bridge-${nonce}`, nonce, metadata: {}, txSummary: 'YnJpZGdl' };
+      const service = {
+        ...serviceWith(proposal),
+        createRebasedCustomProposal: jest.fn(async () => ({ proposal, requestBytes: rebasedBytes }))
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(service);
+      const client = makeClientApi(makeResult());
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+      return { service, client };
+    };
+    const bridge = (id: string) => ({
+      id,
+      type: 'bridged-send',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      faucetId: 'faucet',
+      requestBytes: new Uint8Array([71, 72, 73]),
+      extraInputs: {
+        provider: 'agglayer',
+        destinationAddress: '0xevm',
+        destinationNetwork: 0,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'pending'
+      }
+    });
+
+    it('fails one whose summary moves one unit more, never signs or runs it, and abandons its candidate', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1001n)] }));
+      const { service, client } = bridgeService(12);
+
+      const row = await run(bridge('bridge-over'));
+
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(12);
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this bridged-send transaction: 1001 of faucet leaves (approved 1000)'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+    });
+
+    it('signs and runs one whose summary moves its reviewed amount', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+      const { service, client } = bridgeService(13);
+
+      const row = await run(bridge('bridge-exact'));
+
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-bridge-13', rebasedBytes);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(client.transactions.executeRequest).toHaveBeenCalledTimes(flag === undefined ? 1 : 0);
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(flag === undefined ? 0 : 1);
+      expect(row.status).toBe(ITransactionStatus.Completed);
+    });
+
+    // Not requeued, unlike an Earn deposit: the row fails unsigned and the user retries it.
+    it('fails one while the chain fee is unknown, unsigned and unrun, and offers Retry', async () => {
+      const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+      nativeAsset.refreshVerificationBaseFee.mockResolvedValue(null);
+      try {
+        mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+        const { service, client } = bridgeService(14);
+
+        const row = await run(bridge('bridge-fee-unknown'));
+
+        expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+        expect(service.abandonCandidate).toHaveBeenCalledWith(14);
+        expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+        expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+        expect(row.status).toBe(ITransactionStatus.Failed);
+        expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+        expect(row.nextEligibleAt).toBeUndefined();
+        expect(row.proposalEffectRefused).toBeUndefined();
+        expect(isRequeueableTransaction({ ...(row as unknown as ITransaction), bridgeProvider: 'agglayer' })).toBe(
+          true
+        );
+      } finally {
+        nativeAsset.refreshVerificationBaseFee.mockReset();
+        nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
+      }
+    });
   });
 });

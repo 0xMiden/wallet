@@ -15,10 +15,10 @@
  *
  * Routing:
  *   - earn-deposit and Agglayer bridged-send (pre-built request) →
- *     `midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback)`.
- *     An earn-deposit without its bytes is refused before it mints.
+ *     `midenClientProxy.newTransaction(accountId, requestBytes, delegate, signer)`, where `signer` is the write's
+ *     effect-checked signer. An earn-deposit without its bytes is refused before it mints.
  *   - a legacy Epoch bridged-send with no bytes → send-style recallable P2IDE note →
- *     `midenClientProxy.sendTransaction(tx, signCallback)`.
+ *     `midenClientProxy.sendTransaction(tx, signer)`.
  *
  * Funds-safety (analysed, not re-proven here — inherited from the shared proxy +
  * loop machinery): a wedge-kill → OperationAbortedError → the
@@ -28,13 +28,17 @@
  * `ApplyTransactionAfterSubmitFailed` reaches that same type-agnostic classifier.
  */
 
+import { getMessage } from 'lib/i18n/core';
+
+import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import {
   cancelTransactionAfterPipelineStopped,
   EPOCH_BRIDGE_ABANDONED_ERROR,
   generateTransaction,
   isUnconfirmedFailure
 } from './index';
-import { ITransactionStatus } from '../db/types';
+import { bridgeProviderOf, isRequeueableTransaction } from './retry';
+import { ITransaction, ITransactionStatus } from '../db/types';
 
 const txStore: Array<Record<string, unknown>> = [];
 
@@ -151,9 +155,13 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       newLocalProver: jest.fn(() => 'local-prover'),
       newCallbackProver: jest.fn(() => 'callback-prover')
     },
-    WasmWebClient: { createClient: jest.fn() }
+    WasmWebClient: { createClient: jest.fn() },
+    SigningInputs: { deserialize: (...a: unknown[]) => mockDeserializeSigningInputs(...a) },
+    SigningInputsType: { TransactionSummary: 0 }
   };
 });
+// What the write's signer is asked to sign, read as `SigningInputs.deserialize` would.
+const mockDeserializeSigningInputs = jest.fn();
 
 jest.mock('../sdk/native-prover-mobile', () => ({
   buildNativeProverCallback: jest.fn(() => async () => new Uint8Array())
@@ -170,6 +178,8 @@ jest.mock('shared/logger', () => ({
 
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+  // Stub ids are already the bech32 the summary decoder would spell.
+  getBech32AddressFromAccountId: (id: unknown) => String(id),
   canonicalWalletAccountId: (id: string) => id,
   sameWalletAccountId: (a: string, b: string) => a === b
 }));
@@ -261,9 +271,10 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { provider: 'epoch', recallBlocks: 10 }
     });
 
-    // Leaf routed through the proxy send with the FULL tx row + the raw signCallback.
+    // Leaf routed through the proxy send with the FULL tx row and the write's effect-checked signer.
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback);
+    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, expect.any(Function));
+    expect(mockProxySendTransaction.mock.calls[0]?.[1]).not.toBe(signCallback);
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
     // The inline SW client leaf is entirely gone.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
@@ -274,7 +285,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
   });
 
   it.each(['agglayer', 'usdcx'])(
-    '%s pre-built bridged-send delegates the exact request bytes to the proxy',
+    '%s pre-built bridged-send delegates the exact request bytes to the proxy with a guarded signer',
     async provider => {
       const requestBytes = new Uint8Array([0xa9, 0x1a]);
       const tx = await run('tx-bs-agg', {
@@ -289,7 +300,9 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
       // Both bridges await the node's verdict, so both carry a stage stamp (#1081).
       const [account, bytes, delegate, callback, stamp] = mockProxyNewTransaction.mock.calls[0] ?? [];
-      expect([account, bytes, delegate, callback]).toEqual(['acc-1', requestBytes, true, signCallback]);
+      expect([account, bytes, delegate]).toEqual(['acc-1', requestBytes, true]);
+      expect(typeof callback).toBe('function');
+      expect(callback).not.toBe(signCallback);
       expect(typeof stamp).toBe('function');
       expect(mockProxySendTransaction).not.toHaveBeenCalled();
       expect(mockGetMidenClient).not.toHaveBeenCalled();
@@ -503,4 +516,143 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     // The proxy is the ONLY leaf — the switch never forks on the flag itself.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
   });
+});
+
+// The SDK asks the write's signer for its signature while it executes, before it proves or submits; a refused sign
+// fails the execute.
+const mockSubmit = jest.fn();
+const signsThenSubmits = async (...a: unknown[]) => {
+  const signer = a[3] as (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
+  try {
+    await signer('0a', 'aa');
+  } catch (error) {
+    throw new Error(`failed to execute transaction: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  mockSubmit();
+  return makeResult();
+};
+
+type Asset = { faucetId: () => string; amount: () => bigint };
+const fa = (faucet: string, amount: bigint): Asset => ({ faucetId: () => faucet, amount: () => amount });
+/** The signing inputs of a summary in which `acc-1` sends `amount` of `faucet` out in one note. */
+const sendsOut = (amount: bigint) => ({
+  variantType: 0,
+  transactionSummaryPayload: () => ({
+    accountDelta: () => ({
+      id: () => 'acc-1',
+      vault: () => ({
+        removedFungibleAssets: () => [fa('faucet', amount)],
+        addedFungibleAssets: () => [],
+        numAssets: () => 1
+      }),
+      storage: () => ({ isEmpty: () => true })
+    }),
+    inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+    outputNotes: () => ({
+      numNotes: () => 1,
+      notes: () => [
+        {
+          id: () => ({ toString: () => `note:${amount}` }),
+          assets: () => ({ fungibleAssets: () => [fa('faucet', amount)], nonFungibleAssets: () => [] })
+        }
+      ]
+    })
+  })
+});
+
+// Each provider's row, reviewed to bridge 1000 of `faucet`, with the pre-built request every current row carries.
+const bridgeRows: Array<[string, Record<string, unknown>]> = [
+  ['agglayer', { requestBytes: new Uint8Array([0xa9]), extraInputs: { provider: 'agglayer', claimStatus: 'pending' } }],
+  [
+    'usdcx',
+    {
+      requestBytes: new Uint8Array([0xb5]),
+      noteType: 'public',
+      extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } }
+    }
+  ],
+  [
+    'epoch',
+    {
+      requestBytes: new Uint8Array([0xb1, 0x1d]),
+      secondaryAccountId: 'mtst1qallocator',
+      noteType: 'public',
+      extraInputs: { provider: 'epoch', recallBlocks: 10, claimStatus: 'not-applicable', epochStatus: 'pending' }
+    }
+  ]
+];
+
+describe.each([
+  ['inline', undefined],
+  ['offscreen', 'true']
+])('a single-key bridged send signs no more than its reviewed amount (%s)', (_realm, flag) => {
+  beforeEach(() => {
+    if (flag === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+    else process.env.MIDEN_USE_OFFSCREEN_CLIENT = flag;
+    mockProxyNewTransaction.mockImplementation(signsThenSubmits);
+  });
+
+  /** Run the row to the end the loop gives it: completed, or failed through the loop's own catch. */
+  const settle = async (id: string, fields: Record<string, unknown>) => {
+    const tx = buildTx(id, { type: 'bridged-send', faucetId: 'faucet', amount: 1000n, ...fields });
+    txStore.push({ ...tx });
+    let failure: unknown;
+    try {
+      await generateTransaction(tx as never, signCallback, false, provider as never);
+    } catch (error) {
+      failure = error;
+      await cancelTransactionAfterPipelineStopped(txStore.find(r => r.id === id)! as never, error);
+    }
+    return { failure, row: txStore.find(r => r.id === id) as unknown as ITransaction };
+  };
+
+  it.each(bridgeRows)('refuses a %s bridged send moving one unit more, before it submits', async (provider, fields) => {
+    mockDeserializeSigningInputs.mockReturnValue(sendsOut(1001n));
+
+    const { failure, row } = await settle(`bs-over-${provider}`, fields);
+
+    expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(failure instanceof Error ? failure.message : undefined).toBe(
+      'Refused to sign this bridged-send transaction: 1001 of faucet leaves (approved 1000)'
+    );
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(signCallback).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.proposalEffectRefused).toBe(true);
+  });
+
+  it.each(bridgeRows)('signs and submits a %s bridged send moving its reviewed amount', async (provider, fields) => {
+    mockDeserializeSigningInputs.mockReturnValue(sendsOut(1000n));
+
+    const { failure } = await settle(`bs-exact-${provider}`, fields);
+
+    expect(failure).toBeUndefined();
+    expect(signCallback).toHaveBeenCalledTimes(1);
+    expect(signCallback).toHaveBeenCalledWith('0a', 'aa');
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
+    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+  });
+
+  // Not requeued, unlike an Earn deposit: the row fails, unsigned and unsent, and the user retries it, an Epoch bridge
+  // from the bridge flow, since its intent is gone.
+  it.each<[string, Record<string, unknown>, boolean]>(bridgeRows.map(([p, f]) => [p, f, p !== 'epoch']))(
+    'fails a %s bridged send while the chain fee is unknown, unsigned and unsent',
+    async (provider, fields, retryOffered) => {
+      mockGetVerificationBaseFee.mockResolvedValue(null);
+
+      const { failure, row } = await settle(`bs-fee-${provider}`, fields);
+
+      expect(failure).toBeInstanceOf(ProposalFeeUnknownError);
+      expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+      expect(mockProxySendTransaction).not.toHaveBeenCalled();
+      expect(signCallback).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toBe(getMessage('chainFeeUnknown'));
+      expect(row.nextEligibleAt).toBeUndefined();
+      expect(row.proposalEffectRefused).toBeUndefined();
+      expect(isRequeueableTransaction({ ...row, bridgeProvider: bridgeProviderOf(row) })).toBe(retryOffered);
+    }
+  );
 });

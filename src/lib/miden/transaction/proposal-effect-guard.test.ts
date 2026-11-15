@@ -14,9 +14,11 @@ import {
   assertProposalEffectApproved,
   assertViewEffectApproved,
   executeApprovalOf,
+  isEffectChecked,
   proposalEffectRefusal
 } from './proposal-effect-guard';
-import { IApprovedCustomEffects, ITransaction, ITransactionStatus } from '../db/types';
+import { BridgedSendTransaction, IApprovedCustomEffects, ITransaction, ITransactionStatus } from '../db/types';
+import { NoteTypeEnum } from '../types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionSummary: { deserialize: jest.fn() }
@@ -134,6 +136,7 @@ const row = (fields: Partial<ITransaction>): ITransaction => ({
   ...fields
 });
 const claim = row({ type: 'consume', noteId: 'note-1' });
+const REQUEST = new Uint8Array([1]);
 const gcPurchase = (fillAmount: string) =>
   row({
     type: 'consume',
@@ -326,6 +329,82 @@ describe.each(['send', 'swap', 'earn-deposit'] as const)('%s approved outflow', 
         ProposalEffectRefusedError
       );
     }
+  });
+});
+
+describe('bridged-send', () => {
+  // Each provider's row, with the reviewed source faucet and base-unit amount its constructor records. A USDCx burn
+  // bridges the native asset, so its fee leaves the same faucet.
+  const bridges = [
+    [
+      'agglayer',
+      'fA',
+      () => new BridgedSendTransaction('acct', 100n, '0xevm', 0, 'agglayer', 'bech32:fA', REQUEST, true)
+    ],
+    [
+      'usdcx',
+      'usdcx',
+      () => new BridgedSendTransaction('acct', 100n, '0xevm', 6, 'usdcx', 'bech32:usdcx', REQUEST, true)
+    ],
+    [
+      'epoch',
+      'fA',
+      () =>
+        new BridgedSendTransaction('acct', 100n, '0xevm', 8453, 'epoch', 'bech32:fA', REQUEST, true, {
+          recipientId: 'allocator',
+          noteType: NoteTypeEnum.Public,
+          recallBlocks: 30
+        })
+    ]
+  ] as const;
+
+  it('is a checked type, which turns on the check of both signing paths', () => {
+    expect(isEffectChecked('bridged-send')).toBe(true);
+  });
+
+  describe.each(bridges)('%s', (_provider, faucet, approved) => {
+    // The bridge note carrying `amount`, the kernel fee and `extra` assets leaving, as one net vault entry per faucet.
+    const bridgesOut = (amount: bigint, extra: Asset[] = []) =>
+      summary({
+        removed:
+          faucet === 'usdcx' ? [fa('usdcx', amount + 2n), ...extra] : [fa(faucet, amount), fa('usdcx', 2n), ...extra],
+        outputs: [note([fa(faucet, amount)]), ...extra.map(asset => note([asset])), feeNote(2n)]
+      });
+
+    it('permits exactly the reviewed amount, with the kernel fee excluded', () => {
+      expect(refusalOf(approved(), bridgesOut(100n))).toBeUndefined();
+      expect(refusalOf(approved(), bridgesOut(99n))).toBeUndefined();
+    });
+
+    it('refuses one base unit beyond the reviewed amount', () => {
+      expect(refusalOf(approved(), bridgesOut(101n))).toBe(`101 of bech32:${faucet} leaves (approved 100)`);
+    });
+
+    it('lets no asset but the reviewed one leave', () => {
+      expect(refusalOf(approved(), bridgesOut(100n, [fa('fB', 1n)]))).toBe('1 of bech32:fB leaves (approved 0)');
+    });
+
+    it('refuses an outgoing NFT', () => {
+      const outgoing = summary({
+        removed: [fa('usdcx', 2n)],
+        outputs: [note([], [nft('fN', 'n1')]), feeNote(2n)],
+        unlisted: 1
+      });
+      expect(refusalOf(approved(), outgoing)).toContain('an unapproved NFT of bech32:fN leaves');
+    });
+
+    it('refuses a vault change the summary cannot list', () => {
+      expect(refusalOf(approved(), summary({ unlisted: 1 }))).toContain('vault change(s) the summary does not list');
+    });
+
+    it('does not sign a row with an invalid reviewed amount or faucet', async () => {
+      givenSummary(bridgesOut(100n));
+      for (const missing of [{ amount: undefined }, { faucetId: undefined }, { amount: -1n }, { faucetId: '' }]) {
+        await expect(assertProposalEffectApproved({ ...approved(), ...missing }, 'sum')).rejects.toThrow(
+          ProposalEffectRefusedError
+        );
+      }
+    });
   });
 });
 
