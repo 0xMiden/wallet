@@ -1062,7 +1062,7 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
     expect((await read('reaped-later')).status).toBe(ITransactionStatus.Queued);
   });
 
-  // Issue #775, F-062: a poison eviction ABANDONS the pipeline - it can still
+  // Issue #775: a poison eviction ABANDONS the pipeline - it can still
   // submit AFTER the user answers the acknowledgement dialog, so the user's
   // "it never arrived" is true at the moment they say it and wrong a minute
   // later. The poison arm therefore stamps the TIME-BOUNDED liveness marker
