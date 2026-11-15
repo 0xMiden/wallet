@@ -196,7 +196,8 @@ jest.mock('./simulate-custom-tx', () => {
 // A custom summary's approval re-reads the chain fee before it decodes; the read is the node's, not this suite's.
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  refreshVerificationBaseFee: jest.fn(async () => 2)
+  refreshVerificationBaseFee: jest.fn(async () => 2),
+  getVerificationBaseFeeSync: () => 2
 }));
 
 jest.mock('app/confirm/decode', () => ({

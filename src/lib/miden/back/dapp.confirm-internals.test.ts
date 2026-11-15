@@ -172,10 +172,12 @@ jest.mock('./simulate-custom-tx', () => {
 // unknown.
 const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
 const mockFeeKnownAbsent = jest.fn(() => false);
+const mockSyncFee = jest.fn((): number | null => 2);
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
-  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent()
+  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent(),
+  getVerificationBaseFeeSync: () => mockSyncFee()
 }));
 
 // The real note flow unless a case makes it fail.
@@ -281,6 +283,8 @@ beforeEach(() => {
   mockRefreshVerificationBaseFee.mockResolvedValue(2);
   mockFeeKnownAbsent.mockReset();
   mockFeeKnownAbsent.mockReturnValue(false);
+  mockSyncFee.mockReset();
+  mockSyncFee.mockReturnValue(2);
   jest.useFakeTimers({ legacyFakeTimers: false });
 });
 
@@ -408,6 +412,7 @@ describe('requestSign measures a transaction summary once, before the popup', ()
 
   it('rejects with NotGranted and does not open a window when the fee read does not know the fee', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValue(null);
+    mockSyncFee.mockReturnValue(null);
     summaryConsuming([]);
 
     expect(await refusedBeforePopup()).toEqual(

@@ -175,6 +175,7 @@ jest.mock('./simulate-custom-tx', () => {
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   refreshVerificationBaseFee: async () => 2,
+  getVerificationBaseFeeSync: () => 2,
   isVerificationBaseFeeKnownAbsent: () => false
 }));
 

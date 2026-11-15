@@ -143,7 +143,7 @@ jest.mock('./simulate-custom-tx', () => {
 // unknown. A signBytes summary is then measured on the fee and native faucet that read cached.
 const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
 const mockFeeKnownAbsent = jest.fn(() => false);
-let mockSyncFee: number | null = null;
+let mockSyncFee: number | null = 2;
 let mockNativeFaucetId: string | null = null;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
@@ -244,7 +244,7 @@ beforeEach(() => {
   mockRefreshVerificationBaseFee.mockResolvedValue(2);
   mockFeeKnownAbsent.mockReset();
   mockFeeKnownAbsent.mockReturnValue(false);
-  mockSyncFee = null;
+  mockSyncFee = 2;
   mockNativeFaucetId = null;
   mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64' });
   mockSimulatedView.mockReturnValue({
@@ -384,6 +384,16 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
+  it('refuses a summary before any prompt when the fee its decode reads was cleared after the fee read', async () => {
+    mockSyncFee = null;
+    sdk.SigningInputs = { deserialize: () => summarySigningInputs([]) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(`${DECLINED}: ${getMessage('chainFeeUnknown')}`)
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
   it('still shows a summary when the fee read finds the fee absent', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValue(null);
     mockFeeKnownAbsent.mockReturnValue(true);
@@ -489,6 +499,21 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     );
 
     expectWarningThenLine(sheetRows());
+  });
+
+  it('still prompts for an Arbitrary payload when the fee read throws', async () => {
+    const readFailure = new Error('storage unavailable');
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockRefreshVerificationBaseFee.mockRejectedValue(readFailure);
+    sdk.SigningInputs = { deserialize: () => ({ variantType: 1 }) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(DECLINED)
+    );
+
+    expectWarningThenLine(sheetRows());
+    expect(warnSpy).toHaveBeenCalledWith(expect.any(String), readFailure);
+    warnSpy.mockRestore();
   });
 
   it('still prompts for a payload that does not decode when the fee read does not know the fee', async () => {

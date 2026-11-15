@@ -114,6 +114,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFee: async () => mockBaseFee,
   // Not `mockBaseFee`: that value steers the consume preview's MAX fee, and a null there would refuse the summary.
   refreshVerificationBaseFee: async () => 2,
+  getVerificationBaseFeeSync: () => 2,
   getNativeAssetId: async () => 'native-faucet',
   isVerificationBaseFeeKnownAbsent: () => false
 }));

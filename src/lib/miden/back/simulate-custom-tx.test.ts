@@ -129,6 +129,11 @@ const mockNoteFlowFromSimulatedBytes = jest.fn((_dryRun: unknown): unknown => un
 jest.mock('lib/miden/transaction/custom-effects', () => ({
   approveCustomSimulation: (dryRun: unknown) => mockApproveCustomSimulation(dryRun)
 }));
+// The summary decode reads the cached chain fee. This suite publishes no refresh; the fee beside one of 2 is 2.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFeeSync: () => 2
+}));
 jest.mock('app/confirm/note-flow', () => ({
   noteFlowFromSimulatedBytes: (dryRun: unknown) => mockNoteFlowFromSimulatedBytes(dryRun)
 }));

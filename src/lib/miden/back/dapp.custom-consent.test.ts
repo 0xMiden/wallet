@@ -171,10 +171,12 @@ jest.mock('lib/miden/note-quarantine', () => ({
 // The summary decoder reads the chain fee this realm cached, so the approval reads it first and refuses when unknown.
 const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
 const mockFeeKnownAbsent = jest.fn(() => false);
+const mockSyncFee = jest.fn((): number | null => 2);
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
-  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent()
+  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent(),
+  getVerificationBaseFeeSync: () => mockSyncFee()
 }));
 
 jest.unmock('lib/i18n/numbers');
@@ -256,6 +258,8 @@ beforeEach(() => {
   mockRefreshVerificationBaseFee.mockResolvedValue(2);
   mockFeeKnownAbsent.mockReset();
   mockFeeKnownAbsent.mockReturnValue(false);
+  mockSyncFee.mockReset();
+  mockSyncFee.mockReturnValue(2);
 });
 
 describe('the mobile/desktop custom-transaction sheet states the simulated effects', () => {
@@ -840,6 +844,24 @@ describe('the chain fee the approval decodes with', () => {
     expect(message).toContain(sentence);
   });
 
+  it('refuses a summary dry run before any prompt when the fee its decode reads was cleared after the refresh', async () => {
+    mockSyncFee.mockReturnValue(null);
+
+    let message = '';
+    await requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+      () => {
+        throw new Error('the request was not refused');
+      },
+      (error: Error) => {
+        message = error.message;
+      }
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(message).toBe(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+  });
+
   it('still prompts when the refresh finds the fee absent', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
     mockFeeKnownAbsent.mockReturnValueOnce(true);
@@ -851,6 +873,7 @@ describe('the chain fee the approval decodes with', () => {
 
   it('still prompts an executed dry run when the fee read does not know the fee', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
+    mockSyncFee.mockReturnValue(null);
     mockSimulate.mockResolvedValue({ executedBytes: 'execB64' });
     mockExecutedBytesToView.mockReturnValue(emptyView);
 

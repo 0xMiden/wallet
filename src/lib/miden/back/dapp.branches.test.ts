@@ -83,7 +83,8 @@ jest.mock('app/confirm/decode', () => {
 // A custom summary's approval re-reads the chain fee before it decodes; the read is the node's, not this suite's.
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  refreshVerificationBaseFee: jest.fn(async () => 2)
+  refreshVerificationBaseFee: jest.fn(async () => 2),
+  getVerificationBaseFeeSync: () => 2
 }));
 
 const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));

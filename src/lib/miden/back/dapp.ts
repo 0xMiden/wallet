@@ -110,6 +110,7 @@ import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/eff
 import {
   getNativeAssetId,
   getVerificationBaseFee,
+  getVerificationBaseFeeSync,
   isVerificationBaseFeeKnownAbsent,
   refreshVerificationBaseFee
 } from 'lib/miden-chain/native-asset';
@@ -766,16 +767,19 @@ const generatePromisifySign = async (
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 
-  // A transaction summary is decoded and measured once, here, and both sheets show that measure. Its fee note is told
-  // apart by the fee this realm reads first, outside the lock; an unknown fee or an unmeasurable summary is refused
-  // before either sheet, as on the custom arm. A deserialize failure, a non-summary variant, and any other kind still
-  // prompt with the opaque-signature warning. WASM startup failures keep their original error, and a trap reaches
-  // the lock.
+  // A transaction summary is decoded and measured once, here, and both sheets show that measure. The refresh is the
+  // fresh read, outside the lock, and the cache is checked again at the summary decode; an unknown fee or an
+  // unmeasurable summary is refused before either sheet, as on the custom arm. A deserialize failure, a non-summary
+  // variant, and any other kind still prompt with the opaque-signature warning, and a fee read that throws does not
+  // fail them. WASM startup failures keep their original error, and a trap reaches the lock.
   let signing: { view: TxAssetView; noteFlow?: NoteFlow } | undefined;
   if (req.kind === 'signingInputs') {
     await ensureSdkWasmReady();
     try {
-      const chainFee = await refreshVerificationBaseFee();
+      const chainFee = await refreshVerificationBaseFee().catch((error: unknown) => {
+        console.warn('Failed to read the chain fee for a signature approval', error);
+        return null;
+      });
       signing = await withWasmClientLock(async () => {
         let summary: TransactionSummary | undefined;
         try {
@@ -788,7 +792,9 @@ const generatePromisifySign = async (
           console.error('[DApp] Could not decode the signingInputs payload for the approval sheet:', decodeError);
         }
         if (!summary) return undefined;
-        if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) {
+        // The refresh above is the fresh read. The cache is checked again here, at the summary decode, with no await
+        // before the split. Arbitrary, Blind, an undecodable payload and a word sign never reach this.
+        if ((chainFee === null || getVerificationBaseFeeSync() === null) && !isVerificationBaseFeeKnownAbsent()) {
           throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
         }
         const view = measuredSigningHoldings(summary);
@@ -2413,8 +2419,9 @@ const generatePromisifyTransaction = async (
     let dryRun: { feeUnknown: boolean; simulated: SimulateCustomTxResult };
     try {
       dryRun = await withUnlocked(async () => {
-        // Read before the dry run, whose hold measures the approval: a summary's fee note is told apart by the fee
-        // this realm just read. The read takes no WASM lock, and one that throws is an unknown fee.
+        // The refresh is the fresh read, before the dry run and outside every WASM hold: a failed refresh keeps a
+        // stale cached fee, so the cache alone would accept it. One that throws is an unknown fee. The cache is
+        // checked again at the summary decode.
         const chainFee = await refreshVerificationBaseFee().catch((error: unknown) => {
           console.warn('Failed to read the chain fee for a custom transaction approval', error);
           return null;
@@ -2439,9 +2446,9 @@ const generatePromisifyTransaction = async (
     }
     const { feeUnknown, simulated } = dryRun;
     try {
-      // An unknown fee is refused before any prompt, on the same predicate the signing paths use. An executed dry run
-      // splits on its own header.
-      if (simulated.summaryBytes && feeUnknown) {
+      // Unknown at the fresh read or at the summary decode, refused before any prompt. An executed dry run has no
+      // summary and still splits on its own header.
+      if (simulated.summaryBytes && (feeUnknown || simulated.feeUnknown)) {
         throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
       }
       const approval = approvedSimulationOrRefusal(simulated);
