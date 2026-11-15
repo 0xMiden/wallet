@@ -2414,8 +2414,11 @@ const generatePromisifyTransaction = async (
     try {
       dryRun = await withUnlocked(async () => {
         // Read before the dry run, whose hold measures the approval: a summary's fee note is told apart by the fee
-        // this realm just read. The read takes no WASM lock.
-        const chainFee = await refreshVerificationBaseFee();
+        // this realm just read. The read takes no WASM lock, and one that throws is an unknown fee.
+        const chainFee = await refreshVerificationBaseFee().catch((error: unknown) => {
+          console.warn('Failed to read the chain fee for a custom transaction approval', error);
+          return null;
+        });
         const feeUnknown = chainFee === null && !isVerificationBaseFeeKnownAbsent();
         try {
           const simulated = await simulateCustomTransaction({
