@@ -1088,7 +1088,8 @@ export const initiateSendTransaction = async (
  * PR #38, built by `buildEpochCollateralRequestBytes`) and `bridgeEpochSend`
  * drives the surrounding intent out-of-band. Either way the standard pipeline
  * proves + submits the request via `newTransaction`, then
- * `completeBridgedSendTransaction` records it.
+ * `completeBridgedSendTransaction` records it. `ownNoteId` is the one note those
+ * bytes create, which signing is bound to (`ITransaction.approvedEffects`).
  */
 export const initiateBridgedSendTransaction = async (
   accountId: string,
@@ -1104,7 +1105,8 @@ export const initiateBridgedSendTransaction = async (
   agglayerExitTxHash?: string,
   usdcxBurn?: IUsdcxBurn,
   agglayerRoute?: AgglayerRecoveryConfig,
-  epochAllocatorUrl?: string
+  epochAllocatorUrl?: string,
+  ownNoteId?: string
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -1128,6 +1130,7 @@ export const initiateBridgedSendTransaction = async (
     dbTransaction.extraInputs.usdcxBurn = usdcxBurn;
     dbTransaction.noteType = NoteTypeEnum.Public;
   }
+  if (ownNoteId !== undefined) dbTransaction.approvedEffects = { approvedOutputNoteIds: [ownNoteId] };
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
@@ -1140,7 +1143,8 @@ export const initiateBridgedSendTransaction = async (
  * `buildEpochCollateralRequestBytes`); the pipeline submits it verbatim.
  * Nothing downstream can rebuild that binding, so a call without the bytes
  * throws `EARN_DEPOSIT_MISSING_REQUEST_ERROR` before the row is queued or its
- * spend is booked.
+ * spend is booked. `ownNoteId` is the one note those bytes create, which signing
+ * is bound to (`ITransaction.approvedEffects`).
  */
 export const initiateEarnDepositTransaction = async (
   accountId: string,
@@ -1154,7 +1158,8 @@ export const initiateEarnDepositTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   epochAllocatorUrl?: string,
   protocol?: '1delta' | 'dummy-lending',
-  chainId?: number
+  chainId?: number,
+  ownNoteId?: string
 ): Promise<string> => {
   if (!requestBytes?.length) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   const dbTransaction = new EarnDepositTransaction(
@@ -1170,6 +1175,7 @@ export const initiateEarnDepositTransaction = async (
     chainId
   );
   dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+  if (ownNoteId !== undefined) dbTransaction.approvedEffects = { approvedOutputNoteIds: [ownNoteId] };
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
   return dbTransaction.id;
 };

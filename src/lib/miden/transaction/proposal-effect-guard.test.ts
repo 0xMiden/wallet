@@ -341,7 +341,7 @@ describe.each(['send', 'swap'] as const)('%s approved outflow', type => {
 // The one note a bridged send's or Earn deposit's request was built with, as its row records it.
 const BUILT = 'built-note';
 const builtNote = (id: string): Pick<ITransaction, 'approvedEffects'> => ({
-  approvedEffects: approvedEffects({ approvedOutputNoteIds: [id] })
+  approvedEffects: { approvedOutputNoteIds: [id] }
 });
 
 describe('bridged-send and earn-deposit', () => {
@@ -452,8 +452,8 @@ describe('bridged-send and earn-deposit', () => {
 
     it.each([
       ['no recorded note', {}],
-      ['an empty record', { approvedEffects: approvedEffects({ approvedOutputNoteIds: [] }) }],
-      ['two recorded notes', { approvedEffects: approvedEffects({ approvedOutputNoteIds: [BUILT, 'other-note'] }) }]
+      ['an empty record', { approvedEffects: { approvedOutputNoteIds: [] } }],
+      ['two recorded notes', { approvedEffects: { approvedOutputNoteIds: [BUILT, 'other-note'] } }]
     ])('does not sign a row with %s, whatever its summary creates', async (_record, record) => {
       givenSummary(bridgesOut(100n));
       await expect(assertProposalEffectApproved({ ...queued(), ...record }, 'sum')).rejects.toThrow(
@@ -570,7 +570,7 @@ describe('execute', () => {
     (_shape, queuedRow) => {
       const queued = queuedRow([{ faucetId: 'bech32:fA', amount: 50n }]);
       expect(queued.approvedEffects?.approvedOutputNoteIds).toBeUndefined();
-      expect(queued.approvedEffects?.introducedNoteIds).toBeUndefined();
+      expect({ ...queued.approvedEffects }).not.toHaveProperty('introducedNoteIds');
       const paying = summary({
         removed: [fa('fA', 50n), fa('usdcx', 2n)],
         outputs: [note([fa('fA', 50n)], [], 'pay'), feeNote(2n)]

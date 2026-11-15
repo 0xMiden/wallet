@@ -766,6 +766,57 @@ describe('transactions utilities', () => {
       );
     });
 
+    // Signing may create only this note (`proposal-effect-guard.ts`), so the row records it as its build reported it.
+    it('records the one note its request was built with on the bridged-send row it queues', async () => {
+      await initiateBridgedSendTransaction(
+        'account-a',
+        10n,
+        'faucet-a',
+        '0xrecipient',
+        0,
+        'agglayer',
+        new Uint8Array([1]),
+        true,
+        undefined,
+        undefined,
+        '0xexit',
+        undefined,
+        AGGLAYER_RECOVERY,
+        undefined,
+        '0xbuilt'
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'bridged-send', approvedEffects: { approvedOutputNoteIds: ['0xbuilt'] } }),
+        [{ faucetId: 'faucet-a', amount: 10n }],
+        undefined
+      );
+    });
+
+    it('records the one note its request was built with on the Earn deposit row it queues', async () => {
+      await initiateEarnDepositTransaction(
+        'account-a',
+        10n,
+        '0xrecipient',
+        'market-a',
+        'faucet-a',
+        { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
+        true,
+        new Uint8Array([1, 2, 3]),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        '0xbuilt'
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'earn-deposit', approvedEffects: { approvedOutputNoteIds: ['0xbuilt'] } }),
+        [{ faucetId: 'faucet-a', amount: 10n }],
+        undefined
+      );
+    });
+
     it('routes Earn deposit through the atomic outgoing queue with its authorization', async () => {
       await initiateEarnDepositTransaction(
         'account-a',

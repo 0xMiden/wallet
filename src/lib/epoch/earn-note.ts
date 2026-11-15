@@ -75,7 +75,7 @@ export async function createEarnP2IDENote(
   } = args;
   try {
     console.log('[epoch] creating earn note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
-    const { requestBytes } = await buildEpochCollateralRequestBytes({
+    const { requestBytes, noteId: builtNoteId } = await buildEpochCollateralRequestBytes({
       senderAccountId,
       allocatorId,
       faucetId,
@@ -101,7 +101,8 @@ export async function createEarnP2IDENote(
       spendingLimitAuthorization,
       args.allocatorUrl,
       args.protocol,
-      args.chainId
+      args.chainId,
+      builtNoteId
     );
 
     // Row exists now (Queued) — let the caller navigate before we block on proving.

@@ -149,7 +149,8 @@ export async function createBridgeP2IDENote(
       undefined,
       undefined,
       undefined,
-      args.allocatorUrl
+      args.allocatorUrl,
+      reclaimNoteId
     );
 
     // Row exists now (Queued) — let the caller navigate to the progress screen

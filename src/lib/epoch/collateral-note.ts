@@ -8,6 +8,7 @@ import {
   resolveHeldFungibleAsset
 } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { soleOwnOutputNoteId } from 'lib/miden/sdk/own-output-request';
 
 import { getCurrentMidenBlock } from './chain';
 
@@ -49,7 +50,7 @@ export interface EpochCollateralRequest {
   requestBytes: Uint8Array;
   /** Absolute Miden block after which the sender can reclaim the note. */
   reclaimHeight: number;
-  /** Id of the P2IDE note the request creates. */
+  /** Id of the one P2IDE note the request creates, lowercased as the summary decode spells it. */
   noteId: string;
 }
 
@@ -70,7 +71,8 @@ export interface EpochCollateralRequest {
  * validates the REMAINING window against its own (later) head; the blocks that
  * elapse during proving/submission (and guardian co-signing) are covered by the
  * ~1000-block buffer the SDK bakes into `recallBlocks`. The height and the note id
- * come back with the bytes so a bridged-send row can record them (#1250).
+ * come back with the bytes so a bridged-send row can record them (#1250), and so
+ * both rows can bind signing to that one note.
  */
 export async function buildEpochCollateralRequestBytes(args: EpochCollateralNoteArgs): Promise<EpochCollateralRequest> {
   // Fresh RPC head (not the local sync height) so a cold-started wallet can't
@@ -117,8 +119,6 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
       NoteType.Public,
       attachment
     );
-    // The browser build consumes a Note passed by value, so its id is read before the NoteArray takes it.
-    const noteId = note.id().toString();
     // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
     // only on the builder. See `feeAwareRequestBuilder` for why it starts there.
     const builder = await feeAwareRequestBuilder(
@@ -127,10 +127,8 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
       feeSalt
     );
     assertWasmHoldCurrent(hold, 'after the fee-aware collateral builder');
-    const requestBytes = builder
-      .withOwnOutputNotes(new NoteArray([note]))
-      .build()
-      .serialize();
-    return { requestBytes, reclaimHeight, noteId };
+    const request = builder.withOwnOutputNotes(new NoteArray([note])).build();
+    // Read from the request whose bytes are queued: a row's signing may create only this note.
+    return { requestBytes: request.serialize(), reclaimHeight, noteId: soleOwnOutputNoteId(request) };
   });
 }

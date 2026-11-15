@@ -280,6 +280,15 @@ export interface IApprovedCustomEffects extends ICustomTransactionEffects {
 }
 
 /**
+ * Bridged send and Earn deposit only: the one own output note that the row's request bytes create, as the summary
+ * decode spells its id, recorded where those bytes were built. Signing lets the transaction create only this note,
+ * whose id commits to its recipient, assets and serial.
+ */
+export interface IApprovedOwnOutputNote {
+  approvedOutputNoteIds: string[];
+}
+
+/**
  * What an `execute` approval lets signing move. This allowance is `executeApprovalOf`'s `signing`, recorded with its
  * holdings view by `approveCustomSimulation`. The first two go on the row's fields of the same name, the note ids on
  * its `approvedEffects`.
@@ -961,10 +970,11 @@ export interface ITransaction {
    */
   spentAssetTotals?: IConsumedAssetTotal[];
   /**
-   * Execute (dApp custom) only: the effects that the user approved. See `IApprovedCustomEffects`. A row without this
-   * value is not proposed.
+   * Execute (dApp custom): the effects that the user approved (`IApprovedCustomEffects`); an execute row without them
+   * is not proposed. Bridged send and Earn deposit: the one note their pre-built request creates
+   * (`IApprovedOwnOutputNote`); a row without it is not signed.
    */
-  approvedEffects?: IApprovedCustomEffects;
+  approvedEffects?: IApprovedCustomEffects | IApprovedOwnOutputNote;
   /**
    * Execute only: per-faucet value leaving the account's holdings. This allowance is `executeApprovalOf`'s `signing`,
    * recorded with its holdings view by `approveCustomSimulation`. A consumed note the account already held counts as
@@ -1322,7 +1332,7 @@ export class Transaction implements ITransaction {
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
   /** The effects that the user approved. See `ITransaction.approvedEffects`. */
-  approvedEffects?: IApprovedCustomEffects;
+  approvedEffects?: ITransaction['approvedEffects'];
   /** See `ITransaction.approvedOutflow`. */
   approvedOutflow?: IConsumedAssetTotal[];
   /** See `ITransaction.approvedNftOutflow`. */
@@ -1712,6 +1722,8 @@ export class BridgedSendTransaction implements ITransaction {
   secondaryAccountId?: string;
   noteType?: NoteType;
   requestBytes?: Uint8Array;
+  /** The one note `requestBytes` create. See `ITransaction.approvedEffects`. */
+  approvedEffects?: IApprovedOwnOutputNote;
   transactionId?: string;
   outputNoteIds?: string[];
   status: ITransactionStatus;
@@ -1791,6 +1803,8 @@ export class EarnDepositTransaction implements ITransaction {
    * verbatim across the standard pipeline, guardian propose/sign, and retries.
    */
   requestBytes?: Uint8Array;
+  /** The one note `requestBytes` create. See `ITransaction.approvedEffects`. */
+  approvedEffects?: IApprovedOwnOutputNote;
   status: ITransactionStatus;
   initiatedAt: number;
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */

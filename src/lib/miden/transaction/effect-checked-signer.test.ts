@@ -204,7 +204,7 @@ const prebuilt = (type: ITransaction['type'], builtNoteId: string, amount = 500n
     type,
     faucetId: 'bech32:fA',
     amount,
-    approvedEffects: { ...executeEffects, introducedNoteIds: [], approvedOutputNoteIds: [builtNoteId] }
+    approvedEffects: { approvedOutputNoteIds: [builtNoteId] }
   });
 
 it.each(prebuiltTransfers)('passes %s signing that creates only the note it was built with', async type => {

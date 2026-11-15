@@ -21,7 +21,8 @@ import type {
   IApprovedCustomEffects,
   IConsumedAssetTotal,
   ICustomTransactionEffects,
-  IExecuteApproval
+  IExecuteApproval,
+  ITransaction
 } from '../db/types';
 
 /*
@@ -244,12 +245,13 @@ export function customEffectsDifference(
  * uncharged row, whether the stored charge is unset or an empty list.
  */
 export function assertCustomEffectsApproved(
-  approved: IApprovedCustomEffects | undefined,
+  approved: ITransaction['approvedEffects'],
   dryRun: CustomDryRunResult,
   spentAssetTotals: readonly IConsumedAssetTotal[] | undefined,
   spendingLimitConfigured = false
 ): void {
-  if (approved === undefined) {
+  // A pre-built request's record names only its own note, which is no approval of a custom request's effects.
+  if (approved === undefined || !('shape' in approved)) {
     throw new CustomTransactionEffectsChangedError('the row has no approved effects');
   }
   const decoded = decodeCustomEffects(dryRun);
@@ -313,7 +315,7 @@ export function customEffectsCheckAccess(
  */
 export async function verifyPreparedCustomRequest(
   access: CustomEffectsCheckAccess,
-  approved: IApprovedCustomEffects | undefined,
+  approved: ITransaction['approvedEffects'],
   spentAssetTotals: readonly IConsumedAssetTotal[] | undefined
 ): Promise<void> {
   access.assertHoldCurrent('before the custom request effects check');

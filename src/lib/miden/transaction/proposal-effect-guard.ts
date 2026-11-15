@@ -39,12 +39,20 @@ const approvedTransfer = ({ faucetId, amount }: ITransaction): Allowance => {
   return { outflow: [{ faucetId, amount }], nfts: [] };
 };
 
+// Its request bytes were built before signing, so it may create only the one note their build recorded. A row queued
+// before that was recorded is refused.
+const approvedPrebuiltTransfer = (transaction: ITransaction): Allowance => {
+  const builtNoteIds = transaction.approvedEffects?.approvedOutputNoteIds;
+  if (builtNoteIds?.length !== 1) throw new Error('the transaction has no recorded note of its own');
+  return { ...approvedTransfer(transaction), outputNoteIds: builtNoteIds };
+};
+
 /** The allowance of each checked type. A type with no entry is not checked. */
 const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransaction) => Allowance>> = {
   send: approvedTransfer,
   swap: approvedTransfer,
-  'earn-deposit': approvedTransfer,
-  'bridged-send': approvedTransfer,
+  'earn-deposit': approvedPrebuiltTransfer,
+  'bridged-send': approvedPrebuiltTransfer,
   // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
   consume: transaction => {
     const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;
@@ -56,14 +64,14 @@ const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransacti
   // What the approval-time dry run showed leaving; a row queued before that was recorded falls back to its policy
   // totals. A dry run that failed recorded neither, and a row queued before NFTs were recorded has none, so such a row
   // may move nothing. A row that recorded no notes credits no consumed note and may create only notes carrying nothing.
-  execute: transaction => ({
-    outflow: (transaction.approvedOutflow ?? transaction.spentAssetTotals ?? []).map(asset => ({
+  execute: ({ approvedOutflow, spentAssetTotals, approvedNftOutflow, approvedEffects }) => ({
+    outflow: (approvedOutflow ?? spentAssetTotals ?? []).map(asset => ({
       faucetId: asset.faucetId,
       amount: BigInt(asset.amount)
     })),
-    nfts: transaction.approvedNftOutflow ?? [],
-    introducedNoteIds: transaction.approvedEffects?.introducedNoteIds ?? [],
-    outputNoteIds: transaction.approvedEffects?.approvedOutputNoteIds ?? 'assetless'
+    nfts: approvedNftOutflow ?? [],
+    introducedNoteIds: (approvedEffects && 'shape' in approvedEffects ? approvedEffects.introducedNoteIds : []) ?? [],
+    outputNoteIds: approvedEffects?.approvedOutputNoteIds ?? 'assetless'
   })
 };
 
