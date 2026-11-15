@@ -1460,13 +1460,21 @@ const assertEarnDepositIntentLive = async (transaction: ITransaction): Promise<v
 };
 
 /**
- * An Earn deposit's precondition for both leaves: its intent is still live and the row carries the collateral request
- * built at initiate, which is returned. Nothing on the row can rebuild that request's mandate-binding attachment, so a
- * row without it fails here. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ * An Earn deposit's precondition for both leaves: its intent is still live, the collateral request built at initiate,
+ * and the one note recorded with those bytes, which are returned. Nothing on the row can rebuild that request's
+ * mandate-binding attachment, so a row without the bytes or without that one note fails here. A failure is before fee
+ * discovery and before the guardian service load, so an unknown chain fee or a guardian outage cannot requeue it.
  */
 const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promise<Uint8Array> => {
   await assertEarnDepositIntentLive(transaction);
   if (!transaction.requestBytes) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
+  if (transaction.approvedOutputNoteIds?.length !== 1) {
+    throw new ProposalEffectRefusedError(
+      transaction.type,
+      'the transaction has no recorded note of its own',
+      getMessage('proposalEffectRefused')
+    );
+  }
   return transaction.requestBytes;
 };
 
@@ -2145,8 +2153,8 @@ const generateTransactionWithProvider = async (
         case 'bridged-send':
         case 'earn-deposit': {
           // Both carry the request built at initiate. A bridged send without its own bytes, or without the one note
-          // those bytes recorded, was refused before this signer. An Earn deposit without its bytes fails here, since
-          // nothing can rebuild its mandate binding.
+          // those bytes recorded, was refused before this signer. So was an Earn deposit without its bytes or without
+          // that one note, since nothing can rebuild its mandate binding.
           //
           // The abandoned-intent guard the Guardian leaf has must apply here too: this
           // shared block had none, so a non-Guardian account still minted the orphan
@@ -4037,7 +4045,8 @@ const generateGuardianTransaction = async (
       // the pre-built P2IDE collateral request (own output note with the
       // mandate-binding attachment, smallocator PR #38) in `requestBytes`, and they
       // are proposed as they are, with the fee conversion salt declared when they
-      // were built. Checked before the service load, which can reach the guardian.
+      // were built. An Earn deposit without its bytes or without that one note is refused here, before
+      // `getOrCreateMultisigService`, which can reach the guardian.
       const requestBytes = await requireEarnDepositRequestBytes(transaction);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);

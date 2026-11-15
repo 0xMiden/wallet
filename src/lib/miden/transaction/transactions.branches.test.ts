@@ -2381,6 +2381,7 @@ describe('generateTransactionsLoop error paths', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
       requestBytes: new Uint8Array([1]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 25 }
     });
     await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -2494,7 +2495,8 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'guardian-acc',
       secondaryAccountId: 'allocator',
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' },
-      requestBytes: earnBytes
+      requestBytes: earnBytes,
+      approvedOutputNoteIds: ['note:recorded']
     });
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);

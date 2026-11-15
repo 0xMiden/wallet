@@ -603,6 +603,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '5',
       requestBytes: new Uint8Array([4, 4]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 10 }
     },
     complete: mockComplete.earn
@@ -2223,6 +2224,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       faucetId: 'f',
       amount: '5',
       requestBytes: new Uint8Array([4, 4]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 10 }
     };
     arrange('on-earn-unauthorized', row);
