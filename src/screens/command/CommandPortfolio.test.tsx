@@ -139,6 +139,7 @@ it('waits for the saved privacy choice and omits all balances from rows, tooltip
 
 it('persists the privacy choice across dashboard remounts', async () => {
   const view = render(<CommandPortfolio scope={scope} />);
+  await waitFor(() => expect(screen.getByTestId('command-history')).toHaveAttribute('aria-busy', 'false'));
   expect(screen.getAllByText('commandMaskedBalance').length).toBeGreaterThan(1);
   fireEvent.click(screen.getByRole('button', { name: 'commandShowBalances' }));
   expect(screen.getAllByText('6 USD')).toHaveLength(2);
@@ -226,11 +227,12 @@ it('positions samples by observation time, and mouse and keyboard inspect the sa
   const chart = await screen.findByTestId('command-chart');
   const circles = chart.querySelectorAll('circle');
   expect(circles).toHaveLength(3);
+  expect(Number(circles[0]?.getAttribute('cx'))).toBeGreaterThan(85);
   expect(Number(circles[1]?.getAttribute('cx'))).toBeGreaterThan(95);
   const rect = chart.getBoundingClientRect();
   Object.defineProperty(rect, 'width', { value: 100 });
   jest.spyOn(chart, 'getBoundingClientRect').mockReturnValue(rect);
-  fireEvent.mouseMove(chart, { clientX: 75 });
+  fireEvent.mouseMove(chart, { clientX: Number(circles[1]?.getAttribute('cx')) });
   expect(screen.getByRole('status').textContent).toContain('5 USD');
   fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } });
   expect(screen.getByRole('status').textContent).toContain('5 USD');

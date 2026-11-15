@@ -898,6 +898,9 @@ describe('portfolio observation migration', () => {
         'currency',
         'bucket'
       ]);
+      expect(upgraded.table(Table.PortfolioObservations).schema.indexes.map(index => index.name)).toEqual([
+        '[accountId+network+rpcUrl+currency+capturedAt]'
+      ]);
     } finally {
       upgraded.close();
       await upgraded.delete();

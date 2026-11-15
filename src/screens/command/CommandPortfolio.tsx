@@ -119,10 +119,10 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
   const values = samples.map(row => Number(row.value));
   const min = Math.min(...values);
   const span = Math.max(...values) - min || 1;
-  const firstBucket = samples[0]?.bucket ?? 0;
-  const lastBucket = samples.at(-1)?.bucket ?? firstBucket;
+  const rangeMs = RANGES[range] * DAY_MS;
+  const rangeStart = Date.now() - rangeMs;
   const chartPoints = samples.map(row => ({
-    x: firstBucket === lastBucket ? 50 : (100 * (row.bucket - firstBucket)) / (lastBucket - firstBucket),
+    x: Math.max(0, Math.min(100, (100 * (row.bucket - rangeStart)) / rangeMs)),
     y: 90 - (80 * (Number(row.value) - min)) / span,
     row
   }));

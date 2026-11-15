@@ -409,7 +409,7 @@ function defineSchema(target: Dexie): void {
     [Table.Transactions]: TRANSACTIONS_V3_2_STORE,
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE,
     [Table.PortfolioObservations]:
-      '[accountId+network+rpcUrl+currency+bucket],accountId,[accountId+network+rpcUrl+currency+capturedAt]'
+      '[accountId+network+rpcUrl+currency+bucket],[accountId+network+rpcUrl+currency+capturedAt]'
   });
 
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
