@@ -1,0 +1,1362 @@
+diff --git a/src/lib/miden/back/miden-client-proxy.test.ts b/src/lib/miden/back/miden-client-proxy.test.ts
+index 8127e454ee08b61086dd0af754f91f8789fd2029..20e322b209a23ac7a3e70c5d9e1388b8b1dad2c7 100644
+--- a/src/lib/miden/back/miden-client-proxy.test.ts
++++ b/src/lib/miden/back/miden-client-proxy.test.ts
+@@ -51,6 +51,7 @@ jest.mock('lib/miden/sdk/custom-request', () => {
+ 
+ jest.mock('lib/miden/sdk/miden-client', () => {
+   const g = globalThis as any;
++  if (g.__px.realClientRouting) return { __esModule: true, ...jest.requireActual('../sdk/miden-client') };
+   return {
+     getMidenClient: (...a: any[]) => g.__px.getMidenClient(...a),
+     getCurrentWasmLockHold: () => g.__px.inlineHold,
+@@ -318,6 +319,8 @@ afterEach(() => {
+   if (ORIGINAL_FLAG === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+   else process.env.MIDEN_USE_OFFSCREEN_CLIENT = ORIGINAL_FLAG;
+   delete G.chrome;
++  jest.dontMock('lib/miden/sdk/miden-client-interface');
++  jest.dontMock('../sdk/miden-client-interface');
+ });
+ 
+ describe('MidenClientProxy — flag routing', () => {
+@@ -2147,6 +2150,597 @@ describe('MidenClientProxy - dryRunTransaction (the USDCx burn fee probe)', () =
+   });
+ });
+ 
++// No new production import/API: an old function can be assigned to this optional-input shape.
++describe('MidenClientProxy - dryRunTransaction capture-and-refuse contract', () => {
++  const REQUEST = new Uint8Array([1, 2, 3]);
++  type CaptureRead = (
++    account: string,
++    request: Uint8Array,
++    hold: WasmLockHold,
++    options?: { mode: 'capture-and-refuse'; assertLive: () => void }
++  ) => Promise<unknown>;
++  const options = (): { mode: 'capture-and-refuse'; assertLive: () => void } => ({
++    mode: 'capture-and-refuse', assertLive: jest.fn()
++  });
++
++  function readableSummary() {
++    const summary = {
++      accountDelta: () => ({ id: () => ({ toString: () => '0xaccount' }) }),
++      serialize: () => new Uint8Array([0x99]),
++      free: jest.fn()
++    };
++    G.__px.signingInputsDeserialize = jest.fn(() => ({
++      variantType: 0,
++      serialize: () => new Uint8Array([0x42]),
++      transactionSummaryPayload: () => summary,
++      free: jest.fn()
++    }));
++    return summary;
++  }
++
++  // SDK byte fixtures are synthetic; the hold, signer wrapper and keystore trampoline are real.
++  async function realInline() {
++    G.__px.realClientRouting = true;
++    let sign = async (_key: Uint8Array, _inputs: Uint8Array): Promise<Uint8Array> => {
++      throw new Error('client not created');
++    };
++    const execute = jest.fn(async () => {
++      try {
++        await sign(new Uint8Array([0x0a]), new Uint8Array([0x42]));
++      } catch (error) {
++        // Worker-shaped transport carries only the rejection text, not lastAuthError or an Error instance.
++        throw new Error(`failed to generate signature: ${error instanceof Error ? error.message : String(error)}`);
++      }
++      return { result: { serialize: () => new Uint8Array([8]) } };
++    });
++    const preview = jest.fn();
++    const forbidden = jest.fn();
++    const create = jest.fn(async (callbacks: {
++      signCallback: (key: Uint8Array, inputs: Uint8Array) => Promise<Uint8Array>
++    }) => {
++      sign = callbacks.signCallback;
++      return {
++        free: jest.fn(), markPoisoned: jest.fn(),
++        client: {
++          transactions: { executeRequest: execute, preview, prove: forbidden, submit: forbidden, apply: forbidden },
++          getSyncHeight: async () => 42, sync: forbidden, syncChain: forbidden
++        },
++        importNoteBytes: forbidden
++      };
++    });
++    jest.doMock('lib/miden/sdk/miden-client-interface', () => ({ MidenClientInterface: { create } }));
++    jest.doMock('../sdk/miden-client-interface', () => jest.requireMock('lib/miden/sdk/miden-client-interface'));
++    G.__px.txRequestDeserialize.mockReturnValue({ authArg: () => undefined, blockNumbers: () => new Uint32Array() });
++    const proxy = await loadProxy(false);
++    const client = await import('lib/miden/sdk/miden-client');
++    const realm = jest.fn(async () => new Uint8Array([7]));
++    client.installRealmKeystore({ sign: realm });
++    const read: CaptureRead = proxy.midenClientProxy.dryRunTransaction;
++    return { ...proxy, client, read, realm, execute, create, preview, forbidden, sign: () => sign };
++  }
++
++  it('inline: real hold/trampoline captures full bytes through worker-shaped rejection, without realm signing or lock yield', async () => {
++    const h = await realInline();
++    const summary = readableSummary();
++    const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
++    const lock = jest.spyOn(h.client, 'withWasmClientLock');
++    const yieldLock = jest.spyOn(h.client, 'yieldWasmClientLock');
++    try {
++      const result = await h.client.withWasmClientLock(hold => h.read('0xaccount', REQUEST, hold, options()));
++      expect(h.create).toHaveBeenCalledTimes(1);
++      expect(result).toEqual({ signingInputsBytes: 'Qg==', summaryBytes: 'mQ==' });
++      expect(h.execute).toHaveBeenCalledTimes(1);
++      expect(G.__px.signingInputsDeserialize).toHaveBeenCalledWith(new Uint8Array([0x42]));
++      expect(summary.free).toHaveBeenCalledTimes(1);
++      expect(h.realm).not.toHaveBeenCalled();
++      expect(h.preview).not.toHaveBeenCalled();
++      expect(executeForSummaryAtTip).not.toHaveBeenCalled();
++      expect(h.forbidden).not.toHaveBeenCalled();
++      expect(lock).toHaveBeenCalledTimes(1);
++      expect(yieldLock).not.toHaveBeenCalled();
++      expect(G.__px.withHoldSigner).not.toHaveBeenCalled();
++      // Ordinary routing is restored when this strict invocation leaves the hold.
++      await h.client.withWasmClientLock(() => h.sign()(new Uint8Array([1]), new Uint8Array([2])));
++      expect(h.realm).toHaveBeenCalledTimes(1);
++    } finally {
++      lock.mockRestore();
++      yieldLock.mockRestore();
++    }
++  });
++
++  it.each([null, false, 7, 'capture-and-refuse', {}, { mode: 'preview' }, { mode: 'capture-and-refuse' },
++    { mode: 'capture-and-refuse', assertLive: 1 }])(
++    'inline: malformed strict options %p refuse before initialization or client access', async badOptions => {
++      const { midenClientProxy } = await loadProxy(false);
++      const outcome = Promise.resolve(Reflect.apply(midenClientProxy.dryRunTransaction, midenClientProxy,
++        ['0xaccount', REQUEST, G.__px.inlineHold, badOptions]));
++      await expect(outcome).rejects.toBeInstanceOf(Error);
++      expect(G.__px.getWasmOrThrow).not.toHaveBeenCalled();
++      expect(G.__px.getMidenClient).not.toHaveBeenCalled();
++      expect(G.__px.prepareCustomRequestBytes).not.toHaveBeenCalled();
++      expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
++    }
++  );
++
++  it.each(['', '4', 'zz', '42zz', '42ff'])('inline: rejects empty/odd/nonhex/noncanonical full input %p', async hex => {
++    const h = await realInline();
++    readableSummary();
++    // Deliberately enter the raw-hex boundary, through the real withHoldSigner installation.
++    const withSigner = jest.spyOn(h.client, 'withHoldSigner');
++    h.execute.mockImplementation(async () => {
++      const deny = withSigner.mock.calls[0]?.[1];
++      if (!deny) throw new Error('strict signer was not installed');
++      await deny('0a', hex);
++      throw new Error('strict signer unexpectedly supplied a signature');
++    });
++    try {
++      await expect(h.client.withWasmClientLock(hold => h.read('0xaccount', REQUEST, hold, options())))
++        .rejects.toBeInstanceOf(Error);
++      if (hex !== '42ff') expect(G.__px.signingInputsDeserialize).not.toHaveBeenCalled();
++      expect(h.realm).not.toHaveBeenCalled();
++    } finally {
++      withSigner.mockRestore();
++    }
++  });
++
++  it.each(['wrong-account', 'empty-summary', 'unreadable-summary', 'empty-roundtrip'])(
++    'inline: %s is not capture evidence', async kind => {
++      const h = await realInline();
++      readableSummary();
++      const summary = {
++        accountDelta: () => ({ id: () => ({ toString: () => kind === 'wrong-account' ? '0xother' : '0xaccount' }) }),
++        serialize: () => {
++          if (kind === 'unreadable-summary') throw new Error('summary unreadable');
++          return kind === 'empty-summary' ? new Uint8Array() : new Uint8Array([0x99]);
++        },
++        free: jest.fn()
++      };
++      G.__px.signingInputsDeserialize.mockReturnValue({
++        variantType: 0, serialize: () => kind === 'empty-roundtrip' ? new Uint8Array() : new Uint8Array([0x42]),
++        transactionSummaryPayload: () => summary, free: jest.fn()
++      });
++      await expect(h.client.withWasmClientLock(hold => h.read('0xaccount', REQUEST, hold, options())))
++        .rejects.toBeInstanceOf(Error);
++      expect(h.realm).not.toHaveBeenCalled();
++    }
++  );
++
++  it('inline: two queued real holds keep their captures and denial lifetimes distinct', async () => {
++    const h = await realInline();
++    let ordinal = 0;
++    G.__px.signingInputsDeserialize.mockImplementation(() => {
++      const summaryByte = ++ordinal;
++      return {
++        variantType: 0, serialize: () => new Uint8Array([0x42]),
++        transactionSummaryPayload: () => ({
++          accountDelta: () => ({ id: () => ({ toString: () => '0xaccount' }) }),
++          serialize: () => new Uint8Array([summaryByte]), free: jest.fn()
++        }),
++        free: jest.fn()
++      };
++    });
++    const holds = new Set<WasmLockHold>();
++    const run = () => h.client.withWasmClientLock(hold => {
++      holds.add(hold);
++      return h.read('0xaccount', REQUEST, hold, options());
++    });
++    await expect(Promise.all([run(), run()])).resolves.toEqual([
++      { signingInputsBytes: 'Qg==', summaryBytes: 'AQ==' },
++      { signingInputsBytes: 'Qg==', summaryBytes: 'Ag==' }
++    ]);
++    expect(holds.size).toBe(2);
++    expect(h.execute).toHaveBeenCalledTimes(2);
++    expect(h.realm).not.toHaveBeenCalled();
++  });
++
++  it('inline: first validation failure is sticky after execution swallows denial and requests again', async () => {
++    const h = await realInline();
++    readableSummary();
++    const first = new Error('first invalid full inputs');
++    G.__px.signingInputsDeserialize.mockImplementationOnce(() => { throw first; });
++    h.execute.mockImplementation(async () => {
++      await h.sign()(new Uint8Array([10]), new Uint8Array([0x42])).catch(() => undefined);
++      await h.sign()(new Uint8Array([10]), new Uint8Array([0x42])).catch(() => undefined);
++      throw new Error('failed to generate signature');
++    });
++    await expect(h.client.withWasmClientLock(hold => h.read('0xaccount', REQUEST, hold, options()))).rejects.toBe(first);
++    expect(h.realm).not.toHaveBeenCalled();
++  });
++
++  it.each(['decode', 'inputs-serialize', 'summary-serialize', 'summary-free', 'inputs-free'])(
++    'inline: %s trap retains identity even if cleanup throws later', async site => {
++      const h = await realInline();
++      const trap = new WebAssembly.RuntimeError(`trap at ${site}`);
++      const cleanup = new Error('later cleanup error');
++      const summary = {
++        accountDelta: () => ({ id: () => ({ toString: () => '0xaccount' }) }),
++        serialize: () => { if (site === 'summary-serialize') throw trap; return new Uint8Array([0x99]); },
++        free: () => { if (site === 'summary-free') throw trap; if (site === 'summary-serialize') throw cleanup; }
++      };
++      G.__px.signingInputsDeserialize.mockImplementation(() => {
++        if (site === 'decode') throw trap;
++        return {
++          variantType: 0,
++          serialize: () => { if (site === 'inputs-serialize') throw trap; return new Uint8Array([0x42]); },
++          transactionSummaryPayload: () => summary,
++          free: () => { if (site === 'inputs-free') throw trap; throw cleanup; }
++        };
++      });
++      await expect(h.client.withWasmClientLock(hold => h.read('0xaccount', REQUEST, hold, options()))).rejects.toBe(trap);
++      expect(h.realm).not.toHaveBeenCalled();
++    }
++  );
++
++  it.each(['abort', 'poison', 'terminated', 'indefinite-submit', 'trap'])(
++    'inline: terminal %s takes precedence over valid capture and earlier validation failure', async kind => {
++      const h = await realInline();
++      readableSummary();
++      const { OperationAbortedError } = await import('./offscreen-codec');
++      const { WasmClientPoisonedError } = await import('lib/miden/sdk/wasm-client-poison');
++      const error = kind === 'abort' ? new OperationAbortedError('strict-inline', 'doc-closed')
++        : kind === 'poison' ? new WasmClientPoisonedError('watchdog')
++        : kind === 'trap' ? new WebAssembly.RuntimeError('terminal trap')
++        : kind === 'terminated' ? new Error('outer', { cause: new Error('Client terminated') })
++        : new Error(`submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`);
++      for (const invalid of [false, true]) {
++        if (invalid) G.__px.signingInputsDeserialize.mockImplementation(() => { throw new Error('earlier validation'); });
++        h.execute.mockImplementation(async () => {
++          await h.sign()(new Uint8Array([10]), new Uint8Array([0x42])).catch(() => undefined);
++          throw error;
++        });
++        await expect(h.client.withWasmClientLock(hold => h.read('0xaccount', REQUEST, hold, options()))).rejects.toBe(error);
++      }
++      expect(h.realm).not.toHaveBeenCalled();
++    }
++  );
++
++  it('inline: copies serialized evidence before rejection frees or mutates SDK-owned byte views', async () => {
++    const h = await realInline();
++    const inputView = new Uint8Array([0x42]);
++    const summaryView = new Uint8Array([0x99]);
++    G.__px.signingInputsDeserialize.mockReturnValue({
++      variantType: 0, serialize: () => inputView,
++      transactionSummaryPayload: () => ({
++        accountDelta: () => ({ id: () => ({ toString: () => '0xaccount' }) }),
++        serialize: () => summaryView, free: () => summaryView.fill(0)
++      }),
++      free: () => inputView.fill(0)
++    });
++    await expect(h.client.withWasmClientLock(hold => h.read('0xaccount', REQUEST, hold, options())))
++      .resolves.toEqual({ signingInputsBytes: 'Qg==', summaryBytes: 'mQ==' });
++    expect(inputView[0]).toBe(0);
++    expect(summaryView[0]).toBe(0);
++    expect(h.realm).not.toHaveBeenCalled();
++  });
++
++  it('inline: early cancellation prevents initialization and execution', async () => {
++    const h = await realInline();
++    const cancelled = new Error('identity cancelled before preparation');
++    await expect(h.client.withWasmClientLock(hold => h.read('0xaccount', REQUEST, hold, {
++      mode: 'capture-and-refuse', assertLive: () => { throw cancelled; }
++    }))).rejects.toBe(cancelled);
++    expect(h.create).not.toHaveBeenCalled();
++    expect(h.execute).not.toHaveBeenCalled();
++    expect(h.realm).not.toHaveBeenCalled();
++    expect(G.__px.getWasmOrThrow).not.toHaveBeenCalled();
++  });
++
++  it('inline: a successful ordinary preview with no callback capture is unknown, not an approvable quote', async () => {
++    const { midenClientProxy } = await loadProxy(false);
++    const read: CaptureRead = midenClientProxy.dryRunTransaction;
++    const outcome = read('0xaccount', REQUEST, G.__px.inlineHold, options());
++    await expect(outcome).rejects.toBeInstanceOf(Error);
++  });
++
++  it('offscreen: strict mode never calls the default signer, even while its op is live', async () => {
++    const { midenClientProxy, handleOffscreenSignRequest, __test } = await loadProxy(true);
++    const read: CaptureRead = midenClientProxy.dryRunTransaction;
++    const raw = jest.fn(async () => new Uint8Array([7]));
++    let answer: unknown;
++    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
++      // Malformed full SigningInputs: it must refuse, not try the hot/default signer.
++      answer = await handleOffscreenSignRequest(signRequestFor(env.op_id), raw);
++      return { ok: false, op_id: env.op_id, error: 'failed to generate signature' };
++    });
++    const settled = read('0xaccount', REQUEST, G.__px.inlineHold, options()).catch(error => error);
++    await flush();
++    fireReady();
++    expect(await settled).toBeInstanceOf(Error);
++    expect(raw).not.toHaveBeenCalled();
++    expect(answer).toEqual(expect.objectContaining({ ok: false }));
++    expect(__test.opSignCallbacksSize()).toBe(0);
++    expect(__test.opSignReasonsSize()).toBe(0);
++    expect(__test.inFlightSize()).toBe(0);
++  });
++
++  it('offscreen: returns full inputs and summary from one refusal, not from a normal successful result', async () => {
++    const { midenClientProxy, handleOffscreenSignRequest, __test } = await loadProxy(true);
++    const read: CaptureRead = midenClientProxy.dryRunTransaction;
++    readableSummary();
++    const raw = jest.fn(async () => new Uint8Array([7]));
++    let op = '';
++    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
++      op = env.op_id;
++      const response = await handleOffscreenSignRequest({
++        ...signRequestFor(op), signingInputsB64: Buffer.from([0x42]).toString('base64')
++      }, raw);
++      expect(response.ok).toBe(false);
++      // The callback must have decoded/serialized the payload BEFORE answering refusal.
++      expect(G.__px.signingInputsDeserialize).toHaveBeenCalledTimes(1);
++      expect(__test.inFlightOpIds()).toContain(op);
++      expect(env).toEqual(expect.objectContaining({ method: 'dryRunTransaction' }));
++      expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64).toEqual([
++        's:"0xaccount"', 'b:AQID', 's:"capture-and-refuse"'
++      ]);
++      return { ok: false, op_id: op, error: 'failed to generate signature' };
++    });
++    const pending = read('0xaccount', REQUEST, G.__px.inlineHold, options());
++    await flush();
++    fireReady();
++    await expect(pending).resolves.toEqual({
++      summaryBytes: Buffer.from([0x99]).toString('base64'),
++      signingInputsBytes: Buffer.from([0x42]).toString('base64')
++    });
++    expect(__test.inFlightSize()).toBe(0);
++    expect(__test.opSignCallbacksSize()).toBe(0);
++    expect(__test.opSignReasonsSize()).toBe(0);
++    expect(__test.hasOpTimer(op)).toBe(false);
++    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
++    expect(raw).not.toHaveBeenCalled();
++    await expect(handleOffscreenSignRequest(signRequestFor(op), raw)).resolves.toEqual(
++      expect.objectContaining({ ok: false })
++    );
++    expect(raw).not.toHaveBeenCalled();
++  });
++
++  it.each(['success', 'multiple', 'non-summary', 'malformed', 'cancelled', 'trap', 'killed'])(
++    'offscreen: %s never redeems a captured quote', async kind => {
++      const { midenClientProxy, handleOffscreenSignRequest, __test } = await loadProxy(true);
++      const read: CaptureRead = midenClientProxy.dryRunTransaction;
++      readableSummary();
++      if (kind === 'non-summary') G.__px.signingInputsDeserialize.mockReturnValue({ variantType: 1 });
++      if (kind === 'malformed') G.__px.signingInputsDeserialize.mockImplementation(() => { throw new Error('bad bytes'); });
++      const raw = jest.fn(async () => new Uint8Array([7]));
++      const stale = new Error('cancelled identity');
++      let cancelled = false;
++      const assertLive = () => { if (cancelled) throw stale; };
++      fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
++        const request = { ...signRequestFor(env.op_id), signingInputsB64: Buffer.from([0x42]).toString('base64') };
++        await handleOffscreenSignRequest(request, raw);
++        if (kind === 'multiple') await handleOffscreenSignRequest(request, raw);
++        if (kind === 'cancelled') cancelled = true;
++        if (kind === 'success') return {
++          ok: true, op_id: env.op_id, resultB64: Buffer.from('{}').toString('base64'), durationMs: 1
++        };
++        return {
++          ok: false, op_id: env.op_id, error: 'failed to generate signature',
++          errorName: kind === 'trap' ? 'RuntimeError' : kind === 'killed' ? 'WasmClientPoisonedError' : undefined,
++          errorReason: kind === 'killed' ? 'watchdog' : undefined
++        };
++      });
++      const settled = read('0xaccount', REQUEST, G.__px.inlineHold, { mode: 'capture-and-refuse', assertLive })
++        .catch(error => error);
++      await flush();
++      fireReady();
++      const error = await settled;
++      expect(error).toBeInstanceOf(Error);
++      if (kind === 'cancelled') expect(error).toBe(stale);
++      if (kind === 'trap') expect(error).toBeInstanceOf(WebAssembly.RuntimeError);
++      if (kind === 'killed') expect(error).toEqual(expect.objectContaining({ name: 'WasmClientPoisonedError' }));
++      expect(raw).not.toHaveBeenCalled();
++      expect(__test.opSignCallbacksSize()).toBe(0);
++      expect(__test.opSignReasonsSize()).toBe(0);
++      expect(__test.inFlightSize()).toBe(0);
++    }
++  );
++});
++
++describe('MidenClientProxy - capture-and-refuse offscreen settlement edges', () => {
++  type StrictRead = (account: string, request: Uint8Array, hold: WasmLockHold,
++    options?: { mode: 'capture-and-refuse'; assertLive: () => void }) => Promise<unknown>;
++  const strictOptions = (): { mode: 'capture-and-refuse'; assertLive: () => void } => ({
++    mode: 'capture-and-refuse', assertLive: () => undefined
++  });
++  function fixture() {
++    G.__px.signingInputsDeserialize.mockImplementation((bytes: Uint8Array) => ({
++      variantType: 0,
++      serialize: () => bytes.slice(),
++      transactionSummaryPayload: () => ({
++        accountDelta: () => ({ id: () => ({ toString: () => '0xaccount' }) }),
++        serialize: () => new Uint8Array([bytes[0] ?? 0]), free: jest.fn()
++      }),
++      free: jest.fn()
++    }));
++  }
++  const signing = (op: string, byte = 0x42): OffscreenSignRequest => ({
++    ...signRequestFor(op), signingInputsB64: Buffer.from([byte]).toString('base64')
++  });
++
++  it('refuses a callback between takeInFlight and adapter finally without capturing late inputs', async () => {
++    const { midenClientProxy, handleOffscreenSignRequest, __test } = await loadProxy(true);
++    fixture();
++    const read: StrictRead = midenClientProxy.dryRunTransaction;
++    const raw = jest.fn(async () => new Uint8Array([7]));
++    let late: Promise<unknown> = Promise.resolve();
++    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
++      await handleOffscreenSignRequest(signing(env.op_id), raw);
++      return {
++        op_id: env.op_id, error: 'failed to generate signature',
++        get ok() {
++          // finishOp takes the entry before reading this property; the adapter's await has not resumed.
++          expect(__test.inFlightOpIds()).not.toContain(env.op_id);
++          late = handleOffscreenSignRequest(signing(env.op_id, 0x43), raw);
++          return false;
++        }
++      };
++    });
++    const pending = read('0xaccount', new Uint8Array([1]), G.__px.inlineHold, strictOptions()).catch(error => error);
++    await flush();
++    fireReady();
++    await pending;
++    await expect(late).resolves.toEqual(expect.objectContaining({ ok: false }));
++    expect(G.__px.signingInputsDeserialize).toHaveBeenCalledTimes(1);
++    expect(raw).not.toHaveBeenCalled();
++    expect(__test.inFlightSize()).toBe(0);
++    expect(__test.opSignCallbacksSize()).toBe(0);
++    expect(__test.opSignReasonsSize()).toBe(0);
++  });
++
++  it.each(['undefined', 'transport', 'wrong-op', 'missing-op', 'malformed-ok', 'missing-error', 'unrelated-error'])(
++    '%s terminal response cannot redeem valid side-channel data', async kind => {
++      const { midenClientProxy, handleOffscreenSignRequest, __test } = await loadProxy(true);
++      const { OperationAbortedError } = await import('./offscreen-codec');
++      fixture();
++      const read: StrictRead = midenClientProxy.dryRunTransaction;
++      const raw = jest.fn(async () => new Uint8Array([7]));
++      const transport = new Error('message port lost');
++      let op = '';
++      fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
++        op = env.op_id;
++        await handleOffscreenSignRequest(signing(op), raw);
++        if (kind === 'undefined') return undefined;
++        if (kind === 'transport') throw transport;
++        if (kind === 'missing-op') return { ok: false, error: 'failed to generate signature' };
++        if (kind === 'malformed-ok') return { op_id: op, ok: 'false', resultB64: null };
++        if (kind === 'missing-error') return { op_id: op, ok: false };
++        return { ok: false, op_id: kind === 'wrong-op' ? 'another-op' : op,
++          error: kind === 'unrelated-error' ? 'unrelated later execution error' : 'failed to generate signature' };
++      });
++      const settled = read('0xaccount', new Uint8Array([1]), G.__px.inlineHold, strictOptions()).catch(error => error);
++      await flush();
++      fireReady();
++      const error = await settled;
++      expect(error).toBeInstanceOf(Error);
++      if (kind === 'undefined' || kind === 'transport') expect(error).toBeInstanceOf(OperationAbortedError);
++      if (kind === 'transport') expect(error).toEqual(expect.objectContaining({ cause: transport }));
++      expect(raw).not.toHaveBeenCalled();
++      expect(__test.inFlightSize()).toBe(0);
++      expect(__test.opSignCallbacksSize()).toBe(0);
++      expect(__test.opSignReasonsSize()).toBe(0);
++      expect(__test.hasOpTimer(op)).toBe(false);
++    }
++  );
++
++  it.each([
++    { offscreen: false, input: 'Uint8Array' },
++    { offscreen: true, input: 'Uint8Array' },
++    { offscreen: false, input: 'Buffer' },
++    { offscreen: true, input: 'Buffer' }
++  ])('copies the caller request before a parking await (offscreen=$offscreen, input=$input)', async ({ offscreen, input }) => {
++    const { midenClientProxy } = await loadProxy(offscreen);
++    const read: StrictRead = midenClientProxy.dryRunTransaction;
++    const original = input === 'Buffer' ? Buffer.from([1, 2, 3]) : new Uint8Array([1, 2, 3]);
++    let finishInit: () => void = () => undefined;
++    G.__px.getWasmOrThrow.mockImplementation(() => new Promise<void>(resolve => { finishInit = resolve; }));
++    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
++      ok: false, op_id: env.op_id, error: 'no auth callback'
++    }));
++    const settled = read('0xaccount', original, G.__px.inlineHold, strictOptions()).catch(error => error);
++    original.fill(9);
++    finishInit();
++    await flush();
++    if (offscreen) { fireReady(); await flush(); }
++    await settled;
++    if (offscreen) {
++      expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64[1]).toBe('b:AQID');
++    } else {
++      expect(G.__px.prepareCustomRequestBytes.mock.calls[0][2]).toEqual(new Uint8Array([1, 2, 3]));
++      expect(G.__px.prepareCustomRequestBytes.mock.calls[0][2]).not.toBe(original);
++    }
++  });
++
++  it('two distinct strict ops isolate full captures and cancellation reasons', async () => {
++    const { midenClientProxy, handleOffscreenSignRequest, __test } = await loadProxy(true);
++    fixture();
++    const read: StrictRead = midenClientProxy.dryRunTransaction;
++    const raw = jest.fn(async () => new Uint8Array([7]));
++    let cancelFirst = false;
++    const cancelled = new Error('first identity cancelled');
++    const ids: string[] = [];
++    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
++      const ordinal = ids.push(env.op_id);
++      await handleOffscreenSignRequest(signing(env.op_id, ordinal === 1 ? 0x42 : 0x43), raw);
++      if (ordinal === 1) cancelFirst = true;
++      return { ok: false, op_id: env.op_id, error: 'failed to generate signature' };
++    });
++    const first = read('0xaccount', new Uint8Array([1]), G.__px.inlineHold, {
++      mode: 'capture-and-refuse', assertLive: () => { if (cancelFirst) throw cancelled; }
++    }).catch(error => error);
++    const second = read('0xaccount', new Uint8Array([2]), G.__px.inlineHold, strictOptions());
++    await flush();
++    fireReady();
++    expect(await first).toBe(cancelled);
++    await expect(second).resolves.toEqual({ signingInputsBytes: 'Qw==', summaryBytes: 'Qw==' });
++    expect(new Set(ids).size).toBe(2);
++    expect(raw).not.toHaveBeenCalled();
++    expect(__test.opSignCallbacksSize()).toBe(0);
++    expect(__test.opSignReasonsSize()).toBe(0);
++    expect(__test.inFlightSize()).toBe(0);
++  });
++
++  it.each(['deadline-no-kill', 'collateral'])('%s discards capture and clears callback/reason/timer state', async kind => {
++    const { midenClientProxy, handleOffscreenSignRequest, __test } = await loadProxy(true);
++    fixture();
++    const read: StrictRead = midenClientProxy.dryRunTransaction;
++    const raw = jest.fn(async () => new Uint8Array([7]));
++    const complete = new Map<string, (value: unknown) => void>();
++    let captureOp = '';
++    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string; method: string }) => {
++      if (env.method === 'dryRunTransaction') {
++        captureOp = env.op_id;
++        await handleOffscreenSignRequest(signing(captureOp), raw);
++      }
++      return new Promise(resolve => { complete.set(env.op_id, resolve); });
++    });
++    const critical = __test.dispatchCritical('test-write', [], null);
++    const criticalSettled = critical.promise.catch(error => error);
++    const settled = read('0xaccount', new Uint8Array([1]), G.__px.inlineHold, strictOptions()).catch(error => error);
++    await flush();
++    fireReady();
++    await flush();
++    expect(captureOp).not.toBe('');
++    jest.useFakeTimers();
++    // Existing public start notification re-arms the real production deadline under fake time.
++    const { markOpStarted } = await import('./miden-client-proxy');
++    try {
++      if (kind === 'deadline-no-kill') {
++        markOpStarted(captureOp);
++        await jest.advanceTimersByTimeAsync(30_001);
++      } else {
++        const killer = midenClientProxy.call('getAccount', ['a'], { deadlineMs: 1 }).catch(error => error);
++        await jest.advanceTimersByTimeAsync(1);
++        // A critical op shields reads, so settle it before letting this read kill its collateral.
++        complete.get(critical.op_id)?.({ ok: true, op_id: critical.op_id, resultB64: null, durationMs: 0 });
++        await criticalSettled;
++        await killer;
++        const killingRead = midenClientProxy.call('getAccount', ['a'], { deadlineMs: 1 }).catch(error => error);
++        await jest.advanceTimersByTimeAsync(1);
++        await killingRead;
++      }
++      const error = await settled;
++      expect(error).toEqual(expect.objectContaining({ name: 'OperationAbortedError',
++        reason: kind === 'deadline-no-kill' ? 'deadline-no-kill' : 'deadline' }));
++      expect(__test.hasOpTimer(captureOp)).toBe(false);
++      await expect(handleOffscreenSignRequest(signing(captureOp, 0x43), raw))
++        .resolves.toEqual(expect.objectContaining({ ok: false }));
++      expect(raw).not.toHaveBeenCalled();
++      expect(__test.opSignCallbacksSize()).toBe(0);
++      expect(__test.opSignReasonsSize()).toBe(0);
++      if (kind === 'deadline-no-kill') {
++        expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
++        complete.get(critical.op_id)?.({ ok: true, op_id: critical.op_id, resultB64: null, durationMs: 0 });
++        await criticalSettled;
++      }
++      expect(__test.inFlightSize()).toBe(0);
++    } finally {
++      complete.get(critical.op_id)?.({ ok: true, op_id: critical.op_id, resultB64: null, durationMs: 0 });
++      complete.get(captureOp)?.({ ok: false, op_id: captureOp, error: 'late denied execution' });
++      fireReady();
++      jest.useRealTimers();
++    }
++  });
++});
++
+ describe('MidenClientProxy — deadline kill', () => {
+   it('deadline → closeDocument + reopen + rejects the op with OperationAbortedError', async () => {
+     const { midenClientProxy, __test } = await loadProxy(true);
+diff --git a/src/lib/miden/back/miden-client-proxy.ts b/src/lib/miden/back/miden-client-proxy.ts
+index 6f950869e6d548061a8f602b332eb30ecaf18d89..a4fc17327b4833942a22ec957547f57ccd42faad 100644
+--- a/src/lib/miden/back/miden-client-proxy.ts
++++ b/src/lib/miden/back/miden-client-proxy.ts
+@@ -15,7 +15,16 @@
+ // With the flag off, every method here is a strict pass-through to the inline
+ // `getMidenClient()` singleton.
+ 
+-import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
++import {
++  Account,
++  getWasmOrThrow,
++  Note,
++  SigningInputs,
++  SigningInputsType,
++  TransactionResult,
++  type NoteQuery,
++  type TransactionSummary
++} from '@miden-sdk/miden-sdk/lazy';
+ import { Buffer } from 'buffer';
+ 
+ import { TRANSACTION_STAGES } from 'lib/miden/db/types';
+@@ -23,6 +32,7 @@ import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
+ import type { NoteExportType } from 'lib/miden/sdk/constants';
+ import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+ import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
++import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
+ import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
+ import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
+ import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
+@@ -47,7 +57,12 @@ import type {
+ } from 'lib/miden/sdk/miden-client-interface';
+ import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
+ import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+-import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
++import {
++  isIndefiniteSubmitOutcomeError,
++  isKilledPipeline,
++  markErrorBeforeSubmit,
++  someInCauseChain
++} from 'lib/miden/sdk/sdk-error-code';
+ import {
+   WasmClientPoisonedError,
+   isWasmClientPoisonReason,
+@@ -357,6 +372,8 @@ interface InFlightOp {
+    * the realm (the wedge case, design §3.3); a NON-critical (read) op's deadline
+    * coincident with a critical op in flight downgrades to reject-without-kill. */
+   critical: boolean;
++  /** Only strict capture preserves traps and requires a matching terminal denial envelope. */
++  strictCapture: boolean;
+   /** True while a reverse-IPC sign round-trip is outstanding for this op — its
+    * deadline timer is cleared and re-armed on the sign response (design §2.5). */
+   paused: boolean;
+@@ -479,6 +496,16 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void
+     op.reject(new OperationAbortedError(op_id, 'doc-closed', { started: op.started }));
+     return;
+   }
++  if (
++    op.strictCapture &&
++    (resp === null ||
++      resp.op_id !== op_id ||
++      typeof resp.ok !== 'boolean' ||
++      (resp.ok === false && typeof resp.error !== 'string'))
++  ) {
++    op.reject(new Error('Invalid strict dry run terminal response'));
++    return;
++  }
+   if (resp.ok) op.resolveResult(resp.resultB64);
+   else {
+     const reject = (error: Error) => {
+@@ -527,8 +554,11 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void
+       reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+       return;
+     }
+-    // Rebuilt as its class too: the row's copy and the reported reason read the class, and it carries its before-submit
+-    // tag itself.
++    if (op.strictCapture && resp.errorName === 'RuntimeError') {
++      reject(new WebAssembly.RuntimeError(resp.error));
++      return;
++    }
++    // The row's copy and reported reason read this class; it carries its before-submit tag itself.
+     if (resp.errorName === 'StaleProofError') {
+       reject(new StaleProofError());
+       return;
+@@ -656,18 +686,22 @@ async function dispatchOp(
+   method: string,
+   args: unknown[],
+   deadlineMs: number | null,
+-  critical: boolean
++  critical: boolean,
++  strictCapture = false,
++  assertLive?: () => void
+ ): Promise<string | null> {
+   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
+   // deadline could later close the document under every write in flight (#1081).
+   try {
+     await ensureOffscreenDocument();
++    assertLive?.();
+   } catch (error) {
+     throw markErrorBeforeSubmit(error);
+   }
+   // The `miden-sync` alarm can get here before start() has loaded this realm's override, when the state the
+   // envelope carries would still be the build's network. The load settles even when it fails.
+   await whenEndpointOverridesLoaded();
++  assertLive?.();
+   let argsB64: string[];
+   try {
+     argsB64 = args.map(encodeArg);
+@@ -704,6 +738,7 @@ async function dispatchOp(
+       method,
+       deadlineMs,
+       critical,
++      strictCapture,
+       paused: false,
+       timerPhase: critical ? 'backstop' : 'dispatch',
+       started: false,
+@@ -1662,8 +1697,145 @@ export const midenClientProxy = {
+    *
+    * Flag off: inline under the CALLER's lock, whose `hold` the dry run re-checks after every await. Flag on: one op
+    * with {@link DRY_RUN_DEADLINE_MS}, run under the offscreen document's own hold; the result crosses as JSON.
++   * Strict opt-in captures full signing inputs while refusing authentication, not granting fee approval.
+    */
+-  async dryRunTransaction(accountIdHex: string, requestBytes: Uint8Array, hold: WasmLockHold): Promise<DryRunResult> {
++  async dryRunTransaction(
++    accountIdHex: string,
++    requestBytes: Uint8Array,
++    hold: WasmLockHold,
++    options?: { mode: 'capture-and-refuse'; assertLive: () => void }
++  ): Promise<DryRunResult> {
++    if (options !== undefined) {
++      if (
++        options === null ||
++        typeof options !== 'object' ||
++        options.mode !== 'capture-and-refuse' ||
++        typeof options.assertLive !== 'function'
++      ) {
++        throw new Error('Invalid strict dry run options');
++      }
++      const assertIdentityLive = options.assertLive;
++      const originalRequest = requestBytes.slice();
++      const assertLive = () => {
++        assertWasmHoldCurrent(hold, 'during capture-and-refuse');
++        assertIdentityLive();
++      };
++      let active = true;
++      let calls = 0;
++      let failure: { error: unknown } | undefined;
++      let capture: DryRunResult | undefined;
++      const refusal = new Error('capture-and-refuse: authentication denied');
++      const offscreen = USE_OFFSCREEN_CLIENT && isOffscreenAvailable();
++      const opId = offscreen ? newOpId() : undefined;
++      const deny: RawSignCallback = async (_publicKey, hex) => {
++        ++calls;
++        try {
++          if (!active || (opId !== undefined && !inFlight.has(opId))) throw new Error('Capture operation has settled');
++          assertLive();
++          if (failure) throw failure.error;
++          if (calls !== 1) throw new Error('Ambiguous dry run authentication');
++          if (!/^(?:[0-9a-fA-F]{2})+$/.test(hex)) throw new Error('Invalid SigningInputs hex');
++          const bytes = new Uint8Array(Buffer.from(hex, 'hex'));
++          let inputs: SigningInputs | undefined;
++          let summary: TransactionSummary | undefined;
++          let pending: { error: unknown } | undefined;
++          try {
++            inputs = SigningInputs.deserialize(bytes);
++            if (inputs.variantType !== SigningInputsType.TransactionSummary) throw new Error('Not a transaction summary');
++            const fullBytes = inputs.serialize().slice();
++            if (fullBytes.length !== bytes.length || fullBytes.some((byte, index) => byte !== bytes[index])) {
++              throw new Error('Noncanonical SigningInputs');
++            }
++            summary = inputs.transactionSummaryPayload();
++            if (
++              canonicalWalletAccountId(summary.accountDelta().id().toString()) !== canonicalWalletAccountId(accountIdHex)
++            ) {
++              throw new Error('Dry run summary belongs to another account');
++            }
++            const summaryBytes = summary.serialize().slice();
++            if (summaryBytes.length === 0) throw new Error('Empty dry run summary');
++            capture = { signingInputsBytes: bytesToB64(fullBytes), summaryBytes: bytesToB64(summaryBytes) };
++          } catch (error) {
++            pending = { error };
++          } finally {
++            // Free both handles; a pending trap must survive a second cleanup failure.
++            for (const value of [summary, inputs]) {
++              try {
++                value?.free?.();
++              } catch (error) {
++                if (
++                  !pending ||
++                  (!(pending.error instanceof WebAssembly.RuntimeError) && error instanceof WebAssembly.RuntimeError)
++                ) {
++                  pending = { error };
++                }
++              }
++            }
++          }
++          if (pending) throw pending.error;
++        } catch (error) {
++          failure ??= { error };
++          throw failure.error;
++        }
++        throw refusal;
++      };
++      try {
++        assertLive();
++        await getWasmOrThrow();
++        assertLive();
++        let terminal: { error: unknown } | undefined;
++        try {
++          if (opId !== undefined) {
++            opSignCallbacks.set(opId, deny);
++            await dispatchOp(
++              opId,
++              'dryRunTransaction',
++              [accountIdHex, originalRequest, 'capture-and-refuse'],
++              DRY_RUN_DEADLINE_MS,
++              false,
++              true,
++              assertLive
++            );
++          } else {
++            await withHoldSigner(hold, deny, async () => {
++              const client = await getMidenClient();
++              assertLive();
++              return dryRunRequest(client, accountIdHex, originalRequest, hold, 'capture-and-refuse');
++            });
++          }
++        } catch (error) {
++          terminal = { error };
++        }
++        if (
++          terminal &&
++          (isKilledPipeline(terminal.error) ||
++            isIndefiniteSubmitOutcomeError(terminal.error) ||
++            terminal.error instanceof StaleProofError ||
++            someInCauseChain(terminal.error, error => error instanceof WebAssembly.RuntimeError))
++        ) {
++          throw terminal.error;
++        }
++        assertLive();
++        if (failure) throw failure.error;
++        if (!terminal) throw new Error('Strict dry run unexpectedly succeeded');
++        if (calls !== 1 || !capture) throw terminal.error;
++        // The SDK host stops at SignatureGenerationFailed immediately after a rejected callback.
++        if (
++          terminal.error !== refusal &&
++          !(terminal.error instanceof Error && terminal.error.message.includes('failed to generate signature'))
++        ) {
++          throw terminal.error;
++        }
++        assertLive();
++        return capture;
++      } finally {
++        active = false;
++        if (opId !== undefined) {
++          opSignCallbacks.delete(opId);
++          opSignReasons.delete(opId);
++        }
++      }
++    }
+     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+       return dryRunRequest(await getMidenClient(), accountIdHex, requestBytes, hold);
+     }
+diff --git a/src/lib/miden/sdk/dry-run-request.ts b/src/lib/miden/sdk/dry-run-request.ts
+index d703c855ef768777cf5d375aae908774db072445..78a5cdf642e3d850a381e3b1afd87e49ab963d02 100644
+--- a/src/lib/miden/sdk/dry-run-request.ts
++++ b/src/lib/miden/sdk/dry-run-request.ts
+@@ -1,5 +1,5 @@
+ import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+-import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
++import { executeForSummaryAtTip, requestBoundBlockNum } from '@openzeppelin/miden-multisig-client';
+ 
+ import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
+ import { assertWasmHoldCurrent, type WasmLockHold } from 'lib/miden/sdk/miden-client';
+@@ -9,6 +9,8 @@ import { u8ToB64 } from 'lib/shared/helpers';
+ 
+ /** What a dry run produced: the summary while authorization is pending, else the executed transaction. */
+ export interface DryRunResult {
++  /** Base64 serialized full SigningInputs, captured only by capture-and-refuse. */
++  signingInputsBytes?: string;
+   /** Base64 serialized TransactionSummary. */
+   summaryBytes?: string;
+   /** Base64 serialized TransactionResult, when the account was already fully authorized. */
+@@ -61,18 +63,34 @@ export function isSummaryFeeFaucetMissing(err: unknown): boolean {
+  * synced state and suits a request that consumes nothing, such as the USDCx burn fee probe. The caller holds the WASM
+  * lock and passes its hold, which is re-checked after every await before the next call on the client. Only the three
+  * summary failures a local execution answers fall back to `executeRequest`; anything else, a trap included, is thrown
+- * as it stands.
++ * as it stands. In capture-and-refuse mode the caller must install its deny signer first: this helper executes once,
++ * refuses unmet bound-block prerequisites without syncing, and returns success only as an unexpected-success signal.
+  */
+ export async function dryRunRequest(
+   client: MidenClientInterface,
+   accountIdHex: string,
+   requestBytes: Uint8Array,
+-  hold: WasmLockHold
++  hold: WasmLockHold,
++  mode?: 'capture-and-refuse'
+ ): Promise<DryRunResult> {
++  if (mode !== undefined && mode !== 'capture-and-refuse') throw new Error('Unrecognized dry run mode');
+   assertWasmHoldCurrent(hold, 'before the dry run');
+   const preparedBytes = await prepareCustomRequestBytes(client.client, accountIdHex, requestBytes, hold);
+   assertWasmHoldCurrent(hold, 'after the dry run request preparation');
+   const request = TransactionRequest.deserialize(preparedBytes);
++  if (mode === 'capture-and-refuse') {
++    const boundBlockNum = requestBoundBlockNum(request);
++    if (boundBlockNum !== undefined) {
++      if (!request.blockNumbers().includes(boundBlockNum)) throw new Error('Dry run bound block is not declared');
++      const height = await client.client.getSyncHeight();
++      assertWasmHoldCurrent(hold, 'after the dry run height read');
++      // Strict capture never syncs to satisfy a bound: its caller owns the original preparation identity.
++      if (height < boundBlockNum) throw new Error('Dry run client is behind the bound block');
++    }
++    const executed = await client.client.transactions.executeRequest(accountIdHex, request);
++    assertWasmHoldCurrent(hold, 'after the strict dry run execution');
++    return { executedBytes: u8ToB64(executed.result.serialize()) };
++  }
+   let summary: Awaited<ReturnType<typeof executeForSummaryAtTip>> | undefined;
+   let summaryFailure: unknown;
+   try {
+diff --git a/src/lib/miden/sdk/miden-client.test.ts b/src/lib/miden/sdk/miden-client.test.ts
+index e644ebe1fa550410e340900a4cbd0ab3dda20c8c..e564c20508ed74703488fd000d375d74e5d19908 100644
+--- a/src/lib/miden/sdk/miden-client.test.ts
++++ b/src/lib/miden/sdk/miden-client.test.ts
+@@ -566,6 +566,74 @@ describe('getMidenClient singleton', () => {
+     );
+   });
+ 
++  it('refuses a nested hold signer before it can erase the operation-local capture signer', async () => {
++    await withKeystoreClient(async ({ getMidenClient, installRealmKeystore, withHoldSigner, withWasmClientLock }, create) => {
++      const realm = jest.fn(async () => new Uint8Array([1]));
++      installRealmKeystore({ sign: realm });
++      await getMidenClient();
++      const { signCallback } = create.mock.calls[0]![0];
++      const deny = jest.fn(async () => { throw new Error('capture-and-refuse'); });
++      const nested = jest.fn(async () => new Uint8Array([2]));
++      const runNested = jest.fn(async () => undefined);
++      await withWasmClientLock(hold => withHoldSigner(hold, deny, async () => {
++        await expect(withHoldSigner(hold, nested, runNested)).rejects.toBeInstanceOf(Error);
++        expect(runNested).not.toHaveBeenCalled();
++        await expect(signCallback(publicKey, signingInputs)).rejects.toBeInstanceOf(Error);
++      }));
++      expect(deny).toHaveBeenCalledTimes(1);
++      expect(nested).not.toHaveBeenCalled();
++      expect(realm).not.toHaveBeenCalled();
++      await withWasmClientLock(() => signCallback(publicKey, signingInputs));
++      expect(realm).toHaveBeenCalledTimes(1);
++    });
++  });
++
++  it('capture-and-refuse: stale hold signer installation refuses before running or replacing any signer', async () => {
++    await withKeystoreClient(async ({ getMidenClient, installRealmKeystore, withHoldSigner, withWasmClientLock }, create) => {
++      const realm = jest.fn(async () => new Uint8Array([1]));
++      installRealmKeystore({ sign: realm });
++      await getMidenClient();
++      const { signCallback } = create.mock.calls[0]![0];
++      let stale: import('./miden-client').WasmLockHold | undefined;
++      await withWasmClientLock(async hold => { stale = hold; });
++      if (!stale) throw new Error('missing stale hold fixture');
++      const oldHold = stale;
++      const denied = jest.fn(async () => { throw new Error('stale signer'); });
++      const run = jest.fn(async () => undefined);
++      await withWasmClientLock(async () => {
++        await expect(withHoldSigner(oldHold, denied, run)).rejects.toBeInstanceOf(Error);
++        await expect(signCallback(publicKey, signingInputs)).resolves.toEqual(new Uint8Array([1]));
++      });
++      expect(run).not.toHaveBeenCalled();
++      expect(denied).not.toHaveBeenCalled();
++      expect(realm).toHaveBeenCalledTimes(1);
++    });
++  });
++
++  it('capture-and-refuse: replacement-client late callback cannot reach a successor deny signer or change its reason', async () => {
++    await withKeystoreClient(async ({ getMidenClient, resetMidenClient, installRealmKeystore,
++      withHoldSigner, withWasmClientLock }, create) => {
++      const realm = jest.fn(async () => new Uint8Array([1]));
++      installRealmKeystore({ sign: realm });
++      await getMidenClient();
++      const predecessor = create.mock.calls[0]![0].signCallback;
++      await resetMidenClient();
++      await getMidenClient();
++      const successor = create.mock.calls[1]![0].signCallback;
++      const deny = jest.fn(async () => { throw new Error('Wallet is locked'); });
++      await expect(withWasmClientLock(hold => withHoldSigner(hold, deny, async () => {
++        await expect(successor(publicKey, signingInputs)).rejects.toMatchObject({ reason: 'locked' });
++        await expect(predecessor(publicKey, signingInputs)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
++        expect(deny).toHaveBeenCalledTimes(1);
++        throw opaque();
++      }))).rejects.toMatchObject({ reason: 'locked' });
++      expect(realm).not.toHaveBeenCalled();
++      await withWasmClientLock(() => successor(publicKey, signingInputs));
++      expect(realm).toHaveBeenCalledTimes(1);
++      await expect(withWasmClientLock(async () => { throw opaque(); })).rejects.not.toHaveProperty('reason');
++    });
++  });
++
+   it("classifies a write's own signer's failure as the realm signer's, and carries a locked one out on the hold", async () => {
+     await withKeystoreClient(
+       async ({ getMidenClient, installRealmKeystore, withHoldSigner, withWasmClientLock }, create) => {
+diff --git a/src/lib/miden/sdk/miden-client.ts b/src/lib/miden/sdk/miden-client.ts
+index 072764e924e3d4a0763aa4d9741d68e54ff38a01..d5016cc86aec9039859451fbdbe1f4422ec41fd8 100644
+--- a/src/lib/miden/sdk/miden-client.ts
++++ b/src/lib/miden/sdk/miden-client.ts
+@@ -1072,6 +1072,8 @@ export async function withHoldSigner<T>(
+   signer: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+   run: () => Promise<T>
+ ): Promise<T> {
++  assertWasmHoldCurrent(hold, 'before installing a hold signer');
++  if (holdSigners.has(hold)) throw new Error('A signer is already installed for this WASM hold');
+   holdSigners.set(hold, buildSdkSignCallback(signer));
+   try {
+     return await run();
+diff --git a/src/offscreen/main.test.ts b/src/offscreen/main.test.ts
+index 620e594d131c3fc59d00078f5ef828b516401e06..902a82102451b41588358d5f3a265dde3da8261a 100644
+--- a/src/offscreen/main.test.ts
++++ b/src/offscreen/main.test.ts
+@@ -3134,6 +3134,134 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
+     expect(resp.errorName).toBe('WasmClientPoisonedError');
+   });
+ 
++  describe('dryRunTransaction capture-and-refuse producer contract', () => {
++    it('uses the real document sign producer, executes once, and never enters summary-message fallback', async () => {
++      await loadModule();
++      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
++      const inputs = new Uint8Array([0x42]);
++      let preparedHold: unknown;
++      const lock: { getCurrentWasmLockHold: () => unknown } = jest.requireMock('lib/miden/sdk/miden-client');
++      G.__off.prepareCustomRequestBytes.mockImplementation(async (_client: unknown, _account: string,
++        bytes: Uint8Array, hold: unknown) => {
++        preparedHold = hold;
++        expect(lock.getCurrentWasmLockHold()).toBe(hold);
++        return bytes;
++      });
++      G.__off.guardianExecuteRequest.mockImplementation(async () => {
++        expect(lock.getCurrentWasmLockHold()).toBe(preparedHold);
++        await G.__off.createOptions[0].signCallback(new Uint8Array([0x0a]), inputs);
++        throw new Error('the refusal was incorrectly swallowed');
++      });
++      G.chrome.runtime.sendMessage.mockImplementation(async (message: { type: string }) => {
++        if (message.type === OFFSCREEN_SIGN_REQUEST) return { ok: false, error: 'capture-and-refuse', reason: 'rejected' };
++        return undefined;
++      });
++      const sendResponse = jest.fn();
++      capturedListener!(callReq({
++        op_id: 'op-capture', method: 'dryRunTransaction',
++        argsB64: [encodeArg('0xaccount'), encodeArg(new Uint8Array([1, 2, 3])), encodeArg('capture-and-refuse')]
++      }), {}, sendResponse);
++      await flush();
++      expect(executeForSummaryAtTip).not.toHaveBeenCalled();
++      expect(G.__off.guardianExecuteRequest).toHaveBeenCalledTimes(1);
++      expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
++        type: OFFSCREEN_SIGN_REQUEST, op_id: 'op-capture',
++        signingInputsB64: Buffer.from(inputs).toString('base64')
++      }));
++      expect(sendResponse.mock.calls[0][0]).toEqual(expect.objectContaining({
++        ok: false,
++        error: expect.stringContaining('offscreen sign failed: capture-and-refuse')
++      }));
++      expect(G.__off.clientSyncState).not.toHaveBeenCalled();
++      expect(G.__off.clientSyncChain).not.toHaveBeenCalled();
++      expect(G.__off.clientImportNoteBytes).not.toHaveBeenCalled();
++      expect(G.__off.guardianSubmitted).toBe(false);
++      expect(G.__off.guardianApplied).toBe(false);
++      expect(G.__off.guardianProveCalls).toHaveLength(0);
++      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
++      await expect(G.__off.createOptions[0].signCallback(new Uint8Array([10]), inputs))
++        .rejects.toThrow('no ambient op_id');
++    });
++
++    it.each(['build', 'preparation'])('refuses strict execution after %s eviction under the original document hold', async parking => {
++      await loadModule();
++      const lock: { __evictHolder: () => void } = jest.requireMock('lib/miden/sdk/miden-client');
++      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
++      let finish: () => void = () => undefined;
++      const gate = new Promise<void>(resolve => { finish = resolve; });
++      if (parking === 'build') {
++        const build = G.__off.getMidenClient;
++        G.__off.getMidenClient = jest.fn(async (...args: unknown[]) => { await gate; return build(...args); });
++      } else {
++        G.__off.prepareCustomRequestBytes.mockImplementation(async (_client: unknown, _account: string, bytes: Uint8Array) => {
++          await gate;
++          return bytes;
++        });
++      }
++      const reply = jest.fn();
++      capturedListener!(callReq({ op_id: 'strict-evicted', method: 'dryRunTransaction', argsB64: [
++        encodeArg('0xaccount'), encodeArg(new Uint8Array([1])), encodeArg('capture-and-refuse')
++      ] }), {}, reply);
++      await flush();
++      lock.__evictHolder();
++      finish();
++      await flush();
++      expect(reply).toHaveBeenCalledTimes(1);
++      expect(reply.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
++      expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
++      expect(executeForSummaryAtTip).not.toHaveBeenCalled();
++      expect(G.__off.guardianSubmitted).toBe(false);
++      expect(G.__off.guardianProveCalls).toHaveLength(0);
++    });
++
++    it('late strict predecessor preparation cleanup cannot clear the successor ambient identity', async () => {
++      await loadModule();
++      const lock: { __evictHolder: () => void } = jest.requireMock('lib/miden/sdk/miden-client');
++      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
++      let finishOld: () => void = () => undefined;
++      let finishNext: () => void = () => undefined;
++      const oldGate = new Promise<void>(resolve => { finishOld = resolve; });
++      const nextGate = new Promise<void>(resolve => { finishNext = resolve; });
++      G.__off.prepareCustomRequestBytes.mockImplementation(async (_client: unknown, _account: string, bytes: Uint8Array) => {
++        await oldGate;
++        return bytes;
++      });
++      const oldReply = jest.fn();
++      capturedListener!(callReq({ op_id: 'strict-predecessor', method: 'dryRunTransaction', argsB64: [
++        encodeArg('0xaccount'), encodeArg(new Uint8Array([1])), encodeArg('capture-and-refuse')
++      ] }), {}, oldReply);
++      await flush();
++      lock.__evictHolder();
++      await flush();
++      G.__off.clientGetAccount.mockImplementation(async () => {
++        await nextGate;
++        return undefined;
++      });
++      const nextReply = jest.fn();
++      capturedListener!(callReq({ op_id: 'strict-successor', method: 'getAccount', argsB64: [encodeArg('0xaccount')] }), {}, nextReply);
++      await flush();
++      finishOld();
++      await flush();
++      const reversed: unknown[] = [];
++      G.chrome.runtime.sendMessage.mockImplementation(async (message: { type?: string; op_id?: string }) => {
++        if (message.type === OFFSCREEN_SIGN_REQUEST) {
++          reversed.push(message);
++          return { ok: false, error: 'denied by successor', reason: 'rejected' };
++        }
++        return undefined;
++      });
++      await expect(G.__off.createOptions[0].signCallback(new Uint8Array([10]), new Uint8Array([0x42])))
++        .rejects.toBeInstanceOf(Error);
++      expect(reversed).toEqual([expect.objectContaining({ op_id: 'strict-successor' })]);
++      expect(oldReply.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
++      expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
++      expect(executeForSummaryAtTip).not.toHaveBeenCalled();
++      finishNext();
++      await flush();
++      expect(nextReply.mock.calls[0][0].ok).toBe(true);
++    });
++  });
++
+   describe('dryRunTransaction (the USDCx burn fee probe)', () => {
+     const REQUEST = new Uint8Array([1, 2, 3]);
+     const dryRunReq = (op_id = 'op-dry-run') =>
+diff --git a/src/offscreen/main.ts b/src/offscreen/main.ts
+index 5ca8d2b5bd686c13c9aa2d78ef33ed5abb4db6ec..14a86902f906a75ce78838dff6be6988cfc2b92f 100644
+--- a/src/offscreen/main.ts
++++ b/src/offscreen/main.ts
+@@ -803,8 +803,14 @@ const DISPATCH: Record<string, DispatchFn> = {
+   // The USDCx burn fee probe: execute one request for its effects, with no sync and no note import, on the client
+   // that owns the synced state. `dryRunRequest` re-checks this dispatch's hold after every await; the summary or the
+   // executed result crosses back as plain base64 strings in JSON.
+-  dryRunTransaction: async (context, client, accountIdHex: string, requestBytes: Uint8Array) => {
+-    const result = await dryRunRequest(client, accountIdHex, requestBytes, context.hold);
++  dryRunTransaction: async (
++    context,
++    client,
++    accountIdHex: string,
++    requestBytes: Uint8Array,
++    mode?: 'capture-and-refuse'
++  ) => {
++    const result = await dryRunRequest(client, accountIdHex, requestBytes, context.hold, mode);
+     return new TextEncoder().encode(JSON.stringify(result));
+   },
+ 
+diff --git a/src/lib/miden/sdk/dry-run-request.test.ts b/src/lib/miden/sdk/dry-run-request.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..afac0754f73efb6d3e0d0c33f8927f320d0a5a1c
+--- /dev/null
++++ b/src/lib/miden/sdk/dry-run-request.test.ts
+@@ -0,0 +1,165 @@
++import { dryRunRequest } from './dry-run-request';
++import { assertWasmHoldCurrent, withWasmClientLock } from './miden-client';
++
++// The production alias otherwise finds the root manual mock, which has no ownership guard.
++jest.mock('lib/miden/sdk/miden-client', () => jest.requireActual('./miden-client'));
++jest.mock('./miden-client', () => jest.requireActual('./miden-client'));
++jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ TransactionRequest: { deserialize: jest.fn() } }));
++jest.mock('lib/miden/sdk/custom-request', () => ({ prepareCustomRequestBytes: jest.fn() }));
++jest.mock('lib/miden/sdk/miden-client-interface', () => ({ MidenClientInterface: { create: jest.fn() } }));
++jest.mock('@openzeppelin/miden-multisig-client', () => ({
++  ...jest.requireActual('../../../../__mocks__/@openzeppelin/miden-multisig-client'),
++  executeForSummaryAtTip: jest.fn(),
++  requestBoundBlockNum: jest.fn()
++}));
++
++describe('dryRunRequest capture-and-refuse contract', () => {
++  const REQUEST = new Uint8Array([1, 2, 3]);
++  const PREPARED = new Uint8Array([4, 5, 6]);
++  const request = { blockNumbers: () => new Uint32Array([42]) };
++  const sdk: { TransactionRequest: { deserialize: jest.Mock } } = jest.requireMock('@miden-sdk/miden-sdk/lazy');
++  const preparation: { prepareCustomRequestBytes: jest.Mock } = jest.requireMock('lib/miden/sdk/custom-request');
++  const wrapper: { executeForSummaryAtTip: jest.Mock; requestBoundBlockNum: jest.Mock } =
++    jest.requireMock('@openzeppelin/miden-multisig-client');
++  const resultSerialize = jest.fn(() => new Uint8Array([9]));
++  const executeRequest = jest.fn(async () => ({ result: { serialize: resultSerialize } }));
++  const preview = jest.fn();
++  const sync = jest.fn();
++  const syncChain = jest.fn();
++  const importNote = jest.fn();
++  const prove = jest.fn();
++  const submit = jest.fn();
++  const apply = jest.fn();
++  const getSyncHeight = jest.fn(async () => 42);
++  const client = {
++    client: { transactions: { executeRequest, preview, prove, submit, apply }, getSyncHeight, sync, syncChain },
++    importNoteBytes: importNote
++  };
++
++  // Optional mode on an existing function; malformed modes deliberately cross the runtime boundary.
++  const run = (mode: unknown = 'capture-and-refuse') =>
++    withWasmClientLock(hold => Promise.resolve(Reflect.apply(dryRunRequest, undefined, [client, '0xaccount', REQUEST, hold, mode])));
++
++  beforeEach(() => {
++    const alias = jest.requireMock<typeof import('./miden-client')>('lib/miden/sdk/miden-client');
++    expect(alias.assertWasmHoldCurrent).toBe(assertWasmHoldCurrent);
++    expect(alias.withWasmClientLock).toBe(withWasmClientLock);
++    jest.clearAllMocks();
++    sdk.TransactionRequest.deserialize.mockReturnValue(request);
++    preparation.prepareCustomRequestBytes.mockResolvedValue(PREPARED);
++    wrapper.requestBoundBlockNum.mockReturnValue(undefined);
++    wrapper.executeForSummaryAtTip.mockResolvedValue({ serialize: () => new Uint8Array([0xab]) });
++    executeRequest.mockImplementation(async () => ({ result: { serialize: resultSerialize } }));
++    getSyncHeight.mockResolvedValue(42);
++  });
++
++  afterEach(() => {
++    expect(preview).not.toHaveBeenCalled();
++    expect(sync).not.toHaveBeenCalled();
++    expect(syncChain).not.toHaveBeenCalled();
++    expect(importNote).not.toHaveBeenCalled();
++    expect(prove).not.toHaveBeenCalled();
++    expect(submit).not.toHaveBeenCalled();
++    expect(apply).not.toHaveBeenCalled();
++  });
++
++  it('executes prepared bytes exactly once, without summary preview, and returns only the unexpected-success signal', async () => {
++    await expect(run()).resolves.toEqual({ executedBytes: Buffer.from([9]).toString('base64') });
++    expect(preparation.prepareCustomRequestBytes).toHaveBeenCalledWith(client.client, '0xaccount', REQUEST, expect.anything());
++    expect(sdk.TransactionRequest.deserialize).toHaveBeenCalledWith(PREPARED);
++    expect(executeRequest).toHaveBeenCalledTimes(1);
++    expect(executeRequest).toHaveBeenCalledWith('0xaccount', request);
++    expect(wrapper.executeForSummaryAtTip).not.toHaveBeenCalled();
++  });
++
++  it.each([
++    'TRANSACTION_ALREADY_AUTHORIZED: already fully authorized',
++    'already fully authorized',
++    'failed to generate signature',
++    'Failed to get secret key',
++    'no fee faucet is known',
++    'pass `feeFaucetId`',
++    'kernel assertion failed'
++  ])('propagates %s from the single execution without a message-triggered retry', async message => {
++    const failure = new Error(message);
++    executeRequest.mockRejectedValue(failure);
++    await expect(run()).rejects.toBe(failure);
++    expect(executeRequest).toHaveBeenCalledTimes(1);
++    expect(wrapper.executeForSummaryAtTip).not.toHaveBeenCalled();
++    expect(resultSerialize).not.toHaveBeenCalled();
++  });
++
++  it('preserves execution trap identity without retry', async () => {
++    const trap = new WebAssembly.RuntimeError('unreachable');
++    executeRequest.mockRejectedValue(trap);
++    await expect(run()).rejects.toBe(trap);
++    expect(executeRequest).toHaveBeenCalledTimes(1);
++    expect(wrapper.executeForSummaryAtTip).not.toHaveBeenCalled();
++  });
++
++  it('preparation failure executes nothing and remains the original failure', async () => {
++    const failure = new Error('auth preparation failed');
++    preparation.prepareCustomRequestBytes.mockRejectedValue(failure);
++    await expect(run()).rejects.toBe(failure);
++    expect(executeRequest).not.toHaveBeenCalled();
++    expect(wrapper.executeForSummaryAtTip).not.toHaveBeenCalled();
++  });
++
++  it.each([null, 7, {}, 'preview', ''])('refuses unrecognized present mode %p before preparation', async mode => {
++    await expect(run(mode)).rejects.toBeInstanceOf(Error);
++    expect(preparation.prepareCustomRequestBytes).not.toHaveBeenCalled();
++    expect(executeRequest).not.toHaveBeenCalled();
++    expect(wrapper.executeForSummaryAtTip).not.toHaveBeenCalled();
++  });
++
++  it.each([
++    { label: 'no bound', bound: undefined, declared: [], height: 0, executes: true },
++    { label: 'declared and ready', bound: 42, declared: [42], height: 42, executes: true },
++    { label: 'undeclared', bound: 42, declared: [41], height: 43, executes: false },
++    { label: 'declared but behind', bound: 42, declared: [42], height: 41, executes: false }
++  ])('$label bound block preserves no-sync prerequisites', async ({ bound, declared, height, executes }) => {
++    sdk.TransactionRequest.deserialize.mockReturnValue({ blockNumbers: () => new Uint32Array(declared) });
++    wrapper.requestBoundBlockNum.mockReturnValue(bound);
++    getSyncHeight.mockResolvedValue(height);
++    const denied = new Error('failed to generate signature');
++    executeRequest.mockRejectedValue(denied);
++    const outcome = run();
++    if (executes) {
++      await expect(outcome).rejects.toBe(denied);
++      expect(executeRequest).toHaveBeenCalledTimes(1);
++    } else {
++      await expect(outcome).rejects.toBeInstanceOf(Error);
++      expect(executeRequest).not.toHaveBeenCalled();
++    }
++    expect(wrapper.requestBoundBlockNum).toHaveBeenCalled();
++    expect(wrapper.executeForSummaryAtTip).not.toHaveBeenCalled();
++    if (bound !== undefined && declared.includes(bound)) expect(getSyncHeight).toHaveBeenCalledTimes(1);
++  });
++
++  it.each(['preparation', 'height'])('reasserts the original hold after parking on %s', async parking => {
++    let finish: () => void = () => undefined;
++    const gate = new Promise<void>(resolve => { finish = resolve; });
++    if (parking === 'preparation') {
++      preparation.prepareCustomRequestBytes.mockImplementation(async () => { await gate; return PREPARED; });
++    } else {
++      wrapper.requestBoundBlockNum.mockReturnValue(42);
++      getSyncHeight.mockImplementation(async () => { await gate; return 42; });
++    }
++    const { withWasmClientLock: lock } = await import('./miden-client');
++    let abandoned: Promise<unknown> = Promise.resolve();
++    await lock(async hold => {
++      abandoned = Promise.resolve(Reflect.apply(dryRunRequest, undefined, [client, '0xaccount', REQUEST, hold, 'capture-and-refuse']))
++        .catch(error => error);
++      await Promise.resolve();
++      await Promise.resolve();
++    });
++    await lock(async hold => {
++      finish();
++      const outcome = await abandoned;
++      expect(outcome).toBeInstanceOf(Error);
++      expect(executeRequest).not.toHaveBeenCalled();
++      expect(wrapper.executeForSummaryAtTip).not.toHaveBeenCalled();
++      expect(hold).toBeDefined();
++    });
++  });
++});

@@ -1,0 +1,111 @@
+name: '2147 Buffer request-copy RED proof'
+
+# Isolated orphan QA transport only; this registered filename runs no native E2E jobs.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_source:
+        description: Exact reviewed QA transport commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  buffer-request-copy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SOURCE: ${{ inputs.expected_source }}
+    steps:
+      - name: Bind manual dispatch to the reviewed QA branch and SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/qa/2147-buffer-red-33431-20261115
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$EXPECTED_SOURCE" = "$GITHUB_SHA"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          ref: ${{ inputs.expected_source }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify orphan transport scope, modes and payload hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          test -z "$(git show -s --format=%P HEAD)"
+          expected=$(cat <<'FILES'
+          .github/workflows/e2e-dapp-browser.yml
+          source-after.sha256
+          source-before.sha256
+          source-overlay.patch
+          FILES
+          )
+          test "$(git ls-tree -r --name-only HEAD | LC_ALL=C sort)" = "$expected"
+          test "$(git ls-tree -r --format='%(objectmode)' HEAD | LC_ALL=C sort -u)" = 100644
+          sha256sum --check <<'PAYLOAD'
+          511fb1f8b04b3d3931f0e430c98f5d2363b47c25a2407eb816b5cd456ef5d903  source-overlay.patch
+          96dfb0eafb74a55fa016031c12c54bac3d974b43c4773d2bc4edc7da02650350  source-before.sha256
+          ef463197f84b084c14adfc8dd43c2673263a046bf77d1286b52c080ad3082285  source-after.sha256
+          PAYLOAD
+
+      - name: Check out approved public wallet baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          repository: 0xMiden/wallet
+          ref: 293d668a14aa4226cd666d2f3344de6d65c5d762
+          path: wallet
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Ordinary frozen install on unchanged public baseline
+        working-directory: wallet
+        timeout-minutes: 6
+        run: |
+          test "$(git rev-parse HEAD)" = 293d668a14aa4226cd666d2f3344de6d65c5d762
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test "$(yarn --version)" = 1.22.22
+          yarn install --frozen-lockfile --network-timeout 600000
+
+      - name: Check and apply only the eight reviewed source postimages
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code HEAD
+          test -z "$(git ls-files --others --exclude-standard)"
+          sha256sum --check ../source-before.sha256
+          test ! -e src/lib/miden/sdk/dry-run-request.test.ts
+          git apply --check ../source-overlay.patch
+          git apply ../source-overlay.patch
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          expected=$(cat <<'SOURCES'
+          src/lib/miden/back/miden-client-proxy.test.ts
+          src/lib/miden/back/miden-client-proxy.ts
+          src/lib/miden/sdk/dry-run-request.ts
+          src/lib/miden/sdk/miden-client.test.ts
+          src/lib/miden/sdk/miden-client.ts
+          src/offscreen/main.test.ts
+          src/offscreen/main.ts
+          SOURCES
+          )
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort)" = "$expected"
+          test "$(git ls-files --others --exclude-standard)" = src/lib/miden/sdk/dry-run-request.test.ts
+
+      - name: Four request-copy cases only (expected two failures and two passes)
+        working-directory: wallet
+        run: |
+          yarn test --ci --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts --testNamePattern 'copies the caller request before a parking await' --maxWorkers=1 --coverage=false --watch=false

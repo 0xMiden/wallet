@@ -1,0 +1,8 @@
+06702c4439d3f9a2f522baea011bd3a026e2dcb158f8cf3a9a8688ef28cbce93  src/lib/miden/back/miden-client-proxy.ts
+2588fd82be2f7d5308f8d0322a499c0cfadc641c13d22e177fe1205e7cd290c1  src/lib/miden/back/miden-client-proxy.test.ts
+5c490cc5ac7f79023cf41166c664120bcd1681434b25a5abe1b3a6ba0932fced  src/lib/miden/sdk/dry-run-request.ts
+11b4869569d45ce67d75a0e11462c0cf93179298c734f55a68f8f60d8aa13ac2  src/lib/miden/sdk/dry-run-request.test.ts
+b46f487c05befb443fcbd981e6bc0ab2093330b5c680d76b0bc4b8b2d237f77a  src/lib/miden/sdk/miden-client.ts
+40fb1f9b501d6534307a3416cb4807b477b513ff8b4e1254affce14ef8f932d8  src/lib/miden/sdk/miden-client.test.ts
+08f481e5db77db83ff10c0c6ecab5cce63000b1b4710184dff3e57ebf51c51d5  src/offscreen/main.ts
+187efbcdeb562036ddda8b271ff91a374bfcfbb1f0bfa189941f8a051803d001  src/offscreen/main.test.ts
