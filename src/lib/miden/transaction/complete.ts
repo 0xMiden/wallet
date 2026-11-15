@@ -171,6 +171,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     try {
       await recordNoteDelivery(transaction.id, 'pending', relayEvidence());
     } catch (error) {
+      retireLandedTrap(error, transaction.id, result);
       console.warn('Could not record the pending note delivery', { txId: transaction.id, error });
     }
 
@@ -193,6 +194,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     try {
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
+      retireLandedTrap(error, transaction.id, result);
       console.warn('Commit wait failed before relaying private notes; the relay may find no proof', {
         txId: transaction.id,
         error
@@ -206,6 +208,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
         await midenClientProxy.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
       } catch (error) {
         // One note's failure must not skip the others: each is separately owed.
+        retireLandedTrap(error, transaction.id, result);
         console.error('Failed to send private note through the transport layer', {
           txId: transaction.id,
           secondaryAccountId: transaction.secondaryAccountId,
@@ -239,6 +242,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     try {
       await recordNoteDelivery(transaction.id, noteDelivery, relayEvidence());
     } catch (error) {
+      retireLandedTrap(error, transaction.id, result);
       console.warn('Could not record the note delivery outcome', { txId: transaction.id, error });
     }
   }
@@ -402,6 +406,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
       })
     );
   } catch (err) {
+    retireLandedTrap(err, id, result);
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
   }
 
@@ -673,11 +678,11 @@ export const completeReplaceHotKeyTransaction = async (
       }
     }
   } catch (error) {
+    retireLandedTrap(error, tx.id, result);
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Failed to rotate everyday key',
       completedAt: Math.floor(Date.now() / 1000),
-      ...(result && { resultBytes: result.serialize() }),
       error: error instanceof Error ? error.message : String(error)
     });
   }
@@ -722,12 +727,14 @@ export const completeUpdateProcedureThresholdTransaction = async (
  * read, so callers can spread it into a status payload unconditionally.
  */
 const readTransactionResultFields = (
-  result: TransactionResult | undefined
+  result: TransactionResult | undefined,
+  landing: string
 ): { transactionId: string; resultBytes: Uint8Array } | undefined => {
   if (!result) return undefined;
   try {
     return { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() };
   } catch (error) {
+    retireLandedTrap(error, landing, result);
     console.warn('Could not read the transaction result for the guardian switch row (completing without it):', error);
     return undefined;
   }
@@ -806,7 +813,7 @@ export const completeSwitchGuardianTransaction = async (
   // prevent. Worse, the catch's own payload called `serialize()` again, so it
   // threw a second time and escaped this function entirely, leaving the row with
   // no terminal status at all.
-  const resultFields = readTransactionResultFields(result);
+  const resultFields = readTransactionResultFields(result, tx.id);
   // Declared OUT here, not in the try, because the fallback write in the catch
   // needs them: they are the only record that a post-commit step did not land,
   // and `GuardianSwitchSuccess` renders its "setup incomplete" warning off
@@ -1094,7 +1101,7 @@ const extractFullNote = (result: TransactionResult, landing: string): Note | und
  * A row whose `noteType` is unreadable is treated the same way: unknown means
  * "ask the note", not "assume public".
  */
-const isPrivateOutputSend = (tx: SendTransaction, note: Note | undefined): boolean => {
+const isPrivateOutputSend = (tx: SendTransaction, note: Note | undefined, result: TransactionResult): boolean => {
   // Via `isPrivateNoteType`, not a bare `=== NoteTypeEnum.Private` compare: a row can
   // carry the SDK's NUMERIC note type (the enum is accepted wherever a note type is
   // taken, and `Private` is `0`), which a string compare answers "public" for. That
@@ -1125,6 +1132,7 @@ const isPrivateOutputSend = (tx: SendTransaction, note: Note | undefined): boole
       }
     } catch (error) {
       // Metadata unreadable - keep the row's answer rather than inventing one.
+      retireLandedTrap(error, tx.id, result);
       console.warn('Could not read note metadata to verify note type', { txId: tx.id, error });
     }
   }
@@ -1138,7 +1146,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   const noteId = note?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
-  const isPrivateSend = isPrivateOutputSend(tx, note);
+  const isPrivateSend = isPrivateOutputSend(tx, note, result);
 
   // Delivery state for the terminal write below. `undefined` on a public send -
   // the chain carries the whole note, so there is nothing to deliver.
@@ -1158,6 +1166,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     } catch (error) {
       // Best-effort: a failed journal write must not stop the relay, which is the
       // thing that actually delivers the note.
+      retireLandedTrap(error, tx.id, result);
       console.warn('Could not record the pending note delivery', { txId: tx.id, noteId, error });
     }
 
@@ -1171,6 +1180,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       // relay runs on the SW client, whose store holds that output note too.
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
+      retireLandedTrap(error, tx.id, result);
       console.warn('Commit wait failed during private send; the relay may find no proof', { txId: tx.id, error });
     }
 
@@ -1189,6 +1199,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       // the delivery sweep (`note-delivery-sweep.ts`) retries from it. Over-reporting
       // a note that arrives anyway costs a stale warning; under-reporting costs the
       // funds.
+      retireLandedTrap(error, tx.id, result);
       console.error('Private-note relay failed; note may be undelivered', {
         txId: tx.id,
         noteId,
@@ -1229,25 +1240,18 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     return;
   }
 
-  try {
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...feeFieldsFromResult(result, tx.id),
-      // Completed is correct even when the relay failed: the assets have left the
-      // account, so Failed would be untrue and would offer a Retry that spends a
-      // second time. But it must not read as an unqualified success either.
-      displayMessage: noteDelivery === 'undelivered' ? undeliveredDisplayMessage('Sent') : 'Sent',
-      transactionId: executedTx.id().toHex(),
-      outputNoteIds,
-      noteDelivery,
-      completedAt: Math.floor(Date.now() / 1000), // seconds
-      resultBytes: result.serialize()
-    });
-  } catch (error) {
-    console.error('Failed to update transaction status', {
-      txId: tx.id,
-      error
-    });
-  }
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result, tx.id),
+    // Completed is correct even when the relay failed: the assets have left the
+    // account, so Failed would be untrue and would offer a Retry that spends a
+    // second time. But it must not read as an unqualified success either.
+    displayMessage: noteDelivery === 'undelivered' ? undeliveredDisplayMessage('Sent') : 'Sent',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    noteDelivery,
+    completedAt: Math.floor(Date.now() / 1000), // seconds
+    resultBytes: result.serialize()
+  });
 };
 
 export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction, result: TransactionResult) => {
