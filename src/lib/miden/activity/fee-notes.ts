@@ -65,12 +65,12 @@ function answerLandedTrap(err: unknown, traps: WebAssembly.RuntimeError[] | unde
  * leave the hold this runs in on an instance its lock never retires, and a swallowed kill
  * would answer for a pipeline that was stopped.
  */
-function hasFeeTag(note: OutputNote, traps?: WebAssembly.RuntimeError[]): boolean {
+function hasFeeTag(note: OutputNote, traps?: WebAssembly.RuntimeError[]): boolean | typeof UNRULED {
   try {
     return note.metadata()?.tag()?.asU32() === TX_FEE_NOTE_TAG;
   } catch (err) {
-    // Landed: the note is untagged, not a candidate, and the filter visits the rest.
-    answerLandedTrap(err, traps);
+    // Landed: the tag is unknown, so the faucet and amount checks decide whether the note can be ruled out.
+    if (answerLandedTrap(err, traps)) return UNRULED;
     return false;
   }
 }
@@ -127,7 +127,10 @@ function feeCandidateVerdict(
   kernelCeiling: bigint | undefined,
   traps: WebAssembly.RuntimeError[] | undefined
 ): 'candidate' | 'unruled' | 'no' {
-  if (!hasFeeTag(note, traps)) return 'no';
+  const tagged = hasFeeTag(note, traps);
+  // UNRULED is a symbol, so it is tested before the truthiness check.
+  if (tagged === UNRULED) return unknownTagVerdict(note, nativeFaucetId, ceiling, kernelCeiling, traps);
+  if (!tagged) return 'no';
   const faucet = soleFungibleFaucet(note, traps);
   if (faucet === UNRULED) return 'unruled';
   if (faucet !== nativeFaucetId) return 'no';
@@ -136,6 +139,26 @@ function feeCandidateVerdict(
   const within = withinFeeCeiling(note, kernelCeiling, traps);
   if (within === UNRULED) return 'unruled';
   return within ? 'candidate' : 'no';
+}
+
+/**
+ * A landed note whose tag read trapped may be a fee-tagged candidate, so it is ruled out only by a faucet that is not
+ * the sole native one or an amount over the ceiling; anything else, a faucet or amount trap included, is ambiguous.
+ */
+function unknownTagVerdict(
+  note: OutputNote,
+  nativeFaucetId: string,
+  ceiling: 'kernel' | 'recorded',
+  kernelCeiling: bigint | undefined,
+  traps: WebAssembly.RuntimeError[] | undefined
+): 'unruled' | 'no' {
+  const faucet = soleFungibleFaucet(note, traps);
+  if (ceiling === 'kernel' && kernelCeiling === undefined) return 'no';
+  // Read even when the faucet rules the note out, so an amount trap is still recorded.
+  const within =
+    kernelCeiling !== undefined && ceiling === 'kernel' ? withinFeeCeiling(note, kernelCeiling, traps) : true;
+  if (faucet !== UNRULED && faucet !== nativeFaucetId) return 'no';
+  return within === false ? 'no' : 'unruled';
 }
 
 /**
@@ -211,8 +234,9 @@ function partitionNotes(
       if (verdict === 'unruled') unruled = true;
     }
   }
-  // A fee-tagged note whose faucet or amount check trapped cannot be ruled out, so the split is ambiguous exactly
-  // as a second candidate is: no note is the fee. Every note whose tag was read still obeys that one-candidate rule.
+  // A note that cannot be ruled out (a fee-tagged note whose faucet or amount check trapped, or a note whose tag read
+  // trapped that its faucet and amount do not rule out) makes the split ambiguous exactly as a second candidate does:
+  // no note is the fee.
   const feeNote = !unruled && candidates.length === 1 ? candidates[0] : undefined;
   // The ONE place the brand is minted. Sound when a fee note was identified: that note is
   // the only one the predicate matched and it is filtered out. In the AMBIGUOUS branch the
@@ -255,9 +279,10 @@ export function splitExecutedOutputNotes(
 
 /**
  * {@link splitExecutedOutputNotes} for a reader past submit and outside any hold, where a landed row that failed would
- * offer a Retry that pays twice. The check that trapped does not take its note as the fee: a tag trap leaves that note
- * untagged and the filter visits the rest, and a faucet or amount trap on a fee-tagged note cannot rule it out, so no
- * note is the fee, as with a second candidate. A header trap identifies none, and the split logs the trap. A kill and
+ * offer a Retry that pays twice. The check that trapped does not take its note as the fee: a tag trap leaves the tag
+ * unknown, the faucet and amount checks still run, a note they rule out is not a candidate, and one they cannot rule
+ * out makes the split ambiguous, as a faucet or amount trap on a fee-tagged note does. A header trap identifies none,
+ * and the split logs the trap. A kill and
  * a trap from the output-note read itself still propagate. No lock is held here, so the trapped client is not retired:
  * later calls run on it until one traps under a lock (a known limit, like the older catches CLAUDE.md lists).
  */
