@@ -1,0 +1,166 @@
+name: Published WASM startup probe
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - qa/sentry-17y-published-startup-54312
+
+permissions:
+  contents: read
+
+jobs:
+  published-startup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Install harness without lifecycle scripts
+        timeout-minutes: 5
+        run: yarn install --frozen-lockfile --ignore-scripts --non-interactive
+      - name: Check probe contract and standalone types
+        run: |
+          node --test scripts/published-wasm-startup-workflow.test.mjs
+          yarn tsc --noEmit --strict --skipLibCheck --types node --target ES2022 --module commonjs --moduleResolution node playwright/tests/published-wasm-startup.spec.ts
+      - name: Install full Chromium before isolation
+        timeout-minutes: 5
+        run: yarn playwright install --with-deps chromium
+      - name: Verify and safely extract fixed published archive
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          private=$(mktemp -d "$RUNNER_TEMP/published-wasm-private.XXXXXX")
+          results="$RUNNER_TEMP/published-wasm-results"
+          mkdir -m 700 "$results"
+          printf 'PROBE_PRIVATE=%s\nPROBE_RESULTS=%s\nEXTENSION_DIST=%s\n' "$private" "$results" "$private/extension" >> "$GITHUB_ENV"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 120 \
+            https://github.com/0xMiden/wallet/releases/download/v1.17.8/MidenWallet.1.17.8.Testnet.zip \
+            --output "$private/archive.zip"
+          cat > "$private/archive-check.py" <<'PY'
+          import hashlib, json, os, stat, sys, zipfile
+          from pathlib import Path, PurePosixPath
+
+          private = Path(os.environ["PROBE_PRIVATE"])
+          results = Path(os.environ["PROBE_RESULTS"])
+          extension = private / "extension"
+          digest = "57cba7cbacfdfbda16243117e9baab99860c21c02d4b481ea39d9be5f1ea6bf4"
+          binary = "static/wasm/miden_client_web.BlnOkiek.wasm"
+          required = ["manifest.json", "fullpage.html", binary,
+                      "chunks/front.BOWaIriJ.js", "chunks/constants.DtebgM3w.js",
+                      "chunks/mt.BjSgYAds.js", "chunks/Cargo-CzJ-s6LU.BIkokdyv.js",
+                      "chunks/Cargo-CzJ-s6LU.BG_bP9gP.js"]
+
+          def sha(path):
+              value = hashlib.sha256()
+              with path.open("rb") as stream:
+                  for block in iter(lambda: stream.read(1024 * 1024), b""):
+                      value.update(block)
+              return value.hexdigest()
+
+          def hashes():
+              entries = {}
+              for path in sorted(extension.rglob("*")):
+                  assert not path.is_symlink(), "unsafe extracted member"
+                  if path.is_file():
+                      entries[path.relative_to(extension).as_posix()] = sha(path)
+                  else:
+                      assert path.is_dir(), "unsafe extracted type"
+              return entries
+
+          assert sha(private / "archive.zip") == digest, "archive digest mismatch"
+          if sys.argv[1] == "prepare":
+              extension.mkdir(mode=0o700)
+              with zipfile.ZipFile(private / "archive.zip") as archive:
+                  seen = set()
+                  members = archive.infolist()
+                  assert 0 < len(members) <= 2000, "archive entry limit"
+                  assert sum(item.file_size for item in members) <= 512 * 1024 * 1024, "archive size limit"
+                  for item in members:
+                      name = PurePosixPath(item.filename)
+                      assert item.filename and not name.is_absolute() and ".." not in name.parts, "unsafe member path"
+                      assert "\\" not in item.filename and ":" not in item.filename, "unsafe member spelling"
+                      assert not any(ord(char) < 32 for char in item.filename), "unsafe member characters"
+                      assert name.as_posix() == item.filename.rstrip("/"), "noncanonical member path"
+                      assert name.as_posix() not in seen, "duplicate member"
+                      seen.add(name.as_posix())
+                      mode = item.external_attr >> 16
+                      assert stat.S_IFMT(mode) == 0 or (stat.S_ISDIR(mode) if item.is_dir() else stat.S_ISREG(mode)), "unsafe member type"
+                      assert not item.flag_bits & 1, "encrypted member"
+                  assert all(name in seen for name in required), "missing packaged resource"
+                  for item in members:
+                      target = extension / item.filename
+                      assert target.resolve().is_relative_to(extension.resolve()), "member escaped destination"
+                      if item.is_dir():
+                          target.mkdir(parents=True, exist_ok=True)
+                      else:
+                          target.parent.mkdir(parents=True, exist_ok=True)
+                          with archive.open(item) as source, target.open("xb") as output:
+                              while block := source.read(1024 * 1024):
+                                  output.write(block)
+              manifest = json.loads((extension / "manifest.json").read_text())
+              assert manifest["version"] == "1.17.8", "manifest mismatch"
+              assert sha(extension / binary) == "32daa906acbd38633af4ea4037500bea5f7450eb54a0c3b00c28628054ac963c", "binary mismatch"
+              expected = hashes()
+              (private / "entry-hashes.json").write_text(json.dumps(expected, sort_keys=True))
+              receipt = {"schema": 1, "archive_sha256": digest, "manifest_version": "1.17.8",
+                         "release_source": "966161cc54ee2d27b4c2a3163c4ceed66762b4d1",
+                         "harness_source": os.environ["GITHUB_SHA"], "entry_count": len(expected),
+                         "checked_entry_sha256": {name: expected[name] for name in required},
+                         "archive_unchanged": False, "entries_unchanged": False}
+              (results / "published-archive-receipt.json").write_text(json.dumps(receipt, sort_keys=True) + "\n")
+          else:
+              assert sys.argv[1] == "verify", "unknown verification mode"
+              expected = json.loads((private / "entry-hashes.json").read_text())
+              current = hashes()
+              assert current == expected, "packaged entries changed"
+              receipt_path = results / "published-archive-receipt.json"
+              receipt = json.loads(receipt_path.read_text())
+              receipt.update(archive_unchanged=True, entries_unchanged=True)
+              receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
+          PY
+          PROBE_PRIVATE="$private" PROBE_RESULTS="$results" python3 "$private/archive-check.py" prepare
+      - name: Probe in a fresh loopback-only network namespace
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          uid=$(id -u)
+          gid=$(id -g)
+          test "$uid" -ne 0
+          original_netns=$(readlink /proc/self/ns/net)
+          sudo unshare --net -- bash -euo pipefail -c '
+            ip link set lo up
+            [ "$(ls /sys/class/net)" = lo ]
+            [ -z "$(ip route show table all | grep -v " dev lo ")" ]
+            [ -z "$(ip -6 route show table all | grep -v " dev lo ")" ]
+            [ "$(readlink /proc/self/ns/net)" != "$1" ]
+            exec setpriv --reuid="$2" --regid="$3" --init-groups --bounding-set=-all --no-new-privs \
+              env -i HOME="$4" PATH="$5" CI=1 E2E_HEADLESS=1 \
+              EXTENSION_DIST="$6" PROBE_RESULTS="$7" PROBE_ORIGINAL_NETNS="$1" \
+              timeout --signal=TERM --kill-after=10s 300s \
+              "$8" node_modules/@playwright/test/cli.js test \
+              playwright/tests/published-wasm-startup.spec.ts --config=playwright.config.ts \
+              --workers=1 --retries=0 --timeout=60000 --global-timeout=180000 \
+              --trace=off --reporter=dot --output="$9/playwright-private"
+          ' probe "$original_netns" "$uid" "$gid" "$HOME" "$PATH" "$EXTENSION_DIST" "$PROBE_RESULTS" \
+            "$(command -v node)" "$PROBE_PRIVATE" >/dev/null 2>&1
+      - name: Verify archive and extracted entries remain unchanged
+        if: ${{ always() && env.PROBE_PRIVATE != '' }}
+        run: python3 "$PROBE_PRIVATE/archive-check.py" verify
+      - name: Upload only closed probe receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: published-wasm-startup
+          path: ${{ runner.temp }}/published-wasm-results/*.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove private browser output and extracted input
+        if: ${{ always() && env.PROBE_PRIVATE != '' }}
+        run: rm -rf -- "$PROBE_PRIVATE"
