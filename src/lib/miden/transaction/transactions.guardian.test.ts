@@ -1872,6 +1872,40 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  it("Guardian send: a trap in the tail's tx-id read retires once under the row, with the trap itself", async () => {
+    const txId = 'send-guardian-landing-id-trap';
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const landed = makeResult();
+    let armed = false;
+    // Armed by the leaf's apply, its last await, so the tail's tx-id read is the first read that traps.
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw trap;
+        return landed.executedTransaction();
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const row = await runGuardianSend(txId, makeClientApi(result, apply));
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls[0]![0]).toBe(trap);
+      expect(retire.mock.calls[0]![1]).toBe(txId);
+      // The Guardian catch ends the rejection; what it recorded is the trap's own text, past the submit.
+      expect(row.mayHaveSubmitted).toBe(true);
+      expect(row.error).toBe('RuntimeError: unreachable');
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
   const arrangeTipSend = (blockNumbers = [42], syncHeight = 100) => {
     const txId = 'send-guardian-tip';
     txStore.push({
