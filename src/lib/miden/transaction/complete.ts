@@ -32,7 +32,6 @@ import { reportOperation } from 'lib/telemetry/report-operation';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
-import { TERMINAL_STATUS_WRITE_ATTEMPTS, TERMINAL_STATUS_WRITE_BACKOFF_MS } from './constants';
 import {
   applyVerifiedLanding,
   landedTransactionIdFields,
@@ -45,6 +44,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
+import { TERMINAL_STATUS_WRITE_ATTEMPTS, TERMINAL_STATUS_WRITE_BACKOFF_MS } from './terminal-write';
 import { adoptBridgeDeliveries } from '../activity/bridge-in';
 import { feeFieldsFromResult } from '../activity/fee';
 import { splitLandedOutputNotes } from '../activity/fee-notes';

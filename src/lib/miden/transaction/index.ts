@@ -128,8 +128,6 @@ import {
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
-  TERMINAL_STATUS_WRITE_ATTEMPTS,
-  TERMINAL_STATUS_WRITE_BACKOFF_MS,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
 import { assertCustomEffectsApproved, customEffectsCheckAccess, verifyPreparedCustomRequest } from './custom-effects';
@@ -166,6 +164,7 @@ import {
 } from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
+import { TERMINAL_STATUS_WRITE_ATTEMPTS, TERMINAL_STATUS_WRITE_BACKOFF_MS } from './terminal-write';
 import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
@@ -250,6 +249,7 @@ export * from './get';
 export * from './helper';
 export * from './initiate';
 export * from './retry';
+export * from './terminal-write';
 export * from './verdict-rules';
 
 // Transaction types whose proposal creator is side-effect-free and idempotent on
