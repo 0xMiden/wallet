@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber, AssetListItem, Pill, Sparkline } from 'components/ui';
-import { adaptiveFormatterFor } from 'lib/i18n/numbers';
+import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
@@ -96,11 +96,8 @@ export const AssetRow: FC<AssetRowProps> = ({
         ? 'positive'
         : 'negative'
     : null;
-  // Each figure's precision is pinned to the value it is heading for, so a quantity does not
-  // change how many decimals it shows on the way there (`adaptiveFormatterFor`).
+  // TokenAmount keeps the final precision during each animation.
   const fiatValue = quote ? listedFiatValue(tokenPrices, priceSymbol, balance, scaleIsKnown) : undefined;
-  const formatQuantity = adaptiveFormatterFor(balance);
-  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
   const priceStatus = !scaleIsKnown
     ? t('assetValueUnknownScale')
     : !quote
@@ -138,7 +135,18 @@ export const AssetRow: FC<AssetRowProps> = ({
       icon={<TokenLogo faucetId={asset.tokenId} />}
       name={name}
       amount={
-        scaleIsKnown ? <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${unit}`} /> : unit
+        scaleIsKnown ? (
+          <TokenAmount
+            amount={balance}
+            symbol={unit}
+            animated
+            rounding="down"
+            trimTrailingZeros={false}
+            minimumFractionDigits={2}
+          />
+        ) : (
+          unit
+        )
       }
       chart={
         sparkline ? (
@@ -155,11 +163,7 @@ export const AssetRow: FC<AssetRowProps> = ({
           />
         ) : undefined
       }
-      price={
-        fiatValue !== undefined ? (
-          <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
-        ) : undefined
-      }
+      price={fiatValue !== undefined ? <UsdAmount amount={fiatValue} animated grouping={false} /> : undefined}
       priceStatus={priceStatus}
       delta={
         feedQuote && direction

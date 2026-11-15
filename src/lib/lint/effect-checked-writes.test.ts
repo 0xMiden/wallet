@@ -127,8 +127,14 @@ describe('effect-checked write lint', () => {
       ]);
     expect(exemptions).toEqual([
       [ALLOWLIST, false],
-      [['**/*.test.ts', '**/*.test.tsx'], true]
+      [['**/*.test.ts', '**/*.test.tsx'], true],
+      [['src/**/*.tsx'], false]
     ]);
+  });
+
+  // An override that restates the rule replaces its options, so the .tsx amount-display override must restate the ban.
+  it('keeps the write ban in the .tsx override', async () => {
+    expect(await lint(WRITE, 'src/app/foo/Bar.tsx')).toEqual([MESSAGE]);
   });
 
   it('reports a raw write in fee-notes.ts, which may only read outputNotes', async () => {
