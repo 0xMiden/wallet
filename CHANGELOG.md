@@ -56,6 +56,7 @@
 - [FIX][all] Offer a retry when the Earn deposit balance cannot be loaded (#2095).
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 - [FIX][all] Badge credit stays on a completed Mainnet send, swap, claim, or bridge receipt. A recovered receipt counts only after a fresh canonical Guardian read, and a backup cannot supply that credit.
+- [FIX][all] A bridge deposit or claim that the MetaMask Smart Transactions relay refuses with a server error now tells the user to turn off Smart Transactions and try again, instead of showing the raw `{"status":500,...}` error (#2107).
 - [FIX][all] Restoring a Guardian account from its recovery phrase now checks the account data the guardian returns before restoring it: the recovery key must be the account's, a deployed account must match the Miden network, and an account not yet on the network must be the one this recovery phrase created. Otherwise nothing is restored.
 - [FIX][all] A dApp custom transaction's approval counts notes the account already held among what leaves it and names them on the sheet, signing allows only the notes that approval showed being created, and the chain fee is read fresh for every check.
 - [FIX][all] A dApp's request to sign a transaction summary shows what leaves the account's holdings, measured once after a fresh chain fee read, and is refused before any sheet when that cannot be measured or the fee is unknown.
