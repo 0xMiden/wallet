@@ -151,7 +151,7 @@ runs:
     - name: Restore the patched CLI
       id: cli_cache
       if: steps.pins.outputs.proto_rev != 'none'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ steps.pins.outputs.root }}
         key: ${{ steps.pins.outputs.cache_key }}
@@ -351,14 +351,14 @@ runs:
         }
     - name: Save the patched CLI
       if: steps.pins.outputs.proto_rev != 'none' && steps.cli_cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ steps.pins.outputs.root }}
         key: ${{ steps.pins.outputs.cache_key }}
     - name: Restore the linked-client CLI
       id: client_cli_cache
       if: steps.pins.outputs.linked_client == '1'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ steps.pins.outputs.root }}
         key: ${{ steps.pins.outputs.cache_key }}
@@ -384,7 +384,7 @@ runs:
         }
     - name: Save the linked-client CLI
       if: steps.pins.outputs.linked_client == '1' && steps.client_cli_cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ steps.pins.outputs.root }}
         key: ${{ steps.pins.outputs.cache_key }}
@@ -408,7 +408,7 @@ runs:
     - name: Restore the CLI with the exact released kernel
       id: stable_cli_cache
       if: steps.pins.outputs.stable_kernel == '1'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ steps.pins.outputs.root }}
         key: ${{ steps.pins.outputs.cache_key }}
@@ -426,7 +426,7 @@ runs:
         echo "$ROOT/bin" >> "$GITHUB_PATH"
     - name: Save the CLI with the exact released kernel
       if: steps.pins.outputs.stable_kernel == '1' && steps.stable_cli_cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ steps.pins.outputs.root }}
         key: ${{ steps.pins.outputs.cache_key }}

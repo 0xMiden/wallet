@@ -37,11 +37,11 @@ jobs:
     timeout-minutes: 10
     environment: feature-eligibility-production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - name: Validate fixed operation
@@ -68,7 +68,7 @@ jobs:
         run: node scripts/feature-eligibility-staging-probe-recovery.mjs prepare
       - name: Download exact prior attempt evidence
         if: inputs.operation == 'cleanup'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           github-token: ${{ github.token }}
           repository: 0xMiden/wallet
@@ -84,7 +84,7 @@ jobs:
         run: node scripts/feature-eligibility-staging-inspect.mjs prepare
       - name: Download original inspection evidence
         if: inputs.operation == 'inspect'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           github-token: ${{ github.token }}
           repository: 0xMiden/wallet
@@ -130,7 +130,7 @@ jobs:
         run: node scripts/feature-eligibility-staging-inspect.mjs evidence
       - name: Retain sanitized inspection evidence
         if: always() && inputs.operation == 'inspect'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eligibility-inspection-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/probe-inspection-evidence/inspection.json
@@ -143,7 +143,7 @@ jobs:
         run: node scripts/feature-eligibility-staging-probe-recovery.mjs evidence
       - name: Retain sanitized evidence
         if: always() && inputs.operation != 'inspect'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eligibility-probe-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
