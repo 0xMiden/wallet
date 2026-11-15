@@ -140,7 +140,7 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
-// Spread the real module — see the note in dapp.coverage.test.ts: the send
+// Spread the real module - see the note in dapp.coverage.test.ts: the send
 // flow's authorization gate needs `sameWalletAccountId` to exist.
 jest.mock('lib/miden/sdk/helpers', () => ({
   ...jest.requireActual('lib/miden/sdk/helpers'),
@@ -570,7 +570,7 @@ describe('requestConfirm intercom handler — unknown port', () => {
     // First register the known port via GetPayload
     await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, knownPort);
 
-    // Now send a confirmation from a different port — should be ignored
+    // Now send a confirmation from a different port - should be ignored
     const result = await listener(
       { type: MidenMessageType.DAppSignConfirmationRequest, id, confirmed: true },
       unknownPort

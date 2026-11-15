@@ -1,6 +1,6 @@
 /* eslint-disable import/first */
 /**
- * Branch-coverage tests for `lib/miden/back/dapp.ts` — mobile/desktop paths.
+ * Branch-coverage tests for `lib/miden/back/dapp.ts` - mobile/desktop paths.
  *
  * Targets: mobile confirmation-store paths for requestPermission,
  * requestTransaction, requestSendTransaction, requestConsumeTransaction,
@@ -219,7 +219,7 @@ _g.__dappBranchMockGetAccount = jest.fn();
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 // Models hold OWNERSHIP (#788 follow-up): the lock hands its callback a hold, and
-// dapp.ts re-checks it via `assertWasmHoldCurrent` after every parking await — a
+// dapp.ts re-checks it via `assertWasmHoldCurrent` after every parking await - a
 // hold-less pass-through would make those guards a TypeError on the happy path.
 // The assert re-implements the real comparison against this mock's hold so it is
 // never a vacuous no-op.
@@ -706,7 +706,7 @@ describe('an approved connect whose account key read fails, on mobile and deskto
   });
 });
 
-// ── requestConsumeTransaction — mobile branches ──────────────────
+// ── requestConsumeTransaction - mobile branches ──────────────────
 
 describe('requestConsumeTransaction — mobile error branches', () => {
   const validTx = {
@@ -1535,7 +1535,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
   });
 });
 
-// ── requestTransaction — mobile error branches ──────────────────
+// ── requestTransaction - mobile error branches ──────────────────
 
 describe('requestTransaction — mobile error branches', () => {
   it('rejects when requestCustomTransaction throws', async () => {
@@ -1556,7 +1556,7 @@ describe('requestTransaction — mobile error branches', () => {
   });
 });
 
-// ── requestSendTransaction — mobile error branches ──────────────
+// ── requestSendTransaction - mobile error branches ──────────────
 
 describe('requestSendTransaction — mobile error branches', () => {
   const validTx = {
@@ -1895,7 +1895,7 @@ describe('waitForTransaction', () => {
   });
 });
 
-// ── requestPermission — existing session returns immediately ────
+// ── requestPermission - existing session returns immediately ────
 
 describe('requestPermission — returns immediately for existing session', () => {
   it('returns existing permission without going through confirmation when not force', async () => {
@@ -1993,7 +1993,7 @@ describe('removeDApp', () => {
   );
 });
 
-// ── requestSign — input validation branches ─────────────────────
+// ── requestSign - input validation branches ─────────────────────
 
 describe('requestSign — input validation', () => {
   it('throws InvalidParams when sourcePublicKey is missing', async () => {
@@ -2037,7 +2037,7 @@ describe('requestSign — input validation', () => {
   // auth secret is stored under `accAuthSecretKeyStrgKey(<commitment>)` under the
   // one vault key, so a page holding a live session for account A could name A as
   // the source account, pass account B's commitment, and get back a signature made
-  // with B's key — with `kind: 'signingInputs'` that authorizes a transaction on B.
+  // with B's key - with `kind: 'signingInputs'` that authorizes a transaction on B.
   // The approval sheet for `type: 'sign'` renders no account, so nothing on screen
   // contradicts it.
   it('throws NotGranted when sourcePublicKey names an account other than the session account', async () => {
@@ -2058,7 +2058,7 @@ describe('requestSign — input validation', () => {
   });
 });
 
-// ── requestPrivateNotes — input validation branches ──────────────
+// ── requestPrivateNotes - input validation branches ──────────────
 
 describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () => {
   // What a dApp is answered with: the wallet's own `nonFungibleAssets` field is stripped from the record.
@@ -2350,7 +2350,7 @@ describe('requestPrivateNotes — input validation', () => {
   });
 });
 
-// ── requestAssets — mobile branches ──────────────────────────────
+// ── requestAssets - mobile branches ──────────────────────────────
 
 describe('requestAssets — mobile branches', () => {
   it('throws InvalidParams when sourcePublicKey is missing', async () => {

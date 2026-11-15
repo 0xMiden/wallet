@@ -184,7 +184,7 @@ import { TransactionQueuedError } from '../transaction/initiate';
  * lazy-import chain is swallowed here so the caller can safely run
  * `resolve(...)` afterwards. A thrown startup error would otherwise
  * cause the tx preview to succeed, the tx to actually sign, and then
- * the dApp promise to reject with "InvalidParams" — the dApp would
+ * the dApp promise to reject with "InvalidParams" - the dApp would
  * believe its request failed even though it broadcast on-chain.
  */
 function startDappBackgroundProcessing() {
@@ -195,7 +195,7 @@ function startDappBackgroundProcessing() {
   }
 }
 
-// Debug logger — gated so production builds don't dump wallet request
+// Debug logger - gated so production builds don't dump wallet request
 // payloads (addresses, amounts, allowedPrivateData) into platform logs.
 // Enable via `DEBUG_DAPP_BRIDGE=1` env at build time. Exported so
 // `actions.ts` can use the same gate for its top-level dispatcher log.
@@ -205,7 +205,7 @@ export const dappDebug = (...args: unknown[]) => {
 };
 
 // Log to Rust stdout for desktop debugging. Gated behind the same
-// DEBUG_DAPP_BRIDGE flag as `dappDebug` — several call sites in this
+// DEBUG_DAPP_BRIDGE flag as `dappDebug` - several call sites in this
 // file pass the origin / sessionId / appMeta.name and these breadcrumbs
 // would otherwise land unredacted in the Tauri process's stdout on
 // every dApp connection in production desktop builds. Desktop devs can
@@ -236,7 +236,7 @@ async function getAccountPublicKeyB64(accountId: string, hold: WasmLockHold): Pr
   // The account read parks (offscreen round trip, or inline store/gRPC work). A
   // watchdog eviction during it hands the mutex to a successor without stopping
   // this callback, and the commitment resolution + `serialize()` below are WASM
-  // reads on an Account borrowed from the client's RefCell — continuing would be
+  // reads on an Account borrowed from the client's RefCell - continuing would be
   // the double borrow the lock exists to prevent, not merely a stale read.
   assertWasmHoldCurrent(hold, 'after the connect account read');
   if (!account) {
@@ -256,7 +256,7 @@ async function getAccountPublicKeyB64(accountId: string, hold: WasmLockHold): Pr
  * `signData`'s default path loads whatever secret sits at
  * `accAuthSecretKeyStrgKey(publicKey)` and signs with it. The vault is keyed by
  * commitment alone, with no back-reference to an account, so that lookup will
- * happily return a DIFFERENT account's key — every account in the wallet is
+ * happily return a DIFFERENT account's key - every account in the wallet is
  * reachable from that one string. Nothing else on the path narrows it: the
  * session is resolved from the separate `sourceAccountId`, which an attacking
  * page fills in with its own connected account so the permission check passes.
@@ -276,7 +276,7 @@ async function publicKeyBelongsToAccount(
   // Between the parking account read and the commitment reads: an eviction
   // during the read hands the mutex to a successor, and `serialize()` below is a
   // WASM call on the borrowed Account. This runs pre-signature, so aborting is
-  // safe — and the poison throw is routed as a retryable failure by the caller,
+  // safe - and the poison throw is routed as a retryable failure by the caller,
   // never as an authorization verdict.
   assertWasmHoldCurrent(hold, 'after the sign-authorization account read');
   if (!account) return false;
@@ -649,11 +649,11 @@ type ConfirmationKind =
  * Raise a confirmation on the platforms that have no extension popup (mobile via
  * Capacitor, desktop via Tauri) and report whether the user approved.
  *
- * `requestConfirm` — the popup path — throws outright when `isExtension()` is
+ * `requestConfirm` - the popup path - throws outright when `isExtension()` is
  * false. Five handlers used to reach it with no non-extension branch of their own
  * (`sign`, `importPrivateNote`, and the `UponRequest` arms of `privateNotes` /
  * `assets` / `consumableNotes`). Because each runs as an un-awaited async function
- * inside a promise executor, that throw never reached `reject` — it became an
+ * inside a promise executor, that throw never reached `reject` - it became an
  * unhandled rejection and the dApp's promise simply never settled, until the
  * injection script's 5-minute timeout reported the misleading "Request timeout".
  */
@@ -689,19 +689,19 @@ async function confirmOnNonExtension(
  *
  * `MidenDAppSignRequest` carries `sourceAccountId` and `sourcePublicKey` as two
  * INDEPENDENT dApp-controlled strings: the session is looked up by the former,
- * but `Vault.signData` loads the secret key by the latter — every account's key is
+ * but `Vault.signData` loads the secret key by the latter - every account's key is
  * stored under `accAuthSecretKeyStrgKey(<commitment hex>)` and all of them are
  * wrapped under the one vault key, so an unbound `sourcePublicKey` resolves for
  * ANY account the wallet owns. A page connected to account A could therefore name
  * A as the source account, pass account B's commitment (which it received from an
  * earlier connect, or read off a public on-chain account), and get back a
- * signature made with B's key — including a `signingInputs` signature, which
+ * signature made with B's key - including a `signingInputs` signature, which
  * authorizes a transaction. Same defect class `executingAccountError` closes for
  * the send/custom paths; this closes it for the sign path.
  *
  * `dApp.publicKey` is base64 of the serialized commitment (`getAccountPublicKeyB64`
  * at connect); `MidenWindowObject.signBytes` sends `bytesToHex` of those same
- * bytes. A session with no stored public key fails CLOSED — it cannot be verified,
+ * bytes. A session with no stored public key fails CLOSED - it cannot be verified,
  * and reconnecting the dApp repopulates it.
  */
 function isAuthorizedSigningKey(dApp: MidenDAppSession, sourcePublicKey: string): boolean {
@@ -709,7 +709,7 @@ function isAuthorizedSigningKey(dApp: MidenDAppSession, sourcePublicKey: string)
   // The same key in either encoding the wallet itself hands out: the base64 the
   // connect response carries verbatim, or the hex `MidenWindowObject.signBytes`
   // derives from it. Both name the SAME commitment, so accepting both binds just as
-  // tightly — no other account's key satisfies either form.
+  // tightly - no other account's key satisfies either form.
   if (dApp.publicKey === sourcePublicKey) return true;
   const normalize = (hex: string) => (hex.startsWith('0x') || hex.startsWith('0X') ? hex.slice(2) : hex).toLowerCase();
   try {
@@ -742,7 +742,7 @@ export async function requestSign(
   // Bind the signing KEY to the authorized ACCOUNT before anything prompts the
   // user: no approval surface can contradict a swapped key. The extension's
   // `sign` screen shows no account at all, and the mobile/desktop sheet's
-  // `Account` row is `req.sourcePublicKey` — the very field being substituted —
+  // `Account` row is `req.sourcePublicKey` - the very field being substituted -
   // so a request for account B under a session for account A renders B's address
   // and reads as consistent. The check therefore has to happen in code, before
   // any prompt. See isAuthorizedSigningKey.
@@ -1107,11 +1107,11 @@ function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]):
 }
 
 /**
- * Private input notes belonging to `accountId` — the account this dApp session is
+ * Private input notes belonging to `accountId` - the account this dApp session is
  * connected to, NOT the whole wallet.
  *
  * `midenClientProxy.getInputNoteDetails(query)` reaches `client.notes.list(query)`,
- * and a `NoteQuery` is only ever `{ ids }` or `{ status }` — it has no account
+ * and a `NoteQuery` is only ever `{ ids }` or `{ status }` - it has no account
  * field, and every account in the wallet shares the one MidenClient store. So the
  * unscoped read returned the id, nullifier, sender, state and per-asset amounts of
  * EVERY private note in the wallet, including accounts the user never connected,
@@ -1121,9 +1121,9 @@ function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]):
  * poll it and watch every account's private balances.
  *
  * Scoping is by CONSUMABILITY, which is the only per-account note attribution the
- * SDK exposes (`getConsumableNotes(accountId)`). That can under-report — a note
+ * SDK exposes (`getConsumableNotes(accountId)`). That can under-report - a note
  * that is already consumed, or not yet consumable, cannot be attributed to an
- * account and is withheld — but it can never over-report across accounts, which is
+ * account and is withheld - but it can never over-report across accounts, which is
  * the property the user consented to. Intersecting also covers a caller that names
  * another account's note ids explicitly via `req.noteIds`.
  *
@@ -1269,13 +1269,13 @@ async function getConsumableNotes(accountId: string): Promise<DAppConsumableNote
       return await withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
         // Sync is THE parking await on this path (network-bound, tens of seconds
-        // on a slow node) — a watchdog eviction during it hands the mutex to a
+        // on a slow node) - a watchdog eviction during it hands the mutex to a
         // successor, and the consumable-notes read below would be a second
         // borrow of a client somebody else is inside.
         assertWasmHoldCurrent(hold, 'after the consumable-notes sync');
         // Consumable notes as DTOs (issue #260, slice 4). The reclaim gate + the
         // reduction ran in the client's realm (offscreen when the flag is on, so
-        // it uses the same realm that just ran syncState above — no stale height).
+        // it uses the same realm that just ran syncState above - no stale height).
         // The DTO is a strict superset of InputNoteDetails; map it 1:1, plus
         // whether the note is a P2ID/P2IDE payment so a dApp can tell it from
         // another script's note.
@@ -1283,7 +1283,7 @@ async function getConsumableNotes(accountId: string): Promise<DAppConsumableNote
           assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
         );
         return notes.flatMap<DAppConsumableNote>(note => {
-          // Partial (metadata-less) notes have no ID — and, since 0.15
+          // Partial (metadata-less) notes have no ID - and, since 0.15
           // nullifiers fold in metadata, no nullifier either. They cannot
           // be consumed, so skip until sync completes them.
           if (!note.noteId || !note.nullifier) {
@@ -1493,7 +1493,7 @@ export async function requestImportPrivateNote(
  *
  * Route through the offscreen proxy (issue #260, slice 7c): this is a STORE WRITE
  * (a claimable private note imported by a dApp flow). Flag-ON the note MUST land
- * in the OFFSCREEN client's store — the realm that syncs and consumes — else it
+ * in the OFFSCREEN client's store - the realm that syncs and consumes - else it
  * would import into the dormant SW store and be unclaimable. Flag-OFF each proxy
  * method is byte-identical to the former inline `getMidenClient().importNoteBytes()`
  * / `.syncState()` (verbatim getMidenClient path under this caller's lock).
@@ -1501,7 +1501,7 @@ export async function requestImportPrivateNote(
  * Don't lose the note on a transient blip (resilience gap 1): a private note's
  * bytes can be its only copy. Queue it for the background import loop (wall-clock
  * retry + backoff, dead-letter on give-up) before rethrowing. Only transient
- * failures are re-queued — a genuinely malformed note would just dead-letter.
+ * failures are re-queued - a genuinely malformed note would just dead-letter.
  */
 async function importDAppPrivateNote(note: string): Promise<string> {
   try {
@@ -1513,7 +1513,7 @@ async function importDAppPrivateNote(note: string): Promise<string> {
         // parked leaves it unknown whether the note landed, and the sync below
         // would borrow a client a successor now owns. The poison throw routes
         // through the catch below into the same queue-for-background-retry path
-        // as an eviction of the import itself — the note is preserved either way.
+        // as an eviction of the import itself - the note is preserved either way.
         assertWasmHoldCurrent(hold, 'between the dApp note import and its sync');
         await midenClientProxy.syncState();
         return noteId;
@@ -1528,7 +1528,7 @@ async function importDAppPrivateNote(note: string): Promise<string> {
     // Of the three, the poison and the terminated client are the shapes `isLikelyNetworkError`
     // genuinely misses (their messages are closed text). The abort shape reaches the classifier
     // as a match today purely because its message contains 'aborted', which is a
-    // coincidence of transport-text heuristics rather than a contract — so it is named
+    // coincidence of transport-text heuristics rather than a contract - so it is named
     // here too, and the clause stays load-bearing the moment that token list is re-tuned.
     if (isLikelyNetworkError(e) || pipelineKillIn(e) !== undefined) {
       await queueNoteImport(note).catch(queueError =>
@@ -1792,7 +1792,7 @@ const isUnattributableCustomSpendRefusal = (error: unknown): boolean =>
 
 /**
  * Queues an approved custom request. A refusal from the locked spending-limit recheck, before any
- * insert, releases the dry run's quarantined notes — the same release a pre-prompt refusal performs.
+ * insert, releases the dry run's quarantined notes - the same release a pre-prompt refusal performs.
  */
 const requestApprovedCustomTransaction = async (
   importNotes: string[] | undefined,
@@ -2286,7 +2286,7 @@ async function sheetDataOnNonExtension<T>(
 }
 
 /**
- * The account a dApp request is AUTHORIZED for is `dApp.accountId` — the id
+ * The account a dApp request is AUTHORIZED for is `dApp.accountId` - the id
  * `getDApp(origin, req.sourcePublicKey)` matched a stored session on. The account
  * a send / custom transaction actually EXECUTES with is a separate, fully
  * dApp-controlled field on the transaction payload (`senderAddress` / `address`),
@@ -2329,7 +2329,7 @@ const generatePromisifyTransaction = async (
   // The generalized TransactionRequest carries a tagged `MidenTransaction`
   // ({ type, payload }). A `send`/`consume` payload is not a custom-transaction
   // payload, so delegate those to their dedicated flows (preview, confirmation
-  // UI and execution) instead of validating them as a CustomTransaction —
+  // UI and execution) instead of validating them as a CustomTransaction -
   // otherwise they fail with "Invalid CustomTransaction payload". Only `custom`
   // (and bare/legacy payloads) fall through to the custom flow below. Issue #88.
   // `req.transaction.type` is a string enum from `MidenTransaction`
@@ -2611,7 +2611,7 @@ const generatePromisifyTransaction = async (
                 )
               );
             });
-            // The transaction is queued and will consume these notes —
+            // The transaction is queued and will consume these notes -
             // release the quarantine the pre-confirm dry-run placed on them
             // so a failed/abandoned submission doesn't hide them forever.
             // Deliberately NOT released on the decline branch below:
@@ -2690,14 +2690,14 @@ const generatePromisifySendTransaction = async (
   // Authorization, and it has to live HERE rather than in `requestSendTransaction`.
   // A session authorizes exactly one account, but the account to debit is taken
   // from the request, so without this a page connected to A names B as the
-  // sender and spends from B — and the approval sheet shows amount, recipient,
+  // sender and spends from B - and the approval sheet shows amount, recipient,
   // token and note type but not the sender, so nothing on screen gives it away.
   //
   // `requestSendTransaction` is only ONE of the two ways in. The generalized
   // `TRANSACTION_REQUEST` entrypoint routes a `{ type: 'send' }` payload
   // straight into this function (`generatePromisifyTransaction`), reaching the
   // same `initiateSendTransaction` while validating only `sourcePublicKey`
-  // against the session — which the attacking page satisfies with its own
+  // against the session - which the attacking page satisfies with its own
   // connected account. A check on the outer function is simply not on that
   // path; the two other boundary validations below are here for that reason.
   const senderAddress = req.transaction?.senderAddress;
@@ -2718,8 +2718,8 @@ const generatePromisifySendTransaction = async (
     // postMessage from an untrusted page, so its type is a claim rather than a
     // guarantee, and the wallet accepts both the persisted 'public'/'private'
     // strings and the SDK's numeric enum. Everything downstream compares the
-    // STRING form — including the private-note relay in
-    // `completeSendTransaction` — so persisting a numeric `0` would build a
+    // STRING form - including the private-note relay in
+    // `completeSendTransaction` - so persisting a numeric `0` would build a
     // Private note and then skip its delivery, leaving the recipient unable to
     // ever see it. A missing or unrecognized value throws, which the catch
     // below turns into InvalidParams before the user is prompted.
@@ -2996,7 +2996,7 @@ const generatePromisifyConsumeTransaction = async (
           await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         }
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
-        // must not be dropped by auto-consume's exponential backoff — which
+        // must not be dropped by auto-consume's exponential backoff - which
         // would queue nothing and answer the dApp with the previous attempt's
         // Failed row id. `origin` refuses a note another transaction holds rather
         // than answer with that transaction, and lets this origin wait on the
@@ -3053,7 +3053,7 @@ const generatePromisifyConsumeTransaction = async (
                 // See the mobile/desktop arm: the import can outlast the approval's check.
                 await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               }
-              // `manualRetry`: approved on the confirm page — see the
+              // `manualRetry`: approved on the confirm page - see the
               // non-extension branch above for why the backoff must not apply,
               // and why `origin`.
               return await initiateConsumeTransactionFromId(
@@ -3348,7 +3348,7 @@ async function requestConfirm({
       if (!handleSimulate) {
         return { type: MidenMessageType.DAppSimulateTransactionResponse, error: 'unsupported' };
       }
-      return await handleSimulate(req); // must NOT close() — the popup stays open
+      return await handleSimulate(req); // must NOT close() - the popup stays open
     }
 
     // Any other request from the popup falls through to its own handler.
@@ -3494,7 +3494,7 @@ function isAllowedNetwork() {
  * The amount is formatted HERE, from the faucet's own decimals, exactly like
  * `formatConsumeTransactionPreview` does. It used to be emitted raw (base
  * units) and divided by a hardcoded `10 ** 6` in the extension's ConfirmPage
- * — which showed the wrong number for any faucet that isn't 6-decimal, showed
+ * - which showed the wrong number for any faucet that isn't 6-decimal, showed
  * raw base units on mobile/desktop (whose renderers print the row verbatim),
  * and lost precision above 2^53 because the division went through `Number()`.
  * `formatBigInt` stays in bigint until the last step, so large amounts render
@@ -3509,7 +3509,7 @@ async function formatSendTransactionPreview(transaction: SendTransaction): Promi
     hasKnownScale(tokenMetadata)
   );
   // `noteType` was normalized to the persisted 'public'/'private' string by the
-  // caller, which also rejected a missing or unrecognized one — so the label
+  // caller, which also rejected a missing or unrecognized one - so the label
   // below states what will actually be built rather than echoing whatever the
   // page sent. This text is the user's consent surface, and it used to be able
   // to read "Note Type, undefined" for a send that then went out public.
@@ -3550,7 +3550,7 @@ interface ConsumePreview {
 }
 
 /**
- * Decodes dApp-carried note bytes (base64) the SAME way the import path does —
+ * Decodes dApp-carried note bytes (base64) the SAME way the import path does -
  * they may be a serialized `NoteFile` OR a bare `Note`, and the dApp picks which
  * (see `noteIdFromBytes` in note-quarantine.ts). Returns the note's id alongside
  * its real assets and type, or null when neither format parses.
@@ -3569,7 +3569,7 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
       note = NoteFile.deserialize(bytes).note();
     } catch (error) {
       if (error instanceof WebAssembly.RuntimeError) throw error;
-      // Not a NoteFile — fall through to a bare Note.
+      // Not a NoteFile - fall through to a bare Note.
     }
     if (!note) {
       note = Note.deserialize(bytes);
@@ -3830,7 +3830,7 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
     rows.push('Assets, no fungible asset moves');
   }
   rows.push(`Notes, ${view.inputNotesConsumed} consumed / ${view.outputNotesCreated} created`);
-  // A cost the user pays, and `outgoing` deliberately excludes it on both decode paths — so
+  // A cost the user pays, and `outgoing` deliberately excludes it on both decode paths - so
   // if it is not printed here it is not on this sheet at all. Off-extension has no other
   // surface: these rows ARE the approval prompt.
   if (view.fee) {
@@ -3986,8 +3986,8 @@ function approvedSimulationOrRefusal(simulated: SimulateCustomTxResult): Approve
 /**
  * The one-line reason shown on a signing consent sheet when the dry run failed.
  *
- * An abandonment reaches here as wallet-internal text — "WASM client poisoned
- * (watchdog): held the WASM client lock past its watchdog ceiling" — because the
+ * An abandonment reaches here as wallet-internal text - "WASM client poisoned
+ * (watchdog): held the WASM client lock past its watchdog ceiling" - because the
  * simulation flattens its error to a message string and this sheet interpolates
  * it. That says nothing a signer can act on, and a consent line is the last place
  * to spend on jargon; the real error is already on the console above.

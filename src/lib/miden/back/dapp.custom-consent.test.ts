@@ -6,8 +6,8 @@
  * anything the account can. The extension's approval page resolves that by
  * asking the background to dry-run it and rendering the asset movements that
  * come back. The confirmation-store sheets on mobile and desktop have no route
- * to that call, so they used to render `formatCustomTransactionPreview` alone —
- * a fixed "please ensure you know the details" plus a recipient — which is
+ * to that call, so they used to render `formatCustomTransactionPreview` alone -
+ * a fixed "please ensure you know the details" plus a recipient - which is
  * consent to an unnamed transfer of an unnamed amount.
  *
  * These tests drive `dapp.ts` with `isExtension()` forced false, which is the

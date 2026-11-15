@@ -3,7 +3,7 @@
  * What the MOBILE and DESKTOP approval sheets say about the thing they are
  * approving. Both platforms render `DAppConfirmationRequest.transactionMessages`
  * as a plain list of strings (`DappConfirmationModal`, and the desktop overlay's
- * `escapeHtml`ed rows), so whatever `dapp.ts` puts in that array IS the sheet —
+ * `escapeHtml`ed rows), so whatever `dapp.ts` puts in that array IS the sheet -
  * there is no second decoder downstream, unlike the extension's `ConfirmPage`.
  *
  * Two blind-approval regressions are covered here:
@@ -15,7 +15,7 @@
  *    away the whole balance with nothing on screen about assets.
  *
  * 2. CUSTOM TRANSACTION. The sheet was four fixed strings plus `From` and a
- *    dApp-declared `Recipient`, none of it derived from `transactionRequest` —
+ *    dApp-declared `Recipient`, none of it derived from `transactionRequest` -
  *    the bytes the wallet then executes, proves and submits.
  *
  * Every test drives `dapp.ts` with `isExtension()` forced false, which is the
@@ -97,7 +97,7 @@ jest.mock('lib/miden/metadata/utils', () => ({
 
 /**
  * The bech32 derivation in the real helper runs `Address.fromAccountId` on a WASM
- * AccountId, which the SDK stub cannot produce — the faucet stubs below carry
+ * AccountId, which the SDK stub cannot produce - the faucet stubs below carry
  * their address directly. Everything else (notably `sameWalletAccountId`, which
  * gates the custom-transaction path) stays REAL.
  */
