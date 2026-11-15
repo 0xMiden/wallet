@@ -2,6 +2,7 @@ import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk
 
 import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
 
+import { installLandedTrapRetirement } from './landed-trap-retirement';
 // This import must stay ABOVE the `./miden-client-interface` one: that import
 // forms a cycle (it imports this module back), and the poison bindings this
 // module's own body reads — the three ceilings in `armWatchdogFor`, the error
@@ -651,6 +652,29 @@ export function retireWasmClientForUnheldTrap(cause: unknown): void {
   if (currentHolder !== null || wasRetiredForCaughtTrap(cause)) return;
   if (typeof cause === 'object' && cause !== null) retiredTrapCauses.add(cause);
   recoverFromTrap(cause);
+}
+
+/**
+ * Retire the client for a trap read past submit outside any hold, reached only through the landed-trap leaf, which
+ * never hands in a trap read by a client already replaced. A current holder is then another flow's and only a
+ * retainer: with no holder and none mid-yield the client is disposed at once, else it is poisoned in place and
+ * freed once the holder and every yielded one settle, and the hold is not evicted but releases the mutex itself. The
+ * recovery cooldown is neither consulted nor stamped, since a stamp would make a genuine trap under the next holder
+ * wait out the watchdog.
+ */
+function retireWasmClientForLandedTrap(cause: WebAssembly.RuntimeError, landing: string): void {
+  if (wasRetiredForCaughtTrap(cause)) return;
+  retiredTrapCauses.add(cause);
+  console.error('[miden-client] WASM trap read past submit outside any hold - retiring client singletons:', {
+    landing,
+    ...(currentHolder !== null ? { retainer: currentHolder.label ?? 'unlabelled' } : {}),
+    yielded: yieldedHolders.size,
+    cause
+  });
+  replaceClientSingletons(
+    currentHolder !== null,
+    reclaimWhenIdle(currentHolder !== null ? [currentHolder, ...yieldedHolders] : yieldedHolders)
+  );
 }
 
 /**
@@ -1802,9 +1826,12 @@ class MidenClientSingleton {
 const midenClientSingleton = new MidenClientSingleton();
 
 // Install the trap listener as soon as any code in this realm touches the
-// client module — a trap can fire during an un-locked bypass read (the balance
-// poll) before the first `withWasmClientLock` call ever happens.
+// client module - a trap can fire during an un-locked bypass read (the balance
+// poll) before the first `withWasmClientLock` call ever happens - and the
+// landed-trap retirement, since a trap read past submit outside any hold
+// reaches neither the listener nor a lock.
 ensureRealmErrorListener();
+installLandedTrapRetirement(retireWasmClientForLandedTrap);
 
 /**
  * The realm's shared `MidenClientInterface`. Use this instead of
