@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
 import { ListGroup, ListRow, SectionHeader } from 'components/ui';
-import { getAdaptiveDecimalPlaces, toLocalFormat } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { getNumberSymbols } from 'lib/i18n/core';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
@@ -26,6 +27,12 @@ export function CommandAssets({
 }): React.ReactElement {
   const { t } = useTranslation();
   const pricesReady = useWalletStore(state => state.tokenPricesStatus === 'ready');
+  const displayOptions = {
+    minimumFractionDigits: 2,
+    trimTrailingZeros: false,
+    grouping: true,
+    separators: getNumberSymbols()
+  };
   return (
     <section>
       <SectionHeader size="xl">{t('assets')}</SectionHeader>
@@ -57,7 +64,7 @@ export function CommandAssets({
                     : !Number.isFinite(asset.balance)
                       ? t('commandBalanceUnavailable')
                       : known
-                        ? `${toLocalFormat(asset.balance, { decimalPlaces: getAdaptiveDecimalPlaces(asset.balance) })} ${asset.metadata.symbol}`
+                        ? `${formatAmountDisplay(asset.balance, displayOptions)} ${asset.metadata.symbol}`
                         : t('assetValueUnknownScale')
               }
               value={
@@ -66,7 +73,7 @@ export function CommandAssets({
                   : !current
                     ? t('commandBalanceUnavailable')
                     : available
-                      ? `${toLocalFormat(asset.balance * quote.price, { decimalPlaces: getAdaptiveDecimalPlaces(asset.balance * quote.price) })} USD`
+                      ? `${formatAmountDisplay(asset.balance * quote.price, displayOptions)} USD`
                       : t('commandPriceUnavailable')
               }
             />

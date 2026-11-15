@@ -13,7 +13,7 @@ import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { StatusBadge } from 'components/ui/StatusBadge';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
@@ -95,13 +95,22 @@ export function CommandReceive({
                   const sender = item.note.senderAddress
                     ? truncateAddress(item.note.senderAddress, false, 8, 4)
                     : t('unknown');
-                  const amount = hasKnownScale(item.note.metadata)
-                    ? formatBigInt(BigInt(item.note.amount), item.note.metadata.decimals)
-                    : undefined;
+                  const amount = hasKnownScale(item.note.metadata) ? BigInt(item.note.amount) : undefined;
                   return (
                     <ListRow
                       key={item.note.id}
-                      title={amount === undefined ? symbol : `${amount} ${symbol}`}
+                      title={
+                        amount === undefined ? (
+                          symbol
+                        ) : (
+                          <TokenAmount
+                            amount={amount}
+                            decimals={item.note.metadata.decimals}
+                            symbol={symbol}
+                            formatting="exact"
+                          />
+                        )
+                      }
                       subtitle={`${t('from')}: ${sender}`}
                       trailing={
                         <StatusBadge

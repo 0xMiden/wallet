@@ -135,6 +135,9 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
   const contactNetwork = externalAddressNetwork?.logoNetwork ?? externalAddressNetwork?.id;
   const matchedContacts = contacts.filter(contact => contact.network === contactNetwork);
   const linkedRefund = externalAddressLabel === 'refund' && !externalAddressEditable;
+  const receivePreview = previewAmount
+    ? formatAmountDisplay(previewAmount, { symbol: requestAsset?.symbol, rounding: 'down' })
+    : '';
   const review = (
     <Button
       type={command ? 'submit' : 'button'}
@@ -193,11 +196,7 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
           <div data-testid="one-click-receive-output">
             <DetailCard surface="fill">
               <DetailRow label={t('youReceive')} stacked>
-                {quoteLoading
-                  ? t('calculatingQuote')
-                  : previewAmount
-                    ? formatAmountDisplay(previewAmount, { symbol: requestAsset?.symbol, rounding: 'down' })
-                    : t('calculatingQuote')}
+                {quoteLoading ? t('calculatingQuote') : receivePreview || t('calculatingQuote')}
               </DetailRow>
               {receivePicker}
             </DetailCard>
@@ -205,11 +204,7 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
         ) : (
           <AmountInput
             label={t('youReceive')}
-            value={
-              previewAmount
-                ? formatAmountDisplay(previewAmount, { symbol: requestAsset?.symbol, rounding: 'down' })
-                : ''
-            }
+            value={receivePreview}
             onValueChange={() => undefined}
             tokenSelector={receivePicker}
             accent="swap"

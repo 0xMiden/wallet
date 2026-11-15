@@ -1008,17 +1008,15 @@ const SwapManager: React.FC<SwapManagerProps> = ({
               onRequestNetworkChange={setRequestNetwork}
             />
           );
-        case SwapFlowStep.ReviewSwap:
+        case SwapFlowStep.ReviewSwap: {
+          const reviewedRequestAmount =
+            command && reviewQuote ? formatBigInt(reviewQuote.requestedAmount, requestToken.decimals) : requestAmount;
           return (
             <ReviewSwap
               offerToken={offerToken}
               offerAmount={offerAmount}
               requestToken={requestToken}
-              requestAmount={
-                command && reviewQuote
-                  ? formatBigInt(reviewQuote.requestedAmount, requestToken.decimals)
-                  : requestAmount
-              }
+              requestAmount={reviewedRequestAmount}
               requestEdited={requestEdited}
               quote={reviewQuote}
               expirySeconds={expirySeconds}
@@ -1034,6 +1032,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({
               submitting={submitting}
             />
           );
+        }
         default:
           return <></>;
       }

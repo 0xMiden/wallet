@@ -3,7 +3,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant, Card, SegmentedControl, SectionHeader } from 'components/ui';
-import { getAdaptiveDecimalPlaces, toLocalFormat } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { getNumberSymbols } from 'lib/i18n/core';
 import {
   recordPortfolioObservation,
   readPortfolioObservations,
@@ -31,6 +32,12 @@ const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
 
 export function CommandPortfolio({ scope }: { scope: AccountScope }): React.ReactElement {
   const { t } = useTranslation();
+  const displayOptions = {
+    minimumFractionDigits: 2,
+    trimTrailingZeros: false,
+    grouping: true,
+    separators: getNumberSymbols()
+  };
   const [hidden, setHidden] = useCommandPrivacy();
   const portfolio = useCommandPortfolio(scope);
   const [range, setRange] = useState<HistoryRange>('1M');
@@ -115,7 +122,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
   const sampleIndex = selected === null ? samples.length - 1 : Math.min(selected, samples.length - 1);
   const sample = samples[sampleIndex];
   const inspected = sample
-    ? `${new Date(sample.capturedAt).toLocaleString()} · ${hidden ? t('commandMaskedBalance') : `${toLocalFormat(sample.value, { decimalPlaces: getAdaptiveDecimalPlaces(sample.value) })} USD${sample.coverage === 'partial' ? ` · ${t('commandPartialCoverage')}` : ''}`}`
+    ? `${new Date(sample.capturedAt).toLocaleString()} · ${hidden ? t('commandMaskedBalance') : `${formatAmountDisplay(sample.value, displayOptions)} USD${sample.coverage === 'partial' ? ` · ${t('commandPartialCoverage')}` : ''}`}`
     : '';
   const values = samples.map(row => Number(row.value));
   const min = Math.min(...values);
@@ -164,14 +171,14 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
             ? t('commandMaskedBalance')
             : !portfolio.current || value === null
               ? t('commandBalanceUnavailable')
-              : `${toLocalFormat(value, { decimalPlaces: getAdaptiveDecimalPlaces(value) })} USD`}
+              : `${formatAmountDisplay(value, displayOptions)} USD`}
         </p>
         {!hidden && coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
         {!hidden && portfolio.current && portfolio.priceMovement24h && value !== null && (
           <p className="text-caption text-muted">
             {t('commandMarketPriceMovement24h', {
-              change: `${portfolio.priceMovement24h.absolute < 0 ? '-' : '+'}${toLocalFormat(Math.abs(portfolio.priceMovement24h.absolute), { decimalPlaces: 2 })}`,
-              percentage: `${portfolio.priceMovement24h.percentage < 0 ? '-' : '+'}${toLocalFormat(Math.abs(portfolio.priceMovement24h.percentage), { decimalPlaces: 2 })}`
+              change: `${portfolio.priceMovement24h.absolute < 0 ? '-' : '+'}${formatAmountDisplay(Math.abs(portfolio.priceMovement24h.absolute), { ...displayOptions, formatting: 'fixed' })}`,
+              percentage: `${portfolio.priceMovement24h.percentage < 0 ? '-' : '+'}${formatAmountDisplay(Math.abs(portfolio.priceMovement24h.percentage), { ...displayOptions, formatting: 'fixed' })}`
             })}
           </p>
         )}

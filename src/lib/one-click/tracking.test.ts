@@ -134,7 +134,7 @@ const inboundInput = {
 };
 
 const activityBridgeStatus = (phase: string | undefined) => {
-  const bridgeInPhase = phase === 'delivering' || phase === 'failed' ? phase : undefined;
+  const bridgeInPhase = phase === 'delivering' || phase === 'failed' || phase === 'received' ? phase : undefined;
   return bridgeStatusOf({
     key: 'refunded-inbound-row',
     address: 'miden-account-id',
@@ -364,6 +364,14 @@ describe('1Click durable tracking', () => {
     await reconcileOneClickSwaps();
     expect(row.extraInputs.oneClick.phase).toBe('arriving');
 
+    storedRows.push({
+      ...consume(ITransactionStatus.Completed),
+      id: 'unrelated-consume',
+      consumedNotes: [{ id: 'other-note', senderAddress: 'sender', faucetId: 'miden-faucet', amount }]
+    });
+    await reconcileOneClickSwaps();
+    expect(row.extraInputs.oneClick.phase).toBe('arriving');
+
     storedRows.push({ ...consume(ITransactionStatus.Completed), id: 'restored-consume', restoredFromBackup: true });
     await reconcileOneClickSwaps();
     expect(row.extraInputs.oneClick.phase).toBe('arriving');
@@ -374,7 +382,7 @@ describe('1Click durable tracking', () => {
     expect(row.extraInputs.phase).toBe('received');
     expect(activityBridgeStatus(row.extraInputs.phase)).toBe('confirmed');
     await reconcileOneClickSwaps();
-    expect(fetchStatus).toHaveBeenCalledTimes(5);
+    expect(fetchStatus).toHaveBeenCalledTimes(6);
     expect(submitDeposit).not.toHaveBeenCalled();
     expect(storedRows.filter(candidate => candidate.type === 'bridged-receive')).toHaveLength(1);
   });
