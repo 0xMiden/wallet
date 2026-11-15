@@ -43,7 +43,8 @@ const LANDING_ARGUMENT: Record<string, number> = {
   feeFieldsFromResult: 1,
   readConsumeResult: 1,
   extractFullNote: 1,
-  retireLandedTrap: 1
+  retireLandedTrap: 1,
+  retiringLandedTraps: 0
 };
 // The fewest calls each file makes, so a scan that matched nothing fails.
 const MIN_CALLS: Record<string, number> = {
@@ -51,7 +52,8 @@ const MIN_CALLS: Record<string, number> = {
   'src/lib/miden/activity/fee.ts': 2,
   'src/lib/miden/activity/helpers.ts': 1,
   'src/lib/miden/transaction/complete.ts': 18,
-  'src/lib/miden/transaction/helper.ts': 2
+  'src/lib/miden/transaction/helper.ts': 2,
+  'src/lib/miden/transaction/index.ts': 3
 };
 
 // A row object's id, or an id the enclosing function was handed. The chain's transaction id never names the row.

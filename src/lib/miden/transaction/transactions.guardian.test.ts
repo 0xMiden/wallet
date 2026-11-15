@@ -35,6 +35,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import { installLandedTrapRetirement } from 'lib/miden/sdk/landed-trap-retirement';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { ConsumableNote } from 'lib/miden/types';
@@ -14909,6 +14910,71 @@ describe('generateTransaction — direct switch, discarded transaction', () => {
     expect(row.mayHaveSubmitted).toBe(true);
     expect(row.extraInputs).toMatchObject({ nodeDiscarded: true });
     expect(isUnconfirmedFailure(row as never)).toBe(false);
+  });
+});
+
+describe('generateTransaction - direct switch, a trap past submit', () => {
+  it("a trap in the direct switch's first post-submit read retires once under the row", async () => {
+    const txId = 'switch-guardian-direct-post-submit-trap';
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const landed = makeResult();
+    let armed = false;
+    // Armed by the leaf's last await, so the first read past the leaf traps.
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw trap;
+        return landed.executedTransaction();
+      }
+    };
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(result, apply)
+    });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, txId]]);
+    } finally {
+      restore();
+    }
   });
 });
 

@@ -14,6 +14,7 @@ import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { installLandedTrapRetirement } from 'lib/miden/sdk/landed-trap-retirement';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+import { bumpWasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
 import { captureCrash } from 'lib/telemetry/crash';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
@@ -694,6 +695,60 @@ describe('completeCustomTransaction private-note delivery', () => {
       expect(retire.mock.calls).toEqual([[firstTrap, 'tx-private-trap']]);
     } finally {
       errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  // A result nobody recorded reads as current, so without the tail's record the fee read's trap retires the client the
+  // commit wait's replacement built.
+  it('a completion whose client was replaced during its relay wait retires nothing for a later trap in the same result', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let armed = false;
+    const result = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'relay-wait-hash' }),
+        outputNotes: () => ({ notes: () => [privateNote('relay-wait-note')] }),
+        blockHeader: () => {
+          if (armed) throw trap;
+          return { verificationBaseFee: () => 0 };
+        }
+      }),
+      serialize: () => new Uint8Array([])
+    };
+    txStore.push({
+      id: 'tx-relay-wait-trap',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      requestBytes: new Uint8Array([7]),
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'DEFAULT'
+    });
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      bumpWasmClientGeneration();
+      armed = true;
+    });
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(),
+      newTransaction: jest.fn(async () => result),
+      waitForTransactionCommit: mockWaitForCommit,
+      sendPrivateNote: mockSendPrivateNote
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
+      expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
+      expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(retire).not.toHaveBeenCalled();
+    } finally {
+      sdk.getMidenClient = origGetClient;
+      warnSpy.mockRestore();
       restore();
     }
   });
@@ -1873,9 +1928,10 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
 });
 
 describe('generateTransaction execute + consume default switch arms', () => {
-  it('Guardian consume: completes through completeConsumeTransaction → break (outer switch line 913)', async () => {
+  // Drives one Guardian consume through the high-level SDK chain with `executed` as its landed transaction.
+  const runGuardianConsume = async (id: string, executed: Record<string, unknown>, sync = async () => {}) => {
     txStore.push({
-      id: 'guardian-consume',
+      id,
       type: 'consume',
       accountId: 'guardian-acc',
       noteId: 'note-g',
@@ -1898,7 +1954,8 @@ describe('generateTransaction execute + consume default switch arms', () => {
               })
             }
           ]
-        })
+        }),
+        ...executed
       }),
       serialize: () => new Uint8Array([])
     };
@@ -1910,7 +1967,7 @@ describe('generateTransaction execute + consume default switch arms', () => {
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
       })),
-      sync: jest.fn(async () => {})
+      sync: jest.fn(sync)
     };
     guardianManager.getOrCreateMultisigService.mockResolvedValueOnce(fakeMultisigService);
 
@@ -1946,13 +2003,90 @@ describe('generateTransaction execute + consume default switch arms', () => {
       // sync-status gate in generateGuardianTransaction reads it); `{}` would
       // throw before reaching the branch under test here.
       const provider = { getAccounts: async () => [{ publicKey: 'guardian-acc' }] };
-      await generateTransaction(txStore[0] as any, jest.fn(), false, provider as any);
-      // Reaching here without throwing means the `case 'consume': ... break;`
-      // arm at lines 911-913 in the outer switch ran.
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-      expect(fakeMultisigService.sync).toHaveBeenCalled();
+      await generateTransaction(
+        txStore.find(t => t.id === id),
+        jest.fn(),
+        false,
+        provider as any
+      );
     } finally {
       sdk.getMidenClient = origGetClient;
+    }
+    return { row: txStore.find(t => t.id === id), fakeMultisigService };
+  };
+
+  it('Guardian consume: completes through completeConsumeTransaction → break (outer switch line 913)', async () => {
+    const { row, fakeMultisigService } = await runGuardianConsume('guardian-consume', {});
+    // Reaching here without throwing means the `case 'consume': ... break;`
+    // arm at lines 911-913 in the outer switch ran.
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(fakeMultisigService.sync).toHaveBeenCalled();
+  });
+
+  // Wrapping only the completion dispatch would record the result after the sync replaced the client, and retire it.
+  it("a Guardian row's tail starts before its post-completion sync, so a client replaced there is not retired for a later trap", async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let armed = false;
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      const { row, fakeMultisigService } = await runGuardianConsume(
+        'guardian-consume-sync-trap',
+        {
+          outputNotes: () => ({ notes: () => [] }),
+          blockHeader: () => {
+            if (armed) throw trap;
+            return { verificationBaseFee: () => 0 };
+          }
+        },
+        async () => {
+          bumpWasmClientGeneration();
+          armed = true;
+        }
+      );
+      expect(fakeMultisigService.sync).toHaveBeenCalledTimes(1);
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(retire).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it('a trap leaving a landed consume completion retires once under the row and reaches the loop as itself', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    txStore.push({
+      id: 'tx-consume-trap',
+      type: 'consume',
+      accountId: 'acc-1',
+      noteId: 'n-trap',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1
+    });
+    const trappingResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'consume-trap-hash' }),
+        inputNotes: () => {
+          throw trap;
+        }
+      }),
+      serialize: () => new Uint8Array([])
+    };
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(),
+      consumeNoteId: jest.fn(async () => trappingResult)
+    });
+    try {
+      await expect(generateTransaction(txStore[0] as any, jest.fn(), false, {} as any)).rejects.toBe(trap);
+      expect(retire.mock.calls).toEqual([[trap, 'tx-consume-trap']]);
+    } finally {
+      sdk.getMidenClient = origGetClient;
+      restore();
     }
   });
 
