@@ -15,8 +15,10 @@ const filesCalling = (call: string): string[] =>
     .sort();
 
 // Past submit and outside any hold no lock can retire a trap, and a landed row that fails offers a Retry that
-// pays twice, so these readers alone answer a fee-check trap with no fee note; every other reader lets it through.
+// pays twice, so these readers alone answer a fee-check trap with the per-check answer; every other reader lets
+// it through.
 const LANDED_READERS = [
+  'src/lib/miden/activity/fee.ts',
   'src/lib/miden/activity/helpers.ts',
   'src/lib/miden/transaction/complete.ts',
   'src/lib/miden/transaction/helper.ts'

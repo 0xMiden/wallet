@@ -71,6 +71,21 @@ describe('feePaidFromResult', () => {
     expect(() => feePaidFromResult(result([broken as any]))).not.toThrow();
   });
 
+  it('reads the fee past a note whose tag read traps, since it runs past submit', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const unreadable = {
+      metadata: () => {
+        throw trap;
+      },
+      assets: () => ({ fungibleAssets: () => [asset(500n, 'tkn-faucet')], nonFungibleAssets: () => [] })
+    };
+    expect(
+      feePaidFromResult(result([unreadable as any, outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]))
+    ).toEqual({ amount: 163840n, faucetId: 'bech32-native' });
+    warn.mockRestore();
+  });
+
   it('propagates an eviction instead of reporting no fee', () => {
     // A missing accessor is absorbed; an EVICTION must not be. Every accessor here
     // borrows from the WASM client's RefCell, so once the mutex has been handed to a
@@ -438,5 +453,64 @@ describe('splitLandedOutputNotes', () => {
       }
     };
     expect(thrownBy(() => splitLandedOutputNotes(unreadable))).toBe(trap);
+  });
+
+  // A trap answers only the check that threw it, so a fee note the other checks identified is still split out and
+  // never becomes a caller's first user note (a swap's order note, a private send's relayed note).
+  describe('answers a trap per check', () => {
+    const kernelFee = () => outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const untagged = (failure: unknown) => ({
+      metadata: () => {
+        throw failure;
+      },
+      assets: () => ({ fungibleAssets: () => [asset(500n, 'tkn')], nonFungibleAssets: () => [] })
+    });
+    let warn: jest.SpyInstance;
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it.each([['before'], ['after']])('splits out the fee note when a note %s it traps in its tag read', order => {
+      const fee = kernelFee();
+      const trapped = untagged(trap);
+      const notes = order === 'before' ? [trapped, fee] : [fee, trapped];
+      expect(splitLandedOutputNotes(executed(notes))).toEqual({ feeNote: fee, userNotes: [trapped] });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), [trap]);
+    });
+
+    it('warns once, naming both traps, when two notes trap', () => {
+      const other = new WebAssembly.RuntimeError('unreachable');
+      const fee = kernelFee();
+      const first = untagged(trap);
+      const second = untagged(other);
+      expect(splitLandedOutputNotes(executed([first, fee, second]))).toEqual({
+        feeNote: fee,
+        userNotes: [first, second]
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), [trap, other]);
+    });
+
+    // Two candidates mean neither is the fee, so a tagged note that cannot be ruled out keeps the split ambiguous.
+    it.each(['faucet', 'amount'] as const)(
+      'identifies no fee note when a second fee-tagged note traps in its %s read',
+      where => {
+        const fee = kernelFee();
+        const second = trapping(where, trap);
+        expect(splitLandedOutputNotes(executed([fee, second]))).toEqual({
+          feeNote: undefined,
+          userNotes: [fee, second]
+        });
+      }
+    );
+
+    it('logs nothing when no check traps', () => {
+      splitLandedOutputNotes(executed([user, untagged(new TypeError('no accessor')), kernelFee()]));
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 });
