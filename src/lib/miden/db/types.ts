@@ -1200,8 +1200,9 @@ export interface ITransaction {
    * Sticky: set once some attempt on this row reached a point from which a
    * chain submit cannot be ruled out, and never unset. Guards the cached
    * `requestBytes` of a guardian recallable `send` from being rebuilt, since
-   * those bytes pin the note id that makes the chain reject a duplicate —
-   * rebuilding them after a possible submit risks paying the recipient twice.
+   * those bytes pin the note id that lets the node reject a duplicate while the
+   * first copy is in flight. Retry also asks before it replays them, because
+   * once that copy commits the node accepts the duplicate.
    *
    * A per-attempt `stage` cannot carry this, for two independent reasons.
    * Requeueing clears `stage`, so the signal survived exactly one retry and the
