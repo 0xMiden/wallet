@@ -49,13 +49,13 @@ jobs:
       # Where the build under test is built: its own checkout for `to`, else the harness checkout.
       CANDIDATE_DIR: ${{ inputs.to != '' && 'candidate' || '.' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
 
       - name: Check out the build under test
         if: inputs.to != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.to }}
           path: candidate
@@ -101,19 +101,19 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Check out the previous release
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ steps.refs.outputs.from }}
           path: previous
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Cache miden-client-cli
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
@@ -223,7 +223,7 @@ jobs:
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-upgrade-${{ github.run_id }}
           path: |
