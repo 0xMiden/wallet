@@ -52,8 +52,7 @@
 - [FIX][all] A dApp custom transaction's approval counts notes the account already held among what leaves it and names them on the sheet, signing allows only the notes that approval showed being created, and the chain fee is read fresh for every check.
 - [FIX][all] A dApp's request to sign a transaction summary shows what leaves the account's holdings, measured once after a fresh chain fee read, and is refused before any sheet when that cannot be measured or the fee is unknown.
 - [FIX][all] Before a transaction is submitted, a WebAssembly trap inside the wallet's WASM lock, while it tells the network fee note apart from its other notes or reads a dApp request's diagnostics or dry run, now retires the broken client instead of answering from it. After a transaction lands, a trap in a fee check is answered there instead of failing the transaction.
-- [FIX][all] A WebAssembly trap while the wallet records a transaction that already landed, or answers a dApp waiting for one, now retires the broken client too, at most once per transaction.
-- [FIX][all] When a later step fails for a transaction the network already accepted, the wallet now records it as completed instead of failed, so Retry cannot send it a second time. A WebAssembly trap in that step also retires the broken client, at most once per transaction.
+- [FIX][all] When a step fails after the network already accepted a transaction, the wallet records it as completed instead of failed, so Retry cannot send it a second time. A WebAssembly trap there, or while answering a dApp waiting for one, also retires the broken client, at most once per transaction.
 
 ## 1.17.11 (2026-11-09)
 
