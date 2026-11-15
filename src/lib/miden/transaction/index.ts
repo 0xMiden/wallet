@@ -94,7 +94,7 @@ import {
   annotateTransactionExecution,
   unobservedTransactionExecution
 } from 'lib/telemetry/transaction-execution-diagnostics';
-import type { ConsumeDeferralCause } from 'lib/telemetry/transaction-failure';
+import { type ConsumeDeferralCause, reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { logger } from 'shared/logger';
 
 import {
@@ -1222,6 +1222,31 @@ const runLandedTail = async (
   }
 };
 
+/**
+ * Report a landed row whose post-submit tail threw, once, as the `landed` outcome: the row is Completed, so it is
+ * evidence, not an error. `row` is the row as the arm read it before its write, so the stage names where the tail
+ * stopped. It names the tail's own error, since the report reads its identity and realm off the top-level message.
+ */
+const reportLandedTail = (row: ITransaction, error: unknown): void => {
+  const tail = landedTailErrorIn(error);
+  if (tail === undefined || row.restoredFromBackup) return;
+  reportTransactionFailure({
+    point: 'pipeline',
+    outcome: 'landed',
+    type: row.type,
+    stage: row.stage,
+    delegateTransaction: row.delegateTransaction,
+    diagnostics: row.failureDiagnostics,
+    entryPoint: row.consumeEntryPoint,
+    lastDeferral: row.lastDeferral,
+    feeAdmission: row.feeAdmission,
+    error: tail.cause
+  });
+};
+
+/** The error a landed row's Failed write names: the tail's own, so its report and its copy read as they did before. */
+const landedFailureOf = (error: unknown): unknown => landedTailErrorIn(error)?.cause ?? error;
+
 /** The landed id for the row's receipt, or undefined when the result no longer reads. */
 const readLandedTransactionId = (landing: string, result: TransactionResult): string | undefined => {
   try {
@@ -1585,7 +1610,7 @@ const settleLandedGuardianRow = async (
     );
     await recordBridgeNoteLanded(transaction.id);
     await recordLandedTransactionId(transaction.id, error);
-    await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
+    await cancelTransactionAfterPipelineStopped(transaction, landedFailureOf(error), transaction.attemptId);
     return true;
   }
   // `bridged-send` is in this list too, and by the ordering above it can only
@@ -1602,11 +1627,14 @@ const settleLandedGuardianRow = async (
     transaction.type === 'bridged-send'
   ) {
     console.warn('[Guardian] submit landed but local apply failed - marking Completed; sync will reconcile:', error);
+    // Read before the write, which stamps the stage complete: the report names the stage the tail stopped at.
+    const stored = await Repo.transactions.where({ id: transaction.id }).first();
     try {
       await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
         ...landedRowFields(transaction, error),
         completedAt: Math.floor(Date.now() / 1000) // seconds
       });
+      if (stored) reportLandedTail(stored, error);
     } catch (markErr) {
       // updateTransactionStatus throws if the tx is already finalized - fine.
       console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
@@ -5026,7 +5054,7 @@ const settleLandedLoopRow = async (txId: string, error: unknown, attemptId: stri
     await recordBridgeNoteLanded(tx.id);
     if (!hasLeftQueue(tx)) {
       await recordLandedTransactionId(tx.id, error);
-      await cancelTransactionAfterPipelineStopped(tx, error, attemptId);
+      await cancelTransactionAfterPipelineStopped(tx, landedFailureOf(error), attemptId);
     }
     return;
   }
@@ -5052,6 +5080,7 @@ const settleLandedLoopRow = async (txId: string, error: unknown, attemptId: stri
       ...landedRowFields(tx, error),
       completedAt: Math.floor(Date.now() / 1000)
     });
+    reportLandedTail(tx, error);
     if (tx.type === 'consume') await adoptLandedConsume(tx.id);
   }
 };

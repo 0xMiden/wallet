@@ -342,7 +342,7 @@ it('does not forward unknown assertion codes, error text, or poisoned metadata',
 
 // A post-submit step failed on a transaction the network accepted, and the row was recorded completed (PR #2183).
 it('reports a landed outcome at warning, under its own name', async () => {
-  reportTransactionFailure({ type: 'consume', stage: 'guardian-synced', outcome: 'landed' as never });
+  reportTransactionFailure({ type: 'consume', stage: 'guardian-synced', outcome: 'landed' });
   await settle();
   const [error, , options] = jest.mocked(captureCrash).mock.calls[0]!;
   expect((error as Error).message).toMatch(
