@@ -26,6 +26,15 @@ for (const flags of [0, 1, 4, 8]) {
     await assert.rejects(inspectAuth(data, client, context));
   });
 }
+test('validates a loopback RP while binding client data to its full origin', async () => {
+  const loopbackOrigin = 'http://localhost:45123';
+  const { data, client } = fixture(5, { origin: loopbackOrigin });
+  data.set(createHash('sha256').update('localhost').digest());
+  const request = { ...context, origin: loopbackOrigin, rpId: 'localhost' };
+  assert.equal((await inspectAuth(data, client, request)).uv, true);
+  await assert.rejects(inspectAuth(data, client, { ...request, rpId: 'another.invalid' }));
+  await assert.rejects(inspectAuth(data, client, { ...request, origin: 'http://localhost:45124' }));
+});
 test('rejects another RP hash', async () => {
   const { data, client } = fixture();
   data[0] ^= 1;

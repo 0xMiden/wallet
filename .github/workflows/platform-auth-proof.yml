@@ -5,9 +5,9 @@ on:
 permissions:
   contents: read
 jobs:
-  macos-official-chrome-availability:
+  macos-official-native-prf:
     runs-on: macos-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,6 +19,7 @@ jobs:
         run: |
           node --test .github/native-pilot/macos-prf/probe-core.test.mjs
           node --check .github/native-pilot/macos-prf/platform-availability.mjs
+          node --check .github/native-pilot/macos-prf/official-native-prf.mjs
       - name: Install frozen existing dependencies
         timeout-minutes: 5
         run: yarn install --frozen-lockfile
@@ -29,11 +30,13 @@ jobs:
           test -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' || npx playwright install chrome
       - name: Check actual official Chrome provider availability
         run: node .github/native-pilot/macos-prf/platform-availability.mjs
-      - name: Preserve availability metadata only
+      - name: Measure actual native PRF and UV on the owned loopback RP
+        run: node .github/native-pilot/macos-prf/official-native-prf.mjs
+      - name: Preserve native measurement metadata only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-official-chrome-availability
+          name: macos-official-native-prf
           path: macos-native-measurement/
           retention-days: 3
           if-no-files-found: error

@@ -1,4 +1,4 @@
-export async function inspectAuth(data, clientBytes, { challenge, origin, type }) {
+export async function inspectAuth(data, clientBytes, { challenge, origin, type, rpId = origin }) {
   if (!(data instanceof Uint8Array) || data.length < 37 || (data[32] & 5) !== 5) {
     throw new Error('AUTH_DATA_INVALID');
   }
@@ -8,7 +8,7 @@ export async function inspectAuth(data, clientBytes, { challenge, origin, type }
       (client.crossOrigin !== undefined && client.crossOrigin !== false)) {
     throw new Error('CLIENT_BINDING_INVALID');
   }
-  const expected = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(origin)));
+  const expected = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rpId)));
   if (!expected.every((v, i) => data[i] === v)) throw new Error('RP_HASH_INVALID');
   return { uv: true, backupEligible: Boolean(data[32] & 8) };
 }

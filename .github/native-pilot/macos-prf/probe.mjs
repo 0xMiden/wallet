@@ -1,6 +1,7 @@
 import { inspectAuth, takePrf, sameBytes } from './probe-core.mjs';
 
-const origin = chrome.runtime.getURL('').replace(/\/$/, '');
+const origin = location.origin;
+const rpId = location.protocol === 'chrome-extension:' ? origin : location.hostname;
 const button = id => document.getElementById(id);
 let active;
 let report = { scope: 'Environment probe only; wallet lifecycle not tested', status: 'not-run', origin };
@@ -38,7 +39,7 @@ button('run').addEventListener('click', async () => {
   };
   show();
   try {
-    if (!origin.startsWith('chrome-extension://') || location.origin !== origin) throw new Error('CLIENT_BINDING_INVALID');
+    if (!origin.startsWith('chrome-extension://') && !(location.protocol === 'http:' && location.hostname === 'localhost')) throw new Error('CLIENT_BINDING_INVALID');
     if (navigator.userAgentData) report.platform = await navigator.userAgentData.getHighEntropyValues(['platformVersion', 'architecture', 'bitness', 'fullVersionList']);
     report.platformAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
     if (!report.platformAvailable) throw new Error('PLATFORM_UNAVAILABLE');
@@ -55,7 +56,7 @@ button('run').addEventListener('click', async () => {
       const response = credential.response;
       const data = response instanceof AuthenticatorAttestationResponse ? new Uint8Array(response.getAuthenticatorData()) :
         response instanceof AuthenticatorAssertionResponse ? new Uint8Array(response.authenticatorData) : null;
-      const binding = await inspectAuth(data, response.clientDataJSON, { challenge, origin, type });
+      const binding = await inspectAuth(data, response.clientDataJSON, { challenge, origin, type, rpId });
       let secret = null;
       if (type === 'webauthn.get' || buffer !== undefined) secret = takePrf(ext);
       report.steps.push({ ceremony: type, ...binding, prfBytes: secret?.byteLength || 0, prfEnabledFlag: ext?.prf?.enabled === true });
@@ -111,7 +112,7 @@ button('cleanup').addEventListener('click', async () => {
   let signaled = 0;
   try {
     for (const credentialId of ids()) {
-      await PublicKeyCredential.signalUnknownCredential({ rpId: origin, credentialId });
+      await PublicKeyCredential.signalUnknownCredential({ rpId, credentialId });
       signaled++;
     }
     localStorage.removeItem(journalKey);
