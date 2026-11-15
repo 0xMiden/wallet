@@ -27,13 +27,6 @@ jest.mock('lib/miden/metadata/scale', () => ({
   hasKnownScale: (...args: unknown[]) => mockHasKnownScale(...(args as []))
 }));
 
-// Mocked so the assertion is about what the hook COMPUTES and hands over -- the
-// bound and the scale -- rather than about `formatBigInt`, which has its own tests.
-const mockFormatAmount = jest.fn((amount: bigint, decimals?: number) => `${amount}@${decimals}`);
-jest.mock('lib/shared/format', () => ({
-  formatAmount: (...args: unknown[]) => mockFormatAmount(...(args as [bigint, number]))
-}));
-
 const mockBaseFee = useVerificationBaseFee as jest.MockedFunction<typeof useVerificationBaseFee>;
 
 describe('useNetworkFeeEstimate', () => {
@@ -49,8 +42,7 @@ describe('useNetworkFeeEstimate', () => {
     const { result } = renderHook(() => useNetworkFeeEstimate());
 
     // 10000 x 30 = 300000 smallest units, handed over at the fee asset's own scale.
-    expect(mockFormatAmount).toHaveBeenCalledWith(300000n, 6);
-    expect(result.current).toBe('300000@6 MIDEN');
+    expect(result.current).toBe('0.3 MIDEN');
   });
 
   it('renders nothing before the fee is discovered, rather than quoting zero', () => {
