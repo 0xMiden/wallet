@@ -28,12 +28,18 @@ export function customRequestAuthDiagnostics(
     // fee.rs commits [INFO, SALT]; MultisigAuthArgs commits [BLOCK, SALT, INFO].
     const input = authLayout === 'fee' ? [...values.slice(4), ...values.slice(0, 4)] : values;
     const digest = Poseidon2.hashElements(new FeltArray(input));
+    // The digest lives in the instance a trap aborted, so a trapped read does not free it: a failing free would
+    // replace the trap the lock retires.
+    let trapped = false;
     try {
       const commitment = auth.toU64s();
       const matches = digest.toU64s().every((value, index) => value === commitment[index]);
       return { authLayout, commitmentMatch: matches ? authLayout : 'neither' };
+    } catch (error) {
+      trapped = error instanceof WebAssembly.RuntimeError;
+      throw error;
     } finally {
-      digest.free?.();
+      if (!trapped) digest.free?.();
     }
   } catch (error) {
     rethrowTrapOrKill(error);

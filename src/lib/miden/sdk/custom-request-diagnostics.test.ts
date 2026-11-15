@@ -49,7 +49,7 @@ beforeEach(() => {
   hashFailure = undefined;
   adviceFailure = undefined;
   hashInput = undefined;
-  hashWord.free.mockClear();
+  hashWord.free.mockReset();
 });
 
 it.each([
@@ -124,6 +124,34 @@ it.each([['the advice read'], ['the hash']])(
     expect(observe).not.toHaveBeenCalledWith('read_failed');
   }
 );
+
+// The digest lives in the instance a trap aborted, so a failing free must not replace the trap the lock retires.
+it('rethrows a trap from the commitment read without freeing the digest', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  hashWord.free.mockImplementation(() => {
+    throw new Error('null pointer passed to rust');
+  });
+  const trapping = {
+    toU64s: () => {
+      throw trap;
+    }
+  };
+  expect(thrownBy(() => customRequestAuthDiagnostics(request([1, 2, 3, 4, 5, 6, 7, 8], trapping)))).toBe(trap);
+  expect(hashWord.free).not.toHaveBeenCalled();
+});
+
+it('still frees the digest after an ordinary commitment read failure', () => {
+  const broken = {
+    toU64s: () => {
+      throw new TypeError('no accessor');
+    }
+  };
+  expect(customRequestAuthDiagnostics(request([1, 2, 3, 4, 5, 6, 7, 8], broken))).toEqual({
+    authLayout: 'fee',
+    commitmentMatch: 'unavailable'
+  });
+  expect(hashWord.free).toHaveBeenCalledTimes(1);
+});
 
 const accountReadFailing = (failure: unknown) =>
   ({
