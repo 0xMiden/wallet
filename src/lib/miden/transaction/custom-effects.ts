@@ -306,9 +306,10 @@ export function customEffectsCheckAccess(
  * Does the generation-time dry run of a prepared `execute` request and compares it with the approved effects.
  * Refuses with `CustomTransactionEffectsChangedError` on any difference, before the caller proposes anything.
  *
- * The caller holds the WASM client lock (see `customEffectsCheckAccess`). The decode is in the same hold, so a trap in
- * it reaches the lock. The account closed over by that access is the one whose spending limit decides whether an
- * unattributable generation spend can match an uncharged row.
+ * The caller holds the WASM client lock (see `customEffectsCheckAccess`). The hold is re-checked after the dry run and
+ * after the spending-limit read, before the decode, so a trap in the decode reaches the lock. The account closed over
+ * by that access is the one whose spending limit decides whether an unattributable generation spend can match an
+ * uncharged row.
  */
 export async function verifyPreparedCustomRequest(
   access: CustomEffectsCheckAccess,
@@ -319,5 +320,6 @@ export async function verifyPreparedCustomRequest(
   const dryRun = await access.dryRun();
   access.assertHoldCurrent('after the custom request effects dry run');
   const spendingLimitConfigured = await hasSpendingLimits(access.accountId);
+  access.assertHoldCurrent('after the custom request spending-limit read');
   assertCustomEffectsApproved(approved, dryRun, spentAssetTotals, spendingLimitConfigured);
 }

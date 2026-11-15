@@ -7491,6 +7491,14 @@
     "message": "Ocultada da página inicial. Ela permanece na sua carteira e suas transferências ainda podem ser resgatadas.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Ocultar tokens de poeira",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Oculta tokens com valor inferior a US$ 0,001 da sua lista de ativos. O token nativo permanece sempre visível.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
+  },
   "hiddenAssets": {
     "message": "Ativos ocultos",
     "englishSource": "Hidden assets"

@@ -366,7 +366,7 @@ runs:
         echo "key=${namespace}-${REV}-fee${FEE}${PROTOCOL_SUFFIX}-rust1.98.0" >> "$GITHUB_OUTPUT"
     - name: Restore node build
       id: node_cache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node/install
         key: ${{ steps.node_cache_key.outputs.key }}
@@ -702,7 +702,7 @@ runs:
         fi
     - name: Save node build
       if: steps.node_cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node/install
         key: ${{ steps.node_cache_key.outputs.key }}

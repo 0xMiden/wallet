@@ -15,7 +15,7 @@ import {
   withWasmClientLock,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
-import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
+import { pipelineKillIn, rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { CustomSimulationTimeoutError } from './public-error';
@@ -99,9 +99,7 @@ async function idsNotAlreadyHeld(
     try {
       if (!(await client.getInputNote(id))) introduced.push(id);
     } catch (error) {
-      if (error instanceof WebAssembly.RuntimeError) throw error;
-      const kill = pipelineKillIn(error);
-      if (kill !== undefined) throw kill;
+      rethrowTrapOrKill(error);
       // An ordinary failure is already held, see above.
     }
   }
@@ -122,9 +120,7 @@ function consumedNoteIds(dryRun: {
     if (!notes) return { error: 'the view does not list the notes it consumes' };
     return { ids: notes.map(note => note.id) };
   } catch (error) {
-    if (error instanceof WebAssembly.RuntimeError) throw error;
-    const kill = pipelineKillIn(error);
-    if (kill !== undefined) throw kill;
+    rethrowTrapOrKill(error);
     return { error: error instanceof Error ? error.message : String(error) };
   }
 }
