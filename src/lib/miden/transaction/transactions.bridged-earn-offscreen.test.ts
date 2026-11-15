@@ -261,7 +261,7 @@ afterEach(() => {
 });
 
 describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (slice 7b)', () => {
-  it('Epoch bridged-send (no requestBytes) → midenClientProxy.sendTransaction(tx, signCallback); never the inline SW leaf', async () => {
+  it('Epoch bridged-send (no requestBytes) → midenClientProxy.sendTransaction(tx, signer) with a guarded signer; never the inline SW leaf', async () => {
     const tx = await run('tx-bs-epoch', {
       type: 'bridged-send',
       secondaryAccountId: 'mtst1qallocator',
