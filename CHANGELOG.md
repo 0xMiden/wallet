@@ -2,6 +2,8 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][ci] Match USDCx payout and fee display assertions to the wallet's adaptive rounding while retaining exact on-chain payout verification.
+
 - [FEATURE][chrome] Add optional passkey unlock for eligible password wallets in Chrome 140+, with side-panel setup, confirmation-window unlock, and unchanged password fallback (#846).
 
 - [CHANGE][ci] Add serialized solver swap, Epoch and NEAR round trips to the mainnet nightly, recycling existing principal under one $2 loss/fee cap with original-authority recovery, exact upload gates and loops-only qualification. Public NEAR configuration remains unchanged.
