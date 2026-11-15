@@ -661,12 +661,12 @@ export function retireWasmClientForUnheldTrap(cause: unknown): void {
 }
 
 /**
- * Retire the client for a trap read past submit outside any hold, reached only through the landed-trap leaf, which
- * never hands in a trap read by a client already replaced. A current holder is then another flow's and only a
- * retainer: with no holder and none mid-yield the client is disposed at once, else it is poisoned in place and
- * freed once the holder and every yielded one settle, and the hold is not evicted but releases the mutex itself. The
- * recovery cooldown is neither consulted nor stamped, since a stamp would make a genuine trap under the next holder
- * wait out the watchdog.
+ * Retire the client for a trap read past submit outside any hold, reached only through the landed-trap leaf: a trap
+ * from a recorded result whose client was replaced never reaches this, and an unrecorded result reads as current. A
+ * current holder is another flow's and only a retainer: with no holder and none mid-yield the client is disposed at
+ * once, else it is poisoned in place and freed once the holder and every yielded one settle, and the hold is not
+ * evicted but releases the mutex itself. The recovery cooldown is neither consulted nor stamped, since a stamp would
+ * make a genuine trap under the next holder wait out the watchdog.
  */
 function retireWasmClientForLandedTrap(cause: WebAssembly.RuntimeError, landing: string): void {
   if (wasRetiredForCaughtTrap(cause)) return;
