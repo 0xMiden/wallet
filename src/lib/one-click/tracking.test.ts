@@ -327,9 +327,9 @@ describe('1Click durable tracking', () => {
       status: 'SUCCESS',
       swapDetails: { amountOut: amount.toString(), destinationChainTxHashes: [{ hash: '0xreceipt' }] }
     });
-    jest.mocked(resolveOneClickDestinationReceipts).mockResolvedValue([
-      { transactionHash: '0xreceipt', noteIds: [noteId] }
-    ]);
+    jest
+      .mocked(resolveOneClickDestinationReceipts)
+      .mockResolvedValue([{ transactionHash: '0xreceipt', noteIds: [noteId] }]);
     jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([
       {
         noteId,

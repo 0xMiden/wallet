@@ -56,8 +56,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
       # We only want the cache side effect. The action now saves INLINE (a split
       # actions/cache restore+save, not a post step), from a step placed after node
       # bring-up, so `continue-on-error` still has to hold: bring-up is occasionally

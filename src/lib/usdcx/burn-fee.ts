@@ -1,8 +1,7 @@
-import { simulatedBytesToView } from 'app/confirm/decode';
+import { simulatedBytesToView, type TxAssetView } from 'app/confirm/decode';
 import { midenClientProxy, runsWasmInThisRealm } from 'lib/miden/back/miden-client-proxy';
-import type { DryRunResult } from 'lib/miden/sdk/dry-run-request';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
@@ -79,6 +78,7 @@ async function measureBurnFeeReserve(
   destinationChainId: number
 ): Promise<UsdcxBurnFeeEstimate> {
   let failure: BurnFeeFailure = 'configuration_failed';
+  let decoding = false;
   try {
     // This handler can run before the realm hydrated the bridge config, and the burn request reads
     // the USDCx faucet and the destination domain from it.
@@ -94,13 +94,14 @@ async function measureBurnFeeReserve(
       domain
     );
     failure = 'dry_run_failed';
-    const result = await dryRunUnderLock(accountRefToSdk(accountPublicKey).toString(), requestBytes);
-    if (result === null) {
+    const view = await dryRunUnderLock(accountRefToSdk(accountPublicKey).toString(), requestBytes, () => {
+      decoding = true;
+    });
+    if (view === null) {
       console.warn('[usdcx burn fee] the WASM lock stayed busy, so no dry run ran');
       return BUSY;
     }
     failure = 'result_decode_failed';
-    const view = simulatedBytesToView(result);
     if (!view) return { outcome: 'failed', failure };
     const fee = view.fee?.faucetId === nativeFaucetId ? view.fee.amount : 0n;
     const outgoing = view.outgoing
@@ -112,15 +113,25 @@ async function measureBurnFeeReserve(
     if (cost < 0n || outgoing < USDCX_BURN_FEE_PROBE_AMOUNT) return { outcome: 'failed', failure: 'probe_mismatch' };
     return { outcome: 'measured', reserve: cost + (cost * USDCX_BURN_FEE_MARGIN_PERCENT + 99n) / 100n };
   } catch (err) {
-    // The lock has already retired the client for a trap; reading it as "unmeasured" would hide it from every caller.
+    if (decoding) failure = 'result_decode_failed';
+    // A trap from the dry run or from decoding its result rejects this hold, and `withWasmClientLock` retires the
+    // client before this rethrow; reading that trap as an unmeasured cost would hide it.
     if (typeof WebAssembly !== 'undefined' && err instanceof WebAssembly.RuntimeError) throw err;
     console.warn('[usdcx burn fee] could not estimate the burn fee', err);
     return { outcome: 'failed', failure };
   }
 }
 
-/** The dry run under the WASM lock, or null when the lock was not won within `USDCX_BURN_FEE_LOCK_WAIT_MS`. */
-function dryRunUnderLock(accountIdHex: string, requestBytes: Uint8Array): Promise<DryRunResult | null> {
+/**
+ * The dry run's decoded view under the WASM lock, or null when the lock was not won within
+ * `USDCX_BURN_FEE_LOCK_WAIT_MS`. The decode runs inside the hold: its fee checks rethrow a trap, which only this
+ * lock can retire.
+ */
+function dryRunUnderLock(
+  accountIdHex: string,
+  requestBytes: Uint8Array,
+  markDecoding: () => void
+): Promise<TxAssetView | null | undefined> {
   let gaveUp = false;
   let lockWaitTimer: ReturnType<typeof setTimeout> | undefined;
   const lockWait = new Promise<null>(resolve => {
@@ -135,7 +146,11 @@ function dryRunUnderLock(accountIdHex: string, requestBytes: Uint8Array): Promis
       clearTimeout(lockWaitTimer);
       // Nobody waits for an estimate that gave up, so its hold ends before any call on the client.
       if (gaveUp) return null;
-      return midenClientProxy.dryRunTransaction(accountIdHex, requestBytes, hold);
+      const result = await midenClientProxy.dryRunTransaction(accountIdHex, requestBytes, hold);
+      // An evicted hold decodes nothing: its trap would reach no lock.
+      assertWasmHoldCurrent(hold, 'after the usdcx burn-fee dry run');
+      markDecoding();
+      return simulatedBytesToView(result);
     },
     runsWasmInThisRealm() ? { watchdogMs: USDCX_BURN_FEE_DRY_RUN_DEADLINE_MS, label } : { label }
   );

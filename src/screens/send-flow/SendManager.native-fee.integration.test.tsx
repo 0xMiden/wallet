@@ -169,7 +169,7 @@ it('keeps the real Send reserve when an obsolete fee-identity read finishes afte
   expect(screen.getByText('amountMustBeLessThanBalance')).toBeInTheDocument();
 
   fireEvent.click(screen.getByTestId('send-amount-max'));
-  expect(screen.getByTestId('send-amount-input')).toHaveValue('9.9997');
+  expect(screen.getByTestId('send-amount-input')).toHaveValue('9.99979');
   expect(screen.getByTestId('send-amount-confirm')).toBeEnabled();
 });
 
@@ -207,6 +207,6 @@ it('keeps the real Send reserve when an obsolete base-fee read finishes after di
   expect(screen.getByText('amountMustBeLessThanBalance')).toBeInTheDocument();
 
   fireEvent.click(screen.getByTestId('send-amount-max'));
-  expect(screen.getByTestId('send-amount-input')).toHaveValue('9.9997');
+  expect(screen.getByTestId('send-amount-input')).toHaveValue('9.99979');
   expect(screen.getByTestId('send-amount-confirm')).toBeEnabled();
 });

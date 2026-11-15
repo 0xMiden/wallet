@@ -3,7 +3,8 @@ import { format } from 'date-fns';
 
 import type { Status } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
-import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-precision';
+import { isDisplayable } from 'lib/i18n/adaptive-precision';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -227,17 +228,6 @@ export const swapSettlementOf = (tx: ITransaction): IHistoryEntry['swapSettlemen
 export type MoneyKind = 'receives' | 'pays' | 'typed';
 
 /**
- * Minimum decimals by displayed symbol, for an asset whose amounts need more than the default two.
- * Six is the typed-amount input cap (`AmountInput`), so a Slow ETH amount reads the same in flight
- * and once credited. Metadata `decimals` is the on-chain scale, not a display precision.
- */
-const DISPLAY_PRECISION = new Map([
-  ['ETH', 6],
-  ['WETH', 6]
-]);
-const DEFAULT_DISPLAY_PRECISION = 2;
-
-/**
  * The decimal text of a stored amount. A restore keeps a row's `extraInputs` as the dump recorded
  * them, so a hand-edited backup can leave a number or a BigInt where a string is declared; any
  * other shape is not an amount.
@@ -262,13 +252,11 @@ export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, sy
   if (text === undefined) return kind === 'typed' ? '0' : value;
   if (kind === 'typed') {
     const typed = new BigNumber(text.replace(/,/g, ''));
-    return isDisplayable(typed) ? typed.toFixed() : '0';
+    return isDisplayable(typed) ? formatAmountDisplay(typed, { formatting: 'exact' }) : '0';
   }
   const amount = new BigNumber(text);
   if (!isDisplayable(amount)) return value;
-  const minimum = (symbol === undefined ? undefined : DISPLAY_PRECISION.get(symbol)) ?? DEFAULT_DISPLAY_PRECISION;
-  const places = getAdaptiveDecimalPlaces(amount, minimum);
-  return amount.decimalPlaces(places, kind === 'pays' ? BigNumber.ROUND_UP : BigNumber.ROUND_DOWN).toFixed();
+  return formatAmountDisplay(text, { symbol, rounding: kind === 'pays' ? 'up' : 'down' });
 }
 
 /**

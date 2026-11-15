@@ -503,11 +503,14 @@ describe('customEffectsDifference', () => {
  */
 const checkAccess = (
   dryRun: (hold: { lost: boolean }) => Promise<CustomDryRunBytes>
-): { access: CustomEffectsCheckAccess; checked: string[] } => {
+): { access: CustomEffectsCheckAccess; checked: string[]; loseHold: () => void } => {
   const hold = { lost: false };
   const checked: string[] = [];
   return {
     checked,
+    loseHold: () => {
+      hold.lost = true;
+    },
     access: {
       accountId: 'account-a',
       dryRun: () => dryRun(hold),
@@ -545,7 +548,11 @@ describe('verifyPreparedCustomRequest', () => {
     await verifyPreparedCustomRequest(access, effects, charged);
 
     expect(mockHasSpendingLimits).toHaveBeenCalledWith('account-a');
-    expect(checked).toEqual(['before the custom request effects check', 'after the custom request effects dry run']);
+    expect(checked).toEqual([
+      'before the custom request effects check',
+      'after the custom request effects dry run',
+      'after the custom request spending-limit read'
+    ]);
   });
 
   it('refuses an unattributable generation spend when the account has a spending limit', async () => {
@@ -587,6 +594,22 @@ describe('verifyPreparedCustomRequest', () => {
 
     await expect(verifyPreparedCustomRequest(access, effects, charged)).rejects.toThrow(
       'operation abandoned after the custom request effects dry run'
+    );
+  });
+
+  // The spending-limit read parks on IndexedDB, and an evicted hold's decode would trap where no lock retires it.
+  it('stops before the decode when the hold was taken away during the spending-limit read', async () => {
+    const effects = approvedEffects();
+    const { access, loseHold } = checkAccess(async () =>
+      generate(view({ outgoing: [{ faucetId: 'faucet-a', amount: 99n }] }))
+    );
+    mockHasSpendingLimits.mockImplementationOnce(async () => {
+      loseHold();
+      return false;
+    });
+
+    await expect(verifyPreparedCustomRequest(access, effects, charged)).rejects.toThrow(
+      'operation abandoned after the custom request spending-limit read'
     );
   });
 });

@@ -4,7 +4,7 @@ import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { assertWasmHoldCurrent, type WasmLockHold } from 'lib/miden/sdk/miden-client';
 import type { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
-import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { extractSdkErrorCode, rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 /** What a dry run produced: the summary while authorization is pending, else the executed transaction. */
@@ -60,8 +60,8 @@ export function isSummaryFeeFaucetMissing(err: unknown): boolean {
  * Unlike `simulateCustomTransaction` it imports no notes and runs no sync, so it executes against the client's last
  * synced state and suits a request that consumes nothing, such as the USDCx burn fee probe. The caller holds the WASM
  * lock and passes its hold, which is re-checked after every await before the next call on the client. Only the three
- * summary failures a local execution answers fall back to `executeRequest`; anything else, a trap included, is thrown
- * as it stands.
+ * summary failures a local execution answers fall back to `executeRequest`. A trap is thrown as itself and a killed
+ * pipeline as its kill link, whatever its wrapper's text says; anything else as it stands.
  */
 export async function dryRunRequest(
   client: MidenClientInterface,
@@ -84,11 +84,11 @@ export async function dryRunRequest(
     assertWasmHoldCurrent(hold, 'before the dry run summary serialize');
     return { summaryBytes: u8ToB64(summary.serialize()) };
   }
+  rethrowTrapOrKill(summaryFailure);
   if (
-    (typeof WebAssembly !== 'undefined' && summaryFailure instanceof WebAssembly.RuntimeError) ||
-    (!isAlreadyAuthorizedError(summaryFailure) &&
-      !isSummarySigningUnavailable(summaryFailure) &&
-      !isSummaryFeeFaucetMissing(summaryFailure))
+    !isAlreadyAuthorizedError(summaryFailure) &&
+    !isSummarySigningUnavailable(summaryFailure) &&
+    !isSummaryFeeFaucetMissing(summaryFailure)
   ) {
     throw summaryFailure;
   }

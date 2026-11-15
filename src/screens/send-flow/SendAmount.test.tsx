@@ -181,12 +181,12 @@ describe('SendAmount', () => {
     expect(props.onConfirm).toHaveBeenCalledTimes(1);
   });
 
-  it('fills Max with the spendable balance rounded down', () => {
+  it('keeps every spendable base unit in Max while the balance display rounds down', () => {
     const props = renderAmount();
 
     expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 12.3456');
     fireEvent.click(screen.getByTestId('send-amount-max'));
-    expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
+    expect(props.onAmountChange).toHaveBeenCalledWith('12.345678');
   });
 
   it('fills a percentage shortcut from the spendable balance', () => {
@@ -201,7 +201,7 @@ describe('SendAmount', () => {
     const props = renderAmount({ token: { ...TOKEN, decimals: 12, balance: 10000.3 } });
 
     fireEvent.click(screen.getByTestId('send-amount-max'));
-    expect(props.onAmountChange).toHaveBeenCalledWith('10000.2999');
+    expect(props.onAmountChange).toHaveBeenCalledWith('10000.29999999999');
   });
 
   it('keeps Max visible but inert while the caller disables it', () => {

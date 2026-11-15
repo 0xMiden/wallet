@@ -1,7 +1,6 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { formatUnits } from 'viem';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button } from 'components/ui/Button';
@@ -17,6 +16,7 @@ import {
   useBridgeTracker
 } from 'lib/agglayer';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import {
   initiateConsumeTransactionFromId,
   pinAgglayerDeposit,
@@ -428,12 +428,19 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
             )}
             {payout && (
               <DetailRow label={t('usdcxPayoutReceived')}>
-                {t('usdcxPayoutAmount', { amount: formatUnits(BigInt(payout.value), USDCX_DECIMALS) })}
+                {t('usdcxPayoutAmount', {
+                  amount: formatAmountDisplay(BigInt(payout.value), { decimals: USDCX_DECIMALS, rounding: 'down' })
+                })}
               </DetailRow>
             )}
             {payout && sentAmount !== undefined && sentAmount > BigInt(payout.value) && (
               <DetailRow label={t('usdcxCircleFee')}>
-                {t('usdcxPayoutAmount', { amount: formatUnits(sentAmount - BigInt(payout.value), USDCX_DECIMALS) })}
+                {t('usdcxPayoutAmount', {
+                  amount: formatAmountDisplay(sentAmount - BigInt(payout.value), {
+                    decimals: USDCX_DECIMALS,
+                    rounding: 'up'
+                  })
+                })}
               </DetailRow>
             )}
             <DetailRow label={t('usdcxBurnNoteId')}>
