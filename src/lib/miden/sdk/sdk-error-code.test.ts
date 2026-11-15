@@ -19,6 +19,7 @@ import {
   isTransactionDiscardedError,
   markErrorBeforeSubmit,
   pipelineKillIn,
+  rethrowTrapOrKill,
   someInCauseChain
 } from './sdk-error-code';
 
@@ -637,6 +638,41 @@ describe('pipelineKillIn', () => {
       expect(pipelineKillIn(new ApplyAfterSubmitError(new Error(message)))).toBeUndefined();
     }
   );
+});
+
+describe('rethrowTrapOrKill', () => {
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  const thrown = (error: unknown): unknown => {
+    try {
+      rethrowTrapOrKill(error);
+    } catch (caught) {
+      return caught;
+    }
+    return undefined;
+  };
+
+  it('throws a WebAssembly trap as that same object', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    expect(thrown(trap)).toBe(trap);
+  });
+
+  it('throws the eviction a wrapper carries, not the wrapper', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    expect(thrown(new Error('wrapped', { cause: poison }))).toBe(poison);
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])('throws a terminated client (%p) as itself', message => {
+    const terminated = new Error(message);
+    expect(thrown(terminated)).toBe(terminated);
+  });
+
+  it('returns for an ordinary failure', () => {
+    expect(thrown(new Error('bad bytes'))).toBeUndefined();
+  });
+
+  it('returns for a terminated client under an apply-after-submit error, which landed', () => {
+    expect(thrown(new ApplyAfterSubmitError(new Error('Client terminated')))).toBeUndefined();
+  });
 });
 
 describe('isClientTerminatedError and isPipelineKillLink', () => {

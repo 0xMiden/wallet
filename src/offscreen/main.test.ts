@@ -3213,7 +3213,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     it.each([
       ['an execution failure', () => new Error('the kernel assertion failed')],
-      ['a trap', () => new WebAssembly.RuntimeError('unreachable')]
+      ['a trap', () => new WebAssembly.RuntimeError('failed to generate signature')]
     ])('reports %s as it stands, with no local retry', async (_kind, failure) => {
       await loadModule();
       const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');

@@ -65,6 +65,31 @@ export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({
   );
 };
 
+export interface MaskedSecretBoxProps {
+  /** Already-translated name for the group. */
+  label: string;
+  /** Slot height only. */
+  className?: string;
+  'data-testid'?: string;
+}
+
+/**
+ * One bar in the slot Show fills with the secret: the private-key field, or the hot-key QR.
+ * The same `rounded-lg-token` frame as that multiline field, and nothing of the secret in the DOM.
+ */
+export const MaskedSecretBox: React.FC<MaskedSecretBoxProps> = ({ label, className, 'data-testid': dataTestId }) => (
+  <div
+    data-testid={dataTestId}
+    className={cn('flex w-full items-center rounded-lg-token bg-fill px-4', className)}
+    data-masked="true"
+    role="group"
+    aria-label={label}
+    data-slot="masked-secret"
+  >
+    <span aria-hidden="true" className="h-1.5 w-full rounded-full bg-fill-pressed" />
+  </div>
+);
+
 export interface SeedPhrasePlaceholderProps {
   /** Layout only (margins). */
   className?: string;

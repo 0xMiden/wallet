@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { backgroundLockDelay } from 'lib/lock-up';
 import { isDesktop, isMobile } from 'lib/platform';
+import { HIDE_DUST_TOKENS_STORAGE_KEY } from 'lib/settings/constants';
 import {
   getThemeSetting,
   isAutoConsumeEnabled,
@@ -237,16 +238,38 @@ describe('GeneralSettings', () => {
     expect(screen.queryByTestId(GeneralSettingsSelectors.HapticFeedbackToggle)).not.toBeInTheDocument();
   });
 
-  it('renders through SubPageLayout: theme and haptics in one group, each described switch in its own', () => {
+  it('shows the hide-dust switch on by default and saves each change', () => {
+    localStorage.removeItem(HIDE_DUST_TOKENS_STORAGE_KEY);
+    render(<GeneralSettings />);
+
+    const hideDust = screen.getByTestId(GeneralSettingsSelectors.HideDustToggle);
+    expect(hideDust).toBeChecked();
+    expect(screen.getByText('hideDustTokensDescription').closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.HideDustToggle}-row`)
+    );
+
+    fireEvent.click(hideDust);
+    expect(localStorage.getItem(HIDE_DUST_TOKENS_STORAGE_KEY)).toBe('off');
+    expect(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle)).not.toBeChecked();
+
+    fireEvent.click(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle));
+    expect(localStorage.getItem(HIDE_DUST_TOKENS_STORAGE_KEY)).toBe('on');
+    expect(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle)).toBeChecked();
+  });
+
+  it('renders through SubPageLayout: theme and haptics in one group, each described control in its own', () => {
     mockIsMobile.mockReturnValue(true);
     render(<GeneralSettings />);
 
     const page = screen.getByTestId('general-settings');
     const body = page.querySelector('[data-slot="body"]')!;
     expect(body).toHaveClass('px-4', 'gap-5');
-    // Five on the apps: theme+haptics share one, then auto-lock, delegate,
+    // Six on the apps: theme+haptics share one, then auto-lock, hide dust, delegate,
     // auto-consume and telemetry each get their own described section.
-    expect(body.querySelectorAll(':scope > section')).toHaveLength(5);
+    expect(body.querySelectorAll(':scope > section')).toHaveLength(6);
+    expect(screen.getByText('autoLockDescription').closest('section')).not.toBe(
+      screen.getByText('hideDustTokensDescription').closest('section')
+    );
 
     // The theme is a ListRow with the picker trailing, sharing a group with the haptic switch.
     const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
@@ -264,6 +287,7 @@ describe('GeneralSettings', () => {
     );
     // Every group on the page is plain, the telemetry consent's included.
     for (const id of [
+      GeneralSettingsSelectors.HideDustToggle,
       GeneralSettingsSelectors.DelegateToggle,
       GeneralSettingsSelectors.AutoConsumeToggle,
       GeneralSettingsSelectors.TelemetryToggle

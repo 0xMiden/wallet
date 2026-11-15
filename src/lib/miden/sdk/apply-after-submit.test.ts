@@ -318,6 +318,28 @@ describe('applyAfterSubmit (#1233)', () => {
     expect(extractLanded(error)).toEqual({ transactionId: '0xtx' });
   });
 
+  it('a fee check that traps while the landed facts are read leaves the count unread and keeps the landed verdict', async () => {
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+    const result = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => '0xtx' }),
+        accountId: () => 'acc',
+        initialAccountHeader: () => withCommitment(INITIAL),
+        blockHeader: (): { verificationBaseFee(): number } => {
+          throw new WebAssembly.RuntimeError('unreachable');
+        },
+        outputNotes: () => ({ notes: () => [outputNote(NoteType.Private), outputNote(NoteType.Public)] })
+      })
+    };
+
+    const error = await applyAfterSubmit(arrange({ apply, result })).catch((caught: unknown) => caught);
+
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({ transactionId: '0xtx' });
+  });
+
   it('a hold evicted during the retries leaves the id and the count unread', async () => {
     const id = jest.fn(() => ({ toHex: () => '0xtx' }));
     const outputNotes = jest.fn(() => ({ notes: () => [outputNote(NoteType.Private)] }));

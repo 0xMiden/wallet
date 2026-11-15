@@ -8,7 +8,11 @@
  * Uses isExtension=true to enter requestConfirm.
  */
 
+import { netOutflowByFaucet } from 'app/confirm/decode';
+import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { getMessage } from 'lib/i18n';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 
@@ -157,6 +161,25 @@ jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
 }));
 
+// A summary's approval, custom or signBytes, reads the chain fee before it decodes and refuses when that read is
+// unknown.
+const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
+const mockFeeKnownAbsent = jest.fn(() => false);
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
+  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent()
+}));
+
+// The real note flow unless a case makes it fail.
+const mockNoteFlowFromTransaction = jest.fn((transaction: unknown) =>
+  jest.requireActual('app/confirm/note-flow').noteFlowFromTransaction(transaction)
+);
+jest.mock('app/confirm/note-flow', () => ({
+  ...jest.requireActual('app/confirm/note-flow'),
+  noteFlowFromTransaction: (transaction: unknown) => mockNoteFlowFromTransaction(transaction)
+}));
+
 // This suite supplies the dry-run view directly so fixture summary bytes are not decoded.
 const mockEmptySimulatedView = {
   outgoing: [],
@@ -166,7 +189,9 @@ const mockEmptySimulatedView = {
   unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 0,
-  storageChanged: false
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: []
 };
 let mockSimulatedView: unknown;
 jest.mock('app/confirm/decode', () => {
@@ -245,6 +270,10 @@ beforeEach(() => {
   _g.__dappConfInternals.onRemovedListeners.length = 0;
   for (const k of Object.keys(_g.__dappConfInternals.storage)) delete _g.__dappConfInternals.storage[k];
   _g.__dappConfInternals.storage[STORAGE_KEY] = { 'https://test.xyz': [SESSION] };
+  mockRefreshVerificationBaseFee.mockReset();
+  mockRefreshVerificationBaseFee.mockResolvedValue(2);
+  mockFeeKnownAbsent.mockReset();
+  mockFeeKnownAbsent.mockReturnValue(false);
   jest.useFakeTimers({ legacyFakeTimers: false });
 });
 
@@ -295,6 +324,209 @@ describe('requestConfirm popup size', () => {
     _g.__dappConfInternals.os = 'win';
 
     expect(await openConfirm()).toEqual(expect.objectContaining({ type: 'popup', width: 456, height: 777 }));
+  });
+});
+
+describe('requestSign measures a transaction summary once, before the popup', () => {
+  const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+  const browser = () => (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+  let previous: Record<string, unknown>;
+
+  beforeEach(() => {
+    previous = { SigningInputs: sdk.SigningInputs, SigningInputsType: sdk.SigningInputsType };
+    sdk.SigningInputsType = { TransactionSummary: 0, Arbitrary: 1, Blind: 2 };
+  });
+
+  afterEach(() => {
+    Object.assign(sdk, previous);
+  });
+
+  const summaryConsuming = (inputs: { id: () => unknown; note: () => unknown }[]) => {
+    sdk.SigningInputs = {
+      deserialize: () => ({
+        variantType: 0,
+        transactionSummaryPayload: () => ({
+          accountDelta: () => ({
+            id: () => ({ __faucet: 'a1' }),
+            vault: () => ({
+              removedFungibleAssets: () => [],
+              addedFungibleAssets: () => [],
+              numAssets: () => 0
+            }),
+            storage: () => ({ isEmpty: () => true })
+          }),
+          inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs }),
+          outputNotes: () => ({
+            numNotes: () => 1,
+            notes: () => [
+              {
+                id: () => ({ toString: () => 'stub-note-1' }),
+                assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+                metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+              }
+            ]
+          })
+        })
+      })
+    };
+  };
+
+  const sign = () =>
+    dapp.requestSign('https://test.xyz', {
+      type: MidenDAppMessageType.SignRequest,
+      sourcePublicKey: 'a1',
+      sourceAccountId: 'a1',
+      payload: 'c2lnbmluZy1pbnB1dHM=',
+      kind: 'signingInputs'
+    } as never);
+
+  /** The error the request settles with, once it is clear no window opened for it. */
+  const refusedBeforePopup = async () => {
+    const settled = sign().then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    expect(browser().windows.create).not.toHaveBeenCalled();
+    return settled;
+  };
+
+  it('rejects with NotGranted and does not open a window when a consumed note lists no assets', async () => {
+    summaryConsuming([{ id: () => ({ toString: () => 'opaque-note' }), note: () => ({ assets: () => undefined }) }]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.NotGranted}: a held note does not list its assets`)
+    );
+  });
+
+  it('rejects with NotGranted and does not open a window when the fee read does not know the fee', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValue(null);
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`)
+    );
+  });
+
+  /** The payload the popup this request opened is served, once the request has been auto-declined. */
+  const servedPayload = async () => {
+    const answer = sign();
+    answer.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(browser().windows.create).toHaveBeenCalledTimes(1);
+
+    const id: string = browser()
+      .windows.create.mock.calls.at(-1)?.[0]
+      ?.url.match(/id=([^&]+)/)?.[1];
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const response = await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, { id: 'p' });
+
+    jest.advanceTimersByTime(121_000);
+    await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    return response.payload;
+  };
+
+  // The summary's vault moves nothing; the 1000 leaves only through the held note it consumes, so the raw summary
+  // view shows nothing leaving and only the holdings measure counts it.
+  const heldNote = {
+    id: () => ({ toString: () => 'held-note' }),
+    note: () => ({
+      assets: () => ({
+        fungibleAssets: () => [{ faucetId: () => ({ __faucet: 'faucet-x' }), amount: () => 1000n }],
+        nonFungibleAssets: () => []
+      })
+    })
+  };
+  const heldNoteMeasure = {
+    outputNotesCreated: 1,
+    heldNotesSpent: 1,
+    outgoing: [{ faucetId: 'bech32', amount: '1000' }]
+  };
+
+  it('hands the popup the measured holdings as signingEffects', async () => {
+    summaryConsuming([heldNote]);
+
+    const payload = await servedPayload();
+
+    expect(payload.preview).toBeNull();
+    expect(payload.signingEffects.view).toMatchObject(heldNoteMeasure);
+    expect(payload.signingEffects.noteFlow).toMatchObject({
+      inputCount: 1,
+      outputs: [expect.objectContaining({ id: 'stub-note-1' })]
+    });
+  });
+
+  it('rejects before the popup when reading the note flow traps', async () => {
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw new WebAssembly.RuntimeError('unreachable');
+    });
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.InvalidParams}: RuntimeError: unreachable`)
+    );
+  });
+
+  const wrappedKill = () => {
+    const poison = new WasmClientPoisonedError('watchdog', new Error('x'));
+    return { poison, wrapped: new Error('wrapped', { cause: poison }) };
+  };
+
+  it('refuses before the popup when decoding the payload hits a kill, wrapped or not', async () => {
+    const { poison, wrapped } = wrappedKill();
+    sdk.SigningInputs = {
+      deserialize: () => {
+        throw wrapped;
+      }
+    };
+
+    expect(await refusedBeforePopup()).toBe(poison);
+  });
+
+  it('refuses before the popup when measuring the summary hits a kill', async () => {
+    const { poison, wrapped } = wrappedKill();
+    sdk.SigningInputs = {
+      deserialize: () => ({
+        variantType: 0,
+        transactionSummaryPayload: () => ({
+          accountDelta: () => {
+            throw wrapped;
+          }
+        })
+      })
+    };
+
+    const error = await refusedBeforePopup();
+
+    expect(error).not.toEqual(new Error(`${MidenDAppErrorType.NotGranted}: wrapped`));
+    expect(error).toBe(poison);
+  });
+
+  it('refuses before the popup when the note flow hits a kill', async () => {
+    const { poison, wrapped } = wrappedKill();
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw wrapped;
+    });
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toBe(poison);
+  });
+
+  it('still hands the popup the measured holdings, without a note flow, when the note flow read fails', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw new Error('no note details');
+    });
+    summaryConsuming([heldNote]);
+
+    try {
+      const payload = await servedPayload();
+
+      expect(payload.signingEffects.view).toMatchObject(heldNoteMeasure);
+      expect(payload.signingEffects).not.toHaveProperty('noteFlow');
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
 
@@ -387,7 +619,15 @@ describe('requestConfirm runs an approval once (#1584)', () => {
       unlistedAssets: 0,
       inputNotesConsumed: 0,
       outputNotesCreated: 1,
-      storageChanged: false
+      storageChanged: false,
+      viewConsumedNotes: [],
+      createdNotes: [
+        {
+          id: '0xsent',
+          amounts: [{ faucetId: 'faucet-x', amount: 50n }],
+          nfts: [{ faucetId: 'mtst1nftfaucet', assetId: '0xaa\u2026dd', key: 'nft-key-1' }]
+        }
+      ]
     };
     const { answer, listener, port, confirmation } = await openTransaction();
 
@@ -399,6 +639,62 @@ describe('requestConfirm runs an approval once (#1584)', () => {
     expect(args[6]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
     expect(args[9]).toEqual(['nft-key-1']);
     expect(args[10]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+  });
+
+  /** A summary dry run on faucet-x: the vault nets `net`, consuming `consumed` and creating `sent`, each one note. */
+  const summaryDryRun = (
+    net: bigint,
+    consumed: [string, bigint],
+    sent: [string, bigint],
+    introducedNoteIds: string[]
+  ) => {
+    const note = ([id, amount]: [string, bigint]) => ({ id, amounts: [{ faucetId: 'faucet-x', amount }], nfts: [] });
+    jest
+      .requireMock('./simulate-custom-tx')
+      .simulateCustomTransaction.mockResolvedValueOnce({ summaryBytes: 'confirm-sim-sum', introducedNoteIds });
+    mockSimulatedView = {
+      ...mockEmptySimulatedView,
+      account: 'a1',
+      outgoing: [{ faucetId: 'faucet-x', amount: net }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1,
+      viewConsumedNotes: [note(consumed)],
+      createdNotes: [note(sent)]
+    };
+  };
+
+  const queuedArgs = async ({ answer, listener, port, confirmation }: Awaited<ReturnType<typeof openTransaction>>) => {
+    await listener(confirmation, port);
+    await answer;
+    expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+    const args: unknown[] = requestCustomTransaction.mock.calls[0];
+    return args;
+  };
+
+  it('queues the approved effects with the introduced and the created note ids', async () => {
+    summaryDryRun(50n, ['0xcarried', 50n], ['0xsent', 100n], ['0xcarried']);
+
+    const args = await queuedArgs(await openTransaction());
+
+    expect(args[11]).toMatchObject({ introducedNoteIds: ['0xcarried'], approvedOutputNoteIds: ['0xsent'] });
+  });
+
+  // The sheet shows the measure the approval records: what leaves the holdings, never the vault's net change.
+  it('shows 1050 leaving for a summary that spends a held 1000 and sends 1050, as the approval records', async () => {
+    summaryDryRun(50n, ['0xheld', 1000n], ['0xsent', 1050n], []);
+    const opened = await openTransaction();
+
+    const reply = await opened.listener(
+      { type: MidenMessageType.DAppSimulateTransactionRequest, id: opened.confirmation.id },
+      opened.port
+    );
+    const { view } = fromSimulatedEffectsWire(reply.effects);
+    const args = await queuedArgs(opened);
+
+    expect(view.outgoing).toEqual([{ faucetId: 'faucet-x', amount: 1050n }]);
+    expect(view.heldNotesSpent).toBe(1);
+    expect(args[10]).toEqual(netOutflowByFaucet(view));
+    expect(args[6]).toEqual(netOutflowByFaucet(view));
   });
 
   it('runs the action once when the popup confirms twice while it runs', async () => {
@@ -740,7 +1036,9 @@ const simulatedViewFixture = {
   unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 1,
-  storageChanged: false
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'faucet-x', amount: 50n }], nfts: [] }]
 };
 
 describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {

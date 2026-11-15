@@ -3227,6 +3227,10 @@
     "message": "Скрытая фраза восстановления",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Скрытый закрытый ключ",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Показать",
     "englishSource": "Show"
@@ -4480,6 +4484,10 @@
   "unknown": {
     "message": "Неизвестно",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Включает notes, которые вы ещё не получили",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Входные notes использованы",
@@ -7480,6 +7488,14 @@
   "tokenHiddenNotice": {
     "message": "Скрыто из «Дома». Оно остается в вашем кошельке, и его переводы по-прежнему можно получить.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "Скрыть токены «dust»",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Скрывает токены стоимостью менее 0,001 доллара из вашего списка активов. Нативный токен всегда остается видимым.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Скрытые активы",

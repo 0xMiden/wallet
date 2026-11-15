@@ -7,6 +7,7 @@ import {
   isSummarySigningUnavailable
 } from 'lib/miden/sdk/dry-run-request';
 import { assertWasmHoldCurrent, type WasmLockHold } from 'lib/miden/sdk/miden-client';
+import { rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 /**
@@ -59,10 +60,12 @@ export async function dryRunPreparedCustomRequest(
     return { summaryBytes: u8ToB64(summary.serialize()) };
   }
 
-  // Only three summary failures are retryable locally: the account was already fully
+  // A trap leaves as itself, so the lock retires the client, and a killed pipeline (an eviction, an abort, a terminated
+  // client) as the kill itself, even under a wrapper whose text names a fallback below: no retry may run on a client
+  // that was taken away. Of the rest, only three summary failures are retryable locally: the account was already fully
   // authorized, the summary client could not sign for it, or the summary client has no fee faucet. Anything else - a
-  // genuine execution failure, an eviction, an abort - is reported as it stands, because retrying it
-  // would either mask the real error or borrow a client a successor already owns.
+  // genuine execution failure - is reported as it stands, because retrying it would mask the real error.
+  rethrowTrapOrKill(summaryFailure);
   if (
     !isAlreadyAuthorizedError(summaryFailure) &&
     !isSummarySigningUnavailable(summaryFailure) &&

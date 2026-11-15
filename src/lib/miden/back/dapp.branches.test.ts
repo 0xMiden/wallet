@@ -61,7 +61,9 @@ const EMPTY_SIMULATED_VIEW = {
   unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 0,
-  storageChanged: false
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: []
 };
 const mockSimulatedBytesToView = jest.fn((..._args: unknown[]) => EMPTY_SIMULATED_VIEW as unknown);
 jest.mock('app/confirm/decode', () => {
@@ -72,6 +74,12 @@ jest.mock('app/confirm/decode', () => {
     simulatedOutputRecipients: () => []
   };
 });
+
+// A custom summary's approval re-reads the chain fee before it decodes; the read is the node's, not this suite's.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: jest.fn(async () => 2)
+}));
 
 const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
 const mockAssessOutgoingSpendingLimitDetails = jest.fn(
@@ -2441,7 +2449,9 @@ describe('requestTransaction - custom spending-limit gate', () => {
     inputNotesConsumed: 0,
     outputNotesCreated: assets.length,
     fee: undefined,
-    storageChanged: false
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: assets.map((asset, index) => ({ id: `0xcreated-${index}`, amounts: [asset], nfts: [] }))
   });
 
   beforeEach(() => {
@@ -2520,41 +2530,66 @@ describe('requestTransaction - custom spending-limit gate', () => {
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
   });
 
-  const unattributableSummary = () => {
-    mockSimulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sum', introducedCount: 0 });
-    mockSimulatedBytesToView.mockReturnValue({ ...viewMoving([]), inputNotesConsumed: 2 });
+  // The summary spends two notes the account already held (30 and 20 A) and sends 80 A, so its vault nets 30 A out.
+  // The approval measures the holdings, so the 50 A of held notes is charged with the rest: 80 A leaves.
+  const summarySpendingHeldNotes = () => {
+    mockSimulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sum', introducedNoteIds: [] });
+    mockSimulatedBytesToView.mockReturnValue({
+      ...viewMoving([{ faucetId: 'faucet-a', amount: 30n }]),
+      inputNotesConsumed: 2,
+      viewConsumedNotes: [
+        { id: '0xheld-1', amounts: [{ faucetId: 'faucet-a', amount: 30n }], nfts: [] },
+        { id: '0xheld-2', amounts: [{ faucetId: 'faucet-a', amount: 20n }], nfts: [] }
+      ],
+      createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'faucet-a', amount: 80n }], nfts: [] }]
+    });
   };
+  const HELD_SPEND = [{ faucetId: 'faucet-a', amount: 80n }];
 
-  it('passes an unattributable custom spend through unset when preparation finds no spending limit', async () => {
-    unattributableSummary();
+  it('charges a summary that spends held notes what leaves the holdings when no spending limit is configured', async () => {
+    summarySpendingHeldNotes();
     // Earlier cases queue a one-shot limit answer they never consume. Reset so this call sees no limit.
     mockHasSpendingLimits.mockReset();
     mockHasSpendingLimits.mockResolvedValue(false);
+    // Earlier cases leave a breaching assessment behind; no limit means none.
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
 
     await dapp.requestTransaction('https://miden.xyz', customRequest());
 
-    expect(mockAssessOutgoingSpendingLimitDetails).not.toHaveBeenCalled();
-    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toBeUndefined();
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: HELD_SPEND
+    });
+    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toEqual(HELD_SPEND);
   });
 
-  it('refuses an unattributable custom spend before the prompt when a spending limit is configured', async () => {
-    unattributableSummary();
+  it('assesses a summary that spends held notes against a configured limit instead of refusing it unmeasured', async () => {
+    summarySpendingHeldNotes();
     mockHasSpendingLimits.mockReset();
-    mockHasSpendingLimits.mockResolvedValueOnce(true);
+    mockHasSpendingLimits.mockResolvedValue(true);
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(80n));
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
 
-    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
-      MidenDAppErrorType.NotGranted
-    );
-    expect(mockRequestConfirmation).not.toHaveBeenCalled();
-    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
-    expect(mockReleaseNoteIds).toHaveBeenCalled();
+    await dapp.requestTransaction('https://miden.xyz', customRequest());
+
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: HELD_SPEND
+    });
+    const confirmation = mockRequestConfirmation.mock.calls[0]![0] as Record<string, unknown>;
+    expect(confirmation).toMatchObject({ spendingLimitAssessment: expect.objectContaining({ usdAmount: 80n }) });
+    const args = mockRequestCustomTransaction.mock.calls[0]!;
+    expect(args[6]).toEqual(HELD_SPEND);
+    expect(args[7]).toMatchObject({ kind: 'usd', accountId: 'miden-account-1', usdAmount: 80n });
   });
 
-  it('releases quarantined notes when the locked recheck refuses an unattributable custom spend', async () => {
-    unattributableSummary();
+  it('releases quarantined notes when the locked recheck refuses the custom spend', async () => {
+    summarySpendingHeldNotes();
     mockHasSpendingLimits.mockReset();
     mockHasSpendingLimits.mockResolvedValue(false);
+    // Earlier cases leave a breaching assessment behind; no limit means none.
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
     const refusal = new Error(MidenDAppErrorType.NotGranted);
     refusal.name = 'UnattributableCustomSpendError';
@@ -2575,7 +2610,7 @@ describe('requestTransaction - custom spending-limit gate', () => {
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
 
-    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toBeUndefined();
+    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toEqual(HELD_SPEND);
     expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:note-a']);
     expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
   });
