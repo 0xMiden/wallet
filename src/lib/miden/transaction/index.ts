@@ -5106,8 +5106,9 @@ const settleLandedLoopRow = async (txId: string, error: unknown, attemptId: stri
   // consume, swap, execute and Agglayer bridged-send), whose note states, if any, the
   // next sync reconciles via ConsumedExternal.
   //
-  // A private send's note, or an execute's private notes, were never relayed, and the row says so
-  // (`landedValueRowFields`, which every landed writer shares so none can disagree about one landed row).
+  // A private send's note, or an execute's private notes, that no relay acknowledged are labelled undelivered, and a
+  // delivery already recorded as relayed is kept (`landedValueRowFields`, which every landed writer shares so none can
+  // disagree about one landed row).
   // A row a concurrent writer finalized is skipped: it already has a terminal state, and a throw here would leave the
   // loop's own catch.
   const written = await writeLandedCompleted(txId, error);
