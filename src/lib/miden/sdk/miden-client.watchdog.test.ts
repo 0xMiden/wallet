@@ -2362,8 +2362,10 @@ describe('poisoned client recovery', () => {
     await jest.advanceTimersByTimeAsync(0);
 
     leaf.retireLandedTrap(new WebAssembly.RuntimeError('unreachable'), 'row-c', undefined);
+    await jest.advanceTimersByTimeAsync(0);
     expect(markPoisoned).toHaveBeenCalledTimes(1);
     expect(free).not.toHaveBeenCalled();
+    expect(mod.isWasmClientBusy()).toBe(true);
 
     release();
     await expect(unrelated).resolves.toBe('its own value');
