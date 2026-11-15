@@ -13,7 +13,8 @@ import {
   WASM_LOCK_PAUSED_WATCHDOG_MS,
   WASM_LOCK_WATCHDOG_MS,
   WasmClientPoisonedError,
-  bumpWasmClientGeneration
+  bumpWasmClientGeneration,
+  wasmClientGeneration
 } from './wasm-client-poison';
 import { buildSdkSignCallback, tagLockedSignReason, type SignCallbackReason } from '../transaction/sign-callback';
 // eslint-disable-next-line import/order -- must load AFTER wasm-client-poison (TDZ safety, see above)
@@ -662,12 +663,51 @@ export function retireWasmClientForUnheldTrap(cause: unknown): void {
 
 /**
  * Retire the client for a trap read past submit outside any hold, reached only through the landed-trap leaf: a trap
- * from a recorded result whose client was replaced never reaches this, and an unrecorded result reads as current. A
- * current holder is another flow's and only a retainer: with no holder and none mid-yield the client is disposed at
- * once, else it is poisoned in place and freed once the holder and every yielded one settle, and the hold is not
- * evicted but releases the mutex itself. The recovery cooldown is neither consulted nor stamped, since a stamp would
- * make a genuine trap under the next holder wait out the watchdog.
+ * from a recorded result whose client was replaced never reaches this, and an unrecorded result reads as current.
+ *
+ * A live holder is another flow's retainer. The retire waits as that client's generation until the holder stops
+ * holding and the mutex goes to others, with no poison, dispose, notify, or bump while it still owns the lock, so
+ * the owner is never made to look evicted. A killed holder returns without a second poison: that eviction already
+ * replaced the client. With no holder, yielders are poisoned in place and freed once they settle, and nobody at all
+ * is disposed at once. The hold is not evicted. The recovery cooldown is neither consulted nor stamped, since a
+ * stamp would make a genuine trap under the next holder wait out the watchdog.
  */
+let pendingLandedRetireGeneration: number | null = null;
+
+// A yield flushes before the lock wrapper assigns `running`. The shell stands in for that promise so the reclaim
+// waits for the hold, and the wrapper adopts the real operation into it on the way out.
+const landedRetireRunningAdopt = new WeakMap<LockHolder, (running: Promise<unknown>) => void>();
+
+function noteLandedRetireRetainer(holder: LockHolder): void {
+  if (holder.running !== null || pendingLandedRetireGeneration === null) return;
+  const shell = new Promise<unknown>(resolve => {
+    landedRetireRunningAdopt.set(holder, running => {
+      resolve(running);
+    });
+  });
+  shell.catch(() => {});
+  holder.running = shell;
+}
+
+function bindLandedRetireRunning(holder: LockHolder, running: Promise<unknown>): void {
+  const adopt = landedRetireRunningAdopt.get(holder);
+  if (!adopt) {
+    holder.running = running;
+    return;
+  }
+  landedRetireRunningAdopt.delete(holder);
+  adopt(running);
+}
+
+/** Poison in place while anyone is mid-yield; dispose when nobody holds or yields. */
+function retireLandedClientNow(): void {
+  if (yieldedHolders.size > 0) {
+    replaceClientSingletons(true, reclaimWhenIdle(yieldedHolders));
+  } else {
+    replaceClientSingletons(false);
+  }
+}
+
 function retireWasmClientForLandedTrap(cause: WebAssembly.RuntimeError, landing: string): void {
   if (wasRetiredForCaughtTrap(cause)) return;
   recordRetiredTrap(cause);
@@ -677,10 +717,11 @@ function retireWasmClientForLandedTrap(cause: WebAssembly.RuntimeError, landing:
     yielded: yieldedHolders.size,
     cause
   });
-  replaceClientSingletons(
-    currentHolder !== null,
-    reclaimWhenIdle(currentHolder !== null ? [currentHolder, ...yieldedHolders] : yieldedHolders)
-  );
+  if (currentHolder !== null) {
+    if (!currentHolder.killed) pendingLandedRetireGeneration = wasmClientGeneration();
+    return;
+  }
+  retireLandedClientNow();
 }
 
 /**
@@ -891,6 +932,10 @@ function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
  * Close out a hold on the normal path. Returns whether the caller still owns
  * the mutex and must release it - `false` means recovery already evicted this
  * holder and released the lock, and releasing again would corrupt the queue.
+ *
+ * A caller that still owns the release flushes a deferred landed retire after
+ * this clears `currentHolder` and before `wasmClientMutex.release()`. A killed
+ * holder does not own that release, and its eviction already replaced the client.
  */
 function endHold(holder: LockHolder): boolean {
   holder.cancelWatchdog?.();
@@ -899,6 +944,20 @@ function endHold(holder: LockHolder): boolean {
     currentHolder = null;
   }
   return !holder.killed;
+}
+
+/**
+ * Apply a landed retire that waited out a live holder, at the moment that holder
+ * stops holding and the mutex goes to others. The slot always clears. A generation
+ * that no longer matches was already replaced, so it clears without a second poison.
+ * Takes no lock and does not log again: the retire that stored the slot already did.
+ */
+function flushPendingLandedRetire(): void {
+  const pending = pendingLandedRetireGeneration;
+  if (pending === null) return;
+  pendingLandedRetireGeneration = null;
+  if (pending !== wasmClientGeneration()) return;
+  retireLandedClientNow();
 }
 
 /**
@@ -1195,7 +1254,7 @@ export async function withWasmClientLock<T>(
   const holder = beginHold(options?.watchdogMs, options?.label);
   try {
     const running = operation(holder);
-    holder.running = running;
+    bindLandedRetireRunning(holder, running);
     // The race ABANDONS `running` when recovery rejects `aborted`; if the corpse
     // later rejects with a trap-shaped error past the recovery cooldown, an
     // unhandled rejection would re-enter `onRealmRejection` and evict the
@@ -1224,6 +1283,7 @@ export async function withWasmClientLock<T>(
     throw err;
   } finally {
     if (endHold(holder)) {
+      flushPendingLandedRetire();
       wasmClientMutex.release();
     }
   }
@@ -1280,7 +1340,7 @@ export async function tryWithWasmClientLock<T>(
   const holder = beginHold(options?.watchdogMs, options?.label);
   try {
     const running = operation(holder);
-    holder.running = running;
+    bindLandedRetireRunning(holder, running);
     // See withWasmClientLock: an abandoned corpse's late rejection must not
     // surface as an unhandled rejection and evict the successor.
     running.catch(() => {});
@@ -1291,6 +1351,7 @@ export async function tryWithWasmClientLock<T>(
     throw err;
   } finally {
     if (endHold(holder)) {
+      flushPendingLandedRetire();
       wasmClientMutex.release();
     }
   }
@@ -1404,6 +1465,10 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
   const yieldStartedAt = monotonicNow();
   currentHolder = null;
   yieldedHolders.add(holder);
+  // This hold has stopped holding and the mutex is about to go to others. A deferred landed retire takes the branch
+  // a retire arriving now would take, with this flow already counted in `yieldedHolders`.
+  noteLandedRetireRetainer(holder);
+  flushPendingLandedRetire();
   // The count must settle exactly once whether the yielded wait resolves or the
   // yield watchdog below gives up on it: a wait that never settles used to leave
   // the count elevated forever, permanently degrading every future recovery to
