@@ -1,0 +1,88 @@
+# Minimum-only candidate; source/runtime review and immutable QA freeze are required before dispatch.
+name: Minimum synthetic required-source union RED
+on:
+  workflow_dispatch:
+    inputs:
+      expected_source:
+        description: Newly frozen minimum-only QA checkout commit
+        required: true
+        type: string
+      expected_bindings_sha256:
+        description: SHA256 of .github/qa/minimum-source-union-red-bindings.json
+        required: true
+        type: string
+      python39_patch:
+        description: Parent-reviewed exact Python 3.9 patch (3.9.N)
+        required: true
+        type: string
+      python311_patch:
+        description: Parent-reviewed exact Python 3.11 patch (3.11.N)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  minimum-source-union-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: '3.9'
+            python: ${{ inputs.python39_patch }}
+          - lane: '3.11'
+            python: ${{ inputs.python311_patch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require exact newly reviewed source and patch input
+        shell: bash
+        env:
+          EXPECTED_SOURCE: ${{ inputs.expected_source }}
+          PYTHON_LANE: ${{ matrix.lane }}
+          PYTHON_PATCH: ${{ matrix.python }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          test "$GITHUB_SHA" = "$EXPECTED_SOURCE"
+          [[ "$PYTHON_PATCH" =~ ^3\.(9|11)\.[0-9]+$ ]]
+          [[ "$PYTHON_PATCH" = "$PYTHON_LANE".* ]]
+          case "$PYTHON_LANE:$PYTHON_PATCH" in
+            '3.9:3.9.25'|'3.11:3.11.18') ;;
+            *) exit 1 ;;
+          esac
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Required namespace tools only
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap ripgrep
+      - name: One exact synthetic selector, no providers or external egress
+        shell: bash
+        env:
+          EXPECTED_SOURCE: ${{ inputs.expected_source }}
+          EXPECTED_BINDINGS_SHA256: ${{ inputs.expected_bindings_sha256 }}
+          PYTHON_LANE: ${{ matrix.lane }}
+          PYTHON_PATCH: ${{ matrix.python }}
+        run: bash .github/qa/minimum-source-union-red.sh
+      - name: Fixed public evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: minimum-union-red-py${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/minimum-source-union-red-public/identities.json
+            ${{ runner.temp }}/minimum-source-union-red-public/tools.json
+            ${{ runner.temp }}/minimum-source-union-red-public/outcomes.json
+            ${{ runner.temp }}/minimum-source-union-red-public/semantic-red.txt
+            ${{ runner.temp }}/minimum-source-union-red-public/infrastructure.json
+          include-hidden-files: false
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,10 @@
+{
+  "B": {
+    "archive_sha256": "33772108b36ff6bf02bee4db0c9332424570bad494ba920a949cf08d23c9e5bf",
+    "manifest_sha256": "7df28cb2e5b8d97270424017af9b4f3fe7ea9659fa175c037f6ef60318d63fac"
+  },
+  "M": {
+    "archive_sha256": "5480ca27a3e6db32c7be6390c87a6c1565834d16622dfb8f859a1efa3344b6a3",
+    "manifest_sha256": "2f675f4aeee6506beefc0458a1c7863a31f4f11feddc91db122c9eae26cfee48"
+  }
+}
