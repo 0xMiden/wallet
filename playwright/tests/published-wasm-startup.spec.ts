@@ -1,7 +1,8 @@
 import { chromium, expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { browserLaunchOptions } from '../e2e/fixtures/browser-launch-options';
@@ -42,7 +43,7 @@ function isolatedPaths(): { extension: string; output: string } {
   expect(process.getuid?.()).toBeGreaterThan(0);
   expect(process.env.PROBE_ORIGINAL_NETNS).toMatch(/^net:\[\d+\]$/);
   expect(readlinkSync('/proc/self/ns/net')).not.toBe(process.env.PROBE_ORIGINAL_NETNS);
-  expect(readdirSync('/sys/class/net')).toEqual(['lo']);
+  expect(Object.keys(networkInterfaces())).toEqual(['lo']);
   const status = readFileSync('/proc/self/status', 'utf8');
   expect(status).toMatch(/^NoNewPrivs:\s+1$/m);
   for (const capability of ['CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb']) {

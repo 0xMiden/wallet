@@ -49,7 +49,8 @@ test('published-wasm workflow confines the entire probe to a loopback-only names
   const text = workflow();
   assert.match(text, /sudo unshare --net --/);
   assert.match(text, /ip link set lo up/);
-  assert.match(text, /\[ "\$\(ls \/sys\/class\/net\)" = lo \]/);
+  assert.match(text, /\[ "\$\(ip -o link show \| wc -l\)" -eq 1 \]/);
+  assert.match(text, /ip link show dev lo >\/dev\/null/);
   assert.match(text, /\[ -z "\$\(ip route show table all \| grep -v/);
   assert.match(text, /setpriv --reuid=.*--regid=.*--init-groups/);
   assert.match(text, /--bounding-set=-all --no-new-privs/);

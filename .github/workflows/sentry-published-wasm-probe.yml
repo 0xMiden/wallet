@@ -136,7 +136,8 @@ jobs:
           original_netns=$(readlink /proc/self/ns/net)
           sudo unshare --net -- bash -euo pipefail -c '
             ip link set lo up
-            [ "$(ls /sys/class/net)" = lo ]
+            [ "$(ip -o link show | wc -l)" -eq 1 ]
+            ip link show dev lo >/dev/null
             [ -z "$(ip route show table all | grep -v " dev lo ")" ]
             [ -z "$(ip -6 route show table all | grep -v " dev lo ")" ]
             [ "$(readlink /proc/self/ns/net)" != "$1" ]
