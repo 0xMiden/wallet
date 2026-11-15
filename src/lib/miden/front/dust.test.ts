@@ -1,5 +1,6 @@
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
+import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
 
 import type { TokenBalanceData } from './balance';
 import { DUST_USD_THRESHOLD, isDustBalance } from './dust';
@@ -9,6 +10,8 @@ jest.mock('lib/miden/swap/tokens', () => ({
   tokenQuote: jest.fn()
 }));
 const mockTokenQuote = jest.mocked(tokenQuote);
+
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: () => true }));
 
 const PRICES: TokenPrices = {};
 const NATIVE = 'faucet-native';
@@ -46,6 +49,14 @@ describe('isDustBalance', () => {
     quoteAt(0.0001);
     expect(isDustBalance(row(9), PRICES, NATIVE)).toBe(true);
     expect(isDustBalance(row(10), PRICES, NATIVE)).toBe(false);
+  });
+
+  it('does not treat a nominal quote as market value', () => {
+    const nominalQuote = quotedPrice({}, 'UNLISTED_TEST_TOKEN');
+    expect(isNominalQuote(nominalQuote)).toBe(true);
+    mockTokenQuote.mockReturnValue(nominalQuote);
+
+    expect(isDustBalance(row(0.0001), PRICES, NATIVE)).toBe(false);
   });
 
   it('is never true for the native token, in either spelling of its id', () => {

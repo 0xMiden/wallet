@@ -1,6 +1,7 @@
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { normalizedFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
+import { isNominalQuote } from 'lib/prices/binance';
 
 import type { TokenBalanceData } from './balance';
 
@@ -25,6 +26,6 @@ export function isDustBalance(
   if (!hasKnownScale(token.metadata)) return false;
   if (!Number.isFinite(token.balance) || token.balance < 0) return false;
   const quote = tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol);
-  if (!quote || !Number.isFinite(quote.price) || quote.price <= 0) return false;
+  if (!quote || isNominalQuote(quote) || !Number.isFinite(quote.price) || quote.price <= 0) return false;
   return token.balance * quote.price < DUST_USD_THRESHOLD;
 }
