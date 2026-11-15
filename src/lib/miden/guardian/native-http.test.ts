@@ -567,6 +567,8 @@ describe('the Guardian request deadline (#312)', () => {
   });
 
   it('cancels a probe read when the caller aborts and keeps the late body as that error', async () => {
+    // No budget elapses between registration and dispatch; the remaining-budget case is covered below.
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(0);
     let settleNative: (value: unknown) => void = () => undefined;
     mockProbeRequest.mockReturnValue(
       new Promise(resolve => {
