@@ -1,0 +1,27 @@
+name: Mainnet group selector contract proof
+on:
+  push:
+    branches: [wiktor/mainnet-swap-bridge-contract-proof]
+permissions:
+  contents: read
+concurrency:
+  group: mainnet-swap-bridge-contract-proof
+  cancel-in-progress: false
+jobs:
+  selector-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Bind the exact regression source and no-secret workflow overlay
+        run: |
+          test "$(git rev-parse HEAD^)" = 7b5dc369ab5e9de8e9322e58d49fbcf0a5660034
+          test "$(git diff --name-only HEAD^ HEAD)" = .github/workflows/nightly-swap-proof.yml
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Run independent group selection and recovery contracts
+        run: yarn jest scripts/mainnet-swap-workflow.test.ts scripts/mainnet-swap-artifacts.test.ts scripts/mainnet-provider-artifacts.test.ts --maxWorkers=2 --watch=false
