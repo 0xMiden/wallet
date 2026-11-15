@@ -429,7 +429,7 @@ export interface ISwitchGuardianExtraInputs {
   // `commitUnconfirmed`: the direct rotation was SUBMITTED but the wallet never
   // established that it committed. The commit wait failed without a verdict and
   // the follow-up node read came back neither committed nor discarded, so
-  // `didDirectSwitchLand` answered `undefined`. Completion proceeds anyway  - 
+  // `didDirectSwitchLand` answered `undefined`. Completion proceeds anyway -
   // deliberately, since the alternative strands the account on an operator the
   // direct path has already judged unreachable - but "we went ahead on no
   // evidence" is not the same fact as "it committed", and every other surface
@@ -1221,7 +1221,7 @@ export interface ITransaction {
    */
   mayHaveSubmitted?: boolean;
   /**
-   * Unix seconds at which this row was failed from OUTSIDE its own pipeline  - 
+   * Unix seconds at which this row was failed from OUTSIDE its own pipeline -
    * the Cancel button - while that pipeline was still running. Not the same
    * claim as `mayHaveSubmitted`, and deliberately not merged into it.
    *
