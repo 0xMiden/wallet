@@ -86,7 +86,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // RELAYS every private note to `transaction.secondaryAccountId`, a recipient named by
   // the requesting site, so a fee note reaching it would be sent to the user's
   // counterparty. Consistent with `extractFullNote` and `completeSwapTransaction`.
-  const { userNotes: outputNotes } = splitLandedOutputNotes(result, transaction.id);
+  const { userNotes: outputNotes } = splitLandedOutputNotes(executedTx);
 
   // Every private note this transaction produced, with the id it is owed under. Collected
   // first so the relays below are a flat sequence: the commit wait then happens ONCE,
@@ -245,7 +245,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // route — the `execute` and default transaction types — was the one completion path
   // that recorded no fee, leaving its history row without the fee line every other
   // type shows.
-  Object.assign(updatedTransaction, feeFieldsFromResult(result, transaction.id));
+  Object.assign(updatedTransaction, feeFieldsFromResult(result));
   // Set explicitly AFTER interpretTransactionResult: that returns the whole
   // pick-time row, which predates every delivery write above and would otherwise
   // hand back the stale (absent) value.
@@ -293,7 +293,7 @@ const orderHasSettleClaim = async (swapOrderTxId: string): Promise<boolean> =>
     .filter(tx => tx.type === 'consume' && tx.extraInputs?.swapSettleKind !== 'reclaim')
     .count()) > 0;
 
-const readConsumeResult = (result: TransactionResult, landing: string) => {
+const readConsumeResult = (result: TransactionResult) => {
   const executedTransaction = result.executedTransaction();
   const inputNotes = executedTransaction.inputNotes().notes();
   const firstInputNote = inputNotes[0];
@@ -335,7 +335,7 @@ const readConsumeResult = (result: TransactionResult, landing: string) => {
     assetTotals,
     amount: totalsByFaucet.get(faucetId) ?? 0n,
     uniformNoteType: noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined,
-    fees: feeFieldsFromResult(result, landing)
+    fees: feeFieldsFromResult(result)
   };
 };
 
@@ -347,7 +347,7 @@ function refusedCompletion(message: string, completionGuard: CompletionGuard): E
 
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
   const { inputNotes, sender, transactionId, faucetId, assetTotals, amount, uniformNoteType, fees } =
-    await withCompletionStep('result_read', async () => readConsumeResult(result, id));
+    await withCompletionStep('result_read', async () => readConsumeResult(result));
 
   const dbTransaction = await withCompletionStep('row_read', () => Repo.transactions.where({ id }).first());
   const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
@@ -441,7 +441,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // that on a fee-charging chain the `orderId` below -- the serial number this swap is
   // tracked by for its entire lineage -- can be read off the FEE note instead of the
   // PSWAP note, which points settlement at a note that will never be filled.
-  const { userNotes } = splitLandedOutputNotes(result, tx.id);
+  const { userNotes } = splitLandedOutputNotes(executedTx);
   const outputNote = userNotes[0];
 
   if (!outputNote) {
@@ -456,7 +456,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // Completed with the output note ids so the swap shows up in history.
   const completedAt = Math.floor(Date.now() / 1000); // seconds
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
+    ...feeFieldsFromResult(result),
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
     outputNoteIds: [outputNote.id().toString()],
@@ -645,7 +645,7 @@ export const completeReplaceHotKeyTransaction = async (
     clearGuardianServiceFor(storedAccountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...feeFieldsFromResult(result, tx.id),
+      ...feeFieldsFromResult(result),
       displayMessage: 'Everyday key rotated',
       completedAt: Math.floor(Date.now() / 1000),
       // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
@@ -704,7 +704,7 @@ export const completeUpdateProcedureThresholdTransaction = async (
 ) => {
   const executedTx = result.executedTransaction();
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
+    ...feeFieldsFromResult(result),
     displayMessage: 'Account secured',
     transactionId: executedTx.id().toHex(),
     completedAt: Math.floor(Date.now() / 1000),
@@ -976,7 +976,7 @@ export const completeSwitchGuardianTransaction = async (
     }
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...feeFieldsFromResult(result, tx.id),
+      ...feeFieldsFromResult(result),
       // The Activity list renders this string as the row title, so it is a
       // claim about the chain, not a log line. "Guardian switched" is one the
       // unconfirmed path cannot make — and the receipt's recovery copy used to
@@ -1059,14 +1059,14 @@ export const completeSwitchGuardianTransaction = async (
   }
 };
 
-const extractFullNote = (result: TransactionResult, landing: string): Note | undefined => {
+const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
     // Excluding the kernel's fee note, which is an output note of this transaction like
     // any other and whose position among them is the kernel's business. The note this
     // returns is the one a PRIVATE send RELAYS to its recipient, so picking the fee note
     // here would hand the transport the wrong note and leave the payment undeliverable
     // while the row still completed.
-    const { userNotes } = splitLandedOutputNotes(result, landing);
+    const { userNotes } = splitLandedOutputNotes(result.executedTransaction());
 
     const firstOutput = userNotes[0];
     if (!firstOutput) {
@@ -1145,7 +1145,7 @@ const isPrivateOutputSend = (tx: SendTransaction, note: Note | undefined): boole
 
 export const completeSendTransaction = async (tx: SendTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const note = extractFullNote(result, tx.id);
+  const note = extractFullNote(result);
   const noteId = note?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
@@ -1242,7 +1242,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
   try {
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...feeFieldsFromResult(result, tx.id),
+      ...feeFieldsFromResult(result),
       // Completed is correct even when the relay failed: the assets have left the
       // account, so Failed would be untrue and would offer a Retry that spends a
       // second time. But it must not read as an unqualified success either.
@@ -1266,11 +1266,11 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
   // Network-note sponsorship adds another output. The persisted burn id identifies
   // the user's note regardless of where the SDK puts the sponsorship/fee outputs.
   const burnId = tx.extraInputs?.usdcxBurn?.noteId;
-  const noteId = burnId ?? extractFullNote(result, tx.id)?.id().toString();
+  const noteId = burnId ?? extractFullNote(result)?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
+    ...feeFieldsFromResult(result),
     displayMessage: tx.extraInputs?.provider === 'usdcx' ? 'USDCx burn submitted' : 'Bridged to EVM',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
@@ -1282,12 +1282,12 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
 /** Complete the Miden collateral-note leg of an Epoch Earn deposit. */
 export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const note = extractFullNote(result, tx.id);
+  const note = extractFullNote(result);
   const noteId = note?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
+    ...feeFieldsFromResult(result),
     displayMessage: 'Deposited to lending',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,

@@ -8,7 +8,6 @@ import {
 } from './fee';
 import { splitLandedOutputNotes } from './fee-notes';
 import { FEE_RESERVE_MULTIPLE } from '../fees/spendable';
-import { installAnsweredTrapRetirement } from '../sdk/caught-trap-retirement';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The fee note is corroborated against the chain's NATIVE faucet, so the suite has to
@@ -56,21 +55,20 @@ const result = (notes: ReturnType<typeof outputNote>[]) =>
 describe('feePaidFromResult', () => {
   it('reads the fee from the TX_FEE output note', () => {
     const fee = feePaidFromResult(
-      result([outputNote(0x0, [asset(500n, 'tkn-faucet')]), outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]),
-      'unread'
+      result([outputNote(0x0, [asset(500n, 'tkn-faucet')]), outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])])
     );
     expect(fee).toEqual({ amount: 163840n, faucetId: 'bech32-native' });
   });
 
   it('returns undefined when the transaction created no fee note', () => {
     // A zero-fee chain creates none at all, so absence is normal, not an error.
-    expect(feePaidFromResult(result([outputNote(0x0, [asset(500n, 'tkn-faucet')])]), 'unread')).toBeUndefined();
+    expect(feePaidFromResult(result([outputNote(0x0, [asset(500n, 'tkn-faucet')])]))).toBeUndefined();
   });
 
   it('survives a note whose metadata is unavailable', () => {
     // Reading the fee must never break the caller that is recording the row.
     const broken = { metadata: () => undefined, assets: () => ({ fungibleAssets: () => [] }) };
-    expect(() => feePaidFromResult(result([broken as any]), 'unread')).not.toThrow();
+    expect(() => feePaidFromResult(result([broken as any]))).not.toThrow();
   });
 
   it('propagates an eviction instead of reporting no fee', () => {
@@ -85,7 +83,7 @@ describe('feePaidFromResult', () => {
       },
       assets: () => ({ fungibleAssets: () => [] })
     };
-    expect(() => feePaidFromResult(result([evicted as any]), 'unread')).toThrow(WasmClientPoisonedError);
+    expect(() => feePaidFromResult(result([evicted as any]))).toThrow(WasmClientPoisonedError);
   });
 });
 
@@ -228,7 +226,7 @@ describe('partitionFeeNote', () => {
 
 describe('feeFieldsFromResult', () => {
   it('produces the transaction-row fields when a fee was paid', () => {
-    const fields = feeFieldsFromResult(result([outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]), 'unread');
+    const fields = feeFieldsFromResult(result([outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]));
     // Bech32, so `assetsMetadata` (keyed by bech32) can resolve the fee token and the
     // receipt renders a fee line at all.
     expect(fields).toEqual({ feeAmount: 163840n, feeFaucetId: 'bech32-native' });
@@ -236,13 +234,13 @@ describe('feeFieldsFromResult', () => {
 
   it('produces no fields when there is no result at all', () => {
     // Some completion paths finish without a TransactionResult in hand.
-    expect(feeFieldsFromResult(undefined, 'unread')).toEqual({});
+    expect(feeFieldsFromResult(undefined)).toEqual({});
   });
 
   it('produces no fields at all when no fee was paid', () => {
     // Spread into an update object, so it must add nothing rather than write
     // undefined keys over values another writer may have set.
-    expect(feeFieldsFromResult(result([outputNote(0x0, [asset(1n, 'tkn')])]), 'unread')).toEqual({});
+    expect(feeFieldsFromResult(result([outputNote(0x0, [asset(1n, 'tkn')])]))).toEqual({});
   });
 });
 
@@ -397,16 +395,12 @@ describe('a trap or a kill in a fee check', () => {
   });
 });
 
-const landed = (notes: unknown[], blockHeader?: () => { verificationBaseFee: () => number }) => ({
-  executedTransaction: () => executed(notes, blockHeader)
-});
-
 describe('splitLandedOutputNotes', () => {
   const trap = new WebAssembly.RuntimeError('unreachable');
 
   it.each(FEE_READS)('identifies no fee note when the %s read traps, and keeps every note', where => {
     const trapped = trapping(where, trap);
-    expect(splitLandedOutputNotes(landed([user, trapped]), 'unread')).toEqual({
+    expect(splitLandedOutputNotes(executed([user, trapped]))).toEqual({
       feeNote: undefined,
       userNotes: [user, trapped]
     });
@@ -415,10 +409,9 @@ describe('splitLandedOutputNotes', () => {
   it('identifies no fee note when the header read traps', () => {
     const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
     const { feeNote, userNotes } = splitLandedOutputNotes(
-      landed([user, fee], () => {
+      executed([user, fee], () => {
         throw trap;
-      }),
-      'unread'
+      })
     );
     expect(feeNote).toBeUndefined();
     expect(userNotes).toEqual([user, fee]);
@@ -428,14 +421,14 @@ describe('splitLandedOutputNotes', () => {
     const same = executed([user, outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])], () => ({
       verificationBaseFee: () => CHARGING
     }));
-    const split = splitLandedOutputNotes({ executedTransaction: () => same }, 'unread');
-    expect(split).toEqual(splitExecutedOutputNotes(same));
-    expect(split.feeNote).toBeDefined();
+    const landed = splitLandedOutputNotes(same);
+    expect(landed).toEqual(splitExecutedOutputNotes(same));
+    expect(landed.feeNote).toBeDefined();
   });
 
   it('lets the eviction a wrapped failure carries through', () => {
     const wrapped = trapping('tag', new Error('wrapped', { cause: poison }));
-    expect(thrownBy(() => splitLandedOutputNotes(landed([user, wrapped]), 'unread'))).toBe(poison);
+    expect(thrownBy(() => splitLandedOutputNotes(executed([user, wrapped])))).toBe(poison);
   });
 
   it('lets a trap from the output-note read itself through', () => {
@@ -444,91 +437,6 @@ describe('splitLandedOutputNotes', () => {
         throw trap;
       }
     };
-    expect(thrownBy(() => splitLandedOutputNotes({ executedTransaction: () => unreadable }, 'unread'))).toBe(trap);
-  });
-});
-
-// Past submit and outside any hold no lock or realm listener sees these traps, so the reader that answers one retires
-// the client, once per wallet row id. The ids are recorded for the life of the module, so no case reuses another's.
-describe('a landed reader answering a trap retires the client', () => {
-  const trap = new WebAssembly.RuntimeError('unreachable');
-  const retire = jest.fn();
-  let restore: () => void = () => undefined;
-
-  beforeEach(() => {
-    retire.mockClear();
-    restore = installAnsweredTrapRetirement(retire);
-  });
-
-  afterEach(() => restore());
-
-  it.each(FEE_READS)('the split retires once with the trap from the %s read', where => {
-    splitLandedOutputNotes(landed([user, trapping(where, trap)]), where);
-    expect(retire).toHaveBeenCalledTimes(1);
-    expect(retire).toHaveBeenCalledWith(trap);
-  });
-
-  it('the split retires once with a trap from the header read', () => {
-    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
-    splitLandedOutputNotes(
-      landed([user, fee], () => {
-        throw trap;
-      }),
-      'header'
-    );
-    expect(retire).toHaveBeenCalledTimes(1);
-    expect(retire).toHaveBeenCalledWith(trap);
-  });
-
-  it('retires once for one row however many readers answer its trap', () => {
-    // Every read of the result builds its notes again, so every read traps with a new object.
-    const once = { executedTransaction: () => executed([user, trapping('tag', new WebAssembly.RuntimeError('x'))]) };
-    splitLandedOutputNotes(once, 'shared-row');
-    splitLandedOutputNotes(once, 'shared-row');
-    expect(feePaidFromResult(once as any, 'shared-row')).toBeUndefined();
-    expect(retire).toHaveBeenCalledTimes(1);
-    expect(retire.mock.calls[0][0]).toBeInstanceOf(WebAssembly.RuntimeError);
-  });
-
-  it('retires once for two results read under one landing id', () => {
-    splitLandedOutputNotes(landed([user, trapping('tag', new WebAssembly.RuntimeError('x'))]), 'landing-id');
-    splitLandedOutputNotes(landed([user, trapping('tag', new WebAssembly.RuntimeError('y'))]), 'landing-id');
-    expect(retire).toHaveBeenCalledTimes(1);
-  });
-
-  it('retires once for each of two rows', () => {
-    splitLandedOutputNotes(landed([user, trapping('tag', new WebAssembly.RuntimeError('a'))]), 'row-a');
-    splitLandedOutputNotes(landed([user, trapping('tag', new WebAssembly.RuntimeError('b'))]), 'row-b');
-    expect(retire).toHaveBeenCalledTimes(2);
-  });
-
-  it('the split retires nothing for an ordinary failure, an eviction or a trap it lets through', () => {
-    splitLandedOutputNotes(landed([user, trapping('tag', new TypeError('no accessor'))]), 'ordinary');
-    expect(
-      thrownBy(() =>
-        splitLandedOutputNotes(landed([user, trapping('tag', new Error('wrapped', { cause: poison }))]), 'evicted')
-      )
-    ).toBe(poison);
-    const unreadable = {
-      outputNotes: () => {
-        throw trap;
-      }
-    };
-    expect(thrownBy(() => splitLandedOutputNotes({ executedTransaction: () => unreadable }, 'unreadable'))).toBe(trap);
-    expect(retire).not.toHaveBeenCalled();
-  });
-
-  it('feePaidFromResult reports no fee for a trap in a fee check and retires once with it', () => {
-    expect(feePaidFromResult(result([trapping('tag', trap) as any]), 'fee-paid')).toBeUndefined();
-    expect(retire).toHaveBeenCalledTimes(1);
-    expect(retire).toHaveBeenCalledWith(trap);
-  });
-
-  it('feePaidFromResult retires nothing for a missing accessor or an eviction', () => {
-    expect(
-      feePaidFromResult(result([trapping('tag', new TypeError('no accessor')) as any]), 'fee-ordinary')
-    ).toBeUndefined();
-    expect(thrownBy(() => feePaidFromResult(result([trapping('tag', poison) as any]), 'fee-evicted'))).toBe(poison);
-    expect(retire).not.toHaveBeenCalled();
+    expect(thrownBy(() => splitLandedOutputNotes(unreadable))).toBe(trap);
   });
 });

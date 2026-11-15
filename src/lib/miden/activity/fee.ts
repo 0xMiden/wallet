@@ -1,6 +1,5 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk';
 
-import { retireAnsweredTrap } from 'lib/miden/sdk/caught-trap-retirement';
 import { formatAmount } from 'lib/shared/format';
 
 import { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes } from './fee-notes';
@@ -30,7 +29,7 @@ export type { UserOutputNote, FeePaid } from './fee-notes';
  * plausible `undefined` and let the caller run its NEXT WASM read on the same evicted
  * client -- the double borrow the poison contract exists to prevent.
  */
-export function feePaidFromResult(result: TransactionResult, landing: string): FeePaid | undefined {
+export function feePaidFromResult(result: TransactionResult): FeePaid | undefined {
   try {
     const { feeNote } = splitExecutedOutputNotes(result.executedTransaction());
     if (!feeNote) {
@@ -52,7 +51,6 @@ export function feePaidFromResult(result: TransactionResult, landing: string): F
     if (isWasmClientPoisonedError(err)) {
       throw err;
     }
-    retireAnsweredTrap(err, landing);
     return undefined;
   }
 }
@@ -64,17 +62,14 @@ export function feePaidFromResult(result: TransactionResult, landing: string): F
  * paid: these spread into a partial update that `Object.assign`s over the stored
  * row, so writing explicit undefineds would erase whatever is already there.
  */
-export function feeFieldsFromResult(
-  result: TransactionResult | undefined,
-  landing: string
-): {
+export function feeFieldsFromResult(result: TransactionResult | undefined): {
   feeAmount?: bigint;
   feeFaucetId?: string;
 } {
   if (!result) {
     return {};
   }
-  const paid = feePaidFromResult(result, landing);
+  const paid = feePaidFromResult(result);
   return paid ? { feeAmount: paid.amount, feeFaucetId: paid.faucetId } : {};
 }
 

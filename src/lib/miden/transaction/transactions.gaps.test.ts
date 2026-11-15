@@ -12,7 +12,6 @@
 import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
-import { installAnsweredTrapRetirement } from 'lib/miden/sdk/caught-trap-retirement';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { captureCrash } from 'lib/telemetry/crash';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
@@ -1093,40 +1092,6 @@ describe('waitForTransactionCompletion', () => {
       txHash: 'on-chain-hash',
       outputNotes: [Buffer.from([0x01, 0x02]).toString('base64')]
     });
-  });
-
-  it('retires once for a landed row whose every decoded result traps in its fee-rate read, however often it is awaited', async () => {
-    const retire = jest.fn();
-    const restore = installAnsweredTrapRetirement(retire);
-    // The waiter decodes the stored bytes again on every call, so each call reads a new result.
-    mockTransactionResultDeserialize.mockImplementation(() => ({
-      executedTransaction: () => ({
-        blockHeader: () => {
-          throw new WebAssembly.RuntimeError('unreachable');
-        },
-        outputNotes: () => ({ notes: () => [] })
-      })
-    }));
-    try {
-      txStore.push({
-        id: 'tx-trapped',
-        status: ITransactionStatus.Completed,
-        transactionId: 'landed-hash',
-        resultBytes: new Uint8Array([9])
-      });
-      await expect(waitForTransactionCompletion('tx-trapped')).resolves.toEqual({
-        txHash: 'landed-hash',
-        outputNotes: []
-      });
-      await expect(waitForTransactionCompletion('tx-trapped')).resolves.toEqual({
-        txHash: 'landed-hash',
-        outputNotes: []
-      });
-      expect(retire).toHaveBeenCalledTimes(1);
-    } finally {
-      restore();
-      mockTransactionResultDeserialize.mockReset();
-    }
   });
 
   it('resolves with timed-out errorMessage when the timer fires before completion', async () => {

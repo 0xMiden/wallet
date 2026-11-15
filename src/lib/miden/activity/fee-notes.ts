@@ -1,7 +1,6 @@
 import type { OutputNote } from '@miden-sdk/miden-sdk';
 
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
-import { retireAnsweredTrap } from 'lib/miden/sdk/caught-trap-retirement';
 import { getNativeAssetIdSync, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -200,27 +199,20 @@ export function splitExecutedOutputNotes(
 }
 
 /**
- * {@link splitExecutedOutputNotes} for a reader past submit and outside any hold. A fee-check
- * `WebAssembly.RuntimeError` identifies no fee note, as an unknown fee does, keeps every note a user note with no
- * further WASM call, and retires the realm client once per wallet row id through `lib/miden/sdk/caught-trap-retirement`
- * before that answer returns. `feePaidFromResult` does the same for its own fee-check trap. The landed row is still
- * recorded completed. A kill, and a trap from `executedTransaction()` or the output-note read, still propagate with
- * no retire.
+ * {@link splitExecutedOutputNotes} for a reader past submit and outside any hold, where no lock can retire a trapped
+ * client and a landed row that failed would offer a Retry that pays twice. A trap in a fee check identifies no fee
+ * note, as an unknown fee does, and keeps every note a user note with no further WASM call, while a kill and a trap
+ * from the output-note read itself still propagate.
  */
-export function splitLandedOutputNotes(
-  result: { executedTransaction: () => ExecutedOutputs },
-  landing: string
-): {
+export function splitLandedOutputNotes(executed: ExecutedOutputs): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
 } {
-  const executed = result.executedTransaction();
   const notes = readOutputNotes(executed);
   try {
     return partitionFeeNote(notes, getNativeAssetIdSync(), executedBaseFee(executed));
   } catch (err) {
     if (!(err instanceof WebAssembly.RuntimeError)) throw err;
-    retireAnsweredTrap(err, landing);
     return partitionFeeNote(notes, null, null);
   }
 }
