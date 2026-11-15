@@ -1930,7 +1930,10 @@ describe('generateTransaction - Guardian routing', () => {
       expect(apply).toHaveBeenCalledTimes(1);
       expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Sent' });
       expect(row.error).toBeUndefined();
-      expect(isRequeueableTransaction(row)).toBe(false);
+      const status = row.status;
+      const type = row.type;
+      if (status !== ITransactionStatus.Completed || type !== 'send') throw new Error('expected a completed send');
+      expect(isRequeueableTransaction({ status, type })).toBe(false);
     } finally {
       errSpy.mockRestore();
       warnSpy.mockRestore();
@@ -1959,7 +1962,10 @@ describe('generateTransaction - Guardian routing', () => {
         ...plainQuery,
         modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
           const row = txStore.find(r => r.id === query.id);
-          const probe = row && { ...row, stageTimestamps: { ...(row.stageTimestamps ?? {}) } };
+          const probe: Record<string, unknown> | undefined = row && {
+            ...row,
+            stageTimestamps: { ...(row.stageTimestamps ?? {}) }
+          };
           if (probe && !aborted && (fn(probe), probe.status === ITransactionStatus.Completed)) {
             aborted = true;
             throw Object.assign(new Error('Transaction aborted'), { name: 'AbortError' });
@@ -1974,7 +1980,10 @@ describe('generateTransaction - Guardian routing', () => {
       const row = await runGuardianSend('send-guardian-tail-write-abort', makeClientApi(result, apply));
       expect(aborted).toBe(true);
       expect(row.status).toBe(ITransactionStatus.Completed);
-      expect(isRequeueableTransaction(row)).toBe(false);
+      const status = row.status;
+      const type = row.type;
+      if (status !== ITransactionStatus.Completed || type !== 'send') throw new Error('expected a completed send');
+      expect(isRequeueableTransaction({ status, type })).toBe(false);
     } finally {
       where.mockImplementation(plain);
       errSpy.mockRestore();

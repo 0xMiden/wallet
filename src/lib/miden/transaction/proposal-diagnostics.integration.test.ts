@@ -807,7 +807,9 @@ describe('a claim that fails while recording its result after the guardian sync'
     ['no_fungible_assets', () => (mockState.noAssets = true)]
   ])('records the claim landed after the %s check refuses its result and reports the refusal', async (guard, arm) => {
     arm();
-    await expectLandedOnce(await run(), { completionStep: 'result_read', completionGuard: guard });
+    const stored = await run();
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
+    await expectLandedOnce(stored, { completionStep: 'result_read', completionGuard: guard });
   });
 
   // The leaf's own landed shape is unchanged: a Completed claim whose apply failed sends no report.

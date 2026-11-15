@@ -115,7 +115,9 @@ const landedCalls = (fileName: string, source: string): LandedCall[] => {
 
 it.each(Object.keys(MIN_CALLS))('%s names the wallet row in every landed read', file => {
   const calls = landedCalls(file, read(file));
-  expect(calls.length).toBeGreaterThanOrEqual(MIN_CALLS[file]);
+  const minimum = MIN_CALLS[file];
+  if (minimum === undefined) throw new Error(`no landed-call floor for ${file}`);
+  expect(calls.length).toBeGreaterThanOrEqual(minimum);
   expect(calls.filter(call => !call.namesRow)).toEqual([]);
 });
 
