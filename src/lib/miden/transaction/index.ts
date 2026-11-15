@@ -117,7 +117,9 @@ import {
   completeSendTransaction,
   completeSwapTransaction,
   completeSwitchGuardianTransaction,
-  completeUpdateProcedureThresholdTransaction
+  completeUpdateProcedureThresholdTransaction,
+  TERMINAL_STATUS_WRITE_ATTEMPTS,
+  TERMINAL_STATUS_WRITE_BACKOFF_MS
 } from './complete';
 import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
@@ -1244,6 +1246,36 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
   });
 };
 
+/**
+ * Write a landed row's Completed verdict from the row as stored, retried as a committed rotation's terminal write is:
+ * an IndexedDB abort under contention recurs at once and then clears, and a row left in progress is reaped into Failed,
+ * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
+ * recorded is kept and a row another writer finalized is left alone. Returns the row as read before the write that
+ * landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
+ */
+const writeLandedCompleted = async (txId: string, error: unknown): Promise<ITransaction | undefined> => {
+  for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
+    try {
+      const row = await Repo.transactions.where({ id: txId }).first();
+      if (row === undefined || hasLeftQueue(row)) return undefined;
+      await updateTransactionStatus(txId, ITransactionStatus.Completed, {
+        ...landedRowFields(row, error),
+        completedAt: Math.floor(Date.now() / 1000) // seconds
+      });
+      return row;
+    } catch (writeError) {
+      console.warn(
+        `Could not record the landed row Completed (attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
+        writeError
+      );
+      if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
+      }
+    }
+  }
+  return undefined;
+};
+
 /** The error a landed row's Failed write names: the tail's own, so its report and its copy read as they did before. */
 const landedFailureOf = (error: unknown): unknown => landedTailErrorIn(error)?.cause ?? error;
 
@@ -1627,19 +1659,9 @@ const settleLandedGuardianRow = async (
     transaction.type === 'bridged-send'
   ) {
     console.warn('[Guardian] submit landed but local apply failed - marking Completed; sync will reconcile:', error);
-    // Read before the write, which stamps the stage complete: the report names the stage the tail stopped at.
-    const stored = await Repo.transactions.where({ id: transaction.id }).first();
-    try {
-      // The stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there.
-      await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-        ...landedRowFields(stored ?? transaction, error),
-        completedAt: Math.floor(Date.now() / 1000) // seconds
-      });
-      if (stored) reportLandedTail(stored, error);
-    } catch (markErr) {
-      // updateTransactionStatus throws if the tx is already finalized - fine.
-      console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
-    }
+    // From the stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there.
+    const written = await writeLandedCompleted(transaction.id, error);
+    if (written) reportLandedTail(written, error);
     if (transaction.type === 'consume') await adoptLandedConsume(transaction.id);
     return true;
   }
@@ -5061,29 +5083,22 @@ const settleLandedLoopRow = async (txId: string, error: unknown, attemptId: stri
   }
 
   logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
-  // Failed and Unconfirmed are excluded alongside Completed because `updateTransactionStatus`
-  // throws on all three, and this sits in the loop's own catch: a row a
-  // concurrent writer failed in the meantime would turn a handled
-  // apply-after-submit into a throw out of the catch block. Nothing is lost
-  // by skipping - the row already has a terminal state.
-  if (tx && !hasLeftQueue(tx)) {
-    // Guardian ops never reach here: they route through the guardian branch of
-    // `generateTransaction`, whose own catch handles apply-after-submit: Failed for the
-    // result-awaiting ops (earn-deposit, Epoch bridged-send), Completed for the other
-    // value-moving ops, and `reconcileStructuralApplyFailure` for the three structural
-    // ops. This generic path covers the non-guardian ops the guard above leaves (send,
-    // consume, swap, execute and Agglayer bridged-send), whose note states, if any, the
-    // next sync reconciles via ConsumedExternal.
-    //
-    // A private send's note, or an execute's private notes, were never relayed, and the row says so
-    // (`landedValueRowFields`, which every landed writer shares so none can disagree about one landed row).
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...landedRowFields(tx, error),
-      completedAt: Math.floor(Date.now() / 1000)
-    });
-    reportLandedTail(tx, error);
-    if (tx.type === 'consume') await adoptLandedConsume(tx.id);
-  }
+  // Guardian ops never reach here: they route through the guardian branch of
+  // `generateTransaction`, whose own catch handles apply-after-submit: Failed for the
+  // result-awaiting ops (earn-deposit, Epoch bridged-send), Completed for the other
+  // value-moving ops, and `reconcileStructuralApplyFailure` for the three structural
+  // ops. This generic path covers the non-guardian ops the guard above leaves (send,
+  // consume, swap, execute and Agglayer bridged-send), whose note states, if any, the
+  // next sync reconciles via ConsumedExternal.
+  //
+  // A private send's note, or an execute's private notes, were never relayed, and the row says so
+  // (`landedValueRowFields`, which every landed writer shares so none can disagree about one landed row).
+  // A row a concurrent writer finalized is skipped: it already has a terminal state, and a throw here would leave the
+  // loop's own catch.
+  const written = await writeLandedCompleted(txId, error);
+  if (written === undefined) return;
+  reportLandedTail(written, error);
+  if (written.type === 'consume') await adoptLandedConsume(written.id);
 };
 
 export const generateTransactionsLoop = async (
