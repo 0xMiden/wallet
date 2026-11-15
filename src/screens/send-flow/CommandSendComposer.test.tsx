@@ -59,6 +59,24 @@ it('presents a direct recipient and one editable amount, using the controller re
   expect(onReview).toHaveBeenCalledTimes(1);
 });
 
+it('refuses review while the selected bridge route is unavailable, without losing the input', () => {
+  const onReview = jest.fn();
+  render(
+    <CommandSendComposer
+      recipient={recipient}
+      onRecipientChange={jest.fn()}
+      amount={amount}
+      onReview={onReview}
+      routeBlocked
+      route={<div>Route unavailable</div>}
+    />
+  );
+  expect(screen.getByTestId('command-send-review')).toBeDisabled();
+  fireEvent.click(screen.getByTestId('command-send-review'));
+  expect(onReview).not.toHaveBeenCalled();
+  expect(screen.getByRole('textbox', { name: 'Amount' })).toHaveValue('333.123456');
+});
+
 it('refuses review for a wrong-network recipient or an unknown-scale token', () => {
   const onReview = jest.fn();
   const { rerender } = render(

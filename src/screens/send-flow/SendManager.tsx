@@ -82,6 +82,7 @@ import {
 import { sameUIToken, uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
 import { useRecentRecipients } from './useRecentRecipients';
+import { useSendRouteEligibility } from './useSendRouteEligibility';
 import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
@@ -424,6 +425,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
   }, [token, amount]);
 
   const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id, destinationChainId);
+  const routeEligibility = useSendRouteEligibility(
+    token?.id ?? '',
+    destinationChainId,
+    bridgeRoute ?? 'epoch',
+    usdcxAvailable,
+    pathname === '/send' && isBridge && (command || currentStep === SendFlowStep.Route)
+  );
   // Set while the effect below, not the user, moved the route off Epoch, so it can move back once Epoch recovers.
   const routeMovedOffEpochRef = useRef(false);
   useEffect(() => {
@@ -440,12 +448,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
         return;
       }
       const nextRoute = routes.epoch ? 'epoch' : 'agglayer';
-      if (routes[nextRoute] && !routes[selected]) {
+      if (routes[nextRoute] && !routes[selected] && (!command || selected !== 'usdcx')) {
         routeMovedOffEpochRef.current = nextRoute === 'agglayer';
         setValue('bridgeRoute', nextRoute);
       }
     }
-  }, [usdcxAvailable, bridgeRoute, setValue, token, destinationChainId, bridgeConfig]);
+  }, [usdcxAvailable, bridgeRoute, setValue, token, destinationChainId, bridgeConfig, command]);
 
   // The destination chain of a USDCx burn, or undefined when this send is not one.
   const usdcxChainId = useMemo(
@@ -847,7 +855,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
           typedAmountExceedsBalance(amount, spendableBalance, token.decimals) ||
           (isBridge && destinationChainId === undefined))) ||
       isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId) ||
-      !canSendTokenToChain(bridgeConfig, token.id, destinationChainId)
+      !canSendTokenToChain(bridgeConfig, token.id, destinationChainId) ||
+      (isBridge && routeEligibility.blocked)
     )
       return;
     if (isBridge && destinationChainId !== undefined) {
@@ -905,7 +914,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     errors.amount,
     payoutFeeShortfall,
     command,
-    saveCommandDraft
+    saveCommandDraft,
+    routeEligibility.blocked
   ]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
@@ -1203,10 +1213,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     onConfirm: onConfirmAmount
   };
   const routeProps: SendRouteProps = {
-    destinationChainId: getBridgeNetwork(bridgeNetwork)?.chainId,
+    eligibility: routeEligibility,
     usdcxAvailable,
     usdcxPayout,
-    faucetId: spendableToken?.id ?? '',
     route: bridgeRoute ?? 'epoch',
     onRouteChange,
     fastFeeUsd,
@@ -1236,6 +1245,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
           onRecipientChange={setRecipientAddress}
           amount={amountProps}
           onReview={goToReview}
+          routeBlocked={isBridge && routeEligibility.blocked}
           route={isBridge ? <SendRoute {...routeProps} embedded /> : null}
         />
       ) : (
@@ -1275,7 +1285,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     </>
   );
   // Compact owns the home pane frame; Command's workbench already supplies its only frame.
-  return command ? content : <HomeGroupPaneRoot testId="send-flow">{content}</HomeGroupPaneRoot>;
+  return command ? (
+    <div data-testid="send-flow">{content}</div>
+  ) : (
+    <HomeGroupPaneRoot testId="send-flow">{content}</HomeGroupPaneRoot>
+  );
 };
 
 const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {

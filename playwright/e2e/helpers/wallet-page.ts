@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
+import { commandSendForm, confirmCommandSendReview } from './command-send';
 import { SEPOLIA_NETWORK, selectSendNetwork } from './contact-network';
 import {
   CONFIRMATION_SUBMIT,
@@ -3029,10 +3030,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * faucet account id the stress suite selects by instead.
    */
   async prepareSendReview(params: SendTokensParams & { tokenId?: string }): Promise<void> {
-    // 1. Navigate to send. The v0-UI order is recipient → amount(+token) → review.
+    // FullPage extension uses the single Command composer; native/popup drivers keep their compact steps.
     await this.navigateTo('/send');
-    const sendFlow = this.page.getByTestId('send-flow');
-    await sendFlow.waitFor({ timeout: 15_000 });
+    const sendFlow = await commandSendForm(this.page, 15_000);
 
     // Step timeouts sized for the worst-case actionability wait under stress: a
     // sync tick that started just before the navigation can hold the WASM lock
@@ -3040,15 +3040,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // is comfortable headroom rather than a regular hit.
     const STEP_TIMEOUT_MS = 30_000;
 
-    // 2. SelectRecipient: fill the recipient address and confirm.
+    // Recipient and amount are edited together in Command.
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
       await selectSendNetwork(this.page, SEPOLIA_NETWORK, STEP_TIMEOUT_MS);
     }
-    await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
-
-    // 3. SelectAmount: open the token picker, pick a token, then fill the
-    // amount. The amount Confirm stays disabled until a token is picked.
+    // Pick a live token and type the amount. Review stays disabled until both are valid.
     // The picker is a bottom-sheet drawer PORTALED outside the send-flow
     // container, so its content must be page-scoped — wait for the drawer
     // to mount before enumerating rows.
@@ -3105,11 +3102,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await this.clickFirstNonNativeTokenRow(this.page, STEP_TIMEOUT_MS);
     }
 
-    // Back on SelectAmount after the sub-screen closes.
     await sendFlow.getByTestId('send-amount-input').fill(params.amount);
-    await sendFlow.getByTestId('send-amount-confirm').click({ timeout: STEP_TIMEOUT_MS });
+    await confirmCommandSendReview(this.page, STEP_TIMEOUT_MS);
 
-    // 4. Force the note type. The public/private toggle was removed (private by
+    // Force the note type. The public/private toggle was removed (private by
     // default). Review is now a separate full-screen route (/send/review) that
     // installs the E2E hook on mount — wait for it before calling.
     await this.page.waitForFunction(

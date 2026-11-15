@@ -28,6 +28,7 @@ import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';
 import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, navigate } from 'lib/woozie';
 import { CommandDraftProvider, type CommandSendRecall, useCommandDrafts } from 'screens/command/command-drafts';
+import { CommandShell } from 'screens/command/CommandShell';
 import { isValidMidenAddress } from 'utils/miden';
 
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
@@ -425,6 +426,10 @@ jest.mock('lib/store', () => ({
   )
 }));
 
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
+jest.mock('screens/command/CommandDock', () => ({ CommandDock: () => null }));
+jest.mock('screens/command/CommandHeader', () => ({ CommandHeader: () => null }));
+jest.mock('screens/command/CommandPalette', () => ({ CommandPalette: () => null }));
 jest.mock('lib/woozie', () => ({
   goBack: jest.fn(),
   navigate: jest.fn(),
@@ -631,6 +636,22 @@ describe('Command Send review controller', () => {
         </FlowPresentationProvider>
       </CommandDraftProvider>
     );
+
+  it('pins the real controller submit inside the one Command footer without a second button', () => {
+    setValidRoute();
+    render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <ReviewTransaction />
+      </CommandShell>
+    );
+    const submit = screen.getByTestId('send-review-submit');
+    expect(submit.closest('footer')).toHaveAttribute('data-command-footer', 'true');
+    expect(screen.getAllByTestId('send-review-submit')).toHaveLength(1);
+    expect(screen.getAllByTestId('command-workbench')).toHaveLength(1);
+  });
 
   it('refuses concurrent Enter/click while admission is pending and uses the same private initiator', async () => {
     setValidRoute();

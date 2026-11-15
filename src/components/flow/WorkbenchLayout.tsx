@@ -10,6 +10,8 @@ export interface WorkbenchLayoutProps {
   composition?: React.ReactNode;
   summary?: React.ReactNode;
   footer?: React.ReactNode;
+  summaryOutlet?: (node: HTMLDivElement | null) => void;
+  footerOutlet?: (node: HTMLElement | null) => void;
   onBack?: () => void;
   onMinimize?: () => void;
   children: React.ReactNode;
@@ -20,6 +22,8 @@ export function WorkbenchLayout({
   composition,
   summary,
   footer,
+  summaryOutlet,
+  footerOutlet,
   onBack,
   onMinimize,
   children
@@ -38,14 +42,23 @@ export function WorkbenchLayout({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {composition}
         {children}
-        {summary && (
-          <details className="mt-4 rounded-xl bg-fill p-4 text-body text-ink">
+        {(summary || summaryOutlet) && (
+          <details className="mt-4 rounded-xl bg-fill p-4 text-body text-ink" data-testid="command-details">
             <summary>{t('commandDetails')}</summary>
-            {summary}
+            <div ref={summaryOutlet}>{summary}</div>
           </details>
         )}
       </div>
-      {footer && <footer className="shrink-0 border-t border-hairline px-4 py-3">{footer}</footer>}
+      {(footer || footerOutlet) && (
+        <footer
+          ref={footerOutlet}
+          data-command-footer={footerOutlet ? 'true' : undefined}
+          data-testid="command-footer"
+          className="shrink-0 border-t border-hairline px-4 py-3"
+        >
+          {footer}
+        </footer>
+      )}
     </section>
   );
 }

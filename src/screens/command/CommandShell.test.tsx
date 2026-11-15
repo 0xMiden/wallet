@@ -6,9 +6,11 @@ import { MotionConfig } from 'framer-motion';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { AlertSheet } from 'components/ui/AlertSheet';
 import { goBack, navigate } from 'lib/woozie';
+import { CommandSendReview } from 'screens/send-flow/CommandSendReview';
 
 import { useCommandDrafts } from './command-drafts';
 import { CommandShell } from './CommandShell';
+import { useCommandWorkbenchSlots } from './CommandWorkbench';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('./CommandHomePrompts', () => ({
@@ -50,6 +52,70 @@ it('renders one active workbench and navigates via the five dock destinations', 
   expect(screen.getAllByTestId('command-shell')).toHaveLength(1);
   expect(screen.getByText('Real swap controller')).toBeInTheDocument();
   expect(screen.queryByText('Real send controller')).not.toBeInTheDocument();
+});
+
+it('places the active Send review footer in the workbench footer and clears it on route replacement', () => {
+  const { rerender } = render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+      <CommandSendReview title="Review" onBack={jest.fn()} footer={<button>Submit payment</button>}>
+        <p>Transaction preview</p>
+      </CommandSendReview>
+    </CommandShell>
+  );
+  const submit = screen.getByRole('button', { name: 'Submit payment' });
+  expect(submit.closest('footer')).toHaveAttribute('data-command-footer', 'true');
+  expect(screen.getAllByRole('button', { name: 'Submit payment' })).toHaveLength(1);
+  rerender(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <p>Receive</p>
+    </CommandShell>
+  );
+  expect(screen.queryByRole('button', { name: 'Submit payment' })).not.toBeInTheDocument();
+  expect(screen.queryByTestId('command-footer')).not.toBeInTheDocument();
+});
+
+it('updates one live Send footer and one secondary-details disclosure, then clears both with the owner', () => {
+  const onReview = jest.fn();
+  function Flow({ label }: { label: string }) {
+    const outlets = useCommandWorkbenchSlots(<button onClick={onReview}>{label}</button>, <p>{label} route</p>);
+    return (
+      <>
+        <p>Recipient and amount</p>
+        {outlets}
+      </>
+    );
+  }
+  const { rerender, unmount } = render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+      <Flow label="Review first" />
+    </CommandShell>
+  );
+  const workbench = screen.getByTestId('command-workbench');
+  expect(workbench.querySelectorAll('footer')).toHaveLength(1);
+  expect(workbench.querySelectorAll('details')).toHaveLength(1);
+  expect(screen.getByText('Review first route').closest('details')).toHaveAttribute('data-testid', 'command-details');
+  expect(screen.getByText('Review first').closest('footer')).toHaveAttribute('data-command-footer', 'true');
+  expect(
+    screen.getByText('Recipient and amount').compareDocumentPosition(screen.getByTestId('command-details')) &
+      Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy();
+  rerender(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+      <Flow key="new" label="Review current" />
+    </CommandShell>
+  );
+  expect(screen.queryByRole('button', { name: 'Review first' })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Review current' })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Review current' }));
+  expect(onReview).toHaveBeenCalledTimes(1);
+  rerender(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+      <p>Other stage</p>
+    </CommandShell>
+  );
+  expect(screen.queryByTestId('command-footer')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('command-details')).not.toBeInTheDocument();
+  unmount();
 });
 
 it('uses the active flow step Back, then falls back to route history after the step unmounts', () => {
