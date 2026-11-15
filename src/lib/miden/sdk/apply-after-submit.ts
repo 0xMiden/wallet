@@ -154,7 +154,6 @@ async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>):
  * row is never offered a Retry that submits it again. Made only after the leaf resolved, so no text classifies it.
  */
 export class LandedTailError extends Error {
-  declare readonly cause: unknown;
   /** The executed transaction's id, read after the failure; undefined when the result could not be read. */
   readonly transactionId?: string;
 
