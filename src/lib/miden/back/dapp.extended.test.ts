@@ -116,7 +116,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   refreshVerificationBaseFee: async () => 2,
   getVerificationBaseFeeSync: () => 2,
   getNativeAssetId: async () => 'native-faucet',
-  isVerificationBaseFeeKnownAbsent: () => false
+  isVerificationBaseFeeKnownAbsent: () => false,
+  cacheScope: () => 'rpc|testnet'
 }));
 
 const mockGetTokenMetadata = jest.fn();

@@ -143,6 +143,7 @@ jest.mock('./simulate-custom-tx', () => {
 // unknown. A signBytes summary is then measured on the fee and native faucet that read cached.
 const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
 const mockFeeKnownAbsent = jest.fn(() => false);
+const mockCacheScope = jest.fn(() => 'rpc|testnet');
 let mockSyncFee: number | null = 2;
 let mockNativeFaucetId: string | null = null;
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -150,7 +151,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
   isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent(),
   getVerificationBaseFeeSync: () => mockSyncFee,
-  getNativeAssetIdSync: () => mockNativeFaucetId
+  getNativeAssetIdSync: () => mockNativeFaucetId,
+  cacheScope: () => mockCacheScope()
 }));
 
 /** The decoded view of the dry run. The real decoders stay in place for the sign tests. */
@@ -235,6 +237,8 @@ const expectWarningThenLine = (rows: string[]) => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCacheScope.mockReset();
+  mockCacheScope.mockImplementation(() => 'rpc|testnet');
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
   // Declining short-circuits right after the sheet is built and shown, which is
   // the state every test here inspects.
@@ -517,6 +521,27 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     warnSpy.mockRestore();
   });
 
+  it('still prompts for an Arbitrary payload when the endpoint scope changes after the fee read', async () => {
+    let scope = 'rpc-new|testnet';
+    mockCacheScope.mockImplementation(() => scope);
+    mockRefreshVerificationBaseFee.mockImplementation(async () => {
+      scope = 'rpc-answered|testnet';
+      return 2;
+    });
+    sdk.SigningInputs = {
+      deserialize: () => {
+        scope = 'rpc-new|testnet';
+        return { variantType: 1 };
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(DECLINED)
+    );
+
+    expectWarningThenLine(sheetRows());
+  });
+
   it('refuses a summary before any prompt when the fee read throws', async () => {
     const readFailure = new Error('storage unavailable');
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -530,6 +555,49 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(expect.any(String), readFailure);
     warnSpy.mockRestore();
+  });
+
+  it('refuses a summary before any prompt when the endpoint scope changes after the fee read', async () => {
+    let scope = 'rpc-new|testnet';
+    mockCacheScope.mockImplementation(() => scope);
+    mockSyncFee = 2;
+    mockRefreshVerificationBaseFee.mockImplementation(async () => {
+      scope = 'rpc-answered|testnet';
+      return 2;
+    });
+    sdk.SigningInputs = {
+      deserialize: () => {
+        scope = 'rpc-new|testnet';
+        return summarySigningInputs([]);
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(`${DECLINED}: ${getMessage('chainFeeUnknown')}`)
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('refuses a summary before any prompt when the new endpoint has no fee', async () => {
+    let scope = 'rpc-new|testnet';
+    mockCacheScope.mockImplementation(() => scope);
+    mockSyncFee = null;
+    mockFeeKnownAbsent.mockReturnValue(true);
+    mockRefreshVerificationBaseFee.mockImplementation(async () => {
+      scope = 'rpc-answered|testnet';
+      return 2;
+    });
+    sdk.SigningInputs = {
+      deserialize: () => {
+        scope = 'rpc-new|testnet';
+        return summarySigningInputs([]);
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(`${DECLINED}: ${getMessage('chainFeeUnknown')}`)
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
   it('still prompts for a payload that does not decode when the fee read does not know the fee', async () => {

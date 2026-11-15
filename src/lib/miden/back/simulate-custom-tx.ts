@@ -18,7 +18,7 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { pipelineKillIn, rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
 import { approveCustomSimulation, type ApprovedCustomSimulation } from 'lib/miden/transaction/custom-effects';
-import { getVerificationBaseFeeSync, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
+import { cacheScope, getVerificationBaseFeeSync, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { CustomSimulationTimeoutError } from './public-error';
@@ -30,6 +30,8 @@ export interface SimulateCustomTxInput {
   transactionRequest: string;
   /** Base64 serialized notes the request consumes (imported locally to simulate). */
   importNotes?: string[];
+  /** Endpoint scope the caller's fresh fee read answered for. Checked again when a summary is decoded. */
+  feeScope?: string;
 }
 
 export interface SimulateCustomTxResult {
@@ -56,8 +58,9 @@ export interface SimulateCustomTxResult {
   /** The notes the dry run consumes and creates. Unset when `approval` is, or when they do not decode. */
   noteFlow?: NoteFlow;
   /**
-   * The cached chain fee was unknown at this summary's decode. The caller refuses before any sheet. Omitted when the
-   * fee is known, so a measured result keeps its shape.
+   * The cached chain fee was unknown at this summary's decode, or it was read for a different endpoint than the
+   * refresh's scope. The caller refuses before any sheet. Omitted when the fee is known for that scope, so a measured
+   * result keeps its shape.
    */
   feeUnknown?: true;
 }
@@ -143,13 +146,19 @@ function consumedNoteIds(dryRun: {
  * Adds the approval and the note flow to a dry run's result. Runs only inside the dry run's hold: its fee checks
  * rethrow a trap, and only that hold's lock can retire the client that trapped. An ordinary approval failure is kept as
  * `approvalFailure`, and a note flow that does not decode is logged and left out. A summary whose cached chain fee is
- * unknown at this decode returns the dry run with `feeUnknown` and without an approval or a note flow. Exported so a
- * suite standing in for the dry run measures as it does.
+ * unknown at this decode returns the dry run with `feeUnknown` and without an approval or a note flow. The refresh's
+ * scope is checked again at the summary decode when the caller passes it, and a mismatch is that same refusal. An
+ * omitted scope keeps the cache check only. Exported so a suite standing in for the dry run measures as it does.
  */
-export function measureApprovalDryRun(dryRun: SimulateCustomTxResult): SimulateCustomTxResult {
-  // The caller's refresh is the fresh read. This is the cache, checked again at the summary decode, with no await
-  // before the split. An executed dry run has no summary and still splits on its own header.
-  if (dryRun.summaryBytes && getVerificationBaseFeeSync() === null && !isVerificationBaseFeeKnownAbsent()) {
+export function measureApprovalDryRun(dryRun: SimulateCustomTxResult, feeScope?: string): SimulateCustomTxResult {
+  // The caller's refresh is the fresh read. The refresh's scope is checked again at the summary decode when the
+  // caller passes it, and the cache is checked again here, with no await before the split. An executed dry run has
+  // no summary and still splits on its own header.
+  if (
+    dryRun.summaryBytes &&
+    ((typeof feeScope === 'string' && cacheScope() !== feeScope) ||
+      (getVerificationBaseFeeSync() === null && !isVerificationBaseFeeKnownAbsent()))
+  ) {
     return { ...dryRun, feeUnknown: true };
   }
   let approval: ApprovedCustomSimulation | undefined;
@@ -184,7 +193,7 @@ export function measureApprovalDryRun(dryRun: SimulateCustomTxResult): SimulateC
  * describe the same executed transaction; the confirm UI decodes whichever
  * arrives. The same hold then measures the approval and the note flow
  * (`measureApprovalDryRun`). The caller's refresh is the fresh read, and the
- * cache is checked again at the summary decode.
+ * refresh's scope and the cache are checked again at the summary decode.
  * All WASM work runs inside a single `withWasmClientLock` scope (the client is
  * single-threaded). An ordinary failure resolves to `{ error }`, and so does a
  * WebAssembly trap once the lock has retired the client. A killed pipeline
@@ -315,10 +324,13 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         const embeddedIntroduced = await idsNotAlreadyHeld(client, embeddedIds, hold);
         // An evicted hold measures nothing, since a trap in its decode would reach no lock.
         assertWasmHoldCurrent(hold, 'before the approval decode');
-        return measureApprovalDryRun({
-          ...dryRun,
-          introducedNoteIds: [...introducedIds, ...embeddedIntroduced].map(id => id.toLowerCase())
-        });
+        return measureApprovalDryRun(
+          {
+            ...dryRun,
+            introducedNoteIds: [...introducedIds, ...embeddedIntroduced].map(id => id.toLowerCase())
+          },
+          input.feeScope
+        );
       });
     } catch (e: any) {
       // An abandonment is reported as an interruption, not as its internal

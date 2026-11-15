@@ -6,7 +6,7 @@ import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 
-import { simulateCustomTransaction } from './simulate-custom-tx';
+import { measureApprovalDryRun, simulateCustomTransaction } from './simulate-custom-tx';
 
 const importNoteBytes = jest.fn(async () => 'noteid');
 const syncState = jest.fn(async () => undefined);
@@ -130,9 +130,11 @@ jest.mock('lib/miden/transaction/custom-effects', () => ({
   approveCustomSimulation: (dryRun: unknown) => mockApproveCustomSimulation(dryRun)
 }));
 // The summary decode reads the cached chain fee. This suite publishes no refresh; the fee beside one of 2 is 2.
+const mockCacheScope = jest.fn(() => 'rpc|testnet');
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getVerificationBaseFeeSync: () => 2
+  getVerificationBaseFeeSync: () => 2,
+  cacheScope: () => mockCacheScope()
 }));
 jest.mock('app/confirm/note-flow', () => ({
   noteFlowFromSimulatedBytes: (dryRun: unknown) => mockNoteFlowFromSimulatedBytes(dryRun)
@@ -151,6 +153,8 @@ beforeEach(() => {
 describe('simulateCustomTransaction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCacheScope.mockReset();
+    mockCacheScope.mockImplementation(() => 'rpc|testnet');
     mockQuarantinedIds.clear();
     delete mockQuarantineCallObserver.current;
     mockBeginQuarantineAttempt.mockReset().mockImplementation(() => ({ abandoned: false }));
@@ -749,6 +753,32 @@ describe('simulateCustomTransaction', () => {
       jest.useRealTimers();
     }
   });
+
+  it('marks a summary feeUnknown when the fee was read for another endpoint', async () => {
+    await expect(
+      simulateCustomTransaction({
+        address: 'mtst1abc',
+        transactionRequest: 'reqB64',
+        feeScope: 'rpc-other|testnet'
+      })
+    ).resolves.toMatchObject({ feeUnknown: true });
+    expect(mockApproveCustomSimulation).not.toHaveBeenCalled();
+  });
+
+  it('measures a summary whose fee was read for the endpoint at the decode', async () => {
+    const result = await simulateCustomTransaction({
+      address: 'mtst1abc',
+      transactionRequest: 'reqB64',
+      feeScope: 'rpc|testnet'
+    });
+
+    expect(result.feeUnknown).toBeUndefined();
+    expect(mockApproveCustomSimulation).toHaveBeenCalled();
+  });
+
+  it('does not refuse an executed dry run because the fee scope differs', () => {
+    expect(measureApprovalDryRun({ executedBytes: 'exec' }, 'rpc-other|testnet')).toEqual({ executedBytes: 'exec' });
+  });
 });
 
 describe('an abandoned dry run', () => {
@@ -819,6 +849,8 @@ describe('introduced-note provenance', () => {
   // name a note the user already holds, so the ids come from the wallet's own already-held check.
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCacheScope.mockReset();
+    mockCacheScope.mockImplementation(() => 'rpc|testnet');
     getInputNote.mockImplementation(async () => null);
   });
 
@@ -1141,7 +1173,11 @@ describe('introduced-note provenance', () => {
 });
 
 describe('the dApp account reference', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCacheScope.mockReset();
+    mockCacheScope.mockImplementation(() => 'rpc|testnet');
+  });
 
   it("is parsed by its address part when a composite's routing suffix fails the bech32 parser", async () => {
     (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(
