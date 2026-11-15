@@ -89,6 +89,19 @@ describe('landed-trap retirement', () => {
     expect(retire).not.toHaveBeenCalled();
   });
 
+  it('leaves the landing open while no retirement is installed, so a later install retires its next trap', () => {
+    restore();
+    retireLandedTrap(new WebAssembly.RuntimeError('unreachable'), 'late-install', undefined);
+    expect(retire).not.toHaveBeenCalled();
+
+    const spy = jest.fn();
+    const restoreSpy = installLandedTrapRetirement(spy);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    retireLandedTrap(trap, 'late-install', undefined);
+    expect(spy.mock.calls).toEqual([[trap, 'late-install']]);
+    restoreSpy();
+  });
+
   it('restores the previous retirement only while its own is current', () => {
     const a = jest.fn();
     const b = jest.fn();
