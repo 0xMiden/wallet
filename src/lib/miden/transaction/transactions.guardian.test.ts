@@ -16453,11 +16453,12 @@ describe('Guardian proposal effect check', () => {
     }
   });
 
-  // An Agglayer bridged send's proposal is held to the faucet and amount its row reviewed, whichever realm then runs it.
+  // An Agglayer bridged send's or Earn deposit's proposal is held to the faucet and amount its row reviewed, and to the
+  // note its request was built with, whichever realm then runs it.
   describe.each([
     ['inline', undefined],
     ['offscreen', 'true']
-  ])('bridged send (%s)', (_realm, flag) => {
+  ])('bridged send and Earn deposit (%s)', (_realm, flag) => {
     beforeEach(() => {
       if (flag === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
       else process.env.MIDEN_USE_OFFSCREEN_CLIENT = flag;
@@ -16484,6 +16485,8 @@ describe('Guardian proposal effect check', () => {
       });
       return { service, client };
     };
+    // Reviewed to move 1000 of `faucet` in the one note its build recorded: the note `summary` gives that amount.
+    const builtNote = { approvedEffects: { approvedOutputNoteIds: ['note:faucet-1000'] } };
     const bridge = (id: string) => ({
       id,
       type: 'bridged-send',
@@ -16497,7 +16500,26 @@ describe('Guardian proposal effect check', () => {
         destinationNetwork: 0,
         sourceFaucetId: 'faucet',
         claimStatus: 'pending'
-      }
+      },
+      ...builtNote
+    });
+    const deposit = (id: string) => ({
+      id,
+      type: 'earn-deposit',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      faucetId: 'faucet',
+      secondaryAccountId: 'allocator',
+      noteType: 'public',
+      requestBytes: new Uint8Array([81, 82, 83]),
+      extraInputs: {
+        evmRecipient: '0xevm',
+        marketUid: 'AAVE:8453:0xusdc',
+        sourceFaucetId: 'faucet',
+        recallBlocks: 25,
+        epochStatus: 'pending'
+      },
+      ...builtNote
     });
 
     it('fails one whose summary moves one unit more, never signs or runs it, and abandons its candidate', async () => {
@@ -16512,10 +16534,48 @@ describe('Guardian proposal effect check', () => {
       expect(client.transactions.executeRequest).not.toHaveBeenCalled();
       expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
       expect(row.status).toBe(ITransactionStatus.Failed);
+      // A note carrying another amount is another note, so it is not the one the row was built with either.
       expect(row.rawError).toBe(
-        'ProposalEffectRefusedError: Refused to sign this bridged-send transaction: 1001 of faucet leaves (approved 1000)'
+        'ProposalEffectRefusedError: Refused to sign this bridged-send transaction: 1001 of faucet leaves ' +
+          '(approved 1000); creates a note that was not approved (note:faucet-1001)'
       );
       expect(row.proposalEffectRefused).toBe(true);
+    });
+
+    it.each([
+      ['an Agglayer bridged send', bridge],
+      ['an Earn deposit', deposit]
+    ])(
+      'fails %s whose summary creates another note than the one it was built with, never signs or runs it',
+      async (_kind, queued) => {
+        mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+        const { service, client } = bridgeService(15);
+
+        const row = await run({ ...queued('built-other'), approvedEffects: { approvedOutputNoteIds: ['note:built'] } });
+
+        expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+        expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+        expect(service.abandonCandidate).toHaveBeenCalledWith(15);
+        expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+        expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+        expect(row.status).toBe(ITransactionStatus.Failed);
+        expect(row.rawError).toBe(
+          `ProposalEffectRefusedError: Refused to sign this ${String(row.type)} transaction: ` +
+            'creates a note that was not approved (note:faucet-1000)'
+        );
+        expect(row.proposalEffectRefused).toBe(true);
+      }
+    );
+
+    it('signs and runs an Earn deposit whose summary creates only the note it was built with', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+      const { service } = bridgeService(16);
+
+      const row = await run(deposit('deposit-exact'));
+
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-bridge-16', rebasedBytes);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Completed);
     });
 
     it('signs and runs one whose summary moves its reviewed amount', async () => {

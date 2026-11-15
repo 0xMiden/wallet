@@ -17,7 +17,13 @@ import {
   isEffectChecked,
   proposalEffectRefusal
 } from './proposal-effect-guard';
-import { BridgedSendTransaction, IApprovedCustomEffects, ITransaction, ITransactionStatus } from '../db/types';
+import {
+  BridgedSendTransaction,
+  EarnDepositTransaction,
+  IApprovedCustomEffects,
+  ITransaction,
+  ITransactionStatus
+} from '../db/types';
 import { NoteTypeEnum } from '../types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -282,7 +288,7 @@ describe('consume', () => {
   });
 });
 
-describe.each(['send', 'swap', 'earn-deposit'] as const)('%s approved outflow', type => {
+describe.each(['send', 'swap'] as const)('%s approved outflow', type => {
   const approved = () =>
     row({
       type,
@@ -332,22 +338,28 @@ describe.each(['send', 'swap', 'earn-deposit'] as const)('%s approved outflow', 
   });
 });
 
-describe('bridged-send', () => {
-  // Each provider's row, with the reviewed source faucet and base-unit amount its constructor records. A USDCx burn
-  // bridges the native asset, so its fee leaves the same faucet.
-  const bridges = [
+// The one note a bridged send's or Earn deposit's request was built with, as its row records it.
+const BUILT = 'built-note';
+const builtNote = (id: string): Pick<ITransaction, 'approvedEffects'> => ({
+  approvedEffects: approvedEffects({ approvedOutputNoteIds: [id] })
+});
+
+describe('bridged-send and earn-deposit', () => {
+  // Each provider's row and an Earn deposit's, with the reviewed source faucet and base-unit amount its constructor
+  // records. A USDCx burn bridges the native asset, so its fee leaves the same faucet.
+  const prebuilt = [
     [
-      'agglayer',
+      'agglayer bridged-send',
       'fA',
       () => new BridgedSendTransaction('acct', 100n, '0xevm', 0, 'agglayer', 'bech32:fA', REQUEST, true)
     ],
     [
-      'usdcx',
+      'usdcx bridged-send',
       'usdcx',
       () => new BridgedSendTransaction('acct', 100n, '0xevm', 6, 'usdcx', 'bech32:usdcx', REQUEST, true)
     ],
     [
-      'epoch',
+      'epoch bridged-send',
       'fA',
       () =>
         new BridgedSendTransaction('acct', 100n, '0xevm', 8453, 'epoch', 'bech32:fA', REQUEST, true, {
@@ -355,20 +367,37 @@ describe('bridged-send', () => {
           noteType: NoteTypeEnum.Public,
           recallBlocks: 30
         })
+    ],
+    [
+      'earn-deposit',
+      'fA',
+      () =>
+        new EarnDepositTransaction(
+          'acct',
+          100n,
+          '0xevm',
+          'AAVE:8453:0xusdc',
+          'bech32:fA',
+          { recipientId: 'allocator', noteType: NoteTypeEnum.Public, recallBlocks: 30 },
+          true,
+          REQUEST
+        )
     ]
   ] as const;
 
-  it('is a checked type, which turns on the check of both signing paths', () => {
+  it('are checked types, which turns on the check of both signing paths', () => {
     expect(isEffectChecked('bridged-send')).toBe(true);
+    expect(isEffectChecked('earn-deposit')).toBe(true);
   });
 
-  describe.each(bridges)('%s', (_provider, faucet, approved) => {
-    // The bridge note carrying `amount`, the kernel fee and `extra` assets leaving, as one net vault entry per faucet.
-    const bridgesOut = (amount: bigint, extra: Asset[] = []) =>
+  describe.each(prebuilt)('%s', (_kind, faucet, queued) => {
+    const approved = (): ITransaction => ({ ...queued(), ...builtNote(BUILT) });
+    // The built note carrying `amount` and `extra` assets, then the kernel fee, as one net vault entry per faucet.
+    const bridgesOut = (amount: bigint, extra: Asset[] = [], noteId = BUILT) =>
       summary({
         removed:
           faucet === 'usdcx' ? [fa('usdcx', amount + 2n), ...extra] : [fa(faucet, amount), fa('usdcx', 2n), ...extra],
-        outputs: [note([fa(faucet, amount)]), ...extra.map(asset => note([asset])), feeNote(2n)]
+        outputs: [note([fa(faucet, amount), ...extra], [], noteId), feeNote(2n)]
       });
 
     it('permits exactly the reviewed amount, with the kernel fee excluded', () => {
@@ -404,6 +433,32 @@ describe('bridged-send', () => {
           ProposalEffectRefusedError
         );
       }
+    });
+
+    // The note id commits to the note's recipient, script, assets and serial, so binding it binds where the amount goes.
+    it('refuses a summary that creates a different note for the reviewed amount', () => {
+      expect(refusalOf(approved(), bridgesOut(100n, [], 'other-note'))).toBe(
+        'creates a note that was not approved (other-note)'
+      );
+    });
+
+    it('refuses a summary that creates a second note beside the built one, even one carrying nothing', () => {
+      const second = summary({
+        removed: faucet === 'usdcx' ? [fa('usdcx', 102n)] : [fa(faucet, 100n), fa('usdcx', 2n)],
+        outputs: [note([fa(faucet, 100n)], [], BUILT), note([], [], 'empty-note'), feeNote(2n)]
+      });
+      expect(refusalOf(approved(), second)).toBe('creates a note that was not approved (empty-note)');
+    });
+
+    it.each([
+      ['no recorded note', {}],
+      ['an empty record', { approvedEffects: approvedEffects({ approvedOutputNoteIds: [] }) }],
+      ['two recorded notes', { approvedEffects: approvedEffects({ approvedOutputNoteIds: [BUILT, 'other-note'] }) }]
+    ])('does not sign a row with %s, whatever its summary creates', async (_record, record) => {
+      givenSummary(bridgesOut(100n));
+      await expect(assertProposalEffectApproved({ ...queued(), ...record }, 'sum')).rejects.toThrow(
+        ProposalEffectRefusedError
+      );
     });
   });
 });

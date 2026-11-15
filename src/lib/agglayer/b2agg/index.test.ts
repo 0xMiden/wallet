@@ -42,11 +42,18 @@ let currentWasmHold: object | null = null;
 // The builder `feeAwareTransactionRequestBuilder` hands back. Since protocol 0.17 it carries the
 // three words of fee auth args a guarded (multisig) sender resolves, so the bridge note has to
 // land on THIS object; a fresh `TransactionRequestBuilder` would drop them.
+// A built request and the own notes it reports creating. The id is upper case to show the row records it as the
+// summary decode spells it.
+const mockOwnNote = (id = '0xB2A6') => ({ id: () => ({ toString: () => id }) });
+const mockBuiltRequest = (notes = [mockOwnNote()]) => ({
+  serialize: () => new Uint8Array([1, 2, 3]),
+  expectedOutputOwnNotes: () => notes
+});
 const mockFeeAwareBuilder = {
   withOwnOutputNotes: jest.fn(),
   withExpirationDelta: jest.fn(),
   withFeeConversionSalt: jest.fn(),
-  build: jest.fn(() => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
+  build: jest.fn(() => mockBuiltRequest())
 };
 const mockFeeAwareTransactionRequestBuilder = jest.fn(
   async (_account: string, _options: { feeConversionSalt: unknown }) => mockFeeAwareBuilder
@@ -363,6 +370,37 @@ describe('initiateB2AggBridge', () => {
 
     expect(mockAgglayerExitTxHash).toHaveBeenCalledWith({ note: true });
     expect(mockInitiateBridgedSendTransaction.mock.calls[0]![10]).toBe('0xexit');
+  });
+
+  // Signing may create only this note, so the row records the one note the request it queues creates.
+  it('records the id of the note the built request creates on the row', async () => {
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender',
+      guardianProvider
+    });
+
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![14]).toBe('0xb2a6');
+  });
+
+  it.each([
+    ['no note', []],
+    ['two notes', [mockOwnNote('0xB2A6'), mockOwnNote('0xOTHER')]]
+  ])('queues no row when the built request creates %s rather than one', async (_count, notes) => {
+    mockFeeAwareBuilder.build.mockReturnValueOnce(mockBuiltRequest(notes));
+
+    await expect(
+      initiateB2AggBridge({
+        amount: 250n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender',
+        guardianProvider
+      })
+    ).rejects.toThrow(`the request creates ${notes.length} own output notes, not one`);
+    expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
 
   it('queues no row when the exit hash cannot be computed, since that row could never settle', async () => {

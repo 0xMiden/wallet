@@ -560,15 +560,25 @@ const sendsOut = (amount: bigint) => ({
   })
 });
 
-// Each provider's row, reviewed to bridge 1000 of `faucet`, with the pre-built request every current row carries.
+// Each provider's row, reviewed to bridge 1000 of `faucet`, with the pre-built request every current row carries and
+// the one note its build recorded: the note `sendsOut(1000n)` creates.
+const builtNote = { approvedEffects: { approvedOutputNoteIds: ['note:1000'] } };
 const bridgeRows: Array<[string, Record<string, unknown>]> = [
-  ['agglayer', { requestBytes: new Uint8Array([0xa9]), extraInputs: { provider: 'agglayer', claimStatus: 'pending' } }],
+  [
+    'agglayer',
+    {
+      requestBytes: new Uint8Array([0xa9]),
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending' },
+      ...builtNote
+    }
+  ],
   [
     'usdcx',
     {
       requestBytes: new Uint8Array([0xb5]),
       noteType: 'public',
-      extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } }
+      extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } },
+      ...builtNote
     }
   ],
   [
@@ -577,7 +587,8 @@ const bridgeRows: Array<[string, Record<string, unknown>]> = [
       requestBytes: new Uint8Array([0xb1, 0x1d]),
       secondaryAccountId: 'mtst1qallocator',
       noteType: 'public',
-      extraInputs: { provider: 'epoch', recallBlocks: 10, claimStatus: 'not-applicable', epochStatus: 'pending' }
+      extraInputs: { provider: 'epoch', recallBlocks: 10, claimStatus: 'not-applicable', epochStatus: 'pending' },
+      ...builtNote
     }
   ]
 ];
@@ -612,8 +623,10 @@ describe.each([
     const { failure, row } = await settle(`bs-over-${provider}`, fields);
 
     expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
+    // A note carrying another amount is another note, so it is not the one the row was built with either.
     expect(failure instanceof Error ? failure.message : undefined).toBe(
-      'Refused to sign this bridged-send transaction: 1001 of faucet leaves (approved 1000)'
+      'Refused to sign this bridged-send transaction: 1001 of faucet leaves (approved 1000); ' +
+        'creates a note that was not approved (note:1001)'
     );
     expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
     expect(signCallback).not.toHaveBeenCalled();
@@ -622,6 +635,28 @@ describe.each([
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.proposalEffectRefused).toBe(true);
   });
+
+  it.each(bridgeRows)(
+    'refuses a %s bridged send whose summary creates another note than the one it was built with, before it submits',
+    async (provider, fields) => {
+      mockDeserializeSigningInputs.mockReturnValue(sendsOut(1000n));
+
+      const { failure, row } = await settle(`bs-other-note-${provider}`, {
+        ...fields,
+        approvedEffects: { approvedOutputNoteIds: ['note:built'] }
+      });
+
+      expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
+      expect(failure instanceof Error ? failure.message : undefined).toBe(
+        'Refused to sign this bridged-send transaction: creates a note that was not approved (note:1000)'
+      );
+      expect(signCallback).not.toHaveBeenCalled();
+      expect(mockSubmit).not.toHaveBeenCalled();
+      expect(mockComplete.bridged).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.proposalEffectRefused).toBe(true);
+    }
+  );
 
   it.each(bridgeRows)('signs and submits a %s bridged send moving its reviewed amount', async (provider, fields) => {
     mockDeserializeSigningInputs.mockReturnValue(sendsOut(1000n));

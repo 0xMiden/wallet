@@ -212,6 +212,35 @@ describe('epoch id encoding (ifHextoBech32)', () => {
     expect(mockInitiateEarnDepositTransaction.mock.calls[0]![8]).toBe(authorization);
   });
 
+  // Signing may create only this note, so both rows record the id the collateral request was built with.
+  it('records the note the collateral request was built with on the bridged-send and earn-deposit rows', async () => {
+    await createBridgeP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      destinationAddress: '0xevm',
+      destinationNetwork: 8453,
+      deps
+    });
+    await createEarnP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      evmRecipient: '0xevm',
+      marketUid: 'AAVE:11155111:USDC',
+      deps
+    });
+
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![14]).toBe('note-stamped');
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![12]).toBe('note-stamped');
+  });
+
   it('preserves structured spending-limit rejections for the calling flow', async () => {
     const error = {
       code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
