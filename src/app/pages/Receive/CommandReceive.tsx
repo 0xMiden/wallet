@@ -2,13 +2,19 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { IconName } from 'app/icons/v2';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
 import { useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
+import { EmptyState } from 'components/ui/EmptyState';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
+import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
+import { StatusBadge } from 'components/ui/StatusBadge';
+import { formatBigInt } from 'lib/i18n/numbers';
 import { useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useCommandDrafts } from 'screens/command/command-drafts';
 
@@ -19,7 +25,7 @@ export function CommandReceive({ address, onBridgeDeposit }: { address: string; 
   const metadata = useAllTokensBaseMetadata();
   const { data: balances = [] } = useAllBalances(address, metadata);
   const selectedAsset = balances.find(balance => balance.tokenId === selectedFaucetId);
-  const { listItems, renderPendingItem, isLoadingNotes } = useActivityClaimList('', 'pending');
+  const { listItems, renderPendingItem, isLoadingNotes, hidden } = useActivityClaimList('', 'pending');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const pickerTrigger = useRef<HTMLButtonElement>(null);
@@ -41,19 +47,15 @@ export function CommandReceive({ address, onBridgeDeposit }: { address: string; 
     <div data-testid="command-receive" className="grid gap-6 lg:grid-cols-2">
       <div className="min-w-0 space-y-4">
         <SectionHeader size="lg">{t('receiveAt')}</SectionHeader>
-        <button
-          ref={pickerTrigger}
-          type="button"
-          data-testid="receive-asset-picker"
-          className="min-h-12 w-full rounded-2xl bg-fill px-4 text-left text-row-title text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
-          onClick={() => setPickerOpen(true)}
-        >
-          <span data-testid="receive-selected-asset">{selectedAsset?.metadata.symbol ?? t('selectAToken')}</span>
-        </button>
         <AddressTab address={address} onBridgeDeposit={onBridgeDeposit} presentation="command" />
       </div>
       <div className="min-w-0 space-y-4">
         <SectionHeader size="lg">{selectedNote ? t('activityAcceptTransfer') : t('transfersSection')}</SectionHeader>
+        {hidden.failed && (
+          <Notice role="alert" tone="negative" variant="inline" errorId="activityHiddenNotesError">
+            {t('activityHiddenNotesError')}
+          </Notice>
+        )}
         {selectedNote ? (
           <div data-testid="receive-note-review">{renderPendingItem(selectedNote, true)}</div>
         ) : (
@@ -63,20 +65,60 @@ export function CommandReceive({ address, onBridgeDeposit }: { address: string; 
                 {t('activityFetchingHistoryAndNotes')}
               </p>
             )}
-            <ListGroup surface="fill">
-              {listItems.map(item => (
-                <ListRow
-                  key={item.note.id}
-                  title={item.note.metadata.symbol}
-                  subtitle={item.note.senderAddress || t('unknown')}
-                  value={item.status === 'claiming' ? t('activityAcceptingTransfer') : undefined}
-                  data-testid={`receive-note-${item.note.id}`}
-                  onClick={() => setSelectedNoteId(item.note.id)}
-                />
-              ))}
-            </ListGroup>
+            {listItems.length === 0 ? (
+              !isLoadingNotes &&
+              !hidden.failed && (
+                <EmptyState icon={IconName.Receive} size="compact" title={t('receiveNoPendingTransfers')} />
+              )
+            ) : (
+              <ListGroup surface="fill">
+                {listItems.map(item => {
+                  const symbol = item.note.metadata.symbol;
+                  const amount = hasKnownScale(item.note.metadata)
+                    ? formatBigInt(BigInt(item.note.amount), item.note.metadata.decimals)
+                    : undefined;
+                  return (
+                    <ListRow
+                      key={item.note.id}
+                      title={amount === undefined ? symbol : `${amount} ${symbol}`}
+                      subtitle={`${t('from')}: ${item.note.senderAddress || t('unknown')}`}
+                      trailing={
+                        <StatusBadge
+                          size="sm"
+                          status={
+                            item.note.fromCache
+                              ? 'checking'
+                              : item.status === 'claiming' && item.held
+                                ? 'unconfirmed'
+                                : item.status === 'claiming'
+                                  ? 'inProgress'
+                                  : item.status === 'failed'
+                                    ? 'failed'
+                                    : 'pending'
+                          }
+                        />
+                      }
+                      data-testid={`receive-note-${item.note.id}`}
+                      onClick={() => setSelectedNoteId(item.note.id)}
+                    />
+                  );
+                })}
+              </ListGroup>
+            )}
           </>
         )}
+        <SectionHeader size="lg">{t('assets')}</SectionHeader>
+        <ListGroup>
+          <ListRow
+            ref={pickerTrigger}
+            title={
+              <span data-testid="receive-selected-asset">{selectedAsset?.metadata.symbol ?? t('selectAToken')}</span>
+            }
+            data-testid="receive-asset-picker"
+            accent="receive"
+            onClick={() => setPickerOpen(true)}
+          />
+        </ListGroup>
       </div>
       <Drawer
         open={pickerOpen}

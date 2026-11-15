@@ -298,9 +298,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
         </div>
 
         <div className="mt-2 flex shrink-0 flex-col gap-2">
-          {/* Two equal choices, side by side: each its own outlined tile, the Receive green on its
-              glyph, the label over a one-line caption. */}
-          <div className="flex gap-2.5" data-testid="receive-actions">
+          {/* Compact keeps the two tiles side by side; Command makes Bridge a separate utility. */}
+          <div className={cn('flex gap-2.5', presentation === 'command' && 'flex-col')} data-testid="receive-actions">
             <ReceiveActionTile
               icon={IconName.Share}
               title={t('share')}

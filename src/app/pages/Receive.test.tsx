@@ -162,7 +162,12 @@ jest.mock('lib/miden/front', () => ({
 }));
 
 jest.mock('app/templates/history/useActivityClaimList', () => ({
-  useActivityClaimList: () => ({ listItems: [], renderPendingItem: () => null, isLoadingNotes: false })
+  useActivityClaimList: () => ({
+    listItems: [],
+    renderPendingItem: () => null,
+    isLoadingNotes: false,
+    hidden: { failed: false }
+  })
 }));
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
@@ -340,6 +345,7 @@ describe('Receive - Address', () => {
     fireEvent.click(testContainer.querySelector('[data-testid="receive-asset-picker"]')!);
     fireEvent.click(document.body.querySelector('[data-testid="receive-asset-faucet-two"]')!);
     expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');
+    expect(testContainer.querySelector('[data-testid="receive-actions"]')).toHaveClass('flex-col');
     await renderCommand(false);
     await renderCommand(true);
     expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');

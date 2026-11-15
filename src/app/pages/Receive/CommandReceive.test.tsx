@@ -10,14 +10,22 @@ const mockNote = {
   note: {
     id: 'note-one',
     faucetId: 'faucet-one',
-    amount: '1',
+    amount: '1000000',
     senderAddress: 'sender',
     isBeingClaimed: false,
+    fromCache: false,
     type: 'unknown',
     metadata: { symbol: 'ONE', name: 'One', decimals: 6 }
   },
-  status: 'pending'
+  status: 'pending',
+  held: false
 };
+let mockClaimItems = [mockNote];
+let mockHiddenNotesFailed = false;
+beforeEach(() => {
+  mockClaimItems = [mockNote];
+  mockHiddenNotesFailed = false;
+});
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('app/pages/Receive/AddressTab', () => ({
@@ -35,7 +43,8 @@ jest.mock('lib/miden/front', () => ({
 }));
 jest.mock('app/templates/history/useActivityClaimList', () => ({
   useActivityClaimList: () => ({
-    listItems: [mockNote],
+    listItems: mockClaimItems,
+    hidden: { failed: mockHiddenNotesFailed },
     renderPendingItem: () => <div>Native review</div>,
     isLoadingNotes: false
   })
@@ -51,6 +60,88 @@ jest.mock('lib/woozie', () => ({
 }));
 jest.mock('screens/command/CommandHomePrompts', () => ({ CommandHomePrompts: () => null }));
 jest.mock('screens/command/CommandPortfolio', () => ({ CommandPortfolio: () => null }));
+
+it('shows the real receiving address before incoming notes, with asset guidance beneath incoming', () => {
+  render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  const address = screen.getByTestId('receive-current-address');
+  const incoming = screen.getByTestId('receive-note-note-one');
+  const guidance = screen.getByTestId('receive-asset-picker');
+  expect(address.compareDocumentPosition(incoming) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(incoming.compareDocumentPosition(guidance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it('names a pending incoming note with its real amount, asset and native status', () => {
+  render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  expect(screen.getByTestId('receive-note-note-one')).toHaveTextContent('1 ONE');
+  expect(screen.getByTestId('receive-note-note-one')).toHaveTextContent('pending');
+});
+
+it('distinguishes native in-progress claims from held attempts awaiting confirmation', () => {
+  mockClaimItems = [{ ...mockNote, status: 'claiming' }];
+  const view = render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  expect(screen.getByTestId('receive-note-note-one')).toHaveTextContent('inProgress');
+  mockClaimItems = [{ ...mockNote, status: 'claiming', held: true }];
+  view.rerender(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  expect(screen.getByTestId('receive-note-note-one')).toHaveTextContent('notConfirmed');
+});
+
+it('does not display an unverified cached note as ready to accept', () => {
+  mockClaimItems = [{ ...mockNote, note: { ...mockNote.note, fromCache: true } }];
+  render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  expect(screen.getByTestId('receive-note-note-one')).toHaveTextContent('guardianCheckingLabel');
+});
+
+it('does not silently hide a failed declined-notes read', () => {
+  mockHiddenNotesFailed = true;
+  render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent('activityHiddenNotesError');
+});
+
+it('does not claim there are no incoming notes when declined-notes privacy failed to load', () => {
+  mockClaimItems = [];
+  mockHiddenNotesFailed = true;
+  render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent('activityHiddenNotesError');
+  expect(screen.queryByText('receiveNoPendingTransfers')).not.toBeInTheDocument();
+});
+
+it('shows a truthful empty state when no canonical incoming notes exist', () => {
+  mockClaimItems = [];
+  render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  expect(screen.getByText('receiveNoPendingTransfers')).toBeInTheDocument();
+});
 
 it('closes the asset picker on Escape and returns focus to its trigger without changing the address', async () => {
   render(
@@ -98,7 +189,19 @@ it('retains only the selected faucet over minimize and clears it on account, net
 it('uses the real workbench Back for the selected note, not route history', () => {
   const { goBack } = jest.requireMock<typeof import('lib/woozie')>('lib/woozie');
   jest.mocked(goBack).mockClear();
-  render(
+  const view = render(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <Receive />
+    </CommandShell>
+  );
+  fireEvent.click(screen.getByTestId('receive-asset-picker'));
+  fireEvent.click(screen.getByTestId('receive-asset-faucet-two'));
+  view.rerender(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      <></>
+    </CommandShell>
+  );
+  view.rerender(
     <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
       <Receive />
     </CommandShell>
@@ -108,5 +211,6 @@ it('uses the real workbench Back for the selected note, not route history', () =
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
   expect(screen.queryByTestId('receive-note-review')).not.toBeInTheDocument();
   expect(screen.getByTestId('receive-note-note-one')).toBeInTheDocument();
+  expect(screen.getByTestId('receive-selected-asset')).toHaveTextContent('TWO');
   expect(goBack).not.toHaveBeenCalled();
 });
