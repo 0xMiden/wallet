@@ -891,7 +891,8 @@ describe('a plain send is not refused on the strength of a stage it never had', 
       })
     );
 
-    await requeueFailedTransaction('cancel-marker');
+    // The marker still says the pipeline may submit, so Retry waits for it and writes nothing.
+    await expectLivenessRefusal('cancel-marker');
 
     const row = await read('cancel-marker');
     // Bytes held, because the marker still says a submit is possible...
