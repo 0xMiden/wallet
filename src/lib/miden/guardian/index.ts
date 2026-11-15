@@ -415,7 +415,7 @@ export class MultisigService {
     lockOptions?: WasmClientLockOptions
   ): Promise<MultisigService> {
     if (!walletAccount.coldPublicKey) {
-      throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
+      throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey - re-create the wallet`);
     }
     // UNDER A HOLD. `getSignerDetailsFromAccount` walks the account's storage
     // maps, so it is a WASM call and not a field read - and every one of this
