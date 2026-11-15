@@ -2,6 +2,8 @@
 
 ## 1.17.12 (TBD)
 
+- [CHANGE][ci] Run mainnet bridges independently with bridges_only, keep swaps_only, and retain both groups in the default nightly with unchanged recovery and spending guards.
+
 - [FEATURE][chrome] Add optional passkey unlock for eligible password wallets in Chrome 140+, with side-panel setup, confirmation-window unlock, and unchanged password fallback (#846).
 
 - [CHANGE][ci] Add serialized solver swap, Epoch and NEAR round trips to the mainnet nightly, recycling existing principal under one $2 loss/fee cap with original-authority recovery, exact upload gates and loops-only qualification. Public NEAR configuration remains unchanged.
