@@ -714,7 +714,6 @@ it('reports a failed cold service load for a claim that funds the everyday key r
 });
 
 const consumeAtSending = 'Transaction failed: tx_receive; stage sending; ';
-const consumeAfterSync = 'Transaction failed: tx_receive; stage confirming; confirming step guardian_synced; ';
 
 it('reports the guardian sync guard as a refusal at service selection before any proposal', async () => {
   const stored = await run({ ...account, guardianSyncStatus: 'resolving' });
@@ -774,34 +773,34 @@ describe('with the offscreen pipeline', () => {
   });
 });
 
+// The claim's submit resolved, so a failure while recording its result leaves it landed, not failed (PR #2183): no
+// failure is reported, and the step stays on the error.
 describe('a claim that fails while recording its result after the guardian sync', () => {
-  function expectSubmittedOnce(stored: ITransaction | undefined): void {
-    expect(stored?.status).not.toBe(ITransactionStatus.Completed);
+  async function expectLandedOnce(stored: ITransaction | undefined): Promise<void> {
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
     expect(mockSubmit).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(requests).toHaveLength(0);
   }
 
   it.each([
     ['result_read', () => (mockState.resultRead = privateFailure())],
     ['result_serialize', () => (mockState.resultSerialize = privateFailure())]
-  ])('reports a failed %s as the finishing step', async (step, arm) => {
+  ])('records the claim landed after a failed %s, which names the finishing step', async (step, arm) => {
     const error = arm();
-    expectSubmittedOnce(await run());
-    await failureEventWith({ completionStep: step, completionGuard: undefined }, consumeAfterSync);
+    await expectLandedOnce(await run());
     expect(snapshotCrashDiagnostics(error)).toMatchObject({ completionStep: step });
   });
 
   it.each([
     ['no_input_notes', () => (mockState.noInputNotes = true)],
     ['no_fungible_assets', () => (mockState.noAssets = true)]
-  ])('reports the %s check as a refusal while reading the result', async (guard, arm) => {
+  ])('records the claim landed after the %s check refuses its result', async (_guard, arm) => {
     arm();
-    const stored = await run();
-    expect(stored?.status).not.toBe(ITransactionStatus.Completed);
-    expect(mockSubmit).toHaveBeenCalledTimes(1);
-    await failureEventWith({ completionStep: 'result_read', completionGuard: guard }, consumeAfterSync);
+    await expectLandedOnce(await run());
   });
 
-  it('reports a failed read of its own record as the row read', async () => {
+  it('records the claim landed after a failed read of its own record', async () => {
     const error = privateFailure();
     let synced = false;
     let thrown = false;
@@ -819,16 +818,15 @@ describe('a claim that fails while recording its result after the guardian sync'
     Repo.transactions.hook('updating', markSynced);
     Repo.transactions.hook('reading', rejectRead);
     try {
-      expectSubmittedOnce(await run());
+      await expectLandedOnce(await run());
       expect(thrown).toBe(true);
-      await failureEventWith({ completionStep: 'row_read', completionGuard: undefined }, consumeAfterSync);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(markSynced);
       Repo.transactions.hook('reading').unsubscribe(rejectRead);
     }
   });
 
-  it('reports a failed completed-status write as the status write', async () => {
+  it('records the claim landed after its completed-status write fails once', async () => {
     const error = privateFailure();
     let thrown = false;
     const rejectComplete = (changes: unknown) => {
@@ -844,9 +842,8 @@ describe('a claim that fails while recording its result after the guardian sync'
     };
     Repo.transactions.hook('updating', rejectComplete);
     try {
-      expectSubmittedOnce(await run());
+      await expectLandedOnce(await run());
       expect(thrown).toBe(true);
-      await failureEventWith({ completionStep: 'status_write', completionGuard: undefined }, consumeAfterSync);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(rejectComplete);
     }

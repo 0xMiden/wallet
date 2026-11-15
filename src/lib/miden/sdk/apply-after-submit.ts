@@ -11,7 +11,7 @@
 
 import type { OutputNote } from '@miden-sdk/miden-sdk/lazy';
 
-import { ApplyAfterSubmitError, type LandedTransaction } from './sdk-error-code';
+import { ApplyAfterSubmitError, causeChain, type LandedTransaction } from './sdk-error-code';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import { toNoteTypeString } from '../helpers';
 import { NoteTypeEnum } from '../types';
@@ -146,4 +146,33 @@ async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>):
   } catch {
     return false;
   }
+}
+
+/**
+ * Whatever left the post-submit tail of a row whose leaf resolved, which is the moment the node accepted the
+ * transaction (PR #2183). The catches give the row its type's landed verdict, as for `ApplyAfterSubmitError`, so the
+ * row is never offered a Retry that submits it again. Made only after the leaf resolved, so no text classifies it.
+ */
+export class LandedTailError extends Error {
+  declare readonly cause: unknown;
+  /** The executed transaction's id, read after the failure; undefined when the result could not be read. */
+  readonly transactionId?: string;
+
+  constructor(cause: unknown, { transactionId }: { transactionId?: string } = {}) {
+    super('The network accepted this transaction, but a step after its submit failed', { cause });
+    this.name = 'LandedTailError';
+    this.transactionId = transactionId;
+  }
+}
+
+/** The `LandedTailError` at any depth of `err`'s cause chain, so a caller wrapping one does not fail a landed row. */
+export function landedTailErrorIn(err: unknown): LandedTailError | undefined {
+  for (const link of causeChain(err)) {
+    if (link instanceof LandedTailError) return link;
+  }
+  return undefined;
+}
+
+export function isLandedTailError(err: unknown): boolean {
+  return landedTailErrorIn(err) !== undefined;
 }

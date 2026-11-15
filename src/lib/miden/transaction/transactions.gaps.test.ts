@@ -761,8 +761,9 @@ describe('a throw after the leaf resolved', () => {
     const row = txStore[0]!;
     expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
     expect(row.status).toBe(ITransactionStatus.Completed);
+    // No acknowledgement is on record, so the label cannot count the notes it owes.
     expect({ displayMessage: row.displayMessage, noteDelivery: row.noteDelivery }).toEqual(
-      landedValueRowFields({ type: 'execute', accountId: 'acc-1', secondaryAccountId: 'recipient' }, 1)
+      landedValueRowFields({ type: 'execute', accountId: 'acc-1', secondaryAccountId: 'recipient' })
     );
   });
 
