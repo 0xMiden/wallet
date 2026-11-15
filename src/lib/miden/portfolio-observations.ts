@@ -46,13 +46,11 @@ export async function recordPortfolioObservation(observation: PortfolioObservati
       .between([...scope, 0], [...scope, Date.now() - YEAR_MS], true, false)
       .delete();
     if (!previous) {
-      const excess = await table
+      const scoped = table
         .where('[accountId+network+rpcUrl+currency+capturedAt]')
-        .between([...scope, 0], [...scope, Dexie.maxKey])
-        .reverse()
-        .offset(MAX_POINTS)
-        .primaryKeys();
-      if (excess.length) await table.bulkDelete(excess);
+        .between([...scope, 0], [...scope, Dexie.maxKey]);
+      const excess = (await scoped.count()) - MAX_POINTS;
+      if (excess > 0) await table.bulkDelete(await scoped.limit(excess).primaryKeys());
     }
   });
 }

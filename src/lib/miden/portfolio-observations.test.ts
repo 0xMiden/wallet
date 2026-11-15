@@ -1,3 +1,5 @@
+import { IDBCursor } from 'fake-indexeddb';
+
 import {
   prunePortfolioObservations,
   readPortfolioObservations,
@@ -68,6 +70,25 @@ it('prunes aged rows even for retained accounts when the ready account list chan
   expect(await db.table(Table.PortfolioObservations).count()).toBe(1);
 });
 
+it('avoids advancing a cursor by the full retention cap when only a few scoped rows exist', async () => {
+  await db
+    .table(Table.PortfolioObservations)
+    .bulkPut([
+      observation(now - 2 * bucketMs),
+      observation(now - bucketMs),
+      observation(now - bucketMs, { accountId: 'account-b' })
+    ]);
+  const advance = jest.spyOn(IDBCursor.prototype, 'advance');
+  await recordPortfolioObservation(observation(now));
+  expect(advance).not.toHaveBeenCalled();
+  expect((await readPortfolioObservations(scope, 0)).map(row => row.bucket)).toEqual([
+    now - 2 * bucketMs,
+    now - bucketMs,
+    now
+  ]);
+  expect(await readPortfolioObservations({ ...scope, accountId: 'account-b' }, 0)).toHaveLength(1);
+});
+
 it('deletes already-stored rows older than a year but retains the exact cutoff', async () => {
   await db
     .table(Table.PortfolioObservations)
@@ -83,13 +104,13 @@ it('retains at most 35,040 points even when all 35,041 are within the one-year w
     .table(Table.PortfolioObservations)
     .bulkPut(Array.from({ length: 35_040 }, (_, index) => observation(now - (35_040 - index) * bucketMs)));
   const seededAt = performance.now();
-  console.info(`[portfolio-observations] seed=${Math.round(seededAt - start)}ms`);
+  process.stdout.write(`[portfolio-observations] seed=${Math.round(seededAt - start)}ms\n`);
   await recordPortfolioObservation(observation(now));
   const prunedAt = performance.now();
-  console.info(`[portfolio-observations] prune=${Math.round(prunedAt - seededAt)}ms`);
+  process.stdout.write(`[portfolio-observations] prune=${Math.round(prunedAt - seededAt)}ms\n`);
   const rows = await readPortfolioObservations(scope, 0);
   expect(rows).toHaveLength(35_040);
   expect(rows[0]?.bucket).toBe(now - 35_039 * bucketMs);
   expect(rows.at(-1)?.bucket).toBe(now);
-  console.info(`[portfolio-observations] read=${Math.round(performance.now() - prunedAt)}ms`);
+  process.stdout.write(`[portfolio-observations] read=${Math.round(performance.now() - prunedAt)}ms\n`);
 }, 120_000);
