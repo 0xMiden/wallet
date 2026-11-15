@@ -44,13 +44,14 @@ import { armRecallBlocks } from '../../helpers/recall';
  *
  * Unit and integration coverage can prove the bytes survive
  * (`double-send.integration.test.ts` runs the real writers against the real
- * Dexie schema). Only a chain can prove what the bytes BUY: a replay of the
- * same bytes re-creates the same note id, so the recipient holds one payment.
- * The assertions here are that the first Retry asks, that the replay uses the
- * identical bytes and note id, and the recipient's balance.
+ * Dexie schema). Only a chain can prove what the bytes BUY: they pin the note
+ * serial, so the replay, a new transaction carrying the same note, re-creates
+ * the same note id and the recipient holds one payment. The assertions here are
+ * that the first Retry asks, that the replay re-creates the note id, and the
+ * recipient's balance.
  *
- * The sender's balance is deliberately not asserted. The node rejects a
- * byte-identical replay only while the first copy is in flight, and this Retry
+ * The sender's balance is deliberately not asserted. The node rejects the
+ * duplicate note id only while the first copy is in flight, and this Retry
  * comes long after that, so the replay is accepted and debits A again. That
  * second debit is the cost the user accepts with Retry anyway, and asserting it
  * either way would test the block timing rather than the wallet.
@@ -114,7 +115,7 @@ import { armRecallBlocks } from '../../helpers/recall';
  * Falsifiability, in both directions:
  *   - Remove the leaf's crossing stamp and the flag is absent, Retry anyway
  *     drops the bytes, a fresh serial is drawn and B is credited TWICE - the
- *     byte, note id and balance assertions go red.
+ *     note id and balance assertions go red.
  *   - If Retry silently did nothing at all, B would trivially stay at one
  *     payment and this spec would be a false green, so it also asserts the row
  *     actually left Failed.
@@ -144,8 +145,6 @@ const TX_STORE = 'transactions';
 interface GuardFields {
   mayHaveSubmitted?: boolean;
   hasRequestBytes: boolean;
-  /** `requestBytes` as hex, so the replay's bytes can be compared with the first attempt's. */
-  requestBytesHex: string;
   /** Every output note id the row records, at its root and on its evidence entries, in lower case. */
   noteIds: string[];
 }
@@ -174,7 +173,6 @@ async function readGuardFields(page: import('@playwright/test').Page, rowId: str
         return {
           mayHaveSubmitted: row?.mayHaveSubmitted as boolean | undefined,
           hasRequestBytes: bytes !== undefined && bytes !== null && bytes.length > 0,
-          requestBytesHex: Array.from(bytes ?? [], byte => byte.toString(16).padStart(2, '0')).join(''),
           noteIds: [...new Set(recorded.map(id => id.toLowerCase()))]
         };
       } finally {
@@ -435,14 +433,14 @@ test.describe('infra resilience - a cancelled send is not paid twice on retry', 
           timeoutMs: 60_000
         });
 
-        // THE ASSERTION. The resubmit reuses the cached request, so it re-creates
-        // the note id already on chain and B holds one payment; a rebuild would
-        // draw a fresh serial and pay B twice. Sampled across the window rather
-        // than read once at the end, so a second note that lands and is then
-        // reclaimed still trips it. A is not asserted: the node rejects the
-        // byte-identical replay only while the first copy is in flight, which is
-        // long past, so A's second debit is the cost the user accepted with
-        // Retry anyway (see the header).
+        // THE ASSERTION. The resubmit is a new transaction carrying the cached
+        // note, so it re-creates the note id already on chain and B holds one
+        // payment; a rebuild would draw a fresh serial and pay B twice. Sampled
+        // across the window rather than read once at the end, so a second note
+        // that lands and is then reclaimed still trips it. A is not asserted: the
+        // node rejects the duplicate note id only while the first copy is in
+        // flight, which is long past, so A's second debit is the cost the user
+        // accepted with Retry anyway (see the header).
         const peak = await maxPendingNoteTotal(walletB.page, TOKEN, { forMs: DOUBLE_PAY_WATCH_MS });
         expect(
           peak,
@@ -462,16 +460,13 @@ test.describe('infra resilience - a cancelled send is not paid twice on retry', 
         expect(replayed.noteIds, 'the replay must re-create the note id the first attempt created').toEqual(
           landed?.noteIds
         );
-        expect(replayed.requestBytesHex, 'Retry anyway must replay the identical requestBytes').toBe(
-          landed?.requestBytesHex
-        );
 
         timeline.emit({
           category: 'blockchain_state',
           severity: 'info',
           message:
-            `Retry of a cancelled-mid-flight send asked first, then replayed its cached request byte for byte: ` +
-            `the replay re-created note ${replayed.noteIds[0]} and B peaked at ${peak} base units (one payment)`,
+            `Retry of a cancelled-mid-flight send asked first, then replayed its cached note: the replay ` +
+            `re-created note ${replayed.noteIds[0]} and B peaked at ${peak} base units (one payment)`,
           data: { peakBaseUnits: peak.toString(), sentBaseUnits: SEND_BASE_UNITS.toString() }
         });
       },
