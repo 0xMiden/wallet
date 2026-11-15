@@ -1,9 +1,9 @@
 ---
-title: Privacy Policy — Bread Wallet by Miden
+title: Privacy Policy - Bread Wallet by Miden
 permalink: /privacy/
 ---
 
-# Bread Wallet by Miden — Privacy Policy
+# Bread Wallet by Miden - Privacy Policy
 
 _Last updated: 2026-10-19_
 
@@ -33,7 +33,7 @@ Usage data, below, is sent **only while that setting is on**. Crash reports are 
 
 ### Usage data
 
-When the setting is on, the App reports the start and the end of a small set of activities. Each report is a single message with no free-form text in it — there is no field an address, an amount, or an error message could occupy. A message contains only these:
+When the setting is on, the App reports the start and the end of a small set of activities. Each report is a single message with no free-form text in it - there is no field an address, an amount, or an error message could occupy. A message contains only these:
 
 | What                                                    | Values                                                                                                                                                                                                                                                                                                       |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -43,26 +43,26 @@ When the setting is on, the App reports the start and the end of a small set of 
 | How it ended                                            | `completed`, `cancelled`, or `errored`                                                                                                                                                                                                                                                                       |
 | Broad error category, if it failed                      | One of: network, rpc, proving, validation, storage, auth, timeout, unknown                                                                                                                                                                                                                                   |
 | How long it took                                        | A duration in milliseconds                                                                                                                                                                                                                                                                                   |
-| How far you got                                         | For an activity, the name of the furthest screen it reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead — for example `proving` or `submitting`                  |
+| How far you got                                         | For an activity, the name of the furthest screen it reached, from a fixed list - for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead - for example `proving` or `submitting`                  |
 | App version                                             | For example, `1.15.21`                                                                                                                                                                                                                                                                                       |
 | Platform                                                | `extension`, `ios`, or `android`                                                                                                                                                                                                                                                                             |
 | Network                                                 | `mainnet`, `testnet`, `devnet`, or `localnet`                                                                                                                                                                                                                                                                |
 | A short random number for that one activity             | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
 | A short random number for that run of the App           | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
 
-That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
+That is the complete list. There is no other field, and the error category is chosen from the eight names above - the underlying error message is read to pick a category and is never sent.
 
 #### Work the App does on your behalf
 
-The App also reports whether the work it does on your behalf actually succeeded. When you send, swap, claim, earn, bridge, or change your guardian, the App has to prove and submit a transaction after you have finished asking for it, and that part can fail for reasons that have nothing to do with you — a prover or a node being down or unreachable. Without this, a failure affecting everyone would be invisible to us, because by then the activity above has already been reported as finished.
+The App also reports whether the work it does on your behalf actually succeeded. When you send, swap, claim, earn, bridge, or change your guardian, the App has to prove and submit a transaction after you have finished asking for it, and that part can fail for reasons that have nothing to do with you - a prover or a node being down or unreachable. Without this, a failure affecting everyone would be invisible to us, because by then the activity above has already been reported as finished.
 
 Those reports use the same fields as the table above and add nothing that describes you or your money. Nothing about the transaction itself travels with them: not who you sent to, not how much, not which asset, not which dApp, not which endpoint.
 
-They also carry **no activity identifier**, which means we cannot tell which of your activities a piece of work belonged to. That is deliberate rather than an oversight: linking the two would mean writing one of those random values onto the transaction record the App keeps on disk, and a value written to disk outlives the run it was made for — which is exactly the durable identifier this design refuses to hold.
+They also carry **no activity identifier**, which means we cannot tell which of your activities a piece of work belonged to. That is deliberate rather than an oversight: linking the two would mean writing one of those random values onto the transaction record the App keeps on disk, and a value written to disk outlives the run it was made for - which is exactly the durable identifier this design refuses to hold.
 
-Three more things travel with each message as part of the technical envelope our analytics provider defines: the time the message was sent, a flag saying whether the App was a development build or a released one, and a fixed name and version number for the piece of our own code that sent it (`miden-wallet-aptabase@1.0.0` — the same string for everyone). None of them varies with who you are or what device you use.
+Three more things travel with each message as part of the technical envelope our analytics provider defines: the time the message was sent, a flag saying whether the App was a development build or a released one, and a fixed name and version number for the piece of our own code that sent it (`miden-wallet-aptabase@1.0.0` - the same string for everyone). None of them varies with who you are or what device you use.
 
-**We deliberately leave three of the provider's fields empty.** Aptabase's format has slots for your operating system version, your language or locale, and your device model, and their own libraries fill all three in. We send none of them. Each one is a fingerprinting signal — a combination of them narrows a crowd down to a person — and none is needed to find out where the wallet breaks. Automated tests fail the build if any of the three ever appears in an outgoing message, which is what stops someone filling them in later because the field was there.
+**We deliberately leave three of the provider's fields empty.** Aptabase's format has slots for your operating system version, your language or locale, and your device model, and their own libraries fill all three in. We send none of them. Each one is a fingerprinting signal - a combination of them narrows a crowd down to a person - and none is needed to find out where the wallet breaks. Automated tests fail the build if any of the three ever appears in an outgoing message, which is what stops someone filling them in later because the field was there.
 
 ### Crash reports
 
@@ -151,7 +151,7 @@ When the App shows you an error message, it also reports that it did: which mess
 
 The App also sends a short diagnostic history of each swap, so that a failed swap can be traced to the step it failed at. These records go to the same crash-reporting service on the same terms as crash reports: they are sent whether or not you share usage data, never where Firefox's own switch says no, and nothing waiting is sent once crash reporting stops. Each record is one of two fixed events (`operation_step` or `operation_end`) and carries only these fixed values: the operation it is about (`swap`); for a step, the step it describes (`service_prepare`, `request_build`, `request_persist`, `proposal_create` or `proposal_execute`) and how that step ended (`ok`, `failed`, `timeout`, `aborted` or `locked`); for the end of a swap, how the operation ended (`completed`, `failed`, `timeout`, `cancelled`, `interrupted` or `unconfirmed`); and how long it took, as a range (`under_1s`, `1_to_5s`, `5_to_30s`, `30s_to_2m`, `2_to_10m` or `over_10m`). Each record also carries the time it was made, a severity level, the app version, a number that orders records made in the same instant, and a random number created in memory when crash reporting starts, never written to disk, which the crash reports sent in that run of the App also carry, so a failure can be read beside the records before it. A record never contains an error message, an address, an amount, an identifier of an account, a transaction or a note, or a web address. The App sends at most 10 records for one operation in any 10 seconds and 60 in any 10 minutes, and drops the rest.
 
-Crash reports do not include the page you were on, your browser's user-agent string, your language, your timezone, or a recording of your screen or clicks. Alongside the error, each report carries the time it happened, a severity level, its own random report id generated for that one report, and the name and version of the reporting library — the standard technical envelope, with nothing about you in it.
+Crash reports do not include the page you were on, your browser's user-agent string, your language, your timezone, or a recording of your screen or clicks. Alongside the error, each report carries the time it happened, a severity level, its own random report id generated for that one report, and the name and version of the reporting library - the standard technical envelope, with nothing about you in it.
 
 A recognized network rejection notice may also report `submissionRejectedEndpoint` (one of `submit_proven_transaction`, `submit_proven_batch`, `get_transaction_encryption_key` or `other`) and `submissionRejectedStatus` (one of `unavailable`, `internal`, `cancelled`, `aborted`, `data_loss`, `deadline_exceeded`, `unknown`, `not_found`, `invalid_argument`, `permission_denied`, `already_exists`, `resource_exhausted`, `failed_precondition`, `out_of_range`, `unimplemented`, `unauthenticated` or `other`). These closed values identify only the submit method and gRPC status. No endpoint URL, response text, transaction data or account details are sent.
 
@@ -165,32 +165,32 @@ Not when the setting is on, not when it is off, not ever:
 - Your account addresses, balances, or transaction amounts
 - The contents of your transactions, your notes, or your note IDs
 - Your name, email address, or contacts
-- Your location — the App asks for no location permission and reads no location sensor
-- Your operating system version, your language or locale, your timezone, or your device model — see the note under "Usage data"
+- Your location - the App asks for no location permission and reads no location sensor
+- Your operating system version, your language or locale, your timezone, or your device model - see the note under "Usage data"
 - Any advertising identifier, and anything that would let us or anyone else follow you across other apps or websites. The App does not show Apple's App Tracking Transparency prompt, because it has nothing to ask permission for.
 
 And nothing collected is ever sold, or shared with data brokers or ad networks.
 
-We also do not call this data anonymous. Sending anything over the internet means the receiving server sees the IP address the request came from, exactly as it does for any other network request — and an IP address indicates a rough region. Our processors are configured not to store it. A processor may still derive something coarse from it before discarding it, such as which country a request came from, and keep that alongside the message; we are not going to describe data as anonymous when a server saw where it came from.
+We also do not call this data anonymous. Sending anything over the internet means the receiving server sees the IP address the request came from, exactly as it does for any other network request - and an IP address indicates a rough region. Our processors are configured not to store it. A processor may still derive something coarse from it before discarding it, such as which country a request came from, and keep that alongside the message; we are not going to describe data as anonymous when a server saw where it came from.
 
 ## Identifiers
 
-The App holds **no persistent identifier for you** — no user id, no device id, no install id, no cookie, no advertising identifier. Nothing in the usage data or the crash reports says "this is the same person as last week", or even "as yesterday".
+The App holds **no persistent identifier for you** - no user id, no device id, no install id, no cookie, no advertising identifier. Nothing in the usage data or the crash reports says "this is the same person as last week", or even "as yesterday".
 
 Two short random numbers are involved, and both live only in memory:
 
 - **One per activity.** Created when an activity starts, used only to match that activity's "started" message to its "ended" message, never written to disk, never reused. Once the activity is over, it is gone.
 - **One per run of the App.** Created when the App starts and shared by the activities you perform in that run, so that a sequence like "opened the wallet, went to swap, changed your mind, sent instead" can be read as one visit rather than as unconnected fragments. It is never written to disk, so closing the App or reloading the extension ends it permanently and the next run gets an unrelated value. It also renews itself after 30 minutes with no activity, so a window left open does not accumulate a long trail.
 
-**What that second number does and does not allow, stated plainly.** Within one run of the App, the activities you performed can be seen as belonging together. Across runs — and across devices, and across people — nothing can. This is a deliberate trade: the earlier design used the per-activity number for both purposes, and the result was data in which every session held exactly one activity and lasted zero seconds, which could not answer the only question the feature exists to answer, namely where people get stuck.
+**What that second number does and does not allow, stated plainly.** Within one run of the App, the activities you performed can be seen as belonging together. Across runs - and across devices, and across people - nothing can. This is a deliberate trade: the earlier design used the per-activity number for both purposes, and the result was data in which every session held exactly one activity and lasted zero seconds, which could not answer the only question the feature exists to answer, namely where people get stuck.
 
-**One thing worth spelling out, because our provider's naming suggests otherwise.** Aptabase calls the field this number travels in a "session id", and their own libraries store it on your device and reuse it on a four-hour timeout — which makes it survive restarts. Ours does not exist anywhere but memory. That is also the only option available to us: the App has no way to store such a value at all, and a test asserts it stays that way.
+**One thing worth spelling out, because our provider's naming suggests otherwise.** Aptabase calls the field this number travels in a "session id", and their own libraries store it on your device and reuse it on a four-hour timeout - which makes it survive restarts. Ours does not exist anywhere but memory. That is also the only option available to us: the App has no way to store such a value at all, and a test asserts it stays that way.
 
 ### What that means for deleting your data
 
 It means we cannot delete your data on request, and we would rather say so than promise otherwise.
 
-There is no identifier in this data by which we could find your records. If you asked us to delete your usage data or your crash reports, we would have no way to tell yours apart from everyone else's — the records simply do not say who they came from.
+There is no identifier in this data by which we could find your records. If you asked us to delete your usage data or your crash reports, we would have no way to tell yours apart from everyone else's - the records simply do not say who they came from.
 
 This is a deliberate trade-off, not a way of avoiding the request. The alternative is to attach a durable identifier to every message so that we _could_ find your data later, which would mean building the exact tracking capability we chose not to have. We decided that not being able to identify you is worth more than being able to service a deletion request, and this paragraph is the cost of that decision stated plainly.
 
@@ -199,7 +199,7 @@ Two things do follow from it, in your favour:
 - **Turning the setting off is complete.** There is no profile left behind to keep, because there was never a profile.
 - **Everything expires on its own.** All usage data and all crash reports are deleted **90 days** after they are received. Nothing is kept longer, and nothing needs a request to make that happen.
 
-Everything the App stores about _your wallet_ — your keys, accounts, balances, and history — is on your device, and you can delete it yourself with "Delete wallet" in Settings, or by uninstalling the App. That is unaffected by any of the above.
+Everything the App stores about _your wallet_ - your keys, accounts, balances, and history - is on your device, and you can delete it yourself with "Delete wallet" in Settings, or by uninstalling the App. That is unaffected by any of the above.
 
 ## What scrubbing can and cannot promise
 
@@ -237,11 +237,11 @@ For transparency about how the App functions on your device (this is not data we
 
 ## Biometric authentication (Face ID, Touch ID, Fingerprint)
 
-The App offers **optional** biometric unlock using your device's built-in authentication — Face ID or Touch ID on iOS, fingerprint or face authentication on Android.
+The App offers **optional** biometric unlock using your device's built-in authentication - Face ID or Touch ID on iOS, fingerprint or face authentication on Android.
 
 **The App does not collect, access, receive, store, transmit, or share any face data, fingerprint data, or other biometric data.**
 
-Biometric matching is performed entirely by your device's operating system inside secure hardware (Apple's Secure Enclave / Android's hardware-backed keystore). Your biometric templates are created, stored, and managed solely by iOS/Android and are never made available to the App. When you unlock with biometrics, the App receives only a yes/no result indicating whether authentication succeeded — it never receives any biometric data itself.
+Biometric matching is performed entirely by your device's operating system inside secure hardware (Apple's Secure Enclave / Android's hardware-backed keystore). Your biometric templates are created, stored, and managed solely by iOS/Android and are never made available to the App. When you unlock with biometrics, the App receives only a yes/no result indicating whether authentication succeeded - it never receives any biometric data itself.
 
 - **What we collect:** No face or fingerprint data. None is ever transmitted off your device; we operate no servers that could receive it.
 - **How it is used:** A successful biometric check causes your device's operating system to release a wallet-unlock key held in secure hardware, allowing the App to decrypt your local wallet without you typing your password. This happens entirely on-device.
@@ -312,8 +312,8 @@ Apart from those token logos and Explore icons, and the site icons the dApp brow
 The App requests the following Android permissions:
 
 - **INTERNET** - to reach the Miden RPC and transport endpoints and the services named under Network traffic
-- **VIBRATE** — for haptic feedback on UI interactions
-- **USE_BIOMETRIC** (Android 6+) — to unlock the wallet via fingerprint / face authentication
+- **VIBRATE** - for haptic feedback on UI interactions
+- **USE_BIOMETRIC** (Android 6+) - to unlock the wallet via fingerprint / face authentication
 
 ## Children
 
