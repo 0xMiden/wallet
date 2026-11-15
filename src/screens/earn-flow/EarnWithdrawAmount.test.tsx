@@ -80,7 +80,7 @@ it('submits an exact partial withdrawal to review through one real Command foote
   expect(navigate).toHaveBeenCalledWith('/earn/positions/p/withdraw/review?amount=1.000000000000000001');
 });
 
-it('restores exact partial withdrawal after review Back but not for another position or RPC', () => {
+it('restores exact partial withdrawal after review Back but not for another RPC or network', () => {
   const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc.example' };
   const { rerender } = render(
     <CommandDraftProvider scope={scope}>
@@ -101,6 +101,15 @@ it('restores exact partial withdrawal after review Back but not for another posi
   rerender(
     <CommandDraftProvider scope={{ ...scope, rpcUrl: 'https://other.example' }}>
       <EarnWithdrawAmount key="other-rpc" positionId="p" />
+    </CommandDraftProvider>
+  );
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('');
+  fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), {
+    target: { value: '2.000000000000000001' }
+  });
+  rerender(
+    <CommandDraftProvider scope={{ ...scope, network: 'devnet' }}>
+      <EarnWithdrawAmount key="other-network" positionId="p" />
     </CommandDraftProvider>
   );
   expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('');
