@@ -585,6 +585,7 @@ function recoverFromTrap(cause: unknown): void {
       '[miden-client] WASM trap while a holder is mid-yield - poisoning client singletons in place:',
       cause
     );
+    recordRetiredTrap(cause);
     lastRecoveryAt = monotonicNow();
     replaceClientSingletons(true, reclaimWhenIdle(yieldedHolders));
   } else {
@@ -593,21 +594,26 @@ function recoverFromTrap(cause: unknown): void {
     // the next getMidenClient() construct a fresh client rather than handing out
     // the poisoned one.
     console.error('[miden-client] WASM trap with no lock holder - disposing client singletons:', cause);
+    recordRetiredTrap(cause);
     lastRecoveryAt = monotonicNow();
     replaceClientSingletons(false);
   }
 }
 
 /**
- * Every trap `retireWasmClientForCaughtTrap` accepted. A trap is retired once: a catch that retired and rethrew it
- * leaves its lock nothing to do, and the same object reaching a realm listener afterwards (its caller left it
- * unhandled, or it also surfaced as an uncaught error) must not evict the successor that already built a fresh
- * client. A new trap is a new object, so it is still evicted at once.
+ * Every trap a retire or a realm listener's recovery has taken. A trap is retired once: a catch that retired and
+ * rethrew it leaves its lock nothing to do, and the same object reaching a realm listener afterwards (its caller left
+ * it unhandled, or it also surfaced as an uncaught error), or a landed reader after a listener, must not retire the
+ * successor that already built a fresh client. A new trap is a new object, so it is still evicted at once.
  */
 const retiredTrapCauses = new WeakSet<object>();
 
 function wasRetiredForCaughtTrap(cause: unknown): boolean {
   return typeof cause === 'object' && cause !== null && retiredTrapCauses.has(cause);
+}
+
+function recordRetiredTrap(cause: unknown): void {
+  if (typeof cause === 'object' && cause !== null) retiredTrapCauses.add(cause);
 }
 
 /**
@@ -634,7 +640,7 @@ export function retireWasmClientForCaughtTrap(hold: WasmLockHold, cause: unknown
   if (currentHolder === null || hold !== currentHolder) return;
   // Deduped by cause, not by hold: a client rebuilt later in the same hold can trap again.
   if (wasRetiredForCaughtTrap(cause)) return;
-  if (typeof cause === 'object' && cause !== null) retiredTrapCauses.add(cause);
+  recordRetiredTrap(cause);
   console.error('[miden-client] WASM trap caught by its own lock holder - poisoning client singletons in place:', {
     hold: currentHolder.label ?? 'unlabelled',
     cause
@@ -650,7 +656,7 @@ export function retireWasmClientForCaughtTrap(hold: WasmLockHold, cause: unknown
  */
 export function retireWasmClientForUnheldTrap(cause: unknown): void {
   if (currentHolder !== null || wasRetiredForCaughtTrap(cause)) return;
-  if (typeof cause === 'object' && cause !== null) retiredTrapCauses.add(cause);
+  recordRetiredTrap(cause);
   recoverFromTrap(cause);
 }
 
@@ -664,7 +670,7 @@ export function retireWasmClientForUnheldTrap(cause: unknown): void {
  */
 function retireWasmClientForLandedTrap(cause: WebAssembly.RuntimeError, landing: string): void {
   if (wasRetiredForCaughtTrap(cause)) return;
-  retiredTrapCauses.add(cause);
+  recordRetiredTrap(cause);
   console.error('[miden-client] WASM trap read past submit outside any hold - retiring client singletons:', {
     landing,
     ...(currentHolder !== null ? { retainer: currentHolder.label ?? 'unlabelled' } : {}),
@@ -905,6 +911,7 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   // Stale trigger: the holder already finished, was already killed, or is
   // mid-yield (not currently holding the lock).
   if (holder.killed || holder !== currentHolder) return;
+  recordRetiredTrap(cause);
   holder.killed = true;
   lastRecoveryAt = monotonicNow();
   holder.cancelWatchdog?.();
