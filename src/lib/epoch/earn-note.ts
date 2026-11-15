@@ -98,11 +98,11 @@ export async function createEarnP2IDENote(
       // OOMs the service worker / WebView and restarts the wallet mid-submit.
       true,
       requestBytes,
+      builtNoteId,
       spendingLimitAuthorization,
       args.allocatorUrl,
       args.protocol,
-      args.chainId,
-      builtNoteId
+      args.chainId
     );
 
     // Row exists now (Queued) - let the caller navigate before we block on proving.

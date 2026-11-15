@@ -117,6 +117,7 @@ export async function initiateUsdcxBurn(args: {
     destinationAddress,
     destinationChainId,
     'usdcx',
+    built.burnNoteId,
     built.requestBytes,
     true,
     undefined,
@@ -129,9 +130,6 @@ export async function initiateUsdcxBurn(args: {
       destinationBalanceBefore,
       destinationUsdc: destination.usdc,
       payoutFeeAllowance: destination.payoutFeeAllowance.toString()
-    },
-    undefined,
-    undefined,
-    built.burnNoteId
+    }
   );
 }

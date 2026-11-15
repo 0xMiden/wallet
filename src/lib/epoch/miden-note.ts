@@ -134,6 +134,7 @@ export async function createBridgeP2IDENote(
       destinationAddress,
       destinationNetwork,
       'epoch',
+      reclaimNoteId,
       requestBytes,
       // Delegate to the remote prover. Local proving this Guardian P2IDE note
       // OOMs the service worker / WebView and restarts the wallet mid-submit.
@@ -149,8 +150,7 @@ export async function createBridgeP2IDENote(
       undefined,
       undefined,
       undefined,
-      args.allocatorUrl,
-      reclaimNoteId
+      args.allocatorUrl
     );
 
     // Row exists now (Queued) - let the caller navigate to the progress screen

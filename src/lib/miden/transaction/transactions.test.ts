@@ -670,6 +670,7 @@ describe('transactions utilities', () => {
         '0xrecipient',
         1,
         'agglayer',
+        '0xbuilt',
         undefined,
         undefined,
         undefined,
@@ -702,6 +703,7 @@ describe('transactions utilities', () => {
         '0xrecipient',
         11155111,
         'usdcx',
+        '0xbuilt',
         requestBytes,
         true,
         undefined,
@@ -729,6 +731,7 @@ describe('transactions utilities', () => {
           '0xrecipient',
           11155111,
           'usdcx',
+          '0xbuilt',
           new Uint8Array([1])
         )
       ).rejects.toThrow('persisted request and note id');
@@ -743,6 +746,7 @@ describe('transactions utilities', () => {
         '0xrecipient',
         0,
         'agglayer',
+        '0xbuilt',
         new Uint8Array([1]),
         true,
         undefined,
@@ -775,19 +779,18 @@ describe('transactions utilities', () => {
         '0xrecipient',
         0,
         'agglayer',
+        '0xbuilt',
         new Uint8Array([1]),
         true,
         undefined,
         undefined,
         '0xexit',
         undefined,
-        AGGLAYER_RECOVERY,
-        undefined,
-        '0xbuilt'
+        AGGLAYER_RECOVERY
       );
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'bridged-send', approvedEffects: { approvedOutputNoteIds: ['0xbuilt'] } }),
+        expect.objectContaining({ type: 'bridged-send', approvedOutputNoteIds: ['0xbuilt'] }),
         [{ faucetId: 'faucet-a', amount: 10n }],
         undefined
       );
@@ -803,15 +806,11 @@ describe('transactions utilities', () => {
         { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
         true,
         new Uint8Array([1, 2, 3]),
-        undefined,
-        undefined,
-        undefined,
-        undefined,
         '0xbuilt'
       );
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'earn-deposit', approvedEffects: { approvedOutputNoteIds: ['0xbuilt'] } }),
+        expect.objectContaining({ type: 'earn-deposit', approvedOutputNoteIds: ['0xbuilt'] }),
         [{ faucetId: 'faucet-a', amount: 10n }],
         undefined
       );
@@ -827,6 +826,7 @@ describe('transactions utilities', () => {
         { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
         true,
         new Uint8Array([1, 2, 3]),
+        '0xbuilt',
         authorization
       );
 
@@ -852,6 +852,7 @@ describe('transactions utilities', () => {
         { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
         true,
         new Uint8Array([1, 2, 3]),
+        '0xbuilt',
         undefined,
         'https://allocator.test',
         '1delta',
@@ -889,6 +890,7 @@ describe('transactions utilities', () => {
             true,
             // @ts-expect-error the type requires the bytes; this is the run-time guard behind it
             bytes,
+            '0xbuilt',
             authorization
           )
         ).rejects.toThrow(EARN_DEPOSIT_MISSING_REQUEST_ERROR);

@@ -568,7 +568,7 @@ describe('execute', () => {
     (_shape, queuedRow) => {
       const queued = queuedRow([{ faucetId: 'bech32:fA', amount: 50n }]);
       expect(queued.approvedEffects?.approvedOutputNoteIds).toBeUndefined();
-      expect({ ...queued.approvedEffects }).not.toHaveProperty('introducedNoteIds');
+      expect(queued.approvedEffects?.introducedNoteIds).toBeUndefined();
       const paying = summary({
         removed: [fa('fA', 50n), fa('usdcx', 2n)],
         outputs: [note([fa('fA', 50n)], [], 'pay'), feeNote(2n)]

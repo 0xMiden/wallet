@@ -176,15 +176,14 @@ export async function initiateB2AggBridge(args: {
     destinationAddress,
     evmNetworkId,
     'agglayer',
+    ownNoteId,
     requestBytes,
     true,
     undefined,
     spendingLimitAuthorization,
     exitTxHash,
     undefined,
-    recovery,
-    undefined,
-    ownNoteId
+    recovery
   );
 }
 
