@@ -24,6 +24,17 @@ function step(name: string): Record<string, unknown> {
 }
 
 describe('funded nightly swap workflow', () => {
+  it.each(['mainnet-nightly', 'mainnet-agglayer'])(
+    'uses the existing dedicated Reown project and scoped origin for both build and counterparty in %s',
+    name => {
+      const environment = object(object(jobs[name]).env);
+      expect(environment).toMatchObject({
+        WALLETCONNECT_PROJECT_ID: '${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}',
+        MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+      });
+      expect(environment.MIDEN_E2E_ONE_CLICK_TESTNET).toBeUndefined();
+    }
+  );
   it('builds and loads the actual read-only Epoch SDK before any provider recovery or funding', () => {
     const name = 'Build read-only Epoch SDK';
     const build = step(name);

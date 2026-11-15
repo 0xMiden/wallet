@@ -55,6 +55,8 @@ jobs:
       legacy_cleared: ${{ steps.legacy-barrier.outputs.legacy_cleared }}
     env:
       E2E_NETWORK: mainnet
+      WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
       MAINNET_SWAP_RECOVERY_RETURN_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_swap_recovery_return && 'true' || 'false' }}
       MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.replace_unsubmitted_swap_return && 'true' || 'false' }}
       MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: ${{ github.event_name == 'schedule' && '2000000' || inputs.loss_budget_usd_micros }}
@@ -813,6 +815,8 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 230 || 185 }}
     env:
       E2E_NETWORK: mainnet
+      WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
     steps:

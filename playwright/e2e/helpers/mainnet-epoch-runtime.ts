@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test';
+import { parseQuoteFromPath } from '@epoch-protocol/epoch-commons-sdk';
 import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Endpoint, NoteId, RpcClient } from '@miden-sdk/miden-sdk';
@@ -502,13 +503,23 @@ export async function runEpochReverse(
           const nonceResponse = await nonceRequest?.response();
           if (!quoteRequest || !quoteResponse?.ok() || !nonceResponse?.ok())
             throw new Error('Missing live Epoch reverse SDK exchange');
-          const quote: unknown = await quoteResponse.json();
+          const rawQuote: unknown = await quoteResponse.json();
+          const pathQuote =
+            isRecord(rawQuote) && Array.isArray(rawQuote.path) ? parseQuoteFromPath(rawQuote.path[0]) : null;
+          const quote =
+            isRecord(rawQuote) && rawQuote.success !== false
+              ? {
+                  tokenIn: rawQuote.tokenIn === undefined ? pathQuote?.tokenIn : rawQuote.tokenIn,
+                  tokenOut: rawQuote.tokenOut === undefined ? pathQuote?.tokenOut : rawQuote.tokenOut
+                }
+              : null;
           const nonce: unknown = await nonceResponse.json();
           const payload = quoteRequest.postDataJSON();
           if (
             !isRecord(quote) ||
             typeof quote.tokenIn !== 'string' ||
             !/^[1-9]\d{0,77}$/.test(quote.tokenIn) ||
+            BigInt(quote.tokenIn) >= 1n << 256n ||
             quote.tokenOut !== state.reverseMinimum ||
             !isRecord(nonce) ||
             typeof nonce.nonce !== 'string' ||
@@ -627,9 +638,10 @@ export async function runEpochReverse(
     await form.getByTestId('bridge-source-network').click();
     await wallet.page.getByTestId(`bridge-network-${evmChainSlug(state.evm.chainId)}`).click();
     await form.getByTestId('send-token-selector').click();
-    await wallet.page.getByTestId('bridge-token-EPOCH_USDC').click();
+    await wallet.page.getByTestId(/^bridge-token-(?:EPOCH_USDC|CIRCLE_USDC)$/).click();
     await form.getByTestId('send-amount-input').fill(formatUnits(BigInt(state.reverseMinimum), 6));
     await form.getByTestId('send-amount-confirm').click();
+    await expect(form.getByTestId('bridge-route-fast')).toBeEnabled({ timeout: 90_000 });
     await form.getByTestId('bridge-route-fast').click();
     await form.getByTestId('bridge-route-confirm').click();
     await form.getByTestId('bridge-deposit-review-confirm').click();
