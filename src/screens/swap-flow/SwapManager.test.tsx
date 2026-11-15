@@ -201,6 +201,8 @@ jest.mock('./SwapAmounts', () => {
 
 let mockReviewSubmit: () => void;
 jest.mock('./ReviewSwap', () => ({
+  swapReviewTermsChanged: (...args: Parameters<typeof import('./ReviewSwap').swapReviewTermsChanged>) =>
+    jest.requireActual<typeof import('./ReviewSwap')>('./ReviewSwap').swapReviewTermsChanged(...args),
   ReviewSwap: (props: import('./ReviewSwap').ReviewSwapProps) => {
     mockReviewSubmit = props.onSubmit;
     return (
@@ -3351,6 +3353,84 @@ describe('SwapFlow / SwapManager', () => {
         mockWalletState.assessSpendingLimit.mock.invocationCallOrder[0]!
       );
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true, 5);
+    });
+
+    it('requires renewed Command review when a partial fill becomes settlement-delayed at the same price', async () => {
+      mockRealSwapDisplays = true;
+      mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+      const reviewed = quoteAt('2', 5n, { fillStatus: 'partial', reason: null, estimatedSeconds: 60 });
+      const delayed = quoteAt('2', 5n, {
+        fillStatus: 'partial',
+        reason: null,
+        estimatedSeconds: 60,
+        settlementsRunning: false
+      });
+      mockSwapQuoteResult = { loading: false, quote: reviewed };
+      render(
+        <FlowPresentationProvider value="command">
+          <SwapFlow />
+        </FlowPresentationProvider>
+      );
+      setOffer('10');
+      expect(screen.getByTestId('swap-verdict-row')).toHaveTextContent('swapVerdictPartial');
+      quoteNowAnswers(delayed);
+
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceMoved');
+      expect(screen.getByTestId('swap-verdict-row')).toHaveTextContent('swapVerdictSettlementDelayed');
+      expect(mockVaultPreflight).not.toHaveBeenCalled();
+      expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(mockConfirmSensitive).not.toHaveBeenCalled();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockVaultPreflight).toHaveBeenCalledTimes(1);
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true, 5);
+    });
+
+    it('keeps a Command partial review valid when only invisible solver quantities and timestamps change', async () => {
+      mockRealSwapDisplays = true;
+      const reviewed = quoteAt('2', 5n, {
+        fillStatus: 'partial',
+        reason: null,
+        estimatedSeconds: 120,
+        fillableRequestedAmount: '2'
+      });
+      const fresh = {
+        ...quoteAt('2', 5n, {
+          fillStatus: 'partial',
+          reason: null,
+          estimatedSeconds: 121,
+          median24hSeconds: 500,
+          fillableRequestedAmount: '3'
+        }),
+        fetchedAt: 123
+      };
+      mockSwapQuoteResult = { loading: false, quote: reviewed };
+      render(
+        <FlowPresentationProvider value="command">
+          <SwapFlow />
+        </FlowPresentationProvider>
+      );
+      setOffer('10');
+      expect(screen.getByTestId('swap-verdict-row')).toHaveTextContent('swapVerdictPartial');
+      expect(screen.getByTestId('swap-fills-in-row')).toHaveTextContent('swapEtaMinutes');
+      quoteNowAnswers(fresh);
+
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('rs-submit-error')).toBeEmptyDOMElement();
+      expect(mockVaultPreflight).toHaveBeenCalledTimes(1);
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps an advisory settlement delay eligible in compact Swap', async () => {
+      quoteNowAnswers(quoteAt('2', 5n, { fillStatus: 'partial', reason: null, settlementsRunning: false }));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
     });
 
     it('rechecks the offer minimum after the fresh quote resolves', async () => {

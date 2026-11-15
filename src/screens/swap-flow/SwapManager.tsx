@@ -59,7 +59,7 @@ import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
 
 import { isValidExpirySeconds } from './expiry';
 import { OneClickNetworkOption } from './OneClickPickers';
-import { ReviewSwap } from './ReviewSwap';
+import { ReviewSwap, swapReviewTermsChanged } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 import { SwapAmounts } from './SwapAmounts';
 import { SwapFlowStep, SwapSide } from './types';
@@ -790,7 +790,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({
           fresh.price.fillPrice !== reviewQuote.price.fillPrice ||
           fresh.price.feePpm !== reviewQuote.price.feePpm ||
           fresh.slippageBps !== reviewQuote.slippageBps ||
-          fresh.eta.fillStatus !== reviewQuote.eta.fillStatus)
+          swapReviewTermsChanged(t, reviewQuote, fresh, requestToken.decimals))
       ) {
         setReviewQuote(fresh);
         setSubmitError(t('swapPriceMoved'));
@@ -864,6 +864,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({
     balanceScope,
     offerToken,
     requestToken.faucetId,
+    requestToken.decimals,
     hasOfferAmount,
     hasRequestAmount,
     requestAmountBaseUnits,
