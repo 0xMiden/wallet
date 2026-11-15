@@ -842,6 +842,80 @@ describe('MultisigService', () => {
         expect(request.free).not.toHaveBeenCalled();
         expect(mockSummaryFree).not.toHaveBeenCalled();
       });
+
+      describe('a read that fails', () => {
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        const throwing = () => {
+          throw new Error('freed after the trap');
+        };
+
+        it('rejects with a trap from the commitment read and frees nothing the trap left behind', async () => {
+          const request = { free: jest.fn(throwing) };
+          mockTransactionRequestDeserialize.mockImplementation(() => request);
+          const commitmentFree = jest.fn(throwing);
+          mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+            serialize: () => new Uint8Array([0xab]),
+            toCommitment: () => ({
+              toHex: () => {
+                throw trap;
+              },
+              free: commitmentFree
+            }),
+            free: () => {
+              mockSummaryFree();
+              throwing();
+            }
+          }));
+          const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+          const service = new MultisigService(makeMultisig({ createProposal }) as never, {} as never, 'https://x');
+
+          await expect(service.createCustomProposal(bytes)).rejects.toBe(trap);
+          expect(commitmentFree).not.toHaveBeenCalled();
+          expect(mockSummaryFree).not.toHaveBeenCalled();
+          expect(request.free).not.toHaveBeenCalled();
+          expect(createProposal).not.toHaveBeenCalled();
+        });
+
+        it('rejects with a trap from the summary serialize and frees neither the summary nor the request', async () => {
+          const request = { free: jest.fn(throwing) };
+          mockTransactionRequestDeserialize.mockImplementation(() => request);
+          const commitmentFree = jest.fn();
+          mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+            serialize: () => {
+              throw trap;
+            },
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: commitmentFree }),
+            free: () => {
+              mockSummaryFree();
+              throwing();
+            }
+          }));
+          const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+          const service = new MultisigService(makeMultisig({ createProposal }) as never, {} as never, 'https://x');
+
+          await expect(service.createCustomProposal(bytes)).rejects.toBe(trap);
+          expect(commitmentFree).toHaveBeenCalledTimes(1);
+          expect(mockSummaryFree).not.toHaveBeenCalled();
+          expect(request.free).not.toHaveBeenCalled();
+        });
+
+        it('still frees the summary and the request when the serialize fails with an ordinary error', async () => {
+          const request = { free: jest.fn() };
+          mockTransactionRequestDeserialize.mockImplementation(() => request);
+          mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+            serialize: () => {
+              throw new Error('layout');
+            },
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: jest.fn() }),
+            free: () => mockSummaryFree()
+          }));
+          const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
+
+          await expect(service.createCustomProposal(bytes)).rejects.toThrow('layout');
+          expect(request.free).toHaveBeenCalledTimes(1);
+          expect(mockSummaryFree).toHaveBeenCalledTimes(1);
+        });
+      });
     });
 
     it.each([
@@ -3525,6 +3599,31 @@ describe('MultisigService', () => {
       // The summary and salt are borrows of the client a successor now owns.
       expect(summarySerialize).not.toHaveBeenCalled();
       expect(summaryToCommitment).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+    });
+
+    it('rejects with a trap from the commitment read without freeing the commitment', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const commitmentFree = jest.fn(() => {
+        throw new Error('freed after the trap');
+      });
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      seedReplaceHotKeyCollaborators();
+      mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+        serialize: () => new Uint8Array([0xab]),
+        toCommitment: () => ({
+          toHex: () => {
+            throw trap;
+          },
+          free: commitmentFree
+        }),
+        free: () => mockSummaryFree()
+      }));
+
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(trap);
+      expect(commitmentFree).not.toHaveBeenCalled();
       expect(multisig.createProposal).not.toHaveBeenCalled();
     });
 
