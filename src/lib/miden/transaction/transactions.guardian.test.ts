@@ -16476,6 +16476,28 @@ describe('Guardian proposal effect check', () => {
       },
       ...builtNote
     });
+    // The row `createBridgeP2IDENote` queues: its collateral note built at initiate, reclaimable by that same id.
+    const epoch = (id: string) => ({
+      id,
+      type: 'bridged-send',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      faucetId: 'faucet',
+      secondaryAccountId: 'allocator',
+      noteType: 'public',
+      requestBytes: new Uint8Array([91, 92, 93]),
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        recallBlocks: 25,
+        reclaimNoteId: 'note:faucet-1000',
+        claimStatus: 'not-applicable',
+        epochStatus: 'pending'
+      },
+      ...builtNote
+    });
 
     it('fails one whose summary moves one unit more, never signs or runs it, and abandons its candidate', async () => {
       mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1001n)] }));
@@ -16499,6 +16521,7 @@ describe('Guardian proposal effect check', () => {
 
     it.each([
       ['an Agglayer bridged send', bridge],
+      ['an Epoch bridged send', epoch],
       ['an Earn deposit', deposit]
     ])(
       'fails %s whose summary creates another note than the one it was built with, never signs or runs it',
@@ -16546,6 +16569,24 @@ describe('Guardian proposal effect check', () => {
       );
       expect(row.proposalEffectRefused).toBe(true);
       expect(isRequeueableTransaction({ ...(row as unknown as ITransaction), bridgeProvider: 'agglayer' })).toBe(false);
+    });
+
+    it('proposes an Epoch bridged send from the bytes it was built with, and signs and runs it', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+      const { service } = bridgeService(18);
+
+      const row = await run(epoch('epoch-exact'));
+
+      expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledWith(
+        new Uint8Array([91, 92, 93]),
+        'bridged_send',
+        180
+      );
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-bridge-18', rebasedBytes);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Completed);
     });
 
     it('signs and runs an Earn deposit whose summary creates only the note it was built with', async () => {
