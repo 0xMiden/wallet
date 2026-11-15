@@ -116,6 +116,7 @@ import {
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwapTransaction,
+  landedSwapOrderId,
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction
 } from './complete';
@@ -1220,7 +1221,10 @@ const runLandedTail = async (
   try {
     await retiringLandedTraps(transaction.id, result, run);
   } catch (error) {
-    throw new LandedTailError(error, { transactionId: readLandedTransactionId(transaction.id, result) });
+    throw new LandedTailError(error, {
+      transactionId: readLandedTransactionId(transaction.id, result),
+      ...(transaction.type === 'swap' ? { orderId: landedSwapOrderId(transaction.id, result) } : {})
+    });
   }
 };
 
@@ -1258,9 +1262,20 @@ const writeLandedCompleted = async (txId: string, error: unknown): Promise<ITran
     try {
       const row = await Repo.transactions.where({ id: txId }).first();
       if (row === undefined || hasLeftQueue(row)) return undefined;
+      const completedAt = Math.floor(Date.now() / 1000); // seconds
+      const orderId = landedTailErrorIn(error)?.orderId;
       await updateTransactionStatus(txId, ITransactionStatus.Completed, {
         ...landedRowFields(row, error),
-        completedAt: Math.floor(Date.now() / 1000) // seconds
+        completedAt,
+        ...(row.type === 'swap'
+          ? {
+              extraInputs: {
+                ...row.extraInputs,
+                expiresAt: completedAt + (row.extraInputs.expirySeconds ?? 120),
+                ...(orderId === undefined ? {} : { orderId })
+              }
+            }
+          : {})
       });
       return row;
     } catch (writeError) {

@@ -186,6 +186,10 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
+jest.mock('lib/telemetry/transaction-failure', () => {
+  const actual = jest.requireActual('lib/telemetry/transaction-failure');
+  return { ...actual, reportTransactionFailure: jest.fn(actual.reportTransactionFailure) };
+});
 // These proposals carry no summary; both signing-time effect checks have their own tests (#2147).
 jest.mock('./proposal-effect-guard', () => ({
   assertProposalEffectApproved: async () => {},
@@ -635,12 +639,16 @@ describe('a throw after the leaf resolved', () => {
       waitForTransactionCommit: mockWaitForCommit,
       sendPrivateNote: mockSendPrivateNote
     });
+    const proxy = require('../back/miden-client-proxy').midenClientProxy;
+    const originalSwapTransaction = proxy.swapTransaction;
+    proxy.swapTransaction = write;
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
     const errSpy = jest.spyOn(console, 'error').mockImplementation();
     try {
       await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
     } finally {
       sdk.getMidenClient = origGetClient;
+      proxy.swapTransaction = originalSwapTransaction;
       warnSpy.mockRestore();
       errSpy.mockRestore();
     }
@@ -649,6 +657,81 @@ describe('a throw after the leaf resolved', () => {
   const landedResult = (executed: Record<string, unknown>, serialize = () => new Uint8Array([])) => ({
     executedTransaction: () => ({ id: () => ({ toHex: () => 'landed-id' }), ...executed }),
     serialize
+  });
+
+  const landedSwapOutput = (asInt: () => bigint = () => 42n) => ({
+    id: () => ({ toString: () => 'swap-output-note' }),
+    metadata: () => ({ noteType: () => NoteTypeEnum.Public }),
+    assets: () => ({ fungibleAssets: () => [] }),
+    intoFull: () => ({
+      recipient: () => ({ serialNum: () => ({ toFelts: () => [0n, { asInt }] }) })
+    })
+  });
+
+  it('a loop swap whose tail throws before the Completed write keeps its order stamp and requested inputs', async () => {
+    queuedRow('tx-tail-swap-order', {
+      type: 'swap',
+      faucetId: 'faucet-offer',
+      amount: BigInt(5),
+      extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: BigInt(9), expirySeconds: 100 }
+    });
+    const note = landedSwapOutput();
+    await runLoopWithWrite(
+      jest.fn(async () =>
+        landedResult({ outputNotes: () => ({ notes: () => [note] }) }, () => {
+          throw new Error('result serialize');
+        })
+      )
+    );
+
+    const row = txStore[0]!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs).toMatchObject({
+      orderId: 42n,
+      requestedFaucetId: 'faucet-req',
+      requestedAmount: 9n
+    });
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+  });
+
+  it('a trap reading a landed swap order id leaves the original tail error in place', async () => {
+    const id = 'tx-tail-swap-order-trap';
+    queuedRow(id, {
+      type: 'swap',
+      faucetId: 'faucet-offer',
+      amount: BigInt(5),
+      extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: BigInt(9), expirySeconds: 100 }
+    });
+    const trap = new WebAssembly.RuntimeError('order id read');
+    let orderRead = 0;
+    const note = landedSwapOutput(() => {
+      orderRead++;
+      if (orderRead === 2) throw trap;
+      return 42n;
+    });
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const report = require('lib/telemetry/transaction-failure').reportTransactionFailure as jest.Mock;
+    report.mockClear();
+    const tailFailure = new Error('result serialize');
+    try {
+      await runLoopWithWrite(
+        jest.fn(async () =>
+          landedResult({ outputNotes: () => ({ notes: () => [note] }) }, () => {
+            throw tailFailure;
+          })
+        )
+      );
+    } finally {
+      restore();
+    }
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(retire).toHaveBeenCalledWith(trap, id);
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ error: tailFailure }));
   });
 
   it('an execute whose completion throws after the leaf resolved is Completed with its landed id and offers no Retry', async () => {

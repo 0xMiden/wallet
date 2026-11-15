@@ -156,11 +156,14 @@ async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>):
 export class LandedTailError extends Error {
   /** The executed transaction's id, read after the failure; undefined when the result could not be read. */
   readonly transactionId?: string;
+  /** The swap output's lineage id, read after the failure; undefined when it could not be read. */
+  readonly orderId?: bigint;
 
-  constructor(cause: unknown, { transactionId }: { transactionId?: string } = {}) {
+  constructor(cause: unknown, { transactionId, orderId }: { transactionId?: string; orderId?: bigint } = {}) {
     super('The network accepted this transaction, but a step after its submit failed', { cause });
     this.name = 'LandedTailError';
     this.transactionId = transactionId;
+    this.orderId = orderId;
   }
 }
 

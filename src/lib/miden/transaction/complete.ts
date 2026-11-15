@@ -481,6 +481,19 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   });
 };
 
+/** Read the swap order id again when its tail fails, without replacing the original failure if the result traps. */
+export const landedSwapOrderId = (landing: string, result: TransactionResult): bigint | undefined => {
+  try {
+    const { userNotes } = splitLandedOutputNotes(result, landing);
+    const outputNote = userNotes[0];
+    if (!outputNote) return undefined;
+    return outputNote.intoFull()?.recipient().serialNum().toFelts()[1]?.asInt();
+  } catch (error) {
+    retireLandedTrap(error, landing, result);
+    return undefined;
+  }
+};
+
 /**
  * Attempts for the post-rotation guardian re-register, covering the WHOLE block
  * (provider read -> sync -> local account -> cold service -> push), not just the
