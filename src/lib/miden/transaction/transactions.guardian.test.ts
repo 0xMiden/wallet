@@ -13747,6 +13747,70 @@ describe('generateTransaction - Guardian routing', () => {
     expect(row.transactionId).toBe('exec-tx-hash');
   });
 
+  // The completion relayed the note and recorded it before a later read threw, so the landed arm must read the stored
+  // row: the in-memory one predates the relay and would label the delivered note undelivered (PR #2183).
+  it('a Guardian execute whose tail relays its note and then throws keeps the note relayed', async () => {
+    const txId = 'execute-tail-relayed';
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createCustomProposal: jest.fn(async () => ({ id: 'prop-execute' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    // No `assets()`, so the result's own interpretation throws after the relay.
+    const relayedNote = {
+      id: () => ({ toString: () => 'relayed-note' }),
+      metadata: () => ({ noteType: () => NoteType.Private }),
+      intoFull: () => ({ __note: 'relayed-note' })
+    };
+    const result = Object.assign(makeResult(), {
+      executedTransaction: () => ({
+        ...makeResult().executedTransaction(),
+        outputNotes: () => ({ notes: () => [relayedNote] })
+      })
+    });
+    const sendPrivateNote = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      sendPrivateNote,
+      client: makeClientApi(result)
+    });
+    const queued = {
+      id: txId,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4]),
+      secondaryAccountId: 'recipient'
+    };
+    txStore.push({ ...queued, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await generateTransaction(
+        { ...queued, delegateTransaction: false } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(sendPrivateNote).toHaveBeenCalledTimes(1);
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Completed,
+        noteDelivery: 'relayed',
+        displayMessage: 'Executed'
+      });
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   // #1233: the retry asks the pipeline's own hold before it touches the client again. The store
   // still holds the initial account, so only the hold check can stop the second apply.
   it('Guardian send: an apply whose hold is lost after the first failure is not applied again (#1233)', async () => {

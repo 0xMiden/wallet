@@ -767,6 +767,50 @@ describe('a throw after the leaf resolved', () => {
     );
   });
 
+  // The completion relayed the note and recorded it before a later read threw: the landed label must not undo that.
+  it('an execute whose tail relays its note and then throws keeps the note relayed', async () => {
+    queuedExecute('tx-tail-relayed', { secondaryAccountId: 'recipient' });
+    require('../activity/helpers').interpretTransactionResult.mockImplementationOnce(() => {
+      throw new Error('input notes read');
+    });
+    const note = {
+      id: () => ({ toString: () => 'relayed-note' }),
+      metadata: () => ({ noteType: () => 'private' }),
+      intoFull: () => ({ __note: 'relayed-note' })
+    };
+
+    await runLoopWithWrite(jest.fn(async () => landedResult({ outputNotes: () => ({ notes: () => [note] }) })));
+
+    const row = txStore[0]!;
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      noteDelivery: 'relayed',
+      displayMessage: 'Executed'
+    });
+  });
+
+  it('an execute whose tail throws before any delivery is recorded still reads undelivered', async () => {
+    queuedExecute('tx-tail-unrecorded', { secondaryAccountId: 'recipient' });
+
+    await runLoopWithWrite(
+      jest.fn(async () =>
+        landedResult({
+          outputNotes: () => {
+            throw new Error('output notes read');
+          }
+        })
+      )
+    );
+
+    const row = txStore[0]!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect({ displayMessage: row.displayMessage, noteDelivery: row.noteDelivery }).toEqual(
+      landedValueRowFields({ type: 'execute', accountId: 'acc-1', secondaryAccountId: 'recipient' })
+    );
+    expect(row.noteDelivery).toBe('undelivered');
+  });
+
   it('an earn-deposit whose completion throws after the leaf resolved fails with its landed id and is not requeueable', async () => {
     queuedRow('tx-tail-earn', {
       type: 'earn-deposit',
@@ -804,6 +848,28 @@ describe('a throw after the leaf resolved', () => {
     expect(row).toMatchObject({ status: ITransactionStatus.Completed, transactionId: 'landed-id' });
     expect(isRequeueableTransaction(row)).toBe(false);
     expect(require('../activity/bridge-in').adoptLandedConsume).toHaveBeenCalledWith(row.id);
+  });
+});
+
+// A relay the row records as made, or as confirmed, is its own outcome: no landed label may overwrite it (PR #2183).
+describe('landedValueRowFields on a recorded delivery', () => {
+  const execute = { type: 'execute' as const, accountId: 'acc-1', secondaryAccountId: 'recipient' };
+  const privateSend = { type: 'send' as const, accountId: 'acc-1', noteType: NoteTypeEnum.Private };
+
+  it.each([
+    ['an execute with no note count', execute, undefined],
+    ['an execute counted with no private notes', execute, 0],
+    ['a private send', privateSend, undefined]
+  ])('keeps %s relayed or confirmed under the clean label', (_name, row, privateOutputNotes) => {
+    for (const noteDelivery of ['relayed', 'confirmed'] as const) {
+      expect(landedValueRowFields({ ...row, noteDelivery }, privateOutputNotes)).toEqual({
+        displayMessage: row.type === 'execute' ? 'Executed' : 'Sent'
+      });
+    }
+  });
+
+  it('still labels an execute undelivered when its pending relay was never made', () => {
+    expect(landedValueRowFields({ ...execute, noteDelivery: 'pending' }).noteDelivery).toBe('undelivered');
   });
 });
 
