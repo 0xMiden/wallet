@@ -121,9 +121,11 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   rejectRef.current = reject;
   const hiddenLoaded = hidden.loaded;
   const renderPendingItem = useCallback(
-    (item: PendingActivityItem) => (
+    (item: PendingActivityItem, review = false) => (
       <PendingActivityCard
+        key={item.note.id}
         item={item}
+        initiallyExpanded={review}
         onAccept={note => acceptRef.current(note)}
         onReject={hiddenLoaded ? note => rejectRef.current(note) : undefined}
         onRetryHeld={heldItem => retryHeldRef.current(heldItem)}

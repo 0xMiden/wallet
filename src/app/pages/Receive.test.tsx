@@ -7,6 +7,8 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { PageActiveContext } from 'app/layouts/page-active';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -148,7 +150,19 @@ jest.mock('components/QRCode', () => ({
 let mockPublicKey = 'test-account-123';
 
 jest.mock('lib/miden/front', () => ({
-  useAccount: () => ({ publicKey: mockPublicKey })
+  useAccount: () => ({ publicKey: mockPublicKey }),
+  useAllTokensBaseMetadata: () => ({}),
+  useAllBalances: () => ({
+    data: [
+      { tokenId: 'faucet-one', metadata: { symbol: 'ONE', name: 'One', decimals: 6 }, balance: 1 },
+      { tokenId: 'faucet-two', metadata: { symbol: 'TWO', name: 'Two', decimals: 6 }, balance: 0 }
+    ],
+    isLoading: false
+  })
+}));
+
+jest.mock('app/templates/history/useActivityClaimList', () => ({
+  useActivityClaimList: () => ({ listItems: [], renderPendingItem: () => null, isLoadingNotes: false })
 }));
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
@@ -308,6 +322,31 @@ describe('Receive - Address', () => {
       );
     });
   };
+
+  it('keeps a selected faucet across Receive minimize and reopen without changing the live account QR or copy', async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    const renderCommand = async (open: boolean) => {
+      await act(async () => {
+        testRoot!.render(
+          <CommandDraftProvider scope={{ accountId: 'scope-one', network: 'testnet', rpcUrl: 'rpc-one' }}>
+            <FlowPresentationProvider value="command">{open && <Receive />}</FlowPresentationProvider>
+          </CommandDraftProvider>
+        );
+      });
+    };
+    await renderCommand(true);
+    expect(mockQRCodeProps).toHaveBeenLastCalledWith(expect.objectContaining({ address: 'test-account-123' }));
+    fireEvent.click(testContainer.querySelector('[data-testid="receive-asset-picker"]')!);
+    fireEvent.click(document.body.querySelector('[data-testid="receive-asset-faucet-two"]')!);
+    expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');
+    await renderCommand(false);
+    await renderCommand(true);
+    expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');
+    expect(mockQRCodeProps).toHaveBeenLastCalledWith(expect.objectContaining({ address: 'test-account-123' }));
+    fireEvent.click(testContainer.querySelector('[data-testid="receive-copy-address"]')!);
+    await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+  });
 
   it('renders the account address', async () => {
     const container = await renderReceive();

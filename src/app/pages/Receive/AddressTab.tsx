@@ -10,6 +10,7 @@ import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES } from 'components/flow/accent';
+import type { FlowPresentation } from 'components/flow/FlowPresentation';
 import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle, type QRPalette } from 'components/QRCode';
 import { Card } from 'components/ui/Card';
@@ -30,6 +31,7 @@ import { truncateAddress } from 'utils/string';
 interface AddressTabProps {
   address: string;
   onBridgeDeposit: () => void;
+  presentation?: FlowPresentation;
 }
 
 const QR_FILE_NAME = 'miden-address.png';
@@ -118,7 +120,7 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
   );
 };
 
-export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
+export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit, presentation = 'compact' }) => {
   const { t } = useTranslation();
   const networkKey = getTestNetworkNameKey();
   const network = networkKey ? t(networkKey) : null;
@@ -222,15 +224,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   });
   const crossChainOnNetwork = isBridgeInOfferedOnNetwork(hasDocument, crossChain);
 
-  return (
-    // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
-    // the code opens the pane 20px down, above a titled pane's first line), the scroll and gesture
-    // contract and the clearance over the tab bar, the same as Send, Earn and Swap. Last-resort
-    // scroll only: the column is laid out to fit between the top action bar and the tab bar on
-    // every supported height, and scrolls only when even that does not fit.
-    // The page keeps the app's own surface: the Receive green is carried by the affordances, not
-    // by a wash, and the code needs a plain light field around it to scan off.
-    <HomeGroupPaneBody testId="receive-page" top="visual">
+  const content = (
+    <>
       {/* Every line of the page is Nunito: the body styles that read `--font-sans` (the tiles'
           captions, the warning) resolve to the heading face here. `contents` adds no box, so the
           pane's layout is untouched. */}
@@ -249,9 +244,11 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             around it — the card only added an edge between the code and the actions below. */}
         <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2">
           <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
-            {/* The QR is a fixed square (272px), not the leftover height: big enough to scan
-                across a table, small enough to leave the page room to breathe. */}
-            <div data-testid="receive-qr-slot" className="relative w-full max-w-68">
+            {/* Keep the shared QR square bounded and its quiet zone clear in both layouts. */}
+            <div
+              data-testid="receive-qr-slot"
+              className={cn('relative w-full bg-page', presentation === 'command' ? 'max-w-56 p-2' : 'max-w-68')}
+            >
               <motion.div
                 data-testid="receive-qr-frame"
                 className="aspect-square w-full"
@@ -343,6 +340,16 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           )}
         </div>
       </div>
+    </>
+  );
+
+  return presentation === 'command' ? (
+    <div data-testid="receive-page" className="min-w-0">
+      {content}
+    </div>
+  ) : (
+    <HomeGroupPaneBody testId="receive-page" top="visual">
+      {content}
     </HomeGroupPaneBody>
   );
 };

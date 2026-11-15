@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FEATURE][extension] Fullscreen Receive shares the current wallet address and network, remembers an unsigned asset choice, and reviews real pending transfers before native claim acceptance.
 - [FEATURE][extension] Send in the fullscreen Command workbench keeps one editable amount and recipient, restores unsigned choices across Back and minimize, and uses the existing review, fee reserve and signing checks.
 - [FEATURE][extension] Show the fullscreen Command dashboard's live wallet portfolio, local observed USD history and a saved hide-balances control without changing compact wallet data or transaction admission.
 - [FEATURE][extension] Add a guarded fullscreen Command shell with direct access to the existing Send, Receive, Swap, Earn and Bridge screens, scoped unsigned drafts and a keyboard action palette; compact, native, locked and confirmation views retain their existing presentation.
