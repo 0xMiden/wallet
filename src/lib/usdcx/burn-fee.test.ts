@@ -1,6 +1,7 @@
 import { isAddress } from 'viem';
 
 import type { TxAssetView } from 'app/confirm/decode';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { estimateUsdcxBurnFeeReserve, USDCX_BURN_FEE_LOCK_WAIT_MS, USDCX_BURN_FEE_PROBE_RECIPIENT } from './burn-fee';
 
@@ -17,6 +18,7 @@ const mockView = jest.fn<TxAssetView | undefined, [unknown]>();
 const mockBuild = jest.fn();
 const mockDestination = jest.fn();
 const mockInitBridgeConfig = jest.fn<Promise<void>, []>();
+const mockAssertHold = jest.fn<void, [object, string]>();
 let mockInlineRealm = true;
 
 // A FIFO mutex like the real one: a hold runs only once every earlier hold has settled. Each hold
@@ -68,7 +70,8 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
   withWasmClientLock: (operation: (hold: object) => Promise<unknown>, options?: unknown) =>
-    mockWithWasmClientLock(operation, options)
+    mockWithWasmClientLock(operation, options),
+  assertWasmHoldCurrent: (hold: object, where: string) => mockAssertHold(hold, where)
 }));
 // simulateCustomTransaction imports the request's notes and syncs before it executes; the probe must never route
 // through it.
@@ -120,6 +123,7 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     mockDryRun.mockResolvedValue({ executedBytes: 'executed' });
     mockSimulate.mockResolvedValue({ executedBytes: 'executed' });
     mockView.mockReturnValue(measuredView());
+    mockAssertHold.mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -304,6 +308,20 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     // The decode's fee checks rethrow a trap, so it must reach the lock that retires the client.
     expect(trapsFromTheHold).toEqual([trap]);
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not decode a dry run that resolved after its hold was evicted', async () => {
+    mockAssertHold.mockImplementation(() => {
+      throw new WasmClientPoisonedError('watchdog');
+    });
+
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'dry_run_failed'
+    });
+    // The evicted hold's decode would trap where no lock can retire it, so it never runs.
+    expect(mockAssertHold).toHaveBeenCalledWith(mockLock.holds[0], expect.any(String));
+    expect(mockView).not.toHaveBeenCalled();
   });
 
   it('answers failed, through its guard, when the dry run gives nothing to decode', async () => {

@@ -1,7 +1,7 @@
 import { simulatedBytesToView, type TxAssetView } from 'app/confirm/decode';
 import { midenClientProxy, runsWasmInThisRealm } from 'lib/miden/back/miden-client-proxy';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
@@ -147,6 +147,8 @@ function dryRunUnderLock(
       // Nobody waits for an estimate that gave up, so its hold ends before any call on the client.
       if (gaveUp) return null;
       const result = await midenClientProxy.dryRunTransaction(accountIdHex, requestBytes, hold);
+      // An evicted hold decodes nothing: its trap would reach no lock.
+      assertWasmHoldCurrent(hold, 'after the usdcx burn-fee dry run');
       markDecoding();
       return simulatedBytesToView(result);
     },
