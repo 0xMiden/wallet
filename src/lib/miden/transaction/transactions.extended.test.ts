@@ -1067,6 +1067,31 @@ describe('cancelTransaction error variants', () => {
   });
 });
 
+// A result whose handles stop answering once `replace()` runs, as after a wait that replaced the client: each later read
+// is recorded and throws.
+const replaceableResult = (outputNotes: unknown[]) => {
+  const lateReads: string[] = [];
+  let replaced = false;
+  const answer =
+    <T>(name: string, read: () => T) =>
+    () => {
+      if (replaced) {
+        lateReads.push(name);
+        throw new Error('null pointer passed to rust');
+      }
+      return read();
+    };
+  const result = {
+    executedTransaction: answer('executedTransaction', () => ({
+      id: answer('id', () => ({ toHex: answer('toHex', () => 'h') })),
+      outputNotes: answer('outputNotes', () => ({ notes: () => outputNotes })),
+      inputNotes: answer('inputNotes', () => ({ notes: () => [] }))
+    })),
+    serialize: answer('serialize', () => new Uint8Array([1]))
+  };
+  return { result, lateReads, replace: () => (replaced = true) };
+};
+
 describe('completeCustomTransaction', () => {
   let mockSendPrivateNote: jest.Mock;
   let mockWaitForCommit: jest.Mock;
@@ -1274,6 +1299,38 @@ describe('completeCustomTransaction', () => {
     expect(txStore[0]).toMatchObject({ secondaryAccountId: 'sender', relayRecipientId: 'acc-2' });
   });
 
+  it('records the interpreted result a custom transaction read before its commit wait', async () => {
+    const { result, lateReads, replace } = replaceableResult([
+      {
+        id: () => ({ toString: () => '0xprivate' }),
+        metadata: () => ({ noteType: () => 'private' }),
+        intoFull: () => ({}) as any
+      }
+    ]);
+    jest
+      .requireMock('../activity/helpers')
+      .interpretTransactionResult.mockImplementationOnce((tx: any, landed: typeof result) => ({
+        ...tx,
+        transactionId: landed.executedTransaction().id().toHex(),
+        resultBytes: landed.serialize()
+      }));
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      replace();
+    });
+    const { completeCustomTransaction } = require('./index');
+    await completeCustomTransaction(txStore[0]!, result);
+
+    expect(mockWaitForCommit).toHaveBeenCalledWith('h');
+    expect(mockSendPrivateNote).toHaveBeenCalledWith({}, 'acc-2');
+    expect(txStore[0]).toMatchObject({
+      status: ITransactionStatus.Completed,
+      transactionId: 'h',
+      resultBytes: new Uint8Array([1]),
+      noteDelivery: 'relayed'
+    });
+    expect(lateReads).toEqual([]);
+  });
+
   const twoPrivateNotes = () =>
     ({
       executedTransaction: () => ({
@@ -1372,6 +1429,49 @@ describe('completeSendTransaction relay acknowledgement', () => {
     }
 
     expect(txStore[0]).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: ['0xsent'] });
+  });
+
+  it('records the id, bytes and fee a private send read before its commit wait, not after it', async () => {
+    txStore.push({
+      id: 'tx-send-read-first',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const fullNote = {
+      id: () => ({ toString: () => '0xsent' }),
+      metadata: () => ({ noteType: () => 'private' })
+    };
+    const { result, lateReads, replace } = replaceableResult([
+      { metadata: () => ({ noteType: () => 'private' }), intoFull: () => fullNote }
+    ]);
+    const waitForTransactionCommit = jest.fn(async (_id: string) => {
+      replace();
+    });
+    const sendPrivateNote = jest.fn(async () => {});
+    const sdk = require('../sdk/miden-client');
+    const originalGetMidenClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({ waitForTransactionCommit, sendPrivateNote });
+    const { completeSendTransaction } = require('./index');
+
+    try {
+      await completeSendTransaction(txStore[0]!, result);
+    } finally {
+      sdk.getMidenClient = originalGetMidenClient;
+    }
+
+    expect(waitForTransactionCommit).toHaveBeenCalledWith('h');
+    expect(sendPrivateNote).toHaveBeenCalledWith(fullNote, 'acc-2');
+    expect(txStore[0]).toMatchObject({
+      status: ITransactionStatus.Completed,
+      transactionId: 'h',
+      resultBytes: new Uint8Array([1]),
+      noteDelivery: 'relayed'
+    });
+    expect(lateReads).toEqual([]);
   });
 });
 

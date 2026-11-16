@@ -1692,6 +1692,73 @@ describe('a throw after the leaf resolved', () => {
     expect(isRequeueableTransaction(row)).toBe(false);
   });
 
+  // The commit wait can replace the client, so the tail's catch names the id the completion read before it.
+  it('a landed send whose tail fails after its commit wait names the id its completion read before that wait', async () => {
+    const id = 'tx-tail-send-kept-id';
+    _gh.__noteTypeForTest = 'private';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SEND'
+    });
+    const lateReads: string[] = [];
+    let replaced = false;
+    const answer =
+      <T>(name: string, read: () => T) =>
+      () => {
+        if (replaced) {
+          lateReads.push(name);
+          throw new Error('null pointer passed to rust');
+        }
+        return read();
+      };
+    const fullNote = { id: () => ({ toString: () => 'note-sent' }), metadata: () => ({ noteType: () => 'private' }) };
+    const result = {
+      executedTransaction: answer('executedTransaction', () => ({
+        id: answer('id', () => ({ toHex: answer('toHex', () => 'landed-id') })),
+        outputNotes: answer('outputNotes', () => ({
+          notes: () => [{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => fullNote }]
+        })),
+        inputNotes: answer('inputNotes', () => ({ notes: () => [] }))
+      })),
+      serialize: answer('serialize', () => new Uint8Array([1]))
+    };
+    // The pending record aborts, so no write before the tail's failure names the id; re-armed by the commit wait, the
+    // Completed write then aborts too, and the tail fails after the wait.
+    const store = abortOnceAfterArm(id, (access, fn) => {
+      if (access !== 'modify' || fn === undefined) return false;
+      const row = txStore.find(stored => stored.id === id)!;
+      const probe = { ...row, extraInputs: { ...row.extraInputs } };
+      try {
+        fn(probe);
+      } catch {
+        return false;
+      }
+      return probe.noteDelivery === 'pending' || probe.status === ITransactionStatus.Completed;
+    });
+    store.arm();
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      replaced = true;
+      store.arm();
+    });
+    try {
+      await runLapAgainst({ sendTransaction: jest.fn(async () => result) });
+    } finally {
+      store.restore();
+    }
+
+    expect(store.state.aborted).toBe(2);
+    expect(mockSendPrivateNote).toHaveBeenCalledWith(fullNote, 'recipient');
+    expect(txStore.find(stored => stored.id === id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      transactionId: 'landed-id'
+    });
+    expect(lateReads).toEqual([]);
+  });
+
   it('fails a landed Epoch bridged-send whose landed note record rejects once, so its awaiting caller stops', async () => {
     const id = 'tx-tail-bridge-note-abort';
     queuedRow(id, {

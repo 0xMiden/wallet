@@ -69,7 +69,7 @@ import {
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
-import { completeVerifiedLandedTransaction } from './helper';
+import { completeVerifiedLandedTransaction, setTransactionStage } from './helper';
 import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
@@ -587,6 +587,45 @@ const makeResult = () => ({
   serialize: () => new Uint8Array([9, 9, 9])
 });
 
+// A stage stamp that throws synchronously is how a test reaches the guardian switch completion's fallback write.
+jest.mock('./helper', () => {
+  const actual = jest.requireActual<typeof import('./helper')>('./helper');
+  return { ...actual, setTransactionStage: jest.fn(actual.setTransactionStage) };
+});
+
+// A result whose handles stop answering once `replace()` runs, as after a wait that replaced the client: each later read
+// is recorded and throws. Its one output note is the kernel's fee of 100 at a base fee of 10000.
+const makeReplaceableResult = () => {
+  const lateReads: string[] = [];
+  let replaced = false;
+  const answer =
+    <T>(name: string, read: () => T) =>
+    () => {
+      if (replaced) {
+        lateReads.push(name);
+        throw new Error('null pointer passed to rust');
+      }
+      return read();
+    };
+  const nativeFaucet: string = jest.requireMock('lib/miden-chain/native-asset').getNativeAssetIdSync();
+  const feeAsset = { faucetId: () => ({ __faucet: nativeFaucet }), amount: () => 100n };
+  const feeNote = {
+    id: () => ({ toString: () => 'note:fee' }),
+    metadata: () => ({ tag: () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
+    assets: () => ({ fungibleAssets: () => [feeAsset], nonFungibleAssets: () => [] })
+  };
+  const result = {
+    executedTransaction: answer('executedTransaction', () => ({
+      id: answer('id', () => ({ toHex: answer('toHex', () => 'exec-tx-hash') })),
+      blockHeader: answer('blockHeader', () => ({ verificationBaseFee: () => 10000 })),
+      outputNotes: answer('outputNotes', () => ({ notes: () => [feeNote] })),
+      inputNotes: answer('inputNotes', () => ({ notes: () => [] }))
+    })),
+    serialize: answer('serialize', () => new Uint8Array([9, 9, 9]))
+  };
+  return { result, lateReads, replace: () => (replaced = true), nativeFaucet };
+};
+
 const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
   const prove = jest.fn(async (..._args: unknown[]) => ({ proved: true }));
   const submitProven = jest.fn(async (_proven?: unknown, _executed?: unknown) => ({ blockNumber: 1 }));
@@ -896,6 +935,62 @@ describe('completeSwitchGuardianTransaction', () => {
     expect(row.stage).toBe('complete');
     expect(row.displayMessage).toBe('Guardian switched');
     expect(mockAdoptPostSwitchState).not.toHaveBeenCalled();
+  });
+
+  it('a guardian switch reads its fee before it registers on the new guardian', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    const { result, lateReads, replace, nativeFaucet } = makeReplaceableResult();
+    const multisigService = {
+      finalizeGuardianSwitch: jest.fn(async () => {
+        replace();
+      })
+    };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+
+    await completeSwitchGuardianTransaction(tx, result as never, multisigService as never, provider as never);
+
+    expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+    expect(txStore.find(r => r.id === tx.id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      displayMessage: 'Guardian switched',
+      transactionId: 'exec-tx-hash',
+      resultBytes: new Uint8Array([9, 9, 9]),
+      feeAmount: 100n,
+      feeFaucetId: nativeFaucet
+    });
+    expect(lateReads).toEqual([]);
+  });
+
+  // The stamp's own catch covers only a promise it returns, so a stamp that throws reaches the completion's catch.
+  it('a guardian switch whose completion falls back writes the fee it read before the step that threw', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    const { result, lateReads, replace, nativeFaucet } = makeReplaceableResult();
+    jest.mocked(setTransactionStage).mockImplementationOnce(() => {
+      replace();
+      throw new Error('stage stamp threw');
+    });
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeSwitchGuardianTransaction(tx, result as never, multisigService as never, provider as never);
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    // The fallback wrote the row: the step that threw came before the registration.
+    expect(multisigService.finalizeGuardianSwitch).not.toHaveBeenCalled();
+    expect(txStore.find(r => r.id === tx.id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      displayMessage: 'Guardian switched',
+      transactionId: 'exec-tx-hash',
+      feeAmount: 100n,
+      feeFaucetId: nativeFaucet
+    });
+    expect(lateReads).toEqual([]);
   });
 
   it('persists the endpoint and evicts the cache under the stored id when the row was queued under another spelling', async () => {
@@ -13886,6 +13981,162 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  // The commit wait can replace the client, after which the result's handles no longer answer.
+  describe('a structural row reads its result before its commit wait', () => {
+    const switchRow = (txId: string) => {
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      return {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      };
+    };
+    const switchProvider = () => ({
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint: jest.fn(async (_accountId: string, _endpoint: string) => {})
+    });
+    const clientReplacedByItsCommitWait = (accountId: string) => {
+      const replaceable = makeReplaceableResult();
+      const waitForTransactionCommit = jest.fn(async (_id: string) => {
+        replaceable.replace();
+      });
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => accountId }) })),
+        waitForTransactionCommit,
+        client: makeClientApi(replaceable.result as never)
+      });
+      return { ...replaceable, waitForTransactionCommit };
+    };
+
+    it('a coordinated guardian switch records the id and bytes it read before its commit wait', async () => {
+      const tx = switchRow('switch-guardian-read-before-wait');
+      const multisigService = {
+        createSwitchGuardianProposal: jest.fn(async () => ({
+          proposal: {
+            id: 'prop-switch',
+            nonce: 41,
+            metadata: { proposalType: 'switch_guardian', chainAnchor: 'cHJvcG9zYWwtYW5jaG9y' }
+          },
+          newEndpoint: 'https://new.guardian'
+        })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        finalizeGuardianSwitch: jest.fn(async () => {}),
+        pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+      mockIsGuardianAccount.mockResolvedValue(true);
+      const { lateReads, waitForTransactionCommit, nativeFaucet } = clientReplacedByItsCommitWait('guardian-acc');
+
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        switchProvider() as never
+      );
+
+      expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+      expect(txStore.find(r => r.id === tx.id)).toMatchObject({
+        status: ITransactionStatus.Completed,
+        displayMessage: 'Guardian switched',
+        transactionId: 'exec-tx-hash',
+        resultBytes: new Uint8Array([9, 9, 9]),
+        feeAmount: 100n,
+        feeFaucetId: nativeFaucet
+      });
+      expect(lateReads).toEqual([]);
+    });
+
+    it('a direct guardian switch records the id and bytes it read before its commit wait', async () => {
+      const tx = switchRow('switch-guardian-direct-read-before-wait');
+      mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+      mockCreateDirectSwitchRequest.mockResolvedValue({
+        serialize: () => new Uint8Array([2]),
+        authArg: () => undefined
+      });
+      mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+      mockIsGuardianAccount.mockResolvedValue(true);
+      const { lateReads, waitForTransactionCommit, nativeFaucet } = clientReplacedByItsCommitWait('guardian-acc');
+
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        switchProvider() as never
+      );
+
+      expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', expect.anything());
+      expect(txStore.find(r => r.id === tx.id)).toMatchObject({
+        status: ITransactionStatus.Completed,
+        displayMessage: 'Guardian switched',
+        transactionId: 'exec-tx-hash',
+        resultBytes: new Uint8Array([9, 9, 9]),
+        feeAmount: 100n,
+        feeFaucetId: nativeFaucet
+      });
+      expect(lateReads).toEqual([]);
+    });
+
+    it('a hot-key rotation records the id and bytes it read before its commit wait', async () => {
+      const coldService = {
+        guardianEndpoint: 'https://old.guardian',
+        createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace', nonce: 3 })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        getProcedureThreshold: () => 2,
+        sync: jest.fn(async () => {})
+      });
+      mockIsGuardianAccount.mockResolvedValue(true);
+      const { lateReads, waitForTransactionCommit, nativeFaucet } = clientReplacedByItsCommitWait('acc-1');
+      const swapHotKey = jest.fn(async (_accountPublicKey: string, _newHotPubKey: string) => {});
+      const provider = { ...makeGuardianProvider(true), persistNewHotKey: jest.fn(async () => {}), swapHotKey };
+      const tx = new ReplaceHotKeyTransaction('acc-1', false);
+      txStore.push({ ...tx });
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+      expect(txStore.find(r => r.id === tx.id)).toMatchObject({
+        status: ITransactionStatus.Completed,
+        displayMessage: 'Everyday key rotated',
+        transactionId: 'exec-tx-hash',
+        resultBytes: new Uint8Array([9, 9, 9]),
+        feeAmount: 100n,
+        feeFaucetId: nativeFaucet
+      });
+      expect(lateReads).toEqual([]);
+    });
+  });
+
   it('Guardian update-procedure-threshold: a tail id read that traps evicts the cached service and fails on the no-id verdict', async () => {
     const { trap, result, apply } = armTailIdReadTrap();
     const retire = jest.fn();
@@ -16074,6 +16325,25 @@ describe('completeReplaceHotKeyTransaction', () => {
     expect(row().displayMessage).toBe('Failed to rotate everyday key');
     expect(row().error).toBe('Wallet is locked');
     expect(mockClearGuardianServiceFor).not.toHaveBeenCalled();
+  });
+
+  it('a hot-key rotation reads its fee before its re-register and its swap', async () => {
+    const { tx, swapHotKey, provider, row } = arrangeRotation();
+    const { result, lateReads, replace, nativeFaucet } = makeReplaceableResult();
+    swapHotKey.mockImplementationOnce(async () => {
+      replace();
+    });
+
+    await completeReplaceHotKeyTransaction(tx, result as never, provider as never);
+
+    expect(row()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      displayMessage: 'Everyday key rotated',
+      transactionId: 'exec-tx-hash',
+      feeAmount: 100n,
+      feeFaucetId: nativeFaucet
+    });
+    expect(lateReads).toEqual([]);
   });
 });
 
