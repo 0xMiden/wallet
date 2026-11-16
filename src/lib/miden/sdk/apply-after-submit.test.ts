@@ -548,6 +548,73 @@ describe('applyAfterSubmit (#1233)', () => {
     expect(extractLanded(error)).toEqual({});
   });
 
+  it.each([
+    {
+      name: 'an apply() trap',
+      arrange: (trap: WebAssembly.RuntimeError) => ({
+        apply: jest.fn(async () => {
+          throw trap;
+        }),
+        local: INITIAL,
+        initialAccountHeader: () => withCommitment(INITIAL),
+        id: () => ({ toHex: () => '0xtx' }),
+        causeIsTrap: true
+      })
+    },
+    {
+      name: 'an initialAccountHeader() trap after an ordinary apply failure',
+      arrange: (trap: WebAssembly.RuntimeError) => ({
+        apply: failingApply(),
+        local: INITIAL,
+        initialAccountHeader: (): { to_commitment(): { toHex(): string } } => {
+          throw trap;
+        },
+        id: () => ({ toHex: () => '0xtx' }),
+        causeIsTrap: true
+      })
+    },
+    {
+      name: 'an id() trap with the local commitment at FINAL',
+      arrange: (trap: WebAssembly.RuntimeError) => ({
+        apply: failingApply(),
+        local: FINAL,
+        initialAccountHeader: () => withCommitment(INITIAL),
+        id: (): { toHex(): string } => {
+          throw trap;
+        },
+        causeIsTrap: false
+      })
+    }
+  ])('a retire that throws keeps the landed verdict ($name)', async ({ arrange: arrangeCase }) => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const { apply, local, initialAccountHeader, id, causeIsTrap } = arrangeCase(trap);
+    const retireTrap = jest.fn(() => {
+      throw new Error('retire failed');
+    });
+    const result = {
+      executedTransaction: () => ({
+        id,
+        accountId: () => 'acc',
+        initialAccountHeader,
+        finalAccountHeader: () => withCommitment(FINAL),
+        outputNotes: () => ({ notes: () => [] })
+      })
+    };
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const error = await applyAfterSubmit(arrange({ apply, result, retireTrap }, local)).catch(
+        (caught: unknown) => caught
+      );
+
+      expect(isApplyAfterSubmitError(error)).toBe(true);
+      if (causeIsTrap) expect(error).toHaveProperty('cause', trap);
+      expect(extractLanded(error)).toEqual({});
+      expect(retireTrap).toHaveBeenCalledTimes(1);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
   it('two public output notes on a charging chain whose fee note was not set aside name no order', async () => {
     const result = resultWithNotes([orderNote(NoteType.Public), orderNote(NoteType.Public)], {
       blockHeader: () => ({ verificationBaseFee: () => 10 })

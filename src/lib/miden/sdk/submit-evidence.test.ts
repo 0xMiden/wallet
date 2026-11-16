@@ -66,6 +66,55 @@ describe('readSubmitEvidence (#1081)', () => {
     expect(evidence.refBlock).toBe(100);
   });
 
+  it.each([
+    {
+      field: "the result's final account header",
+      arrange: (trap: WebAssembly.RuntimeError) => {
+        const userOutputNotes = jest.fn(() => [{ id: () => ({ toString: () => hex(9) }) }]);
+        const nullifiers = jest.fn(() => [word(hex(7))]);
+        return {
+          result: result({
+            finalAccountHeader: () => {
+              throw trap;
+            },
+            userOutputNotes
+          }),
+          proof: proof({ nullifiers }),
+          later: [userOutputNotes, nullifiers]
+        };
+      }
+    },
+    {
+      field: "the proof's reference block commitment",
+      arrange: (trap: WebAssembly.RuntimeError) => {
+        const expirationBlockNumber = jest.fn(() => 700);
+        return {
+          result: result(),
+          proof: proof({
+            refBlockCommitment: () => {
+              throw trap;
+            },
+            expirationBlockNumber
+          }),
+          later: [expirationBlockNumber]
+        };
+      }
+    }
+  ])('a trap in $field leaves as itself and no later field is read', ({ arrange }) => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const { result: trapping, proof: proven, later } = arrange(trap);
+
+    let caught: unknown;
+    try {
+      readSubmitEvidence(trapping, proven, () => true);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBe(trap);
+    for (const read of later) expect(read).not.toHaveBeenCalled();
+  });
+
   it('tells a known-empty note list from an unreadable one', () => {
     expect(readSubmitEvidence(result({ userOutputNotes: () => [] }), proof(), () => true).outputNoteIds).toEqual([]);
     const unreadable = readSubmitEvidence(

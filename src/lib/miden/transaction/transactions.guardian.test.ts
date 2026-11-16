@@ -2187,6 +2187,47 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  // The evidence read is the last step before the 'submitting' stamp: a trap there must stop the submit and reach the
+  // lock, which retires it, rather than leave the evidence partial and submit from the trapped client.
+  it('Guardian send: a trap while the leaf reads its submit evidence fails the row before its submit and reaches the lock as itself', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const client = makeClientApi(makeResult());
+    client.transactions.prove.mockImplementationOnce(async () => ({
+      nullifiers: () => {
+        throw trap;
+      }
+    }));
+    const lock = mockWithWasmClientLock.getMockImplementation()!;
+    const rejections: unknown[] = [];
+    mockWithWasmClientLock.mockImplementation(async (fn, options) =>
+      lock(async hold => {
+        try {
+          return await fn(hold);
+        } catch (error) {
+          rejections.push(error);
+          throw error;
+        }
+      }, options)
+    );
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const row = await runGuardianSend('send-guardian-evidence-trap', client);
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(client.transactions.apply).not.toHaveBeenCalled();
+      expect(rejections).toContain(trap);
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Failed,
+        displayMessage: 'Failed',
+        error: 'RuntimeError: unreachable'
+      });
+      expect(row.transactionId).toBeUndefined();
+      expect(row.mayHaveSubmitted).toBeUndefined();
+    } finally {
+      mockWithWasmClientLock.mockImplementation(lock);
+      errSpy.mockRestore();
+    }
+  });
+
   it("Guardian send: a trap in the tail's tx-id read retires once under the row, with the trap itself, and records it landed", async () => {
     const txId = 'send-guardian-landing-id-trap';
     const retire = jest.fn();
