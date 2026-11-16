@@ -693,14 +693,14 @@ describe('the account that created an execute`s attempt note (#2147)', () => {
   const execute = () =>
     unconfirmed({ type: 'execute', accountId: DAPP_ACCOUNT, submitEvidence: [entry({ fromExecute: true })] });
   /** NOTE on chain as `creator` created it: a read naming another sender gets no answer, as the real read's. */
-  const heldBy = (creator: string) => {
+  const heldBy = (creator: string, overrides: Partial<NodeReads> = {}) => {
     const noteInclusions = jest.fn(
       async (
         ...[, , sender]: Parameters<NodeReads['noteInclusions']>
       ): Promise<ReadonlyMap<string, number> | undefined> =>
         sender === undefined || sender === creator ? new Map([[NOTE, 140]]) : undefined
     );
-    const reads: NodeReads = { ...node({ blockNum: 150, commitment: OTHER }), noteInclusions };
+    const reads: NodeReads = { ...node({ blockNum: 150, commitment: OTHER }), noteInclusions, ...overrides };
     return { reads, noteInclusions };
   };
   type Check = (reads: NodeReads) => Promise<string>;
@@ -730,6 +730,30 @@ describe('the account that created an execute`s attempt note (#2147)', () => {
     }
   );
 
+  // X passed with the account at E.initial there: with that note read as absent, the attempt would prove expired.
+  const PAST_X: Partial<NodeReads> = {
+    account: async (_id, atBlock) => ({
+      ok: true,
+      state: atBlock === 700 ? { blockNum: 700, commitment: INITIAL } : { blockNum: 720, commitment: OTHER }
+    })
+  };
+
+  it.each<[string, Check, string]>([
+    ['the reconciler', reconciler, 'pending'],
+    ['the tap-time check', tapTime, 'undecided']
+  ])(
+    '%s never reads that note as absent, so it does not prove the execute dead either',
+    async (_label, check, kind) => {
+      await Repo.transactions.put(execute());
+      const { reads } = heldBy('mtst1other', PAST_X);
+      expect(await check(reads)).toBe(kind);
+      const row = await read();
+      expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+      expect(row?.neverCommittedAt).toBeUndefined();
+      expect(row?.submitEvidence?.[0]?.verdict).toBeUndefined();
+    }
+  );
+
   it.each<[string, Check]>([
     ['the reconciler', reconciler],
     ['the tap-time check', tapTime]
@@ -741,12 +765,12 @@ describe('the account that created an execute`s attempt note (#2147)', () => {
     expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, DAPP_ACCOUNT]]);
   });
 
-  it.each<[string, Check, 'send' | 'swap']>([
-    ['the reconciler', reconciler, 'send'],
-    ['the reconciler', reconciler, 'swap'],
-    ['the tap-time check', tapTime, 'send'],
-    ['the tap-time check', tapTime, 'swap']
-  ])('%s completes a %s from a note another account created, asking with no sender', async (_label, check, type) => {
+  it.each<[string, 'send' | 'swap', Check]>([
+    ['the reconciler', 'send', reconciler],
+    ['the reconciler', 'swap', reconciler],
+    ['the tap-time check', 'send', tapTime],
+    ['the tap-time check', 'swap', tapTime]
+  ])('%s completes a %s from a note another account created, asking with no sender', async (_label, type, check) => {
     await Repo.transactions.put(unconfirmed({ type }));
     const { reads, noteInclusions } = heldBy('mtst1other');
     expect(await check(reads)).toBe('landed');

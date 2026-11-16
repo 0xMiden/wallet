@@ -280,6 +280,18 @@ describe('the account that created an execute`s attempt note (#2147)', () => {
     expect(noteReads).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, DAPP_ACCOUNT]]);
   });
 
+  it('nor does that note read as absent: X passed with the account at E.initial there proves nothing', async () => {
+    const fake: FakeChain = {
+      ...onChain('mtst1other'),
+      tip: { blockNum: 720, commitment: OTHER },
+      history: { 700: { blockNum: 700, commitment: INITIAL } }
+    };
+    const { judged } = await judgedWith(execute(), fake);
+    expect(judged.entries).toEqual([{ attemptId: 'a1', result: 'no-read', readsFailed: true }]);
+    expect(judged.allDead).toBe(false);
+    expect(judged.neverCommittedBy).toBeUndefined();
+  });
+
   it('a note its own account created still lands and binds it', async () => {
     const { judged, noteReads } = await judgedWith(execute(), onChain(DAPP_ACCOUNT));
     expect(judged.entries[0]).toMatchObject({
