@@ -165,7 +165,8 @@ jest.mock('lib/platform', () => ({
 // A checked write decides the chain fee before it runs.
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getVerificationBaseFee: jest.fn(async () => 0)
+  getVerificationBaseFee: jest.fn(async () => 0),
+  refreshVerificationBaseFee: jest.fn(async () => 0)
 }));
 
 jest.mock('shared/logger', () => ({
@@ -458,14 +459,26 @@ describe('which dispatches carry a stamp (#1081)', () => {
     ['a dApp execute', { id: 'e', type: 'execute', requestBytes: new Uint8Array([1]) }, 'newTransaction', 4, true],
     [
       'an Agglayer bridge',
-      { id: 'b', type: 'bridged-send', requestBytes: new Uint8Array([1]), extraInputs: { provider: 'agglayer' } },
+      {
+        id: 'b',
+        type: 'bridged-send',
+        requestBytes: new Uint8Array([1]),
+        approvedOutputNoteIds: ['note:recorded'],
+        extraInputs: { provider: 'agglayer' }
+      },
       'newTransaction',
       4,
       true
     ],
     [
       'an Epoch bridge',
-      { id: 'p', type: 'bridged-send', requestBytes: new Uint8Array([1]), extraInputs: { provider: 'epoch' } },
+      {
+        id: 'p',
+        type: 'bridged-send',
+        requestBytes: new Uint8Array([1]),
+        approvedOutputNoteIds: ['note:recorded'],
+        extraInputs: { provider: 'epoch' }
+      },
       'newTransaction',
       4,
       false

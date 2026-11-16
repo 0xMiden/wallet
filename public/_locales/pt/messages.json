@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Desbloqueio por senha de acesso",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Desbloquear com senha",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Use o provedor de senha do seu dispositivo para desbloquear esta carteira. A senha da sua carteira continuará funcionando.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "O desbloqueio por senha de acesso está habilitado para esta carteira.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "O desbloqueio por senha de acesso não está disponível neste navegador, sistema operacional ou carteira. Você ainda pode usar a senha da sua carteira.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Ativar desbloqueio por senha",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Substituir senha",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Remover o desbloqueio por senha",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Remover o desbloqueio por senha aqui não revoga nem exclui a senha armazenada pelo seu provedor. Exclua-a também nas configurações do seu provedor, caso não precise mais dela.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Seu provedor informa que essa senha de acesso pode ser copiada para backup ou sincronizada. A disponibilidade em outros dispositivos depende do seu provedor.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Seu provedor informa que não é possível fazer backup desta chave de acesso.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Abra o painel lateral da carteira para ativar, substituir ou remover o desbloqueio por senha.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Não foi possível abrir o painel lateral. Abra-o a partir da barra de ferramentas da carteira e tente novamente.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "A solicitação da chave de acesso foi cancelada ou está indisponível. Você ainda pode usar a senha da sua carteira.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Não foi possível ativar o desbloqueio por senha. Verifique a senha da sua carteira e use um provedor que ofereça esse recurso.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Não foi possível remover o desbloqueio por senha. Tente novamente. A senha da sua carteira ainda funciona.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Não foi possível desbloquear com esta chave de acesso. Use a senha da sua carteira e verifique as configurações da chave de acesso.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Faça backup da sua frase-semente",
     "englishSource": "Back up your recovery phrase"
@@ -3227,6 +3295,10 @@
     "message": "Frase de recuperação oculta",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Chave privada oculta",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Mostrar",
     "englishSource": "Show"
@@ -4480,6 +4552,11 @@
   "unknown": {
     "message": "Desconhecido",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Includes notes you have not claimed yet",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Notes de entrada consumidos",
@@ -5876,6 +5953,10 @@
         "content": "$1"
       }
     }
+  },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "As Transações Inteligentes do MetaMask não conseguiram enviar esta transação. Desative as Transações Inteligentes nas configurações do MetaMask e tente novamente.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
   },
   "connectedWallet": {
     "message": "Carteira conectada",
@@ -7486,6 +7567,14 @@
     "message": "Ocultada da página inicial. Ela permanece na sua carteira e suas transferências ainda podem ser resgatadas.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Ocultar tokens de poeira",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Oculta tokens com valor inferior a US$ 0,001 da sua lista de ativos. O token nativo permanece sempre visível.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
+  },
   "hiddenAssets": {
     "message": "Ativos ocultos",
     "englishSource": "Hidden assets"
@@ -8715,5 +8804,55 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "Aguardando retorno",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Pronto para resgatar",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Devolução de fundos",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Fundos devolvidos",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Seus fundos permanecem na Miden. Você pode resgatá-los após o bloco $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Reivindique seus fundos para devolvê-los à sua carteira.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Seus fundos estão sendo devolvidos à sua carteira.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Seus fundos voltaram para sua carteira.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Fundos enviados ao seu destino.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Não foi possível verificar o status dos fundos. Tente novamente.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

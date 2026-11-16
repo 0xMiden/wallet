@@ -22,7 +22,6 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' }
 }));
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
-jest.mock('lib/shared/format', () => ({ formatAmount: (amount: bigint) => String(amount) }));
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: { assetsMetadata: unknown }) => unknown) => selector({ assetsMetadata: {} })
 }));
@@ -53,7 +52,7 @@ const swapTx = (faucetId: string): SwapTransaction =>
     id: 'tx-1',
     type: 'swap',
     faucetId,
-    amount: 5n,
+    amount: 5n * 10n ** 8n,
     extraInputs: { requestedFaucetId: TEST_TOKEN_IMIDEN.faucetId, requestedAmount: 3n }
   }) as unknown as SwapTransaction;
 

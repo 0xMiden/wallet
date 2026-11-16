@@ -9,6 +9,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
+import type { IApprovedCustomEffects } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import { initiateSendTransaction, requestCustomTransaction } from './initiate';
 
@@ -162,5 +163,61 @@ describe('the NFTs a dApp custom row was approved to send', () => {
     await nfts(SPENT);
     expect(insertedRow()).toEqual(expect.not.objectContaining({ approvedNftOutflow: expect.anything() }));
     expect(insertedRow()).toEqual(expect.not.objectContaining({ approvedOutflow: expect.anything() }));
+  });
+});
+
+// The approval is measured from the account's holdings; signing reads its outflow from the row and its note ids from
+// `approvedEffects`, so both are on the row from its insert.
+describe('the approval a dApp custom row carries', () => {
+  const approvedEffects: IApprovedCustomEffects = {
+    shape: 'summary',
+    outgoing: [{ faucetId: 'faucet-a', amount: 1n }],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    recipients: ['0xr1'],
+    inputNotesConsumed: 1,
+    outputNotesCreated: 1,
+    storageChanged: false,
+    introducedNoteIds: ['0xcarried'],
+    approvedOutputNoteIds: ['0xsent']
+  };
+  const approved = (withApproval: boolean) =>
+    requestCustomTransaction(
+      'account-a',
+      REQUEST_BYTES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      SPENT,
+      undefined,
+      ORIGIN,
+      withApproval ? ['nft-key-1'] : undefined,
+      withApproval ? SPENT : undefined,
+      withApproval ? approvedEffects : undefined
+    );
+
+  it("copies the approval's outflow onto the row and its note ids into approvedEffects", async () => {
+    await approved(true);
+    expect(insertedRow()).toEqual(
+      expect.objectContaining({
+        type: 'execute',
+        approvedOutflow: SPENT,
+        approvedNftOutflow: ['nft-key-1'],
+        approvedEffects: expect.objectContaining({
+          introducedNoteIds: ['0xcarried'],
+          approvedOutputNoteIds: ['0xsent']
+        })
+      })
+    );
+  });
+
+  it('copies none without an approval', async () => {
+    await approved(false);
+    expect(insertedRow()).toEqual(expect.not.objectContaining({ approvedOutflow: expect.anything() }));
+    expect(insertedRow()).toEqual(expect.not.objectContaining({ approvedNftOutflow: expect.anything() }));
+    expect(insertedRow()).toEqual(expect.not.objectContaining({ approvedEffects: expect.anything() }));
   });
 });

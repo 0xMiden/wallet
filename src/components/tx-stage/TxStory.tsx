@@ -65,11 +65,11 @@ const Party: React.FC<{ party: StoryParty; side: 'from' | 'to' }> = ({ party, si
  * Who sends what to whom. One hop is one transfer: a party, the amount and how
  * it moves, then the party who receives it.
  */
-export const TxStory: React.FC<{ hops: StoryHop[]; summary?: StorySummary; className?: string }> = ({
-  hops,
-  summary,
-  className
-}) => {
+export const TxStory: React.FC<{
+  hops: (Omit<StoryHop, 'amount'> & { amount: React.ReactNode })[];
+  summary?: StorySummary;
+  className?: string;
+}> = ({ hops, summary, className }) => {
   const { t } = useTranslation();
   if (hops.length === 0) return null;
   const totals = [summary?.received, summary?.sent, summary?.fee].filter(Boolean);
@@ -88,14 +88,19 @@ export const TxStory: React.FC<{ hops: StoryHop[]; summary?: StorySummary; class
         const visibility = hop.via ? visibilityLabel(hop.via, t) : hop.to.role === 'network' ? t('networkFee') : '';
         const detail = [hop.amount || (hop.assets?.length || kind ? '' : t('note')), kind, visibility]
           .filter(Boolean)
-          .join(' · ');
+          .map((part, partIndex) => (
+            <React.Fragment key={partIndex}>
+              {partIndex > 0 && ' · '}
+              {part}
+            </React.Fragment>
+          ));
         const feeHop = hop.to.role === 'network';
         const fromShown = !feeHop && showsParty(hop.from);
         const toShown = showsParty(hop.to);
         return (
           <div
             className={classNames('tx-story-hop', !fromShown && !toShown && 'tx-story-hop-line')}
-            key={`${hop.amount}-${index}`}
+            key={`${hop.from.role}-${hop.to.role}-${index}`}
           >
             {(fromShown || toShown) && (
               <div className="tx-story-parties">

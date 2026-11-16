@@ -1,4 +1,4 @@
-import { formatBigInt } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
@@ -70,10 +70,10 @@ export const rotationFundingMinimum = (
   nativeRow: TokenBalanceData | undefined
 ): string | null => {
   if (baseFee === null || baseFee <= 0 || nativeRow === undefined || !hasKnownScale(nativeRow.metadata)) return null;
-  return formatBigInt(
-    BigInt(ROTATION_FUNDING_MIN_FEE_MULTIPLE) * BigInt(Math.trunc(baseFee)),
-    nativeRow.metadata.decimals
-  );
+  return formatAmountDisplay(BigInt(ROTATION_FUNDING_MIN_FEE_MULTIPLE) * BigInt(Math.trunc(baseFee)), {
+    decimals: nativeRow.metadata.decimals,
+    formatting: 'exact'
+  });
 };
 
 const fundingStatus = (
