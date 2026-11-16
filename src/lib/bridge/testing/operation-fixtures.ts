@@ -1,3 +1,9 @@
+import { parseUnits } from 'viem';
+
+import { BridgedSendTransaction } from 'lib/miden/db/types';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
+
 import { accounts, connections, now, referenceSnapshot } from './fixtures';
 import { bindTransferQuote } from '../core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from '../core/review';
@@ -51,4 +57,32 @@ export function reviewedErc20Transfer(
   };
   assertReviewedBridge(review, structuredClone(review), now);
   return review;
+}
+
+export function ownedNativeBridgeRow(): BridgedSendTransaction {
+  const review = reviewedErc20Transfer('agglayer', 'send');
+  const snapshot = referenceSnapshot('testnet');
+  const recovery = selectAgglayerRecoveryConfig(snapshot, 11155111);
+  if (!recovery || review.route.source.kind !== 'miden') throw new Error('Missing native bridge fixture');
+  const row = new BridgedSendTransaction(
+    accounts.midenAccount,
+    parseUnits(review.amount, review.route.source.decimals),
+    accounts.evmAddress,
+    recovery.evmNetworkId,
+    'agglayer',
+    review.route.source.faucetId,
+    new Uint8Array([81, 82, 83]),
+    false
+  );
+  row.approvedOutputNoteIds = ['note:recorded'];
+  row.extraInputs.agglayerRoute = recovery;
+  row.extraInputs.bridgeOperation = {
+    version: 1,
+    owner: 'wallet',
+    operationId: 'native-operation',
+    revision: 'admitted',
+    review,
+    walletScope: { network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() }
+  };
+  return row;
 }

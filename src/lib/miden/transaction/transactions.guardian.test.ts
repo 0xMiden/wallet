@@ -14,6 +14,8 @@
 import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
+import { now } from 'lib/bridge/testing/fixtures';
+import { ownedNativeBridgeRow } from 'lib/bridge/testing/operation-fixtures';
 import { getMessage } from 'lib/i18n/core';
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import {
@@ -39,7 +41,12 @@ import { installLandedTrapRetirement } from 'lib/miden/sdk/landed-trap-retiremen
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { ConsumableNote } from 'lib/miden/types';
-import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEffectiveDefaultGuardianEndpoint,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl
+} from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
 import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
@@ -206,6 +213,16 @@ jest.mock('./custom-effects', () => ({
 }));
 
 jest.mock('lib/settings/constants', () => ({}));
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return {
+    ...actual,
+    getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName),
+    getEffectiveRpcUrl: jest.fn(actual.getEffectiveRpcUrl)
+  };
+});
 
 const mockIsGuardianAccount = jest.fn();
 const mockGetOrCreateMultisigService = jest.fn();
@@ -686,6 +703,112 @@ const expectAbandonMark = (accountId: string, candidate: { endpoint: string; non
   expect(record?.proposedAt).toBeGreaterThanOrEqual(testStartedAt);
   expect(record?.proposedAt).toBeLessThanOrEqual(Date.now());
 };
+
+describe('owned native bridge scope on the existing Guardian pipeline', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+    jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('fixture-rpc');
+    mockAssertProposalEffect.mockReset().mockResolvedValue(undefined);
+    mockGetOrCreateMultisigService.mockReset();
+    mockReadChainTip.mockReset().mockResolvedValue(0);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+      'lib/miden-chain/effective-endpoints'
+    );
+    jest.mocked(getEffectiveNetworkName).mockImplementation(actual.getEffectiveNetworkName);
+    jest.mocked(getEffectiveRpcUrl).mockImplementation(actual.getEffectiveRpcUrl);
+  });
+  function arrange() {
+    const transaction = ownedNativeBridgeRow();
+    txStore.push({ ...transaction });
+    const service = {
+      createRebasedCustomProposal: jest.fn(async (requestBytes: Uint8Array) => ({
+        proposal: { id: 'owned-bridge-proposal', nonce: 10 },
+        requestBytes
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => undefined),
+      sync: jest.fn(async () => undefined)
+    };
+    const client = makeClientApi(makeResult());
+    mockGetOrCreateMultisigService.mockResolvedValue(service);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => ({})),
+      client
+    });
+    const base = makeGuardianProvider(true);
+    const provider: GuardianAccountProvider = {
+      ...base,
+      getAccounts: async () =>
+        (await base.getAccounts()).map(account => ({ ...account, publicKey: transaction.accountId }))
+    };
+    return { transaction, service, client, provider };
+  }
+
+  it('a valid current owned operation reaches the existing first Guardian source exactly once', async () => {
+    const { transaction, client, provider } = arrange();
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      provider
+    );
+    expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+    expect(transaction.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+  });
+
+  it('a queued RPC switch is refused before a Guardian proposal or recovery authorization', async () => {
+    const { transaction, service, client, provider } = arrange();
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('different-rpc');
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: true }));
+    await generateTransaction(transaction, jest.fn(), false, { ...provider, prepareRecoveryTransaction }).catch(
+      () => undefined
+    );
+    expect(prepareRecoveryTransaction).not.toHaveBeenCalled();
+    expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+    expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+  });
+
+  it('a scope change while proving cannot cross the final Guardian submit boundary', async () => {
+    const { transaction, client, provider } = arrange();
+    client.transactions.prove.mockImplementation(async () => {
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('different-rpc');
+      return { proved: true };
+    });
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      provider
+    ).catch(() => undefined);
+    expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+  });
+
+  it('already completed native lineage never regenerates a source when its original quote has expired', async () => {
+    const { transaction, client, provider } = arrange();
+    Object.assign(transaction, { status: ITransactionStatus.Completed, transactionId: 'known-landed' });
+    Object.assign(txStore[0]!, { ...transaction });
+    jest.spyOn(Date, 'now').mockReturnValue(now + 120000);
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('different-rpc');
+    await generateTransaction(transaction, jest.fn(), false, provider).catch(() => undefined);
+    expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+    expect(txStore[0]?.transactionId).toBe('known-landed');
+    expect(txStore[0]?.status).toBe(ITransactionStatus.Completed);
+  });
+});
 
 describe('initiateSwitchGuardianTransaction', () => {
   beforeEach(() => {

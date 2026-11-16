@@ -28,7 +28,12 @@
  * `ApplyTransactionAfterSubmitFailed` reaches that same type-agnostic classifier.
  */
 
+import { now } from 'lib/bridge/testing/fixtures';
+import { ownedNativeBridgeRow } from 'lib/bridge/testing/operation-fixtures';
 import { getMessage } from 'lib/i18n/core';
+import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import {
@@ -66,6 +71,16 @@ jest.mock('../front', () => ({
 }));
 
 jest.mock('lib/settings/constants', () => ({}));
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return {
+    ...actual,
+    getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName),
+    getEffectiveRpcUrl: jest.fn(actual.getEffectiveRpcUrl)
+  };
+});
 
 const mockGetVerificationBaseFee = jest.fn(async (): Promise<number | null> => 0);
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -247,6 +262,83 @@ const epochBridge = (id: string) =>
     approvedOutputNoteIds: ['note:epoch'],
     extraInputs: { provider: 'epoch', recallBlocks: 10, claimStatus: 'not-applicable', epochStatus: 'pending' }
   });
+
+describe('owned native bridge scope on the existing single-key pipeline', () => {
+  const ownedProvider: GuardianAccountProvider = { ...provider, getAccounts: async () => [] };
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+    jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('fixture-rpc');
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+      'lib/miden-chain/effective-endpoints'
+    );
+    jest.mocked(getEffectiveNetworkName).mockImplementation(actual.getEffectiveNetworkName);
+    jest.mocked(getEffectiveRpcUrl).mockImplementation(actual.getEffectiveRpcUrl);
+  });
+
+  it('runs a valid recorded native source exactly once without adding a second outbound claim', async () => {
+    const tx = ownedNativeBridgeRow();
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, ownedProvider);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(mockProxyNewTransaction.mock.calls[0]?.slice(0, 3)).toEqual([tx.accountId, tx.requestBytes, false]);
+    expect(tx.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+  });
+
+  it('refuses a queued same-network RPC change before recovery authorization or source generation', async () => {
+    const tx = ownedNativeBridgeRow();
+    txStore.push({ ...tx });
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('different-rpc');
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: true }));
+    await generateTransaction(tx, signCallback, false, { ...ownedProvider, prepareRecoveryTransaction }).catch(
+      () => undefined
+    );
+    expect(prepareRecoveryTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(tx.requestBytes).toEqual(new Uint8Array([81, 82, 83]));
+  });
+
+  it('rechecks scope after asynchronous service selection, before entering the source leaf', async () => {
+    const tx = ownedNativeBridgeRow();
+    txStore.push({ ...tx });
+    mockIsGuardianAccount.mockImplementationOnce(async () => {
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('different-rpc');
+      return false;
+    });
+    await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(signCallback).not.toHaveBeenCalled();
+  });
+
+  it.each([null, {}, { version: 2, owner: 'wallet' }])(
+    'tagged malformed metadata is not legacy source permission case %#',
+    async metadata => {
+      const tx = ownedNativeBridgeRow();
+      Reflect.set(tx.extraInputs, 'bridgeOperation', metadata);
+      txStore.push({ ...tx });
+      await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+      expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    }
+  );
+
+  it('a previous uncertain crossing is retained rather than generating a second native source', async () => {
+    const tx = Object.assign(ownedNativeBridgeRow(), {
+      mayHaveSubmitted: true,
+      attemptId: 'original-attempt',
+      submitEvidence: [
+        { attemptId: 'original-attempt', capturedAt: now / 1000, source: 'stage' }
+      ] satisfies import('../db/types').ISubmitEvidence[]
+    });
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(txStore[0]?.submitEvidence).toEqual(tx.submitEvidence);
+    expect(txStore[0]?.attemptId).toBe('original-attempt');
+  });
+});
 
 // markBridgedSendFailed's write, landing after the loop picked the row up and before its leaf runs.
 const abandonAfterPickup = (id: string) =>
