@@ -1095,17 +1095,25 @@ export class MultisigService {
    * how long the hold lasted, from acquisition, even when the read throws.
    */
   async adoptGuardianStateOnce(onHeld?: (ms: number) => void): Promise<void> {
-    await withWasmClientLock(
-      async () => {
+    const adopted = await withWasmClientLock(
+      async hold => {
         const heldFrom = monotonicNowMs();
         try {
-          await this.multisig.syncState();
+          // As in runSync: a Guardian-sourced sync that changed the local copy is an adoption.
+          const before = localAccountCommitment(this.multisig);
+          const result: SyncStateResult | undefined = await this.multisig.syncState();
+          if (result?.source !== 'guardian' || getCurrentWasmLockHold() !== hold) return false;
+          const after = localAccountCommitment(this.multisig);
+          return after !== null && after !== before;
         } finally {
           onHeld?.(monotonicNowMs() - heldFrom);
         }
       },
       { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' }
     );
+    // Outside the hold, as runSync does: another device made a transaction, so the backup reads the
+    // history. Without it the next runSync sees no change and the read waits for another trigger.
+    if (adopted) signalGuardianStateAdopted();
   }
 
   sync(): Promise<void> {

@@ -14,6 +14,7 @@
 import { Account } from '@miden-sdk/miden-sdk/lazy';
 import { GuardianHttpClient } from '@openzeppelin/miden-multisig-client';
 
+import { signalGuardianStateAdopted } from 'lib/backup/adopt-signal';
 import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
 import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
@@ -334,6 +335,8 @@ jest.mock('@miden-sdk/miden-sdk', () => {
     }
   };
 });
+
+jest.mock('lib/backup/adopt-signal', () => ({ signalGuardianStateAdopted: jest.fn() }));
 
 const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   accountId: 'acc-id',
@@ -1966,6 +1969,41 @@ describe('MultisigService', () => {
       await service.adoptGuardianStateOnce();
 
       expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' }]);
+    });
+
+    // Another device's transaction is what makes the Guardian's state newer, so a one-shot adopt that changed the
+    // local account asks the backup for a history read, as the retrying sync does. The next sync sees no change.
+    const adoptingMultisig = (source: string | undefined, after: string) => {
+      let commitment = '0xbefore';
+      return makeMultisig({
+        account: { nonce: () => ({ asInt: () => 5n }), to_commitment: () => ({ toHex: () => commitment }) },
+        syncState: jest.fn(async () => {
+          commitment = after;
+          return source === undefined ? undefined : { source };
+        })
+      });
+    };
+
+    it('signals the backup once when a one-shot Guardian adoption changes the local account', async () => {
+      jest.mocked(signalGuardianStateAdopted).mockClear();
+      const service = new MultisigService(adoptingMultisig('guardian', '0xafter') as never, {} as never, 'https://x');
+
+      await service.adoptGuardianStateOnce();
+
+      expect(signalGuardianStateAdopted).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['an unchanged account', 'guardian', '0xbefore'],
+      ['a sync the chain answered', 'chain', '0xafter'],
+      ['a sync with no source', undefined, '0xafter']
+    ])('does not signal for %s', async (_name, source, after) => {
+      jest.mocked(signalGuardianStateAdopted).mockClear();
+      const service = new MultisigService(adoptingMultisig(source, after) as never, {} as never, 'https://x');
+
+      await service.adoptGuardianStateOnce();
+
+      expect(signalGuardianStateAdopted).not.toHaveBeenCalled();
     });
 
     it('reports how long adoptGuardianStateOnce held its lock, from acquisition, even when it fails', async () => {
