@@ -2827,15 +2827,19 @@ describe('guardian custom proposals preserve the prepared request through signin
       provider as never
     );
 
+    // Both decodes are handed the scope of the fee read before the dry run.
     expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledWith(
       { accountId: 'guardian-acc', preparedBytes: enriched, hold: expect.anything() },
       approvedEffects,
-      spentAssetTotals
+      spentAssetTotals,
+      'fixture-rpc|testnet'
     );
     expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
       approvedEffects,
       { summaryBytes: proposalSummary },
-      spentAssetTotals
+      spentAssetTotals,
+      false,
+      'fixture-rpc|testnet'
     );
     expect(service.createCustomProposal).toHaveBeenCalledWith(enriched);
     expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', enriched);
@@ -2909,7 +2913,9 @@ describe('guardian custom proposals preserve the prepared request through signin
     expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
       approvedEffects,
       { summaryBytes: 'proposal-summary' },
-      undefined
+      undefined,
+      false,
+      'fixture-rpc|testnet'
     );
     expect(service.abandonCandidate).toHaveBeenCalled();
     expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();

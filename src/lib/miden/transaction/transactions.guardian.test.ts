@@ -418,7 +418,7 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  cacheScope: () => 'fixture-rpc|testnet',
+  cacheScope: jest.fn(() => 'fixture-rpc|testnet'),
   captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
   recordSyncedFeeFaucetId: jest.fn(async () => true),
   getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000'),
@@ -17423,6 +17423,113 @@ describe('Guardian proposal effect check', () => {
       mockVerifyPreparedCustomRequest.mockReset();
       mockVerifyPreparedCustomRequest.mockImplementation(async () => undefined);
     }
+  });
+
+  // The fixture of the test above, with the real generation check of the proposal summary: its one note is a kernel
+  // fee of 100 on the native faucet, and the refresh before the dry run fills 10000.
+  describe('an approved custom proposal whose fee cache changes while it is created', () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+
+    const runFeeNoteProposal = async (id: string, whileProposing: () => void) => {
+      const nativeFaucet: string = nativeAsset.getNativeAssetIdSync();
+      const feeAsset = { faucetId: () => ({ __faucet: nativeFaucet }), amount: () => 100n };
+      const feeNote = {
+        id: () => ({ toString: () => 'note:fee' }),
+        metadata: () => ({ tag: () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
+        recipientDigest: () => ({ toHex: () => '0xfeed' }),
+        assets: () => ({ fungibleAssets: () => [feeAsset], nonFungibleAssets: () => [] })
+      };
+      mockDeserializeSummary.mockReturnValue({
+        accountDelta: () => ({
+          id: () => 'guardian-acc',
+          vault: () => ({
+            removedFungibleAssets: () => [feeAsset],
+            addedFungibleAssets: () => [],
+            numAssets: () => 1
+          }),
+          storage: () => ({ isEmpty: () => true })
+        }),
+        inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+        outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote] })
+      });
+      mockAssertCustomEffectsApproved.mockImplementation(
+        jest.requireActual<typeof import('./custom-effects')>('./custom-effects').assertCustomEffectsApproved
+      );
+      nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => {
+        nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => 10000);
+        return 10000;
+      });
+      const proposal = { id: `prop-${id}`, nonce: 5, metadata: {}, txSummary: 'ZmVl' };
+      const service = serviceWith(proposal);
+      service.createCustomProposal.mockImplementation(async () => {
+        whileProposing();
+        return proposal;
+      });
+      const row = await run({
+        id,
+        type: 'execute',
+        accountId: 'guardian-acc',
+        requestBytes: new Uint8Array([4, 4]),
+        spentAssetTotals: [],
+        approvedEffects: {
+          shape: 'summary',
+          outgoing: [],
+          incoming: [],
+          outgoingNfts: [],
+          incomingNfts: [],
+          unlistedAssets: 0,
+          recipients: [],
+          inputNotesConsumed: 0,
+          outputNotesCreated: 0,
+          fee: { faucetId: nativeFaucet, amount: 100n },
+          storageChanged: false,
+          introducedNoteIds: [],
+          approvedOutputNoteIds: []
+        }
+      });
+      return { service, row };
+    };
+
+    afterEach(() => {
+      nativeAsset.getVerificationBaseFeeSync.mockReset();
+      nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => null);
+      nativeAsset.refreshVerificationBaseFee.mockReset();
+      nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
+      nativeAsset.cacheScope.mockReset();
+      nativeAsset.cacheScope.mockImplementation(() => 'fixture-rpc|testnet');
+      mockAssertCustomEffectsApproved.mockReset();
+      mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
+      mockAssertProposalEffect.mockReset();
+      mockAssertProposalEffect.mockImplementation(async () => {});
+    });
+
+    // Not requeued, since an execute never is, and Retry stays open: the fee was unknown, not the effects changed.
+    const expectFailedAsUnknownFee = (service: ReturnType<typeof serviceWith>, row: Record<string, unknown>) => {
+      expect(service.abandonCandidate).toHaveBeenCalledWith(5);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+      expect(row.rawError).toEqual(expect.stringContaining('ProposalFeeUnknownError'));
+      expect(row.nextEligibleAt).toBeUndefined();
+      expect(row.proposalEffectRefused).toBeUndefined();
+    };
+
+    it('fails it as an unknown fee when the fee cache empties while its proposal is created', async () => {
+      const { service, row } = await runFeeNoteProposal('execute-fee-emptied', () => {
+        nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => null);
+      });
+
+      expectFailedAsUnknownFee(service, row);
+    });
+
+    it('fails it as an unknown fee when the endpoint moves while its proposal is created', async () => {
+      const { service, row } = await runFeeNoteProposal('execute-endpoint-moved', () => {
+        nativeAsset.cacheScope.mockImplementation(() => 'other-rpc|testnet');
+      });
+
+      expect(nativeAsset.getVerificationBaseFeeSync()).toBe(10000);
+      expectFailedAsUnknownFee(service, row);
+    });
   });
 
   // The summary decode after a custom proposal runs outside any WASM hold, so no lock sees a trap in it.
