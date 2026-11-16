@@ -831,7 +831,7 @@ describe('assertProposalEffectApproved', () => {
     expect(TransactionSummary.deserialize).toHaveBeenCalledTimes(1);
 
     jest.mocked(refreshVerificationBaseFee).mockResolvedValueOnce(null);
-    jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValueOnce(true);
+    jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(true);
     jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
     givenSummary(
       summary({
@@ -952,6 +952,20 @@ describe('assertViewEffectApproved', () => {
     await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
     await expect(refused).rejects.toMatchObject({ displayMessage: 'copy:chainFeeUnknown' });
     expect(decode).not.toHaveBeenCalled();
+  });
+
+  it('hands its decode the fee check, which refuses as an unknown fee once the cache empties, unwrapped', async () => {
+    const decoded: string[] = [];
+    const refused = assertViewEffectApproved(claim, async assertFeeKnownAtDecode => {
+      assertFeeKnownAtDecode();
+      decoded.push('known');
+      jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
+      assertFeeKnownAtDecode();
+      decoded.push('unknown');
+      return summaryToView(PSWAP_FILL as never);
+    });
+    await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    expect(decoded).toEqual(['known']);
   });
 
   it('leaves an unchecked type alone without calling the decode', async () => {
