@@ -17556,6 +17556,7 @@ describe('Guardian proposal effect check', () => {
         nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => null);
       });
 
+      expect(nativeAsset.cacheScope()).toBe('fixture-rpc|testnet');
       expectFailedAsUnknownFee(service, row);
     });
 
