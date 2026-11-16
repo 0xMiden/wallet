@@ -132,4 +132,14 @@ describe('hasRestoredTransactionsOf', () => {
     await Repo.transactions.put(row('peer', { restoredFromBackup: true }));
     expect(await hasRestoredTransactionsOf('mtst1acct')).toBe(true);
   });
+
+  // A Guardian-recovered receipt carries the backup marker too (with `recovered`), but it is the Guardian
+  // pass's own partial work: it must not end that pass as if the backup covered the account.
+  it('does not count a Guardian-recovered receipt as backup coverage', async () => {
+    await Repo.transactions.put(row('guardian', { restoredFromBackup: true, recovered: true }));
+    expect(await hasRestoredTransactionsOf('mtst1acct')).toBe(false);
+
+    await Repo.transactions.put(row('peer', { restoredFromBackup: true }));
+    expect(await hasRestoredTransactionsOf('mtst1acct')).toBe(true);
+  });
 });

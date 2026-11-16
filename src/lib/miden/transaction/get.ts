@@ -79,11 +79,16 @@ export const isRotationAwaitingFunding = async (accountPublicKey: string): Promi
 
 /**
  * True when the encrypted backup restored at least one row of this account from another device, so
- * the backup, not the Guardian, is the record of this account's history.
+ * the backup, not the Guardian, is the record of this account's history. A Guardian-recovered receipt
+ * carries `restoredFromBackup` too, with `recovered`, and is excluded: it is the Guardian pass's own
+ * (possibly partial) work, not the backup's.
  */
 export const hasRestoredTransactionsOf = async (accountPublicKey: string): Promise<boolean> =>
   (await Repo.transactions
-    .filter(tx => tx.restoredFromBackup === true && sameWalletAccountId(tx.accountId, accountPublicKey))
+    .filter(
+      tx =>
+        tx.restoredFromBackup === true && tx.recovered !== true && sameWalletAccountId(tx.accountId, accountPublicKey)
+    )
     .first()) !== undefined;
 
 export const getFailedTransactions = async () => {
