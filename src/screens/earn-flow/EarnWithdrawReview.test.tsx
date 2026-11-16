@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 import {
@@ -246,7 +247,7 @@ describe('EarnWithdrawReview', () => {
     expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
   });
 
-  it('places the actual enabled withdrawal review action in the one pinned Command footer', async () => {
+  it('submits the original withdrawal review form once on keyboard Enter in the pinned Command footer', async () => {
     mockSearch = '?amount=1';
     render(
       <FlowPresentationProvider value="command">
@@ -268,11 +269,13 @@ describe('EarnWithdrawReview', () => {
     expect(screen.getAllByTestId('earn-withdraw-review-confirm')).toHaveLength(1);
     expect(screen.getByTestId('earn-withdraw-review-page').querySelector('[data-slot="footer"]')).toBeNull();
     if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn withdraw review form');
-    await act(async () => form.requestSubmit(confirm));
+    confirm.focus();
+    expect(confirm).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(1));
   });
 
-  it('does not submit a stale position from the disabled Command review footer or form', () => {
+  it('does not submit a stale position from the disabled Command review footer or form', async () => {
     mockSearch = '?amount=1';
     mockPositions = [{ ...position, stale: true }];
     render(
@@ -286,6 +289,9 @@ describe('EarnWithdrawReview', () => {
     );
     const confirm = within(screen.getByTestId('command-footer')).getByTestId('earn-withdraw-review-confirm');
     expect(confirm).toBeDisabled();
+    confirm.focus();
+    expect(confirm).not.toHaveFocus();
+    await userEvent.keyboard('{Enter}');
     fireEvent.click(confirm);
     const form = document.getElementById('earn-withdraw-review-form');
     if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn withdraw review form');

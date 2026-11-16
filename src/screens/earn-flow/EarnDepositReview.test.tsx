@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 import {
@@ -346,7 +347,7 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('EarnDepositReview', () => {
-  it('places the real deposit review submit button in one Command footer and submits its original form once', async () => {
+  it('submits the original deposit review form once on keyboard Enter in the real Command footer', async () => {
     mockLocation.search = `?amount=1&collateral=${encodeURIComponent(USDC.faucetId)}`;
     render(
       <FlowPresentationProvider value="command">
@@ -368,8 +369,29 @@ describe('EarnDepositReview', () => {
     expect(screen.getAllByTestId('open-position-btn')).toHaveLength(1);
     expect(screen.getByTestId('earn-deposit-review-page').querySelector('[data-slot="footer"]')).toBeNull();
     if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn deposit review form');
-    await act(async () => form.requestSubmit(confirm));
+    confirm.focus();
+    expect(confirm).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not submit a disabled Command deposit review button on keyboard Enter', async () => {
+    mockLocation.search = `?amount=1&collateral=${encodeURIComponent(USDC.faucetId)}`;
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+            <EarnDepositReview vaultId={CLOSED_VAULT.id} />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const confirm = within(screen.getByTestId('command-footer')).getByTestId('open-position-btn');
+    expect(confirm).toBeDisabled();
+    confirm.focus();
+    expect(confirm).not.toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(mockOpenEarnPosition).not.toHaveBeenCalled();
   });
 
   it('uses the visible workbench Back for the actual deposit review instead of a fallback', () => {

@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
@@ -284,6 +285,38 @@ beforeEach(() => {
 });
 
 describe('EarnDepositAmount', () => {
+  it('submits the real Command deposit amount field on keyboard Enter only when valid', async () => {
+    mockRealAmountDisplay = true;
+    try {
+      render(
+        <FlowPresentationProvider value="command">
+          <CommandFlowBackProvider>
+            <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+              <EarnDepositAmount vaultId={FOUND_VAULT.id} />
+            </CommandWorkbench>
+          </CommandFlowBackProvider>
+        </FlowPresentationProvider>
+      );
+      const field = screen.getByRole('textbox', { name: 'earnDepositAmountLabel' });
+      const submit = within(screen.getByTestId('command-footer')).getByRole('button', { name: 'confirm' });
+      const form = document.getElementById('earn-deposit-amount-form');
+      expect(form).toBeInstanceOf(HTMLFormElement);
+      expect(submit).toHaveAttribute('form', 'earn-deposit-amount-form');
+      expect(submit).toBeDisabled();
+      field.focus();
+      await userEvent.keyboard('{Enter}');
+      expect(navigate).not.toHaveBeenCalled();
+      fireEvent.change(field, { target: { value: '1.000001' } });
+      expect(submit).toBeEnabled();
+      field.focus();
+      await userEvent.keyboard('{Enter}');
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith(expect.stringContaining('amount=1.000001'));
+    } finally {
+      mockRealAmountDisplay = false;
+    }
+  });
+
   it('uses the pinned Command footer and form for the actual amount step without a second page CTA', () => {
     render(
       <FlowPresentationProvider value="command">

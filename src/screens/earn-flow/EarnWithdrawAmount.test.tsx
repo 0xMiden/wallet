@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
 import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
@@ -48,7 +49,7 @@ jest.mock('./useEarnPositions', () => ({
 jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => 'en' }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
-it('submits an exact partial withdrawal to review through one real Command footer and associated form', () => {
+it('submits an exact partial withdrawal on keyboard Enter in the real Command amount field', async () => {
   render(
     <FlowPresentationProvider value="command">
       <CommandFlowBackProvider>
@@ -65,15 +66,18 @@ it('submits an exact partial withdrawal to review through one real Command foote
   expect(form).toBeInstanceOf(HTMLFormElement);
   expect(confirm).toHaveAttribute('type', 'submit');
   expect(confirm).toHaveAttribute('form', 'earn-withdraw-amount-form');
-  fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), {
-    target: { value: '1.000000000000000001' }
-  });
+  const field = screen.getByRole('textbox', { name: 'earnWithdrawAmount' });
+  field.focus();
+  await userEvent.keyboard('{Enter}');
+  expect(navigate).not.toHaveBeenCalled();
+  fireEvent.change(field, { target: { value: '1.000000000000000001' } });
   expect(confirm).toBeEnabled();
   expect(screen.getAllByRole('button', { name: 'review' })).toHaveLength(1);
   expect(screen.getByRole('heading', { level: 2, name: 'Dummy Lending' })).toBeVisible();
   expect(screen.getByTestId('earn-withdraw-amount-page').querySelector('[data-slot="footer"]')).toBeNull();
   if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn withdraw amount form');
-  form.requestSubmit(confirm);
+  field.focus();
+  await userEvent.keyboard('{Enter}');
   expect(navigate).toHaveBeenCalledTimes(1);
   expect(navigate).toHaveBeenCalledWith('/earn/positions/p/withdraw/review?amount=1.000000000000000001');
 });
