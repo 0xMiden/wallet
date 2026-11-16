@@ -6,7 +6,7 @@ import {
   type ProcedureThreshold
 } from '@openzeppelin/miden-multisig-client';
 
-import { readWasmHandle } from '../sdk/sdk-error-code';
+import { readWasmHandle } from '../sdk/wasm-handle';
 
 export const GUARDIAN_ACCOUNT_THRESHOLD = 1;
 

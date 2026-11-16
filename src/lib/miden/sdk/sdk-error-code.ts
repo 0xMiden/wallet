@@ -18,7 +18,11 @@
 // realm- and cycle-safe.
 
 import { isWasmClientPoisonedError } from './wasm-client-poison';
+import { isWasmTrap } from './wasm-handle';
 import { isOperationAbortedError } from '../back/offscreen-codec';
+
+// Re-exported for existing callers; the import-free module lets the account recipe's node harness load them alone.
+export { isWasmTrap, readWasmHandle } from './wasm-handle';
 
 /**
  * Pulls a stable SDK error code off a thrown value, if present.
@@ -211,11 +215,6 @@ export function pipelineKillIn(err: unknown): unknown {
   return undefined;
 }
 
-/** A WASM trap (`WebAssembly.RuntimeError`), the object a lock retires when it reaches the hold. */
-export function isWasmTrap(error: unknown): error is WebAssembly.RuntimeError {
-  return typeof WebAssembly !== 'undefined' && error instanceof WebAssembly.RuntimeError;
-}
-
 /**
  * The first line of a catch inside a WASM hold that falls back on an ordinary failure. The lock retires a poisoned
  * client only when a `WebAssembly.RuntimeError` reaches it, so a trap is thrown as that same object. A caught kill must
@@ -226,24 +225,6 @@ export function rethrowTrapOrKill(error: unknown): void {
   if (isWasmTrap(error)) throw error;
   const kill = pipelineKillIn(error);
   if (kill !== undefined) throw kill;
-}
-
-/**
- * Returns `read(handle)`, then frees `handle`. When `read` throws, that same object is rethrown and the handle is
- * freed only when the error is not a trap, so a throwing free on an instance a trap aborted cannot replace the trap
- * the lock retires. An error from `free` after a read that succeeded propagates. This wraps nothing, retires no
- * client and takes no lock.
- */
-export function readWasmHandle<H extends { free(): void }, T>(handle: H, read: (handle: H) => T): T {
-  let value: T;
-  try {
-    value = read(handle);
-  } catch (error) {
-    if (!isWasmTrap(error)) handle.free();
-    throw error;
-  }
-  handle.free();
-  return value;
 }
 
 /**
