@@ -1,3 +1,4 @@
+import type { BridgeOperationInput } from 'lib/bridge/operation';
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -12,6 +13,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 
 import { buildEpochCollateralRequestBytes } from './collateral-note';
+import type { EpochReviewedOutput } from './types';
 
 export interface BridgeNoteDeps {
   /**
@@ -75,6 +77,8 @@ export interface CreateBridgeP2IDENoteArgs {
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   allocatorUrl?: string;
+  operation?: BridgeOperationInput;
+  reviewedOutput?: EpochReviewedOutput;
 }
 
 /**

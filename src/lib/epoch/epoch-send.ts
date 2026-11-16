@@ -1,6 +1,8 @@
 import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
 import { formatUnits, parseUnits } from 'viem';
 
+import type { QuoteValidity } from 'lib/bridge/core/quote';
+import type { BridgeOperationInput } from 'lib/bridge/operation';
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -19,9 +21,10 @@ import { collateralNoteMismatch, EpochCollateralNoteMismatchError } from './coll
 import { readEpochIntentStatus } from './intent-status';
 import { createBridgeP2IDENote, type BridgeNoteDeps } from './miden-note';
 import { getEpochReadOnlySdk } from './sdk';
-import type { CrossChainIntentParams } from './types';
+import type { CrossChainIntentParams, EpochReviewedQuote } from './types';
 
 export interface EpochQuoteOutput {
+  validity?: QuoteValidity;
   /** Estimated EVM output as an exact human decimal; the screens that show it round it down. */
   amount: string;
   /** Output token symbol, as its contract reports it. */
@@ -112,10 +115,16 @@ export async function quoteEpochSendOutput(args: {
   };
 }
 
+export function reviewedEpochMinimum(_value: string, _decimals: number): bigint {
+  throw new Error('Epoch reviewed decimal minimum is unavailable');
+}
+
 export interface EpochSendArgs {
   /** Base units of the Miden faucet token the user is sending. */
   amount: bigint;
   minimumOutputBaseUnits: bigint;
+  reviewedQuote?: EpochReviewedQuote;
+  operation?: BridgeOperationInput;
   /** Miden faucet id of the token being bridged. Epoch accepts any token (hex or bech32). */
   faucetId: string;
   /** EVM recipient (0x) — also the intent sponsor; no connected wallet required. */

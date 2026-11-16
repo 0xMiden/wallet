@@ -4,6 +4,7 @@ import {
   prepareBridgeOperation,
   type BridgeOperationInput
 } from 'lib/bridge/operation';
+import type { EpochReviewedOutput } from 'lib/epoch/types';
 import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
@@ -1158,7 +1159,8 @@ export const initiateBridgedSendTransaction = async (
   usdcxBurn?: IUsdcxBurn,
   agglayerRoute?: AgglayerRecoveryConfig,
   epochAllocatorUrl?: string,
-  operation?: BridgeOperationInput
+  operation?: BridgeOperationInput,
+  _epochReviewedOutput?: EpochReviewedOutput
 ): Promise<string> => {
   const walletScope = operation ? captureBridgeWalletScope() : undefined;
   if (!requestBytes?.length) throw new Error(BRIDGED_SEND_MISSING_REQUEST_ERROR);

@@ -7,6 +7,7 @@ import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
+import type { QuoteValidity } from 'lib/bridge/core/quote';
 import { bridgeEpochSend } from 'lib/epoch';
 import {
   TEST_BRIDGE_CONFIG_SNAPSHOT,
@@ -69,6 +70,7 @@ let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
 let mockEpochQuote: {
+  validity?: QuoteValidity;
   amount?: string;
   loading: boolean;
   error: null;
@@ -1392,6 +1394,37 @@ describe('ReviewTransaction — rendering', () => {
       expect(bridgeEpochSendMock).toHaveBeenCalledWith(expect.objectContaining({ minimumOutputBaseUnits: minimum }));
     }
   );
+
+  it('passes actual quote validity and token identity together with the reviewed positive floor', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = {
+      amount: '4.8',
+      decimals: 6,
+      address: '0x2222222222222222222222222222222222222222',
+      validity: { kind: 'provider' },
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+    expect(bridgeEpochSendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        minimumOutputBaseUnits: 4800000n,
+        reviewedQuote: {
+          validity: { kind: 'provider' },
+          outputTokenDecimals: 6,
+          outputTokenAddress: '0x2222222222222222222222222222222222222222'
+        }
+      })
+    );
+  });
 
   it('cannot authorize an Epoch output whose token precision is unresolved', async () => {
     mockDetectedChain = 'ethereum';

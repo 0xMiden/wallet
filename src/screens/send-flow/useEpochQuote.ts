@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 
 import { useDebounce } from 'use-debounce';
 
+import type { QuoteValidity } from 'lib/bridge/core/quote';
 import { quoteEpochSendOutput } from 'lib/epoch';
 import { normalizeMidenIdToHex } from 'lib/epoch/bridge';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectEpochOutputToken, selectEvmChainId } from 'lib/remote-config/values';
 
 export interface EpochQuoteState {
+  validity?: QuoteValidity;
   loading: boolean;
   /** Estimated EVM output as an exact human decimal; the Review rounds it down for display. */
   amount?: string;

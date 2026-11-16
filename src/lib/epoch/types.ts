@@ -1,5 +1,17 @@
 import type { CompactResponse } from '@epoch-protocol/epoch-intents-sdk';
 
+import type { QuoteValidity } from 'lib/bridge/core/quote';
+
+export interface EpochReviewedQuote {
+  validity: QuoteValidity;
+  outputTokenAddress: `0x${string}`;
+  outputTokenDecimals: number;
+}
+
+export interface EpochReviewedOutput extends EpochReviewedQuote {
+  minimumOutputBaseUnits: string;
+}
+
 export interface MidenAccount {
   id: string;
   label: string;

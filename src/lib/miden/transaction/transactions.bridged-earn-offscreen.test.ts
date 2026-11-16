@@ -43,7 +43,7 @@ import {
   isUnconfirmedFailure
 } from './index';
 import { bridgeProviderOf, isRequeueableTransaction } from './retry';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { BridgedSendTransaction, ITransaction, ITransactionStatus } from '../db/types';
 
 const txStore: Array<Record<string, unknown>> = [];
 
@@ -398,6 +398,68 @@ describe('owned native bridge scope on the existing single-key pipeline', () => 
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
     expect(txStore[0]?.submitEvidence).toEqual(tx.submitEvidence);
     expect(txStore[0]?.attemptId).toBe('original-attempt');
+  });
+});
+
+describe('reviewed compact Epoch source on the existing single-key pipeline', () => {
+  const compactProvider: GuardianAccountProvider = { ...provider, getAccounts: async () => [] };
+  function reviewedEpochRow() {
+    const tx = new BridgedSendTransaction(
+      'acc-1',
+      1000n,
+      '0x1111111111111111111111111111111111111111',
+      11155111,
+      'epoch',
+      'faucet',
+      new Uint8Array([0xb1, 0x1d]),
+      false,
+      { recipientId: 'mtst1qallocator', noteType: 'public', recallBlocks: 10, reclaimNoteId: 'note:epoch' }
+    );
+    tx.approvedOutputNoteIds = ['note:epoch'];
+    tx.extraInputs.epochReviewedOutput = {
+      minimumOutputBaseUnits: '250',
+      outputTokenAddress: '0x2222222222222222222222222222222222222222',
+      outputTokenDecimals: 6,
+      validity: { kind: 'time', expiresAt: now + 60000 }
+    };
+    return tx;
+  }
+  beforeEach(() => jest.spyOn(Date, 'now').mockReturnValue(now));
+  afterEach(() => jest.restoreAllMocks());
+
+  it('still executes valid compact reviewed collateral through the native leaf', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, compactProvider);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start expired compact collateral', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    jest.spyOn(Date, 'now').mockReturnValue(now + 60000);
+    await generateTransaction(tx, signCallback, false, compactProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses expired compact collateral after proof at the actual awaited submit gate', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    const sourceSubmit = jest.fn();
+    mockProxyNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      jest.spyOn(Date, 'now').mockReturnValue(now + 60000);
+      const gate = args[5];
+      if (typeof gate === 'function') {
+        const allowed: unknown = await Reflect.apply(gate, undefined, []);
+        if (allowed !== true) throw new Error('Native source gate refused');
+      }
+      sourceSubmit();
+      return makeResult();
+    });
+    await generateTransaction(tx, signCallback, false, compactProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(sourceSubmit).not.toHaveBeenCalled();
+    expect(txStore[0]?.mayHaveSubmitted).toBe(true);
   });
 });
 

@@ -2,6 +2,7 @@ import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import type { BridgeOperationSnapshot } from 'lib/bridge/operation';
+import type { EpochReviewedOutput } from 'lib/epoch/types';
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type {
   OneClickAsset,
@@ -504,6 +505,7 @@ export interface IUsdcxBurn {
 
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
+  epochReviewedOutput?: EpochReviewedOutput;
   bridgeOperation?: BridgeOperationSnapshot;
   agglayerRoute?: AgglayerRecoveryConfig;
   epochAllocatorUrl?: string;
