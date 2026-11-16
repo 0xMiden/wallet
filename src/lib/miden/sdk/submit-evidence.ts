@@ -1,6 +1,7 @@
 // What an attempt's leaf reads off its executed and proven transaction immediately before it submits (#1081), and
-// the service worker's parser for the copy that crosses the offscreen bus. Synchronous and total: each field is read
-// in its own try, and an unreadable field is left out, which only keeps the entry from being provable.
+// the service worker's parser for the copy that crosses the offscreen bus. Synchronous and total but for a trap: each
+// field is read in its own try, and an unreadable field is left out, which only keeps the entry from being provable.
+import { isWasmTrap } from './wasm-handle';
 import type { SubmitEvidenceFields } from '../db/types';
 
 /** A delta can move the expiration at most this far past the reference block. */
@@ -40,7 +41,10 @@ export interface EvidenceProof {
 function attempt<T>(read: () => T): T | undefined {
   try {
     return read();
-  } catch {
+  } catch (error) {
+    // This runs in the submitting hold before its submit, so the hold's lock retires the trap and the leaf never
+    // submits from that client.
+    if (isWasmTrap(error)) throw error;
     return undefined;
   }
 }
@@ -49,6 +53,7 @@ function attempt<T>(read: () => T): T | undefined {
  * The evidence of an attempt about to submit. Reads nothing once `holdIsCurrent` says the WASM hold that executed it
  * is gone, the rule `readLanded` follows: the handles are borrows of a client the flow no longer owns. The fee note
  * is never captured, because another transaction from the same pre-state paying the same fee can carry the same one.
+ * Total but for a trap: the first `WebAssembly.RuntimeError` leaves as itself and no later field is read.
  */
 export function readSubmitEvidence(
   result: EvidenceResult,

@@ -42,7 +42,10 @@ export interface ApplyAfterSubmitRetry<Id> {
   readLocalAccount: (accountId: Id) => Promise<{ to_commitment(): { toHex(): string } } | null | undefined>;
   /** False once the hold that submitted no longer owns the WASM mutex. */
   holdIsCurrent: () => boolean;
-  /** Retire the submitting hold's client for a trap. The landed verdict stays `ApplyAfterSubmitError`. */
+  /**
+   * Retire the submitting hold's client for a trap. The landed verdict stays `ApplyAfterSubmitError`. A throw here is
+   * logged and costs only the retire.
+   */
   retireTrap: (cause: WebAssembly.RuntimeError) => void;
   /** Hears each failed attempt. A throw here is ignored. */
   onApplyFailed?: (error: unknown) => void;
@@ -65,7 +68,7 @@ export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): 
   const noteApplyFailure = (error: unknown): void => {
     report(options, error);
     if (error instanceof WebAssembly.RuntimeError) {
-      options.retireTrap(error);
+      retire(options, error);
       throw new ApplyAfterSubmitError(error, {});
     }
     lastError = error;
@@ -128,7 +131,7 @@ function readLanded<Id>(options: ApplyAfterSubmitRetry<Id>): LandedTransaction {
       read();
     } catch (error) {
       if (!(error instanceof WebAssembly.RuntimeError)) throw error;
-      options.retireTrap(error);
+      retire(options, error);
       return landed;
     }
   }
@@ -140,6 +143,19 @@ function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
     options.onApplyFailed?.(error);
   } catch {
     // A breadcrumb must never cost the landed verdict.
+  }
+}
+
+// Guarded as `report` is, since every call sits on the landed verdict's path: a retire that threw would replace
+// `ApplyAfterSubmitError` and the row would be offered a Retry that submits it again.
+function retire<Id>(options: ApplyAfterSubmitRetry<Id>, trap: WebAssembly.RuntimeError): void {
+  try {
+    options.retireTrap(trap);
+  } catch (retireError) {
+    console.error('[apply-after-submit] retiring a caught trap failed; the landed verdict stands', {
+      trap,
+      retireError
+    });
   }
 }
 
@@ -233,7 +249,7 @@ async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>):
     // A trap retires this hold and leaves, so the caller records no facts. Any other failure
     // refuses the retry, and the landed read still runs.
     if (error instanceof WebAssembly.RuntimeError) {
-      options.retireTrap(error);
+      retire(options, error);
       throw error;
     }
     return false;
