@@ -3668,8 +3668,8 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
   });
 
-  // An apply trap reads nothing off the result, so the facts name no order: the one the row's saved request recorded
-  // beside its bytes is the order, held at the landing and opened by the Completed write, with no decode.
+  // An apply trap reads nothing off the result, so the facts name no order: the one the rebuild recorded beside the
+  // bytes it proposed is the order, held at the landing and opened by the Completed write, with no decode.
   it('swap: a round-tripped apply trap with no landed facts is Completed with the order its request recorded', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const orderNoteId = `0x${'ab'.repeat(32)}`;
@@ -3683,7 +3683,13 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
         errorCode: 'ApplyTransactionAfterSubmitFailed'
       });
     });
-    arrange('apply-trap-swap-recorded-order', row);
+    const { service } = arrange('apply-trap-swap-recorded-order', row);
+    const rebuilt = {
+      proposal: { id: 'prop', nonce: 7 },
+      requestBytes: new Uint8Array(REBASED_BYTES),
+      order: { orderId: '42', orderNoteId }
+    };
+    service.createRebasedCustomProposal.mockResolvedValueOnce(rebuilt);
 
     await generateTransaction(
       buildTx('apply-trap-swap-recorded-order', row) as never,
