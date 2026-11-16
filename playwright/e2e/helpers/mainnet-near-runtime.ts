@@ -207,7 +207,7 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
   const evmAccount = privateKeyToAddress(`0x${key}`);
   await restoreMainnetLoopGuardian(wallet, keyPair);
   const account = await wallet.getAccountAddress();
-  if (swap?.account !== account || epoch?.account !== account)
+  if ((swap?.sourceRunId === runId && swap.account !== account) || epoch?.account !== account)
     throw new Error('Native NEAR and both predecessor costs must belong to the same existing Guardian');
   const setup = await loadMainnetOneClickSetup(fetch, fetch, wallet.extensionId);
   if (!setup) throw new Error('Requested native NEAR coverage requires the owned live nightly catalog/config overlay');
