@@ -826,9 +826,14 @@ export const completeVerifiedLandedTransaction = async (
  * evidence followed by a second one settling the row.
  *
  * A swap opens the order its landed failure held here, with the status flip
- * ({@link completedSwapFields}), so every node-evidence landing tracks it.
+ * ({@link completedSwapFields}), so every node-evidence landing tracks it; `read`
+ * is the order the landing itself read, taken when the row holds none.
  */
-export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITransaction> = {}): void => {
+export const applyVerifiedLanding = (
+  tx: ITransaction,
+  otherValues: Partial<ITransaction> = {},
+  read: Pick<LandedTransaction, 'orderId' | 'orderNoteId'> = {}
+): void => {
   Object.assign(tx, otherValues);
   tx.status = ITransactionStatus.Completed;
   tx.stage = 'complete';
@@ -837,7 +842,8 @@ export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITra
   tx.error = undefined;
   tx.rawError = undefined;
   if (tx.displayIcon === 'FAILED') tx.displayIcon = ICON_BY_TYPE[tx.type];
-  if (tx.type === 'swap') Object.assign(tx, completedSwapFields(tx, tx.completedAt ?? Math.floor(Date.now() / 1000)));
+  if (tx.type === 'swap')
+    Object.assign(tx, completedSwapFields(tx, tx.completedAt ?? Math.floor(Date.now() / 1000), read));
 };
 
 /**

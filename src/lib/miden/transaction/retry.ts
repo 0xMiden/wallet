@@ -17,6 +17,8 @@ import {
   STALE_PROOF_ERROR,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
   TRANSACTION_LANDING_PENDING_RETRY_ERROR,
+  TRANSACTION_REPLAY_CHECK_FAILED_ERROR,
+  TRANSACTION_REPLAY_UNREADABLE_ERROR,
   TRANSACTION_RETRY_UNSAFE_ERROR,
   isSubmitOutcomeUnknown
 } from './constants';
@@ -24,10 +26,13 @@ import {
   applyVerifiedLanding,
   completeVerifiedLandedTransaction,
   countNoteDeliveryWrite,
+  reportVerifiedLanding,
+  storedNoteIds,
   verifiedLandingRowFields
 } from './helper';
-import { latestEndMayStillRun } from './reconcile-judge';
-import { checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
+import { checkPinnedReplayNotes, type PinnedReplayCheck } from './pinned-replay-check';
+import { latestEndMayStillRun, noteClaimedElsewhere } from './reconcile-judge';
+import { accountRowsOf, checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
 import { GuardianHoldRetryError } from './retry-refusal';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
@@ -195,7 +200,9 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * row's `requestBytes` (a Guardian recallable send or swap, an Agglayer or USDCx
  * `bridged-send`) re-creates the same note, which the node rejects only while the
  * first copy is still in flight: it checks output notes against its mempool, not
- * against committed notes. So holding bytes exempts none of these types.
+ * against committed notes. So holding bytes exempts none of these types, and before
+ * such a replay Retry asks the node for the notes the bytes create
+ * (`checkPinnedReplayNotes`): one already on chain completes the row instead.
  *
  * An `execute` is left out of this list but not out of the doubt: `newTransaction`
  * re-executes its request against the account's current state, so a script that
@@ -298,7 +305,7 @@ export interface RetryOptions {
    * Retry ran a newer attempt counts as absent. Taken as the premise being false, so both crossing markers are
    * cleared in the requeue write rather than stepped over, except a `send`'s `mayHaveSubmitted` while it holds
    * `requestBytes`: that crossing pins the bytes, so the acknowledged Retry re-creates their note rather than drawing a
-   * new serial.
+   * new serial. It replays them only once the node shows none of the notes they create on chain.
    */
   acknowledged?: { attemptId: string | null };
 }
@@ -437,6 +444,23 @@ const planRequeue = async (
   if ((resubmitInDoubt || executeInDoubt) && live) {
     throw new UnverifiableSendRetryError(livenessCopy(tx.type, proven));
   }
+  // Bytes in doubt are replayed as they are, so the user's word cannot rule out what the node can: a note they create
+  // that is already on chain. No answer replays nothing, since the replay needs the same node.
+  if (!proven && resubmitInDoubt && tx.requestBytes !== undefined) {
+    const pinned = await checkPinnedReplayNotes(tx);
+    if (pinned.kind === 'unknown') {
+      throw pinned.cause === 'decode'
+        ? retryRefusal(new Error(TRANSACTION_REPLAY_UNREADABLE_ERROR), 'replay_request_unreadable')
+        : retryRefusal(new Error(TRANSACTION_REPLAY_CHECK_FAILED_ERROR), 'replay_check_failed');
+    }
+    if (pinned.kind === 'committed') {
+      const written = await writePinnedLanding(tx, baseline, pinned);
+      // On chain, but maybe not this row's: neither a replay nor a completion.
+      if (written === 'claimed') throw retryRefusal(new Error(TRANSACTION_RETRY_UNSAFE_ERROR), 'unsafe_retry');
+      if (written === 'declined') throw retryRefusal(new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR), 'verdict_busy');
+      return undefined;
+    }
+  }
   let clearFlags = proven;
   if (!proven && (resubmitInDoubt || executeInDoubt)) {
     const attemptId = tx.attemptId ?? null;
@@ -450,6 +474,52 @@ const planRequeue = async (
   }
   // Read off the pre-reset row: the requeue write clears `stage`.
   return { failedStage: tx.stage, clearFlags, proven, baseline };
+};
+
+const sameBytes = (left: Uint8Array | undefined, right: Uint8Array | undefined): boolean =>
+  left !== undefined &&
+  right !== undefined &&
+  left.length === right.length &&
+  left.every((byte, index) => byte === right[index]);
+
+type PinnedLandingWrite = 'written' | 'declined' | 'claimed';
+
+/**
+ * Complete a row whose pinned note the node holds, as the reconciler's note landing completes one: in one write that
+ * declines once the row moved from what Retry judged (its status, stage, evidence or bytes), and that re-reads the
+ * account's rows, since another attempt naming that note may be the one that created it. A swap opens the order its
+ * pinned note names when the row holds none ({@link applyVerifiedLanding}).
+ */
+const writePinnedLanding = async (
+  tx: ITransaction,
+  baseline: string,
+  pinned: Extract<PinnedReplayCheck, { kind: 'committed' }>
+): Promise<PinnedLandingWrite> => {
+  const outcome = await Repo.db.transaction(
+    'rw',
+    Repo.transactions,
+    async (): Promise<{ write: PinnedLandingWrite; landed?: ITransaction; target?: string[] }> => {
+      const fresh = await Repo.transactions.where({ id: tx.id }).first();
+      if (
+        fresh === undefined ||
+        (fresh.status !== ITransactionStatus.Failed && fresh.status !== ITransactionStatus.Unconfirmed) ||
+        fresh.stage !== tx.stage ||
+        evidenceKey(fresh.submitEvidence) !== baseline ||
+        !sameBytes(fresh.requestBytes, tx.requestBytes)
+      ) {
+        return { write: 'declined' };
+      }
+      if (noteClaimedElsewhere(fresh, pinned.noteId, await accountRowsOf(fresh))) return { write: 'claimed' };
+      applyVerifiedLanding(fresh, { ...verifiedLandingRowFields(fresh), completedAt: nowSeconds() }, pinned.order);
+      const target = recordLandedDeliveryTarget(fresh, { proof: { kind: 'note', noteId: pinned.noteId } });
+      if (storedNoteIds(fresh.outputNoteIds).length === 0) fresh.outputNoteIds = pinned.noteIds;
+      await Repo.transactions.put(fresh);
+      return { write: 'written', landed: fresh, target };
+    }
+  );
+  if (outcome.target !== undefined) countNoteDeliveryWrite();
+  if (outcome.landed !== undefined) reportVerifiedLanding(outcome.landed);
+  return outcome.write;
 };
 
 type RequeueWrite = 'written' | 'declined' | 'evidence-changed';
