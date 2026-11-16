@@ -166,7 +166,11 @@ import {
 } from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
-import { TERMINAL_STATUS_WRITE_ATTEMPTS, TERMINAL_STATUS_WRITE_BACKOFF_MS } from './terminal-write';
+import {
+  TERMINAL_STATUS_WRITE_ATTEMPTS,
+  TERMINAL_STATUS_WRITE_BACKOFF_MS,
+  writeCommittedCompleted
+} from './terminal-write';
 import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
@@ -1361,11 +1365,16 @@ async function reconcileStructuralApplyFailure(
     await requireLandedCommit(tx, guardianProvider, landed);
     // `completeUpdateProcedureThresholdTransaction` minus the fields only a TransactionResult
     // carries, and minus its re-register: the local store still holds the pre-update account.
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...landedTransactionIdFields(landed),
-      displayMessage: 'Account secured',
-      completedAt: Math.floor(Date.now() / 1000) // seconds
-    });
+    // Retried, never thrown: the node confirmed the update, so a failed write must not reach the cancel.
+    await writeCommittedCompleted(
+      tx.id,
+      {
+        ...landedTransactionIdFields(landed),
+        displayMessage: 'Account secured',
+        completedAt: Math.floor(Date.now() / 1000) // seconds
+      },
+      'procedure threshold update'
+    );
     return;
   }
   // A switch that ran the DIRECT fallback (old guardian unreachable) can't

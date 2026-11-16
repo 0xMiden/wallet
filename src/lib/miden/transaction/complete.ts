@@ -44,7 +44,11 @@ import {
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { TERMINAL_STATUS_WRITE_ATTEMPTS, TERMINAL_STATUS_WRITE_BACKOFF_MS } from './terminal-write';
+import {
+  TERMINAL_STATUS_WRITE_ATTEMPTS,
+  TERMINAL_STATUS_WRITE_BACKOFF_MS,
+  writeCommittedCompleted
+} from './terminal-write';
 import { adoptBridgeDeliveries } from '../activity/bridge-in';
 import { feeFieldsFromResult } from '../activity/fee';
 import { splitLandedOutputNotes } from '../activity/fee-notes';
@@ -545,6 +549,9 @@ export const completeReplaceHotKeyTransaction = async (
   // Read once, before the swap commits the new key locally: a trap here completes without the fields instead of
   // taking the catch's Failed write for a rotation already on chain.
   const resultFields = readTransactionResultFields(result, tx.id);
+  let reRegisterFailed = false;
+  let reRegisterEvicted = false;
+  let storedAccountId = tx.accountId;
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
     if (!newHotPublicKey) {
@@ -584,10 +591,8 @@ export const completeReplaceHotKeyTransaction = async (
     // repair it, but only after SELF_HEAL_AUTH_FAILURE_THRESHOLD consecutive
     // 401s on SYNC ticks plus a 60s cooldown - so a wallet that rotates and
     // immediately transacts stays broken for the whole of that window.
-    let reRegisterFailed = false;
     let reRegisterError: unknown;
     let reRegisterAttempts = 0;
-    let storedAccountId = tx.accountId;
     // The landed reconcile pushes nothing (#1233): the apply failed, so the local store still holds
     // the pre-rotation account and allowlist, and a push landing after canonicalization would put
     // the guardian back on them, so every hot-signed request 401s with no cold self-heal. The
@@ -636,7 +641,7 @@ export const completeReplaceHotKeyTransaction = async (
         }
       }
     }
-    const reRegisterEvicted = isPoisonedPipeline(reRegisterError);
+    reRegisterEvicted = isPoisonedPipeline(reRegisterError);
     if (reRegisterError) {
       reRegisterFailed = true;
       console.error(
@@ -650,10 +655,28 @@ export const completeReplaceHotKeyTransaction = async (
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
     await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
-    // Drop the cached MultisigService - its bound hot signer is now stale.
-    clearGuardianServiceFor(storedAccountId);
+  } catch (error) {
+    retireLandedTrap(error, tx.id, result);
+    console.error('Error completing replace-hot-key transaction:', error);
+    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
+      displayMessage: 'Failed to rotate everyday key',
+      completedAt: Math.floor(Date.now() / 1000),
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return;
+  }
 
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+  // Past the swap the new key is installed and the old one deleted, so nothing below may end the row Failed.
+  // Drop the cached MultisigService - its bound hot signer is now stale.
+  try {
+    clearGuardianServiceFor(storedAccountId);
+  } catch (evictError) {
+    console.warn('Could not evict the cached guardian service (non-fatal):', evictError);
+  }
+
+  await writeCommittedCompleted(
+    tx.id,
+    {
       ...feeFieldsFromResult(result, tx.id),
       displayMessage: 'Everyday key rotated',
       completedAt: Math.floor(Date.now() / 1000),
@@ -664,41 +687,32 @@ export const completeReplaceHotKeyTransaction = async (
       // `result` is absent on the landed reconcile path: the rotation is already on chain, and all
       // the reconcile has is the id its failure carried (#1233).
       ...(result ? (resultFields ?? {}) : landedTransactionIdFields(landed))
-    });
+    },
+    'everyday key rotation'
+  );
 
-    // The account now has both signers on-chain, so bring it up to the same
-    // hardening a freshly-created 3-key account has (update_guardian threshold
-    // 2, which the update_signers rotation above can't carry). Best-effort and
-    // idempotent; never affects the rotation's success. After an eviction during
-    // re-register it is skipped rather than rebuilding the service against the
-    // node that just parked: the next guardian sync lap re-runs the check,
-    // because the swap above changed the hot key that sync's once-per-session
-    // gate is keyed on.
-    //
-    // Scoped when it does run. This call sits past the terminal status write.
-    // `ensureGuardianProcedureThresholds` re-throws a WASM client eviction, and
-    // the enclosing catch writes Failed, so an unscoped throw would flip a
-    // rotation that is already on chain and recorded Completed. The eviction is
-    // logged and the row stands.
-    if (!reRegisterEvicted) {
-      try {
-        await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
-      } catch (hardeningError) {
-        console.warn(
-          `[guardian] procedure-threshold hardening did not run after the hot-key rotation for ${tx.accountId}; ` +
-            `the rotation itself is complete and the guardian sync re-attempts the hardening:`,
-          hardeningError
-        );
-      }
+  // The account now has both signers on-chain, so bring it up to the same
+  // hardening a freshly-created 3-key account has (update_guardian threshold
+  // 2, which the update_signers rotation above can't carry). Best-effort and
+  // idempotent; never affects the rotation's success. After an eviction during
+  // re-register it is skipped rather than rebuilding the service against the
+  // node that just parked: the next guardian sync lap re-runs the check,
+  // because the swap above changed the hot key that sync's once-per-session
+  // gate is keyed on.
+  //
+  // Scoped when it does run: `ensureGuardianProcedureThresholds` re-throws a
+  // WASM client eviction, and the rotation is already on chain, so the eviction
+  // is logged and the row stands.
+  if (!reRegisterEvicted) {
+    try {
+      await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+    } catch (hardeningError) {
+      console.warn(
+        `[guardian] procedure-threshold hardening did not run after the hot-key rotation for ${tx.accountId}; ` +
+          `the rotation itself is complete and the guardian sync re-attempts the hardening:`,
+        hardeningError
+      );
     }
-  } catch (error) {
-    retireLandedTrap(error, tx.id, result);
-    console.error('Error completing replace-hot-key transaction:', error);
-    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-      displayMessage: 'Failed to rotate everyday key',
-      completedAt: Math.floor(Date.now() / 1000),
-      error: error instanceof Error ? error.message : String(error)
-    });
   }
 };
 
@@ -711,12 +725,16 @@ export const completeUpdateProcedureThresholdTransaction = async (
 ) => {
   // The update is on chain, so a trap reading the result completes without its fields rather than escaping.
   const resultFields = readTransactionResultFields(result, tx.id);
-  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
-    displayMessage: 'Account secured',
-    completedAt: Math.floor(Date.now() / 1000),
-    ...(resultFields ?? {})
-  });
+  await writeCommittedCompleted(
+    tx.id,
+    {
+      ...feeFieldsFromResult(result, tx.id),
+      displayMessage: 'Account secured',
+      completedAt: Math.floor(Date.now() / 1000),
+      ...(resultFields ?? {})
+    },
+    'procedure threshold update'
+  );
   // The cached service's procedureThresholds are now stale - drop it. The cache is
   // keyed canonically, so the queued id needs no account-list read first.
   clearGuardianServiceFor(tx.accountId);
