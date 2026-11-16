@@ -108,6 +108,7 @@ import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'l
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { readChainTip } from 'lib/miden/sdk/pswap-order-note';
 import {
+  ApplyAfterSubmitError,
   extractLanded,
   extractSdkErrorCode,
   hasErrorBeforeSubmit,
@@ -595,6 +596,27 @@ async function stepBeforeSubmit<T>(step: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * The bytes of a result its leaf already submitted and applied. A trap here is the client failing past the submit, so
+ * it is retired through the dispatch's own hold and crosses as `ApplyAfterSubmitError` with no facts: the result's
+ * handles borrow the trapped client and are not read again, and the service worker settles the row through its landed
+ * arm instead of failing a write the node holds. Any other failure keeps its own shape.
+ */
+function serializeLandedResult(context: DispatchContext, result: { serialize(): Uint8Array }): Uint8Array {
+  try {
+    return result.serialize();
+  } catch (error) {
+    if (!(error instanceof WebAssembly.RuntimeError)) throw error;
+    try {
+      retireWasmClientForCaughtTrap(context.hold, error);
+    } catch (retireError) {
+      // The retire costs only itself: replacing the landed verdict would offer a Retry that submits the write again.
+      console.error(`${TAG} retiring a trap past the submit failed; the landed verdict stands`, { error, retireError });
+    }
+    throw new ApplyAfterSubmitError(error);
+  }
+}
+
 const DISPATCH: Record<string, DispatchFn> = {
   tryGetAccount: async (context, client, accountId: string) => {
     const account = await client.getAccount(accountId);
@@ -962,7 +984,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // applied) by the time it returns, through its staged submit (in this realm, or
     // `submitProven` for a worker proof), so the PSWAP note may already be on the
     // network. Post-submit, completing beats aborting.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   // Positional args (accountId, requestBytes, delegateTransaction) mirroring the
@@ -987,7 +1009,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // submitted and applied — its pre-submit seams live inside
     // `MidenClientInterface`, not here. The request may be broadcast, so the
     // serialize completes rather than aborts.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   // The GUARDIAN write LEAF PIPELINE moved offscreen (issue #260, slice 6a). A
@@ -1200,7 +1222,7 @@ const DISPATCH: Record<string, DispatchFn> = {
         onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
       });
       recordProveTiming('guardianPipeline apply returned');
-      return attempt.txResult.serialize() as Uint8Array;
+      return serializeLandedResult(context, attempt.txResult);
     } catch (error) {
       annotateTransactionExecution(error, execution);
       throw error;
