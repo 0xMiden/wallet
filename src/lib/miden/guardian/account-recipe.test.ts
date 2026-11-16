@@ -12,14 +12,19 @@ const recipe = {
   initSeed: new Uint8Array([1, 2, 3])
 };
 
-const builtAccount = (onRead: () => void = () => {}) => {
+const trap = new WebAssembly.RuntimeError('unreachable');
+const throwing = () => {
+  throw new Error('freed after the trap');
+};
+
+const builtAccount = (onRead: () => void = () => {}, readCommitment: () => string = () => '0xABCD') => {
   const freed = { account: jest.fn(), id: jest.fn(), commitment: jest.fn() };
   const account = {
     id: () => {
       onRead();
       return { toString: () => '0xid', free: freed.id };
     },
-    to_commitment: () => ({ toHex: () => '0xABCD', free: freed.commitment }),
+    to_commitment: () => ({ toHex: readCommitment, free: freed.commitment }),
     free: freed.account
   };
   return { account, freed };
@@ -76,14 +81,38 @@ describe('guardian account recipe', () => {
     expect(freed.commitment).toHaveBeenCalledTimes(1);
   });
 
-  it('frees the account when reading it throws', async () => {
-    const trap = new WebAssembly.RuntimeError('unreachable');
+  it('frees the account when a read fails with an ordinary error', async () => {
     const { account, freed } = builtAccount(() => {
-      throw trap;
+      throw new Error('not an id');
     });
     mockBuild.mockResolvedValue({ account, seed: recipe.initSeed });
 
-    await expect(rebuildGuardianAccount(recipe)).rejects.toBe(trap);
+    await expect(rebuildGuardianAccount(recipe)).rejects.toThrow('not an id');
     expect(freed.account).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects with a trap from the account read and frees nothing, even when a free would throw', async () => {
+    const { account, freed } = builtAccount(() => {
+      throw trap;
+    });
+    freed.account.mockImplementation(throwing);
+    mockBuild.mockResolvedValue({ account, seed: recipe.initSeed });
+
+    await expect(rebuildGuardianAccount(recipe)).rejects.toBe(trap);
+    expect(freed.account).not.toHaveBeenCalled();
+  });
+
+  it('rejects with a trap from the commitment read and frees neither the word nor the account', async () => {
+    const { account, freed } = builtAccount(undefined, () => {
+      throw trap;
+    });
+    freed.commitment.mockImplementation(throwing);
+    freed.account.mockImplementation(throwing);
+    mockBuild.mockResolvedValue({ account, seed: recipe.initSeed });
+
+    await expect(rebuildGuardianAccount(recipe)).rejects.toBe(trap);
+    expect(freed.commitment).not.toHaveBeenCalled();
+    expect(freed.account).not.toHaveBeenCalled();
+    expect(freed.id).toHaveBeenCalledTimes(1);
   });
 });
