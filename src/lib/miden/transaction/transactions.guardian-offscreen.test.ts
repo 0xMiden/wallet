@@ -3638,6 +3638,29 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.displayMessage).not.toBe('Sent');
   });
 
+  it('swap: a round-tripped landed failure is Completed with its order id and order note', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    // As the proxy rebuilds the reply: the order id crossed as decimal text.
+    const applyErr = Object.assign(new Error('local apply failed after submit'), {
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      landed: { transactionId: '0xlanded', orderId: '42', orderNoteId }
+    });
+    mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    const swap = valueMovingCases().find(c => c.type === 'swap')!.row;
+    arrange('apply-swap-order', swap);
+
+    await generateTransaction(buildTx('apply-swap-order', swap) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === 'apply-swap-order')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.transactionId).toBe('0xlanded');
+    expect(finalRow.extraInputs.orderId).toBe(42n);
+    expect(finalRow.extraInputs.expiresAt).toEqual(expect.any(Number));
+    expect(finalRow.extraInputs.landedOrder).toBeUndefined();
+    expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
+  });
+
   it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     // As the proxy rebuilds the reply: the code and the landed facts on a plain Error.

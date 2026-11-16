@@ -697,6 +697,19 @@ describe('a throw after the leaf resolved', () => {
     })
   });
 
+  const ORDER_NOTE_ID = `0x${'AB'.repeat(32)}`;
+  // The landing second the record step reads, so the decided expiry is exact.
+  const runLoopAtFixedTime = async (write: jest.Mock): Promise<number> => {
+    const now = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      await runLoopWithWrite(write);
+    } finally {
+      clock.mockRestore();
+    }
+    return Math.floor(now / 1000);
+  };
+
   it('a loop swap whose tail throws before the Completed write keeps its order stamp and requested inputs', async () => {
     // A PSWAP order note is public; the landed order read reads no private note.
     _gh.__noteTypeForTest = 'public';
@@ -706,8 +719,8 @@ describe('a throw after the leaf resolved', () => {
       amount: BigInt(5),
       extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: BigInt(9), expirySeconds: 100 }
     });
-    const note = landedSwapOutput();
-    await runLoopWithWrite(
+    const note = landedSwapOutput(undefined, ORDER_NOTE_ID);
+    const landedAt = await runLoopAtFixedTime(
       jest.fn(async () =>
         landedResult({ outputNotes: () => ({ notes: () => [note] }) }, () => {
           throw new Error('result serialize');
@@ -723,6 +736,100 @@ describe('a throw after the leaf resolved', () => {
       requestedAmount: 9n
     });
     expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.extraInputs.expiresAt).toBe(landedAt + 100);
+    expect(row.extraInputs.landedOrder).toBeUndefined();
+    // Settlement reclaims an expired order's note only from the row's output notes.
+    expect(row.outputNoteIds).toEqual([ORDER_NOTE_ID.toLowerCase()]);
+  });
+
+  it('a loop swap whose local apply fails after submit is Completed with its order, expiry and order note', async () => {
+    const id = 'tx-apply-swap-order';
+    queuedRow(id, {
+      type: 'swap',
+      faucetId: 'faucet-offer',
+      amount: BigInt(5),
+      extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: BigInt(9), expirySeconds: 100 }
+    });
+
+    const landedAt = await runLoopAtFixedTime(
+      jest.fn(async () => {
+        throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {
+          transactionId: 'landed-id',
+          orderId: '42',
+          orderNoteId: ORDER_NOTE_ID
+        });
+      })
+    );
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.transactionId).toBe('landed-id');
+    expect(row.extraInputs).toEqual({
+      requestedFaucetId: 'faucet-req',
+      requestedAmount: 9n,
+      expirySeconds: 100,
+      orderId: 42n,
+      expiresAt: landedAt + 100
+    });
+    expect(row.outputNoteIds).toEqual([ORDER_NOTE_ID.toLowerCase()]);
+  });
+
+  // The record write can fail like the apply did; the Completed write still opens the order the facts name.
+  it('a loop swap whose landed record write fails is Completed with the order its facts name', async () => {
+    const id = 'tx-apply-swap-record-failed';
+    queuedRow(id, {
+      type: 'swap',
+      faucetId: 'faucet-offer',
+      amount: BigInt(5),
+      extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: BigInt(9), expirySeconds: 100 }
+    });
+    const where = require('lib/miden/repo').transactions.where as jest.Mock;
+    const storeWhere = where.getMockImplementation()!;
+    // Armed once the apply failed: the write that would record the landed id aborts.
+    let armed = false;
+    where.mockImplementation((arg: unknown) => {
+      const query = storeWhere(arg);
+      if (typeof arg === 'string') return query;
+      return {
+        ...query,
+        modify: async (fn: (tx: any) => unknown) => {
+          const row = txStore.find(stored => stored.id === id);
+          if (armed && row && row.transactionId === undefined) {
+            const probe = { ...row, extraInputs: { ...row.extraInputs } };
+            fn(probe);
+            if (probe.transactionId === 'landed-id') {
+              armed = false;
+              throw new Error('IndexedDB transaction aborted');
+            }
+          }
+          return query.modify(fn);
+        }
+      };
+    });
+    let landedAt: number;
+    try {
+      landedAt = await runLoopAtFixedTime(
+        jest.fn(async () => {
+          armed = true;
+          throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {
+            transactionId: 'landed-id',
+            orderId: '42',
+            orderNoteId: ORDER_NOTE_ID
+          });
+        })
+      );
+    } finally {
+      where.mockImplementation(storeWhere);
+    }
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(armed).toBe(false);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.transactionId).toBe('landed-id');
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(landedAt + 100);
+    expect(row.extraInputs.landedOrder).toBeUndefined();
+    expect(row.outputNoteIds).toEqual([ORDER_NOTE_ID.toLowerCase()]);
   });
 
   it('a trap reading a landed swap order id leaves the original tail error in place', async () => {
@@ -768,7 +875,6 @@ describe('a throw after the leaf resolved', () => {
 
   // A Cancel or the reaper can finalize a swap while its landed tail runs. The landed record is the one write such a
   // row still takes, so the order its landing decided rides it, held apart from the fields that open an order.
-  const ORDER_NOTE_ID = `0x${'AB'.repeat(32)}`;
   const queuedSwap = (id: string) =>
     queuedRow(id, {
       type: 'swap',
@@ -789,18 +895,6 @@ describe('a throw after the leaf resolved', () => {
       serialize
     };
   };
-  // The landing second the record step reads, so the decided expiry is exact.
-  const runLoopAtFixedTime = async (write: jest.Mock): Promise<number> => {
-    const now = Date.now();
-    const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
-    try {
-      await runLoopWithWrite(write);
-    } finally {
-      clock.mockRestore();
-    }
-    return Math.floor(now / 1000);
-  };
-
   it('a loop swap a Cancel finalized mid-tail keeps Failed, its landed id and the order its landed failure decided, unopened', async () => {
     const id = 'tx-tail-swap-finalized';
     _gh.__noteTypeForTest = 'public';

@@ -147,6 +147,32 @@ describe('the landed write (#1081)', () => {
     expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, displayIcon: icon });
   });
 
+  it.each([ITransactionStatus.Unconfirmed, ITransactionStatus.Failed])(
+    'the landed write opens the order a swap`s landed failure decided (status %s)',
+    async status => {
+      const extraInputs = {
+        requestedFaucetId: 'faucet-req',
+        requestedAmount: 9n,
+        expirySeconds: 100,
+        landedOrder: { orderId: '42', expiresAt: 1100, noteId: NOTE }
+      };
+      await Repo.transactions.put(unconfirmed({ type: 'swap', status, displayIcon: 'SWAP', extraInputs }));
+
+      await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+
+      const row = await read();
+      expect(row?.status).toBe(ITransactionStatus.Completed);
+      expect(row?.extraInputs).toEqual({
+        requestedFaucetId: 'faucet-req',
+        requestedAmount: 9n,
+        expirySeconds: 100,
+        orderId: 42n,
+        expiresAt: 1100
+      });
+      expect(row?.outputNoteIds).toEqual([NOTE]);
+    }
+  );
+
   it('marks a private send undelivered', async () => {
     await Repo.transactions.put(unconfirmed({ noteType: NoteTypeEnum.Private }));
     await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));

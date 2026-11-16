@@ -224,6 +224,68 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
     expect(row?.status).toBe(ITransactionStatus.Queued);
   });
 
+  // A Cancel or the reaper that finalized a swap mid-tail left the order its landing decided on the row, unopened.
+  const ORDER_NOTE = `0x${'ab'.repeat(32)}`;
+  const decidedSwap = (overrides: Partial<ITransaction> = {}): ITransaction =>
+    failedSend({
+      id: 'tx-landed-swap',
+      type: 'swap',
+      extraInputs: {
+        requestedFaucetId: 'faucet-req',
+        requestedAmount: 9n,
+        expirySeconds: 100,
+        landedOrder: { orderId: '42', expiresAt: 1100, noteId: ORDER_NOTE }
+      },
+      ...overrides
+    });
+
+  it('completes a landed swap a Cancel finalized mid-tail with the order its landed failure decided', async () => {
+    await Repo.transactions.put(decidedSwap());
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toEqual({
+      requestedFaucetId: 'faucet-req',
+      requestedAmount: 9n,
+      expirySeconds: 100,
+      orderId: 42n,
+      expiresAt: 1100
+    });
+    expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
+  });
+
+  it('a proven-dead swap`s requeue drops the order its dead attempt decided', async () => {
+    const submitEvidence = [{ attemptId: 'a1', capturedAt: 1100, source: 'stage' as const }];
+    await Repo.transactions.put(decidedSwap({ neverCommittedAt: 1150, submitEvidence }));
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    expect(row?.extraInputs.landedOrder).toBeUndefined();
+    expect(row?.extraInputs).toMatchObject({ requestedFaucetId: 'faucet-req', requestedAmount: 9n });
+    expect(row?.transactionId).toBe('0xlanded');
+    expect(row?.submitEvidence).toEqual(submitEvidence);
+    expect(mockVerifySendLanded).not.toHaveBeenCalled();
+  });
+
+  // That attempt can still land, so its decided order stays for the landing that completes the row.
+  it('an acknowledged swap requeue keeps the order its attempt decided', async () => {
+    await Repo.transactions.put(
+      decidedSwap({ transactionId: undefined, mayHaveSubmitted: true, attemptId: 'attempt-1' })
+    );
+    mockVerifySendLanded.mockResolvedValue('unknown');
+
+    await requeueFailedTransaction('tx-landed-swap', { acknowledged: { attemptId: 'attempt-1' } });
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    expect(row?.extraInputs.landedOrder).toEqual({ orderId: '42', expiresAt: 1100, noteId: ORDER_NOTE });
+  });
+
   it('documents WHY the reconcile cannot go through updateTransactionStatus', async () => {
     await Repo.transactions.put(failedSend({ id: 'tx-guarded' }));
 
