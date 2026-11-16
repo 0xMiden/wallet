@@ -2192,11 +2192,13 @@ describe('generateTransaction - Guardian routing', () => {
   it('Guardian send: a trap while the leaf reads its submit evidence fails the row before its submit and reaches the lock as itself', async () => {
     const trap = new WebAssembly.RuntimeError('unreachable');
     const client = makeClientApi(makeResult());
-    client.transactions.prove.mockImplementationOnce(async () => ({
+    const proof = {
+      proved: true,
       nullifiers: () => {
         throw trap;
       }
-    }));
+    };
+    client.transactions.prove.mockImplementationOnce(async () => proof);
     const lock = mockWithWasmClientLock.getMockImplementation()!;
     const rejections: unknown[] = [];
     mockWithWasmClientLock.mockImplementation(async (fn, options) =>

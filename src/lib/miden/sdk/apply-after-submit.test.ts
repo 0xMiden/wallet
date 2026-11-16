@@ -558,7 +558,7 @@ describe('applyAfterSubmit (#1233)', () => {
         local: INITIAL,
         initialAccountHeader: () => withCommitment(INITIAL),
         id: () => ({ toHex: () => '0xtx' }),
-        causeIsTrap: true
+        cause: trap
       })
     },
     {
@@ -570,24 +570,29 @@ describe('applyAfterSubmit (#1233)', () => {
           throw trap;
         },
         id: () => ({ toHex: () => '0xtx' }),
-        causeIsTrap: true
+        cause: trap
       })
     },
     {
       name: 'an id() trap with the local commitment at FINAL',
-      arrange: (trap: WebAssembly.RuntimeError) => ({
-        apply: failingApply(),
-        local: FINAL,
-        initialAccountHeader: () => withCommitment(INITIAL),
-        id: (): { toHex(): string } => {
-          throw trap;
-        },
-        causeIsTrap: false
-      })
+      arrange: (trap: WebAssembly.RuntimeError) => {
+        const ordinary = new Error('IndexedDB transaction aborted');
+        return {
+          apply: jest.fn(async () => {
+            throw ordinary;
+          }),
+          local: FINAL,
+          initialAccountHeader: () => withCommitment(INITIAL),
+          id: (): { toHex(): string } => {
+            throw trap;
+          },
+          cause: ordinary
+        };
+      }
     }
   ])('a retire that throws keeps the landed verdict ($name)', async ({ arrange: arrangeCase }) => {
     const trap = new WebAssembly.RuntimeError('unreachable');
-    const { apply, local, initialAccountHeader, id, causeIsTrap } = arrangeCase(trap);
+    const { apply, local, initialAccountHeader, id, cause } = arrangeCase(trap);
     const retireTrap = jest.fn(() => {
       throw new Error('retire failed');
     });
@@ -607,7 +612,7 @@ describe('applyAfterSubmit (#1233)', () => {
       );
 
       expect(isApplyAfterSubmitError(error)).toBe(true);
-      if (causeIsTrap) expect(error).toHaveProperty('cause', trap);
+      expect(error).toHaveProperty('cause', cause);
       expect(extractLanded(error)).toEqual({});
       expect(retireTrap).toHaveBeenCalledTimes(1);
     } finally {
