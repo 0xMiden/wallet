@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -74,6 +74,148 @@ test('published-wasm transfer refuses old curl before invoking the download', ()
   }
 });
 
+test('published-wasm shared production seam rejects preflight before launch with private receipts', async () => {
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  assert.ok(major > 22 || (major === 22 && minor >= 18), 'production helper requires stable Node type stripping');
+  const { runPublishedProbe } = await import('../playwright/tests/published-wasm/published-wasm-startup-preflight.ts');
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'published-wasm-planted-marker-')));
+  const keys = ['PROBE_RESULTS', 'EXTENSION_DIST', 'PROBE_ORIGINAL_NETNS'];
+  const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  let launches = 0;
+  const launch = async () => {
+    launches += 1;
+    assert.equal(JSON.parse(readFileSync(join(process.env.PROBE_RESULTS, 'cold-startup.json'), 'utf8')).outcome, 'setup_failed');
+    throw new Error('launch_must_not_run');
+  };
+  const expectOutcome = (actual, message) => ({ toBe: expected => assert.equal(actual, expected, message) });
+  try {
+    const output = join(root, 'published-wasm-results');
+    mkdirSync(output, { mode: 0o700 });
+    process.env.PROBE_RESULTS = output;
+    process.env.EXTENSION_DIST = `${root}/missing/chrome-extension://planted-marker`;
+    delete process.env.PROBE_ORIGINAL_NETNS;
+    await assert.rejects(runPublishedProbe('cold-startup', launch, expectOutcome), error => {
+      assert.match(error.message, /published_wasm_cold-startup_setup/);
+      assert.ok(!error.message.includes(root) && !error.message.includes('planted-marker'));
+      return true;
+    });
+    assert.equal(launches, 0);
+    const receiptPath = join(output, 'cold-startup.json');
+    const receipt = readFileSync(receiptPath, 'utf8');
+    const record = JSON.parse(receipt);
+    assert.deepEqual([record.outcome, record.phase, record.error_family, record.requests], ['setup_failed', 'setup', 'assertion', 0]);
+    assert.equal(lstatSync(receiptPath).mode & 0o777, 0o600);
+    assert.ok(!receipt.includes(root) && !receipt.includes('planted-marker') && !receipt.includes('chrome-extension:'));
+    const missing = join(root, 'missing', 'published-wasm-results');
+    const wrongName = join(root, 'wrong-name');
+    mkdirSync(wrongName, { mode: 0o700 });
+    const symlinkParent = join(root, 'symlink-parent');
+    mkdirSync(symlinkParent, { mode: 0o700 });
+    const symlink = join(symlinkParent, 'published-wasm-results');
+    symlinkSync(output, symlink, 'dir');
+    for (const unsafe of ['published-wasm-results', missing, wrongName, symlink]) {
+      process.env.PROBE_RESULTS = unsafe;
+      await assert.rejects(runPublishedProbe('retry-reload', launch, expectOutcome), { message: 'invalid_probe_paths' });
+      assert.equal(existsSync(join(output, 'retry-reload.json')), false);
+      assert.equal(existsSync(join(wrongName, 'retry-reload.json')), false);
+      assert.equal(existsSync(missing), false);
+    }
+    assert.equal(launches, 0);
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('published-wasm host CLI writes only a closed private setup receipt and stays silent', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'published-wasm-host-planted-marker-')));
+  const cli = fileURLToPath(new URL('../playwright/tests/published-wasm/setup-failure.mjs', import.meta.url));
+  const invoke = output => {
+    const result = spawnSync(process.execPath, [cli], { env: { PROBE_RESULTS: output }, encoding: 'utf8', timeout: 10000 });
+    assert.ifError(result.error);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr, '');
+    return result.status;
+  };
+  try {
+    const output = join(root, 'published-wasm-results');
+    mkdirSync(output, { mode: 0o700 });
+    writeFileSync(join(output, 'published-archive-receipt.json'), '{}\n', { mode: 0o600 });
+    assert.equal(invoke(output), 0);
+    const setup = join(output, 'setup-failure.json');
+    assert.equal(readFileSync(setup, 'utf8'), '{"schema":1,"outcome":"setup_failed","phase":"setup","case_executed":false}\n');
+    assert.equal(lstatSync(setup).mode & 0o777, 0o600);
+    rmSync(setup);
+    for (const name of ['cold-startup.json', 'retry-reload.json']) {
+      const path = join(output, name);
+      const seed = '{"case_receipt":"unchanged"}\n';
+      writeFileSync(path, seed, { mode: 0o600 });
+      assert.equal(invoke(output), 0);
+      assert.equal(readFileSync(path, 'utf8'), seed);
+      assert.equal(existsSync(setup), false);
+      rmSync(path);
+    }
+    const wrongName = join(root, 'wrong-name');
+    mkdirSync(wrongName, { mode: 0o700 });
+    const symlinkParent = join(root, 'symlink-parent');
+    mkdirSync(symlinkParent, { mode: 0o700 });
+    const symlink = join(symlinkParent, 'published-wasm-results');
+    symlinkSync(output, symlink, 'dir');
+    for (const unsafe of ['published-wasm-results', join(root, 'missing', 'published-wasm-results'), wrongName, symlink]) {
+      assert.equal(invoke(unsafe), 1);
+      assert.equal(existsSync(join(wrongName, 'setup-failure.json')), false);
+      assert.equal(existsSync(setup), false);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('published-wasm setup receipt wiring keeps Node compatibility and both actual case calls', () => {
+  const text = workflow();
+  const spec = readFileSync(new URL('../playwright/tests/published-wasm-startup.spec.ts', import.meta.url), 'utf8');
+  const nested = JSON.parse(readFileSync(new URL('../playwright/tests/published-wasm/package.json', import.meta.url), 'utf8'));
+  const rootPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.deepEqual(nested, { name: 'published-wasm-probe', private: true, type: 'module' });
+  assert.equal(Object.hasOwn(rootPackage, 'type'), false);
+  assert.match(text, /node-version: 22\.22\.0/);
+  assert.match(text, /yarn tsc --noEmit --strict --skipLibCheck --types node --target ES2022 --module commonjs --moduleResolution node playwright\/tests\/published-wasm-startup\.spec\.ts/);
+  assert.match(spec, /await runPublishedProbe\('cold-startup', productionLaunch, expect\)/);
+  assert.match(spec, /await runPublishedProbe\('retry-reload', productionLaunch, expect\)/);
+  assert.equal([...spec.matchAll(/chromium\.launchPersistentContext\(/g)].length, 1);
+  const requiresHostReceipt = source => assert.match(source, /if \[ "\$status" -ne 0 \]; then\n\s+node playwright\/tests\/published-wasm\/setup-failure\.mjs \|\| :\n\s+exit "\$status"\n\s+fi/);
+  requiresHostReceipt(text);
+  assert.throws(() => requiresHostReceipt(text.replace('node playwright/tests/published-wasm/setup-failure.mjs', ':')), { code: 'ERR_ASSERTION' });
+});
+
+test('published-wasm initial receipt precedes the real preflight assertions', () => {
+  const helper = readFileSync(new URL('../playwright/tests/published-wasm/published-wasm-startup-preflight.ts', import.meta.url), 'utf8');
+  const requiresInitialReceipt = source => {
+    const run = source.indexOf('export async function runPublishedProbe(');
+    const save = source.indexOf('\n  save();', run);
+    const preflight = source.indexOf("    assert.equal(process.platform, 'linux');", run);
+    assert.ok(run >= 0 && save > run && preflight > save, 'published_wasm_initial_receipt_precedes_preflight');
+  };
+  requiresInitialReceipt(helper);
+  assert.throws(() => requiresInitialReceipt(helper.replace('\n  save();', '')), { code: 'ERR_ASSERTION' });
+});
+
+test('published-wasm actual host fallback preserves probe failure even when receipt writing fails', () => {
+  const branch = workflow().match(/          if \[ "\$status" -ne 0 \]; then\n[\s\S]*?          fi/);
+  assert.ok(branch, 'published_wasm_host_fallback');
+  for (const fallbackStatus of [0, 1]) {
+    const result = spawnSync('/bin/bash', ['-euo', 'pipefail', '-c', `status=124\nnode() { return ${fallbackStatus}; }\n${branch[0]}`], {
+      env: {}, encoding: 'utf8', timeout: 10000
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 124, 'published_wasm_host_preserves_probe_status');
+    assert.equal(result.stdout + result.stderr, '');
+  }
+});
+
 test('published-wasm real preflight rejection leaves closed setup evidence', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'published-wasm-preflight-')));
   try {
@@ -110,6 +252,7 @@ test('published-wasm real preflight rejection leaves closed setup evidence', () 
     const record = JSON.parse(receipt);
     assert.equal(lstatSync(receiptPath).mode & 0o777, 0o600);
     assert.deepEqual([record.outcome, record.phase, record.requests], ['setup_failed', 'setup', 0]);
+    assert.equal(record.error_family, 'assertion', 'real preflight must reject isolation before browser launch');
     assert.ok(!receipt.includes(root) && !receipt.includes('planted-extension-marker'), 'setup receipt must omit private paths');
   } finally {
     rmSync(root, { recursive: true, force: true });

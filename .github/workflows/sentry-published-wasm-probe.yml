@@ -19,7 +19,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 22.22.0
       - name: Install harness without lifecycle scripts
         timeout-minutes: 5
         run: yarn install --frozen-lockfile --ignore-scripts --non-interactive
@@ -136,6 +136,7 @@ jobs:
           gid=$(id -g)
           test "$uid" -ne 0
           original_netns=$(readlink /proc/self/ns/net)
+          status=0
           sudo unshare --net -- bash -euo pipefail -c '
             ip link set lo up
             [ "$(ip -o link show | wc -l)" -eq 1 ]
@@ -152,7 +153,11 @@ jobs:
               --workers=1 --retries=0 --timeout=60000 --global-timeout=180000 \
               --trace=off --reporter=dot --output="$9/playwright-private"
           ' probe "$original_netns" "$uid" "$gid" "$HOME" "$PATH" "$EXTENSION_DIST" "$PROBE_RESULTS" \
-            "$(command -v node)" "$PROBE_PRIVATE" >/dev/null 2>&1
+            "$(command -v node)" "$PROBE_PRIVATE" >/dev/null 2>&1 || status=$?
+          if [ "$status" -ne 0 ]; then
+            node playwright/tests/published-wasm/setup-failure.mjs || :
+            exit "$status"
+          fi
       - name: Verify archive and extracted entries remain unchanged
         if: ${{ always() && env.PROBE_PRIVATE != '' }}
         run: python3 "$PROBE_PRIVATE/archive-check.py" verify
