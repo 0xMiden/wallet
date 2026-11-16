@@ -10,6 +10,7 @@ import { assertReviewedBridge, type ReviewedTransfer } from './core/review';
 import type { BridgeApproval } from './evm/approval';
 import type { SourceTransaction } from './evm/source-transaction';
 import {
+  assertBridgeOperationCurrent,
   claimBridgeSourceAttempt,
   recordBridgeApproval,
   recordBridgeSourceAttempt,
@@ -323,6 +324,45 @@ it.each([1n, 14n])(
     ).toBe(true);
     expect((await snapshot(row.id)).sourceAttempt).toMatchObject({ phase: 'known', hash, intentNonce: '42' });
     expect(await claimBridgeSourceAttempt(operation.operationId, operation.revision)).toBe('already-running');
+  }
+);
+
+it.each([
+  [
+    'operation identity',
+    (operation: BridgeOperationSnapshot) => {
+      operation.operationId = 'different-operation';
+    }
+  ],
+  [
+    'self-consistent review',
+    (operation: BridgeOperationSnapshot) => {
+      operation.review.route.id = 'different-valid-route';
+      if (!operation.review.quote?.request) throw new Error('Missing bound quote fixture');
+      operation.review.quote.request.routeId = operation.review.route.id;
+      assertReviewedBridge(operation.review, structuredClone(operation.review), now);
+    }
+  ],
+  [
+    'wallet scope',
+    (operation: BridgeOperationSnapshot) => {
+      operation.walletScope = { network: MIDEN_NETWORK_NAME.TESTNET, rpcUrl: 'https://different-recorded-rpc.example' };
+    }
+  ]
+] satisfies Array<[string, (operation: BridgeOperationSnapshot) => void]>)(
+  'the current predicate binds the row metadata %s to the expected original snapshot',
+  async (_name, change) => {
+    const id = await seed();
+    const original = await snapshot(id);
+    const before = await Repo.transactions.get(id);
+    if (!before) throw new Error('Missing admitted row');
+    expect(() => assertBridgeOperationCurrent(before, original)).not.toThrow();
+    const changed = structuredClone(original);
+    change(changed);
+    await Repo.transactions.update(id, { 'extraInputs.bridgeOperation': changed });
+    const after = await Repo.transactions.get(id);
+    if (!after) throw new Error('Missing original row');
+    expect(() => assertBridgeOperationCurrent(after, original)).toThrow();
   }
 );
 
