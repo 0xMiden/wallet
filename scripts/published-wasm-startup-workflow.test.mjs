@@ -260,6 +260,10 @@ test('published-wasm real preflight rejection leaves closed setup evidence', () 
 });
 
 function assertFixedRelease(text) {
+  const comparison = text.match(/^          assert sha\(private \/ "archive\.zip"\) == digest, "archive digest mismatch"$/m);
+  const extraction = text.indexOf('\n              extension.mkdir(mode=0o700)');
+  assert.ok(comparison && extraction > comparison.index, 'published_wasm_active_digest_enforcement');
+  assert.match(text, /^          PROBE_PRIVATE="\$private" PROBE_RESULTS="\$results" python3 "\$private\/archive-check\.py" prepare$/m, 'published_wasm_active_digest_enforcement');
   assert.match(text, /https:\/\/github.com\/0xMiden\/wallet\/releases\/download\/v1\.17\.8\/MidenWallet\.1\.17\.8\.Testnet\.zip/);
   assert.match(text, /57cba7cbacfdfbda16243117e9baab99860c21c02d4b481ea39d9be5f1ea6bf4/);
   assert.match(text, /966161cc54ee2d27b4c2a3163c4ceed66762b4d1/);
