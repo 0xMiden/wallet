@@ -14018,9 +14018,7 @@ describe('generateTransaction - Guardian routing', () => {
       });
       return { ...replaceable, waitForTransactionCommit };
     };
-
-    it('a coordinated guardian switch records the id and bytes it read before its commit wait', async () => {
-      const tx = switchRow('switch-guardian-read-before-wait');
+    const coordinatedSwitchService = (pushSwitchDeltaBounded: (proposalId: string) => Promise<'pushed'>) => {
       const multisigService = {
         createSwitchGuardianProposal: jest.fn(async () => ({
           proposal: {
@@ -14035,12 +14033,18 @@ describe('generateTransaction - Guardian routing', () => {
           authArg: () => undefined
         })),
         finalizeGuardianSwitch: jest.fn(async () => {}),
-        pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
+        pushSwitchDeltaBounded: jest.fn(pushSwitchDeltaBounded),
         sync: jest.fn(async () => {})
       };
       mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
       mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
       mockIsGuardianAccount.mockResolvedValue(true);
+      return multisigService;
+    };
+
+    it('a coordinated guardian switch records the id and bytes it read before its commit wait', async () => {
+      const tx = switchRow('switch-guardian-read-before-wait');
+      const multisigService = coordinatedSwitchService(async () => 'pushed');
       const { lateReads, waitForTransactionCommit, nativeFaucet } = clientReplacedByItsCommitWait('guardian-acc');
 
       await generateTransaction(
@@ -14128,6 +14132,60 @@ describe('generateTransaction - Guardian routing', () => {
       expect(txStore.find(r => r.id === tx.id)).toMatchObject({
         status: ITransactionStatus.Completed,
         displayMessage: 'Everyday key rotated',
+        transactionId: 'exec-tx-hash',
+        resultBytes: new Uint8Array([9, 9, 9]),
+        feeAmount: 100n,
+        feeFaucetId: nativeFaucet
+      });
+      expect(lateReads).toEqual([]);
+    });
+
+    it('an update-procedure-threshold records the id, bytes and fee it read before its commit wait', async () => {
+      const { tx, row, coldService, provider } = arrangeLandedThreshold(jest.fn(async () => {}));
+      Object.assign(coldService, { reRegisterCurrentStateOnGuardian: jest.fn(async () => {}) });
+      const { lateReads, waitForTransactionCommit, nativeFaucet } = clientReplacedByItsCommitWait('acc-1');
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      expect(row()).toMatchObject({
+        status: ITransactionStatus.Completed,
+        displayMessage: 'Account secured',
+        transactionId: 'exec-tx-hash',
+        resultBytes: new Uint8Array([9, 9, 9]),
+        feeAmount: 100n,
+        feeFaucetId: nativeFaucet
+      });
+      expect(lateReads).toEqual([]);
+    });
+
+    // The delta push runs before the id read the commit wait asks about, so that read answers from the tail's first.
+    it('a coordinated guardian switch whose delta push replaces the client still waits on the id it read first', async () => {
+      const tx = switchRow('switch-guardian-push-replaces');
+      const { replace, lateReads, waitForTransactionCommit, nativeFaucet } =
+        clientReplacedByItsCommitWait('guardian-acc');
+      const multisigService = coordinatedSwitchService(async () => {
+        replace();
+        return 'pushed';
+      });
+
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        switchProvider() as never
+      );
+
+      expect(multisigService.pushSwitchDeltaBounded).toHaveBeenCalledWith('prop-switch');
+      expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      expect(txStore.find(r => r.id === tx.id)).toMatchObject({
+        status: ITransactionStatus.Completed,
+        displayMessage: 'Guardian switched',
         transactionId: 'exec-tx-hash',
         resultBytes: new Uint8Array([9, 9, 9]),
         feeAmount: 100n,
