@@ -1,0 +1,27 @@
+name: Mainnet bridge-only predecessor contract proof
+on:
+  push:
+    branches: [wiktor/mainnet-bridge-budget-contract-proof]
+permissions:
+  contents: read
+concurrency:
+  group: mainnet-bridge-budget-contract-proof
+  cancel-in-progress: false
+jobs:
+  budget-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Bind exact regression source and no-secret overlay
+        run: |
+          test "$(git rev-parse HEAD^)" = 524913dd234c1a4a21eb7e84e46f8527b0d45861
+          test "$(git diff --name-only HEAD^ HEAD)" = .github/workflows/nightly-swap-proof.yml
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Prove selected-provider budget and actual account guards
+        run: yarn jest scripts/mainnet-loop-budget.test.ts scripts/mainnet-swap-workflow.test.ts scripts/mainnet-swap-artifacts.test.ts scripts/mainnet-provider-artifacts.test.ts --maxWorkers=2 --watch=false
