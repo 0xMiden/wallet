@@ -16,29 +16,27 @@ beforeEach(() => {
 });
 
 describe('isSummaryFeeUnknownAtDecode', () => {
-  it('answers known for a known fee on the scope of the fee read, or with no scope', () => {
+  it('answers known for a known fee on the scope of the fee read', () => {
     expect(isSummaryFeeUnknownAtDecode('rpc-a|testnet')).toBe(false);
-    expect(isSummaryFeeUnknownAtDecode()).toBe(false);
     mockFee.fee = 0;
     expect(isSummaryFeeUnknownAtDecode('rpc-a|testnet')).toBe(false);
+    // @ts-expect-error a fee scope is required
+    isSummaryFeeUnknownAtDecode();
   });
 
   it('answers unknown on another scope than the fee read, even with a known fee', () => {
     mockFee.scope = 'rpc-b|testnet';
     expect(isSummaryFeeUnknownAtDecode('rpc-a|testnet')).toBe(true);
-    expect(isSummaryFeeUnknownAtDecode()).toBe(false);
   });
 
   it('answers unknown for a fee the cache does not hold and the probe has not found absent', () => {
     mockFee.fee = null;
     expect(isSummaryFeeUnknownAtDecode('rpc-a|testnet')).toBe(true);
-    expect(isSummaryFeeUnknownAtDecode()).toBe(true);
   });
 
   it('answers known for a fee the probe found absent', () => {
     mockFee.fee = null;
     mockFee.absent = true;
     expect(isSummaryFeeUnknownAtDecode('rpc-a|testnet')).toBe(false);
-    expect(isSummaryFeeUnknownAtDecode()).toBe(false);
   });
 });

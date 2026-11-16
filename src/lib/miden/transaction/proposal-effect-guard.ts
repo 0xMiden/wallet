@@ -173,7 +173,7 @@ export function executeApprovalOf(
 }
 
 /** Refuses as an unknown fee a summary decoded now that cannot tell its fee note apart. */
-function assertSummaryFeeKnownAtDecode(feeScope?: string): void {
+function assertSummaryFeeKnownAtDecode(feeScope: string): void {
   if (isSummaryFeeUnknownAtDecode(feeScope)) throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
 }
 
@@ -237,7 +237,7 @@ export async function assertViewEffectApproved(
 export async function assertCachedViewEffectApproved(
   transaction: ITransaction,
   decode: () => TxAssetView | Promise<TxAssetView>,
-  feeScope?: string
+  feeScope: string
 ): Promise<void> {
   if (!isEffectChecked(transaction.type)) return;
   assertSummaryFeeKnownAtDecode(feeScope);
