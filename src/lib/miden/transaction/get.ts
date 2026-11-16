@@ -77,6 +77,15 @@ export const getAllUncompletedTransactions = async () => {
 export const isRotationAwaitingFunding = async (accountPublicKey: string): Promise<boolean> =>
   (await findAdoptableShortfallRow(accountPublicKey)) !== undefined;
 
+/**
+ * True when the encrypted backup restored at least one row of this account from another device, so
+ * the backup, not the Guardian, is the record of this account's history.
+ */
+export const hasRestoredTransactionsOf = async (accountPublicKey: string): Promise<boolean> =>
+  (await Repo.transactions
+    .filter(tx => tx.restoredFromBackup === true && sameWalletAccountId(tx.accountId, accountPublicKey))
+    .first()) !== undefined;
+
 export const getFailedTransactions = async () => {
   const transactions = await Repo.transactions.filter(tx => tx.status === ITransactionStatus.Failed).toArray();
   transactions.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);

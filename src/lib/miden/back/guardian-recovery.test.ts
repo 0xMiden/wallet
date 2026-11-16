@@ -10,7 +10,11 @@ import {
 import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
+import {
+  getAllUncompletedTransactions,
+  hasRestoredTransactionsOf,
+  isRotationAwaitingFunding
+} from 'lib/miden/transaction/get';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -32,6 +36,7 @@ import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 // the queue and the terminal flag write — so every source it drives is stubbed.
 jest.mock('lib/miden/transaction/get', () => ({
   getAllUncompletedTransactions: jest.fn(),
+  hasRestoredTransactionsOf: jest.fn().mockResolvedValue(false),
   isRotationAwaitingFunding: jest.fn()
 }));
 jest.mock('./sync-manager', () => ({ doSync: jest.fn() }));
@@ -346,12 +351,34 @@ describe('notes before a rotation that waits for funds', () => {
     mockFetchProgress.mockResolvedValue(historyCheckpoint(account.publicKey));
     jest.mocked(recoverGuardianHistory).mockClear();
     jest.mocked(restoreHistoryFromBackup).mockResolvedValueOnce(true);
+    jest.mocked(hasRestoredTransactionsOf).mockResolvedValueOnce(true);
 
     await expect(maybeStartGuardianRecovery({ ...account, requiresHotKeyRotation: false })).resolves.toBe(true);
     await drainDetachedRun();
 
     expect(restoreHistoryFromBackup).toHaveBeenCalledTimes(1);
     expect(recoverGuardianHistory).not.toHaveBeenCalled();
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+  });
+
+  // The backup holds another device's history, but none of it is this account's: an account the
+  // peer never held, or history from before the backup existed. Only the Guardian pass can recover it.
+  it('runs the Guardian history pass when the backup restored no row of this account', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
+    mockAwaitingFunding.mockResolvedValue(true);
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    mockFetchProgress.mockResolvedValue(historyCheckpoint(account.publicKey));
+    jest.mocked(recoverGuardianHistory).mockClear();
+    jest.mocked(restoreHistoryFromBackup).mockResolvedValueOnce(true);
+    jest.mocked(hasRestoredTransactionsOf).mockResolvedValueOnce(false);
+
+    await expect(maybeStartGuardianRecovery({ ...account, requiresHotKeyRotation: false })).resolves.toBe(true);
+    await drainDetachedRun();
+
+    expect(restoreHistoryFromBackup).toHaveBeenCalledTimes(1);
+    expect(hasRestoredTransactionsOf).toHaveBeenCalledWith(account.publicKey);
+    expect(recoverGuardianHistory).toHaveBeenCalledTimes(1);
     expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
   });
 

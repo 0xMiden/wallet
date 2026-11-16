@@ -15,7 +15,11 @@ import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
+import {
+  getAllUncompletedTransactions,
+  hasRestoredTransactionsOf,
+  isRotationAwaitingFunding
+} from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
@@ -956,9 +960,12 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       return;
     }
     // The encrypted backup is the record of history once it holds another device's
-    // rows: a Guardian operator retains only proposals and note ids, so its history
-    // pass runs only when the backup gives nothing. The notes pass above always runs.
-    if (await restoreHistoryFromBackup()) {
+    // rows OF THIS ACCOUNT: a Guardian operator retains only proposals and note ids, so
+    // its history pass runs only when the backup gives this account nothing. The backup's
+    // own answer is wallet-wide, and an account the peer never held, or history from
+    // before the backup existed, is recovered only by the Guardian pass. The notes pass
+    // above always runs.
+    if ((await restoreHistoryFromBackup()) && (await hasRestoredTransactionsOf(account.publicKey))) {
       console.log(`[GuardianRecovery] History for ${account.publicKey} restored from the encrypted backup`);
       if ((await clearPendingFlag(account, generation)) !== 'cleared') return;
       await clearGuardianNoteRecoveryProgress(account.publicKey);
