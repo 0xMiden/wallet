@@ -2,19 +2,17 @@ import React, { useState } from 'react';
 
 import { userEvent } from '@storybook/test';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { deserialize, serialize } from 'v8';
 
 import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import type { QuoteValidity } from 'lib/bridge/core/quote';
+import { accounts, connections, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { bridgeEpochSend } from 'lib/epoch';
 import { EpochCollateralNoteMismatchError } from 'lib/epoch/collateral-guard';
 import {
-  TEST_ALLOCATOR_URL,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
-  TEST_EVM_USDC,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -2762,14 +2760,7 @@ describe('ReviewTransaction — send telemetry', () => {
 });
 
 describe('ReviewTransaction user-visible errors', () => {
-  let cloneDescriptor: PropertyDescriptor | undefined;
   beforeEach(() => {
-    // jsdom lacks this browser primitive; use Node's lossless data clone for the real Epoch owner.
-    cloneDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'structuredClone');
-    Object.defineProperty(globalThis, 'structuredClone', {
-      configurable: true,
-      value: (value: unknown): unknown => deserialize(serialize(value))
-    });
     jest.useFakeTimers();
     mockUseRealBurnMinimum = true;
     jest.mocked(readUsdcxMinimumBurn).mockResolvedValue(5_000_000n);
@@ -2777,8 +2768,6 @@ describe('ReviewTransaction user-visible errors', () => {
   });
 
   afterEach(() => {
-    if (cloneDescriptor) Object.defineProperty(globalThis, 'structuredClone', cloneDescriptor);
-    else Reflect.deleteProperty(globalThis, 'structuredClone');
     mockUseRealBurnMinimum = false;
     jest.restoreAllMocks();
     jest.useRealTimers();
@@ -2800,29 +2789,46 @@ describe('ReviewTransaction user-visible errors', () => {
   };
 
   const setEpochRoute = () => {
-    stringToBigIntMock.mockReturnValue(5_000_000n);
-    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const connection = connections.testnet.find(
+      entry => entry.provider === 'epoch' && entry.evm.symbol === 'DAI' && !entry.disabled && entry.routes.send
+    );
+    const faucetId = connection?.miden.faucetId;
+    const outputAddress = connection?.evm.address;
+    if (!connection || !faucetId || !outputAddress) throw new Error('Missing active Epoch DAI fixture');
+    const snapshot = referenceSnapshot('testnet');
+    stringToBigIntMock.mockImplementation(
+      jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').stringToBigInt
+    );
+    mockBridgeSnapshot = snapshot;
     mockReviewNetwork = 'testnet';
-    mockPublicKey = '0x387149ae66116cf114eebd60bb7381';
+    mockPublicKey = accounts.midenAccount;
     mockDetectedChain = 'ethereum';
-    mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
+    mockBalanceData = [
+      {
+        ...VALID_TOKEN,
+        tokenId: faucetId,
+        metadata: { symbol: connection.miden.symbol, decimals: connection.miden.decimals }
+      }
+    ];
     mockEpochQuote = {
       amount: '4.8',
       loading: false,
       error: null,
-      symbol: 'USDC',
-      address: TEST_EVM_USDC.address,
-      decimals: TEST_EVM_USDC.decimals,
+      symbol: connection.evm.symbol,
+      address: outputAddress,
+      decimals: connection.evm.decimals,
       validity: { kind: 'provider' }
     };
-    mockSearch = `amount=5&to=0x1111111111111111111111111111111111111111&tokenId=${MIDEN_USDC_FAUCET}&network=sepolia&route=epoch`;
+    mockSearch = `amount=5&to=${accounts.evmAddress}&tokenId=${faucetId}&network=${connection.evm.network}&route=epoch`;
+    return snapshot;
   };
 
   it('localizes and reports the actual Epoch review refusal after its SDK initialization await', async () => {
-    setEpochRoute();
-    const changed = structuredClone(TEST_BRIDGE_CONFIG_SNAPSHOT);
+    const snapshot = setEpochRoute();
+    const changed = structuredClone(snapshot);
     const allocator = changed.config?.['bridge-providers'].epoch;
     if (!allocator) throw new Error('Missing Epoch allocator fixture');
+    const originalAllocatorUrl = allocator.allocatorUrl;
     allocator.allocatorUrl = 'https://changed-allocator.example/private';
     const solve = jest.fn();
     mockReviewReadEpochSdk.mockImplementation(async () => {
@@ -2841,10 +2847,7 @@ describe('ReviewTransaction user-visible errors', () => {
     });
     expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1);
     expect(mockReviewReadEpochSdk).toHaveBeenCalledTimes(1);
-    expect(mockReviewReadEpochSdk).toHaveBeenCalledWith(
-      '0x1111111111111111111111111111111111111111',
-      TEST_ALLOCATOR_URL
-    );
+    expect(mockReviewReadEpochSdk).toHaveBeenCalledWith(accounts.evmAddress, originalAllocatorUrl);
     expect(solve).not.toHaveBeenCalled();
     await act(async () => jest.advanceTimersByTimeAsync(1000));
     expect({
