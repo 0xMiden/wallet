@@ -963,6 +963,15 @@ export const finalizeDirectGuardianSwitch = async (
   // commitment and authenticating with another would leave the guard true and the
   // request still unauthorized. `deviceHotCommitment` and `hotPublicKey` are a
   // derived pair, so they cannot disagree.
+  // A record naming the recovery key as hot has no everyday key to prove this device is still a signer.
+  if (
+    walletAccount.coldPublicKey !== undefined &&
+    stripHexPrefix(hotPublicKey).toLowerCase() === stripHexPrefix(walletAccount.coldPublicKey).toLowerCase()
+  ) {
+    throw new GuardianRegistrationPreflightError(
+      'Refusing to register on the new guardian: this device holds only the recovery key, not an everyday key'
+    );
+  }
   const deviceHotCommitment = await asPreflight(() => commitmentFromPublicKeyHex(hotPublicKey));
   if (!signerCommitments.some(commitment => sameCommitment(commitment, deviceHotCommitment))) {
     throw new GuardianRegistrationPreflightError(

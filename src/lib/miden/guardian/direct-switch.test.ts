@@ -1231,6 +1231,56 @@ describe('finalizeDirectGuardianSwitch', () => {
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 
+  it('refuses a hot-is-cold record as preflight without configuring or charging an attempt', async () => {
+    const guardianProvider = {
+      ...provider(),
+      getAccounts: jest.fn(async () => [walletAccount({ hotPublicKey: 'COLDPK' })]),
+      getPublicKeyForCommitment: jest.fn(async () => 'COLDPK')
+    };
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xcoldcommitment');
+    const onBeforeRegister = jest.fn();
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      guardianProvider,
+      undefined,
+      onBeforeRegister
+    ).catch((error: unknown) => error);
+
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+    expect(onBeforeRegister).not.toHaveBeenCalled();
+  });
+
+  it('finalizes when this device holds a distinct hot key at slot 2', async () => {
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
+      numSigners: 3,
+      signerCommitments: ['0xotherhotcommitment', '0xcoldcommitment', '0xhotcommitment']
+    });
+    mockGuardianConfigure.mockResolvedValue({ success: true });
+    const guardianProvider = {
+      ...provider(),
+      getPublicKeyForCommitment: jest.fn(async () => '0xhotpk')
+    };
+    const onBeforeRegister = jest.fn();
+
+    await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      guardianProvider,
+      undefined,
+      onBeforeRegister
+    );
+
+    expect(mockGuardianConfigure).toHaveBeenCalledWith({
+      accountId: '0xacct-id',
+      auth: { MidenEcdsa: { cosigner_commitments: ['0xotherhotcommitment', '0xcoldcommitment', '0xhotcommitment'] } },
+      initialState: { data: expect.any(String), accountId: '0xacct-id' }
+    });
+    expect(onBeforeRegister).toHaveBeenCalledTimes(1);
+  });
+
   // The caller (`attemptMissingRegistrationSelfHeal`) makes this same check, but on
   // a SNAPSHOT: it reads the guardian key, probes the endpoint, and only then calls
   // this function, which re-syncs and re-serializes. Between those there is a probe

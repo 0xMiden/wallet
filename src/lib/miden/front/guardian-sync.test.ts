@@ -3302,6 +3302,31 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses a hot-is-cold record without spending attempts or marking it rotated out', async () => {
+    const clock = useFakeClocks(1_000_000);
+    storeState.accounts = [{ ...account, hotPublicKey: 'C01D', coldPublicKey: '0xc01d' }] as never;
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xc01d');
+
+    await runUntilPersistent();
+    for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS; i++) {
+      clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+    }
+
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalled();
+
+    // A distinct everyday key can still use the unspent budget from slot 2.
+    storeState.accounts = [{ ...account, coldPublicKey: '0xc01d' }] as never;
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
+    mockGetSignerCommitments.mockReturnValue(['0xd0e1', '0xc01d', 'aabb']);
+    clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
+    await syncGuardianAccounts();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+    clock.restore();
+  });
+
   // The guard above protects write AUTHORITY, so an unreadable commitment has to
   // refuse exactly like a mismatched one. Both reads used to be caught to
   // `undefined` and the comparison was gated on both being present, so a failure

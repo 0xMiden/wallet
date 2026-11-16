@@ -1410,12 +1410,18 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   // A record with no hot key never reaches this function — the sync loop filters
   // those accounts out — so the ternary is here for the type, and it refuses on
   // that path too rather than reading an absent key as "no objection".
-  const localHot = account.hotPublicKey
-    ? await commitmentFromPublicKeyHex(account.hotPublicKey).catch(localError => {
-        console.warn(`[Guardian Sync] could not derive this device's hot-key commitment:`, localError);
-        return undefined;
-      })
-    : undefined;
+  // Naming the recovery key as hot holds no everyday key: its slot proves nothing about this device.
+  const hotIsCold =
+    account.hotPublicKey !== undefined &&
+    account.coldPublicKey !== undefined &&
+    stripHexPrefix(account.hotPublicKey).toLowerCase() === stripHexPrefix(account.coldPublicKey).toLowerCase();
+  const localHot =
+    account.hotPublicKey && !hotIsCold
+      ? await commitmentFromPublicKeyHex(account.hotPublicKey).catch(localError => {
+          console.warn(`[Guardian Sync] could not derive this device's hot-key commitment:`, localError);
+          return undefined;
+        })
+      : undefined;
   const chainUnread = onChainSigners.length === 0;
   if (chainUnread || !localHot) {
     console.warn(
