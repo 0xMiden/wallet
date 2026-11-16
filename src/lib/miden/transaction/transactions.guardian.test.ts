@@ -46,8 +46,8 @@ import {
   getEffectiveNetworkName,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
-import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
 import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { WalletAccount } from 'lib/shared/types';

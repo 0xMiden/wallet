@@ -324,6 +324,42 @@ describe('owned native bridge scope on the existing single-key pipeline', () => 
     }
   );
 
+  it.each([undefined, { network: 'testnet', rpcUrl: '' }, { network: 'mainnet', rpcUrl: 'fixture-rpc' }])(
+    'missing or mismatched native admission scope cannot fall through to a new source case %#',
+    async scope => {
+      const tx = ownedNativeBridgeRow();
+      const operation = tx.extraInputs.bridgeOperation;
+      if (!operation) throw new Error('Missing owned native fixture');
+      Reflect.set(operation, 'walletScope', scope);
+      txStore.push({ ...tx });
+      await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+      expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    }
+  );
+
+  it('a stored review cannot authorize another native amount or account', async () => {
+    const tx = ownedNativeBridgeRow();
+    tx.amount += 1n;
+    tx.accountId = 'another-account';
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+  });
+
+  it('same-scope canonical pre-submit-end evidence retains a safe native retry, not another durable claim', async () => {
+    const tx = Object.assign(ownedNativeBridgeRow(), {
+      mayHaveSubmitted: true,
+      attemptId: 'safe-old-attempt',
+      submitEvidence: [
+        { attemptId: 'safe-old-attempt', capturedAt: now / 1000, source: 'stage', preSubmitEnd: true }
+      ] satisfies import('../db/types').ISubmitEvidence[]
+    });
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, ownedProvider);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(tx.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+  });
+
   it('a previous uncertain crossing is retained rather than generating a second native source', async () => {
     const tx = Object.assign(ownedNativeBridgeRow(), {
       mayHaveSubmitted: true,

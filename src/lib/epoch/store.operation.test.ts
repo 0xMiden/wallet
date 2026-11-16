@@ -208,6 +208,29 @@ it('preserves a late original known outcome before an unrelated registry or phas
   expect(mockBuildIntent).toHaveBeenCalledTimes(1);
 });
 
+it('a late known source result cannot replace the state of a reset or newer tab flow', async () => {
+  await seed();
+  let finish: (value: unknown) => void = () => undefined;
+  const pending = new Promise(resolve => {
+    finish = resolve;
+  });
+  let started: () => void = () => undefined;
+  const entered = new Promise<void>(resolve => {
+    started = resolve;
+  });
+  mockBuildIntent.mockImplementation(async () => {
+    started();
+    return pending;
+  });
+  const running = useEpochStore.getState().executeEVMToMiden('epoch-row');
+  await entered;
+  useEpochStore.getState().reset();
+  finish({ taskTypeString: 'bridge', intentData: {}, solveResult: { hash, nonce: '42' } });
+  await running;
+  expect(useEpochStore.getState()).toMatchObject({ status: 'idle', intent: null, bridgeReceiveTxId: null });
+  expect(mockBuildIntent).toHaveBeenCalledTimes(1);
+});
+
 it('a caught SDK error is uncertain, never proof that another solve is safe', async () => {
   const owned = await seed();
   mockBuildIntent.mockResolvedValue({ taskTypeString: 'bridge', intentData: {}, error: 'connection lost after solve' });

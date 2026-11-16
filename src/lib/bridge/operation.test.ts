@@ -7,6 +7,7 @@ import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
 import { assertReviewedBridge, type ReviewedTransfer } from './core/review';
 import type { BridgeApproval } from './evm/approval';
+import type { SourceTransaction } from './evm/source-transaction';
 import {
   claimBridgeSourceAttempt,
   recordBridgeApproval,
@@ -14,9 +15,9 @@ import {
   type BridgeOperationSnapshot
 } from './operation';
 import { accounts, now, testRoute } from './testing/fixtures';
-import { reviewedErc20Transfer } from './testing/operation-fixtures';
+import { reviewedCircleTransfer, reviewedErc20Transfer } from './testing/operation-fixtures';
 import { createBridgeReceiveReconciler } from '../miden/activity/bridge-receive';
-import { ITransactionStatus, type ITransaction } from '../miden/db/types';
+import { BridgedReceiveTransaction, ITransactionStatus, type ITransaction } from '../miden/db/types';
 import * as Repo from '../miden/repo';
 import { initiateBridgedReceiveTransaction, initiateBridgedSendTransaction } from '../miden/transaction/initiate';
 
@@ -263,6 +264,37 @@ it('records known hash/intent before further reads and rejects late callbacks wi
   expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBe(hash);
 });
 
+it('persists complete source identity once and refuses a late contradictory nonce or call', async () => {
+  const id = await seed();
+  const admitted = await snapshot(id);
+  await claimBridgeSourceAttempt('operation-1', admitted.revision);
+  const claimed = await snapshot(id);
+  const row = await Repo.transactions.get(id);
+  const to: unknown = row?.extraInputs.agglayerRoute?.contractAddress;
+  if (typeof to !== 'string' || !/^0x[0-9a-f]{40}$/i.test(to)) throw new Error('Missing original source target');
+  const transaction: SourceTransaction = {
+    chainId: 11155111,
+    hash: `0x${'1'.repeat(64)}`,
+    from: `0x${accounts.evmAddress.slice(2)}`,
+    nonce: 7,
+    to: `0x${to.slice(2)}`,
+    input: '0x1234',
+    value: '1000000000000000000'
+  };
+  expect(
+    await recordBridgeSourceAttempt('operation-1', claimed.revision, { hash: transaction.hash, transaction })
+  ).toBe(true);
+  expect(
+    await recordBridgeSourceAttempt('operation-1', claimed.revision, { transaction: { ...transaction, nonce: 8 } })
+  ).toBe(false);
+  expect(
+    await recordBridgeSourceAttempt('operation-1', claimed.revision, {
+      transaction: { ...transaction, input: '0xabcd' }
+    })
+  ).toBe(false);
+  expect((await snapshot(id)).sourceAttempt?.transaction).toEqual(transaction);
+});
+
 it('keeps actual approvals separate from the source transfer through export/import', async () => {
   const reviewed = reviewedErc20Transfer('agglayer');
   const id = await seed(reviewed);
@@ -354,6 +386,43 @@ it.each([undefined, { network: 'testnet' }, { network: 'mainnet', rpcUrl: 'https
     expect(await claimBridgeSourceAttempt('operation-1', 'admitted-revision')).toBe('uncertain');
   }
 );
+
+it('Circle backups preserve exact authorization amounts and recovery identities without either private RPC scope', async () => {
+  const reviewed = reviewedCircleTransfer();
+  if (!reviewed.quote || reviewed.route.destination.kind !== 'miden') throw new Error('Missing Circle review');
+  expect(() => assertReviewedBridge(reviewed, structuredClone(reviewed), now)).not.toThrow();
+  const row = new BridgedReceiveTransaction(
+    accounts.midenAccount,
+    parseUnits(reviewed.quote.received, reviewed.route.destination.decimals),
+    reviewed.route.destination.faucetId,
+    'usdcx',
+    accounts.evmAddress,
+    '1.000002',
+    'USDC'
+  );
+  row.extraInputs.sourceChainId = 11155111;
+  row.extraInputs.bridgeOperation = {
+    version: 1,
+    owner: 'wallet',
+    operationId: 'circle-operation',
+    revision: 'admitted',
+    review: reviewed,
+    walletScope: { network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() }
+  };
+  await Repo.transactions.add(row);
+  const dump = await Repo.exportDb();
+  expect(dump).not.toContain('https://wallet-rpc.example/private');
+  expect((await snapshot(row.id)).review.route.recovery.nativeAsset?.scope).toBe(
+    'https://wallet-rpc.example/private|testnet'
+  );
+  await Repo.importDb(dump);
+  const restored = await snapshot(row.id);
+  expect(restored.review.route.recovery.nativeAsset?.faucetId).toBe(reviewed.route.destination.faucetId);
+  expect(restored.review.quote?.kind).toBe('cctp');
+  if (restored.review.quote?.kind !== 'cctp') throw new Error('Lost Circle authorization');
+  expect(restored.review.quote.authorization.feeTotalAmount).toBe(1n);
+  expect(await claimBridgeSourceAttempt('circle-operation', restored.revision)).toBe('uncertain');
+});
 
 it('same-network RPC changes cannot authorize a source attempt or export its private endpoint', async () => {
   const id = await seed();

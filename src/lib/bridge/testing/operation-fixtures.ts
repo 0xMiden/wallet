@@ -4,7 +4,7 @@ import { BridgedSendTransaction } from 'lib/miden/db/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
-import { accounts, connections, now, referenceSnapshot } from './fixtures';
+import { accounts, connections, native, now, referenceSnapshot, testRoute } from './fixtures';
 import { bindTransferQuote } from '../core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from '../core/review';
 import type { BridgeRoute } from '../core/routes';
@@ -52,6 +52,40 @@ export function reviewedErc20Transfer(
         kind: provider,
         received: '1',
         validity: { kind: 'time', expiresAt: now + 60000 }
+      }
+    )
+  };
+  assertReviewedBridge(review, structuredClone(review), now);
+  return review;
+}
+
+export function reviewedCircleTransfer(): ReviewedTransfer {
+  const route = testRoute();
+  const usdc = route.recovery.config.supportedEvmChains.sepolia?.bridges.usdcx?.tokens.USDC;
+  if (!usdc) throw new Error('Missing accepted Circle fixture');
+  route.id = 'test:circle:receive';
+  route.provider = 'xreserve';
+  route.source = { kind: 'erc20', network: 'sepolia', symbol: 'USDC', decimals: 6, address: usdc.contractAddress };
+  route.destination = {
+    kind: 'miden',
+    network: 'miden-testnet',
+    symbol: 'USDCx',
+    decimals: 6,
+    faucetId: native.faucetId
+  };
+  route.recovery.nativeAsset = { ...native, scope: `${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}` };
+  const amount = '1.000001';
+  const review: ReviewedTransfer = {
+    route,
+    amount,
+    accounts: { ...accounts },
+    quote: bindTransferQuote(
+      { route, amount, ...accounts },
+      {
+        kind: 'cctp',
+        received: amount,
+        validity: { kind: 'time', expiresAt: now + 60000 },
+        authorization: { signedQuote: '0x1234', feeTotalAmount: 1n, expiresAt: now / 1000 + 60 }
       }
     )
   };
