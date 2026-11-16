@@ -2236,19 +2236,14 @@ export class MidenClientInterface {
     beforeSubmit?: () => void
   ): Promise<TransactionResult> {
     const proof = await attempt.proveInWorker(executed.result);
-    // No re-check of the hold between here and `submitProven`: the helper's own
-    // post-prove `assertWasmHoldCurrent` already ran, and the only `onStage` this
-    // realm installs (`postStageEvent`) is synchronous, so `await` only yields one
-    // microtask before `markSubmitting()`, not a real parking point. An async
-    // `onStage` would need its own re-check.
     // Read under the hold that executed and proved it, before the stamp, so the evidence rides the stamp (#1081).
     if (onStage) {
       await onStage('submitting', {
         evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
       });
     }
-    if (beforeSubmit && attempt.evicted()) {
-      throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove'));
+    if (attempt.evicted()) {
+      throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove or submit gate'));
     }
     beforeSubmit?.();
     attempt.markSubmitting();
@@ -2416,8 +2411,11 @@ export class MidenClientInterface {
       if (onStage) {
         await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
       }
-      if (beforeSubmit && attempt.evicted()) {
-        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after offscreen prove'));
+      if (attempt.evicted()) {
+        throw new WasmClientPoisonedError(
+          'watchdog',
+          new Error('operation abandoned after offscreen prove or submit gate')
+        );
       }
       beforeSubmit?.();
       // Point of no return — see the identical mark on the inline send path.

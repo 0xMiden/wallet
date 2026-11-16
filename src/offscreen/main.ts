@@ -973,13 +973,23 @@ const DISPATCH: Record<string, DispatchFn> = {
     client,
     accountId: string,
     requestBytes: Uint8Array,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    submitGateRequired = false
   ) => {
     const result = await client.newTransaction(
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
+      async (stage, detail) => {
+        if (submitGateRequired && stage === 'submitting') {
+          try {
+            await passSubmitGate(context, detail?.evidence);
+          } catch (error) {
+            throw markErrorBeforeSubmit(error);
+          }
+          assertWasmHoldCurrent(context.hold, 'after the native bridge submit gate');
+        } else postStageEvent(context, stage, detail?.evidence);
+      }
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has

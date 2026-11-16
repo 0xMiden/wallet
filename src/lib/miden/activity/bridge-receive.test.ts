@@ -28,6 +28,7 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 jest.mock('lib/miden/repo', () => ({
   transactions: {
+    get: async (id: string) => rows.find(row => row.id === id),
     where: jest.fn((index: string) => ({
       equals: (value: string) => ({
         filter: (predicate: (row: any) => boolean) => ({

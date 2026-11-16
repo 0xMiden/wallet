@@ -763,13 +763,26 @@ const bytesFromArray = (value: unknown[], key: string): Uint8Array => {
   return Uint8Array.from(value);
 };
 
-const toSerializable = (value: unknown, _key?: string, depth = 0): unknown => {
+const toSerializable = (value: unknown, key?: string, depth = 0, withinBridgeOperation = false): unknown => {
+  const bridgeOperation = withinBridgeOperation || key === 'bridgeOperation';
   if (depth > MAX_WALK_DEPTH) throw new Error('exportDb: transaction row nested too deeply');
   if (typeof value === 'bigint') return { [BIGINT_TAG]: value.toString() };
   if (value instanceof Uint8Array) return Array.from(value);
-  if (Array.isArray(value)) return value.map(entry => toSerializable(entry, undefined, depth + 1));
+  if (Array.isArray(value)) return value.map(entry => toSerializable(entry, undefined, depth + 1, bridgeOperation));
   if (typeof value === 'object' && value !== null) {
-    const mapped = mapValues(value, (entry, key) => toSerializable(entry, key, depth + 1));
+    // Native asset scopes contain the private wallet RPC too; export history, never local source authority.
+    const mapped = Object.fromEntries(
+      Object.entries(value)
+        .filter(
+          ([entryKey]) =>
+            !bridgeOperation ||
+            !(
+              (key === 'bridgeOperation' && entryKey === 'walletScope') ||
+              (key === 'nativeAsset' && entryKey === 'scope')
+            )
+        )
+        .map(([entryKey, entry]) => [entryKey, toSerializable(entry, entryKey, depth + 1, bridgeOperation)])
+    );
     const sole = soleKeyOf(mapped);
     // Real data wearing the tag's shape, escaped so the import walk gives it
     // back rather than reading it as a number this code wrote.

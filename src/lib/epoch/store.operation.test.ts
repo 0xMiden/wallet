@@ -244,15 +244,18 @@ it('a caught SDK error is uncertain, never proof that another solve is safe', as
   expect(mockBuildIntent).toHaveBeenCalledTimes(1);
 });
 
-it.each(['restoredFromBackup', 'recovered'] as const)('never grants %s history a source solve', async flag => {
-  await seed();
-  await Repo.transactions.update('epoch-row', row => {
-    row[flag] = true;
-  });
-  await useEpochStore.getState().executeEVMToMiden('epoch-row');
-  expect(mockBuildIntent).not.toHaveBeenCalled();
-  expect(mockUpdatePhase).not.toHaveBeenCalled();
-});
+it.each<'restoredFromBackup' | 'recovered'>(['restoredFromBackup', 'recovered'])(
+  'never grants %s history a source solve',
+  async flag => {
+    await seed();
+    await Repo.transactions.update('epoch-row', row => {
+      row[flag] = true;
+    });
+    await useEpochStore.getState().executeEVMToMiden('epoch-row');
+    expect(mockBuildIntent).not.toHaveBeenCalled();
+    expect(mockUpdatePhase).not.toHaveBeenCalled();
+  }
+);
 
 it('a missing operation wallet scope is history, not a new solve capability', async () => {
   await seed();

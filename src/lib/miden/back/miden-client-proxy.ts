@@ -443,13 +443,13 @@ const opSignReasons = new Map<string, SignCallbackReason>();
 const opStageCallbacks = new Map<string, StageCallback>();
 
 /**
- * Records a Guardian leaf's submit crossing before its offscreen realm may submit (#1644), and says whether it may:
+ * Records a protected leaf's submit crossing before its offscreen realm may submit (#1644), and says whether it may:
  * false once the leaf has settled. A throw refuses the gate too, since a crossing that cannot be recorded must not
  * happen.
  */
 export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
 
-/** op_id → that Guardian write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
+/** op_id → that protected write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
 const opSubmitGates = new Map<string, SubmitGate>();
 
 function newOpId(): string {
@@ -1955,20 +1955,30 @@ export const midenClientProxy = {
     delegateTransaction: boolean | undefined,
     signCallback: RawSignCallback,
     onStage?: StageCallback,
-    _submitGate?: SubmitGate
+    submitGate?: SubmitGate
   ): Promise<TransactionResult> {
+    const guardedStage: StageCallback | undefined = submitGate
+      ? async (stage, detail) => {
+          if (stage === 'submitting') {
+            if (!(await submitGate(detail?.evidence))) throw new Error('Bridge source submit was refused');
+          } else await onStage?.(stage, detail);
+        }
+      : onStage;
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async hold =>
         withHoldSigner(hold, signCallback, async () =>
-          (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage)
+          (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, guardedStage)
         )
       );
     }
     return dispatchOffscreenWrite(
       'newTransaction',
-      [accountId, requestBytes, delegateTransaction],
+      submitGate
+        ? [accountId, requestBytes, delegateTransaction, true]
+        : [accountId, requestBytes, delegateTransaction],
       signCallback,
-      onStage
+      onStage,
+      submitGate
     );
   }
 };

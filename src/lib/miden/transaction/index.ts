@@ -7,6 +7,7 @@ import {
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { v4 as uuid } from 'uuid';
 
+import { assertBridgeOperationCurrent, bridgeOperationOf, hasBridgeOperation } from 'lib/bridge/operation';
 import { getMessage } from 'lib/i18n/core';
 import {
   clearGuardianServiceFor,
@@ -167,7 +168,7 @@ import {
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { TERMINAL_STATUS_WRITE_ATTEMPTS, TERMINAL_STATUS_WRITE_BACKOFF_MS } from './terminal-write';
-import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
+import { attemptMayHaveCrossed, canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
@@ -236,6 +237,7 @@ import {
   isStaleInitialCommitmentError,
   isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
+  markErrorBeforeSubmit,
   someInCauseChain,
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
@@ -1670,12 +1672,60 @@ const settleLandedValueRow = async (txId: string, error: unknown, attemptId: str
   if (tx.type === 'consume') await adoptLandedConsume(tx.id);
 };
 
+const isOwnedNativeBridge = (transaction: ITransaction): boolean =>
+  transaction.type === 'bridged-send' && hasBridgeOperation(transaction);
+
+async function assertOwnedNativeBridgeSource(transaction: ITransaction, stored?: ITransaction): Promise<void> {
+  if (!isOwnedNativeBridge(transaction)) return;
+  const row = stored ?? (await Repo.transactions.where({ id: transaction.id }).first());
+  const expected = bridgeOperationOf(transaction);
+  const operation = row && bridgeOperationOf(row);
+  if (
+    !row ||
+    !expected ||
+    !operation ||
+    expected.operationId !== operation.operationId ||
+    expected.revision !== operation.revision
+  )
+    throw new Error('Bridge operation identity changed');
+  assertBridgeOperationCurrent(transaction, expected);
+  assertBridgeOperationCurrent(row, expected);
+  assertBridgeOperationCurrent(row, operation);
+}
+
+async function mayStartOwnedNativeBridge(transaction: ITransaction): Promise<boolean> {
+  if (!isOwnedNativeBridge(transaction)) return true;
+  const row = await Repo.transactions.where({ id: transaction.id }).first();
+  if (!row) throw new Error('Bridge operation is unavailable');
+  // The existing node verdict, not a generated id or a lease, decides whether an earlier source can be retried.
+  if (
+    (row.status !== ITransactionStatus.Queued && row.status !== ITransactionStatus.GeneratingTransaction) ||
+    (row.neverCommittedAt === undefined &&
+      (row.submitEvidence?.some(isUnresolvedEntry) || (row.mayHaveSubmitted && !row.submitEvidence?.length)))
+  )
+    return false;
+  await assertOwnedNativeBridgeSource(transaction, row);
+  return true;
+}
+
+function ownedBridgeStageStamp(
+  transaction: ITransaction,
+  stamp?: ReturnType<typeof stageStampFor>
+): ReturnType<typeof stageStampFor> {
+  return async (stage, detail) => {
+    await stamp?.(stage, detail);
+    // Replayed offscreen stages are observations; only the awaited native stamp/submit gate may permit a write.
+    if (stage === 'submitting' && detail?.reliable !== false) await assertOwnedNativeBridgeSource(transaction);
+  };
+}
+
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  if (!(await mayStartOwnedNativeBridge(transaction))) return;
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
     const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
@@ -1734,6 +1784,7 @@ const generateTransactionWithProvider = async (
     throw error;
   }
   await rememberPreflightSync(transaction, 'returned').catch(() => undefined);
+  await assertOwnedNativeBridgeSource(transaction);
 
   // Mark transaction as in progress
   // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
@@ -2265,6 +2316,7 @@ const generateTransactionWithProvider = async (
             transaction.type === 'earn-deposit'
               ? await requireEarnDepositRequestBytes(transaction)
               : requireBridgedSendRecordedRequest(transaction);
+          await assertOwnedNativeBridgeSource(transaction);
           await requireBridgeSubmitClaim(transaction);
           // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
           // returned at the top of `generateTransaction`), and for a basic wallet miden-client
@@ -2276,6 +2328,26 @@ const generateTransactionWithProvider = async (
           // the annotation is idempotent.
           // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
           const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+          if (isOwnedNativeBridge(transaction)) {
+            const stamp = ownedBridgeStageStamp(transaction, attempt && stageStampFor(transaction.id, attempt));
+            const submitGate = offscreenSubmitGate(stamp);
+            try {
+              return await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+                midenClientProxy.newTransaction(
+                  transaction.accountId,
+                  requestBytes,
+                  transaction.delegateTransaction,
+                  signer,
+                  stamp,
+                  submitGate.gate
+                )
+              );
+            } catch (error) {
+              throw submitGate.opened() ? error : markErrorBeforeSubmit(error);
+            } finally {
+              submitGate.settle();
+            }
+          }
           return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
             midenClientProxy.newTransaction(
               transaction.accountId,
@@ -4119,6 +4191,7 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'bridged-send': {
+      await assertOwnedNativeBridgeSource(transaction);
       const bridgeTx = transaction as BridgedSendTransaction;
       // The recorded request and its one note, before the service load, which can reach the guardian. The note id
       // recorded at initiate stays the one signing is bound to after `proposeRebased` overwrites `requestBytes`.
@@ -4556,10 +4629,13 @@ const generateGuardianTransaction = async (
   // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
   // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
-  const stampStage = stageStampFor(
+  const baseStampStage = stageStampFor(
     transaction.id,
     transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
   );
+  const stampStage = isOwnedNativeBridge(transaction)
+    ? ownedBridgeStageStamp(transaction, baseStampStage)
+    : baseStampStage;
   const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
     if (stage === 'submitting') inlineSubmittingStageStarted = true;
     await stampStage(stage, detail);
@@ -4603,6 +4679,7 @@ const generateGuardianTransaction = async (
     // worse-attributed route, and it costs a leftover pending delta on a healthy
     // operator (best-effort abandoned below). A silent operator is the case that
     // matters, and the hold's deadline ceiling evicts it at about 30s.
+    await assertOwnedNativeBridgeSource(transaction);
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(

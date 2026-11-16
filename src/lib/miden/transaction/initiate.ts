@@ -1,4 +1,9 @@
-import type { BridgeOperationInput } from 'lib/bridge/operation';
+import {
+  BridgeOperationAlreadyAdmittedError,
+  captureBridgeWalletScope,
+  prepareBridgeOperation,
+  type BridgeOperationInput
+} from 'lib/bridge/operation';
 import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
@@ -1114,8 +1119,9 @@ export const initiateBridgedSendTransaction = async (
   usdcxBurn?: IUsdcxBurn,
   agglayerRoute?: AgglayerRecoveryConfig,
   epochAllocatorUrl?: string,
-  _operation?: BridgeOperationInput
+  operation?: BridgeOperationInput
 ): Promise<string> => {
+  const walletScope = operation ? captureBridgeWalletScope() : undefined;
   if (!requestBytes?.length) throw new Error(BRIDGED_SEND_MISSING_REQUEST_ERROR);
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -1140,7 +1146,28 @@ export const initiateBridgedSendTransaction = async (
     dbTransaction.noteType = NoteTypeEnum.Public;
   }
   dbTransaction.approvedOutputNoteIds = [ownNoteId];
-  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
+  try {
+    if (operation && walletScope) {
+      await queueOutgoingTransaction(
+        dbTransaction,
+        spendsOf(dbTransaction),
+        spendingLimitAuthorization,
+        undefined,
+        async () => {
+          dbTransaction.extraInputs.bridgeOperation = await prepareBridgeOperation(
+            dbTransaction,
+            operation,
+            walletScope
+          );
+        }
+      );
+    } else {
+      await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
+    }
+  } catch (error) {
+    if (error instanceof BridgeOperationAlreadyAdmittedError) return error.rowId;
+    throw error;
+  }
 
   return dbTransaction.id;
 };
@@ -1245,6 +1272,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
   outputSymbol?: string;
   operation?: BridgeOperationInput;
 }): Promise<string> => {
+  const walletScope = args.operation ? captureBridgeWalletScope() : undefined;
   const dbTransaction = new BridgedReceiveTransaction(
     args.accountId,
     args.amount,
@@ -1268,8 +1296,21 @@ export const initiateBridgedReceiveTransaction = async (args: {
     dbTransaction.extraInputs.usdcxMidenDomain =
       dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
   }
-  await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
-  return dbTransaction.id;
+  if (!args.operation || !walletScope) {
+    await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
+    return dbTransaction.id;
+  }
+  const operation = args.operation;
+  try {
+    return await Repo.db.transaction('rw', Repo.transactions, async () => {
+      dbTransaction.extraInputs.bridgeOperation = await prepareBridgeOperation(dbTransaction, operation, walletScope);
+      await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
+      return dbTransaction.id;
+    });
+  } catch (error) {
+    if (error instanceof BridgeOperationAlreadyAdmittedError) return error.rowId;
+    throw error;
+  }
 };
 
 /**

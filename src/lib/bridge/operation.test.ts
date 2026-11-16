@@ -292,6 +292,9 @@ it('persists complete source identity once and refuses a late contradictory nonc
       transaction: { ...transaction, input: '0xabcd' }
     })
   ).toBe(false);
+  expect(
+    await recordBridgeSourceAttempt('operation-1', claimed.revision, { transaction: undefined, phase: 'uncertain' })
+  ).toBe(true);
   expect((await snapshot(id)).sourceAttempt?.transaction).toEqual(transaction);
 });
 
@@ -325,7 +328,7 @@ it('keeps actual approvals separate from the source transfer through export/impo
   expect(await claimBridgeSourceAttempt('operation-1', claimed.revision)).toBe('uncertain');
 });
 
-it.each(['restoredFromBackup', 'recovered'] as const)(
+it.each<'restoredFromBackup' | 'recovered'>(['restoredFromBackup', 'recovered'])(
   'history provenance %s cannot authorize a new source write',
   async provenance => {
     const id = await seed();

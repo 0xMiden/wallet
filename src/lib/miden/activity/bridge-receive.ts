@@ -1,6 +1,8 @@
 import { isHash } from 'viem';
 
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
+import { walletBridgeProvider } from 'lib/bridge/core/provider';
+import { bridgeOperationOf, claimBridgeSourceAttempt, hasBridgeOperation } from 'lib/bridge/operation';
 import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
@@ -413,6 +415,7 @@ async function reconcileRow(
     await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
     return;
   }
+  if (hasBridgeOperation(row) && inputs.phase === 'submitting' && !inputs.evmTxHash && !inputs.intentNonce) return;
   if (!withinDeliveryWindow(row, inputs, cutoffSec)) {
     await updateBridgedReceivePhase(row.id, 'failed', {
       error: BRIDGE_DELIVERY_TIMED_OUT,
@@ -495,6 +498,27 @@ export function createBridgeReceiveReconciler({
         }
         resolve(txId);
         try {
+          const row = await Repo.transactions.get(txId);
+          if (row && hasBridgeOperation(row)) {
+            const operation = bridgeOperationOf(row);
+            const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
+            if (
+              !operation ||
+              row.type !== 'bridged-receive' ||
+              row.restoredFromBackup ||
+              row.recovered ||
+              !inputs ||
+              operation.review.route.mode !== 'receive' ||
+              inputs.provider !== walletBridgeProvider(operation.review.route.provider)
+            )
+              return;
+            // Epoch's existing store is its irreversible source owner; claiming here as well would suppress its first solve.
+            if (
+              inputs.provider !== 'epoch' &&
+              (await claimBridgeSourceAttempt(operation.operationId, operation.revision)) !== 'claimed'
+            )
+              return;
+          }
           await drive(txId);
         } catch (error) {
           console.error('[bridge-receive] deposit submission failed', error);
