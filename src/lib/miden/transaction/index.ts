@@ -240,6 +240,7 @@ import {
   isStaleInitialCommitmentError,
   isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
+  landedOrderFacts,
   someInCauseChain,
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
@@ -1198,8 +1199,7 @@ const landedFactsOf = (error: unknown): LandedWithoutResult => {
   if (tail === undefined) return extractLanded(error);
   return {
     ...landedTransactionIdFields({ transactionId: tail.transactionId }),
-    ...(tail.orderId === undefined ? {} : { orderId: tail.orderId.toString() }),
-    ...(tail.orderNoteId === undefined ? {} : { orderNoteId: tail.orderNoteId.toLowerCase() })
+    ...landedOrderFacts(tail.orderId, tail.orderNoteId)
   };
 };
 

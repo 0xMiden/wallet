@@ -13,6 +13,8 @@
  *   - waitForTransactionCompletion
  */
 
+import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
+
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { reportOperation } from 'lib/telemetry/report-operation';
@@ -2711,21 +2713,26 @@ describe('completeSwapTransaction', () => {
   // → partially-filled orders were never reclaimed (swap-partial-fill e2e stuck
   // `active`). settlement.test.ts hand-sets expiresAt on its mocks, so only a
   // test on completion itself catches the missing stamp.
-  const swapResult = () => {
-    const outputNote = {
-      id: () => ({ toString: () => 'out-note-1' }),
-      intoFull: () => ({
-        recipient: () => ({ serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] }) })
+  const pswapScript = () => ({ root: () => NoteScript.pswap().root() });
+  const otherScript = () => ({ root: () => ({ toHex: () => 'other' }) });
+  const swapNote = (id: string, felt1: bigint, script: () => { root(): { toHex(): string } }) => ({
+    id: () => ({ toString: () => id }),
+    metadata: () => ({ noteType: () => 'public' }),
+    intoFull: () => ({
+      recipient: () => ({
+        script,
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => felt1 }] })
       })
-    };
-    return {
+    })
+  });
+  const swapResult = (notes = [swapNote('out-note-1', 42n, pswapScript)]) =>
+    ({
       executedTransaction: () => ({
         id: () => ({ toHex: () => 'swap-hash' }),
-        outputNotes: () => ({ notes: () => [outputNote] })
+        outputNotes: () => ({ notes: () => notes })
       }),
       serialize: () => new Uint8Array()
-    } as any;
-  };
+    }) as any;
 
   it('stamps an absolute expiresAt (completedAt + expirySeconds) so the remainder can be reclaimed', async () => {
     txStore.push({
@@ -2751,6 +2758,50 @@ describe('completeSwapTransaction', () => {
     expect(row.extraInputs.orderId).toBe(42n);
     expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
     expect(row.extraInputs.landedOrder).toBeUndefined();
+  });
+
+  it('a PSWAP note listed after an unset-aside fee note is the order', async () => {
+    txStore.push({
+      id: 'swap-fee-first',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { expirySeconds: 100 }
+    });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-fee-first'),
+      swapResult([swapNote('fee-note', 7n, otherScript), swapNote('order-note', 42n, pswapScript)])
+    );
+
+    const row = txStore.find(t => t.id === 'swap-fee-first')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual(['order-note']);
+  });
+
+  it('two public notes and no PSWAP root record no order', async () => {
+    txStore.push({
+      id: 'swap-no-root',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: {
+        expirySeconds: 100,
+        landedOrder: { orderId: '7', expiresAt: 1, noteId: 'earlier-order-note' }
+      }
+    });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-no-root'),
+      swapResult([swapNote('fee-note', 7n, otherScript), swapNote('other-note', 9n, otherScript)])
+    );
+
+    const row = txStore.find(t => t.id === 'swap-no-root')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.expiresAt).toBeUndefined();
+    expect(row.extraInputs.landedOrder).toBeUndefined();
+    expect(row.outputNoteIds).toBeUndefined();
   });
 
   it('defaults expirySeconds to 120 when absent', async () => {

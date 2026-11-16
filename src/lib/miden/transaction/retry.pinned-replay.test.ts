@@ -4,6 +4,8 @@
  * check; only the request decode, the node reads and the transaction-id check are faked.
  */
 /* eslint-disable import/first */
+import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
+
 import * as Repo from 'lib/miden/repo';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
@@ -49,7 +51,10 @@ const BYTES = () => new Uint8Array([0xca, 0xfe, 0xba, 0xbe]);
 const requestNote = (id: string, orderId = 42n) => ({
   id: () => ({ toString: () => id }),
   metadata: () => ({ noteType: () => 'Public' }),
-  recipient: () => ({ serialNum: () => ({ toFelts: () => [{ asInt: () => 7n }, { asInt: () => orderId }] }) })
+  recipient: () => ({
+    script: () => ({ root: () => NoteScript.pswap().root() }),
+    serialNum: () => ({ toFelts: () => [{ asInt: () => 7n }, { asInt: () => orderId }] })
+  })
 });
 const decodesTo = (...notes: ReturnType<typeof requestNote>[]) =>
   mockDeserialize.mockImplementation(() => ({ expectedOutputOwnNotes: () => notes }));

@@ -9,10 +9,10 @@
 // account the transaction started from. Once the account write landed, a second apply archives
 // the post-transaction values as the "replaced" history and corrupts what an undo restores.
 
-import type { OutputNote } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, type Note, type OutputNote } from '@miden-sdk/miden-sdk/lazy';
 
 import { ApplyAfterSubmitError, causeChain, type LandedTransaction } from './sdk-error-code';
-import { splitExecutedOutputNotes, type UserOutputNote } from '../activity/fee-notes';
+import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import { toNoteTypeString } from '../helpers';
 import { NoteTypeEnum } from '../types';
 
@@ -134,32 +134,44 @@ function countPrivateOutputNotes<Id>(result: SubmittedResult<Id>): number | unde
 }
 
 /**
- * The swap order the transaction opened, read for every type since only a swap row stamps it. The id is decimal text,
- * the form the landed facts cross the offscreen reply in.
+ * The swap order the transaction opened, read for every type since only a swap row stamps it. `orderId` is decimal
+ * text, the form the landed facts cross the offscreen reply in, or the read is empty when the notes name no order.
  */
 function readSwapOrder<Id>(result: SubmittedResult<Id>): Pick<LandedTransaction, 'orderId' | 'orderNoteId'> {
   try {
-    const order = swapOrderOf(splitExecutedOutputNotes(result.executedTransaction()));
-    return order === undefined ? {} : { orderId: order.orderId.toString(), orderNoteId: order.orderNoteId };
+    return swapOrderOf(splitExecutedOutputNotes(result.executedTransaction())) ?? {};
   } catch {
     return {};
   }
 }
 
 /**
- * The PSWAP order a swap's output notes open: the lineage id (felt 1 of the order note's serial) and the order note's
- * id. Only an unambiguous split names one, since with the fee note not set aside the first of several notes can be
- * the fee note, and only a public note, so no private note's serial is read.
+ * The PSWAP order `userNotes` open. The order note is the unique user note whose recipient script root is
+ * `NoteScript.pswap().root()`. A result note is read through `intoFull()?.recipient().script()` and a saved-request
+ * note through `recipient().script()`. Only a public note is opened, so a private note's serial is not read. Returns
+ * felt 1 of that note's serial as decimal text and the note id from `id().toString()`, or undefined when no public
+ * user note, or more than one, has that root, or when felt 1 is missing. The id text is the raw id. This is exact
+ * whether or not the fee note was set aside.
  */
 export function swapOrderOf(split: {
   feeNote: OutputNote | undefined;
-  userNotes: UserOutputNote[];
-}): { orderId: bigint; orderNoteId: string } | undefined {
-  if (split.feeNote === undefined && split.userNotes.length !== 1) return undefined;
-  const note = split.userNotes[0];
-  if (note === undefined || toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Public) return undefined;
-  const orderId = note.intoFull()?.recipient().serialNum().toFelts()[1]?.asInt();
-  return orderId === undefined ? undefined : { orderId, orderNoteId: note.id().toString() };
+  userNotes: readonly (OutputNote | Note)[];
+}): { orderId: string; orderNoteId: string } | undefined {
+  const root = NoteScript.pswap().root().toHex();
+  const matches = split.userNotes.filter(
+    note =>
+      toNoteTypeString(note.metadata().noteType()) === NoteTypeEnum.Public &&
+      orderRecipient(note)?.script().root().toHex() === root
+  );
+  const note = matches.length === 1 ? matches[0] : undefined;
+  if (note === undefined) return undefined;
+  const orderId = orderRecipient(note)?.serialNum().toFelts()[1]?.asInt();
+  return orderId === undefined ? undefined : { orderId: orderId.toString(), orderNoteId: note.id().toString() };
+}
+
+/** A result note's recipient lives behind `intoFull`; a saved-request note carries `recipient` itself. */
+function orderRecipient(note: OutputNote | Note) {
+  return 'intoFull' in note ? note.intoFull()?.recipient() : note.recipient();
 }
 
 /** Fails closed: an evicted hold, a missing or unreadable account, or any other commitment refuses. */
@@ -186,14 +198,14 @@ async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>):
 export class LandedTailError extends Error {
   /** The executed transaction's id, read after the failure; undefined when the result could not be read. */
   readonly transactionId?: string;
-  /** The swap output's lineage id, read after the failure; undefined when it could not be read. */
-  readonly orderId?: bigint;
+  /** The swap output's lineage id as decimal text, read after the failure; undefined when it could not be read. */
+  readonly orderId?: string;
   /** The id of the note `orderId` was read off. */
   readonly orderNoteId?: string;
 
   constructor(
     cause: unknown,
-    { transactionId, orderId, orderNoteId }: { transactionId?: string; orderId?: bigint; orderNoteId?: string } = {}
+    { transactionId, orderId, orderNoteId }: { transactionId?: string; orderId?: string; orderNoteId?: string } = {}
   ) {
     super('The network accepted this transaction, but a step after its submit failed', { cause });
     this.name = 'LandedTailError';

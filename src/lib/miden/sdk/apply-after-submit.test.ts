@@ -1,4 +1,4 @@
-import { NoteType, type OutputNote } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, NoteType, type OutputNote } from '@miden-sdk/miden-sdk/lazy';
 
 import {
   APPLY_RETRY_DELAYS_MS,
@@ -23,12 +23,23 @@ const FINAL = '0xfinal';
 const withCommitment = (hex: string) => ({ to_commitment: () => ({ toHex: () => hex }) });
 
 const outputNote = (noteType: NoteType) =>
-  ({ metadata: () => ({ noteType: () => noteType }) }) as unknown as OutputNote;
+  ({
+    metadata: () => ({ noteType: () => noteType }),
+    intoFull: () => ({
+      recipient: () => ({
+        script: () => ({ root: () => ({ toHex: () => 'other' }) }),
+        serialNum: () => ({ toFelts: () => [] })
+      })
+    })
+  }) as unknown as OutputNote;
 
 const ORDER_NOTE_ID = `0x${'ab'.repeat(32)}`;
 
 const fullNoteWithSerial = () => ({
-  recipient: () => ({ serialNum: () => ({ toFelts: () => [0n, 42n, 0n, 0n].map(value => ({ asInt: () => value })) }) })
+  recipient: () => ({
+    script: () => ({ root: () => NoteScript.pswap().root() }),
+    serialNum: () => ({ toFelts: () => [0n, 42n, 0n, 0n].map(value => ({ asInt: () => value })) })
+  })
 });
 
 /** A note whose serial's felt 1 is 42, the lineage id a PSWAP order is tracked by. */
@@ -484,9 +495,9 @@ describe('LandedTailError (PR #2183)', () => {
 
   // Text never classifies it: the wrap is made only after the leaf resolved.
   it('carries the order read after it and the note it was read off', () => {
-    const error = new LandedTailError(new Error('fee read'), { orderId: 42n, orderNoteId: ORDER_NOTE_ID });
+    const error = new LandedTailError(new Error('fee read'), { orderId: '42', orderNoteId: ORDER_NOTE_ID });
 
-    expect(error.orderId).toBe(42n);
+    expect(error.orderId).toBe('42');
     expect(error.orderNoteId).toBe(ORDER_NOTE_ID);
   });
 
@@ -506,18 +517,18 @@ describe('LandedTailError (PR #2183)', () => {
 describe('swapOrderOf', () => {
   const asUserNotes = (notes: OutputNote[]) => notes as unknown as UserOutputNote[];
 
-  it("a split that set the fee note aside names the first user note's order beside another note", () => {
+  it('names the one public PSWAP user note beside a note that is not one', () => {
     const split = {
       feeNote: outputNote(NoteType.Public),
       userNotes: asUserNotes([orderNote(NoteType.Public), outputNote(NoteType.Private)])
     };
 
-    expect(swapOrderOf(split)).toEqual({ orderId: 42n, orderNoteId: ORDER_NOTE_ID });
+    expect(swapOrderOf(split)).toEqual({ orderId: '42', orderNoteId: ORDER_NOTE_ID });
   });
 
-  it('a lone note is the order note, and two notes with no fee note set aside name none', () => {
+  it('a lone public PSWAP note is the order, and two PSWAP notes or no user note name none', () => {
     expect(swapOrderOf({ feeNote: undefined, userNotes: asUserNotes([orderNote(NoteType.Public)]) })).toEqual({
-      orderId: 42n,
+      orderId: '42',
       orderNoteId: ORDER_NOTE_ID
     });
     expect(

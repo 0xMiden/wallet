@@ -9,11 +9,10 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { createNodeReads, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import type { ITransaction } from '../db/types';
-import { toNoteTypeString } from '../helpers';
+import { swapOrderOf } from '../sdk/apply-after-submit';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { isKilledPipeline, type LandedTransaction } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
-import { NoteTypeEnum } from '../types';
 
 export type PinnedReplayCheck =
   /** No saved request, or one that creates no own note, so a replay cannot re-create one. */
@@ -41,14 +40,9 @@ interface PinnedNotes {
   order?: Pick<LandedTransaction, 'orderId' | 'orderNoteId'>;
 }
 
-/** Felt 1 of the serial of the one public note, as `swapOrderOf` reads a swap's order off its result. */
-const pinnedOrderOf = (notes: Note[]): Pick<LandedTransaction, 'orderId' | 'orderNoteId'> | undefined => {
-  const [note] = notes;
-  if (notes.length !== 1 || note === undefined) return undefined;
-  if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Public) return undefined;
-  const orderId = note.recipient().serialNum().toFelts()[1]?.asInt();
-  return orderId === undefined ? undefined : { orderId: orderId.toString(), orderNoteId: note.id().toString() };
-};
+/** `swapOrderOf` on the saved request's notes, with the fee note not set aside. */
+const pinnedOrderOf = (notes: Note[]): Pick<LandedTransaction, 'orderId' | 'orderNoteId'> | undefined =>
+  swapOrderOf({ feeNote: undefined, userNotes: notes });
 
 /**
  * Ask the node whether a note `row`'s request bytes create is committed. The decode is static but runs in a labelled

@@ -9,7 +9,7 @@
  *   - `generateTransactionsLoop` early-return when an in-progress tx exists
  */
 
-import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { installLandedTrapRetirement } from 'lib/miden/sdk/landed-trap-retirement';
@@ -693,7 +693,10 @@ describe('a throw after the leaf resolved', () => {
     metadata: () => ({ noteType: () => NoteTypeEnum.Public }),
     assets: () => ({ fungibleAssets: () => [] }),
     intoFull: () => ({
-      recipient: () => ({ serialNum: () => ({ toFelts: () => [0n, { asInt }] }) })
+      recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
+        serialNum: () => ({ toFelts: () => [0n, { asInt }] })
+      })
     })
   });
 
@@ -925,6 +928,34 @@ describe('a throw after the leaf resolved', () => {
       noteId: ORDER_NOTE_ID.toLowerCase()
     });
     expect(row.extraInputs).toMatchObject({ requestedFaucetId: 'faucet-req', requestedAmount: 9n });
+  });
+
+  it('a swap finalized mid-tail keeps no order note id that is not note-id shaped', async () => {
+    const id = 'tx-tail-swap-bad-note-id';
+    _gh.__noteTypeForTest = 'public';
+    queuedSwap(id);
+    const note = landedSwapOutput(undefined, 'swap-output-note');
+
+    await runLoopWithWrite(
+      jest.fn(async () => ({
+        executedTransaction: () => ({
+          id: () => ({
+            toHex: () => {
+              setStatus(id, ITransactionStatus.Failed);
+              return 'landed-id';
+            }
+          }),
+          outputNotes: () => ({ notes: () => [note] })
+        }),
+        serialize: () => {
+          throw new Error('result serialize');
+        }
+      }))
+    );
+
+    const landedOrder = txStore.find(stored => stored.id === id)!.extraInputs.landedOrder;
+    expect(landedOrder).toMatchObject({ orderId: '42' });
+    expect(landedOrder).not.toHaveProperty('noteId');
   });
 
   it('a swap finalized mid-tail whose landed id read fails still records its order', async () => {

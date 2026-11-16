@@ -451,20 +451,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  // The kernel's fee note is an output note of this transaction too, and the order the
-  // notes come back in is the kernel's business, not ours. Taking index 0 blind means
-  // that on a fee-charging chain the `orderId` below -- the serial number this swap is
-  // tracked by for its entire lineage -- can be read off the FEE note instead of the
-  // PSWAP note, which points settlement at a note that will never be filled.
-  const { userNotes } = splitLandedOutputNotes(result, tx.id);
-  const outputNote = userNotes[0];
-
-  if (!outputNote) {
+  // The kernel's fee note is an output note of this transaction too. The order is the unique public
+  // note whose recipient script is the PSWAP script, so an unset-aside fee note is not the order.
+  const split = splitLandedOutputNotes(result, tx.id);
+  if (split.userNotes.length === 0) {
     throw new Error('Swap Transaction Failed');
   }
-
-  // orderId for tracking the swap note through the lineage
-  const orderId = outputNote.intoFull()?.recipient().serialNum().toFelts()[1]?.asInt();
+  const order = swapOrderOf(split);
 
   // TODO: track the created PSWAP note + payback note for richer activity
   // display (offered/requested asset breakdown). For now record the tx as
@@ -476,7 +469,6 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
     ...feeFieldsFromResult(result, tx.id),
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
-    outputNoteIds: [outputNote.id().toString()],
     completedAt,
     resultBytes: result.serialize(),
     // Stamp the absolute expiry so `reconcileSwapOrderNotes` can expiry-reclaim
@@ -485,7 +477,17 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
     // "explicit expiry" review change), and an earlier hot-key-rotation commit
     // accidentally reverted this stamp - leaving `expiresAt` undefined so active
     // orders were never reclaimed (swap-partial-fill lineage stuck `active`).
-    extraInputs: { ...extraInputs, orderId, expiresAt: swapOrderExpiresAt(extraInputs, completedAt) }
+    // A result that names no single public PSWAP note still completes, without an order.
+    ...(order === undefined
+      ? { extraInputs }
+      : {
+          outputNoteIds: [order.orderNoteId],
+          extraInputs: {
+            ...extraInputs,
+            orderId: BigInt(order.orderId),
+            expiresAt: swapOrderExpiresAt(extraInputs, completedAt)
+          }
+        })
   });
 };
 
@@ -493,7 +495,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
 export const landedSwapOrder = (
   landing: string,
   result: TransactionResult
-): { orderId?: bigint; orderNoteId?: string } => {
+): { orderId?: string; orderNoteId?: string } => {
   try {
     return swapOrderOf(splitLandedOutputNotes(result, landing)) ?? {};
   } catch (error) {

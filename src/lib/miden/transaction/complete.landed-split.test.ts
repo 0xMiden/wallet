@@ -1,4 +1,4 @@
-import { NoteType, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, NoteType, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { type ITransaction, ITransactionStatus, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -80,8 +80,10 @@ it('completes a landed swap whose fee-rate read traps, recording its order note'
   await Repo.transactions.add(swap);
   const orderNote = {
     id: () => ({ toString: () => 'order-note' }),
+    metadata: () => ({ noteType: () => NoteType.Public }),
     intoFull: () => ({
       recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
         serialNum: () => ({ toFelts: () => [0n, 42n, 0n, 0n].map(value => ({ asInt: () => value })) })
       })
     })
@@ -181,6 +183,7 @@ describe('landedSwapOrder', () => {
     assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
     intoFull: () => ({
       recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
         serialNum: () => ({ toFelts: () => [0n, 42n, 0n, 0n].map(value => ({ asInt: () => value })) })
       })
     })
@@ -199,7 +202,7 @@ describe('landedSwapOrder', () => {
 
   it('names the order note beside the lineage id it read', () => {
     expect(landedSwapOrder('swap-row', landedWithNotes([pswapNote('order-note')]))).toEqual({
-      orderId: 42n,
+      orderId: '42',
       orderNoteId: 'order-note'
     });
   });

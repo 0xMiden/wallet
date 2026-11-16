@@ -34,6 +34,8 @@ jest.mock('../sdk/miden-client', () => ({
   }
 }));
 
+import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
+
 import { checkPinnedReplayNotes } from './pinned-replay-check';
 import { NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -48,7 +50,10 @@ const requestNote = (
 ) => ({
   id: () => ({ toString: () => id }),
   metadata: () => ({ noteType: () => noteType }),
-  recipient: () => ({ serialNum: () => ({ toFelts: () => [{ asInt: () => 7n }, { asInt: () => orderId }] }) })
+  recipient: () => ({
+    script: () => ({ root: () => NoteScript.pswap().root() }),
+    serialNum: () => ({ toFelts: () => [{ asInt: () => 7n }, { asInt: () => orderId }] })
+  })
 });
 const decodesTo = (...notes: ReturnType<typeof requestNote>[]) =>
   mockDeserialize.mockImplementation(() => ({ expectedOutputOwnNotes: () => notes }));

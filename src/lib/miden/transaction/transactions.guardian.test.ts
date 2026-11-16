@@ -11,7 +11,7 @@
  *     → submit → completeSendTransaction).
  */
 
-import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import { getMessage } from 'lib/i18n/core';
@@ -2752,7 +2752,12 @@ describe('generateTransaction - Guardian routing', () => {
       const orderNote = {
         id: () => ({ toString: () => 'pswap-note' }),
         metadata: () => ({ noteType: () => NoteType.Public }),
-        intoFull: () => ({ recipient: () => ({ serialNum: () => ({ toFelts: () => [{}, { asInt: () => 7n }] }) }) })
+        intoFull: () => ({
+          recipient: () => ({
+            script: () => ({ root: () => NoteScript.pswap().root() }),
+            serialNum: () => ({ toFelts: () => [{}, { asInt: () => 7n }] })
+          })
+        })
       };
       const base = makeResult();
       const executed = base.executedTransaction();
