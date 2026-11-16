@@ -467,6 +467,17 @@ const DECIMAL = /^(0|[1-9][0-9]{0,19})$/;
 const FIELD_MODULUS = 0xffffffff00000001n;
 const NOTE_ID = /^0x[0-9a-f]{64}$/i;
 
+/** A swap order's landed facts in the only shapes kept: a canonical decimal felt and a note id, in lower case. */
+export function landedOrderFacts(
+  orderId: unknown,
+  orderNoteId: unknown
+): Pick<LandedTransaction, 'orderId' | 'orderNoteId'> {
+  return {
+    ...(typeof orderId === 'string' && DECIMAL.test(orderId) && BigInt(orderId) < FIELD_MODULUS ? { orderId } : {}),
+    ...(typeof orderNoteId === 'string' && NOTE_ID.test(orderNoteId) ? { orderNoteId: orderNoteId.toLowerCase() } : {})
+  };
+}
+
 /**
  * The landed facts off this realm's `ApplyAfterSubmitError` or off the rejection the service worker
  * rebuilds from an offscreen reply, keeping only a string id, a non-negative integer count, a string
@@ -477,16 +488,13 @@ export function extractLanded(err: unknown): LandedTransaction {
   const transactionId = readGuarded(landed, 'transactionId');
   const privateOutputNotes = readGuarded(landed, 'privateOutputNotes');
   const finalAccountCommitment = readGuarded(landed, 'finalAccountCommitment');
-  const orderId = readGuarded(landed, 'orderId');
-  const orderNoteId = readGuarded(landed, 'orderNoteId');
   return {
     ...(typeof transactionId === 'string' ? { transactionId } : {}),
     ...(typeof privateOutputNotes === 'number' && Number.isInteger(privateOutputNotes) && privateOutputNotes >= 0
       ? { privateOutputNotes }
       : {}),
     ...(typeof finalAccountCommitment === 'string' ? { finalAccountCommitment } : {}),
-    ...(typeof orderId === 'string' && DECIMAL.test(orderId) && BigInt(orderId) < FIELD_MODULUS ? { orderId } : {}),
-    ...(typeof orderNoteId === 'string' && NOTE_ID.test(orderNoteId) ? { orderNoteId: orderNoteId.toLowerCase() } : {})
+    ...landedOrderFacts(readGuarded(landed, 'orderId'), readGuarded(landed, 'orderNoteId'))
   };
 }
 

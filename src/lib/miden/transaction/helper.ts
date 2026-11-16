@@ -31,7 +31,7 @@ import {
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
 import { retireLandedTrap } from '../sdk/landed-trap-retirement';
-import { errorMessageParts, isPoisonedPipeline, type LandedTransaction } from '../sdk/sdk-error-code';
+import { errorMessageParts, isPoisonedPipeline, landedOrderFacts, type LandedTransaction } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
@@ -655,6 +655,42 @@ export const swapOrderExpiresAt = (extraInputs: Pick<ISwapExtraInputs, 'expirySe
   at + (extraInputs?.expirySeconds ?? 120);
 
 /**
+ * The swap fields a write that completes a landed swap without its result writes, the one rule for every such writer:
+ * the order the landed failure held (`landedOrder`), else the one `read` names, as `orderId` and its `expiresAt`, and
+ * its note as the row's output note when the row records none, since settlement reclaims an expired order's note only
+ * from there. The held order keeps the expiry its landing anchored. A row that holds its own order keeps it, and one
+ * with no order still gets an expiry at the user's window from `completedAt`. The store can hold anything here
+ * (`importDb`), so only well-formed facts open an order, and a row with no `extraInputs` gets no fields. Idempotent.
+ */
+export const completedSwapFields = (
+  row: { extraInputs?: ISwapExtraInputs } & Pick<ITransaction, 'outputNoteIds'>,
+  completedAt: number,
+  read: Pick<LandedTransaction, 'orderId' | 'orderNoteId'> = {}
+): { extraInputs?: ISwapExtraInputs; outputNoteIds?: string[] } => {
+  if (!row.extraInputs) return {};
+  const { landedOrder, ...extraInputs } = row.extraInputs;
+  if (extraInputs.orderId != null) return { extraInputs };
+  const held = landedOrderFacts(landedOrder?.orderId, landedOrder?.noteId);
+  const heldExpiresAt = landedOrder?.expiresAt;
+  const order =
+    held.orderId !== undefined && heldExpiresAt !== undefined && Number.isSafeInteger(heldExpiresAt)
+      ? { ...held, expiresAt: heldExpiresAt }
+      : {
+          ...landedOrderFacts(read.orderId, read.orderNoteId),
+          expiresAt: swapOrderExpiresAt(extraInputs, completedAt)
+        };
+  if (order.orderId === undefined) {
+    return { extraInputs: { ...extraInputs, expiresAt: extraInputs.expiresAt ?? order.expiresAt } };
+  }
+  return {
+    extraInputs: { ...extraInputs, orderId: BigInt(order.orderId), expiresAt: order.expiresAt },
+    ...(order.orderNoteId !== undefined && storedNoteIds(row.outputNoteIds).length === 0
+      ? { outputNoteIds: [order.orderNoteId] }
+      : {})
+  };
+};
+
+/**
  * The Completed fields for a value-moving row whose submit landed and whose local reconcile did not,
  * on either catch or on Retry's landed reconcile (#1233). A PRIVATE send's note reaches its
  * recipient only through `completeSendTransaction`'s relay, which never ran and which no sync
@@ -789,6 +825,9 @@ export const completeVerifiedLandedTransaction = async (
  * `updateBridgeClaimStatus` (#1250), whose bridge evidence and the status it
  * proves must land in the same Dexie write, never a write recording the
  * evidence followed by a second one settling the row.
+ *
+ * A swap opens the order its landed failure held here, with the status flip
+ * ({@link completedSwapFields}), so every node-evidence landing tracks it.
  */
 export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITransaction> = {}): void => {
   Object.assign(tx, otherValues);
@@ -799,6 +838,7 @@ export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITra
   tx.error = undefined;
   tx.rawError = undefined;
   if (tx.displayIcon === 'FAILED') tx.displayIcon = ICON_BY_TYPE[tx.type];
+  if (tx.type === 'swap') Object.assign(tx, completedSwapFields(tx, tx.completedAt ?? Math.floor(Date.now() / 1000)));
 };
 
 /**

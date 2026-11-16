@@ -549,6 +549,12 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       dbTx.displayIcon = ICON_BY_TYPE[dbTx.type];
       // The safe marker belongs to the attempts it judged; the evidence stays, so an earlier attempt can still land.
       dbTx.neverCommittedAt = undefined;
+      // The order a proven-dead attempt's landing held goes too, so it never opens on a later attempt's landing. An
+      // unproven attempt can still land, and keeps it.
+      if (plan.proven && dbTx.type === 'swap' && dbTx.extraInputs?.landedOrder !== undefined) {
+        const { landedOrder: _deadAttempt, ...extraInputs } = dbTx.extraInputs;
+        dbTx.extraInputs = extraInputs;
+      }
       // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.
       const failedPreSubmit =
         plan.proven || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));

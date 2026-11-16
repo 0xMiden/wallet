@@ -138,6 +138,7 @@ import { getAllUncompletedTransactions, getTransactionsInProgress } from './get'
 import {
   type AttemptContext,
   claimBridgeSubmit,
+  completedSwapFields,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   landedTransactionIdFields,
@@ -167,11 +168,7 @@ import {
 } from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
-import {
-  TERMINAL_STATUS_WRITE_ATTEMPTS,
-  TERMINAL_STATUS_WRITE_BACKOFF_MS,
-  writeCommittedCompleted
-} from './terminal-write';
+import { writeCommittedCompleted } from './terminal-write';
 import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
@@ -1295,42 +1292,23 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
  * Write a landed row's Completed verdict from the row as stored, retried as a committed rotation's terminal write is:
  * an IndexedDB abort under contention recurs at once and then clears, and a row left in progress is reaped into Failed,
  * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
- * recorded is kept and a row another writer finalized is left alone. Returns the row as read before the write that
- * landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
+ * recorded and the order the landed record held are kept, and a row another writer finalized is left alone. The
+ * failure's own order facts stand in for a landed record that did not commit. Returns the row as read before the
+ * write that landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
  */
-const writeLandedCompleted = async (txId: string, error: unknown): Promise<ITransaction | undefined> => {
-  for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
-    try {
-      const row = await Repo.transactions.where({ id: txId }).first();
-      if (row === undefined || hasLeftQueue(row)) return undefined;
+const writeLandedCompleted = (txId: string, error: unknown): Promise<ITransaction | undefined> =>
+  writeCommittedCompleted(
+    txId,
+    row => {
       const completedAt = Math.floor(Date.now() / 1000); // seconds
-      const orderId = landedTailErrorIn(error)?.orderId;
-      await updateTransactionStatus(txId, ITransactionStatus.Completed, {
+      return {
         ...landedRowFields(row, error),
         completedAt,
-        ...(row.type === 'swap'
-          ? {
-              extraInputs: {
-                ...row.extraInputs,
-                expiresAt: completedAt + (row.extraInputs.expirySeconds ?? 120),
-                ...(orderId === undefined ? {} : { orderId })
-              }
-            }
-          : {})
-      });
-      return row;
-    } catch (writeError) {
-      console.warn(
-        `Could not record the landed row Completed (attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
-        writeError
-      );
-      if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
-        await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
-      }
-    }
-  }
-  return undefined;
-};
+        ...(row.type === 'swap' ? completedSwapFields(row, completedAt, landedFactsOf(error)) : {})
+      };
+    },
+    'landed'
+  );
 
 /** What a landed arm's log says failed: the leaf's local apply, or a step of the tail after it. */
 const landedFailureText = (error: unknown): string =>

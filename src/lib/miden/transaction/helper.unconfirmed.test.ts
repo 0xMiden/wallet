@@ -139,6 +139,25 @@ describe('a verified landing of a swap opens the order its landed failure decide
     expect(row.outputNoteIds).toBeUndefined();
   });
 
+  it('a row that holds its own order keeps it and drops the held one', () => {
+    const row = failedSwap({
+      orderId: 7n,
+      expiresAt: 500,
+      landedOrder: { orderId: '42', expiresAt: 1100, noteId: ORDER_NOTE }
+    });
+
+    applyVerifiedLanding(row);
+
+    expect(row.extraInputs).toEqual({
+      requestedFaucetId: 'faucet-req',
+      requestedAmount: 9n,
+      expirySeconds: 100,
+      orderId: 7n,
+      expiresAt: 500
+    });
+    expect(row.outputNoteIds).toBeUndefined();
+  });
+
   it('keeps the output notes a row already records', () => {
     const row = failedSwap(
       { landedOrder: { orderId: '42', expiresAt: 1100, noteId: ORDER_NOTE } },

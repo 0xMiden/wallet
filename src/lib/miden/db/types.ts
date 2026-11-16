@@ -1609,8 +1609,9 @@ export interface ISwapExtraInputs {
   recoveredCheckpoint?: IRecoveredSwapCheckpoint;
   /**
    * The order a landed failure read, recorded on any row it did not complete, including one a Cancel or the reaper
-   * finalized meanwhile. Only the write that completes the row turns it into `orderId` and `expiresAt`; nothing else
-   * reads it, so a row carrying it opens no order.
+   * finalized meanwhile. Only the write that completes the row turns it into `orderId`, `expiresAt` and the row's
+   * output note (`completedSwapFields`); nothing else reads it, so a row carrying it opens no order. A Retry of
+   * attempts proven dead drops it.
    */
   landedOrder?: ISwapLandedOrder;
 }
