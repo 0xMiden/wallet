@@ -1,10 +1,12 @@
-import { RpcClient, Word } from '@miden-sdk/miden-sdk/lazy';
+import { Word, type AccountProof } from '@miden-sdk/miden-sdk/lazy';
 
 import { readFaucetProofTokenConfig } from 'lib/miden/metadata/faucet-proof';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { normalizedFaucetId } from 'lib/miden/swap/tokens';
-import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { readWithOwnRpcClient } from 'lib/usdcx/rpc-client';
 
 import { isNominalQuote, quotedPrice, type TokenPriceInfo, type TokenPrices } from './binance';
 
@@ -51,11 +53,15 @@ export function basketPriceSources(
     const priceSymbol = assets.get(normalizedFaucetId(listedId));
     if (priceSymbol === undefined || !unmarketed(priceSymbol)) continue;
     if (Array.from(assets.values()).filter(symbol => symbol === priceSymbol).length > 1) continue;
+    // Compared canonically: two spellings of one faucet would count its holding twice.
+    const seen = new Set([normalizedFaucetId(listedId)]);
     const constituents: BasketConstituent[] = [];
     for (const id of listedConstituents) {
-      const constituentSymbol = assets.get(normalizedFaucetId(id));
+      const canonical = normalizedFaucetId(id);
+      const constituentSymbol = assets.get(canonical);
       const places = decimals?.get(id);
-      if (constituentSymbol === undefined || places === undefined) break;
+      if (seen.has(canonical) || constituentSymbol === undefined || places === undefined) break;
+      seen.add(canonical);
       constituents.push({ faucetId: id, priceSymbol: constituentSymbol, decimals: places });
     }
     if (constituents.length === listedConstituents.length) {
@@ -67,35 +73,66 @@ export function basketPriceSources(
 
 const VAULT_READ_TIMEOUT_MS = 10_000;
 
-/** Reads supply and holdings from one account proof without loading unrelated storage maps. */
+/** Decodes one proof into plain values, then frees the proof. */
+function readVaultProof(source: BasketSource, proof: AccountProof): BasketVault {
+  try {
+    if (!proof.accountHeader()) throw new Error(`${source.faucetId} has no public state`);
+    const { supply, decimals } = readFaucetProofTokenConfig(proof);
+    const assets = proof.vaultFungibleAssets();
+    if (!assets) throw new Error(`${source.faucetId} has no vault data`);
+    const balances = new Map(assets.map(asset => [asset.faucetId().toString(), asset.amount()]));
+    return {
+      supply,
+      decimals,
+      balances: source.constituents.map(c => balances.get(accountRefToSdk(c.faucetId).toString()) ?? 0n)
+    };
+  } finally {
+    proof.free();
+  }
+}
+
+/**
+ * Node and basket pairs with a vault read still unsettled in this realm. The timeout ends the caller's wait, not the
+ * read, and a read's client and proof are freed only once it settles, so against a node that accepts and never answers
+ * every refresh would park one more client: a basket with a read out on a node refuses the next read of it there until
+ * it settles. The same rule as the PSWAP note reads (`pswap-order-note.ts`, #1487).
+ */
+const unsettledVaultReads = new Set<string>();
+
+/**
+ * Reads supply and holdings from one account proof without loading unrelated storage maps. One attempt with its own
+ * client: the next price refresh is the retry. The proof is decoded and freed inside the read, so a read the timeout
+ * gave up on frees its client and its proof when it ends.
+ */
 export async function readBasketVault(source: BasketSource): Promise<BasketVault> {
   await ensureSdkWasmReady();
-  const rpc = new RpcClient(getRpcEndpoint());
-  try {
-    const proof = await withRpcTimeout(
-      // A zero commitment requests vault data on every attempt. The SDK consumes these arguments.
-      () =>
-        rpc.getAccountProof(accountRefToSdk(source.faucetId), undefined, undefined, new Word(new BigUint64Array(4))),
-      'basket vault',
-      { timeoutMs: VAULT_READ_TIMEOUT_MS }
-    );
-    try {
-      if (!proof.accountHeader()) throw new Error(`${source.faucetId} has no public state`);
-      const { supply, decimals } = readFaucetProofTokenConfig(proof);
-      const assets = proof.vaultFungibleAssets();
-      if (!assets) throw new Error(`${source.faucetId} has no vault data`);
-      const balances = new Map(assets.map(asset => [asset.faucetId().toString(), asset.amount()]));
-      return {
-        supply,
-        decimals,
-        balances: source.constituents.map(c => balances.get(accountRefToSdk(c.faucetId).toString()) ?? 0n)
-      };
-    } finally {
-      proof.free();
-    }
-  } finally {
-    rpc.free();
+  // The node `readWithOwnRpcClient` builds its client for, read in the same synchronous turn.
+  const slot = `${getEffectiveRpcUrl()} ${normalizedFaucetId(source.faucetId)}`;
+  if (unsettledVaultReads.has(slot)) {
+    throw new Error(`basket vault ${source.faucetId}: the previous read has not settled`);
   }
+  unsettledVaultReads.add(slot);
+  const settled = () => {
+    unsettledVaultReads.delete(slot);
+  };
+  let pending: Promise<BasketVault>;
+  try {
+    pending = readWithOwnRpcClient(async rpc => {
+      // A zero commitment requests vault data. The SDK consumes these arguments.
+      const proof = await rpc.getAccountProof(
+        accountRefToSdk(source.faucetId),
+        undefined,
+        undefined,
+        new Word(new BigUint64Array(4))
+      );
+      return readVaultProof(source, proof);
+    });
+  } catch (error) {
+    settled();
+    throw error;
+  }
+  pending.then(settled, settled);
+  return withRpcTimeout(() => pending, 'basket vault', { timeoutMs: VAULT_READ_TIMEOUT_MS, retries: 0 });
 }
 
 /** A quote that comes from a market (an exchange, or a fixed $1 stablecoin), never a nominal rate or another basket. */

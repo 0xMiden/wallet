@@ -27,6 +27,8 @@ jest.mock('lib/miden-chain/constants', () => ({
   getRpcEndpoint: () => 'https://rpc.example'
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (id: string) => `sdk:${id}` }));
+let mockRpcUrl = 'https://rpc.example';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => mockRpcUrl }));
 jest.mock('lib/miden/swap/tokens', () => ({ normalizedFaucetId: (id: string) => id.toLowerCase() }));
 
 const quote = (price: number, extra: Partial<TokenPriceInfo> = {}) => ({
@@ -78,6 +80,15 @@ describe('basketPriceSources', () => {
       []
     );
     expect(basketPriceSources(baskets, assets, new Map([['mm1btc', 8]]), () => true)).toEqual([]);
+  });
+
+  it('leaves out a basket that names one faucet twice, or itself, under another spelling', () => {
+    // The mocked normalizedFaucetId lower-cases, so mm1BTC and mm1btc are one faucet.
+    const spelled = new Map([...decimals, ['mm1BTC', 8], ['mm1BASKET', 8]]);
+    const twice = new Map([['mm1basket', ['mm1btc', 'mm1BTC']]]);
+    const itself = new Map([['mm1basket', ['mm1btc', 'mm1BASKET']]]);
+    expect(basketPriceSources(twice, assets, spelled, () => true)).toEqual([]);
+    expect(basketPriceSources(itself, assets, spelled, () => true)).toEqual([]);
   });
 
   it('names nothing without a list', () => {
@@ -214,12 +225,47 @@ describe('readBasketVault', () => {
     expect(mockFree).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves a basket unpriced when its proof is unavailable and frees the client after retries', async () => {
+  it('leaves a basket unpriced when its proof is unavailable and frees the client', async () => {
     mockGetAccountProof.mockRejectedValue(new Error('rpc unavailable'));
     await expect(fetchBasketPrices([SOURCE], PRICES)).resolves.toEqual({});
-    expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+    expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
     expect(mockFree).toHaveBeenCalledTimes(1);
     expect(mockProofFree).not.toHaveBeenCalled();
+  });
+
+  it('keeps a timed-out read client until the read ends, and starts no second read of that basket on that node', async () => {
+    jest.useFakeTimers();
+    try {
+      let settle: (proof: ReturnType<typeof vaultProof>) => void = () => undefined;
+      mockGetAccountProof.mockReturnValueOnce(
+        new Promise<ReturnType<typeof vaultProof>>(resolve => {
+          settle = resolve;
+        })
+      );
+
+      const read = readBasketVault(SOURCE).catch((error: Error) => error.message);
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(await read).toContain('timed out');
+      expect(mockFree).not.toHaveBeenCalled();
+      await expect(readBasketVault(SOURCE)).rejects.toThrow('the previous read has not settled');
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+
+      // Another node is read at once.
+      mockRpcUrl = 'https://other.example';
+      mockGetAccountProof.mockResolvedValueOnce(vaultProof());
+      await expect(readBasketVault(SOURCE)).resolves.toEqual(VAULT);
+      mockRpcUrl = 'https://rpc.example';
+
+      // The late proof and its client are freed when the read ends, and the basket can be read again.
+      settle(vaultProof());
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockFree).toHaveBeenCalledTimes(2);
+      expect(mockProofFree).toHaveBeenCalledTimes(2);
+      mockGetAccountProof.mockResolvedValueOnce(vaultProof());
+      await expect(readBasketVault(SOURCE)).resolves.toEqual(VAULT);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
