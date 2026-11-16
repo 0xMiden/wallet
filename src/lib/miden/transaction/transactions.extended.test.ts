@@ -2891,6 +2891,38 @@ describe('completeSwapTransaction', () => {
     expect(row.outputNoteIds).toEqual(['saved-order-note']);
   });
 
+  // The order its saved request recorded is the one the bytes name, so the completion opens it with no lock wait.
+  it('a result that names no order takes the order the row recorded, with no saved-request decode', async () => {
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    deserialize.mockClear();
+    const lock = jest.spyOn(jest.requireMock('../sdk/miden-client'), 'withWasmClientLock');
+    const recordedNote = `0x${'ab'.repeat(32)}`;
+    txStore.push({
+      id: 'swap-recorded-order',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      requestBytes: new Uint8Array([7, 7, 7]),
+      extraInputs: { expirySeconds: 100, requestOrder: { orderId: '42', noteId: recordedNote } }
+    });
+    const { completeSwapTransaction } = require('./index');
+    try {
+      await completeSwapTransaction(
+        txStore.find(t => t.id === 'swap-recorded-order'),
+        swapResult([swapNote('fee-note', 7n, otherScript), swapNote('other-note', 9n, otherScript)])
+      );
+    } finally {
+      lock.mockRestore();
+    }
+
+    const row = txStore.find(t => t.id === 'swap-recorded-order')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual([recordedNote]);
+    expect(deserialize).not.toHaveBeenCalled();
+    expect(lock).not.toHaveBeenCalled();
+  });
+
   it('defaults expirySeconds to 120 when absent', async () => {
     txStore.push({ id: 'swap-2', type: 'swap', status: ITransactionStatus.GeneratingTransaction, extraInputs: {} });
     const { completeSwapTransaction } = require('./index');

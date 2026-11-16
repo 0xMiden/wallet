@@ -310,6 +310,56 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
     expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
   });
 
+  // The order the saved request recorded is what a decode of those bytes would give, so Retry takes no lock for it.
+  it('opens the order a landed swap`s saved request recorded without decoding the request', async () => {
+    const extraInputs = {
+      requestedFaucetId: 'faucet-req',
+      requestedAmount: 9n,
+      expirySeconds: 100,
+      requestOrder: { orderId: '42', noteId: ORDER_NOTE }
+    };
+    await Repo.transactions.put(decidedSwap({ extraInputs, requestBytes: new Uint8Array([9, 9, 9]) }));
+    mockVerifySendLanded.mockResolvedValue('landed');
+    const lazySdk = await import('@miden-sdk/miden-sdk/lazy');
+    const deserialize = jest.mocked(lazySdk.TransactionRequest.deserialize);
+    deserialize.mockClear();
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs.orderId).toBe(42n);
+    expect(row?.extraInputs.expiresAt).toBe((row?.completedAt ?? 0) + 100);
+    expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
+    expect(deserialize).not.toHaveBeenCalled();
+  });
+
+  // A replay resends the same bytes, so the order they name stays recorded; only the dead attempt's landing goes.
+  it('a proven-dead swap`s requeue keeps the order its saved request recorded', async () => {
+    const submitEvidence = [{ attemptId: 'a1', capturedAt: 1100, source: 'stage' as const }];
+    const requestOrder = { orderId: '42', noteId: ORDER_NOTE };
+    await Repo.transactions.put(
+      decidedSwap({
+        neverCommittedAt: 1150,
+        submitEvidence,
+        extraInputs: {
+          requestedFaucetId: 'faucet-req',
+          requestedAmount: 9n,
+          expirySeconds: 100,
+          requestOrder,
+          landedOrder: { orderId: '42', expiresAt: 1100, noteId: ORDER_NOTE }
+        }
+      })
+    );
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    expect(row?.extraInputs.landedOrder).toBeUndefined();
+    expect(row?.extraInputs.requestOrder).toEqual(requestOrder);
+  });
+
   it('a proven-dead swap`s requeue drops the order its dead attempt decided', async () => {
     const submitEvidence = [{ attemptId: 'a1', capturedAt: 1100, source: 'stage' as const }];
     await Repo.transactions.put(decidedSwap({ neverCommittedAt: 1150, submitEvidence }));

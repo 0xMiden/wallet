@@ -1034,6 +1034,62 @@ describe('a throw after the leaf resolved', () => {
     });
   });
 
+  // A trap in the apply reads nothing off the result, so the landing holds the order the row's saved request recorded,
+  // anchored at the landing, for a row a Cancel finalized before its Completed write.
+  const RECORDED_ORDER = { orderId: '42', noteId: ORDER_NOTE_ID.toLowerCase() };
+  const recordedSwap = (id: string, extraInputs: Record<string, unknown> = {}) =>
+    queuedRow(id, {
+      type: 'swap',
+      faucetId: 'faucet-offer',
+      amount: BigInt(5),
+      extraInputs: {
+        requestedFaucetId: 'faucet-req',
+        requestedAmount: BigInt(9),
+        expirySeconds: 100,
+        requestOrder: RECORDED_ORDER,
+        ...extraInputs
+      }
+    });
+  const finalizedThenLanded = (id: string, landed: Record<string, unknown>) =>
+    jest.fn(async () => {
+      setStatus(id, ITransactionStatus.Failed);
+      throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), landed);
+    });
+
+  it('a swap finalized mid-leaf whose landed failure named no order holds the order its saved request recorded', async () => {
+    const id = 'tx-landed-swap-recorded-order';
+    recordedSwap(id);
+
+    const landedAt = await runLoopAtFixedTime(finalizedThenLanded(id, {}));
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.landedOrder).toEqual({
+      orderId: '42',
+      expiresAt: landedAt + 100,
+      noteId: RECORDED_ORDER.noteId
+    });
+    expect(row.extraInputs.requestOrder).toEqual(RECORDED_ORDER);
+  });
+
+  it('the order a landed failure read outranks the recorded one, and a held one stays', async () => {
+    const readId = 'tx-landed-swap-read-order';
+    const otherNote = `0x${'cd'.repeat(32)}`;
+    recordedSwap(readId);
+    await runLoopWithWrite(finalizedThenLanded(readId, { orderId: '7', orderNoteId: otherNote }));
+    expect(txStore.find(stored => stored.id === readId)!.extraInputs.landedOrder).toMatchObject({
+      orderId: '7',
+      noteId: otherNote
+    });
+
+    const heldId = 'tx-landed-swap-held-order';
+    const held = { orderId: '8', expiresAt: 99, noteId: otherNote };
+    recordedSwap(heldId, { landedOrder: held });
+    await runLoopWithWrite(finalizedThenLanded(heldId, {}));
+    expect(txStore.find(stored => stored.id === heldId)!.extraInputs.landedOrder).toEqual(held);
+  });
+
   it.each([
     ['with its own order', { orderId: 7n, expiresAt: 500 }],
     ['with no order read', { expiresAt: 500 }]

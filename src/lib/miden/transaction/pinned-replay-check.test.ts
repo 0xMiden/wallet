@@ -36,7 +36,7 @@ jest.mock('../sdk/miden-client', () => ({
 
 import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
 
-import { checkPinnedReplayNotes, orderFromSavedRequest } from './pinned-replay-check';
+import { checkPinnedReplayNotes, orderFromSavedRequest, swapOpensOrderFromRead } from './pinned-replay-check';
 import { NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -236,5 +236,26 @@ describe('orderFromSavedRequest', () => {
 
     expect(mockSdkReady).not.toHaveBeenCalled();
     expect(mockDeserialize).not.toHaveBeenCalled();
+  });
+});
+
+describe('swapOpensOrderFromRead', () => {
+  const swap = (extraInputs: Record<string, unknown>) => ({
+    type: 'swap' as const,
+    extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: 9n, ...extraInputs }
+  });
+
+  // The order is recorded beside the bytes it was read off, so no landed writer decodes them again.
+  it('a swap whose saved request recorded a well-formed order needs no decode', () => {
+    expect(swapOpensOrderFromRead(swap({ requestOrder: { orderId: '42', noteId: FIRST.toLowerCase() } }))).toBe(false);
+  });
+
+  it.each<[string, unknown]>([
+    ['no record', undefined],
+    ['a hex order id', { orderId: '0x2a', noteId: FIRST }],
+    ['a note id that is not note-id shaped', { orderId: '42', noteId: 'order-note' }],
+    ['no note id', { orderId: '42' }]
+  ])('a swap with %s still needs one', (_label, requestOrder) => {
+    expect(swapOpensOrderFromRead(swap(requestOrder === undefined ? {} : { requestOrder }))).toBe(true);
   });
 });

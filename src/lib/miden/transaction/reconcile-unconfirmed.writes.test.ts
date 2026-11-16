@@ -224,6 +224,28 @@ describe('the landed write (#1081)', () => {
     expect(row?.outputNoteIds).toEqual([NOTE]);
   });
 
+  it('the landed write of a swap whose saved request recorded its order opens it with no decode', async () => {
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    const decodes = deserialize.mock.calls.length;
+    const extraInputs = {
+      requestedFaucetId: 'faucet-req',
+      requestedAmount: 9n,
+      expirySeconds: 100,
+      requestOrder: { orderId: '42', noteId: NOTE }
+    };
+    await Repo.transactions.put(
+      unconfirmed({ type: 'swap', displayIcon: 'SWAP', extraInputs, requestBytes: new Uint8Array([7, 7, 7]) })
+    );
+
+    await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+
+    expect(deserialize.mock.calls.length).toBe(decodes);
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toEqual({ ...extraInputs, orderId: 42n, expiresAt: NOW - 100 + 100 });
+    expect(row?.outputNoteIds).toEqual([NOTE]);
+  });
+
   it('a header that moves while a swap landing decodes its saved request voids the landing', async () => {
     const savedNote = {
       id: () => ({ toString: () => NOTE }),

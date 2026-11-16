@@ -11,7 +11,7 @@
  *     → submit → completeSendTransaction).
  */
 
-import { NoteScript, NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, NoteType, TransactionProver, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import { getMessage } from 'lib/i18n/core';
@@ -3150,6 +3150,168 @@ describe('generateTransaction - Guardian routing', () => {
     // from a build that predates build-time commitment -- cannot acquire it here and will fail
     // on a fee-charging chain. There is no such persisted row today; if that changes, the row
     // has to be re-queued rather than annotated.
+  });
+
+  // The PSWAP serial is drawn when the request is built, so the order is read off it then and recorded in the write
+  // that stores the bytes it names: a landed write the result cannot answer opens it with no decode.
+  describe('the order a Guardian swap`s request names', () => {
+    const ORDER_NOTE = `0x${'AB'.repeat(32)}`;
+    const RECORD = { orderId: '42', noteId: ORDER_NOTE.toLowerCase() };
+    const pswapNote = (orderId: bigint) => ({
+      id: () => ({ toString: () => ORDER_NOTE }),
+      metadata: () => ({ noteType: () => NoteType.Public }),
+      recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => orderId }] })
+      })
+    });
+    const storedRequestOrder = (row: Record<string, unknown> | undefined): unknown => {
+      const extra = row?.extraInputs;
+      return typeof extra === 'object' && extra !== null ? Reflect.get(extra, 'requestOrder') : undefined;
+    };
+    // What each write of the row left behind, so a record and the bytes it describes are seen landing together.
+    const trackRowWrites = (txId: string) => {
+      const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+      const realWhere = repo.transactions.where.getMockImplementation()!;
+      const writes: Array<{ requestBytes: unknown; requestOrder: unknown }> = [];
+      repo.transactions.where.mockImplementation((query: { id: string }) => ({
+        ...realWhere(query),
+        modify: async (fn: (row: Record<string, unknown>) => void) => {
+          await realWhere(query).modify(fn);
+          if (query.id !== txId) return;
+          const row = txStore.find(stored => stored.id === txId);
+          writes.push({ requestBytes: row?.requestBytes, requestOrder: storedRequestOrder(row) });
+        }
+      }));
+      return { writes, restore: () => repo.transactions.where.mockImplementation(realWhere) };
+    };
+    const swapRow = (txId: string, fields: Record<string, unknown>) => {
+      const transaction = Object.assign(new Transaction('mtst1creator_qruqqypuyph', new Uint8Array()), {
+        id: txId,
+        type: 'swap',
+        amount: 1000n,
+        faucetId: '0xoffer',
+        requestBytes: undefined,
+        extraInputs: { requestedFaucetId: '0Xrequested', requestedAmount: 500n, expirySeconds: 100 },
+        delegateTransaction: false,
+        ...fields
+      });
+      txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+      return transaction;
+    };
+    const swapService = (rebased: Record<string, unknown>) => {
+      const multisigService = {
+        createCustomProposal: jest.fn(),
+        createRebasedCustomProposal: jest.fn(async () => ({ proposal: { id: 'swap-proposal' }, ...rebased })),
+        createSendProposal: jest.fn(),
+        abandonCandidate: jest.fn(async () => {}),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      return multisigService;
+    };
+    // A result whose one user note is no order, so the completion takes the order the row recorded.
+    const resultNamingNoOrder = () => {
+      const otherNote = {
+        id: () => ({ toString: () => 'other-note' }),
+        metadata: () => ({ noteType: () => NoteType.Public }),
+        intoFull: () => ({
+          recipient: () => ({
+            script: () => ({ root: () => ({ toHex: () => 'other' }) }),
+            serialNum: () => ({ toFelts: () => [{}, { asInt: () => 9n }] })
+          })
+        })
+      };
+      const base = makeResult();
+      const executed = base.executedTransaction();
+      return Object.assign(base, {
+        executedTransaction: () => ({ ...executed, outputNotes: () => ({ notes: () => [otherNote] }) })
+      });
+    };
+    const runSwap = async (transaction: Transaction, result: ReturnType<typeof makeResult>) => {
+      const client = Object.assign(makeClientApi(result), { getSyncHeight: jest.fn(async () => 100) });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => ({ vault: jest.fn() })),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+      await generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    };
+
+    it('records the order its built request names in the write that stores its bytes, and completes with it', async () => {
+      const txId = 'guardian-swap-request-order';
+      const builtBytes = new Uint8Array([11, 12, 13]);
+      const rebasedBytes = new Uint8Array([111, 112, 113]);
+      const transaction = swapRow(txId, {});
+      const built = { serialize: () => builtBytes, expectedOutputOwnNotes: () => [pswapNote(42n)] };
+      mockBuildPswapCreateRequest.mockReturnValue(built);
+      mockGetRealmReaderClient.mockResolvedValue({
+        newPswapCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([99]) }))
+      });
+      swapService({ requestBytes: rebasedBytes, order: { orderId: '42', orderNoteId: ORDER_NOTE.toLowerCase() } });
+      const deserialize = jest.mocked(TransactionRequest.deserialize);
+      deserialize.mockClear();
+      const { writes, restore } = trackRowWrites(txId);
+      try {
+        await runSwap(transaction, resultNamingNoOrder());
+      } finally {
+        restore();
+      }
+
+      const stored = writes.findIndex(write => write.requestBytes === builtBytes);
+      expect(stored).toBeGreaterThan(-1);
+      expect(writes.slice(0, stored).every(write => write.requestOrder === undefined)).toBe(true);
+      expect(writes[stored]?.requestOrder).toEqual(RECORD);
+      const rebased = writes.findIndex(write => write.requestBytes === rebasedBytes);
+      expect(writes[rebased]?.requestOrder).toEqual(RECORD);
+      // The completion read the order the row recorded in memory, so it decoded no saved request.
+      const row = txStore.find(r => r.id === txId)!;
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Swapped' });
+      expect(row.resultBytes).toBeDefined();
+      expect(row.extraInputs).toMatchObject({ orderId: 42n, requestOrder: RECORD });
+      expect(row.outputNoteIds).toEqual([ORDER_NOTE.toLowerCase()]);
+      expect(deserialize).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, Record<string, unknown>, unknown]>([
+      [
+        'records the order the rebuild names on a row that recorded none',
+        { order: { orderId: '42', orderNoteId: ORDER_NOTE.toLowerCase() } },
+        RECORD
+      ],
+      ['drops the record of the bytes it replaced when the rebuild names none', {}, undefined]
+    ])('a rebuild %s, in the write that stores its bytes', async (_label, rebuild, recorded) => {
+      const txId = 'guardian-swap-rebased-order';
+      const existingBytes = new Uint8Array([21, 22, 23]);
+      const rebasedBytes = new Uint8Array([121, 122, 123]);
+      const earlier =
+        rebuild.order === undefined ? { requestOrder: { orderId: '7', noteId: `0x${'cd'.repeat(32)}` } } : {};
+      const transaction = swapRow(txId, {
+        requestBytes: existingBytes,
+        extraInputs: { requestedFaucetId: 'requested-faucet', requestedAmount: 500n, expirySeconds: 100, ...earlier }
+      });
+      swapService({ requestBytes: rebasedBytes, ...rebuild });
+      const { writes, restore } = trackRowWrites(txId);
+      try {
+        await runSwap(transaction, makeResult());
+      } finally {
+        restore();
+      }
+
+      const rebased = writes.findIndex(write => write.requestBytes === rebasedBytes);
+      expect(rebased).toBeGreaterThan(-1);
+      expect(writes[rebased]?.requestOrder).toEqual(recorded);
+      expect(mockBuildPswapCreateRequest).not.toHaveBeenCalled();
+    });
   });
 
   describe('diagnostic records of a Guardian swap (#1660)', () => {

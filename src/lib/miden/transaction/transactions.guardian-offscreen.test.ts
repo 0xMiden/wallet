@@ -54,6 +54,8 @@
  *     update-procedure-threshold completes with its finalization (#1233).
  */
 
+import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
@@ -3664,6 +3666,39 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.extraInputs).toMatchObject({ orderId: 42n, expiresAt: expect.any(Number) });
     expect(finalRow.extraInputs).not.toHaveProperty('landedOrder');
     expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
+  });
+
+  // An apply trap reads nothing off the result, so the facts name no order: the one the row's saved request recorded
+  // beside its bytes is the order, held at the landing and opened by the Completed write, with no decode.
+  it('swap: a round-tripped apply trap with no landed facts is Completed with the order its request recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    const swap = valueMovingCases().find(c => c.type === 'swap')!.row;
+    const extraInputs = { requestedFaucetId: 'rfaucet', requestedAmount: '10', expirySeconds: 100 };
+    const row = { ...swap, extraInputs: { ...extraInputs, requestOrder: { orderId: '42', noteId: orderNoteId } } };
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    mockDispatchGuardianPipeline.mockImplementationOnce(async () => {
+      deserialize.mockClear();
+      throw Object.assign(new Error('local apply failed after submit'), {
+        errorCode: 'ApplyTransactionAfterSubmitFailed'
+      });
+    });
+    arrange('apply-trap-swap-recorded-order', row);
+
+    await generateTransaction(
+      buildTx('apply-trap-swap-recorded-order', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'apply-trap-swap-recorded-order')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.extraInputs).toMatchObject({ orderId: 42n, expiresAt: expect.any(Number) });
+    expect(finalRow.extraInputs).not.toHaveProperty('landedOrder');
+    expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(deserialize).not.toHaveBeenCalled();
   });
 
   it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {

@@ -705,6 +705,88 @@ describe('applyAfterSubmit (#1233)', () => {
   });
 });
 
+describe('the order a swap`s request names, read before its submit', () => {
+  const REQUEST_NOTE_ID = `0x${'cd'.repeat(32)}`;
+  const withRequestOrder = (options: ApplyAfterSubmitRetry<string>) =>
+    Object.assign(options, { requestOrder: { orderId: '7', orderNoteId: REQUEST_NOTE_ID } });
+  const unreadResult = (executed: Record<string, unknown> = {}) => {
+    const id = jest.fn(() => ({ toHex: () => '0xtx' }));
+    const outputNotes = jest.fn(() => ({ notes: () => [] }));
+    const result = {
+      executedTransaction: () => ({
+        id,
+        accountId: () => 'acc',
+        initialAccountHeader: () => withCommitment(INITIAL),
+        outputNotes,
+        ...executed
+      })
+    };
+    return { id, outputNotes, result };
+  };
+
+  it('an apply() trap carries it and reads nothing off the result', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const apply = jest.fn(async () => {
+      throw trap;
+    });
+    const retireTrap = jest.fn();
+    const { id, outputNotes, result } = unreadResult();
+
+    const error = await applyAfterSubmit(withRequestOrder(arrange({ apply, result, retireTrap }))).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({ orderId: '7', orderNoteId: REQUEST_NOTE_ID });
+    expect(id).not.toHaveBeenCalled();
+    expect(outputNotes).not.toHaveBeenCalled();
+    expect(retireTrap).toHaveBeenCalledTimes(1);
+    expect(retireTrap).toHaveBeenCalledWith(trap);
+  });
+
+  it('an initialAccountHeader() trap carries it and reads nothing off the result', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const retireTrap = jest.fn();
+    const { id, outputNotes, result } = unreadResult({
+      initialAccountHeader: () => {
+        throw trap;
+      }
+    });
+
+    const error = await applyAfterSubmit(
+      withRequestOrder(arrange({ apply: failingApply(), result, retireTrap }))
+    ).catch((caught: unknown) => caught);
+
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({ orderId: '7', orderNoteId: REQUEST_NOTE_ID });
+    expect(id).not.toHaveBeenCalled();
+    expect(outputNotes).not.toHaveBeenCalled();
+    expect(retireTrap).toHaveBeenCalledTimes(1);
+    expect(retireTrap).toHaveBeenCalledWith(trap);
+  });
+
+  it('an evicted hold carries it and reads nothing off the result', async () => {
+    const executedTransaction = jest.fn(() => unreadResult().result.executedTransaction());
+    const options = arrange({ apply: failingApply(), holdIsCurrent: () => false, result: { executedTransaction } });
+
+    const error = await applyAfterSubmit(withRequestOrder(options)).catch((caught: unknown) => caught);
+
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({ orderId: '7', orderNoteId: REQUEST_NOTE_ID });
+    expect(executedTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a result read that names an order replaces it as a pair', async () => {
+    const result = resultWithNotes([orderNote(NoteType.Public)]);
+
+    const error = await applyAfterSubmit(withRequestOrder(arrange({ apply: failingApply(), result }, FINAL))).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(extractLanded(error)).toMatchObject({ orderId: '42', orderNoteId: ORDER_NOTE_ID });
+  });
+});
+
 describe('LandedTailError (PR #2183)', () => {
   it('carries what left the tail as its cause, and the id read after it', () => {
     const cause = new Error('fee read');
