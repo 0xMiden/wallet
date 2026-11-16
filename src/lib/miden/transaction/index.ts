@@ -158,6 +158,7 @@ import {
   swapOrderExpiresAt,
   updateTransactionStatus
 } from './helper';
+import { keptLandedTransactionId, readLandedResultFields } from './landed-result-fields';
 import { assertProposalEffectApproved } from './proposal-effect-guard';
 import {
   noteQueueSighting,
@@ -1292,7 +1293,13 @@ const recordLandedFacts = async (txId: string, error: unknown, attemptId: string
  * (PR #2183). A structural row's tail is left as it is once it holds its id. It settles on the node's verdict itself (a
  * discard fails it, a rotation with no verdict never completes, nothing finalizes after an eviction), and its row offers
  * no Retry. Its id read comes before any verdict, so that read's failure leaves the tail as `LandedTailError`
- * (`readTailTransactionId`). A value row's tail reads no id of its own.
+ * (`readTailTransactionId`). A value row's tail reads no id of its own, and its failure names the id its completion
+ * kept, if any, before reading the handle late.
+ *
+ * A structural row's completion reads only the id, bytes and fee of its result, so its tail reads them first
+ * (`readLandedResultFields`), under the generation the wrapper recorded: the outgoing guardian's delta push and the
+ * commit wait can replace the client, and the completion then writes the values read here. The read never throws, so
+ * the switch delta is still pushed before an unreadable id leaves the tail.
  */
 const runLandedTail = async (
   transaction: Pick<ITransaction, 'id' | 'type'>,
@@ -1300,14 +1307,17 @@ const runLandedTail = async (
   run: () => Promise<void>
 ): Promise<void> => {
   if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
-    await retiringLandedTraps(transaction.id, result, run);
+    await retiringLandedTraps(transaction.id, result, () => {
+      readLandedResultFields(result, transaction.id);
+      return run();
+    });
     return;
   }
   try {
     await retiringLandedTraps(transaction.id, result, run);
   } catch (error) {
     throw new LandedTailError(error, {
-      transactionId: readLandedTransactionId(transaction.id, result),
+      transactionId: keptLandedTransactionId(result) ?? readLandedTransactionId(transaction.id, result),
       ...(transaction.type === 'swap' ? landedSwapOrder(transaction.id, result) : {})
     });
   }
@@ -1403,11 +1413,14 @@ const readLandedTransactionId = (landing: string, result: TransactionResult): st
 };
 
 /**
- * The executed transaction's id a structural row's tail asks the node about, read before its commit wait. A read that
- * throws leaves the tail before any node verdict: the trap is retired once under the row and the read rejects as
- * `LandedTailError` with no id, which the Guardian catch settles through the structural landed reconcile.
+ * The executed transaction's id a structural row's tail asks the node about, as the tail's first read kept it, else
+ * read again here, before its commit wait. A read that throws leaves the tail before any node verdict: the trap is
+ * retired once under the row and the read rejects as `LandedTailError` with no id, which the Guardian catch settles
+ * through the structural landed reconcile.
  */
 const readTailTransactionId = (transaction: Pick<ITransaction, 'id'>, result: TransactionResult): string => {
+  const kept = keptLandedTransactionId(result);
+  if (kept !== undefined) return kept;
   try {
     return result.executedTransaction().id().toHex();
   } catch (error) {

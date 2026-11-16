@@ -1332,10 +1332,10 @@ describe('a throw after the leaf resolved', () => {
     const nativeAsset = require('lib/miden-chain/native-asset');
     const origNativeAssetId = nativeAsset.getNativeAssetIdSync;
     nativeAsset.getNativeAssetIdSync = () => 'native-faucet';
+    // Interpreted before the commit wait and, once that read has trapped, again at the terminal write.
     const helpers = require('../activity/helpers');
-    helpers.interpretTransactionResult.mockImplementationOnce(
-      jest.requireActual('../activity/helpers').interpretTransactionResult
-    );
+    const interpret = jest.requireActual('../activity/helpers').interpretTransactionResult;
+    helpers.interpretTransactionResult.mockImplementationOnce(interpret).mockImplementationOnce(interpret);
     const feeTagged = {
       id: () => ({ toString: () => 'fee-tagged-note' }),
       metadata: () => ({ noteType: () => 'public', tag: () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
@@ -1371,9 +1371,13 @@ describe('a throw after the leaf resolved', () => {
   it("an execute's private notes left unrelayed by a tail throw are labelled undelivered", async () => {
     queuedExecute('tx-tail-unrelayed', { secondaryAccountId: 'recipient' });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down'));
-    require('../activity/helpers').interpretTransactionResult.mockImplementationOnce(() => {
+    // A read that fails before the relays fails again where the terminal write interprets the result.
+    const failedRead = () => {
       throw new Error('input notes read');
-    });
+    };
+    require('../activity/helpers')
+      .interpretTransactionResult.mockImplementationOnce(failedRead)
+      .mockImplementationOnce(failedRead);
     const note = {
       id: () => ({ toString: () => 'private-note' }),
       metadata: () => ({ noteType: () => 'private' }),
