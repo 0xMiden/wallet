@@ -2556,19 +2556,11 @@ export class Vault {
    */
   async loginKeyCommitment(accountId: string, domain: string): Promise<string> {
     return withError('Failed to derive the login key', () =>
-      this.withLoginKey(accountId, domain, secretKey => {
-        const publicKey = secretKey.publicKey();
-        try {
-          const commitment = publicKey.toCommitment();
-          try {
-            return u8ToB64(commitment.serialize());
-          } finally {
-            commitment.free();
-          }
-        } finally {
-          publicKey.free();
-        }
-      })
+      this.withLoginKey(accountId, domain, secretKey =>
+        readWasmHandle(secretKey.publicKey(), publicKey =>
+          readWasmHandle(publicKey.toCommitment(), commitment => u8ToB64(commitment.serialize()))
+        )
+      )
     );
   }
 
@@ -2584,33 +2576,23 @@ export class Vault {
         let loginWord: Word;
         try {
           loginWord = Word.deserialize(wordBytes);
-        } catch {
+        } catch (error) {
+          rethrowTrapOrKill(error);
           // Not the SDK's error: `withError` logs it, and it can quote the word.
           throw notAWordToSign();
         }
-        let message: Word;
-        try {
-          message = loginMessage(loginWord);
-        } finally {
-          loginWord.free();
-        }
-        try {
-          const signature = secretKey.sign(message);
-          try {
-            return u8ToB64(signature.serialize());
-          } finally {
-            signature.free();
-          }
-        } finally {
-          message.free();
-        }
+        const message = readWasmHandle(loginWord, loginMessage);
+        return readWasmHandle(message, toSign =>
+          readWasmHandle(secretKey.sign(toSign), signature => u8ToB64(signature.serialize()))
+        );
       });
     });
   }
 
   /**
    * Run `use` on `accountId`'s login key for `domain`, the ECDSA key whose scalar `deriveLoginKeyScalar` derives from
-   * the account's root key. The key is freed, and the root and the scalar zeroed, before this settles.
+   * the account's root key. The key is freed, and the root and the scalar zeroed, before this settles. No WASM hold is
+   * taken, so a trap here is retired before `withError` flattens it, and no handle is freed after it.
    */
   private async withLoginKey<T>(accountId: string, domain: string, use: (secretKey: AuthSecretKey) => T): Promise<T> {
     const root = await this.loginKeyRoot(accountId);
@@ -2619,12 +2601,10 @@ export class Vault {
       const [{ deserializeHotSecretKey }] = await Promise.all([import('../guardian/hot-key-import'), getWasmOrThrow()]);
       const scalar = deriveLoginKeyScalar(root, 'evm', domain);
       try {
-        const secretKey = deserializeHotSecretKey(bytesToHex(scalar));
-        try {
-          return use(secretKey);
-        } finally {
-          secretKey.free();
-        }
+        return readWasmHandle(deserializeHotSecretKey(bytesToHex(scalar)), use);
+      } catch (error) {
+        if (isWasmTrap(error)) retireWasmClientForUnheldTrap(error);
+        throw error;
       } finally {
         scalar.fill(0);
       }
