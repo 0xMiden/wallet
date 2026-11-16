@@ -1,5 +1,7 @@
-import { expect, test } from '../../fixtures/hermetic-bridge';
-import { bridgeOutFast, fundBridgeToken, inspectSentNote, readBridgedSendRows } from '../../helpers/bridge';
+import { expect, test as base } from '../../fixtures/hermetic-bridge';
+import { waitForPendingNoteTotal, waitForVaultBalance } from '../../helpers/balance-truth';
+import { bridgeOutFast, inspectSentNote, readBridgedSendRows } from '../../helpers/bridge';
+import { localnetEpochDocument } from '../../helpers/fake-bridge-config';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { readTransactionRows } from '../../helpers/history';
 import { newEvmDestination } from '../../helpers/sepolia';
@@ -49,7 +51,23 @@ const ALLOCATOR_PORT = 8548;
 const COMPLETED = 2;
 
 const TOKEN_SYMBOL = 'GBRDG';
+const BRIDGE_FUNDING = 1_000_000_000n;
 const BRIDGE_AMOUNT = '1'; // small, 6dp — a ~1-USDC-equivalent solver fill
+
+const test = base.extend<{ bridgeFaucetHex: string }>({
+  bridgeFaucetHex: [
+    async ({ midenCli, bridgeConfig }, use) => {
+      await midenCli.init();
+      const faucetHex = await midenCli.createFaucet(TOKEN_SYMBOL, 6);
+      const document = localnetEpochDocument(faucetHex);
+      document.version = 2;
+      bridgeConfig.setDocument(document);
+      await use(faucetHex);
+    },
+    // The config must name the generated faucet before either wallet starts.
+    { auto: true }
+  ]
+});
 
 test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
   test.describe.configure({ mode: 'serial' });
@@ -75,13 +93,21 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
   test('guardian bridges a token out; the collateral note is a PUBLIC recallable P2IDE', async ({
     walletA,
     midenCli,
-    timeline
+    bridgeFaucetHex
   }) => {
     // Guardian co-signed proposal + prove/submit on top of funding. 12 min.
     test.setTimeout(720_000);
 
     await walletA.createGuardianWallet(GUARDIAN_URL);
-    await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
+    await midenCli.mint(bridgeFaucetHex, await walletA.getAccountAddress(), BRIDGE_FUNDING, 'public');
+    await midenCli.sync();
+    await waitForPendingNoteTotal(walletA.page, TOKEN_SYMBOL, BRIDGE_FUNDING, {
+      timeoutMs: 150_000,
+      decimals: 6
+    });
+    await walletA.claimAllNotes(150_000);
+    await walletA.refreshBalancesLanded(60_000);
+    await waitForVaultBalance(walletA.page, TOKEN_SYMBOL, BRIDGE_FUNDING, { timeoutMs: 60_000, decimals: 6 });
 
     // Arm smallocator PR #38 binding validation on POST /compact: the fake reads
     // the submitted collateral note's attachment felts from the wallet SW (the

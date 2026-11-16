@@ -1,4 +1,6 @@
 // Real Dexie: every write here is a guarded modify or a rw transaction, so stubbing the store would test nothing.
+import { NoteScript, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+
 import * as Repo from 'lib/miden/repo';
 import { NoteTypeEnum } from 'lib/miden/types';
 
@@ -145,6 +147,122 @@ describe('the landed write (#1081)', () => {
     await Repo.transactions.put(unconfirmed({ type, status: ITransactionStatus.Failed, displayIcon: 'FAILED' }));
     await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
     expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, displayIcon: icon });
+  });
+
+  it.each([ITransactionStatus.Unconfirmed, ITransactionStatus.Failed])(
+    'the landed write opens the order a swap`s landed failure decided (status %s)',
+    async status => {
+      const extraInputs = {
+        requestedFaucetId: 'faucet-req',
+        requestedAmount: 9n,
+        expirySeconds: 100,
+        landedOrder: { orderId: '42', expiresAt: 1100, noteId: NOTE }
+      };
+      await Repo.transactions.put(unconfirmed({ type: 'swap', status, displayIcon: 'SWAP', extraInputs }));
+
+      await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+
+      const row = await read();
+      expect(row?.status).toBe(ITransactionStatus.Completed);
+      expect(row?.extraInputs).toEqual({
+        requestedFaucetId: 'faucet-req',
+        requestedAmount: 9n,
+        expirySeconds: 100,
+        orderId: 42n,
+        expiresAt: 1100
+      });
+      expect(row?.outputNoteIds).toEqual([NOTE]);
+    }
+  );
+
+  it.each([ITransactionStatus.Unconfirmed, ITransactionStatus.Failed])(
+    'the landed write of a swap that decided no order writes no expiry (status %s)',
+    async status => {
+      const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+      await Repo.transactions.put(unconfirmed({ type: 'swap', status, displayIcon: 'SWAP', extraInputs }));
+
+      await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+
+      const row = await read();
+      expect(row?.status).toBe(ITransactionStatus.Completed);
+      expect(row?.extraInputs).toEqual(extraInputs);
+      expect(row?.outputNoteIds).toBeUndefined();
+    }
+  );
+
+  it('the landed write of a swap that holds no order opens the one its saved request names', async () => {
+    const savedNote = {
+      id: () => ({ toString: () => NOTE }),
+      metadata: () => ({ noteType: () => NoteType.Public }),
+      recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    };
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    const decodes = deserialize.mock.calls.length;
+    deserialize.mockImplementation(
+      () => ({ expectedOutputOwnNotes: () => [savedNote] }) as unknown as ReturnType<typeof deserialize>
+    );
+    const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+    await Repo.transactions.put(
+      unconfirmed({ type: 'swap', displayIcon: 'SWAP', extraInputs, requestBytes: new Uint8Array([7, 7, 7]) })
+    );
+
+    try {
+      await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+    } finally {
+      deserialize.mockImplementation(
+        () => ({ expectedOutputOwnNotes: () => [] }) as unknown as ReturnType<typeof deserialize>
+      );
+    }
+    expect(deserialize.mock.calls.length).toBeGreaterThan(decodes);
+
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toEqual({ ...extraInputs, orderId: 42n, expiresAt: NOW - 100 + 100 });
+    expect(row?.outputNoteIds).toEqual([NOTE]);
+  });
+
+  it('a header that moves while a swap landing decodes its saved request voids the landing', async () => {
+    const savedNote = {
+      id: () => ({ toString: () => NOTE }),
+      metadata: () => ({ noteType: () => NoteType.Public }),
+      recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    };
+    let header = HEADER;
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    deserialize.mockImplementation(() => {
+      header = OTHER;
+      return { expectedOutputOwnNotes: () => [savedNote] } as unknown as ReturnType<typeof deserialize>;
+    });
+    const reads: NodeReads = {
+      ...node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } }),
+      blockCommitment: async () => header
+    };
+    const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+    await Repo.transactions.put(
+      unconfirmed({ type: 'swap', displayIcon: 'SWAP', extraInputs, requestBytes: new Uint8Array([7, 7, 7]) })
+    );
+
+    let outcome: Awaited<ReturnType<typeof judgeAndWrite>>;
+    try {
+      outcome = await judgeAndWrite('tx-1', context(reads));
+    } finally {
+      deserialize.mockImplementation(
+        () => ({ expectedOutputOwnNotes: () => [] }) as unknown as ReturnType<typeof deserialize>
+      );
+    }
+
+    expect(deserialize).toHaveBeenCalled();
+    expect(outcome.kind).toBe('landing-pending');
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(row?.extraInputs.orderId).toBeUndefined();
+    expect(row?.transactionId).toBeUndefined();
   });
 
   it('marks a private send undelivered', async () => {
@@ -322,6 +440,8 @@ describe('the never-committed write (#1081)', () => {
       priorError,
       proofWaitBlocks: 3,
       expiryWindowBlocks: 600,
+      submitApproachHidden: 'not_measured',
+      proofWindow: 'over_180_blocks',
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     });
     await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));

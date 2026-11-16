@@ -7,6 +7,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { SectionHeader } from 'components/ui/SectionHeader';
+import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
@@ -19,10 +20,12 @@ import {
   EarnSubjectSubtitle,
   earnSubjectTitle,
   EarnVaultClosedNotice,
-  MetricCard
+  MetricCard,
+  useEarnAssetFaucetId
 } from './components';
 import { EARN_PLACEHOLDER, formatApy, placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
 import { ChartDotProps, EarnRiskLevel, EarnVault } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -32,7 +35,8 @@ interface EarnVaultDetailProps {
 
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const { t } = useTranslation();
-  const { vaults, vaultsPending, isLoading, loadError, refetch } = useEarnPositions();
+  const assetFaucetId = useEarnAssetFaucetId();
+  const { vaults, vaultsPending, isLoading, isRefreshing, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
   // The vaults come from the derivation's catalogue, which can settle after the positions read.
@@ -53,7 +57,13 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
       onBack={goBack}
       headerActions={
         found && (
-          <EarnAssetMark asset={found.asset} network={found.network} fundingAsset={found.fundingAsset} decorative />
+          <EarnAssetMark
+            asset={found.asset}
+            network={found.network}
+            faucetId={assetFaucetId}
+            fundingAsset={found.fundingAsset}
+            decorative
+          />
         )
       }
       footer={
@@ -63,6 +73,8 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
             title={t('earnDeposit')}
             variant={ButtonVariant.Primary}
             accent="earn"
+            aria-busy={earnDeposit.state === 'loading'}
+            iconLeft={earnDeposit.state === 'loading' && <Spinner size="sm" />}
             disabled={!vault.id || vault.canOpen === false || isFeatureBlocked(earnDeposit)}
             onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
             className="max-w-none"
@@ -74,15 +86,23 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           hand from an earlier load, it is still shown, under a notice that it may be stale. */}
       {loadFailed && !found ? (
         <EarnLoadError
+          isRetrying={isRefreshing}
           onRetry={refetch}
           message={t('earnVaultLoadError')}
           errorId="earnVaultLoadError"
           className="mt-10"
         />
-      ) : pending ? null : (
+      ) : pending ? (
+        <EarnLoading />
+      ) : (
         <>
           {loadFailed && (
-            <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} errorId="earnVaultLoadError" />
+            <EarnLoadError
+              isRetrying={isRefreshing}
+              onRetry={refetch}
+              message={t('earnVaultLoadError')}
+              errorId="earnVaultLoadError"
+            />
           )}
           <FeatureUnavailableNotice feature="earnDeposit" availability={earnDeposit} />
           {/* One reason at a time: when Earn deposits are down, that notice already says why Deposit is off. */}

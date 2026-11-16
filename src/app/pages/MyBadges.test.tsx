@@ -17,6 +17,7 @@ jest.mock('react-i18next', () => ({
   })
 }));
 let mockEarned: string[] = [];
+jest.mock('lib/badges/useBadgeBackfill', () => ({ useBadgeBackfill: jest.fn() }));
 jest.mock('lib/badges/useWalletBadges', () => ({
   useWalletBadges: () => mockEarned,
   useMarkWalletBadgesViewed: jest.fn()

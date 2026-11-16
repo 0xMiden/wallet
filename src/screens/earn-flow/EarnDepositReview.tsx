@@ -14,10 +14,13 @@ import { TokenUsdValue } from 'components/TokenUsdValue';
 import { Card } from 'components/ui/Card';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
+import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { earnCollateralFaucetId, earnMarketForVault, earnVaultTakesDeposits, openEarnPosition } from 'lib/epoch';
-import { amountExceedsTokenDecimals, stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
+import { amountExceedsTokenDecimals, stringToBigInt } from 'lib/i18n/numbers';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
@@ -46,6 +49,7 @@ import {
 import { placeholderVault } from './earn-mapping';
 import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
 import { ChartDotProps, EarnVault } from './types';
 import { useEarnCollateralState } from './useEarnCollateral';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
@@ -67,7 +71,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { search } = useLocation();
   const amount = useMemo(() => new URLSearchParams(search).get('amount') ?? '0', [search]);
   const amountValue = parseAmount(amount);
-  const { vaults, vaultsPending, isLoading, loadError, refetch } = useEarnPositions();
+  const { vaults, vaultsPending, isLoading, isRefreshing, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
   // The vaults come from the derivation's catalogue, which can settle after the positions read.
@@ -288,7 +292,13 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         onBack={goBack}
         headerActions={
           found && (
-            <EarnAssetMark asset={found.asset} network={found.network} fundingAsset={found.fundingAsset} decorative />
+            <EarnAssetMark
+              asset={found.asset}
+              network={found.network}
+              faucetId={collateral?.faucetId}
+              fundingAsset={found.fundingAsset}
+              decorative
+            />
           )
         }
         footerLayout="stack"
@@ -309,6 +319,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               <Button
                 data-testid="earn-deposit-review-confirm"
                 title={t('earnOpenPosition')}
+                aria-busy={isSubmitting}
+                iconLeft={isSubmitting && <Spinner size="sm" />}
                 variant={ButtonVariant.Primary}
                 accent="earn"
                 onClick={handleOpenPosition}
@@ -323,15 +335,23 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       >
         {loadFailed && !found ? (
           <EarnLoadError
+            isRetrying={isRefreshing}
             onRetry={refetch}
             message={t('earnVaultLoadError')}
             errorId="earnVaultLoadError"
             className="mt-10"
           />
-        ) : pending ? null : (
+        ) : pending ? (
+          <EarnLoading />
+        ) : (
           <>
             {loadFailed && (
-              <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} errorId="earnVaultLoadError" />
+              <EarnLoadError
+                isRetrying={isRefreshing}
+                onRetry={refetch}
+                message={t('earnVaultLoadError')}
+                errorId="earnVaultLoadError"
+              />
             )}
             <EarnHero
               layout="label-first"
@@ -342,8 +362,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               // review takes over from the screen it was typed on.
               labelClassName={amountCaptionClassName}
               figureClassName={classNames('mt-3 text-ink', amountFigureClassName(formatMoneyAmount(amount, 'typed')))}
-              value={formatMoneyAmount(amount, 'typed')}
-              unit={<EarnAmountUnit symbol={depositSymbol} compact />}
+              value={<TokenAmount amount={formatMoneyAmount(amount, 'typed')} formatting="exact" />}
+              unit={<EarnAmountUnit symbol={depositSymbol} faucetId={collateral?.faucetId} compact />}
               label={t('earnDepositAmountTitle')}
               meta={
                 collateral && (
@@ -465,7 +485,9 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
               <div key={item.label}>
                 <div className="text-label uppercase tracking-wide text-muted">{item.label}</div>
                 <div className="mt-1 text-value text-positive-tint-ink">
-                  {t('earnProjectedRewardAmount', { amount: `$${toAdaptiveFixed(item.reward)}` })}
+                  {t('earnProjectedRewardAmount', {
+                    amount: formatUsdDisplay(item.reward)
+                  })}
                 </div>
               </div>
             ))}

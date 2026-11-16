@@ -2,7 +2,7 @@ import { expect } from '@playwright/test';
 import { isDeepStrictEqual } from 'node:util';
 
 import { fromBaseUnits } from './balance-truth';
-import { pollUntil } from './dapp-assertions';
+import { NOT_SIMULATED_REFUSAL, notSimulatedFor, pollUntil } from './dapp-assertions';
 import { CellDeadlineExceeded, HarnessFault, type CellContext } from './dapp-cells';
 import { ChainUnavailable } from './dapp-channel';
 import { assetMap, canonicalAddress, normalizeHex } from './dapp-gates';
@@ -23,7 +23,6 @@ import { selectAccount, vaultAssets } from './dapp-mobile-wallet';
 import {
   captureMobileBaseline,
   captureRowWindow,
-  expectFailedAfterEnqueueMobile,
   expectMobileWriteToTheEnd,
   expectNoNewMobileRows,
   mobileSideOf,
@@ -34,7 +33,7 @@ import pinned from './dapp-pinned.json';
 import { beforeMobileDeadline } from './mobile-store-reads';
 import { TOKEN, TOKEN_DECIMALS } from './money-path';
 import { ECDSA_SCHEME_TAG, recoverEcdsaPublicKey } from './signature-recovery';
-import { unwrap } from './test-dapp';
+import { expectDomainSignature, unwrap } from './test-dapp';
 import type { ConnectedView, Outcome, RawArg, SessionView, SignatureView } from '../test-dapp/protocol';
 
 /**
@@ -64,6 +63,12 @@ const NOT_GRANTED_WRAPPED: ExpectedRefusal = {
   causeName: 'NotGrantedMidenWalletError'
 };
 const NOT_GRANTED_RAW: ExpectedRefusal = { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' };
+/** A custom request the wallet cannot simulate, refused before any sheet. */
+const NOT_SIMULATED: ExpectedRefusal = {
+  name: REFUSAL_WRAPPERS.transaction,
+  message: NOT_SIMULATED_REFUSAL,
+  causeName: 'NotGrantedMidenWalletError'
+};
 
 type RawRequest = { call: 'requestSend' | 'requestTransaction'; args: RawArg[] };
 
@@ -77,7 +82,6 @@ const sides = (view: SessionView) => ({
   adapter: canonicalOrNull(view.adapterAddress)
 });
 const onBoth = (account: string) => ({ provider: canonicalAddress(account), adapter: canonicalAddress(account) });
-const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Class parity is soft so a provider's plain Error cannot hide row, session or auto-decline regressions.
 function expectRefusal(result: Outcome<unknown>, expected: ExpectedRefusal, ctx: CellContext): void {
@@ -166,15 +170,11 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
       expect(signature.schemeTag).toBe(ECDSA_SCHEME_TAG);
       // On Guardian the key behind the signature must be the one connect handed the dApp.
       expect(
-        await j.call(
-          'verifySignature',
-          {
-            kind,
-            payloadB64: signature.payloadB64,
-            signatureB64: signature.signatureB64,
-            publicKeyB64: recoverEcdsaPublicKey(signature.signatureB64, signature.messageB64)
-          },
-          ctx.deadline
+        await expectDomainSignature(
+          input => j.call('verifySignature', input, ctx.deadline),
+          signature,
+          kind,
+          recoverEcdsaPublicKey(signature.signatureB64, signature.messageB64)
         )
       ).toEqual({ verifies: true, commitmentHex: me.publicKeyHex });
     }
@@ -563,12 +563,13 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
     R5: {
       budget: 'write',
       run: async ctx => {
-        const side = await beforeMobileDeadline(ctx.deadline, 'the write side', () => mobileSideOf(j));
-        const baseline = await captureMobileBaseline(side, [j.tokenFaucetId], ctx);
+        const owner = await beforeMobileDeadline(ctx.deadline, 'the row owner', () => rowOwner(j));
+        const since = await captureRowWindow(owner.wallet, ctx);
         // Ten times what A was funded with: it deserializes, and cannot run (spec 3.6). No spending limit is set.
         const built = await buildPast(FUND_A * 10n, ctx);
-        let shown: string[] = [];
-        const { result } = await answerSheet(
+        // The approval needs a simulation that succeeds, so the wallet refuses this request before any sheet
+        // (CustomTransactionNotSimulatedError) and queues nothing.
+        const result = await expectNoSheet(
           j.dapp,
           () =>
             j.call(
@@ -576,25 +577,14 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
               { requestId: built.requestId, recipientAddress: j.addressB, importNotes: false },
               ctx.deadline
             ),
-          {
-            decision: 'approve',
-            whileOpen: async sheet => {
-              shown = sheet.messages;
-              await sheetBlock(j.env.rpcUrl, sheet, ctx);
-            }
-          },
-          ctx
+          ctx,
+          { refusal: true }
         );
-        const texts = pinned.texts.R5[j.axis.label];
-        const reason = new RegExp(`^${escapeRegExp(SHEET.reasonPrefix)}.*${escapeRegExp(texts.error)}`);
-        // As in X1, the could-not-simulate pair is the sheet's tail, after the declared preview.
-        const from = shown.indexOf(SHEET.notSimulated);
-        const tail = from < 0 ? [] : shown.slice(from);
-        if (tail.length !== 2 || !reason.test(tail[1] ?? '')) {
-          ctx.softFail('sheet-not-simulated', `the sheet showed ${JSON.stringify(shown)}`);
+        expectRefusal(result, NOT_SIMULATED, ctx);
+        if (!result.ok && !notSimulatedFor(result.error.message, pinned.texts.R5[j.axis.label].error)) {
+          ctx.softFail('refusal-reason', `the refusal gave ${JSON.stringify(result.error.message)}`);
         }
-        const { txId } = unwrap(result, 'an overspending custom request is still queued', ctx);
-        await expectFailedAfterEnqueueMobile(side, baseline, txId, texts, ctx);
+        await expectNoNewMobileRows(owner, since, ctx);
       }
     },
     'R1-send': declined(ctx => j.call('send', { ...toB(tst(1)), via: 'requestSend' }, ctx.deadline)),

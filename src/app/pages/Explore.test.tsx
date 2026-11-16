@@ -16,10 +16,11 @@ import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { HIDE_DUST_TOKENS_STORAGE_KEY } from 'lib/settings/constants';
+import { setHideDustTokensSetting } from 'lib/settings/dust';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
-
 import Explore from './Explore';
 
 // The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
@@ -40,6 +41,7 @@ beforeEach(() => {
   mockVerifiedPriceAssets.clear();
   mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
   mockVerifiedPriceAssets.set(TEST_TOKEN_IBTC.faucetId, 'BTC');
+  mockNumberSymbols = { group: ',', decimal: '.' };
 });
 
 // This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
@@ -81,8 +83,10 @@ let mockClaimableNotesAreCached = false;
 let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
+let mockNumberSymbols = { group: ',', decimal: '.' };
 let mockBalancesLoading = false;
 let mockBaseFee: number | null = 0;
+let mockFloorFee: number | null | undefined;
 
 const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
@@ -103,6 +107,11 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+jest.mock('lib/i18n/core', () => ({
+  ...jest.requireActual<typeof import('lib/i18n/core')>('lib/i18n/core'),
+  getNumberSymbols: () => mockNumberSymbols
+}));
+
 let mockLegacyFeeIdentity: string | undefined;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
@@ -111,7 +120,8 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => mockBaseFee
+  default: () => mockBaseFee,
+  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 
 // Balance is a render-prop that hands its child the total fiat BigNumber; the child converts it
@@ -333,7 +343,8 @@ const makeNote = (id: string, faucetId: string, isBeingClaimed = false, swapOrde
   id,
   faucetId,
   isBeingClaimed,
-  swapOrder
+  swapOrder,
+  standardPayment: true
 });
 
 // Render + flush the auto-consume effect's chained promises (initiate ->
@@ -368,6 +379,7 @@ describe('Explore', () => {
     mockTokenPrices = {};
     mockBalancesLoading = false;
     mockBaseFee = 0;
+    mockFloorFee = undefined;
     resetHiddenTokens();
     mockStoredHiddenTokens = null;
     mockReadStorage.mockReset();
@@ -390,6 +402,43 @@ describe('Explore', () => {
 
   afterEach(() => {
     consoleErrorSpy.mockRestore();
+  });
+
+  describe('dust tokens', () => {
+    const listedIds = () => screen.queryAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+    const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+
+    beforeEach(() => {
+      _setSwapTokensForTest(undefined);
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      // Native dust, IETH worth $0.0009, IBTC worth exactly $0.001, and a token with no quote.
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden', 0.0001),
+        makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 0.0009),
+        makeToken(TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IBTC.symbol, 'Bitcoin', 0.001),
+        makeToken('faucet-unquoted', 'NOQ', 'No quote', 0.0000001)
+      ];
+      mockTokenPrices = { MIDEN: quote(1), ETH: quote(1), BTC: quote(1) };
+    });
+
+    afterEach(() => {
+      localStorage.removeItem(HIDE_DUST_TOKENS_STORAGE_KEY);
+      _setSwapTokensForTest(TEST_SWAP_TOKENS);
+    });
+
+    it('hides a token worth less than a tenth of a cent by default, but not the native or an unquoted token', async () => {
+      await renderExplore();
+      expect(listedIds()).toEqual(['faucet-native', TEST_TOKEN_IBTC.faucetId, 'faucet-unquoted']);
+      expect(screen.queryByTestId('hidden-assets')).not.toBeInTheDocument();
+    });
+
+    it('lists dust tokens when the setting is off, and hides them again when it goes back on', async () => {
+      await renderExplore();
+      act(() => setHideDustTokensSetting(false));
+      expect(listedIds()).toContain(TEST_TOKEN_IETH.faucetId);
+      act(() => setHideDustTokensSetting(true));
+      expect(listedIds()).not.toContain(TEST_TOKEN_IETH.faucetId);
+    });
   });
 
   describe('base rendering', () => {
@@ -431,7 +480,7 @@ describe('Explore', () => {
 
         mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
         view.rerender(<Explore />);
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       } finally {
         mockedHasUnquotedDefaultPrice.mockReturnValue(false);
         _setSwapTokensForTest(TEST_SWAP_TOKENS);
@@ -463,6 +512,17 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it("formats the balance card with the active locale's number symbols", async () => {
+      mockNumberSymbols = { group: '.', decimal: ',' };
+      mockPortfolioTotal = new BigNumber(1234.5);
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden')];
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^1\.234,50$/);
     });
 
     it('hands the faucet lifecycle only a live note list, never the cached fallback', async () => {
@@ -609,7 +669,7 @@ describe('Explore', () => {
         await renderBeforeAnyPrice();
 
         expect(screen.getByTestId('hidden-assets-toggle')).toHaveTextContent('hiddenAssetsCount:1');
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
 
       it('does not hold back the total when its balance is zero', async () => {
@@ -620,7 +680,7 @@ describe('Explore', () => {
 
         await renderBeforeAnyPrice();
 
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
 
       it('does not hold back the total when its scale is unknown', async () => {
@@ -635,7 +695,7 @@ describe('Explore', () => {
 
         await renderBeforeAnyPrice();
 
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
     });
 
@@ -1359,6 +1419,20 @@ describe('Explore', () => {
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
+    it('auto-claims nothing on Home while the fee is unknown', async () => {
+      mockAutoConsume = true;
+      mockBaseFee = 0;
+      mockFloorFee = null;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native'), makeNote('n2', 'faucet-native')];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
     it('leaves native swap notes to the swap settlement path', async () => {
       mockAutoConsume = true;
       mockClaimableNotes = [makeNote('swap-note', 'faucet-native', false, { autoConsume: false })];
@@ -1387,7 +1461,8 @@ describe('Explore', () => {
         expect.any(Boolean),
         false,
         'auto_consume',
-        expect.any(Function)
+        expect.any(Function),
+        7
       );
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
@@ -1413,7 +1488,8 @@ describe('Explore', () => {
         true, // isDelegatedProvingEnabled
         false,
         'auto_consume',
-        expect.any(Function)
+        expect.any(Function),
+        0
       );
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1459,7 +1535,8 @@ describe('Explore', () => {
         false,
         false,
         'auto_consume',
-        expect.any(Function)
+        expect.any(Function),
+        0
       );
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).toHaveBeenCalledTimes(1);

@@ -4,6 +4,7 @@ import { App } from '@capacitor/app';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import type { SeedPhraseStatus } from 'lib/shared/types';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
@@ -41,6 +42,7 @@ const mockGoBack = jest.fn();
 const mockHapticLight = jest.fn();
 const mockHapticMedium = jest.fn();
 const mockClipboardWrite = jest.fn();
+const mockWriteSecret = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -141,9 +143,13 @@ jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
+jest.mock('lib/ui/secret-clipboard', () => ({
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
+}));
+
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
-  IconName: { EyeOff: 'EyeOff' }
+  IconName: { Eye: 'Eye', EyeOff: 'EyeOff' }
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
@@ -226,6 +232,7 @@ describe('VerifySeedPhraseFlow', () => {
     mockRevealMnemonic.mockResolvedValue(TWELVE);
     mockCompleteWalletPrompt.mockResolvedValue(undefined);
     mockClipboardWrite.mockResolvedValue(undefined);
+    mockWriteSecret.mockResolvedValue(undefined);
   });
 
   it('keeps the required backup flow open on hardware back and has no close action', async () => {
@@ -347,7 +354,7 @@ describe('VerifySeedPhraseFlow', () => {
     clickText('continue');
     fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
     fireEvent.click(screen.getByText('continue'));
-    await screen.findByText('w1');
+    await screen.findByTestId('verify-seed-review');
   };
 
   it('copies the phrase through the shared clipboard and confirms only once the write lands', async () => {
@@ -357,19 +364,20 @@ describe('VerifySeedPhraseFlow', () => {
       fireEvent.click(screen.getByTestId('verify-seed-copy'));
     });
 
-    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TWELVE });
+    expect(mockWriteSecret).toHaveBeenCalledWith(TWELVE);
+    expect(mockClipboardWrite).not.toHaveBeenCalled();
     expect(presentCopyLabel()).toBe('copied');
   });
 
   it('keeps the copy label when the clipboard write is refused', async () => {
-    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    mockWriteSecret.mockRejectedValue(new Error('write refused'));
     await reachReview();
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('verify-seed-copy'));
     });
 
-    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(mockWriteSecret).toHaveBeenCalledTimes(1);
     expect(presentCopyLabel()).toBe('copyToClipboard');
   });
 
@@ -476,8 +484,8 @@ describe('VerifySeedPhraseFlow', () => {
 
     fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
     fireEvent.click(screen.getByText('continue'));
-    await screen.findByText('w1');
-    const review = screen.getByTestId('verify-seed-review');
+    const review = await screen.findByTestId('verify-seed-review');
+    fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
     // The words sit on the shared fill; the copy action is a Pill.
     expect(screen.getByTestId('seed-word-0').closest('.bg-fill')).not.toBeNull();
     expect(screen.getByTestId('verify-seed-copy')).toHaveClass('rounded-full');
@@ -544,9 +552,94 @@ describe('VerifySeedPhraseFlow', () => {
     await flush();
 
     expect(mockRevealMnemonic).toHaveBeenCalledWith('my-password');
-    // Review step lists all 12 words.
+    // Review step lists all 12 words once shown.
+    fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
     expect(screen.getByText('w1')).toBeTruthy();
     expect(screen.getByText('w12')).toBeTruthy();
+  });
+
+  describe('masking the phrase', () => {
+    const openReview = async () => {
+      await renderFlow();
+      clickText('continue');
+      fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'my-password' } });
+      fireEvent.click(screen.getByText('continue'));
+      await flush();
+      await screen.findByTestId('verify-seed-review');
+    };
+
+    it('off mobile the phrase is not in the DOM while masked, and Show reveals it', async () => {
+      await openReview();
+
+      expect(screen.queryByTestId('seed-word-0')).toBeNull();
+      expect(screen.queryByText('w1')).toBeNull();
+      const toggle = screen.getByTestId('seed-reveal-toggle');
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      expect(toggle).toHaveTextContent('show');
+
+      fireEvent.click(toggle);
+
+      expect(screen.getByTestId('seed-word-0')).toHaveTextContent('w1');
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      expect(toggle).toHaveTextContent('hide');
+    });
+
+    it('off mobile the phrase hides again when the window loses focus', async () => {
+      await openReview();
+      fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
+      expect(screen.getByTestId('seed-word-0')).toBeInTheDocument();
+
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+
+      expect(screen.queryByTestId('seed-word-0')).toBeNull();
+    });
+
+    // Only a revealed private key hides itself on a timer; a phrase is being written down.
+    it('off mobile a shown phrase stays on screen past SECRET_REVEAL_MS', async () => {
+      await openReview();
+      jest.useFakeTimers();
+      try {
+        fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
+        act(() => {
+          jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+        });
+        expect(screen.getByTestId('seed-word-0')).toHaveTextContent('w1');
+        expect(screen.getByTestId('seed-reveal-toggle')).toHaveAttribute('aria-pressed', 'true');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('off mobile the phrase hides again when the document is hidden', async () => {
+      await openReview();
+      fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
+      expect(screen.getByTestId('seed-word-0')).toBeInTheDocument();
+
+      try {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+        act(() => {
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+      } finally {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      }
+
+      expect(screen.queryByTestId('seed-word-0')).toBeNull();
+    });
+
+    it('on mobile the phrase shows at once with no Show control', async () => {
+      mockIsMobile = true;
+      mockHasHardwareProtector.mockResolvedValue(true);
+      await renderFlow();
+      clickText('continue');
+      await flush();
+      await screen.findByTestId('verify-seed-review');
+
+      expect(screen.getByTestId('seed-word-0')).toHaveTextContent('w1');
+      expect(screen.queryByTestId('seed-reveal-toggle')).toBeNull();
+    });
   });
 
   it('submits the desktop password form via its onSubmit handler', async () => {
@@ -841,6 +934,7 @@ describe('VerifySeedPhraseFlow', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
     // Straight to review, no password prompt.
     expect(screen.queryByText('enterPassword')).toBeNull();
+    fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
     expect(screen.getByText('w1')).toBeTruthy();
   });
 

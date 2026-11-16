@@ -3,15 +3,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSWRConfig } from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
+import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import {
   carryForward,
   type EarnPositionsResult,
   fetchEarnPositions,
-  getEarnDepositEvmAddresses,
-  positionsBudgetDelayMs
+  positionsBudgetDelayMs,
+  POSITIONS_PAGE_LIMIT
 } from 'lib/epoch';
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
+import type { IEarnDepositExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
@@ -22,8 +23,7 @@ import {
   BridgeConfigUnavailableError,
   selectEarnVaultCatalog,
   selectEarnVaultLogoUrl,
-  selectEarnVaults,
-  selectEpochRoutes
+  selectEarnVaults
 } from 'lib/remote-config/values';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
@@ -38,9 +38,17 @@ import {
 import { buildEarnSummary, loadingEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping';
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
 
-// The poll and the error retry. Each read sends one request for each owner, so with more than one owner the poll can
-// pass the Epoch positions service's 10 requests per minute.
-const READ_INTERVAL_MS = 10_000;
+// Each read sends one request for each lender of the one owner, inside the Epoch positions service's 10 requests per minute,
+// which the withdraw review's balance check also spends. So the hook reads on its own only when something changed:
+// an Earn row settled. Yield accrues every block, so a slow refresh follows each read.
+const YIELD_REFRESH_MS = 180_000;
+
+// The retries of a read that failed (the request, or any owner): 10 s, 30 s, then 60 s after the failed read began.
+const FAILURE_RETRY_MS = [10_000, 30_000, 60_000] as const;
+
+// How often a read that fell due while the document is hidden or the device is offline checks again. A check sends
+// no request.
+const WAIT_CHECK_MS = 10_000;
 
 /**
  * The prefix of the storage key that holds the last successful read of one SWR key: the prefix, then the key as JSON.
@@ -61,8 +69,19 @@ interface StoredEarnPositions {
 interface KeyReads {
   /** When the key's last read began, whoever started it. */
   at?: number;
-  /** Each on-screen hook's re-arm, called as a read begins, so its next automatic read waits 10 s after it. */
+  /** The reads of the key that began and did not settle. While one is out, no hook starts a read on its own. */
+  inFlight: number;
+  /** The failed reads in a row; 0 after a read with no failure. It sets the delay of the next automatic read. */
+  failures: number;
+  /** An Earn row settled after the last read began: the next read is due at once. */
+  refreshDue: boolean;
+  /** Each on-screen hook's re-arm, called as a read begins and settles and when a read falls due. */
   rearms: Set<() => void>;
+  /** The mounted hooks of the key. The first one starts the watch of settled Earn rows, the last one stops it. */
+  watchers: number;
+  stopWatch?: () => void;
+  /** The settled Earn rows the watch saw last, as `id:state`. Undefined until its first result. */
+  settled?: Set<string>;
 }
 // Per SWR cache, so a test's fresh cache starts with none.
 const keyReads = new WeakMap<object, Map<string, KeyReads>>();
@@ -70,16 +89,13 @@ const keyReads = new WeakMap<object, Map<string, KeyReads>>();
 const NO_STORED_READ: Promise<StoredEarnPositions | undefined> = Promise.resolve(undefined);
 
 const ignoreFailedWrite = () => {};
+const ignoreRejection = () => {};
 
-// The failure a read would report for a document that names no positions host, no Epoch route or no Earn vault, as
-// the getters phrase it, named from the snapshot the hook keys on: the getters read the realm's, which can differ.
-function unconfiguredError(
-  positionsUrl: string | undefined,
-  chainIds: string,
-  listedCount: number
-): string | undefined {
+// The failure a read would report for a document that names no positions host or no Earn vault, as the getters
+// phrase it. The hook names it from the snapshot that it keys on. The getters read the realm's snapshot, which can
+// differ.
+function unconfiguredError(positionsUrl: string | undefined, listedCount: number): string | undefined {
   if (!positionsUrl) return new BridgeConfigUnavailableError('epoch.positionsUrl').message;
-  if (chainIds === '') return new BridgeConfigUnavailableError('Epoch route').message;
   if (listedCount === 0) return new BridgeConfigUnavailableError('Earn vault').message;
   return undefined;
 }
@@ -90,9 +106,70 @@ const errorText = (failure: unknown): string => (failure instanceof Error ? fail
 function readsOf(cache: object, id: string): KeyReads {
   const byKey = keyReads.get(cache) ?? new Map<string, KeyReads>();
   keyReads.set(cache, byKey);
-  const reads = byKey.get(id) ?? { rearms: new Set<() => void>() };
+  const reads = byKey.get(id) ?? {
+    inFlight: 0,
+    failures: 0,
+    refreshDue: false,
+    rearms: new Set<() => void>(),
+    watchers: 0
+  };
   byKey.set(id, reads);
   return reads;
+}
+
+/** Makes the key's next automatic read due at once. A read that is out keeps it due until it settles. */
+function requestRead(reads: KeyReads): void {
+  reads.refreshDue = true;
+  reads.rearms.forEach(rearm => rearm());
+}
+
+/** The delay from when the last read began to the next automatic read, after `failures` failed reads in a row. */
+function nextReadDelayMs(failures: number): number {
+  switch (failures) {
+    case 0:
+      return YIELD_REFRESH_MS;
+    case 1:
+      return FAILURE_RETRY_MS[0];
+    case 2:
+      return FAILURE_RETRY_MS[1];
+    default:
+      return FAILURE_RETRY_MS[2];
+  }
+}
+
+/** The state of an Earn row once its position changed, or undefined while it is in flight or for any other row. */
+function settlementOf(tx: ITransaction): string | undefined {
+  switch (tx.type) {
+    case 'earn-deposit': {
+      const inputs: IEarnDepositExtraInputs | undefined = tx.extraInputs;
+      const status = inputs?.epochStatus;
+      return status === 'confirmed' || status === 'failed' ? status : undefined;
+    }
+    case 'earn-withdraw': {
+      const inputs: IEarnWithdrawExtraInputs | undefined = tx.extraInputs;
+      // `delivering`: the EVM redeem is done, so the position already dropped, though the payout is still on its way.
+      const phase = inputs?.phase;
+      return phase === 'delivering' || phase === 'received' || phase === 'failed' ? phase : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * The Earn rows of `accountId` that reached a terminal state, as `id:state`: a deposit whose Epoch intent is
+ * confirmed or failed, a withdrawal that was redeemed (delivering), received or failed. A restored row says nothing
+ * about a live position.
+ */
+async function readSettledEarnRows(accountId: string): Promise<Set<string>> {
+  const rows = await Repo.transactions.where('type').anyOf('earn-deposit', 'earn-withdraw').toArray();
+  const settled = new Set<string>();
+  for (const tx of rows) {
+    if (tx.restoredFromBackup || !compareAccountIds(tx.accountId, accountId)) continue;
+    const state = settlementOf(tx);
+    if (state) settled.add(`${tx.id}:${state}`);
+  }
+  return settled;
 }
 
 /** The stored read of `storageKey`, or undefined when there is none, it has another shape or the read fails. */
@@ -129,21 +206,25 @@ export function earnItemLoadState(
 
 /**
  * Live earn positions for the current account, mapped to the earn-flow display
- * shapes. Owners are the union of past earn-deposit rows (survives address
- * changes) and the wallet-derived `evmAddress` (survives reinstall/restore
- * before any local activity exists). First load yields an empty list + a
+ * shapes. The read has one owner: the derived `evmAddress` of the account. Each deposit goes to that address, and
+ * the withdraw review takes only a position of that address. The `evmRecipient` of an earn-deposit row is never an
+ * owner. An account with no `evmAddress` sends no request and shows no positions. First load yields an empty list + a
  * summary with no figures yet. A failed refresh keeps the last data this key loaded (SWR
  * keeps a key's data across its own revalidations); `keepPreviousData` is NOT
  * set, because the key carries the account and it would serve the previous
- * account's positions after a switch. The hook, not SWR, times every read it starts on its own from when the key's
- * last read began, whoever started it: the poll and the retry of a failed read fire 10 s after it. A page that comes
- * into view, or mounts, reads at once whatever the age of the last read, since the Earn pages stay mounted behind
- * other tabs. Nothing is read on a timer while the page is off screen (another tab, a page above it, or another Home
- * page), the document is hidden or the device is offline, and reconnect and focus never read. A Retry is the one read
- * outside that, and the next poll waits 10 s after it too.
+ * account's positions after a switch. There is no poll: the positions service allows 10 requests per minute, and the
+ * withdraw review's balance check needs some of them. A page that comes into view, or mounts, reads at once whatever
+ * the age of the last read, since the Earn pages stay mounted behind other tabs. After that the hook, not SWR, starts
+ * a read on its own: at once when an Earn row of the account reaches a terminal state (a deposit confirmed or failed,
+ * a withdrawal redeemed, received or failed, seen in the transactions table, whichever realm wrote it);
+ * 10 s, 30 s, then every 60 s after a failed read (the request, or any owner) began; else 3 minutes after the
+ * last read began, for the yield. Each delay counts from when the key's last read began, whoever started it, and no
+ * automatic read starts while one is out. Nothing is read on a timer while the page is off screen (another tab, a page
+ * above it, or another Home page), the document is hidden or the device is offline, and reconnect and focus never
+ * read. A Retry is the one read outside that, and the next automatic read counts from it too.
  *
- * The key needs only the document: the account, the positions host and the Epoch routes it names, never a derived
- * value, so a cold open reads at once. Each successful read is stored under `EARN_POSITIONS_STORAGE_PREFIX` and the
+ * The key needs only the document: the account, the positions host and the markets of the vaults it lists, never a
+ * derived value, so a cold open reads at once. Each successful read is stored under `EARN_POSITIONS_STORAGE_PREFIX` and the
  * key, so a mount in a fresh realm (every extension popup open) shows the last read at once, every position stale,
  * while its own read runs. The stored copy is shown only until this hook sees a live read of the key, and the copy of
  * a key the hook leaves (another account, network or document) is removed. The vaults are the derivation's catalogue
@@ -170,17 +251,17 @@ export function useEarnPositions(): {
    * the error and reports false.
    */
   isLoading: boolean;
+  isRefreshing: boolean;
   /** Any failure: the request's, or one owner's positions. What the positions surfaces report. */
   error?: string;
   errorDiagnostics?: UiEvidenceInput;
   /**
-   * The failure of the request itself (the owner lookup, or a document that names no Earn). What the vault surfaces
+   * The failure of the request itself (the market lookup, or a document that names no Earn). What the vault surfaces
    * report. A failed owner does not set it, and neither does the vault catalogue, which the config derivation reads.
    */
   loadError?: string;
   /**
-   * The network configures no Earn at all: its document (mainnet's) names no positions host, no Epoch route or no
-   * Earn vault. `error` still names what is missing, but no read or retry can succeed, so the page says Earn is not
+   * The network configures no Earn at all: its document (mainnet's) names no positions host or no Earn vault. `error` still names what is missing, but no read or retry can succeed, so the page says Earn is not
    * on this network. It reads the document only, never the derivation; a snapshot with no accepted document says
    * nothing about the network and keeps its load error and Retry.
    */
@@ -196,22 +277,21 @@ export function useEarnPositions(): {
   const { cache } = useSWRConfig();
   const config = useBridgeConfigSnapshot();
   const positionsUrl = config.config?.['bridge-providers'].epoch.positionsUrl;
-  const chainIds = selectEpochRoutes(config)
-    .map(route => route.chainId)
-    .join(',');
   const listed = selectEarnVaults(config);
+  // The listed markets decide which lenders and chains the read asks for, so the key names them.
+  const listedMarkets = listed.map(listing => listing.marketUid).join(',');
   const catalog = selectEarnVaultCatalog(config);
-  const configured = Boolean(positionsUrl) && chainIds !== '' && listed.length > 0;
+  const configured = Boolean(positionsUrl) && listed.length > 0;
   // Only a loading snapshot is a wait: a loaded one that names none settles at once, as the read would have failed.
-  const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, chainIds, listed.length) : undefined;
+  const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, listed.length) : undefined;
   const notOnNetwork = config.status === 'ready' && config.config !== null && unconfigured !== undefined;
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. The Earn pages stay mounted behind other tabs, so the key coming back
   // is the page coming into view, and it reads again then whatever the age of its last read. The read goes to the
-  // configured host and routes of the network, so the key names them: none reads nothing, and a document that moves
-  // them reads anew. The account stays second: a receipt invalidates every key of its account by it.
-  const key = ['earn-positions', account.publicKey, account.evmAddress, config.network, positionsUrl, chainIds];
+  // configured host of the network, for the markets of the listed vaults, so the key names them: none reads nothing,
+  // and a document that changes them reads anew.
+  const key = ['earn-positions', account.publicKey, account.evmAddress, config.network, positionsUrl, listedMarkets];
   const id = JSON.stringify(key);
   const storageKey = EARN_POSITIONS_STORAGE_PREFIX + id;
 
@@ -232,7 +312,7 @@ export function useEarnPositions(): {
   }, [storedRead, storageKey]);
 
   // The key this render shows, so a read that lands after the key moved stores nothing; and the key whose live read
-  // this hook has seen, after which the stored copy never shows again (a receipt that clears the key's data must not
+  // this hook has seen, after which the stored copy never shows again (a mutate that clears the key's data must not
   // bring back what it cleared).
   const currentStorageKey = useRef(storageKey);
   currentStorageKey.current = storageKey;
@@ -255,28 +335,40 @@ export function useEarnPositions(): {
     onScreen && configured ? key : null,
     async (): Promise<EarnPositionsResult> => {
       const reads = readsOf(cache, id);
-      const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
-      const walletAddress = account.evmAddress?.toLowerCase();
-      const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
-      const count = owners.length > 10 ? 1 : owners.length;
-      while (count > 0) {
-        const delay = positionsBudgetDelayMs(count);
-        if (delay === 0) break;
-        await new Promise<void>(resolve => setTimeout(resolve, delay));
-      }
-      const startedAt = Date.now();
-      reads.at = startedAt;
+      // Counted before the first await: a hook whose timer fires next sees this read out and starts none.
+      reads.inFlight += 1;
+      reads.refreshDue = false;
+      reads.at = Date.now();
       reads.rearms.forEach(rearm => rearm());
-      const next = await fetchEarnPositions({ accountId: account.publicKey, owners });
-      // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
-      // SWR calls the fetcher of the last render. On a cold mount that is the stored copy, which may land after the
-      // render that started this read.
-      const previous = data ?? (liveSeen.current === id ? undefined : (await storedRead)?.result);
-      const result = carryForward(previous, next);
-      if (currentStorageKey.current === storageKey) {
-        storePositions(storageKey, startedAt, result).catch(ignoreFailedWrite);
+      let failed = true;
+      try {
+        // The one owner is the derived EVM address of the account. An account with no derived address (a private-key
+        // import) has no owner, so the read sends no request and does not wait for the request budget.
+        const walletAddress = account.evmAddress?.toLowerCase();
+        const owners = walletAddress ? [walletAddress] : [];
+        while (owners.length > 0) {
+          const delay = positionsBudgetDelayMs(1, POSITIONS_PAGE_LIMIT);
+          if (delay === 0) break;
+          await new Promise<void>(resolve => setTimeout(resolve, delay));
+        }
+        const startedAt = Date.now();
+        reads.at = startedAt;
+        const next = await fetchEarnPositions({ accountId: account.publicKey, owners });
+        failed = next.errors.length > 0;
+        // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
+        // SWR calls the fetcher of the last render. On a cold mount that is the stored copy, which may land after the
+        // render that started this read.
+        const previous = data ?? (liveSeen.current === id ? undefined : (await storedRead)?.result);
+        const result = carryForward(previous, next);
+        if (currentStorageKey.current === storageKey) {
+          storePositions(storageKey, startedAt, result).catch(ignoreFailedWrite);
+        }
+        return result;
+      } finally {
+        reads.inFlight -= 1;
+        reads.failures = failed ? reads.failures + 1 : 0;
+        reads.rearms.forEach(rearm => rearm());
       }
-      return result;
     },
     {
       // A page that comes into view, or mounts, reads at once; the 3 s dedupe below folds the pages that come at once.
@@ -292,23 +384,60 @@ export function useEarnPositions(): {
   );
   if (liveData !== undefined) liveSeen.current = id;
 
-  // One timer per on-screen hook, for its current key: it fires 10 s after the key's last read began, re-arming from
-  // every read that begins meanwhile. A read that fails is retried by it too, which SWR's poll never does while the
-  // key holds an error.
+  // One watch per mounted key, on or off screen: the settled Earn rows of the account, read with a Dexie live query,
+  // which also sees the rows another realm writes (the extension's service worker). A row that newly reaches a terminal
+  // state makes the next read due at once. The first result is the baseline, since the mount read covers it, and a row
+  // that leaves the table asks for nothing.
+  const accountId = account.publicKey;
   useEffect(() => {
-    if (!onScreen) return;
+    if (!configured) return;
+    const reads = readsOf(cache, id);
+    reads.watchers += 1;
+    if (reads.watchers === 1) {
+      reads.stopWatch = subscribeToLiveQuery(() => readSettledEarnRows(accountId), {
+        next: settled => {
+          const known = reads.settled;
+          reads.settled = settled;
+          if (known && [...settled].some(entry => !known.has(entry))) requestRead(reads);
+        },
+        error: error => console.warn('[earn] settled earn rows unreadable', error)
+      });
+    }
+    return () => {
+      reads.watchers -= 1;
+      if (reads.watchers > 0) return;
+      reads.stopWatch?.();
+      reads.stopWatch = undefined;
+      reads.settled = undefined;
+    };
+  }, [configured, cache, id, accountId]);
+
+  // One timer per on-screen hook, for its current key, timed from when the key's last read began and re-armed as every
+  // read begins and settles: at once when a read is due, after the failure backoff while the last read failed (which
+  // SWR's own retry would not see), else after `YIELD_REFRESH_MS`. No hook starts a read while one is out.
+  useEffect(() => {
+    if (!onScreen || !configured) return;
     const reads = readsOf(cache, id);
     const armedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const fire = () => {
-      // Armed first: a read that begins re-arms from its own start, and one that does not leaves this in place.
-      timer = setTimeout(fire, READ_INTERVAL_MS);
-      if (document.visibilityState === 'hidden' || navigator.onLine === false) return;
-      void mutate();
+      timer = undefined;
+      // The read that is out re-arms this timer as it settles.
+      if (reads.inFlight > 0) return;
+      if (document.visibilityState === 'hidden' || navigator.onLine === false) {
+        timer = setTimeout(fire, WAIT_CHECK_MS);
+        return;
+      }
+      // Armed first: a read that begins clears it, and a call that starts no read leaves it in place.
+      timer = setTimeout(fire, nextReadDelayMs(reads.failures));
+      mutate().catch(ignoreRejection);
     };
     const rearm = () => {
       clearTimeout(timer);
-      timer = setTimeout(fire, Math.max(0, (reads.at ?? armedAt) + READ_INTERVAL_MS - Date.now()));
+      timer = undefined;
+      if (reads.inFlight > 0) return;
+      const dueAt = reads.refreshDue ? 0 : (reads.at ?? armedAt) + nextReadDelayMs(reads.failures);
+      timer = setTimeout(fire, Math.max(0, dueAt - Date.now()));
     };
     reads.rearms.add(rearm);
     rearm();
@@ -316,7 +445,7 @@ export function useEarnPositions(): {
       clearTimeout(timer);
       reads.rearms.delete(rearm);
     };
-  }, [onScreen, cache, id, mutate]);
+  }, [onScreen, configured, cache, id, mutate]);
 
   // A covered page keeps its key's last data and error together, so a failure notice stays while the page slides out
   // and while it is covered; another key keeps neither.
@@ -437,9 +566,10 @@ export function useEarnPositions(): {
       vaultsPending,
       summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
       isLoading,
+      isRefreshing: onScreen && isValidating,
       // Surface a load failure so the UI can show "couldn't load - retry" instead
       // of a misleading empty "$0 / no positions". Prefer the positions service's
-      // own per-owner error; fall back to an SWR-level throw (e.g. the owner
+      // own per-owner error; fall back to an SWR-level throw (e.g. the market
       // lookup failed) so no failure mode reads as "you have nothing".
       error,
       errorDiagnostics,
@@ -462,6 +592,7 @@ export function useEarnPositions(): {
     configurationFailed,
     notOnNetwork,
     isValidating,
+    onScreen,
     mutate,
     depositProtocols
   ]);

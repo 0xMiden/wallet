@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { FC, useEffect, useLayoutEffect, useMemo } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
@@ -20,6 +20,7 @@ import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
 import { ARCADE_COINS_PATH } from 'lib/arcade';
 import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
+import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
@@ -64,7 +65,6 @@ interface RouteContext {
   locked: boolean;
   hydrated: boolean;
   finishingOnboarding: boolean;
-  settingsScrollTop: React.MutableRefObject<number>;
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
@@ -219,7 +219,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Read-only "Network endpoints" screen, linked from the Settings row that's only
   // shown while a developer endpoint override is active. Placed ahead of the
-  // generic `/settings/:tabSlug?` route below so it matches first (that route's
+  // generic `/settings/:tabSlug` route below so it matches first (that route's
   // pattern would otherwise swallow this path with tabSlug='network-endpoints').
   [
     '/settings/network-endpoints',
@@ -247,20 +247,10 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </TabLayout>
     ))
   ],
-  // Me embeds the settings groups; this standalone root is a pushed page for the
-  // links that still open it (the accounts drawer, a sub-page's fallback back).
-  // Exact-matched and placed ahead of the generic route below, which keeps every
-  // `/settings/<slug>` flow unchanged.
+  // Old Settings links open Profile, which contains the settings menu.
+  ['/settings', onlyReady(() => <Woozie.Redirect to="/me" />)],
   [
-    '/settings',
-    onlyReady((_p, ctx) => (
-      <FullScreenPage entrance="slide">
-        <Settings rootScrollTop={ctx.settingsScrollTop} />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/settings/:tabSlug?',
+    '/settings/:tabSlug',
     onlyReady(({ tabSlug }) => (
       <FullScreenPage key="settings" entrance="slide">
         <Settings tabSlug={tabSlug} />
@@ -493,7 +483,6 @@ const PageRouter: FC = () => {
 
   const appEnv = useAppEnv();
   const miden = useMidenContext();
-  const settingsScrollTop = useRef(0);
   const finishingOnboarding = useOnboardingFinishing();
 
   const ctx = useMemo<RouteContext>(
@@ -504,8 +493,7 @@ const PageRouter: FC = () => {
       ready: miden.ready,
       locked: miden.locked,
       hydrated: miden.hydrated,
-      finishingOnboarding,
-      settingsScrollTop
+      finishingOnboarding
     }),
     [appEnv.popup, appEnv.sidePanel, appEnv.fullPage, miden, finishingOnboarding]
   );
@@ -541,13 +529,19 @@ const PageRouter: FC = () => {
   // The banner follows the router's own root view (not locked, hydrated, ready, and not holding for
   // onboarding to finish) and stays off the onboarding and recovery routes.
   const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
-  const layered = !walletOpen ? (
-    page
-  ) : (
-    <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
-      {page}
-    </MobilePageLayers>
-  );
+  const lockPending = backgroundLockPending.useValue();
+  // The full cover is `BackgroundLockCover` in App. Dropping the pages here unmounts them, which parks the foreground
+  // dApp and hides its native window, which a DOM cover cannot do.
+  const layered =
+    lockPending && ctx.ready ? (
+      <RootSuspenseFallback data-testid="wallet-pages-parked" />
+    ) : !walletOpen ? (
+      page
+    ) : (
+      <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
+        {page}
+      </MobilePageLayers>
+    );
 
   // The mainnet countdown sits above every page of the open wallet, over the layer stack and so
   // over Home's action bar, and never over Unlock or onboarding. The layer stack fills the height

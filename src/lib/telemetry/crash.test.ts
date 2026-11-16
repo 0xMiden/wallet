@@ -789,7 +789,7 @@ describe('diagnostic snapshots', () => {
       });
       annotateCrash(error, {
         storageOwner: 'wallet_transactions',
-        storageOperation: 'cursor',
+        storageOperation: 'cursor_open',
         pageVisibility: 'visible'
       });
       captureCrash(error);
@@ -811,7 +811,7 @@ describe('diagnostic snapshots', () => {
         throw new Error('missing diagnostics');
       expect(extra.walletDiagnostics).toMatchObject({
         storageOwner: 'wallet_transactions',
-        storageOperation: 'cursor',
+        storageOperation: 'cursor_open',
         pageVisibility: 'hidden'
       });
       const later: Record<string, unknown> = {};
@@ -833,7 +833,7 @@ describe('diagnostic snapshots', () => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
       jest.mocked(getEffectiveNetworkName).mockReturnValueOnce(MIDEN_NETWORK_NAME.MAINNET);
       const error = new Error('cursor failed');
-      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' });
       captureCrash(error);
       await flushMicrotasks();
       const event: Record<string, unknown> = {
@@ -848,13 +848,13 @@ describe('diagnostic snapshots', () => {
         kept: 'yes',
         network: 'mainnet',
         storage_owner: 'wallet_transactions',
-        storage_operation: 'cursor'
+        storage_operation: 'cursor_open'
       });
       expect(event.tags).not.toHaveProperty('page_visibility');
       expect(event.extra).toEqual({
         walletDiagnostics: expect.objectContaining({
           storageOwner: 'wallet_transactions',
-          storageOperation: 'cursor',
+          storageOperation: 'cursor_open',
           pageVisibility: 'hidden'
         })
       });
@@ -870,7 +870,7 @@ describe('diagnostic snapshots', () => {
     const error = new Error('cursor failed');
     error.name = 'UnknownError';
     error.stack = undefined;
-    annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+    annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' });
     globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: error }));
     await flushMicrotasks();
     expect(captured).toHaveLength(1);
@@ -889,11 +889,14 @@ describe('diagnostic snapshots', () => {
     expect(event.tags).toEqual({
       network: 'testnet',
       storage_owner: 'wallet_transactions',
-      storage_operation: 'cursor'
+      storage_operation: 'cursor_open'
     });
     expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.extra).toEqual({
-      walletDiagnostics: expect.objectContaining({ storageOwner: 'wallet_transactions', storageOperation: 'cursor' })
+      walletDiagnostics: expect.objectContaining({
+        storageOwner: 'wallet_transactions',
+        storageOperation: 'cursor_open'
+      })
     });
   });
 
@@ -906,7 +909,7 @@ describe('diagnostic snapshots', () => {
       error.name = 'UnknownError';
       error.stack = 'UnknownError: cursor failed\n    at scan (capacitor://localhost/mobile.js:1:5000)';
       captureCrash(error, 'onunhandledrejection', { level: 'warning' });
-      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' });
       captureCrash(error, 'onunhandledrejection', { level: 'warning' });
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
       captureCrash(new Error('unrelated failure'));
@@ -934,7 +937,7 @@ describe('diagnostic snapshots', () => {
       expect(events[1]?.tags).toEqual({
         network: 'testnet',
         storage_owner: 'wallet_transactions',
-        storage_operation: 'cursor'
+        storage_operation: 'cursor_open'
       });
       expect(events[1]?.tags).not.toHaveProperty('page_visibility');
       expect(events[2]?.tags).toEqual({ network: 'testnet' });

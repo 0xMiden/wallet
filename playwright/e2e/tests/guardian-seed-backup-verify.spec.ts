@@ -54,7 +54,7 @@ const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
 
 // Vault password for both instances. Passed explicitly (rather than leaning on
 // the page object's default) because the reveal flow re-authenticates with it.
-const PASSWORD = 'Test1234!';
+const PASSWORD = 'Test1234!Wallet';
 
 const SEED_WORD_COUNT = 12;
 
@@ -142,8 +142,9 @@ test.describe('Seed Phrase Backup and Verification', () => {
         await passwordInput.fill(PASSWORD);
         await page.getByRole('button', { name: CONTINUE, exact: true }).click();
 
-        // Review step: the twelve words, in order. The last chip rendering is
+        // Review step: the words stay masked until Show. The last chip rendering is
         // the signal that the whole grid is on screen.
+        await page.getByTestId('seed-reveal-toggle').click({ timeout: 30_000 });
         await expect(page.getByTestId(`seed-word-${SEED_WORD_COUNT - 1}`)).toBeVisible({ timeout: 30_000 });
         const words: string[] = [];
         for (let index = 0; index < SEED_WORD_COUNT; index++) {
@@ -176,6 +177,10 @@ test.describe('Seed Phrase Backup and Verification', () => {
       const challenge = page.getByTestId('verify-seed-phrase-prompt-flow');
       const verdict = challenge.getByTestId('verify-seed-prompt');
       await expect(verdict).toBeVisible({ timeout: 30_000 });
+
+      // Off mobile the challenge hides the words until Show. The toggle stays
+      // outside <article>, as the submit button does.
+      await challenge.getByTestId('seed-reveal-toggle').click({ timeout: 30_000 });
 
       // The word chips, in the order the screen shuffled them. The submit
       // button is outside <article>, so this locator is exactly the 12 chips.

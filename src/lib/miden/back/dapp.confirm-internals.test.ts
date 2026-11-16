@@ -8,7 +8,11 @@
  * Uses isExtension=true to enter requestConfirm.
  */
 
+import { netOutflowByFaucet } from 'app/confirm/decode';
+import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { getMessage } from 'lib/i18n';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 
@@ -32,7 +36,8 @@ _g.__dappConfInternals = {
         senderAccountId: 's1',
         nullifier: 'nf1',
         state: 0,
-        assets: [{ faucetId: 'faucet-1', amount: '50' }]
+        assets: [{ faucetId: 'faucet-1', amount: '50' }],
+        standardPayment: true
       }
     ]),
     getConsumableNotes: jest.fn(async () => []),
@@ -61,7 +66,9 @@ jest.mock('lib/miden/back/store', () => ({
       }
     }
   },
-  withUnlocked: jest.fn(async (fn: any) => fn({ vault: { signData: jest.fn(async () => 'sig') } }))
+  withUnlocked: jest.fn(async (fn: any) =>
+    fn({ vault: { signData: jest.fn(async () => ({ signature: 'sig', signedCommitment: 'commitment' })) } })
+  )
 }));
 
 jest.mock('lib/miden/transaction', () => ({
@@ -133,7 +140,7 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
-// Spread the real module — see the note in dapp.coverage.test.ts: the send
+// Spread the real module - see the note in dapp.coverage.test.ts: the send
 // flow's authorization gate needs `sameWalletAccountId` to exist.
 jest.mock('lib/miden/sdk/helpers', () => ({
   ...jest.requireActual('lib/miden/sdk/helpers'),
@@ -150,9 +157,63 @@ jest.mock('lib/miden/spending-limits/queue', () => ({
   hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
 }));
 
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
+const mockDryRun = jest.fn(
+  async (..._args: unknown[]): Promise<Record<string, unknown>> => ({ summaryBytes: 'confirm-sim-sum' })
+);
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return {
+    simulateCustomTransaction: jest.fn(async (...args: unknown[]) => measureApprovalDryRun(await mockDryRun(...args)))
+  };
+});
+
+// A summary's approval, custom or signBytes, reads the chain fee before it decodes and refuses when that read is
+// unknown.
+const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
+const mockFeeKnownAbsent = jest.fn(() => false);
+const mockSyncFee = jest.fn((): number | null => 2);
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
+  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent(),
+  getVerificationBaseFeeSync: () => mockSyncFee()
 }));
+
+// The real note flow unless a case makes it fail.
+const mockNoteFlowFromTransaction = jest.fn((transaction: unknown) =>
+  jest.requireActual('app/confirm/note-flow').noteFlowFromTransaction(transaction)
+);
+// The dry run's note flow, which the fixture summary bytes cannot decode: none unless a case gives one.
+const mockNoteFlowFromSimulatedBytes = jest.fn((_result: unknown): unknown => undefined);
+jest.mock('app/confirm/note-flow', () => ({
+  ...jest.requireActual('app/confirm/note-flow'),
+  noteFlowFromTransaction: (transaction: unknown) => mockNoteFlowFromTransaction(transaction),
+  noteFlowFromSimulatedBytes: (result: unknown) => mockNoteFlowFromSimulatedBytes(result)
+}));
+
+// This suite supplies the dry-run view directly so fixture summary bytes are not decoded.
+const mockEmptySimulatedView = {
+  outgoing: [],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  inputNotesConsumed: 0,
+  outputNotesCreated: 0,
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: []
+};
+let mockSimulatedView: unknown;
+jest.mock('app/confirm/decode', () => {
+  const actual = jest.requireActual('app/confirm/decode');
+  return {
+    ...actual,
+    simulatedBytesToView: () => (mockSimulatedView === undefined ? mockEmptySimulatedView : mockSimulatedView),
+    simulatedOutputRecipients: () => []
+  };
+});
 
 const mockReleaseNoteIds = jest.fn(async (_ids: string[]) => undefined);
 jest.mock('lib/miden/note-quarantine', () => ({
@@ -221,6 +282,14 @@ beforeEach(() => {
   _g.__dappConfInternals.onRemovedListeners.length = 0;
   for (const k of Object.keys(_g.__dappConfInternals.storage)) delete _g.__dappConfInternals.storage[k];
   _g.__dappConfInternals.storage[STORAGE_KEY] = { 'https://test.xyz': [SESSION] };
+  mockRefreshVerificationBaseFee.mockReset();
+  mockRefreshVerificationBaseFee.mockResolvedValue(2);
+  mockFeeKnownAbsent.mockReset();
+  mockFeeKnownAbsent.mockReturnValue(false);
+  mockSyncFee.mockReset();
+  mockSyncFee.mockReturnValue(2);
+  mockNoteFlowFromSimulatedBytes.mockReset();
+  mockNoteFlowFromSimulatedBytes.mockReturnValue(undefined);
   jest.useFakeTimers({ legacyFakeTimers: false });
 });
 
@@ -274,7 +343,211 @@ describe('requestConfirm popup size', () => {
   });
 });
 
-describe('requestConfirm intercom handler — unknown port', () => {
+describe('requestSign measures a transaction summary once, before the popup', () => {
+  const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+  const browser = () => (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+  let previous: Record<string, unknown>;
+
+  beforeEach(() => {
+    previous = { SigningInputs: sdk.SigningInputs, SigningInputsType: sdk.SigningInputsType };
+    sdk.SigningInputsType = { TransactionSummary: 0, Arbitrary: 1, Blind: 2 };
+  });
+
+  afterEach(() => {
+    Object.assign(sdk, previous);
+  });
+
+  const summaryConsuming = (inputs: { id: () => unknown; note: () => unknown }[]) => {
+    sdk.SigningInputs = {
+      deserialize: () => ({
+        variantType: 0,
+        transactionSummaryPayload: () => ({
+          accountDelta: () => ({
+            id: () => ({ __faucet: 'a1' }),
+            vault: () => ({
+              removedFungibleAssets: () => [],
+              addedFungibleAssets: () => [],
+              numAssets: () => 0
+            }),
+            storage: () => ({ isEmpty: () => true })
+          }),
+          inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs }),
+          outputNotes: () => ({
+            numNotes: () => 1,
+            notes: () => [
+              {
+                id: () => ({ toString: () => 'stub-note-1' }),
+                assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+                metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+              }
+            ]
+          })
+        })
+      })
+    };
+  };
+
+  const sign = () =>
+    dapp.requestSign('https://test.xyz', {
+      type: MidenDAppMessageType.SignRequest,
+      sourcePublicKey: 'a1',
+      sourceAccountId: 'a1',
+      payload: 'c2lnbmluZy1pbnB1dHM=',
+      kind: 'signingInputs'
+    } as never);
+
+  /** The error the request settles with, once it is clear no window opened for it. */
+  const refusedBeforePopup = async () => {
+    const settled = sign().then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    expect(browser().windows.create).not.toHaveBeenCalled();
+    return settled;
+  };
+
+  it('rejects with NotGranted and does not open a window when a consumed note lists no assets', async () => {
+    summaryConsuming([{ id: () => ({ toString: () => 'opaque-note' }), note: () => ({ assets: () => undefined }) }]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.NotGranted}: a held note does not list its assets`)
+    );
+  });
+
+  it('rejects with NotGranted and does not open a window when the fee read does not know the fee', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValue(null);
+    mockSyncFee.mockReturnValue(null);
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`)
+    );
+  });
+
+  /** The payload the popup this request opened is served, once the request has been auto-declined. */
+  const servedPayload = async () => {
+    const answer = sign();
+    answer.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(browser().windows.create).toHaveBeenCalledTimes(1);
+
+    const id: string = browser()
+      .windows.create.mock.calls.at(-1)?.[0]
+      ?.url.match(/id=([^&]+)/)?.[1];
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const response = await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, { id: 'p' });
+
+    jest.advanceTimersByTime(121_000);
+    await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    return response.payload;
+  };
+
+  // The summary's vault moves nothing; the 1000 leaves only through the held note it consumes, so the raw summary
+  // view shows nothing leaving and only the holdings measure counts it.
+  const heldNote = {
+    id: () => ({ toString: () => 'held-note' }),
+    note: () => ({
+      assets: () => ({
+        fungibleAssets: () => [{ faucetId: () => ({ __faucet: 'faucet-x' }), amount: () => 1000n }],
+        nonFungibleAssets: () => []
+      })
+    })
+  };
+  const heldNoteMeasure = {
+    outputNotesCreated: 1,
+    heldNotesSpent: 1,
+    outgoing: [{ faucetId: 'bech32', amount: '1000' }]
+  };
+
+  it('hands the popup the measured holdings as signingEffects', async () => {
+    summaryConsuming([heldNote]);
+
+    const payload = await servedPayload();
+
+    expect(payload.preview).toBeNull();
+    expect(payload.signingEffects.view).toMatchObject(heldNoteMeasure);
+    expect(payload.signingEffects.noteFlow).toMatchObject({
+      inputCount: 1,
+      outputs: [expect.objectContaining({ id: 'stub-note-1' })]
+    });
+  });
+
+  it('rejects before the popup when reading the note flow traps', async () => {
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw new WebAssembly.RuntimeError('unreachable');
+    });
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.InvalidParams}: RuntimeError: unreachable`)
+    );
+  });
+
+  const wrappedKill = () => {
+    const poison = new WasmClientPoisonedError('watchdog', new Error('x'));
+    return { poison, wrapped: new Error('wrapped', { cause: poison }) };
+  };
+
+  it('refuses before the popup when decoding the payload hits a kill, wrapped or not', async () => {
+    const { poison, wrapped } = wrappedKill();
+    sdk.SigningInputs = {
+      deserialize: () => {
+        throw wrapped;
+      }
+    };
+
+    expect(await refusedBeforePopup()).toBe(poison);
+  });
+
+  it('refuses before the popup when measuring the summary hits a kill', async () => {
+    const { poison, wrapped } = wrappedKill();
+    sdk.SigningInputs = {
+      deserialize: () => ({
+        variantType: 0,
+        transactionSummaryPayload: () => ({
+          accountDelta: () => {
+            throw wrapped;
+          }
+        })
+      })
+    };
+
+    const error = await refusedBeforePopup();
+
+    expect(error).not.toEqual(new Error(`${MidenDAppErrorType.NotGranted}: wrapped`));
+    expect(error).toBe(poison);
+  });
+
+  it('refuses before the popup when the note flow hits a kill', async () => {
+    const { poison, wrapped } = wrappedKill();
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw wrapped;
+    });
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toBe(poison);
+  });
+
+  it('still hands the popup the measured holdings, without a note flow, when the note flow read fails', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw new Error('no note details');
+    });
+    summaryConsuming([heldNote]);
+
+    try {
+      const payload = await servedPayload();
+
+      expect(payload.signingEffects.view).toMatchObject(heldNoteMeasure);
+      expect(payload.signingEffects).not.toHaveProperty('noteFlow');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+});
+
+describe('requestConfirm intercom handler - unknown port', () => {
   it('ignores requests from unknown ports', async () => {
     const p = dapp.requestSign('https://test.xyz', {
       type: MidenDAppMessageType.SignRequest,
@@ -307,7 +580,7 @@ describe('requestConfirm intercom handler — unknown port', () => {
     // First register the known port via GetPayload
     await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, knownPort);
 
-    // Now send a confirmation from a different port — should be ignored
+    // Now send a confirmation from a different port - should be ignored
     const result = await listener(
       { type: MidenMessageType.DAppSignConfirmationRequest, id, confirmed: true },
       unknownPort
@@ -325,6 +598,7 @@ describe('requestConfirm runs an approval once (#1584)', () => {
 
   afterEach(() => {
     requestCustomTransaction.mockReset().mockResolvedValue('tx-2');
+    mockSimulatedView = undefined;
   });
 
   const openTransaction = async () => {
@@ -350,6 +624,93 @@ describe('requestConfirm runs an approval once (#1584)', () => {
     };
     return { answer, listener, port, confirmation };
   };
+
+  // The extension arm queues what the dry run showed leaving, NFTs by their complete key (#2147).
+  it('queues the approved outflow and the NFTs the sheet showed leaving', async () => {
+    mockSimulatedView = {
+      account: 'a1',
+      outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+      incoming: [],
+      outgoingNfts: [{ faucetId: 'mtst1nftfaucet', assetId: '0xaa\u2026dd', key: 'nft-key-1' }],
+      incomingNfts: [],
+      unlistedAssets: 0,
+      inputNotesConsumed: 0,
+      outputNotesCreated: 1,
+      storageChanged: false,
+      viewConsumedNotes: [],
+      createdNotes: [
+        {
+          id: '0xsent',
+          amounts: [{ faucetId: 'faucet-x', amount: 50n }],
+          nfts: [{ faucetId: 'mtst1nftfaucet', assetId: '0xaa\u2026dd', key: 'nft-key-1' }]
+        }
+      ]
+    };
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    await listener(confirmation, port);
+    await answer;
+
+    expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+    const args = requestCustomTransaction.mock.calls[0] as unknown[];
+    expect(args[6]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    expect(args[9]).toEqual(['nft-key-1']);
+    expect(args[10]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+  });
+
+  /** A summary dry run on faucet-x: the vault nets `net`, consuming `consumed` and creating `sent`, each one note. */
+  const summaryDryRun = (
+    net: bigint,
+    consumed: [string, bigint],
+    sent: [string, bigint],
+    introducedNoteIds: string[]
+  ) => {
+    const note = ([id, amount]: [string, bigint]) => ({ id, amounts: [{ faucetId: 'faucet-x', amount }], nfts: [] });
+    mockDryRun.mockResolvedValueOnce({ summaryBytes: 'confirm-sim-sum', introducedNoteIds });
+    mockSimulatedView = {
+      ...mockEmptySimulatedView,
+      account: 'a1',
+      outgoing: [{ faucetId: 'faucet-x', amount: net }],
+      inputNotesConsumed: 1,
+      outputNotesCreated: 1,
+      viewConsumedNotes: [note(consumed)],
+      createdNotes: [note(sent)]
+    };
+  };
+
+  const queuedArgs = async ({ answer, listener, port, confirmation }: Awaited<ReturnType<typeof openTransaction>>) => {
+    await listener(confirmation, port);
+    await answer;
+    expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+    const args: unknown[] = requestCustomTransaction.mock.calls[0];
+    return args;
+  };
+
+  it('queues the approved effects with the introduced and the created note ids', async () => {
+    summaryDryRun(50n, ['0xcarried', 50n], ['0xsent', 100n], ['0xcarried']);
+
+    const args = await queuedArgs(await openTransaction());
+
+    expect(args[11]).toMatchObject({ introducedNoteIds: ['0xcarried'], approvedOutputNoteIds: ['0xsent'] });
+  });
+
+  // The sheet shows the measure the approval records: what leaves the holdings, never the vault's net change.
+  it('shows 1050 leaving for a summary that spends a held 1000 and sends 1050, as the approval records', async () => {
+    summaryDryRun(50n, ['0xheld', 1000n], ['0xsent', 1050n], []);
+    const opened = await openTransaction();
+
+    const reply = await opened.listener(
+      { type: MidenMessageType.DAppSimulateTransactionRequest, id: opened.confirmation.id },
+      opened.port
+    );
+    const { view } = fromSimulatedEffectsWire(reply.effects);
+    const args = await queuedArgs(opened);
+
+    expect(view.outgoing).toEqual([{ faucetId: 'faucet-x', amount: 1050n }]);
+    expect(view.heldNotesSpent).toBe(1);
+    expect(args[10]).toEqual(netOutflowByFaucet(view));
+    expect(args[6]).toEqual(netOutflowByFaucet(view));
+  });
 
   it('runs the action once when the popup confirms twice while it runs', async () => {
     let release: (transactionId: string) => void = () => undefined;
@@ -576,7 +937,7 @@ describe('requestConfirm runs an approval once (#1584)', () => {
   });
 });
 
-describe('requestConfirm — window already fullscreen', () => {
+describe('requestConfirm - window already fullscreen', () => {
   it('skips window.update when confirmWin.state is fullscreen', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.create.mockResolvedValueOnce({ id: 777, left: 99, state: 'fullscreen' });
@@ -595,7 +956,7 @@ describe('requestConfirm — window already fullscreen', () => {
   });
 });
 
-describe('requestConfirm — closeWindow error handling', () => {
+describe('requestConfirm - closeWindow error handling', () => {
   it('does not crash when windows.get throws during close', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.get.mockRejectedValueOnce(new Error('window gone'));
@@ -613,7 +974,7 @@ describe('requestConfirm — closeWindow error handling', () => {
   });
 });
 
-describe('requestPermission (extension) — public-key fetch failure', () => {
+describe('requestPermission (extension) - public-key fetch failure', () => {
   it('fails the confirmation, persists no session and leaves the dApp to the auto-decline when the pubkey fetch fails', async () => {
     const origin = 'https://new-dapp.xyz';
     const mc = _g.__dappConfInternals.midenClient;
@@ -681,8 +1042,27 @@ describe('requestPermission (extension) — public-key fetch failure', () => {
   });
 });
 
-describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
+const simulatedViewFixture = {
+  account: 'a1',
+  outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  inputNotesConsumed: 0,
+  outputNotesCreated: 1,
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'faucet-x', amount: 50n }], nfts: [] }]
+};
+
+describe('requestConfirm - DAppSimulateTransactionRequest branch', () => {
+  afterEach(() => {
+    mockSimulatedView = undefined;
+  });
+
   it('answers a matching simulate request without closing the popup', async () => {
+    mockSimulatedView = simulatedViewFixture;
     const p = dapp.requestTransaction('https://test.xyz', {
       type: MidenDAppMessageType.TransactionRequest,
       sourcePublicKey: 'a1',
@@ -711,9 +1091,11 @@ describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
 
     expect(result).toEqual({
       type: MidenMessageType.DAppSimulateTransactionResponse,
-      summaryBytes: 'confirm-sim-sum',
-      error: undefined
+      effects: expect.objectContaining({
+        view: expect.objectContaining({ outgoing: [{ faucetId: 'faucet-x', amount: '50' }] })
+      })
     });
+    expect(JSON.stringify(result)).not.toContain('confirm-sim-sum');
     // Critical: the popup must stay open after a simulate round-trip.
     expect(browser.windows.remove).not.toHaveBeenCalled();
 
@@ -721,10 +1103,55 @@ describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
     jest.advanceTimersByTime(121_000);
     p.catch(() => {});
   });
+
+  it('answers the simulate request with the note flow the dry run measured, decoding nothing again', async () => {
+    mockSimulatedView = simulatedViewFixture;
+    const flow = (faucetId: string) => ({
+      inputCount: 0,
+      inputs: [],
+      outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId, amount: 500n }] }]
+    });
+    mockNoteFlowFromSimulatedBytes.mockReturnValueOnce(flow('faucet-flow')).mockReturnValue(flow('faucet-other'));
+    const p = dapp.requestTransaction('https://test.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'a1',
+      transaction: {
+        payload: {
+          address: 'a1',
+          recipientAddress: 'bob',
+          transactionRequest: 'b64req'
+        }
+      }
+    } as never);
+    await jest.advanceTimersByTimeAsync(0);
+
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const url = browser.windows.create.mock.calls.at(-1)?.[0]?.url || '';
+    const id = url.match(/id=([^&]+)/)?.[1];
+    expect(id).toBeTruthy();
+
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'sim-flow-port' };
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+    const result = await listener({ type: MidenMessageType.DAppSimulateTransactionRequest, id }, port);
+
+    expect(mockNoteFlowFromSimulatedBytes).toHaveBeenCalledTimes(1);
+    expect(mockNoteFlowFromSimulatedBytes).toHaveBeenCalledWith({ summaryBytes: 'confirm-sim-sum' });
+    expect(fromSimulatedEffectsWire(result.effects).noteFlow).toEqual(flow('faucet-flow'));
+    expect(browser.windows.remove).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(121_000);
+    p.catch(() => {});
+  });
 });
 
 describe('a custom request made while locked (#1414)', () => {
+  afterEach(() => {
+    mockSimulatedView = undefined;
+  });
+
   it("answers the sheet's simulate request from the dry run built after the unlock", async () => {
+    mockSimulatedView = simulatedViewFixture;
     const { withUnlocked } = jest.requireMock('lib/miden/back/store');
     const simulate = jest.requireMock('./simulate-custom-tx').simulateCustomTransaction;
     withUnlocked.mockImplementationOnce(async () => {
@@ -747,13 +1174,19 @@ describe('a custom request made while locked (#1414)', () => {
     expect(simulate).toHaveBeenCalledTimes(1);
 
     const result = await listener({ type: MidenMessageType.DAppSimulateTransactionRequest, id }, port);
-    expect(result).toEqual(expect.objectContaining({ summaryBytes: 'confirm-sim-sum' }));
+    expect(result).toEqual(
+      expect.objectContaining({
+        effects: expect.objectContaining({
+          view: expect.objectContaining({ outgoing: [{ faucetId: 'faucet-x', amount: '50' }] })
+        })
+      })
+    );
     expect(simulate).toHaveBeenCalledTimes(1);
     jest.advanceTimersByTime(121_000);
   });
 });
 
-describe('requestConfirm — custom tx quarantine release', () => {
+describe('requestConfirm - custom tx quarantine release', () => {
   it('releases the simulation quarantine after a successful confirm', async () => {
     const p = dapp.requestTransaction('https://test.xyz', {
       type: MidenDAppMessageType.TransactionRequest,
@@ -857,7 +1290,9 @@ describe('requestConfirm stops its auto-decline on the first payload request and
   };
   const unlock = () => {
     _g.__dappConfInternals.status = WalletStatus.Ready;
-    withUnlocked.mockImplementation(async (fn: any) => fn({ vault: { signData: jest.fn(async () => 'sig') } }));
+    withUnlocked.mockImplementation(async (fn: any) =>
+      fn({ vault: { signData: jest.fn(async () => ({ signature: 'sig', signedCommitment: 'commitment' })) } })
+    );
     for (const listener of [..._g.__dappConfInternals.storeListeners]) listener({ status: WalletStatus.Ready });
   };
   // `clearAllMocks` keeps implementations, so a locked gate would leak into the next test.
@@ -928,11 +1363,9 @@ describe('requestConfirm stops its auto-decline on the first payload request and
   });
 
   it('never declines while the build that follows the unlock runs', async () => {
-    jest
-      .requireMock('./simulate-custom-tx')
-      .simulateCustomTransaction.mockImplementationOnce(
-        () => new Promise(resolve => setTimeout(() => resolve({ summaryBytes: 'confirm-sim-sum' }), 15_000))
-      );
+    mockDryRun.mockImplementationOnce(
+      () => new Promise(resolve => setTimeout(() => resolve({ summaryBytes: 'confirm-sim-sum' }), 15_000))
+    );
     const popup = await openLockedCustom();
     await jest.advanceTimersByTimeAsync(110_000);
     unlock();

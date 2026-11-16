@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { formatUnits, parseUnits } from 'viem';
+import { parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
@@ -20,7 +20,9 @@ import { TokenUsdValue } from 'components/TokenUsdValue';
 import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { usePreset } from 'lib/animation';
@@ -76,6 +78,7 @@ import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 import { UsdcxPayoutRows } from './UsdcxPayoutRows';
 import { useEpochQuote } from './useEpochQuote';
+import { useIsNewRecipient } from './useIsNewRecipient';
 
 const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> = ({ message, errorId }) => {
   useUserVisibleError(message ? errorId : null, 'review');
@@ -127,6 +130,7 @@ export const ReviewTransaction: React.FC = () => {
 
   // A 0x recipient bridges to an EVM chain instead of a same-chain Miden send.
   const isBridge = !!to && detectAddressChain(to) === 'ethereum';
+  const isNewRecipient = useIsNewRecipient(publicKey, to);
   const bridgeNetworkObj = getBridgeNetwork(network);
   const bridgeFeature = (): BridgeFeature => {
     switch (route) {
@@ -197,6 +201,27 @@ export const ReviewTransaction: React.FC = () => {
     destinationChainId: bridgeNetworkObj?.chainId
   });
 
+  const epochMinimumOutput = useMemo(() => {
+    if (
+      epochQuote.loading ||
+      epochQuote.error ||
+      epochQuote.amount === undefined ||
+      epochQuote.decimals === undefined ||
+      !Number.isSafeInteger(epochQuote.decimals) ||
+      epochQuote.decimals < 0 ||
+      epochQuote.decimals > 38 ||
+      amountExceedsTokenDecimals(epochQuote.amount, epochQuote.decimals)
+    )
+      return 0n;
+    try {
+      const minimum = parseUnits(epochQuote.amount, epochQuote.decimals);
+      return minimum > 0n ? minimum : 0n;
+    } catch {
+      return 0n;
+    }
+  }, [epochQuote.amount, epochQuote.decimals, epochQuote.loading, epochQuote.error]);
+  const epochQuoteUnavailable = isBridge && route !== 'agglayer' && route !== 'usdcx' && epochMinimumOutput === 0n;
+
   // Private by default. The user changes it under Advanced options (the "Transfer type" row
   // opens `TransferTypeDrawer`); the E2E hook below can also flip it.
   const [sharePrivately, setSharePrivately] = useState(true);
@@ -206,6 +231,7 @@ export const ReviewTransaction: React.FC = () => {
   // header's summary keeps the current choice in view while it is closed.
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const reveal = usePreset('reveal');
+  const fade = usePreset('fade');
 
   // E2E-only hook: the harness drives the transfer type without opening the
   // sheet, so expose a setter while the review page is mounted. Mirrors the
@@ -451,7 +477,7 @@ export const ReviewTransaction: React.FC = () => {
 
   const runBridgeSend = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
-      if (!token || !publicKey || amountBaseUnits === undefined) return;
+      if (!token || !publicKey || amountBaseUnits === undefined || epochQuoteUnavailable) return;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
@@ -500,6 +526,7 @@ export const ReviewTransaction: React.FC = () => {
           goToGeneratingTransaction(txId);
         } else {
           await bridgeEpochSend({
+            minimumOutputBaseUnits: epochMinimumOutput,
             destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
             faucetId: token.id,
@@ -548,6 +575,8 @@ export const ReviewTransaction: React.FC = () => {
     [
       amountBaseUnits,
       bridgeNetworkObj,
+      epochMinimumOutput,
+      epochQuoteUnavailable,
       goToGeneratingTransaction,
       openUnpricedChallenge,
       publicKey,
@@ -560,7 +589,7 @@ export const ReviewTransaction: React.FC = () => {
   );
 
   const onSubmit = useCallback(async () => {
-    if (bridgeBlocked || tokenHeld) return;
+    if (bridgeBlocked || tokenHeld || epochQuoteUnavailable) return;
     if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
@@ -608,6 +637,7 @@ export const ReviewTransaction: React.FC = () => {
   }, [
     bridgeBlocked,
     tokenHeld,
+    epochQuoteUnavailable,
     amountBaseUnits,
     assessSpendingLimit,
     isBridge,
@@ -756,6 +786,7 @@ export const ReviewTransaction: React.FC = () => {
               disabled={
                 bridgeBlocked ||
                 tokenHeld ||
+                epochQuoteUnavailable ||
                 isSubmitting ||
                 scaleIsUnknown ||
                 amountExceedsPrecision ||
@@ -782,8 +813,8 @@ export const ReviewTransaction: React.FC = () => {
         <Hero
           data-testid="review-amount"
           className="mt-3"
-          visual={<TokenLogo symbol={token?.name ?? ''} faucetId={token?.id} size="2xl" />}
-          value={`${amount} ${tokenLabel}`}
+          visual={<TokenLogo faucetId={tokenId} size="2xl" />}
+          value={<TokenAmount amount={amount} symbol={tokenLabel} formatting="exact" />}
           subtitle={
             token?.scaleIsKnown && (
               <span className="font-heading text-base leading-[22px] font-bold">
@@ -796,8 +827,22 @@ export const ReviewTransaction: React.FC = () => {
         <DetailCard surface="outline" face="heading" className="tx-stage-list mt-6">
           {/* The full address, never truncated: this is the last look before funds move. Right-aligned
               like the other rows, small enough to sit on one line; the short label drops the label column's
-              minimum width to leave it room, and it wraps rather than overflow. */}
-          <DetailRow label={t('to')} className="[&>span:first-child]:min-w-0" data-testid="review-row-to">
+              minimum width to leave it room, and it wraps rather than overflow. A first-time recipient
+              carries a tag beside the label. */}
+          <DetailRow
+            label={t('to')}
+            className="[&>span:first-child]:min-w-0"
+            data-testid="review-row-to"
+            badge={
+              isNewRecipient ? (
+                <motion.span {...fade}>
+                  <Pill size="tag" tone="muted" data-testid="review-new-recipient">
+                    {t('newRecipient')}
+                  </Pill>
+                </motion.span>
+              ) : undefined
+            }
+          >
             <span className="min-w-0 text-[11px] break-all">{to}</span>
           </DetailRow>
           {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
@@ -844,7 +889,7 @@ export const ReviewTransaction: React.FC = () => {
                       )
                     }
                   >
-                    {`${formatUnits(burnMinimum, USDCX_DECIMALS)} USDCx`}
+                    <TokenAmount amount={burnMinimum} decimals={USDCX_DECIMALS} symbol="USDCx" formatting="exact" />
                   </DetailRow>
                   <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
                   {bridgeNetworkObj && amountBaseUnits !== undefined && (

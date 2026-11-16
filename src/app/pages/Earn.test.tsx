@@ -18,6 +18,7 @@ import Earn from './Earn';
 // while still letting us assert the props it forwards (summary + titleId to the panel, protocol to
 // the logo). This mirrors how the sibling `components.test.tsx` stubs its own children.
 jest.mock('screens/earn-flow/components', () => ({
+  useEarnAssetFaucetId: () => undefined,
   EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewardsUsd: number }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId} data-total-rewards={summary.totalRewardsUsd} />
   ),

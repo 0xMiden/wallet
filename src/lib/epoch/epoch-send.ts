@@ -1,12 +1,21 @@
 import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
-import { formatUnits } from 'viem';
+import { formatUnits, parseUnits } from 'viem';
 
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
-import { type EvmUsdc, getEpochAllocatorUrl, getEpochOutputToken, getEvmChainId } from 'lib/remote-config/values';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import {
+  BridgeConfigUnavailableError,
+  type EvmUsdc,
+  getEpochAllocatorUrl,
+  getEpochOutputToken,
+  getEvmChainId,
+  selectEpochAllocator
+} from 'lib/remote-config/values';
 
 import { buildCrossChainIntent, getCrossChainQuote, normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
+import { collateralNoteMismatch, EpochCollateralNoteMismatchError } from './collateral-guard';
 import { readEpochIntentStatus } from './intent-status';
 import { createBridgeP2IDENote, type BridgeNoteDeps } from './miden-note';
 import { getEpochReadOnlySdk } from './sdk';
@@ -106,6 +115,7 @@ export async function quoteEpochSendOutput(args: {
 export interface EpochSendArgs {
   /** Base units of the Miden faucet token the user is sending. */
   amount: bigint;
+  minimumOutputBaseUnits: bigint;
   /** Miden faucet id of the token being bridged. Epoch accepts any token (hex or bech32). */
   faucetId: string;
   /** EVM recipient (0x) — also the intent sponsor; no connected wallet required. */
@@ -138,8 +148,18 @@ export interface EpochSendArgs {
  * chain, so there is no manual claim (`claimStatus: 'not-applicable'`).
  */
 export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
+  if (
+    typeof args.minimumOutputBaseUnits !== 'bigint' ||
+    args.minimumOutputBaseUnits <= 0n ||
+    args.minimumOutputBaseUnits >= 1n << 256n
+  )
+    throw new Error('Epoch requires a positive reviewed output minimum');
   const usdc = epochOutputToken(args.faucetId, args.destinationChainId);
-  const allocatorUrl = getEpochAllocatorUrl();
+  const allocator = selectEpochAllocator(getBridgeConfigSnapshot());
+  if (allocator === null) {
+    throw new BridgeConfigUnavailableError('epoch.allocatorUrl');
+  }
+  const { allocatorUrl, accountId } = allocator;
   const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
   const params = buildEpochSendParams(
@@ -151,19 +171,40 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     currentBlock
   );
 
+  params.minTokenOut = args.minimumOutputBaseUnits.toString();
+
   // Forward quote (input → output), then solve. `createMidenP2IDENote` blocks until
   // the P2IDE `bridged-send` row is committed on Miden before the intent is
   // submitted. The sponsor is the recipient (set inside buildCrossChainIntent). We
   // capture the row id from the callback so we can patch the EVM solve hash on it.
   let bridgeTxId: string | undefined;
-  let spendingLimitError: unknown;
+  let noteError: unknown;
   const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
+  const output = quote.quoteResult.tokenOut;
+  if (
+    typeof output !== 'string' ||
+    !/^(0|[1-9]\d*)(?:\.\d+)?$/.test(output) ||
+    (output.includes('.') && (output.split('.')[1]?.length ?? 0) > usdc.decimals)
+  )
+    throw new Error('Epoch returned an invalid output quote');
+  const outputBaseUnits = output.includes('.') ? parseUnits(output, usdc.decimals) : BigInt(output);
+  if (outputBaseUnits < args.minimumOutputBaseUnits) throw new Error('Epoch output is below the reviewed minimum');
   const intent = await buildCrossChainIntent(sdk, {
     ...params,
     preFetchedQuote: quote,
     collateralType: CollateralType.Miden,
     midenSourceAccount: args.senderPublicKey,
     createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
+      // Build the note only for the reviewed token and amount, and only for the allocator account that the
+      // configuration names.
+      const mismatch = collateralNoteMismatch(
+        { faucetId: faucet, amount, allocatorId },
+        { faucetId: args.faucetId, amount: args.amount, allocatorAccountId: accountId }
+      );
+      if (mismatch !== null) {
+        noteError = new EpochCollateralNoteMismatchError(mismatch);
+        return { success: false };
+      }
       try {
         const res = await createBridgeP2IDENote({
           senderAccountId: args.senderPublicKey,
@@ -182,12 +223,12 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
         bridgeTxId = res.txId;
         return { success: res.success, noteId: res.noteId };
       } catch (error) {
-        spendingLimitError = error;
+        noteError = error;
         return { success: false };
       }
     }
   });
-  if (spendingLimitError !== undefined) throw spendingLimitError;
+  if (noteError !== undefined) throw noteError;
   if (intent.error) {
     // The `createMidenP2IDENote` callback already committed the P2IDE note and the
     // send pipeline marked its `bridged-send` row Completed / 'Bridged to EVM'

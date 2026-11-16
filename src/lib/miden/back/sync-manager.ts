@@ -4,7 +4,7 @@ import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
   computeSyncBackoffMs,
@@ -15,7 +15,7 @@ import {
 } from 'lib/miden/sync-backoff';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveRpcUrl, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getClaimFloorBaseFee, getNativeAssetId } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -24,6 +24,7 @@ import {
 } from 'lib/settings/helpers';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
+import { isOwnClaimableNote } from '../claimable-note-ownership';
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { showBackgroundNotification } from './background-notification';
@@ -546,7 +547,10 @@ async function runSync(force: boolean): Promise<void> {
                 swapOrder: swapOrders.get(noteId)
               };
             })
-            .filter((note): note is SerializedConsumableNote => note !== null);
+            // Only this account's notes reach the claim list, the notifications and the
+            // auto-consume pass below: another trader's PSWAP order on a tracked pair tag
+            // is consumable by anyone, and is not a payment to this account (#2118).
+            .filter((note): note is SerializedConsumableNote => note !== null && isOwnClaimableNote(note));
 
           // Read vault assets
           const finishSnapshot = beginBalanceSnapshot();
@@ -670,7 +674,7 @@ async function runSync(force: boolean): Promise<void> {
             // then claimed by itself for a full fee. A dApp transaction's carried notes are listed
             // the lap after its confirm releases their quarantine, and a claim of one raced it.
             const notesBeingClaimed = new Set((await getNoteHoldingTransactions(accountPubKey)).flatMap(heldNoteIdsOf));
-            // Faucet filter FIRST, and BEFORE the fee is read. `getVerificationBaseFee`
+            // Faucet filter FIRST, and BEFORE the fee is read. `getClaimFloorBaseFee`
             // returns a cached value instantly but falls through to an RPC round trip
             // while the fee is still unknown -- which against a parked node is every
             // lap, for the full timeout, on the sync critical path. Nothing downstream
@@ -683,14 +687,20 @@ async function runSync(force: boolean): Promise<void> {
             // account, as this pass does above.
             const nativeNotes = parsedNotes.filter(n => n.faucetId === nativeFaucetId && !n.swapOrder);
             heldNativeNoteIds = nativeNotes.filter(n => notesBeingClaimed.has(n.id)).map(n => n.id);
-            const candidates = nativeNotes.filter(n => !notesBeingClaimed.has(n.id));
+            // Only a standard payment (P2ID or P2IDE) is claimed unattended. The consumable
+            // list also holds other traders' public PSWAP orders on a pair tag the account
+            // still tracks, and consuming one fills that order from this account's balance
+            // (#2118). A note with no flag is not claimed.
+            const candidates = nativeNotes.filter(n => !notesBeingClaimed.has(n.id) && n.standardPayment === true);
             // A claim worth no more than its own fee costs the user money to collect.
             // This pass is unattended, so the wallet must not do that on their behalf;
-            // `isWorthClaiming` fails open on an unknown fee. Measured on the BATCH
-            // TOTAL because these are claimed as one transaction paying one fee (see the
-            // batch call below) -- judged per note, twenty notes worth 5x the base fee
-            // each were all refused despite totalling 100x.
-            nativeAutoConsumeBaseFee = candidates.length > 0 ? await getVerificationBaseFee() : null;
+            // while the fee is unknown it claims nothing and the notes are announced as
+            // transfers to accept. Measured on the BATCH TOTAL because these are claimed
+            // as one transaction paying one fee (see the batch call below) -- judged per
+            // note, twenty notes worth 5x the base fee each were all refused despite
+            // totalling 100x.
+            nativeAutoConsumeBaseFee = candidates.length > 0 ? await getClaimFloorBaseFee() : null;
+            noteUnknownClaimFloor(`sync:${accountPubKey}`, nativeAutoConsumeBaseFee, candidates.length > 0);
             if (
               candidates.length > 0 &&
               isWorthClaiming(totalClaimableAmount(candidates.map(n => n.amountBaseUnits)), nativeAutoConsumeBaseFee)
@@ -706,7 +716,9 @@ async function runSync(force: boolean): Promise<void> {
                   carriesMoreAssets: n.carriesMoreAssets,
                   isBeingClaimed: false,
                   type,
-                  swapOrder: undefined
+                  swapOrder: undefined,
+                  // The queue refuses an auto-consume of a note that is not this account's.
+                  standardPayment: n.standardPayment
                 };
               });
             }
@@ -890,7 +902,15 @@ async function runSync(force: boolean): Promise<void> {
               console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
               for (const note of batch) {
                 try {
-                  await initiateConsumeTransaction(accountPubKey, note, delegate, false, 'auto_consume', canSign);
+                  await initiateConsumeTransaction(
+                    accountPubKey,
+                    note,
+                    delegate,
+                    false,
+                    'auto_consume',
+                    canSign,
+                    nativeAutoConsumeBaseFee
+                  );
                 } catch (noteErr) {
                   if (noteErr instanceof ClaimFeeRefusedError) {
                     console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);

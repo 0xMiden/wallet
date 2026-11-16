@@ -23,9 +23,9 @@ import { SwapFlow } from './SwapManager';
 // Fixture tokens. Prefixed `mock` so the hoisted jest.mock factories may close
 // over them. Default flow: offer = AAA (index 0), request = BBB (index 1).
 // ---------------------------------------------------------------------------
-const mockTokenA = { symbol: 'AAA', faucetId: 'faucet-A', decimals: 8, logoSymbol: 'MIDEN' };
-const mockTokenB = { symbol: 'BBB', faucetId: 'faucet-B', decimals: 8, logoSymbol: 'ETH' };
-const mockTokenC = { symbol: 'CCC', faucetId: 'faucet-C', decimals: 8, logoSymbol: 'BTC' };
+const mockTokenA = { symbol: 'AAA', faucetId: 'faucet-A', decimals: 8 };
+const mockTokenB = { symbol: 'BBB', faucetId: 'faucet-B', decimals: 8 };
+const mockTokenC = { symbol: 'CCC', faucetId: 'faucet-C', decimals: 8 };
 
 // Mutable module-level state driven per test (all `mock`-prefixed for hoisting).
 let mockRenderedRoutes: Array<{ name: string }>;
@@ -111,6 +111,7 @@ const mockNavigate = jest.fn();
 const mockFetchOneClickAssets = jest.fn();
 let mockBridgeConfig: BridgeConfig | null;
 let mockGeo: GeoLookup | undefined;
+let mockSwapAvailabilityResult: { state: 'unavailable'; reason: string; detail: string } | undefined;
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -326,11 +327,12 @@ jest.mock('lib/miden/swap/use-swap-tokens', () => ({
           .useSwapTokens()
       : mockGetSwapTokens(),
   swapAvailability: (snapshot: unknown) =>
-    mockRealSwapRegistry
+    mockSwapAvailabilityResult ??
+    (mockRealSwapRegistry
       ? jest.requireActual('lib/miden/swap/use-swap-tokens').swapAvailability(snapshot)
       : mockGetSwapTokens().length >= 2
         ? { state: 'available' }
-        : { state: 'loading' }
+        : { state: 'loading' })
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useBridgeConfigSnapshot: () => ({
@@ -533,6 +535,7 @@ beforeEach(() => {
   mockAccountReturn = { publicKey: 'pk-1' };
   mockBridgeConfig = null;
   mockGeo = undefined;
+  mockSwapAvailabilityResult = undefined;
   mockFetchOneClickAssets.mockReset();
 
   mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenB, mockTokenC]);
@@ -977,11 +980,11 @@ describe('SwapFlow / SwapManager', () => {
       ]);
     };
 
-    it.each<[string, GeoLookup, string]>([
-      ['pending', { state: 'loading' }, 'pending'],
-      ['failed', { state: 'failed' }, 'service-down'],
-      ['restricted', decision(false), 'restricted']
-    ])('keeps the form closed while the decision is %s', async (_label, geo, reason) => {
+    it.each<[string, GeoLookup, string, string, string]>([
+      ['pending', { state: 'loading' }, 'pending', 'bridgeFeatureUnavailableTitle', 'bridgeFeatureUnavailableBody'],
+      ['failed', { state: 'failed' }, 'service-down', 'bridgeFeatureUnavailableTitle', 'bridgeFeatureUnavailableBody'],
+      ['restricted', decision(false), 'restricted', 'geoRestrictedTitle', 'geoRestrictedBody']
+    ])('keeps the form closed while the decision is %s', async (_label, geo, reason, title, body) => {
       withOneClickRouteOnly();
       mockGeo = geo;
       renderFlow();
@@ -989,7 +992,32 @@ describe('SwapFlow / SwapManager', () => {
       await act(async () => undefined);
       const notice = screen.getByTestId('swap-unavailable-notice');
       expect(notice).toHaveAttribute('data-reason', reason);
-      expect(notice).toHaveTextContent(reason === 'restricted' ? 'geoRestrictedTitle' : 'swapUnavailableTitle');
+      expect(notice).toHaveTextContent(title);
+      expect(notice).toHaveTextContent(body);
+      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+    });
+
+    it('keeps the genuine empty-registry notice copy', () => {
+      mockGetSwapTokens.mockReturnValue([]);
+      mockSwapAvailabilityResult = { state: 'unavailable', reason: 'not-configured', detail: 'no swap pairs' };
+      renderFlow();
+
+      const notice = screen.getByTestId('swap-unavailable-notice');
+      expect(notice).toHaveAttribute('data-reason', 'not-configured');
+      expect(notice).toHaveTextContent('swapUnavailableTitle');
+      expect(notice).toHaveTextContent('swapUnavailableBody');
+      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+    });
+
+    it('uses temporary-unavailability copy when the pair registry read failed', () => {
+      mockGetSwapTokens.mockReturnValue([]);
+      mockSwapAvailabilityResult = { state: 'unavailable', reason: 'service-down', detail: 'registry read failed' };
+      renderFlow();
+
+      const notice = screen.getByTestId('swap-unavailable-notice');
+      expect(notice).toHaveAttribute('data-reason', 'service-down');
+      expect(notice).toHaveTextContent('bridgeFeatureUnavailableTitle');
+      expect(notice).toHaveTextContent('bridgeFeatureUnavailableBody');
       expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
     });
 
@@ -1645,8 +1673,7 @@ describe('SwapFlow / SwapManager', () => {
     it.each([
       { change: 'faucet', token: { ...mockTokenC, faucetId: 'replacement-C' } },
       { change: 'precision', token: { ...mockTokenC, decimals: 0 } },
-      { change: 'symbol', token: { ...mockTokenC, symbol: 'CC2' } },
-      { change: 'logo', token: { ...mockTokenC, logoSymbol: 'ETH' } }
+      { change: 'symbol', token: { ...mockTokenC, symbol: 'CC2' } }
     ])('resets a selected third-token draft after its $change changes', ({ token }) => {
       const { rerender } = renderFlow();
       selectThirdOffer();
@@ -1794,7 +1821,7 @@ describe('SwapFlow / SwapManager', () => {
     });
 
     it('resets an idle draft when the default pair changes within stable effective tokens', () => {
-      const nativeToken = { ...mockTokenC, symbol: 'MIDEN', logoSymbol: 'MIDEN' };
+      const nativeToken = { ...mockTokenC, symbol: 'MIDEN' };
       mockGetSwapTokens.mockReturnValue([nativeToken, mockTokenA, mockTokenB]);
       mockDefaultPairOverride = { offer: mockTokenA, request: mockTokenB };
       const { rerender } = renderFlow();

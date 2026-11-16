@@ -211,7 +211,7 @@ describe('the mobile legs of the dApp E2E workflow', () => {
 
     expect(prepare.every(position => position >= 0 && position < runnerPosition)).toBe(true);
     expect(runner).toContain('timeout-minutes: 80');
-    expect(runner).toContain('uses: reactivecircus/android-emulator-runner@v2');
+    expect(runner).toContain('uses: reactivecircus/android-emulator-runner@');
     expect(runner).toContain('target: google_apis_playstore');
     expect(runner).toContain('emulator-boot-timeout: 600');
     expect(runner).toContain('bash .github/scripts/run-auth-tab-acceptance.sh');

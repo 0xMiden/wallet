@@ -67,7 +67,8 @@ describe('mainnet nightly workflow', () => {
 
     const agglayer = jobText('mainnet-agglayer');
     expect(agglayer).toContain('    needs: mainnet-nightly');
-    expect(agglayer).toContain("    if: ${{ !cancelled() && needs.mainnet-nightly.outputs.started == 'true' }}");
+    expect(agglayer).toContain("!cancelled() && !inputs.swaps_only && needs.mainnet-nightly.outputs.started == 'true'");
+    expect(agglayer).toContain("needs.mainnet-nightly.outputs.recovery_only != 'true'");
     expect(agglayer).toContain('    runs-on: ubuntu-latest');
     expect(agglayer).toContain("    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 230 || 185 }}");
     expect(agglayer).toContain(
@@ -98,7 +99,7 @@ describe('mainnet nightly workflow', () => {
     const playwright = agglayer.indexOf('yarn playwright test mainnet-agglayer-loop.spec.ts');
     expect(guard).toBeGreaterThanOrEqual(0);
     expect(guard).toBeLessThan(playwright);
-    expect(guard).toBeLessThan(agglayer.indexOf('uses: actions/checkout@v4'));
+    expect(guard).toBeLessThan(agglayer.indexOf('uses: actions/checkout@'));
     expect(agglayer.slice(guard, playwright)).toContain('exit 1');
     expect(jobText('mainnet-nightly')).not.toContain('E2E_MAINNET_EVM_KEY is empty');
   });

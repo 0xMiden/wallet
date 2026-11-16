@@ -238,11 +238,19 @@ it('values known balances only with a positive price and known scale', () => {
   expect(engine.listedPrice(prices, 'VALUED')).toBe(2);
   expect(engine.listedFiatValue(prices, 'VALUED', 3, true)).toBe(6);
   expect(engine.listedFiatValue(prices, 'VALUED', 3, false)).toBeUndefined();
-  expect(engine.listedFiatValue(prices, 'VALUED', 0, true)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'VALUED', 0, true)).toBe(0);
   expect(engine.listedFiatValue(prices, 'NOQUOTE', 3, true)).toBeUndefined();
   expect(engine.listedPrice({ VALUED: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'VALUED')).toBe(0);
   expect(engine.pricesLoaded(prices, ['VALUED'])).toBe(true);
   expect(engine.pricesLoaded({}, [])).toBe(false);
+});
+
+it('omits fiat values for negative or non-finite balances', () => {
+  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0 } };
+  expect(engine.listedFiatValue(prices, 'VALUED', -1, true)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'VALUED', Number.NaN, true)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'VALUED', Number.POSITIVE_INFINITY, true)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'VALUED', Number.MAX_VALUE, true)).toBeUndefined();
 });
 
 it('waits for a requested asset while only the conversion quotes have arrived', () => {

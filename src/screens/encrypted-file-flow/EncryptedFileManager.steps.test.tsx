@@ -81,7 +81,11 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  goBack: jest.fn(),
+  createLocationState: () => ({ historyPosition: 0 }),
+  listen: jest.fn(),
+  HistoryAction: { Replace: 'replace' }
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -129,8 +133,8 @@ jest.mock('./ExportFileComplete', () => ({
   default: () => <div data-testid="export-complete-step" />
 }));
 
-// A password that satisfies the export step's own strength rule: mixed case, a digit and a symbol.
-const FILE_PASSWORD = 'Backup1234!';
+// A new file password at the 12-character floor: mixed case, a digit and a symbol.
+const FILE_PASSWORD = 'Backup12345!';
 
 const flowRoot = () => screen.getByTestId('encrypted-file-manager-flow');
 

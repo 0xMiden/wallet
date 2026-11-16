@@ -20,6 +20,9 @@ import { DAppMessage, isRecord } from '@miden-sdk/bread-connect';
 
 import { AppSwitchTransport, BreadConnectError } from './transport.js';
 
+// An older Bread omits standardPayment, so a note without the flag still fits.
+type BreadConsumableNote = InputNoteDetails & { standardPayment?: boolean };
+
 /**
  * The `window.midenWallet` a Capacitor app installs, so the stock Miden wallet adapter talks to Bread through app
  * switches. It builds each request as Bread's in-app browser provider does. An answer is authenticated by its
@@ -126,9 +129,11 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
     return { guardianInfo };
   }
 
-  async requestConsumableNotes(): Promise<{ consumableNotes: InputNoteDetails[] }> {
+  async requestConsumableNotes(): Promise<{ consumableNotes: BreadConsumableNote[] }> {
     const response = await this.send({ type: 'CONSUMABLE_NOTES_REQUEST', sourcePublicKey: this.connectedAddress() });
-    return { consumableNotes: listField<InputNoteDetails>(response, 'CONSUMABLE_NOTES_RESPONSE', 'consumableNotes') };
+    return {
+      consumableNotes: listField<BreadConsumableNote>(response, 'CONSUMABLE_NOTES_RESPONSE', 'consumableNotes')
+    };
   }
 
   async importPrivateNote(note: Uint8Array): Promise<{ noteId: string }> {
@@ -160,7 +165,7 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
     return { signature: fromBase64(stringField(response, 'signature')) };
   }
 
-  async signBytes(data: Uint8Array, kind: SignKind): Promise<{ signature: Uint8Array }> {
+  async signBytes(data: Uint8Array, kind: SignKind): Promise<{ signature: Uint8Array; signedCommitment?: Uint8Array }> {
     const publicKey = this.publicKey;
     if (!publicKey) throw new WalletError('The app is not connected to Bread');
     const response = await this.send({
@@ -171,7 +176,10 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
       kind
     });
     expectType(response, 'SIGN_RESPONSE');
-    return { signature: fromBase64(stringField(response, 'signature')) };
+    const signature = fromBase64(stringField(response, 'signature'));
+    // An older Bread sends no commitment; a present non-string value is malformed.
+    if (response.signedCommitment === undefined) return { signature };
+    return { signature, signedCommitment: fromBase64(stringField(response, 'signedCommitment')) };
   }
 
   /** Bread proves and submits a transaction before it answers, so the outcome came with the answer. */

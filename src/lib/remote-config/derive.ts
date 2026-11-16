@@ -23,6 +23,7 @@ import { getChain } from 'lib/walletconnect/config';
 import {
   type AgglayerDepositTokenConfig,
   type BridgeConfig,
+  type EarnVaultConfig,
   epochCollateralFaucetId,
   type EpochTokenConfig,
   epochTokenFaucetId,
@@ -72,6 +73,14 @@ export interface AgglayerDepositToken {
   scale: number;
 }
 
+/**
+ * The Miden account that the Epoch allocator at `allocatorUrl` receives collateral notes with (`/miden-recipient`).
+ * A collateral note goes only to this account.
+ */
+export interface EpochAllocatorAccount {
+  accountId: string; // '0x' + 30 lowercase hex
+}
+
 export interface DerivedBridgeConfig {
   network: string;
   version: number; // the document version it was derived from
@@ -82,13 +91,15 @@ export interface DerivedBridgeConfig {
   agglayer: { indexer: Probe<true> };
   epoch: {
     allocator: Probe<true>;
+    /** The allocator's Miden account. A Fast send and an Earn deposit build their collateral note only for it. */
+    allocatorAccount: Probe<EpochAllocatorAccount>;
     market: Probe<EarnMarket>;
     midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
     /**
      * The Earn vault catalogue: the listed vaults that the `/pools` catalogue (or the positions fallback) serves,
-     * merged over every Epoch route that the list names, in the document's vault order. The derivation reads it and
-     * every realm shares the stored copy, so no page reads `/pools`. The same requests give `market`. Skipped when
-     * the document names no positions host or lists no vault on an Epoch route; an error when one route read fails.
+     * merged over every chain and token that the list names, in the document's vault order. The derivation reads it
+     * and every realm shares the stored copy, so no page reads `/pools`. The same requests give `market`. Skipped
+     * when the document names no positions host or lists no vault; an error when one read fails.
      */
     vaults: Probe<EarnVaultInfo[]>;
   };
@@ -350,6 +361,23 @@ function admitSdkInteger(value: unknown, name: string, min: number, max?: number
   if (typeof value !== 'number' || !Number.isInteger(value) || value < min || (max !== undefined && value > max)) {
     throw new Error(`allocator /health returned invalid ${name}`);
   }
+}
+
+// The route the Epoch SDK reads the collateral recipient from (`getMidenCollateralConfig`, epoch-intents-sdk 2.0.1).
+// The SDK gives its `midenP2IDRecipientAccountId` to the collateral note callback as `allocatorId`.
+function readAllocatorAccount(
+  io: Pick<DeriveDeps, 'fetch' | 'midenAccountHex'>,
+  allocatorUrl: string
+): Promise<Probe<EpochAllocatorAccount>> {
+  return attempt(async (): Promise<EpochAllocatorAccount> => {
+    const url = `${allocatorUrl}/miden-recipient`;
+    const body = await fetchBoundedJson(io.fetch, url, { maxBytes: HEALTH_MAX_BYTES, timeoutMs: HEALTH_TIMEOUT_MS });
+    const named = isRecord(body) ? body.midenP2IDRecipientAccountId : undefined;
+    if (typeof named !== 'string' || named.trim() === '') throw new Error(`${url} names no Miden account`);
+    const accountId = await io.midenAccountHex(named.trim());
+    if (!/^0x[0-9a-f]{30}$/.test(accountId)) throw new Error(`${url} names an invalid Miden account`);
+    return { accountId };
+  });
 }
 
 const isIndexerServing = (body: unknown) => isRecord(body) && body.status === 'SERVING';
@@ -669,50 +697,61 @@ async function probeDepositTokens(
   });
 }
 
-type EvmUsdcRead = (chainId: number) => Promise<Probe<TokenMetadata>>;
+type UnderlyingRead = (chainId: number, underlying: EvmAddress) => Promise<Probe<TokenMetadata>>;
 
-// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market, and only a
-// market the document lists (`earn.vaults`). The vault catalogue (`/pools`, else the zero account's positions on a
-// host with no `/pools` route) of each route the list names is read; a route it does not name is not read. The
-// positions fallback names no token, so it takes the symbol and decimals from the route's own USDC read when that
-// read succeeds. The vaults of every route are merged in the list's order, and one failed route read fails the
-// catalogue and the market. The market is the first listed vault that the document keeps open and the catalogue
-// opens, else the first listed vault that the catalogue serves.
+/** The distinct `(chainId, underlying)` pairs that the listed vaults name, in the list's order. */
+function listedMarketPairs(listed: readonly EarnVaultConfig[]): { chainId: number; underlying: EvmAddress }[] {
+  const pairs = new Map<string, { chainId: number; underlying: EvmAddress }>();
+  for (const vault of listed) {
+    const [, chainId = '', underlying = ''] = vault.marketUid.split(':');
+    const key = `${chainId}:${underlying}`;
+    if (!pairs.has(key)) pairs.set(key, { chainId: Number(chainId), underlying: getAddress(underlying) });
+  }
+  return [...pairs.values()];
+}
+
+// A deposit mandates the market's chain and token, so only a market that the document lists (`earn.vaults`) can be
+// the market. The derivation reads the vault catalogue (`/pools`, else the zero account's positions on a host with no
+// `/pools` route) once for each chain and token that the list names. The positions fallback names no token, so it
+// takes the symbol and decimals from the token's own read when that read succeeds. The vaults of every read are merged
+// in the list's order. One failed read fails the catalogue and the market. The market is the first listed vault that
+// the document keeps open and the catalogue opens, else the first listed vault that the catalogue serves.
 async function discoverEarnVaults(
   config: BridgeConfig,
   io: DeriveDeps,
-  readEvmUsdc: EvmUsdcRead
+  readUnderlying: UnderlyingRead
 ): Promise<{ vaults: Probe<EarnVaultInfo[]>; market: Probe<EarnMarket> }> {
   const positionsUrl = config['bridge-providers'].epoch.positionsUrl;
-  const listed = config.earn?.vaults ?? [];
-  const routes = Object.values(config.supportedEvmChains).flatMap(chain => {
-    const usdc = chain.bridges.epoch?.tokens.USDC?.contractAddress;
-    return usdc ? [{ chainId: chain.chainId, usdc: getAddress(usdc) }] : [];
-  });
-  const listedRoutes = routes.filter(route =>
-    listed.some(vault => vault.marketUid.endsWith(`:${route.chainId}:${route.usdc.toLowerCase()}`))
+  const supportedChainIds = new Set(Object.values(config.supportedEvmChains).map(chain => chain.chainId));
+  const listed = (config.earn?.vaults ?? []).filter(vault =>
+    supportedChainIds.has(Number(vault.marketUid.split(':')[1]))
   );
-  if (!positionsUrl || listedRoutes.length === 0) return { vaults: { state: 'skipped' }, market: { state: 'skipped' } };
+  if (!positionsUrl || listed.length === 0) return { vaults: { state: 'skipped' }, market: { state: 'skipped' } };
+  const pairs = listedMarketPairs(listed);
   const vaults = await attempt(async () => {
     const reads = await Promise.allSettled(
-      listedRoutes.map(async route => {
-        const usdc = await readEvmUsdc(route.chainId);
+      pairs.map(async ({ chainId, underlying }) => {
+        const token = await readUnderlying(chainId, underlying);
+        const usdc = Object.values(config.supportedEvmChains).find(chain => chain.chainId === chainId)?.bridges.epoch
+          ?.tokens.USDC?.contractAddress;
         return readEarnVaults(
           io.fetch,
           {
             positionsUrl,
-            chainId: route.chainId,
-            underlying: route.usdc,
+            chainId,
+            underlying,
             listed,
-            ...(usdc.state === 'ok'
-              ? { fallbackUnderlying: { symbol: usdc.value.symbol, decimals: usdc.value.decimals } }
-              : {})
+            ...(token.state === 'ok'
+              ? { fallbackUnderlying: { symbol: token.value.symbol, decimals: token.value.decimals } }
+              : usdc?.toLowerCase() === underlying.toLowerCase()
+                ? {}
+                : { fallbackUnderlying: null })
           },
           HEALTH_TIMEOUT_MS
         );
       })
     );
-    // The document's list order decides, across every route. Chain order in `supportedEvmChains` says nothing about
+    // The document's list order decides, across every read. Chain order in `supportedEvmChains` says nothing about
     // which vault comes first.
     const order = new Map(listed.map((vault, index) => [vault.marketUid, index]));
     const rank = (vault: EarnVaultInfo): number => order.get(vault.marketUid.toLowerCase()) ?? listed.length;
@@ -745,8 +784,8 @@ export async function deriveBridgeConfig(
   const readFaucet = sharedFaucetReads(io, rpcUrl);
   const supportedChains = Object.values(config.supportedEvmChains);
   const evmReads = new Map(supportedChains.map(chain => [chain.chainId, io.evm(chain.chainId)]));
-  // One read per Epoch token per chain. The route's USDC read is also the token of the Earn catalogue's positions
-  // fallback on that route.
+  // One read per Epoch token per chain. When a listed Earn market is in a chain's Epoch USDC, the Earn catalogue's
+  // positions fallback uses that same read.
   const tokenFaucets = readTokenFaucets(io, config.network);
   const epochTokenReads = new Map(
     supportedChains.map(chain => [
@@ -768,13 +807,21 @@ export async function deriveBridgeConfig(
       )
     ])
   );
-  const readEvmUsdc: EvmUsdcRead = chainId =>
-    epochTokenReads.get(chainId)?.USDC ?? Promise.resolve<Probe<TokenMetadata>>({ state: 'skipped' });
-  const [earn, allocator, midenUsdcFaucet, indexer, swapPairs] = await Promise.all([
-    discoverEarnVaults(config, io, readEvmUsdc),
+  // The token of a listed Earn market. The chain's Epoch USDC read serves it when the addresses match. Any other token
+  // gets its own ERC-20 read.
+  const readEarnUnderlying: UnderlyingRead = (chainId, underlying) => {
+    const chain = supportedChains.find(item => item.chainId === chainId);
+    const usdc = chain?.bridges.epoch?.tokens.USDC?.contractAddress;
+    const usdcRead = epochTokenReads.get(chainId)?.USDC;
+    if (usdcRead && usdc?.toLowerCase() === underlying.toLowerCase()) return usdcRead;
+    return probeErc20(evmReads.get(chainId) ?? null, underlying);
+  };
+  const [earn, allocator, allocatorAccount, midenUsdcFaucet, indexer, swapPairs] = await Promise.all([
+    discoverEarnVaults(config, io, readEarnUnderlying),
     when(epoch.allocatorUrl, url =>
       checkHealth(io.fetch, `${url}/health`, body => isAllocatorHealthy(body, epochSdkChainIds(config)))
     ),
+    when(epoch.allocatorUrl, url => readAllocatorAccount(io, url)),
     when(faucetId, id => attempt(() => readFaucet(id))),
     when(providers.agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing)),
     when(config.swap?.etaUrl, url => readSwapPairs(io.fetch, url, readFaucet))
@@ -811,7 +858,7 @@ export async function deriveBridgeConfig(
     derivedAt: io.now(),
     chains,
     agglayer: { indexer },
-    epoch: { allocator, market: earn.market, midenUsdcFaucet, vaults: earn.vaults },
+    epoch: { allocator, allocatorAccount, market: earn.market, midenUsdcFaucet, vaults: earn.vaults },
     swap: { pairs: swapPairs }
   };
 }

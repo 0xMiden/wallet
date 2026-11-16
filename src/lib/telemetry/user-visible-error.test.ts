@@ -25,6 +25,11 @@ beforeEach(() => {
 });
 
 describe('user-visible error reports', () => {
+  it('recognizes the Earn balance load error id', () => {
+    expect(USER_ERROR_IDS).toContain('earnBalanceLoadError');
+    expect(isUserErrorId('earnBalanceLoadError')).toBe(true);
+  });
+
   it('reports a known id and surface once as WalletUserVisibleError', () => {
     reportUserVisibleError('usdcxFaucetUnavailable', 'review');
 
@@ -175,8 +180,9 @@ describe('user-visible error reports', () => {
 test('startup warning retains closed attempt diagnostics without attaching them to unrelated reports', () => {
   const diagnostics = {
     startupEligibilityStage: 'eligibility_lookup',
-    startupEligibilityReason: 'version_mismatch',
-    startupEligibilityRetry: 'config_not_advanced'
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'config_not_advanced',
+    startupEligibilityRequestFailure: 'timeout'
   };
   const reportWithDiagnostics = reportUserVisibleError as (...args: unknown[]) => void;
   reportWithDiagnostics('walletAccessUnavailableBody', 'startup', diagnostics);
@@ -356,6 +362,7 @@ it('rejects arbitrary or accessor-backed burn fee diagnostics without evaluating
 });
 
 it.each([
+  ['earnBalanceLoadError', 'notice'],
   ['earnPositionsLoadError', 'inline'],
   ['earnVaultLoadError', 'notice']
 ])('rejects an Earn load observation on the mismatching pair %s/%s', (id, surface) => {

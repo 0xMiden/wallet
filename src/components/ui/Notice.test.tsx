@@ -18,6 +18,23 @@ it('renders the body as a note, with no title or glyph unless given', () => {
   expect(notice.querySelector('[data-slot="icon"]')).toBeNull();
 });
 
+it('keeps a trailing value inside the surface and outside the role', () => {
+  render(
+    <Notice
+      data-testid="notice"
+      role="status"
+      title="Retry after noon"
+      trailing={<time data-testid="tick">17:58</time>}
+    />
+  );
+
+  const notice = screen.getByTestId('notice');
+  expect(notice).not.toHaveAttribute('role');
+  expect(notice).toContainElement(screen.getByTestId('tick'));
+  expect(screen.getByRole('status')).toHaveTextContent('Retry after noon');
+  expect(screen.getByRole('status')).not.toContainElement(screen.getByTestId('tick'));
+});
+
 it('draws a tinted 16px-radius surface with no border', () => {
   render(<Notice data-testid="notice">Body</Notice>);
 

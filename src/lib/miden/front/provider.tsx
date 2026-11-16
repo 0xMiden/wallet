@@ -6,6 +6,7 @@ import { BadgeIssuanceManager } from 'lib/badges/BadgeIssuanceManager';
 import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
+import { BackgroundLockManager } from 'lib/lock-up/BackgroundLockManager';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { MidenSharedStorageKey } from 'lib/miden/types';
@@ -216,6 +217,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
                 the extension, where the service worker's `setupTransactionProcessor`
                 already does this. */}
             <OrphanedTransactionRecovery />
+            <BackgroundLockManager />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

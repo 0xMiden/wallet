@@ -25,8 +25,10 @@ import {
   storedNoteIds,
   verifiedLandingRowFields
 } from './helper';
+import { orderFromSavedRequest, sameRequestBytes, swapOpensOrderFromRead } from './pinned-replay-check';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, LandingProof, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
+import { submitApproach } from './submit-approach-diagnostics';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
@@ -190,16 +192,38 @@ export const recordLandedDeliveryTarget = (
   return target;
 };
 
+interface SavedRequestOrder {
+  decodedBytes?: Uint8Array;
+  savedOrder?: Awaited<ReturnType<typeof orderFromSavedRequest>>;
+}
+
+const NO_SAVED_ORDER: SavedRequestOrder = {};
+
+/** A swap row that holds no order: the bytes its saved request had when decoded, and the order they name. */
+async function savedRequestOrder(rowId: string): Promise<SavedRequestOrder> {
+  const preview = await Repo.transactions.where({ id: rowId }).first();
+  if (preview === undefined || preview.type !== 'swap' || !swapOpensOrderFromRead(preview)) return NO_SAVED_ORDER;
+  return { decodedBytes: preview.requestBytes, savedOrder: await orderFromSavedRequest(preview.requestBytes) };
+}
+
 /**
  * The landed write: one rw transaction that re-reads every row of the account, the target's included. If any entry
  * differs from what the judgement read, or the deferral now holds the landing, it writes nothing and the next pass
  * judges again from the fresh rows. One that records a delivery target is a delivery write, counted once it commits,
  * so an idle sweep looks again.
  */
-async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: string): Promise<boolean> {
+async function writeLanding(
+  rowId: string,
+  judgement: RowJudgement,
+  accountKey: string,
+  saved: SavedRequestOrder
+): Promise<boolean> {
   const landing = judgement.landed;
   const landedEntry = judgement.judgedEntries.find(entry => entry.attemptId === landing?.attemptId);
   if (landing === undefined || landedEntry === undefined) return false;
+  // The saved request was decoded before the final network check, since the write cannot await the WASM lock. Its
+  // order is the `read` only while the fresh row still holds the bytes that were decoded.
+  const { decodedBytes, savedOrder } = saved;
   let landed: ITransaction | undefined;
   let addedTarget: string[] | undefined;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
@@ -212,11 +236,15 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     const freshRows = await accountRowsOf(fresh);
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
-    applyVerifiedLanding(fresh, {
-      ...verifiedLandingRowFields(fresh),
-      ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
-      completedAt: fresh.completedAt
-    });
+    applyVerifiedLanding(
+      fresh,
+      {
+        ...verifiedLandingRowFields(fresh),
+        ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
+        completedAt: fresh.completedAt
+      },
+      sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined
+    );
     const target = recordLandedDeliveryTarget(fresh, landing);
     await Repo.transactions.put(fresh);
     landed = fresh;
@@ -317,6 +345,7 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
         : {}),
       ...(proofWaitBlocks === undefined ? {} : { proofWaitBlocks }),
       ...(expiryWindowBlocks === undefined ? {} : { expiryWindowBlocks }),
+      ...submitApproach(failed),
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     };
     if (judgement.neverCommittedBy === 'expired') annotateProofWaitAvailability(failure, availability);
@@ -371,13 +400,16 @@ export async function judgeAndWrite(rowId: string, context: JudgeContext): Promi
   // A landing this call found but did not write still reads as one, so Retry refuses it rather than reach the
   // acknowledgeable refusal a plain send could pay twice through.
   const unsettled = judgement.landed !== undefined || judgement.landingHeld ? 'landing-pending' : 'pending';
+  // A swap landing that holds no order decodes its saved request here, before the network check that has to come
+  // right before the write: the decode can wait on the WASM lock.
+  const saved = judgement.landed === undefined ? NO_SAVED_ORDER : await savedRequestOrder(row.id);
   if (!(await networkStillMatches(context.node, decided))) {
     return { kind: unsettled, judgement, baseline: evidenceKey(judgement.judgedEntries) };
   }
   const baseline = evidenceKey(applyEntryWrites(judgement.judgedEntries, judgement));
 
   if (judgement.landed !== undefined) {
-    if (await writeLanding(row.id, judgement, accountKey)) return { kind: 'landed' };
+    if (await writeLanding(row.id, judgement, accountKey, saved)) return { kind: 'landed' };
     return { kind: 'landing-pending', judgement, baseline };
   }
   if (judgement.allDead && (await writeNeverCommitted(row.id, judgement, context.nowSec))) {
@@ -512,8 +544,9 @@ export interface CandidateRelease {
   /**
    * Asks the account's Guardian to abandon the candidate at `nonce` that the attempt `attemptId` kept. Undefined when
    * there is nothing to poll: this realm's record of the account's candidate is not that attempt's at that nonce
-   * (another realm, a restart, another write's record), its abandon window closed, the account's Guardian changed, no
-   * service could be built, or the abandon failed, so the Guardian may never have taken it.
+   * (another realm, a process that ended it without the startup sweep, another write's record), its abandon window
+   * closed, the account's Guardian changed, no service could be built, or the abandon failed, so the Guardian may never
+   * have taken it.
    */
   abandon(accountId: string, nonce: number, attemptId: string): Promise<KeptCandidatePoll | undefined>;
 }
@@ -553,7 +586,9 @@ const clearKeptCandidate = async (rowId: string, attemptId: string, nonce: numbe
  * (nothing asked, or an abandon that failed), or the time running out leaves it, and Retry's hold then waits for the
  * Guardian's own discard. Best-effort and bounded: a later pass joins this one meanwhile, which is rare (only right
  * after such a proof) and cheaper than a second release. The bound reads the monotonic clock and caps every read at
- * the time left, so neither a wall clock set back nor a Guardian slow to answer can hold the pass past it.
+ * the time left, so neither a wall clock set back nor a Guardian slow to answer can hold the pass past it, except on a
+ * read a freeze crosses: its cap is running time (#2060), which a freeze does not spend, so that read can run on for
+ * what was left of the cap after the resume, while the bound has already passed.
  */
 async function releaseKeptCandidates(
   accountId: string,
@@ -603,10 +638,11 @@ let runningPass: Promise<void> | undefined;
 
 /**
  * One reconciler pass in this realm (#1081), fired and forgotten after a successful sync; a second call joins the
- * running pass. Judging takes no WASM client lock: its reads go to the node. With a `release`, each kept Guardian
- * candidate of a row proven never committed adds a short WASM-lock read to build the cold service, a Guardian abandon
- * under the outgoing deadline, and at most 60 s of polling. Never rejects: each row is judged, and each candidate
- * released, in its own try.
+ * running pass. Its node reads take no WASM client lock. A swap landing that holds no order decodes its saved
+ * request in a short WASM-lock hold before the final network check, outside the Dexie transaction. With a `release`,
+ * each kept Guardian candidate of a row proven never committed adds a short WASM-lock read to build the cold service,
+ * a Guardian abandon under the outgoing deadline, and at most 60 s of polling. Never rejects: each row is judged, and
+ * each candidate released, in its own try.
  */
 export const reconcileUnconfirmedTransactions = (deps: ReconcileDeps = {}): Promise<void> => {
   runningPass ??= runPass(deps).finally(() => {

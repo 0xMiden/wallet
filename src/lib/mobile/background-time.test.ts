@@ -5,6 +5,7 @@ import {
   initBackgroundTimeTracking,
   runningNow,
   setRunningTimeout,
+  wasRecordingHiddenTimeAt,
   __resetBackgroundTimeForTest
 } from './background-time';
 import { installHiddenDocument, type HiddenDocument } from './testing/hidden-document';
@@ -534,5 +535,37 @@ describe('installHiddenDocument (test fixture)', () => {
     expect(Date.now() - epochBefore).toBe(90_000);
     expect(pulse).toHaveBeenCalledTimes(1);
     expect(ranAt).toEqual([monoBefore + 90_000]);
+  });
+});
+
+describe('wasRecordingHiddenTimeAt', () => {
+  const STARTED_AT = 1_800_000_000_000;
+  let clock: jest.SpyInstance;
+
+  beforeEach(() => {
+    __resetBackgroundTimeForTest();
+    clock = jest.spyOn(Date, 'now').mockReturnValue(STARTED_AT);
+  });
+
+  afterEach(() => {
+    clock.mockRestore();
+    __resetBackgroundTimeForTest();
+  });
+
+  it('is false until tracking is installed', () => {
+    expect(wasRecordingHiddenTimeAt(STARTED_AT)).toBe(false);
+  });
+
+  it('is false for a moment before this run started recording, and true from then on', () => {
+    initBackgroundTimeTracking();
+    expect(wasRecordingHiddenTimeAt(STARTED_AT - 1)).toBe(false);
+    expect(wasRecordingHiddenTimeAt(STARTED_AT)).toBe(true);
+    expect(wasRecordingHiddenTimeAt(STARTED_AT + 1)).toBe(true);
+  });
+
+  it('forgets the start with the rest of the state', () => {
+    initBackgroundTimeTracking();
+    __resetBackgroundTimeForTest();
+    expect(wasRecordingHiddenTimeAt(STARTED_AT)).toBe(false);
   });
 });

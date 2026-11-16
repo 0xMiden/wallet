@@ -1,5 +1,6 @@
 import {
   fetchBoundedJson,
+  type JsonFetch,
   type JsonResponse,
   readTimestampedEntry,
   requestTimeoutError,
@@ -138,6 +139,8 @@ describe('fetchBoundedJson', () => {
     });
     return { fetchFn, seen };
   };
+  const failureOptions = (onFailure: (failure: string) => void) =>
+    ({ ...LIMITS, onFailure }) as Parameters<typeof fetchBoundedJson>[2];
 
   it('asks for JSON past the browser cache, under a signal, and parses the body it measured', async () => {
     const { fetchFn, seen } = recordingFetch(textResponse('{"a":1}'));
@@ -163,9 +166,12 @@ describe('fetchBoundedJson', () => {
     // Valid JSON, so only the cap refuses it: maxBytes + 1 bytes over three chunks.
     const bytes = new TextEncoder().encode(`${' '.repeat(63)}{}`);
     const response = streamResponse([bytes.slice(0, 22), bytes.slice(22, 44), bytes.slice(44)]);
-    await expect(fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS)).rejects.toThrow(
-      'too large'
+    const caught = await fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS).catch(
+      (error: unknown) => error
     );
+    const caughtError = caught instanceof Error ? caught : new Error('non-Error rejection');
+    expect(caughtError.name).toBe('ResponseTooLargeError');
+    expect(caughtError.message).toContain('too large');
     expect(response.read).toHaveBeenCalledTimes(3);
     expect(response.text).not.toHaveBeenCalled();
   });
@@ -249,6 +255,35 @@ describe('fetchBoundedJson', () => {
     );
   });
 
+  it('reports transport, HTTP, size, body-read, and decode failures without changing rejection behavior', async () => {
+    const classify = async (fetchFn: JsonFetch, expected: string) => {
+      const onFailure = jest.fn();
+      await expect(fetchBoundedJson(fetchFn, LIST_URL, failureOptions(onFailure))).rejects.toThrow();
+      expect(onFailure).toHaveBeenCalledTimes(1);
+      expect(onFailure).toHaveBeenCalledWith(expected);
+    };
+
+    await classify(jest.fn().mockRejectedValue(new TypeError('private transport detail')), 'transport_error');
+    await classify(jest.fn().mockResolvedValue({ ...textResponse('{}'), ok: false }), 'http_error');
+    await classify(jest.fn().mockResolvedValue(textResponse('{}', { 'content-length': '65' })), 'response_too_large');
+    await classify(
+      jest.fn().mockResolvedValue({ ...textResponse('{}'), text: jest.fn().mockRejectedValue(new Error('private')) }),
+      'body_read_error'
+    );
+    await classify(jest.fn().mockResolvedValue(textResponse('{')), 'json_decode_error');
+  });
+
+  it('reports a rejected json-only decode as a closed failure', async () => {
+    const onFailure = jest.fn();
+    const fetchFn = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockRejectedValue(new SyntaxError('private decode detail'))
+    });
+
+    await expect(fetchBoundedJson(fetchFn, LIST_URL, failureOptions(onFailure))).rejects.toThrow(SyntaxError);
+    expect(onFailure).toHaveBeenCalledWith('json_decode_error');
+  });
+
   describe('its timeout', () => {
     beforeEach(() => {
       jest.useFakeTimers();
@@ -276,16 +311,101 @@ describe('fetchBoundedJson', () => {
     });
 
     it('rejects a request still unanswered when the time runs out', async () => {
+      const onFailure = jest.fn();
       const fetchFn = jest.fn(
         (_url: string, init: { signal: AbortSignal }) =>
           new Promise<never>((_resolve, reject) => {
-            init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+            init.signal.addEventListener('abort', () => reject(init.signal.reason));
           })
       );
-      const read = fetchBoundedJson(fetchFn, LIST_URL, LIMITS).catch((error: unknown) => error);
+      const read = fetchBoundedJson(fetchFn, LIST_URL, failureOptions(onFailure)).catch((error: unknown) => error);
       await jest.advanceTimersByTimeAsync(LIMITS.timeoutMs);
-      await expect(read).resolves.toEqual(new Error('aborted'));
+      await expect(read).resolves.toBeInstanceOf(DOMException);
+      expect(onFailure).toHaveBeenCalledWith('timeout');
     });
+
+    it('classifies an AbortError signal reason during a timer abort as timeout', async () => {
+      const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason');
+      const abortError = new DOMException('The operation was aborted.', 'AbortError');
+      Object.defineProperty(AbortSignal.prototype, 'reason', { configurable: true, get: () => abortError });
+      try {
+        const onFailure = jest.fn();
+        const fetchFn = jest.fn(
+          (_url: string, { signal }: { signal: AbortSignal }) =>
+            new Promise<never>((_resolve, reject) => {
+              signal.addEventListener('abort', () => reject(abortError), { once: true });
+            })
+        );
+        const read = fetchBoundedJson(fetchFn, LIST_URL, failureOptions(onFailure)).catch((error: unknown) => error);
+        await jest.advanceTimersByTimeAsync(LIMITS.timeoutMs);
+        await expect(read).resolves.toMatchObject({ name: 'AbortError' });
+        expect(onFailure).toHaveBeenCalledWith('timeout');
+      } finally {
+        if (descriptor) Object.defineProperty(AbortSignal.prototype, 'reason', descriptor);
+        else Reflect.deleteProperty(AbortSignal.prototype, 'reason');
+      }
+    });
+
+    const withoutAbortSignalReason = async <T>(body: () => Promise<T>): Promise<T> => {
+      const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason');
+      Object.defineProperty(AbortSignal.prototype, 'reason', { configurable: true, get: () => undefined });
+      try {
+        return await body();
+      } finally {
+        if (descriptor) Object.defineProperty(AbortSignal.prototype, 'reason', descriptor);
+        else Reflect.deleteProperty(AbortSignal.prototype, 'reason');
+      }
+    };
+
+    const runLegacyTimeout = async (fetchFn: JsonFetch) =>
+      withoutAbortSignalReason(async () => {
+        const onFailure = jest.fn();
+        const read = fetchBoundedJson(fetchFn, LIST_URL, failureOptions(onFailure)).catch((error: unknown) => error);
+        await jest.advanceTimersByTimeAsync(LIMITS.timeoutMs);
+        return { read, onFailure };
+      });
+
+    it.each(['pending fetch', 'body read'])(
+      'classifies a legacy abort with no signal.reason during %s as timeout',
+      async arm => {
+        const abortError = new DOMException('The operation was aborted.', 'AbortError');
+        let fetchFn: JsonFetch;
+        if (arm === 'pending fetch') {
+          fetchFn = jest.fn(
+            (_url: string, { signal }: { signal: AbortSignal }) =>
+              new Promise<never>((_resolve, reject) => {
+                signal.addEventListener('abort', () => reject(abortError), { once: true });
+                if (signal.aborted) reject(abortError);
+              })
+          );
+        } else {
+          fetchFn = jest.fn((_url: string, { signal }: { signal: AbortSignal }) => {
+            let aborted = false;
+            let rejectRead: ((error: DOMException) => void) | undefined;
+            const rejectOnAbort = () => {
+              aborted = true;
+              rejectRead?.(abortError);
+            };
+            signal.addEventListener('abort', rejectOnAbort, { once: true });
+            if (signal.aborted) rejectOnAbort();
+            return Promise.resolve({
+              ok: true,
+              text: () =>
+                new Promise<string>((_resolve, reject) => {
+                  rejectRead = reject;
+                  if (aborted || signal.aborted) reject(abortError);
+                }),
+              json: jest.fn()
+            });
+          });
+        }
+
+        const { read, onFailure } = await runLegacyTimeout(fetchFn);
+        await expect(read).resolves.toMatchObject({ name: 'AbortError' });
+        expect(onFailure).toHaveBeenCalledTimes(1);
+        expect(onFailure).toHaveBeenCalledWith('timeout');
+      }
+    );
   });
 });
 

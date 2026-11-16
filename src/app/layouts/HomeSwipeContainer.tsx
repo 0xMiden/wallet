@@ -2,6 +2,7 @@ import React, { FC, memo, ReactNode, useCallback, useEffect, useLayoutEffect, us
 
 import { useReducedMotion } from 'framer-motion';
 
+import { setHomePagerPreview } from 'app/layouts/home-pager-preview';
 import { PageActiveContext, usePageActive, useTabShownAgain } from 'app/layouts/page-active';
 import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
@@ -287,6 +288,8 @@ const HomeSwipeContainer: FC = () => {
   // Route-driven moves. A settle's own navigate lands here too, already aligned, and does nothing.
   useLayoutEffect(() => {
     if (onHome) lastHomeIdxRef.current = activeIdx;
+    // The route names the page now, so the swipe's preview is done.
+    setHomePagerPreview(null);
     const scroller = scrollerRef.current;
     const track = trackRef.current;
     if (!scroller || !track || !width) return;
@@ -341,7 +344,11 @@ const HomeSwipeContainer: FC = () => {
     const settle = (k: number) => {
       finishGesture();
       const page = pagesRef.current[k];
-      if (!page || k === committedIdxRef.current) return;
+      if (!page || k === committedIdxRef.current) {
+        // The swipe came back to the page it started on: no navigation clears the preview.
+        setHomePagerPreview(null);
+        return;
+      }
       committedIdxRef.current = k;
       // A swipe that lands on another page is a tab switch, so it buzzes once, at the landing, like a
       // tap on the bar does; the bar buzzes only for taps, so the two never double up.
@@ -391,6 +398,13 @@ const HomeSwipeContainer: FC = () => {
       if (ignoreScroll()) return;
       lastScrollAtRef.current = Date.now();
       beginGesture();
+      // The action bar follows the page nearest the scroll position during the swipe, so its pill
+      // moves when the page crosses half way, not after the swipe settles and navigates.
+      const w = widthRef.current;
+      if (w) {
+        const k = Math.min(pagesRef.current.length - 1, Math.max(0, Math.round(scroller.scrollLeft / w)));
+        setHomePagerPreview(pagesRef.current[k]?.id ?? null);
+      }
       if (!supportsScrollEnd) armIdle();
     };
     // Ignored while a finger is down: a finger held still mid-drag must never commit.
@@ -458,6 +472,7 @@ const HomeSwipeContainer: FC = () => {
       catchHeldRef.current = false;
       scroller.style.scrollSnapType = SNAP_TYPE;
       finishGesture();
+      setHomePagerPreview(null);
     };
   }, [endFlip, scrollProgrammatically]);
 

@@ -1,24 +1,29 @@
-import {
-  FungibleAsset,
-  NonFungibleAsset,
-  Note,
-  NoteFile,
-  TransactionRequest,
-  TransactionResult,
-  TransactionSummary
-} from '@miden-sdk/miden-sdk/lazy';
+import { FungibleAsset, NonFungibleAsset, TransactionResult, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
-import type { NoteDecodeOptions } from 'lib/miden/note-quarantine';
 import { canonicalWalletAccountId, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { nftKey, toNft, type NftAsset } from 'lib/miden/sdk/nft-asset';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 export type { NftAsset };
 
+/**
+ * An NFT as a decoded view lists it: what the sheet shows, plus `key`, the complete identity (`nftKey`: faucet and the
+ * whole value word) that the short `assetId` cannot give. The signing-time check matches approved NFTs by `key` only.
+ */
+export type ViewNft = NftAsset & { key?: string };
+
 export interface AssetAmount {
   faucetId: string;
   amount: bigint;
+}
+
+/** One note a verified transaction consumes or creates. `opaque` when its assets cannot be read (amounts and nfts are then empty). */
+export interface ViewNote {
+  id: string;
+  amounts: AssetAmount[];
+  nfts: ViewNft[];
+  opaque?: true;
 }
 
 export interface TxAssetView {
@@ -28,10 +33,10 @@ export interface TxAssetView {
   outgoing: AssetAmount[];
   /** Assets entering the account (consumed notes / added vault assets). */
   incoming: AssetAmount[];
-  /** NFTs leaving the account. Always empty on the summary path, which cannot list them: see `unlistedAssets`. */
-  outgoingNfts: NftAsset[];
-  /** NFTs entering the account (consumed notes). Always empty on the summary path. */
-  incomingNfts: NftAsset[];
+  /** NFTs leaving the account, from the notes created; a vault change no note explains is in `unlistedAssets`. */
+  outgoingNfts: ViewNft[];
+  /** NFTs entering the account, from the notes consumed. */
+  incomingNfts: ViewNft[];
   /**
    * Vault changes the view cannot list. The summary path reads a vault delta whose non-fungible side the SDK does
    * not expose, so it counts them instead: `numAssets()` less the fungible entries it did list. Non-zero must be
@@ -55,6 +60,12 @@ export interface TxAssetView {
    */
   fee?: AssetAmount;
   storageChanged: boolean;
+  /** Every input note, with its id. Set by the verified builders only. */
+  viewConsumedNotes?: ViewNote[];
+  /** User-created notes with their ids; the fee note is excluded. Set by the verified builders only. */
+  createdNotes?: ViewNote[];
+  /** How many consumed notes the account already held. Set only by {@link toHoldingsView}. */
+  heldNotesSpent?: number;
 }
 
 function toAmounts(assets: FungibleAsset[]): AssetAmount[] {
@@ -79,39 +90,19 @@ function noteNftAssets(note: NoteWithAssets | undefined): NonFungibleAsset[] {
   return note?.assets()?.nonFungibleAssets() ?? [];
 }
 
-function noteNfts(note: NoteWithAssets | undefined): NftAsset[] {
-  return noteNftAssets(note).map(toNft);
+type NoteId = { id(): { toString(): string } };
+
+const idOf = (note: NoteId): string => note.id().toString().toLowerCase();
+
+function viewNoteOf(id: string, note: NoteWithAssets | undefined): ViewNote {
+  if (!note?.assets()) return { id, amounts: [], nfts: [], opaque: true };
+  return { id, amounts: noteAssets(note), nfts: noteNfts(note) };
 }
 
-/**
- * Assets of a carried `importNotes` entry, parsing a serialized NoteFile OR a
- * bare Note (the dApp chooses which, mirroring importNoteBytes). Handling only
- * one format would throw for the other and blank the declared incoming assets.
- */
-function importedNoteContents(
-  b64: string,
-  options: NoteDecodeOptions = {}
-): { amounts: AssetAmount[]; nfts: NftAsset[] } {
-  const bytes = b64ToU8(b64);
-  const contentsOf = (note: NoteWithAssets | undefined) => ({ amounts: noteAssets(note), nfts: noteNfts(note) });
-  try {
-    const nf = NoteFile.deserialize(bytes);
-    return contentsOf(nf.note() ?? nf.noteDetails());
-  } catch (error) {
-    if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
-    // Not a NoteFile — try a bare Note below.
-  }
-  try {
-    return contentsOf(Note.deserialize(bytes));
-  } catch (error) {
-    if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
-    return { amounts: [], nfts: [] };
-  }
-}
+const viewNft = (asset: NonFungibleAsset): ViewNft => ({ ...toNft(asset), key: nftKey(asset) });
 
-/** The fungible side of {@link importedNoteContents}, which is all a spending limit reads. */
-export function importedNoteAssets(b64: string, options: NoteDecodeOptions = {}): AssetAmount[] {
-  return importedNoteContents(b64, options).amounts;
+function noteNfts(note: NoteWithAssets | undefined): ViewNft[] {
+  return noteNftAssets(note).map(viewNft);
 }
 
 /**
@@ -121,12 +112,12 @@ export function importedNoteAssets(b64: string, options: NoteDecodeOptions = {})
 function netNfts(
   created: NonFungibleAsset[],
   consumed: NonFungibleAsset[]
-): { leaving: NftAsset[]; entering: NftAsset[] } {
+): { leaving: ViewNft[]; entering: ViewNft[] } {
   const createdKeys = new Set(created.map(nftKey));
   const consumedKeys = new Set(consumed.map(nftKey));
   return {
-    leaving: created.filter(nft => !consumedKeys.has(nftKey(nft))).map(toNft),
-    entering: consumed.filter(nft => !createdKeys.has(nftKey(nft))).map(toNft)
+    leaving: created.filter(nft => !consumedKeys.has(nftKey(nft))).map(viewNft),
+    entering: consumed.filter(nft => !createdKeys.has(nftKey(nft))).map(viewNft)
   };
 }
 
@@ -195,7 +186,9 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
     inputNotesConsumed: inputNotes.numNotes(),
     outputNotesCreated: userNotes.length,
     fee,
-    storageChanged: !delta.storage().isEmpty()
+    storageChanged: !delta.storage().isEmpty(),
+    viewConsumedNotes: inputNotes.notes().map(input => viewNoteOf(idOf(input), input.note())),
+    createdNotes: userNotes.map(created => viewNoteOf(idOf(created), created))
   };
 }
 
@@ -221,14 +214,36 @@ export function simulatedBytesToView(result: {
 }
 
 /**
- * Per-faucet value leaving the account, for spending-limit accounting.
+ * The recipient digest of each note that a dry run creates for the user, sorted. The fee note is not included.
  *
- * `credit` is the value this request BROUGHT IN and may therefore offset: the assets of the notes
- * the request itself introduced. It is passed in rather than read from `view.incoming` because
- * `incoming` is every consumed note, and `importNotes` is dApp-authored - its own comment says the
- * ids "can name a note the user already holds". Crediting those let a dApp consume a pending 1000
- * of the user's and send 1050 while only 50 was charged. The caller computes `credit` behind the
- * wallet's own provenance check, so membership cannot be forged from the request.
+ * Uses the same ladder and the same fee-note split as `simulatedBytesToView`, so the approval dry run and the
+ * generation dry run of a custom request decode their recipients identically. `undefined` means the dry run gave
+ * neither result.
+ */
+export function simulatedOutputRecipients(result: {
+  summaryBytes?: string;
+  executedBytes?: string;
+}): string[] | undefined {
+  if (result.summaryBytes) {
+    return userNoteRecipients(TransactionSummary.deserialize(b64ToU8(result.summaryBytes)));
+  }
+  if (result.executedBytes) {
+    return userNoteRecipients(TransactionResult.deserialize(b64ToU8(result.executedBytes)).executedTransaction());
+  }
+  return undefined;
+}
+
+function userNoteRecipients(source: Parameters<typeof splitExecutedOutputNotes>[0]): string[] {
+  return splitExecutedOutputNotes(source)
+    .userNotes.map(note => note.recipientDigest().toHex())
+    .sort();
+}
+
+/**
+ * Per-faucet value leaving the account: the view's `outgoing`, never reduced by what it consumed. `incoming` counts
+ * every consumed note, including ones the user already held, and crediting those let a dApp consume a pending 1000
+ * of the user's and send 1050 while only 50 was charged. A caller that must credit the notes a request brought in
+ * measures a holdings view ({@link toHoldingsView}) instead.
  *
  * ONE ENTRY PER CANONICAL FAUCET. The executed view flat-maps over output notes, so two notes on
  * one faucet arrive as two entries, and the same faucet can arrive under two spellings. Both
@@ -236,17 +251,66 @@ export function simulatedBytesToView(result: {
  * Folding here rather than at either consumer is what keeps the number the user is shown and the
  * number the queue enforces the same one.
  */
-export function netOutflowByFaucet(view: TxAssetView, credit: readonly AssetAmount[] = []): AssetAmount[] {
+export function netOutflowByFaucet(view: TxAssetView): AssetAmount[] {
   const signed = new Map<string, bigint>();
-  const add = (faucetId: string, amount: bigint) => {
-    const key = canonicalWalletAccountId(faucetId);
-    signed.set(key, (signed.get(key) ?? 0n) + amount);
-  };
-  for (const asset of view.outgoing) add(asset.faucetId, asset.amount);
-  for (const asset of credit) add(asset.faucetId, -asset.amount);
+  for (const asset of view.outgoing) {
+    const key = canonicalWalletAccountId(asset.faucetId);
+    signed.set(key, (signed.get(key) ?? 0n) + asset.amount);
+  }
   const outflow: AssetAmount[] = [];
   for (const [faucetId, amount] of signed) if (amount > 0n) outflow.push({ faucetId, amount });
   return outflow;
+}
+
+/**
+ * The view re-measured from the account's holdings: what leaves is what the account gives up, counting a consumed note
+ * it already held as value it spends. A consumed note counts as brought in only when `introducedNoteIds` names it.
+ *
+ * Per canonical faucet, `signed = outgoing - incoming + held`, where `held` sums the consumed notes the request did
+ * not introduce. The summary view's `outgoing` is the vault's net change and the executed view's is the gross output
+ * notes, and this formula gives both the same answer. Positive goes to `outgoing`, negative (negated) to `incoming`.
+ * A held note whose assets cannot be read cannot be measured, so the call throws; an introduced one is credited
+ * nothing, which can only overstate what leaves.
+ * NFTs follow the same rule: one created from an introduced note passes through, any other created NFT leaves.
+ */
+export function toHoldingsView(view: TxAssetView, introducedNoteIds: readonly string[]): TxAssetView {
+  const consumed = view.viewConsumedNotes;
+  const created = view.createdNotes;
+  if (!consumed || !created) throw new Error('the view does not list its notes');
+  const introduced = new Set(introducedNoteIds.map(id => id.toLowerCase()));
+  const held = consumed.filter(note => !introduced.has(note.id));
+  const carried = consumed.filter(note => introduced.has(note.id));
+  if (held.some(note => note.opaque)) throw new Error('a held note does not list its assets');
+
+  const signed = new Map<string, bigint>();
+  const spelling = new Map<string, string>();
+  const add = (faucetId: string, amount: bigint) => {
+    const key = canonicalWalletAccountId(faucetId);
+    if (!spelling.has(key)) spelling.set(key, faucetId);
+    signed.set(key, (signed.get(key) ?? 0n) + amount);
+  };
+  for (const asset of view.outgoing) add(asset.faucetId, asset.amount);
+  for (const asset of view.incoming) add(asset.faucetId, -asset.amount);
+  for (const note of held) for (const asset of note.amounts) add(asset.faucetId, asset.amount);
+
+  const outgoing: AssetAmount[] = [];
+  const incoming: AssetAmount[] = [];
+  for (const [key, amount] of signed) {
+    const faucetId = spelling.get(key) ?? key;
+    if (amount > 0n) outgoing.push({ faucetId, amount });
+    else if (amount < 0n) incoming.push({ faucetId, amount: -amount });
+  }
+
+  const carriedKeys = new Set(carried.flatMap(note => note.nfts.map(nft => nft.key)));
+  const createdKeys = new Set(created.flatMap(note => note.nfts.map(nft => nft.key)));
+  return {
+    ...view,
+    outgoing,
+    incoming,
+    outgoingNfts: created.flatMap(note => note.nfts).filter(nft => nft.key === undefined || !carriedKeys.has(nft.key)),
+    incomingNfts: carried.flatMap(note => note.nfts).filter(nft => nft.key === undefined || !createdKeys.has(nft.key)),
+    heldNotesSpent: held.length
+  };
 }
 
 export function summaryBytesToView(summaryB64: string): TxAssetView {
@@ -265,8 +329,7 @@ export function summaryBytesToView(summaryB64: string): TxAssetView {
  * ABSOLUTE (final balances, `AccountVaultPatch.updatedFungibleAssets()`), so it
  * cannot be read as an incoming/outgoing delta without the pre-state. Note flows
  * are the same quantities the summary view reports for the transactions this
- * screen previews, and unlike `declaredRequestToView` they are what execution
- * really produced rather than what the request declared.
+ * screen previews.
  */
 export function executedBytesToView(executedB64: string): TxAssetView {
   const executed = TransactionResult.deserialize(b64ToU8(executedB64)).executedTransaction();
@@ -285,51 +348,8 @@ export function executedBytesToView(executedB64: string): TxAssetView {
     inputNotesConsumed: inputNotes.numNotes(),
     outputNotesCreated: userNotes.length,
     fee: (feeNote ? noteAssets(feeNote) : [])[0],
-    storageChanged: !executed.accountPatch().storage().isEmpty()
-  };
-}
-
-/**
- * Declared (unverified) view decoded statically from the TransactionRequest:
- * outgoing = its expected output notes' assets; incoming = the assets of the
- * notes it consumes (carried as `importNotes`). No execution, so `account` and
- * `storageChanged` are unknown/false. These values are dApp-declared — the UI
- * must label them as such.
- */
-export function declaredRequestToView(requestB64: string, importNotes: string[] = []): TxAssetView {
-  const request = TransactionRequest.deserialize(b64ToU8(requestB64));
-  return declaredTransactionRequestToView(request, importNotes);
-}
-
-/**
- * Build the unverified asset view after the caller has established that the
- * serialized request is a valid `TransactionRequest`.
- *
- * Keeping deserialization separate lets request entry points reject malformed
- * bytes while still treating a failure to summarize a valid request as an
- * opaque transaction that the user may review.
- */
-export function declaredTransactionRequestToView(
-  request: TransactionRequest,
-  importNotes: string[] = [],
-  options: NoteDecodeOptions = {}
-): TxAssetView {
-  const outputNotes = request.expectedOutputOwnNotes();
-  const imported = importNotes.map(b64 => importedNoteContents(b64, options));
-
-  return {
-    account: undefined,
-    outgoing: outputNotes.flatMap(n => noteAssets(n)),
-    incoming: imported.flatMap(note => note.amounts),
-    outgoingNfts: outputNotes.flatMap(n => noteNfts(n)),
-    incomingNfts: imported.flatMap(note => note.nfts),
-    unlistedAssets: 0,
-    // Only counts the carried `importNotes`; it may undercount notes consumed
-    // from the wallet's own store (referenced by inputNoteIds, not carried
-    // here as full note bytes). This is the explicitly-unverified "declared"
-    // view — the verified (simulated/executed) summary supersedes it.
-    inputNotesConsumed: importNotes.length,
-    outputNotesCreated: outputNotes.length,
-    storageChanged: false
+    storageChanged: !executed.accountPatch().storage().isEmpty(),
+    viewConsumedNotes: inputNotes.notes().map(input => viewNoteOf(idOf(input), input.note())),
+    createdNotes: userNotes.map(created => viewNoteOf(idOf(created), created))
   };
 }

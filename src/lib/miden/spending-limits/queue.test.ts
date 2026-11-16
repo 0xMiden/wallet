@@ -8,7 +8,9 @@ import {
   hasSpendingLimits,
   QueueableOutgoingTransaction,
   queueOutgoingTransaction,
-  spendsOf
+  queueUnattributableCustomTransaction,
+  spendsOf,
+  UnattributableCustomSpendError
 } from './queue';
 import {
   PersistedSpendingLimit,
@@ -527,6 +529,28 @@ describe('queueOutgoingTransaction', () => {
         NOW
       )
     ).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+  });
+});
+
+describe('queueUnattributableCustomTransaction', () => {
+  it('inserts with the charge unset when no spending limit exists', async () => {
+    await queueUnattributableCustomTransaction(executeRow(), undefined);
+
+    const inserted = await transactions.get('tx-1');
+    expect(inserted).toBeDefined();
+    expect(inserted?.spentAssetTotals).toBeUndefined();
+    expect(inserted?.spentUsd).toBeUndefined();
+    expect(mockedResolve).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unattributable custom request when a spending limit exists at insert', async () => {
+    await saveConfig();
+
+    await expect(queueUnattributableCustomTransaction(executeRow(), usdAuthorization())).rejects.toBeInstanceOf(
+      UnattributableCustomSpendError
+    );
+    await expect(transactions.get('tx-1')).resolves.toBeUndefined();
+    expect(mockedResolve).not.toHaveBeenCalled();
   });
 });
 

@@ -347,6 +347,10 @@ const INGEST_URL = 'https://eu.aptabase.com/api/v0/event';
 const SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
 
 const wireText = (): string => captured.map(entry => `${entry.url}\n${entry.headers}\n${entry.body}`).join('\n');
+// Sentry's own report and trace ids are hex by design, so they are the one hex the wire may carry. A short hex needle
+// is checked without them, or a random id that happens to contain it fails the check.
+const withoutSentryIds = (text: string): string =>
+  text.replace(/"(?:event_id|trace_id|span_id|parent_span_id)":"[0-9a-f]+"/g, '');
 
 /** Flush the fire-and-forget reporting chain, plus Sentry's transport buffer. */
 async function flushEgress(): Promise<void> {
@@ -1561,7 +1565,7 @@ describe('crash-report egress', () => {
       'User rejected',
       'Request Arguments'
     ]) {
-      expect(wireText()).not.toContain(text);
+      expect(withoutSentryIds(wireText())).not.toContain(text);
     }
     expect(leaksIn(wireText())).toEqual([]);
   });
@@ -1850,13 +1854,13 @@ describe('crash-report egress', () => {
         expect(evidence.requestErrors).toBe(1);
         expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
           storageOwner: 'wallet_transactions',
-          storageOperation: 'cursor',
+          storageOperation: 'cursor_iteration',
           pageVisibility: 'hidden'
         });
         expect(event.tags).toEqual({
           network: 'testnet',
           storage_owner: 'wallet_transactions',
-          storage_operation: 'cursor'
+          storage_operation: 'cursor_iteration'
         });
         expect(event.tags).not.toHaveProperty('page_visibility');
         expect(increment).toBeGreaterThan(0);
@@ -1902,9 +1906,9 @@ describe('crash-report egress', () => {
         expect(wireText()).toContain('"pageVisibility":"hidden"');
         expect(wireText()).not.toContain('"page_visibility"');
         expect(wireText()).toContain('"storageOwner":"wallet_transactions"');
-        expect(wireText()).toContain('"storageOperation":"cursor"');
+        expect(wireText()).toContain('"storageOperation":"cursor_iteration"');
         expect(wireText()).toContain('"storage_owner":"wallet_transactions"');
-        expect(wireText()).toContain('"storage_operation":"cursor"');
+        expect(wireText()).toContain('"storage_operation":"cursor_iteration"');
         expectNoStoragePoison(wireText());
         const event = sentryEvents()[0];
         if (event === undefined) throw new Error('missing cursor report');
@@ -2415,8 +2419,9 @@ describe('user-visible error reports', () => {
     const reporter = reportUserVisibleError as (...args: unknown[]) => void;
     reporter('walletAccessUnavailableBody', 'startup', {
       startupEligibilityStage: 'eligibility_retry',
-      startupEligibilityReason: 'version_mismatch',
+      startupEligibilityReason: 'request_failed',
       startupEligibilityRetry: 'retry_failed',
+      startupEligibilityRequestFailure: 'timeout',
       raw: POISON.mnemonic12,
       account: POISON.compositePublicKey
     });
@@ -2425,8 +2430,9 @@ describe('user-visible error reports', () => {
     const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
       startupEligibilityStage: 'eligibility_retry',
-      startupEligibilityReason: 'version_mismatch',
-      startupEligibilityRetry: 'retry_failed'
+      startupEligibilityReason: 'request_failed',
+      startupEligibilityRetry: 'retry_failed',
+      startupEligibilityRequestFailure: 'timeout'
     });
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('raw');
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('account');
@@ -2732,10 +2738,6 @@ describe('WalletConnect relay failure reports', () => {
     new Error(`${PREFIX}wss://${host}?projectId=${PROJECT_ID}&auth=${RELAY_AUTH}`, {
       cause: new Error(`Subscribing to ${TOPIC} failed, please try again`)
     });
-
-  // Sentry's own report and trace ids are hex by design, so they are the one hex the wire may carry.
-  const withoutSentryIds = (text: string): string =>
-    text.replace(/"(?:event_id|trace_id|span_id|parent_span_id)":"[0-9a-f]+"/g, '');
 
   /** The failure range of each report on the wire, in the order sent. */
   const relayRanges = (): Array<string | undefined> =>

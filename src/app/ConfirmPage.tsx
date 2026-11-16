@@ -31,8 +31,8 @@ import { truncateAddress } from 'utils/string';
 
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { ConnectRequest } from './confirm/ConnectRequest';
-import { declaredRequestToView, simulatedBytesToView, TxAssetView } from './confirm/decode';
-import { noteFlowFromSimulatedBytes, NoteFlow } from './confirm/note-flow';
+import { TxAssetView } from './confirm/decode';
+import { NoteFlow } from './confirm/note-flow';
 import { RequestTiles } from './confirm/RequestTiles';
 import { SignatureRequest } from './confirm/SignatureRequest';
 import {
@@ -156,48 +156,33 @@ const CustomTransactionContent: React.FC<{
   id: string;
   account: WalletAccount;
   error?: TransactionRequestError;
-}> = ({ payload, id, account, error }) => {
+  /** Tells the form whether the simulated view is on the sheet, so it can block the approval until then. */
+  onVerifiedChange: (verified: boolean) => void;
+}> = ({ payload, id, account, error, onVerifiedChange }) => {
   const { t } = useTranslation();
   const { simulateCustomTransaction } = useMidenContext();
 
-  const declaredView = useMemo<TxAssetView | null>(() => {
-    if (!payload.requestBytes) return null;
-    try {
-      return declaredRequestToView(payload.requestBytes, payload.importNotes ?? []);
-    } catch (e) {
-      console.error('Failed to decode declared custom transaction:', e);
-      return null;
-    }
-  }, [payload.requestBytes, payload.importNotes]);
-
+  // The user approves only the simulated view. The background refuses a request whose dry run fails before it raises
+  // this sheet, and this sheet never shows the effects that the dApp declares in place of the simulated view.
   const [verifiedView, setVerifiedView] = useState<TxAssetView | null>(null);
   const [verifiedNoteFlow, setVerifiedNoteFlow] = useState<NoteFlow>();
-  const [simError, setSimError] = useState(false);
-  useUserVisibleError(
-    verifiedView ? null : declaredView ? (simError ? 'couldNotVerifyBySimulation' : null) : 'couldNotDecodeTransaction',
-    'inline'
-  );
+  const [simError, setSimError] = useState(!payload.requestBytes);
+  useUserVisibleError(simError ? 'customTransactionNotSimulated' : null, 'inline');
+
+  useEffect(() => {
+    onVerifiedChange(verifiedView !== null);
+  }, [verifiedView, onVerifiedChange]);
 
   useEffect(() => {
     if (!payload.requestBytes) return;
     let cancelled = false;
     (async () => {
       try {
-        const { summaryBytes, executedBytes } = await simulateCustomTransaction(id);
+        const { view, noteFlow } = await simulateCustomTransaction(id);
         if (cancelled) return;
-        // Summary when authorization is still pending, executed transaction for every ordinary
-        // single-sig account on web-sdk 0.16 - same ground truth either way. The choice lives in
-        // `simulatedBytesToView` so the backend's spending-limit gate decodes it identically;
-        // a second copy of this ladder there once treated every ordinary account as unsimulatable.
-        const view = simulatedBytesToView({ summaryBytes, executedBytes });
         if (view) {
           setVerifiedView(view);
-          try {
-            setVerifiedNoteFlow(noteFlowFromSimulatedBytes({ summaryBytes, executedBytes }));
-          } catch (noteError) {
-            console.error('Custom transaction note details unavailable:', noteError);
-            setVerifiedNoteFlow(undefined);
-          }
+          setVerifiedNoteFlow(noteFlow);
           return;
         }
         setSimError(true);
@@ -237,14 +222,20 @@ const CustomTransactionContent: React.FC<{
     );
   }
 
-  if (declaredView) {
-    return <CustomRequest {...shared} view={declaredView} mode="declared" simulationFailed={simError} />;
+  if (simError) {
+    return (
+      <div className="flex w-full flex-col gap-4 face-heading">
+        <p className="text-body-sm font-semibold text-ink" data-testid="tx-simulation-failed">
+          {t('customTransactionNotSimulated')}
+        </p>
+        {advanced}
+      </div>
+    );
   }
 
   return (
-    <div className="flex w-full flex-col gap-4 face-heading">
-      <p className="text-body-sm font-semibold text-ink">{t('couldNotDecodeTransaction')}</p>
-      {advanced}
+    <div className="flex w-full justify-center py-6" data-testid="tx-simulation-pending">
+      <Spinner />
     </div>
   );
 };
@@ -255,7 +246,8 @@ const TransactionBody: React.FC<{
   account: WalletAccount;
   viewKey: string;
   error?: TransactionRequestError;
-}> = ({ payload, account, viewKey, error }) => {
+  onCustomVerifiedChange: (verified: boolean) => void;
+}> = ({ payload, account, viewKey, error, onCustomVerifiedChange }) => {
   if (payload.type === 'consume') {
     return (
       <ConsumeRequest
@@ -268,7 +260,15 @@ const TransactionBody: React.FC<{
     );
   }
   if (payload.txKind === 'custom') {
-    return <CustomTransactionContent payload={payload} id={viewKey} account={account} error={error} />;
+    return (
+      <CustomTransactionContent
+        payload={payload}
+        id={viewKey}
+        account={account}
+        error={error}
+        onVerifiedChange={onCustomVerifiedChange}
+      />
+    );
   }
   return <SendRequest origin={payload.origin} account={account} messages={payload.transactionMessages} error={error} />;
 };
@@ -328,6 +328,9 @@ const ConfirmDAppForm: FC = () => {
   const delegate = isDelegateProofEnabled();
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
   const confirmationInFlightRef = useRef(false);
+  // A custom transaction is approved only once its simulated view is on the sheet.
+  const [customVerified, setCustomVerified] = useState(false);
+  const awaitsCustomVerification = payload.type === 'transaction' && payload.txKind === 'custom' && !customVerified;
 
   const onConfirm = useCallback(
     async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
@@ -445,7 +448,7 @@ const ConfirmDAppForm: FC = () => {
   const consentMissing = requirePrivateDataCheckbox && !isPrivateDataChecked && !autoApproved;
 
   const handleConfirmClick = useCallback(async () => {
-    if (confirming || declining || confirmationInFlightRef.current) return;
+    if (confirming || declining || confirmationInFlightRef.current || awaitsCustomVerification) return;
     if (spendingLimitAssessment !== undefined) {
       setShowSpendingLimitChallenge(true);
       return;
@@ -456,7 +459,7 @@ const ConfirmDAppForm: FC = () => {
     await confirm(true);
     setConfirming(false);
     confirmationInFlightRef.current = false;
-  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment]);
+  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment, awaitsCustomVerification]);
 
   const handleDeclineClick = useCallback(async () => {
     if (confirming || declining) return;
@@ -632,7 +635,13 @@ const ConfirmDAppForm: FC = () => {
         ) : payload.type === 'sign' || payload.type === 'loginSign' ? (
           <SignatureRequest payload={payload} payloadError={payloadError} error={transactionError} />
         ) : (payload.type === 'transaction' || payload.type === 'consume') && !payloadError ? (
-          <TransactionBody payload={payload} account={account} viewKey={id} error={transactionError} />
+          <TransactionBody
+            payload={payload}
+            account={account}
+            viewKey={id}
+            error={transactionError}
+            onCustomVerifiedChange={setCustomVerified}
+          />
         ) : (
           <div className="flex w-full flex-col gap-5 face-heading">
             {/* The connect window's top: Bread ··· the site, the site in large type, then what it asks for. */}
@@ -684,7 +693,7 @@ const ConfirmDAppForm: FC = () => {
             variant={ButtonVariant.Primary}
             className="w-full"
             isLoading={confirming}
-            disabled={consentMissing}
+            disabled={consentMissing || awaitsCustomVerification}
             onClick={handleConfirmClick}
             data-testid={content.confirmActionTestID}
           >

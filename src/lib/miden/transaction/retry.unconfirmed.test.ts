@@ -12,6 +12,7 @@ import {
 import { ClaimFeeRefusedError } from './initiate';
 import { NodeReads } from './reconcile-reads';
 import { acknowledgementOf, requeueFailedTransaction, RETRY_REFUSAL_COPY, RetryOptions } from './retry';
+import { isGuardianHoldRetryError } from './retry-refusal';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { NoteTypeEnum } from '../types';
 
@@ -457,15 +458,19 @@ describe('the safe marker (#1081)', () => {
     expect((await read())?.neverCommittedAt).toBe(NOW - 5);
   });
 
-  it.each<['execute' | 'swap', CopyKey]>([
+  it.each<['execute' | 'swap' | 'bridged-send', CopyKey]>([
     ['execute', 'executeLiveProven'],
-    ['swap', 'swapLiveProven']
+    ['swap', 'swapLiveProven'],
+    ['bridged-send', 'sendLiveProven']
   ])(
     'a proven %s still meets the liveness refusal through a recent end, with the proven copy (PN-1)',
     async (type, copy) => {
       await Repo.transactions.put(
         unconfirmedSend({
           type,
+          ...(type === 'bridged-send'
+            ? { extraInputs: { provider: 'agglayer' }, requestBytes: new Uint8Array([1]) }
+            : {}),
           status: ITransactionStatus.Failed,
           neverCommittedAt: NOW - 5,
           submitEvidence: [entry({ verdict: 'never-committed', endedBy: 'out-of-band', endedAt: NOW - 1 })]
@@ -477,7 +482,7 @@ describe('the safe marker (#1081)', () => {
     }
   );
 
-  it('a proven Agglayer row whose pipeline may still run requeues with no refusal at all', async () => {
+  it('a proven Agglayer row whose pipeline may still run meets the liveness refusal, which no acknowledgement passes', async () => {
     await Repo.transactions.put(
       unconfirmedSend({
         type: 'bridged-send',
@@ -489,8 +494,14 @@ describe('the safe marker (#1081)', () => {
         submitEvidence: [entry({ verdict: 'never-committed', endedBy: 'kill', endedAt: NOW - 1 })]
       })
     );
-    await requeueFailedTransaction('tx-1');
-    expect((await read())?.status).toBe(ITransactionStatus.Queued);
+    const error = await refusal();
+    expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.sendLiveProven);
+    expect(acknowledgementOf(error)).toBeNull();
+    expect(await refusal('tx-1', { acknowledged: { attemptId: 'a1' } })).toHaveProperty(
+      'message',
+      RETRY_REFUSAL_COPY.sendLiveProven
+    );
+    expect((await read())?.status).toBe(ITransactionStatus.Failed);
   });
 });
 
@@ -681,14 +692,13 @@ describe('the requeue write and evidence that moves under Retry (#1081)', () => 
   });
 
   it('two changes end the call with the being-checked refusal and queue nothing', async () => {
-    // An Agglayer row needs no acknowledgement, so both judgings reach the write (a plain send's second, unacknowledged
-    // judging refuses before it).
+    // An execute whose entry lists a nullifier needs no acknowledgement, so both judgings reach the write (a send's
+    // second, unacknowledged judging refuses before it).
     await Repo.transactions.put(
       unconfirmedSend({
-        type: 'bridged-send',
-        extraInputs: { provider: 'agglayer' },
+        type: 'execute',
         requestBytes: new Uint8Array([1]),
-        submitEvidence: [{ attemptId: 'a1', capturedAt: NOW - 60, source: 'error-text' }]
+        submitEvidence: [{ attemptId: 'a1', capturedAt: NOW - 60, source: 'error-text', nullifiers: [hex(30)] }]
       })
     );
     let n = 0;
@@ -804,6 +814,16 @@ describe('the refusal copy (#1081)', () => {
 
 describe('the Guardian hold (#1081)', () => {
   const kept = (capturedAt: number) => entry({ candidateKept: true, guardianProposalNonce: 9, capturedAt });
+
+  it('refuses with the typed hold, carrying when it clears and keeping its English message and annotation', async () => {
+    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
+    const error = await refusal();
+    expect(isGuardianHoldRetryError(error)).toBe(true);
+    expect(error).toHaveProperty('clearsAtSec', NOW + 980);
+    expect(error).toHaveProperty('message', guardianHoldRetryMessage(NOW + 980));
+    expect(snapshotPendingRetry(error)).toBe('guardian_hold');
+    expect(acknowledgementOf(error)).toBeNull();
+  });
 
   it('refuses while a kept candidate is under 1080 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));

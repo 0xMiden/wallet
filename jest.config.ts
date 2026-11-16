@@ -6,6 +6,7 @@
 // eslint-disable-next-line import/no-anonymous-default-export
 export default {
   coverageProvider: 'v8',
+  workerIdleMemoryLimit: process.env.JEST_COVERAGE_SHARD ? '768MB' : undefined,
   // Force EVERY source file into the coverage denominator. Without this, v8 only
   // reports files a test actually imports, so an untested file silently vanishes
   // from the metric (the 95% gate historically graded ~37% of src while real

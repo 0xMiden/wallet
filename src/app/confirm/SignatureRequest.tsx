@@ -15,9 +15,10 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { truncateAddress } from 'utils/string';
 
-import { summaryToView } from './decode';
-import { noteFlowFromTransaction, NoteFlow } from './note-flow';
+import { TxAssetView } from './decode';
+import { NoteFlow } from './note-flow';
 import { RequestTiles } from './RequestTiles';
+import { fromSimulatedEffectsWire, SimulatedEffectsWire } from './simulated-wire';
 import { quantityOf, useResolvedAssets } from './TransactionAssetView';
 import { TransactionNoteFlow } from './TransactionNoteFlow';
 import { AmountHeader, FailureNotice, RequestRows, SummaryPill, TransactionRequestError } from './TransactionRequest';
@@ -90,11 +91,13 @@ const hostOf = (origin: string) => {
  * A word, an arbitrary payload or a blind commitment: nothing the wallet can read. The caution is the
  * body's heading, with a lead under it like the sign-in window's, then the value and the request.
  */
-const OpaqueSignature: FC<{ origin: string; value: string; errorId?: UserErrorId | null }> = ({
-  origin,
-  value,
-  errorId
-}) => {
+const OpaqueSignature: FC<{
+  origin: string;
+  value: string;
+  errorId?: UserErrorId | null;
+  /** An unmeasured transaction summary is still a transaction; this sentence is for every other signature. */
+  showNotATransaction?: boolean;
+}> = ({ origin, value, errorId, showNotATransaction = true }) => {
   const { t } = useTranslation();
   return (
     <>
@@ -106,6 +109,11 @@ const OpaqueSignature: FC<{ origin: string; value: string; errorId?: UserErrorId
       >
         {t('opaqueSignatureWarning', { domain: hostOf(origin) })}
       </Headline>
+      {showNotATransaction && (
+        <Lead>
+          <span data-testid="opaque-signature-not-a-transaction">{t('opaqueSignatureNotATransaction')}</span>
+        </Lead>
+      )}
       <RawValue value={value} errorId={errorId} />
       <RequestCard origin={origin} />
     </>
@@ -131,21 +139,14 @@ const WordSignature: FC<{ origin: string; bytes: Uint8Array }> = ({ origin, byte
   );
 };
 
+/** A transaction summary's holdings as the background measured them, the same measure the mobile sheet prints. */
 const SummarySignature: FC<{
   origin: string;
-  summary: ReturnType<SigningInputs['transactionSummaryPayload']>;
+  view: TxAssetView;
+  noteFlow?: NoteFlow;
   bytes: Uint8Array;
-}> = ({ origin, summary, bytes }) => {
+}> = ({ origin, view, noteFlow, bytes }) => {
   const { t } = useTranslation();
-  const view = useMemo(() => summaryToView(summary), [summary]);
-  const noteFlow = useMemo<NoteFlow | undefined>(() => {
-    try {
-      return noteFlowFromTransaction(summary);
-    } catch (noteError) {
-      console.error('Signing summary note details unavailable:', noteError);
-      return undefined;
-    }
-  }, [summary]);
   const outgoing = useResolvedAssets(view.outgoing);
   const incoming = useResolvedAssets(view.incoming);
   const feeAssets = useMemo(() => (view.fee ? [view.fee] : []), [view.fee]);
@@ -231,6 +232,26 @@ const SummarySignature: FC<{
   );
 };
 
+/** A summary the background measured: its holdings, or the unmeasured caution if the measure does not read. */
+const MeasuredSummarySignature: FC<{ origin: string; effects: SimulatedEffectsWire; bytes: Uint8Array }> = ({
+  origin,
+  effects,
+  bytes
+}) => {
+  const { t } = useTranslation();
+  const measured = useMemo(() => {
+    try {
+      return fromSimulatedEffectsWire(effects);
+    } catch (e) {
+      console.error('Signing summary holdings unavailable:', e);
+      return null;
+    }
+  }, [effects]);
+
+  if (!measured) return <OpaqueSignature origin={origin} value={t('noPreview')} showNotATransaction={false} />;
+  return <SummarySignature origin={origin} view={measured.view} noteFlow={measured.noteFlow} bytes={bytes} />;
+};
+
 const SigningInputsSignature: FC<{ origin: string; bytes: Uint8Array }> = ({ origin, bytes }) => {
   const { t } = useTranslation();
   const signingInputs = useMemo(() => {
@@ -241,13 +262,6 @@ const SigningInputsSignature: FC<{ origin: string; bytes: Uint8Array }> = ({ ori
       return null;
     }
   }, [bytes]);
-  const summary = useMemo(
-    () =>
-      signingInputs?.variantType === SigningInputsType.TransactionSummary
-        ? signingInputs.transactionSummaryPayload()
-        : null,
-    [signingInputs]
-  );
 
   if (!signingInputs) {
     return (
@@ -266,7 +280,11 @@ const SigningInputsSignature: FC<{ origin: string; bytes: Uint8Array }> = ({ ori
     );
   }
 
-  if (summary) return <SummarySignature origin={origin} summary={summary} bytes={bytes} />;
+  // The background measures every summary it lets through and sends that measure, so a summary arriving without
+  // one is shown as unmeasured. It is still a transaction, so the not-a-transaction line stays off.
+  if (signingInputs.variantType === SigningInputsType.TransactionSummary) {
+    return <OpaqueSignature origin={origin} value={t('noPreview')} showNotATransaction={false} />;
+  }
 
   if (
     signingInputs.variantType === SigningInputsType.Arbitrary ||
@@ -303,7 +321,11 @@ const SignBody: FC<{ payload: Extract<SignaturePayload, { type: 'sign' }> }> = (
     case 'word':
       return <WordSignature origin={payload.origin} bytes={bytes} />;
     case 'signingInputs':
-      return <SigningInputsSignature origin={payload.origin} bytes={bytes} />;
+      return payload.signingEffects ? (
+        <MeasuredSummarySignature origin={payload.origin} effects={payload.signingEffects} bytes={bytes} />
+      ) : (
+        <SigningInputsSignature origin={payload.origin} bytes={bytes} />
+      );
     default:
       return <NoPreview origin={payload.origin} />;
   }

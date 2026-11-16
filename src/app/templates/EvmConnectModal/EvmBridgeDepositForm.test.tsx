@@ -28,6 +28,7 @@ jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection
 
 const props = {
   token: { id: 'usdc', name: 'USDC', decimals: 6, balance: 100, fiatPrice: 1, scaleIsKnown: true },
+  logoFaucetId: undefined,
   tokenLabel: 'Circle USDC',
   arrivingName: 'USDCx',
   network: { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
@@ -79,6 +80,22 @@ it('shows the available balance and retains the test-funds warning', () => {
   render(<EvmBridgeDepositForm {...props} />);
   expect(screen.getByTestId('send-token-selector')).toHaveTextContent('available 100');
   expect(screen.getByTestId('bridge-test-funds-warning')).toHaveAttribute('role', 'note');
+});
+
+it('labels an unreadable balance unavailable', () => {
+  const unreadableProps = {
+    ...props,
+    token: { ...props.token, balance: 0 },
+    balanceUnreadable: true
+  } as React.ComponentProps<typeof EvmBridgeDepositForm> & { balanceUnreadable: boolean };
+  const view = render(<EvmBridgeDepositForm {...unreadableProps} />);
+
+  expect(screen.getByTestId('send-token-selector')).toHaveTextContent('unavailable');
+  expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+
+  view.rerender(<EvmBridgeDepositForm {...props} token={{ ...props.token, balance: 0 }} />);
+  expect(screen.getByTestId('send-token-selector')).toHaveTextContent('available 0');
+  expect(screen.getByTestId('send-amount-confirm')).toBeEnabled();
 });
 
 it('fills a percentage shortcut from the selected EVM token balance', () => {

@@ -9,6 +9,7 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { useBadgeBackfill } from 'lib/badges/useBadgeBackfill';
 import { useMarkWalletBadgesViewed, useWalletBadges } from 'lib/badges/useWalletBadges';
 import { useNetwork } from 'lib/miden/front';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
@@ -58,6 +59,7 @@ const MyBadges: React.FC = () => {
   const { t } = useTranslation();
   const network = useNetwork();
   const earned = useWalletBadges();
+  useBadgeBackfill(network.id);
   useMarkWalletBadgesViewed(earned);
   const back = useBackWithFallback('/me');
   const isMainnet = network.id === MIDEN_NETWORK_NAME.MAINNET;

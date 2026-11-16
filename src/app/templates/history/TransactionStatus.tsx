@@ -37,7 +37,7 @@ export const ExternalLinkValue: FC<{
  * swap did not. The history list already draws that distinction, so without this
  * the same order reads "Pending" in the list and "Confirmed" on its own receipt.
  *
- * `isUnconfirmed` (`isOutcomeUnconfirmed`) wins over everything else: a row whose
+ * `isUnconfirmed` (`readsAsNotConfirmed`) wins over everything else: a row whose
  * outcome the wallet cannot rule out is not confirmed-failed and not confirmed-cancelled,
  * so it is checked ahead of both.
  */

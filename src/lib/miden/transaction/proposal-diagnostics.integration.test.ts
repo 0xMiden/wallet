@@ -28,6 +28,7 @@ const mockState: {
   resultSerialize?: Error;
   noInputNotes?: boolean;
   noAssets?: boolean;
+  applyFailure?: Error;
 } = {};
 const noteId = `0x${'ab'.repeat(32)}`;
 const transactionId = `0x${'bc'.repeat(32)}`;
@@ -52,13 +53,23 @@ const mockReclaimProposal = jest.fn(async (..._args: unknown[]) => ({
   nonce: 8,
   metadata: { proposalType: 'custom' }
 }));
+// The custom proposal id check derives this commitment locally; it is the id the reclaim proposal mock returns.
+const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
+  serialize: () => Uint8Array.of(9),
+  toCommitment: () => ({ toHex: () => 'private-reclaim-proposal-id', free: () => {} }),
+  free: () => {}
+}));
 const mockAbandon = jest.fn(async (..._args: unknown[]) => {});
 const mockPrepareCustom = jest.fn(async (..._args: unknown[]) => {
   if (mockState.customAdvice) throw mockState.customAdvice;
   return {};
 });
 const mockSignProposal = jest.fn(async (..._args: unknown[]) => ({ metadata: { proposalType: 'consume' } }));
-const mockSubmit = jest.fn(async () => ({ apply: async () => {} }));
+const mockSubmit = jest.fn(async () => ({
+  apply: async () => {
+    if (mockState.applyFailure) throw mockState.applyFailure;
+  }
+}));
 const executedNote = {
   id: () => accountRef(noteId),
   metadata: () => ({ sender: () => accountRef('private-sender'), noteType: () => NoteType.Public }),
@@ -101,7 +112,8 @@ const mockExecute = jest.fn(async (..._args: unknown[]) => ({
 const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   accountId,
   createConsumeNotesProposal: (...args: unknown[]) => mockConsumeProposal(...args),
-  createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args),
+  createProposal: (...args: unknown[]) => mockReclaimProposal(...args),
+  getEffectiveThreshold: () => 1,
   signProposal: (...args: unknown[]) => mockSignProposal(...args),
   prepareCustomExecution: (...args: unknown[]) => mockPrepareCustom(...args),
   abandonCandidate: (...args: unknown[]) => mockAbandon(...args),
@@ -122,14 +134,20 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
   TransactionProver: { newLocalProver: () => ({}) },
   TransactionRequest: {
-    deserialize: () => {
-      if (mockState.customBuild) throw mockState.customBuild;
-      return { extendAdviceMap: () => ({ authArg: () => undefined, serialize: () => oldBytes }) };
-    }
+    // The custom request build fails at the advice step: the proposal id check also reads these bytes, before signing.
+    deserialize: () => ({
+      extendAdviceMap: () => {
+        if (mockState.customBuild) throw mockState.customBuild;
+        return { authArg: () => undefined, serialize: () => oldBytes };
+      },
+      free: () => {}
+    })
   }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
+  executeForSummaryAtTip: (...args: unknown[]) => mockExecuteForSummary(...args),
+  summaryBoundBlockNum: () => 100,
   MultisigClient: class {
     load(...args: unknown[]) {
       return mockLoad(...args);
@@ -161,6 +179,7 @@ jest.mock('../sdk/miden-client', () => ({
       getAccount: (...args: unknown[]) => mockAccountRead(...args),
       client: {
         syncChain: async () => {},
+        accounts: { get: async () => ({ nonce: () => ({ asInt: () => 40n }) }) },
         transactions: { executeRequest: (...args: unknown[]) => mockExecute(...args) }
       }
     };
@@ -192,6 +211,11 @@ jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
   syncAndRecordFeeFaucet: async (_client: unknown, sync: () => Promise<void>) => sync()
 }));
 jest.mock('../sync-lock', () => ({ syncUnderBoundedLock: async () => {} }));
+// These proposals carry no summary; both signing-time effect checks have their own tests (#2147).
+jest.mock('./proposal-effect-guard', () => ({
+  assertProposalEffectApproved: async () => {},
+  isEffectChecked: () => false
+}));
 jest.mock('../back/offscreen-prover', () => ({
   ...jest.requireActual('../back/offscreen-prover'),
   isOffscreenAvailable: () => true
@@ -334,7 +358,7 @@ const consumeAtProposal =
 async function failureEvent(step: string, guard?: string, message = consumeAtProposal): Promise<void> {
   await failureEventWith({ proposalStep: step, proposalGuard: guard }, message);
 }
-async function failureEventWith(expected: Record<string, string | undefined>, message: string): Promise<void> {
+async function failureEventWith(expected: Record<string, string | undefined>, message: string): Promise<unknown> {
   await flush();
   expect(requests).toHaveLength(1);
   const request = requests[0];
@@ -377,6 +401,7 @@ async function failureEventWith(expected: Record<string, string | undefined>, me
   ]) {
     expect(wholeRequest).not.toContain(value);
   }
+  return event;
 }
 async function run(
   selected = account,
@@ -695,7 +720,6 @@ it('reports a failed cold service load for a claim that funds the everyday key r
 });
 
 const consumeAtSending = 'Transaction failed: tx_receive; stage sending; ';
-const consumeAfterSync = 'Transaction failed: tx_receive; stage confirming; confirming step guardian_synced; ';
 
 it('reports the guardian sync guard as a refusal at service selection before any proposal', async () => {
   const stored = await run({ ...account, guardianSyncStatus: 'resolving' });
@@ -755,34 +779,50 @@ describe('with the offscreen pipeline', () => {
   });
 });
 
+const consumeLandedAfterSync = 'Transaction landed: tx_receive; stage confirming; confirming step guardian_synced; ';
+
+// The claim's submit resolved, so a failure while recording its result leaves it landed, not failed (PR #2183). It is
+// still reported, once, as a landed outcome at warning level, naming the step that failed.
 describe('a claim that fails while recording its result after the guardian sync', () => {
-  function expectSubmittedOnce(stored: ITransaction | undefined): void {
-    expect(stored?.status).not.toBe(ITransactionStatus.Completed);
+  async function expectLandedOnce(
+    stored: ITransaction | undefined,
+    expected: Record<string, string | undefined>
+  ): Promise<void> {
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
     expect(mockSubmit).toHaveBeenCalledTimes(1);
+    expect(await failureEventWith(expected, consumeLandedAfterSync)).toMatchObject({ level: 'warning' });
   }
 
   it.each([
     ['result_read', () => (mockState.resultRead = privateFailure())],
     ['result_serialize', () => (mockState.resultSerialize = privateFailure())]
-  ])('reports a failed %s as the finishing step', async (step, arm) => {
+  ])('records the claim landed after a failed %s and reports it as the finishing step', async (step, arm) => {
     const error = arm();
-    expectSubmittedOnce(await run());
-    await failureEventWith({ completionStep: step, completionGuard: undefined }, consumeAfterSync);
+    await expectLandedOnce(await run(), { completionStep: step, completionGuard: undefined });
     expect(snapshotCrashDiagnostics(error)).toMatchObject({ completionStep: step });
   });
 
   it.each([
     ['no_input_notes', () => (mockState.noInputNotes = true)],
     ['no_fungible_assets', () => (mockState.noAssets = true)]
-  ])('reports the %s check as a refusal while reading the result', async (guard, arm) => {
+  ])('records the claim landed after the %s check refuses its result and reports the refusal', async (guard, arm) => {
     arm();
     const stored = await run();
-    expect(stored?.status).not.toBe(ITransactionStatus.Completed);
-    expect(mockSubmit).toHaveBeenCalledTimes(1);
-    await failureEventWith({ completionStep: 'result_read', completionGuard: guard }, consumeAfterSync);
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
+    await expectLandedOnce(stored, { completionStep: 'result_read', completionGuard: guard });
   });
 
-  it('reports a failed read of its own record as the row read', async () => {
+  // The leaf's own landed shape is unchanged: a Completed claim whose apply failed sends no report.
+  it('records a claim whose apply failed after its submit as landed and reports nothing, as before', async () => {
+    mockState.applyFailure = privateFailure();
+    const stored = await run();
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(requests).toHaveLength(0);
+  });
+
+  it('records the claim landed after a failed read of its own record and reports the row read', async () => {
     const error = privateFailure();
     let synced = false;
     let thrown = false;
@@ -800,16 +840,15 @@ describe('a claim that fails while recording its result after the guardian sync'
     Repo.transactions.hook('updating', markSynced);
     Repo.transactions.hook('reading', rejectRead);
     try {
-      expectSubmittedOnce(await run());
+      await expectLandedOnce(await run(), { completionStep: 'row_read', completionGuard: undefined });
       expect(thrown).toBe(true);
-      await failureEventWith({ completionStep: 'row_read', completionGuard: undefined }, consumeAfterSync);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(markSynced);
       Repo.transactions.hook('reading').unsubscribe(rejectRead);
     }
   });
 
-  it('reports a failed completed-status write as the status write', async () => {
+  it('records the claim landed after its completed-status write fails once and reports the status write', async () => {
     const error = privateFailure();
     let thrown = false;
     const rejectComplete = (changes: unknown) => {
@@ -825,9 +864,8 @@ describe('a claim that fails while recording its result after the guardian sync'
     };
     Repo.transactions.hook('updating', rejectComplete);
     try {
-      expectSubmittedOnce(await run());
+      await expectLandedOnce(await run(), { completionStep: 'status_write', completionGuard: undefined });
       expect(thrown).toBe(true);
-      await failureEventWith({ completionStep: 'status_write', completionGuard: undefined }, consumeAfterSync);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(rejectComplete);
     }

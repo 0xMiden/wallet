@@ -368,7 +368,7 @@ for (const variant of [
   'logging',
   'preview'
 ]) {
-  test(`ownership readback ${variant} blocks exercise and deletion`, async () => {
+  test(`ownership readback ${variant} blocks exercise and handles cleanup safely`, async () => {
     const f = fixture({
       mutateRemote(remote) {
         const bindings = remote.settings.bindings;
@@ -404,10 +404,15 @@ for (const variant of [
       }
     });
     const result = await createProbeController(f.effects).run(identity);
-    assert.equal(result.cleanup, 'blocked');
     assert.equal(result.reason, 'ownership_mismatch');
     assert.equal(f.calls.length, 0);
-    assert.equal(deleted(f).length, 0);
+    if (['logging', 'preview'].includes(variant)) {
+      assert.equal(result.cleanup, 'removed');
+      assert.equal(deleted(f).length, 1);
+    } else {
+      assert.equal(result.cleanup, 'blocked');
+      assert.equal(deleted(f).length, 0);
+    }
     assertClosed(result);
   });
 }
@@ -1113,7 +1118,15 @@ const ownershipCases = [
     ]
   ])
 ];
-for (const [gate, form, mutate] of ownershipCases)
+const privacyGates = new Set([
+  'logpush',
+  'observability',
+  'observability_logs',
+  'observability_invocations',
+  'observability_traces',
+  'tail_consumers'
+]);
+for (const [gate, form, mutate] of ownershipCases.filter(([gate]) => !privacyGates.has(gate)))
   test(`cleanup retains only closed ${gate}/${form} at its first failed predicate`, async () => {
     const f = await ownershipFixture({ mutate });
     const received = await createProbeController(f.effects).cleanup(manifest());
@@ -1126,6 +1139,19 @@ for (const [gate, form, mutate] of ownershipCases)
     assert.equal(deleted(f).length, 0);
     assert.equal(f.calls.length, 0);
     assert.doesNotMatch(JSON.stringify(received), /private-canary|never-publish|40265000001/);
+  });
+
+for (const [gate, form, mutate] of ownershipCases.filter(([gate]) => privacyGates.has(gate)))
+  test(`inspection refuses unsafe ${gate}/${form} before any probe traffic`, async () => {
+    const f = await ownershipFixture({ mutate });
+    const received = await createProbeController(f.effects).inspect(manifest());
+    assert.deepEqual(received, { inspection: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+    assert.equal(deleted(f).length, 0);
+    assert.equal(f.calls.length, 0);
+    assert.deepEqual(
+      f.events.filter(e => e[0] === 'api').map(e => e[2]),
+      ['/account', '/workers/scripts/miden-elig-probe-40265000001-1/settings']
+    );
   });
 
 for (const [gate, api] of [
@@ -1183,11 +1209,14 @@ for (const [gate, api] of [
     }
   ]
 ])
-  test(`cleanup identifies ${gate} without deleting or reading past its failed gate`, async () => {
+  test(`${gate.startsWith('subdomain') ? 'inspection' : 'cleanup'} identifies ${gate} without deleting or reading past its failed gate`, async () => {
     const f = await ownershipFixture({ api });
-    const received = await createProbeController(f.effects).cleanup(manifest());
+    const readiness = gate.startsWith('subdomain');
+    const received = await (readiness
+      ? createProbeController(f.effects).inspect(manifest())
+      : createProbeController(f.effects).cleanup(manifest()));
     assert.equal(received.reason, 'ownership_mismatch');
-    assert.equal(received.cleanup, 'blocked');
+    assert.equal(readiness ? received.inspection : received.cleanup, 'blocked');
     assert.equal(received.ownershipCheck?.gate, gate);
     assert.ok(
       ['missing', 'null', 'wrong_type', 'different_value', 'additional_fields', 'unavailable'].includes(
@@ -1197,7 +1226,7 @@ for (const [gate, api] of [
     assert.equal(deleted(f).length, 0);
     assert.equal(f.calls.length, 0);
     const paths = f.events.filter(e => e[0] === 'api').map(e => e[2]);
-    assert.equal(paths.length, gate.startsWith('subdomain') ? 4 : 5);
+    assert.equal(paths.length, readiness ? 4 : 3);
     assert.doesNotMatch(JSON.stringify(received), /private-canary|never-publish/);
   });
 
@@ -1211,10 +1240,10 @@ test('only cleanup captures ownership diagnostics; prior verification preflight 
   assert.equal(result.preflight.stage, 'verification');
   assert.equal(result.preflight.reason, 'ownership_mismatch');
   assert.deepEqual(Object.keys(result.preflight).sort(), ['deployment', 'identity', 'manifest', 'reason', 'stage']);
-  assert.deepEqual(result.ownershipCheck, { gate: 'logpush', form: 'missing' });
+  assert.equal(result.ownershipCheck, undefined);
   assert.equal(result.counts.requests, 0);
-  assert.equal(result.cleanup, 'blocked');
-  assert.equal(deleted(f).length, 0);
+  assert.equal(result.cleanup, 'removed');
+  assert.equal(deleted(f).length, 1);
 });
 
 test('ownership validator never invokes supplied getters or accepts inherited, symbolic or extra data', () => {
@@ -1283,17 +1312,44 @@ test('CLI exact-manifest cleanup retains the closed failure without exercising o
   }
 });
 
-test('cleanup requires independent script-level switches when version readback omits observability', async () => {
+test('inspection requires independent script-level switches when version readback omits observability', async () => {
   const f = await ownershipFixture({
     mutate: settings => {
       delete settings.observability;
     }
   });
-  const result = await createProbeController(f.effects).cleanup(manifest());
-  assert.equal(result.cleanup, 'removed');
-  assert.equal(deleted(f).length, 1);
+  const result = await createProbeController(f.effects).inspect(manifest());
+  assert.equal(result.inspection, 'verified');
+  assert.equal(deleted(f).length, 0);
   const paths = f.events.filter(e => e[0] === 'api').map(e => e[2]);
   assert.ok(paths.includes('/workers/scripts/miden-elig-probe-40265000001-1/script-settings'));
+});
+
+test('cleanup deletes an exact run-owned worker when privacy readback is unknown', async () => {
+  const f = await ownershipFixture();
+  f.remote().settings.observability = null;
+  f.remote().scriptSettings.observability = null;
+  const result = await createProbeController(f.effects).cleanup(manifest());
+  assert.deepEqual(result, { cleanup: 'removed', reason: 'complete' });
+  assert.equal(deleted(f).length, 1);
+  assert.equal(f.calls.length, 0);
+  assert.ok(!f.events.some(e => e[0] === 'api' && (e[2].endsWith('/script-settings') || e[2].endsWith('/subdomain'))));
+});
+
+test('run refuses unknown privacy readback, then removes only the exact owned worker', async () => {
+  const f = fixture({
+    mutateRemote(remote) {
+      remote.settings.observability = null;
+      remote.scriptSettings.observability = null;
+    }
+  });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.support, 'unknown');
+  assert.equal(result.reason, 'ownership_mismatch');
+  assert.equal(result.counts.requests, 0);
+  assert.equal(result.cleanup, 'removed');
+  assert.equal(deleted(f).length, 1);
+  assert.equal(f.calls.length, 0);
 });
 
 for (const [gate, path] of [
@@ -1314,8 +1370,8 @@ for (const [gate, path] of [
       for (const key of path.slice(0, -1)) target = target[key];
       if (value === undefined) delete target[path.at(-1)];
       else target[path.at(-1)] = value;
-      const result = await createProbeController(f.effects).cleanup(manifest());
-      assert.deepEqual(result, { cleanup: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+      const result = await createProbeController(f.effects).inspect(manifest());
+      assert.deepEqual(result, { inspection: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
       assert.equal(deleted(f).length, 0);
       assert.equal(f.calls.length, 0);
       assert.equal(
@@ -1379,8 +1435,8 @@ for (const [label, mutate, gate, form] of [
   test(`authoritative ${label} remains ambiguous or conflicting`, async () => {
     const f = await ownershipFixture();
     mutate(f.remote().scriptSettings);
-    const result = await createProbeController(f.effects).cleanup(manifest());
-    assert.deepEqual(result, { cleanup: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+    const result = await createProbeController(f.effects).inspect(manifest());
+    assert.deepEqual(result, { inspection: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
     assert.equal(deleted(f).length, 0);
   });
 
@@ -1388,8 +1444,8 @@ for (const value of [null, [], 'private-version-canary', { enabled: true }, { lo
   test(`present malformed version observability refuses before authority read ${JSON.stringify(value)}`, async () => {
     const f = await ownershipFixture();
     f.remote().settings.observability = value;
-    const result = await createProbeController(f.effects).cleanup(manifest());
-    assert.equal(result.cleanup, 'blocked');
+    const result = await createProbeController(f.effects).inspect(manifest());
+    assert.equal(result.inspection, 'blocked');
     assert.equal(deleted(f).length, 0);
     assert.ok(!f.events.some(e => e[0] === 'api' && e[2].endsWith('/script-settings')));
   });
@@ -1417,8 +1473,8 @@ for (const failure of ['auth', 'network', 'malformed', 'absent'])
       if (failure === 'absent') return absent();
       return Response.json({ success: true, errors: [], result: null });
     };
-    const result = await createProbeController(f.effects).cleanup(manifest());
-    assert.equal(result.cleanup, 'blocked');
+    const result = await createProbeController(f.effects).inspect(manifest());
+    assert.equal(result.inspection, 'blocked');
     assert.equal(deleted(f).length, 0);
   });
 
@@ -1426,8 +1482,8 @@ for (const version of [{}, { enabled: false }, { logs: { enabled: false } }, { t
   test(`partial version observation defers only to explicit authoritative switches ${JSON.stringify(version)}`, async () => {
     const f = await ownershipFixture();
     f.remote().settings.observability = version;
-    assert.equal((await createProbeController(f.effects).cleanup(manifest())).cleanup, 'removed');
-    assert.equal(deleted(f).length, 1);
+    assert.equal((await createProbeController(f.effects).inspect(manifest())).inspection, 'verified');
+    assert.equal(deleted(f).length, 0);
   });
 for (const [field, value] of [
   ['logpush', null],
@@ -1438,7 +1494,7 @@ for (const [field, value] of [
   test(`malformed script-level ${field} refuses without merging`, async () => {
     const f = await ownershipFixture();
     f.remote().scriptSettings[field] = value;
-    assert.equal((await createProbeController(f.effects).cleanup(manifest())).cleanup, 'blocked');
+    assert.equal((await createProbeController(f.effects).inspect(manifest())).inspection, 'blocked');
     assert.equal(deleted(f).length, 0);
   });
 

@@ -11,6 +11,11 @@ export interface TokenPriceInfo {
   price: number;
   change24h: number;
   percentageChange24h: number;
+  /**
+   * `basket`: a basket token priced at its net asset value from its vault on chain (`./basket-nav`), so there is no
+   * market move or history behind it.
+   */
+  source?: 'basket';
 }
 
 export type TokenPrices = Record<string, TokenPriceInfo>;
@@ -294,8 +299,9 @@ export function listedFiatValue(
   scaleIsKnown: boolean
 ): number | undefined {
   const price = listedPrice(prices, symbol);
-  if (!scaleIsKnown || !(price > 0) || !(balance > 0)) return undefined;
-  return balance * price;
+  if (!scaleIsKnown || !(price > 0) || !Number.isFinite(balance) || balance < 0) return undefined;
+  const value = balance * price;
+  return Number.isFinite(value) ? value : undefined;
 }
 
 // --- Kline (candlestick) chart data ---

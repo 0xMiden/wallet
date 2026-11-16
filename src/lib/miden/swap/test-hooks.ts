@@ -1,4 +1,4 @@
-import { buildSwapTag, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { buildSwapTag, NoteFile, NoteId, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteExportType } from 'lib/miden/sdk/constants';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
@@ -177,6 +177,28 @@ export function installSwapConsumeHooks(): void {
     }
   };
 
+  (globalThis as any).__TEST_IMPORT_PUBLIC_NOTE__ = async (requestedId: string) => {
+    try {
+      return await withWasmClientLock(
+        async hold => {
+          const mc = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'public input import after client build');
+          const id = NoteId.fromHex(requestedId);
+          const expected = id.toString();
+          const imported = await mc.importNoteBytes(NoteFile.fromNoteId(id).serialize(), hold);
+          assertWasmHoldCurrent(hold, 'public input import after RPC');
+          if (imported !== expected) throw new Error('Public note import identity changed');
+          await mc.syncState(() => assertWasmHoldCurrent(hold, 'public input import inside sync'));
+          assertWasmHoldCurrent(hold, 'public input import after sync');
+          return { ok: true, noteId: expected };
+        },
+        { label: 'public-input-note-import' }
+      );
+    } catch (error) {
+      return { ok: false, error: describeHookError(error) };
+    }
+  };
+
   // Maker-side: export an output note as a Full NoteFile (hex) for a deterministic
   // handoff to the taker (bypasses reactive tag discovery).
   (globalThis as any).__TEST_EXPORT_NOTE__ = async (noteId: string) => {
@@ -218,6 +240,7 @@ export function installSwapConsumeHooks(): void {
             assertWasmHoldCurrent(hold, 'pswap-fill-handoff after the import');
             await signMc.syncState();
             assertWasmHoldCurrent(hold, 'pswap-fill-handoff after the second sync');
+            // eslint-disable-next-line no-restricted-syntax -- E2E-only PSWAP write, installed under MIDEN_E2E_TEST
             const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
               account: a.accountId,
               note: importedId,
@@ -311,6 +334,7 @@ export function installSwapConsumeHooks(): void {
           assertWasmHoldCurrent(hold, 'pswap-fill after the client build');
           await signMc.syncState();
           assertWasmHoldCurrent(hold, 'pswap-fill after sync');
+          // eslint-disable-next-line no-restricted-syntax -- E2E-only PSWAP write, installed under MIDEN_E2E_TEST
           const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
             account: a.accountId,
             note: noteId,
@@ -395,6 +419,7 @@ export function installSwapConsumeHooks(): void {
           assertWasmHoldCurrent(hold, 'pswap-cancel after the client build');
           await signMc.syncState();
           assertWasmHoldCurrent(hold, 'pswap-cancel after sync');
+          // eslint-disable-next-line no-restricted-syntax -- E2E-only PSWAP write, installed under MIDEN_E2E_TEST
           const result = await (signMc as unknown as { client: any }).client.pswap.cancelByOrder({
             orderId: a.orderId
           });
