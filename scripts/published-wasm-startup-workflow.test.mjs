@@ -512,6 +512,7 @@ function publishedProbeCaseCalls(spec) {
   for (let i = 0; i < code.length; i += 1) {
     if (!code.startsWith('test', i)) continue;
     const before = i === 0 ? '' : code[i - 1];
+    assert.ok(i < 3 || code.slice(i - 3, i) !== '...', failure);
     if (before !== '' && /[A-Za-z0-9_.]/.test(before)) continue;
     if (/[A-Za-z0-9_$]/.test(code[i + 4] ?? '')) continue;
     const j = skipWs(i + 4);
