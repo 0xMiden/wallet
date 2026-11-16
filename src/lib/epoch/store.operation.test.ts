@@ -21,6 +21,15 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: jest.fn(() => 'testnet'),
   getEffectiveRpcUrl: jest.fn(() => 'https://wallet-rpc.example/private')
 }));
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() =>
+      jest
+        .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+        .testBridgeSnapshot()
+    )
+);
 const mockBuildIntent = jest.fn();
 const mockConnection = jest.fn();
 const mockRegister = jest.fn();
