@@ -2087,6 +2087,12 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     it("finishes a rotation-pending account's own rotation when its record names the cold key as hot (#1233)", async () => {
       storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'cold' }] as never;
       mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+      // The cold key derives to the cold signer the chain holds, as it does on a real account, so
+      // the record's "hot" key is a member through the recovery slot alone.
+      mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+        publicKeyHex === 'new-hot-pub' ? '0xbeef' : publicKeyHex === 'cold' ? '0xc01d' : '0xAABB'
+      );
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
 
       await syncGuardianAccounts();
 
@@ -2180,6 +2186,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
       expect(mockReRegister).not.toHaveBeenCalled();
       expect(storeState.swapHotKey).not.toHaveBeenCalled();
+      // Its "hot" key is the recovery key, which no rotation removes: waiting, not rotated out.
+      expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalled();
     });
 
     // Each clock from its own base at the same offsets, as in a live realm, so a cooldown stamped on

@@ -1904,10 +1904,16 @@ async function attemptColdReRegisterSelfHeal(
         return 'refused-transiently';
       }
     }
-    // This device is rotated out only when NO slot holds its hot key.
+    // This device is rotated out only when NO slot holds its hot key. A record that names its cold key
+    // as hot holds no everyday key at all: the recovery slot is on every account, so its membership says
+    // nothing about this device, and only its own rotation is something to finish (#1233).
+    const hotIsCold =
+      account.hotPublicKey !== undefined &&
+      account.coldPublicKey !== undefined &&
+      stripHexPrefix(account.hotPublicKey).toLowerCase() === stripHexPrefix(account.coldPublicKey).toLowerCase();
     const ownLocalHot = localHot;
     const localIsMember =
-      ownLocalHot !== undefined && onChainSigners.some(signer => sameCommitment(signer, ownLocalHot));
+      !hotIsCold && ownLocalHot !== undefined && onChainSigners.some(signer => sameCommitment(signer, ownLocalHot));
     if (!localIsMember) {
       // The set may hold this device's own rotation, one that landed after its row failed. It is finished
       // only on the signer set the re-register reads from the account it verified against the chain,
@@ -1918,7 +1924,7 @@ async function attemptColdReRegisterSelfHeal(
         console.warn(`[Guardian Sync] not self-healing ${account.publicKey}: could not read its rotations:`, readError);
         return 'refused-transiently';
       }
-      if (!rotation && keyless) {
+      if (!rotation && (keyless || hotIsCold)) {
         console.warn(
           `[Guardian Sync] not self-healing ${account.publicKey}: it has no everyday key to repair until its own ` +
             `rotation lands.`
