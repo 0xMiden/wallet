@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {readFileSync,writeFileSync} from 'node:fs';
+import {Endpoint,RpcClient,NoteId,getWrappedSdk} from '@miden-sdk/miden-sdk';
+import {createPublicClient,erc20Abi,getAddress,http} from 'viem';
+import {mainnet} from 'viem/chains';
+import {reconcileEpochEvmReceipts,inspectEpochForwardReceipt} from '../node_modules/.cache/nightly-epoch-evm.mjs';
+import {inspectEpochReturnNote,mainnetConsumeRequestHash} from '../node_modules/.cache/nightly-epoch-request.mjs';
+import {readMainnetSwapCommitHeight} from '../node_modules/.cache/nightly-swap-claim.mjs';
+import {verifyMainnetMidenNoteInclusion} from '../node_modules/.cache/nightly-miden-read.mjs';
+import {epochReadOnlyProvider} from '../node_modules/.cache/nightly-epoch-provider.mjs';
+const raw=readFileSync('test-results/final/roundtrip.json'),state=JSON.parse(raw),read=name=>JSON.parse(readFileSync(`test-results/${name}/roundtrip.json`,'utf8'));
+assert.equal(createHash('sha256').update(raw).digest('hex'),'cc7c8bcca1528102fedaf41ee05086192c4d55205a788ad95008b8445e7b58f3');
+assert.equal(state.sourceRunId,'43961933479');assert.equal(state.phase,'recovery-required');assert.equal(state.lossBudgetUsdMicros,'1908741');
+assert.equal(state.reverseMinimum,'980309');for(const key of ['consumeAuthority','returnMidenTxId','returnNoteId'])assert.equal(state[key],undefined);
+const forward=read('forward-sdk'),signed1=read('evm1'),signed2=read('evm2'),swap=read('fresh');
+assert.equal(swap.phase,'complete');assert.equal(swap.realizedCostUsdMicros,'1013');assert.equal(1909754n-1013n,BigInt(state.lossBudgetUsdMicros));
+assert.deepEqual(state.forwardRequestAuthority,forward.forwardRequestAuthority);
+for(const [index,snapshot] of [signed1,signed2].entries())for(let i=0;i<=index;i++)for(const key of ['hash','kind','nonce'])assert.equal(snapshot.transactions[i][key],state.transactions[i][key]);
+const client=createPublicClient({chain:mainnet,transport:http('https://ethereum.publicnode.com',{retryCount:0})});assert.equal(await client.getChainId(),1);
+const evidence=await Promise.all(state.transactions.map(async entry=>({transaction:await client.getTransaction({hash:entry.hash}),receipt:await client.getTransactionReceipt({hash:entry.hash})})));
+const copy=structuredClone(state);assert.equal(reconcileEpochEvmReceipts(copy,evidence),true);assert.deepEqual(copy.transactions,state.transactions);assert.equal(copy.paidEvmFees,state.paidEvmFees);assert.equal(state.paidEvmFees,'21594031670327');
+assert.equal(inspectEpochForwardReceipt(state,state.forwardEvmTxHash,await client.getTransactionReceipt({hash:state.forwardEvmTxHash})),999815n);
+const account=getAddress(state.evm.account);const [token,gas,latest,pending]=await Promise.all([client.readContract({address:getAddress(state.evm.token),abi:erc20Abi,functionName:'balanceOf',args:[account]}),client.getBalance({address:account}),client.getTransactionCount({address:account,blockTag:'latest'}),client.getTransactionCount({address:account,blockTag:'pending'})]);
+assert.equal(token,BigInt(state.evm.tokenBalance)+BigInt(state.forwardReceived)-BigInt(state.returnAmount));assert.equal(gas,BigInt(state.evm.nativeBalance)-BigInt(state.paidEvmFees));assert.equal(latest,107);assert.equal(pending,latest);
+const report={purpose:'independent existing funded Epoch outcome before any original first claim; no signing/broadcast/checkpoint mutation',sourceRunId:state.sourceRunId,signedEvmSnapshotsAndReceiptsVerified:true,evmToken:token.toString(),evmGas:gas.toString(),latestNonce:latest,pendingNonce:pending,actualEvmFeesWei:state.paidEvmFees,actualMidenFees:state.paidMidenFees,frozenEpochAllowance:state.lossBudgetUsdMicros,minimumNativeReturn:state.reverseMinimum,noOriginalConsumeAuthority:true,newAuthorityIssued:false,newTransactionSigned:false,transactionBroadcast:false,swapCostUsdMicros:'1013',priorTaskSpentUsdMicros:'90246',epochFinalCostNotYetSettled:true,heldPrincipalIsNotChargedAsLoss:true,privateCompanionRequired:true};
+const save=()=>writeFileSync('test-results/fresh-epoch-public-outcome.json',JSON.stringify(report,null,2)+'\n');save();
+try {
+ const provider=epochReadOnlyProvider(state.allocatorUrl,state.evm.chainId,state.evm.account),status=await provider.sdk.getIntentStatus(provider.config,state.evm.account,state.reverseNonce);assert.ok(Array.isArray(status));
+ const ids=new Set(status.filter(leg=>leg.chainId===state.virtualChainId&&['success','completed'].includes(leg.status)).map(leg=>Reflect.get(leg,'midenNoteId')).filter(value=>typeof value==='string'&&/^0x[0-9a-f]{64}$/i.test(value)));assert.equal(ids.size,1);const noteId=[...ids][0];Object.assign(report,{providerReturnNoteCount:ids.size,publicReturnNote:noteId});save();
+ const rpcUrl='https://rpc.mainnet.miden.io',rpc=new RpcClient(new Endpoint(rpcUrl)),notes=await rpc.getNotesById([NoteId.fromHex(noteId)]);assert.equal(notes.length,1);const item=notes[0];assert.ok(item?.note);const created=item.inclusionProof.location().blockNum();await verifyMainnetMidenNoteInclusion(rpcUrl,noteId,created,item.metadata.sender().toString());
+ const sdk=getWrappedSdk(),bytes=Uint8Array.from(sdk.NoteFile.fromInputNote(sdk.InputNote.authenticated(item.note,item.inclusionProof)).serialize());const amount=inspectEpochReturnNote(state,noteId,bytes),consumed=await readMainnetSwapCommitHeight(rpc,item.note,created);assert.equal(consumed,undefined);
+ Object.assign(report,{returnAmount:amount.toString(),createdAtBlock:created,claimedAtBlock:null,publicReturnUnspent:true,prospectiveConsumeCanonicalSha256:mainnetConsumeRequestHash(bytes,true),originalReturnNoteReadyForFirstClaim:true});save();
+} catch(error) {if(error instanceof Error){Object.assign(report,{returnReadinessErrorClass:error.name,returnReadinessErrorSha256:createHash('sha256').update(error.message).digest('hex'),returnReadinessErrorSite:error.stack?.match(/(?:mainnet-[\w-]+|fresh-ordinary-epoch-outcome)\.(?:mjs|ts):\d+:\d+/)?.[0]});save();}throw error;}
+assert.equal(createHash('sha256').update(readFileSync('test-results/final/roundtrip.json')).digest('hex'),'cc7c8bcca1528102fedaf41ee05086192c4d55205a788ad95008b8445e7b58f3');console.log(JSON.stringify(report));
