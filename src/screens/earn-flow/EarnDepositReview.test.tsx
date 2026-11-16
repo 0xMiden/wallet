@@ -264,7 +264,7 @@ jest.mock('./components', () => {
       figureClassName
     }: {
       labelId: string;
-      value: string;
+      value: React.ReactNode;
       unit?: React.ReactNode;
       label: string;
       labelClassName?: string;
@@ -366,7 +366,11 @@ describe('EarnDepositReview', () => {
       const hero = screen.getByTestId('earn-hero');
       expect(within(hero).getByText('earnDepositAmountTitle')).toHaveClass('amount-caption-sentinel');
       // Sized by the figure as shown, not the raw query value.
-      expect(within(hero).getByText('1000.5')).toHaveClass('amount-figure-sentinel-1000.5', 'mt-3', 'text-ink');
+      expect(within(hero).getByText('1000.5').parentElement).toHaveClass(
+        'amount-figure-sentinel-1000.5',
+        'mt-3',
+        'text-ink'
+      );
     });
 
     it('names no vault in the header when the vaultId matches nothing', () => {

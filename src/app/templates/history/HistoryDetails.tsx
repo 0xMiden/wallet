@@ -23,7 +23,7 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
 import { earnRowChain } from 'lib/epoch/market-uid';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
-import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { formatAmountDisplay, formatUsdDisplay } from 'lib/i18n/amount-display';
 import { isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
@@ -78,6 +78,8 @@ import {
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
 import AddressChip from '../AddressChip';
+import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
+import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
@@ -97,6 +99,7 @@ import {
   formatDate,
   formatMoneyAmount,
   isBridgeInEntry,
+  isReceiveEntry,
   labelHistoryEntry,
   swapSettlementOf
 } from './transactionUtils';
@@ -104,8 +107,6 @@ import { useEpochReturnState } from './useEpochReturnState';
 import { usePaybackClaimState } from './usePaybackClaimState';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 import { useTransactionActions } from './useTransactionActions';
-import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
-import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
 const ONE_CLICK_NETWORK_LABELS: Record<string, string> = {
   miden: 'oneClickNetworkMiden',
@@ -144,7 +145,7 @@ function oneClickProviderStatus(t: TFunction, status: IOneClickTrackingData['pro
 function formatOneClickBaseUnit(value: string | undefined, decimals: number): string | undefined {
   if (!value || !/^[0-9]{1,78}$/.test(value) || !Number.isInteger(decimals) || decimals < 0 || decimals > 38)
     return undefined;
-  return formatAmount(BigInt(value), decimals);
+  return formatAmountDisplay(BigInt(value), { decimals, rounding: 'down' });
 }
 interface HistoryDetailsProps {
   transactionId: string;
@@ -224,18 +225,6 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   );
 };
 
-function formatDisplayAmount(amount: string | number | bigint): string {
-  const amountString = amount.toString();
-  const displayAmount = new BigNumber(amountString);
-
-  if (!displayAmount.isFinite()) {
-    return amountString;
-  }
-
-  const decimalPlaces = getAdaptiveDecimalPlaces(displayAmount, DISPLAY_DECIMAL_PLACES);
-  return displayAmount.decimalPlaces(decimalPlaces, BigNumber.ROUND_DOWN).toFixed();
-}
-
 function formatFiatDisplayAmount(
   t: TFunction,
   amount: string | number | bigint,
@@ -255,7 +244,9 @@ function formatFiatDisplayAmount(
 
   const fiatAmount = displayAmount.abs().times(quote.price);
 
-  return t('historyDetailsFiatApprox', { amount: `$${toAdaptiveFixed(fiatAmount)}` });
+  return t('historyDetailsFiatApprox', {
+    amount: formatUsdDisplay(fiatAmount)
+  });
 }
 
 // A "Claim All" consumes every claimable note at once, so this list is bounded
@@ -777,7 +768,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         ? entry.amount
         : entry.txType === 'earn-deposit' || entry.txType === 'bridged-send'
           ? formatMoneyAmount(entry.amount, 'typed')
-          : formatDisplayAmount(entry.amount);
+          : formatAmountDisplay(entry.amount.toString(), {
+              minimumFractionDigits: DISPLAY_DECIMAL_PLACES,
+              rounding: isReceiveEntry(entry) ? 'down' : 'up'
+            });
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
   // side with the formatted history amount so both views agree.
@@ -790,8 +784,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           lhs: `${historyAmount} ${entry.token}`
         }
       : transactionSummaryBadgeContent;
-  // The estimate prices the figure the hero prints: a bridge-in's out side, the row's own amount on
-  // SwapDetail and on a badge that prints it (a claim's, at full precision), and historyAmount otherwise.
+  // The estimate prices a bridge-in's out side, the row's exact stored amount where SwapDetail or a claim's badge
+  // shows it (both round it for display), and historyAmount otherwise.
   const heroPrintsRowAmount =
     (entry?.txType === 'swap' && requestedToken !== null) ||
     (transactionSummaryBadgeContent !== undefined && !badgeShowsHistoryAmount);

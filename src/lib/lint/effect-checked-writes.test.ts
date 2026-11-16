@@ -29,7 +29,6 @@ const ALLOWLIST = [
   'src/lib/miden/sdk/miden-client-interface.ts',
   'src/lib/miden/back/miden-client-proxy.ts',
   'src/offscreen/main.ts',
-  'src/lib/miden/sdk/dry-run-request.ts',
   'src/lib/miden/sdk/custom-dry-run.ts',
   'src/lib/miden/transaction/index.ts'
 ];
@@ -127,8 +126,14 @@ describe('effect-checked write lint', () => {
       ]);
     expect(exemptions).toEqual([
       [ALLOWLIST, false],
-      [['**/*.test.ts', '**/*.test.tsx'], true]
+      [['**/*.test.ts', '**/*.test.tsx'], true],
+      [['src/**/*.tsx'], false]
     ]);
+  });
+
+  // An override that restates the rule replaces its options, so the .tsx amount-display override must restate the ban.
+  it('keeps the write ban in the .tsx override', async () => {
+    expect(await lint(WRITE, 'src/app/foo/Bar.tsx')).toEqual([MESSAGE]);
   });
 
   it('reports a raw write in fee-notes.ts, which may only read outputNotes', async () => {
@@ -145,12 +150,16 @@ describe('effect-checked write lint', () => {
     expect(await lint(WRITE, 'src/lib/miden/back/simulate-custom-tx.ts')).toEqual([MESSAGE]);
   });
 
+  it('reports a raw write in dry-run-request.ts, which dry-runs through custom-dry-run.ts', async () => {
+    expect(await lint(WRITE, 'src/lib/miden/sdk/dry-run-request.ts')).toEqual([MESSAGE]);
+  });
+
   it('allows the write in an allowlisted file', async () => {
-    expect(await lint(WRITE, 'src/lib/miden/sdk/dry-run-request.ts')).toEqual([]);
+    expect(await lint(WRITE, 'src/lib/miden/sdk/custom-dry-run.ts')).toEqual([]);
   });
 
   it('still bans outputNotes in an allowlisted file', async () => {
-    const messages = await lint('executed.outputNotes();\n', 'src/lib/miden/sdk/dry-run-request.ts');
+    const messages = await lint('executed.outputNotes();\n', 'src/lib/miden/sdk/custom-dry-run.ts');
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain('splitExecutedOutputNotes');
   });

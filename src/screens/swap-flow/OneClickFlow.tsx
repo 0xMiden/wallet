@@ -10,7 +10,9 @@ import { Button, ButtonVariant } from 'components/Button';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { confirmSensitiveAction } from 'lib/biometric';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { formatBigInt, stringToBigInt } from 'lib/i18n/numbers';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
@@ -787,7 +789,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     const formatFee = (raw: string | undefined, asset: OneClickAsset): string | undefined => {
       if (raw === undefined || !/^[0-9]+$/.test(raw)) return undefined;
       try {
-        return `${formatBigInt(BigInt(raw), asset.decimals)} ${asset.symbol}`;
+        return `${formatAmountDisplay(BigInt(raw), { decimals: asset.decimals, symbol: asset.symbol, rounding: 'up' })} ${asset.symbol}`;
       } catch {
         return undefined;
       }
@@ -935,7 +937,16 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
             <DetailCard surface="fill">
               <DetailRow label={t('oneClickNetwork')}>{offerNetwork.name}</DetailRow>
               <DetailRow label={t('oneClickAmount')}>
-                {instruction.quote.amountInFormatted} {originAsset?.symbol}
+                {originAsset ? (
+                  <TokenAmount
+                    amount={BigInt(instruction.quote.amountIn)}
+                    decimals={originAsset.decimals}
+                    symbol={originAsset.symbol}
+                    formatting="exact"
+                  />
+                ) : (
+                  instruction.quote.amountInFormatted
+                )}
               </DetailRow>
               <DetailRow label={t('oneClickDepositAddress')} stacked>
                 {instruction.quote.depositAddress}

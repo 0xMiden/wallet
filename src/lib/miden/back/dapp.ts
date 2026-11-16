@@ -66,7 +66,7 @@ import {
   type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
 import { getMessage } from 'lib/i18n';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
@@ -3503,7 +3503,7 @@ function isAllowedNetwork() {
  * - which showed the wrong number for any faucet that isn't 6-decimal, showed
  * raw base units on mobile/desktop (whose renderers print the row verbatim),
  * and lost precision above 2^53 because the division went through `Number()`.
- * `formatBigInt` stays in bigint until the last step, so large amounts render
+ * `formatAmountDisplay` stays in bigint until the last step, so large amounts render
  * exactly.
  */
 async function formatSendTransactionPreview(transaction: SendTransaction): Promise<string[]> {
@@ -4021,7 +4021,9 @@ function formatAmountSafe(
   tokenDecimals: number | undefined,
   scaleIsKnown: boolean
 ) {
-  const normalizedAmount = scaleIsKnown ? formatBigInt(amount, tokenDecimals ?? MIDEN_METADATA.decimals) : '?';
+  const normalizedAmount = scaleIsKnown
+    ? formatAmountDisplay(amount, { decimals: tokenDecimals ?? MIDEN_METADATA.decimals, formatting: 'exact' })
+    : '?';
   if (transactionType === 'consume') {
     return `+${normalizedAmount}`;
   }

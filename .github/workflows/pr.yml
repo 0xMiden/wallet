@@ -182,6 +182,12 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
+      - name: Check mainnet harness
+        run: |
+          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
+          yarn lint:e2e
+          E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list
+
       - name: Run ESLint
         uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
@@ -269,6 +275,9 @@ jobs:
 
       - name: Verify the built extension manifest
         run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
+
+      - name: Verify emitted platform startup barriers
+        run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
 
       - name: Drop apt repositories this repo never installs from
         uses: ./.github/actions/apt-drop-unused-repos

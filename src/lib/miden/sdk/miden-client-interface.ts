@@ -113,6 +113,8 @@ import {
 import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
+import { awaitTestConsumeAuthorization } from './test-consume-authorization';
+import { awaitTestSendAuthorization } from './test-send-authorization';
 import { observeTransactionExecutionRequest } from './transaction-execution-diagnostics';
 import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
@@ -1700,6 +1702,14 @@ export class MidenClientInterface {
       [NoteExportType.FULL]: NoteExportFormat.Full,
       [NoteExportType.DETAILS]: NoteExportFormat.Details
     };
+    if (exportType === NoteExportType.FULL) {
+      const input = await this.client.notes.get(noteId);
+      assertLive();
+      if (input) {
+        if (!input.isAuthenticated()) throw new Error('Input note is not authenticated');
+        return NoteFile.fromInputNote(input.toInputNote()).serialize();
+      }
+    }
     const result = await this.client.notes.export(noteId, { format: formatMap[exportType] ?? NoteExportFormat.Full });
     assertLive();
     return result.serialize();
@@ -1921,8 +1931,8 @@ export class MidenClientInterface {
       async (prover, attempt) => {
         if (this.shouldUseOffscreenProver(prover)) {
           return await this.proveLocallyViaOffscreen(
-            (wasm, inner) =>
-              buildSendExecuteArgs(
+            async (wasm, inner) => {
+              const args = await buildSendExecuteArgs(
                 wasm,
                 inner,
                 accountId,
@@ -1931,7 +1941,10 @@ export class MidenClientInterface {
                 noteType,
                 amount,
                 reclaimAfter
-              ),
+              );
+              await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), args.request);
+              return args;
+            },
             attempt,
             onStage,
             assertQuotedDeadline
@@ -1964,6 +1977,7 @@ export class MidenClientInterface {
           return request.serialize();
         });
         await onStage?.('executing');
+        await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), { serialize: () => requestBytes });
         // The canonical id, which is what `buildSendExecuteArgs` read the vault
         // under. Executing against the raw `accountId` would let the account the
         // request runs on diverge from the one its asset's vault key came from —
@@ -2012,6 +2026,7 @@ export class MidenClientInterface {
               const request: TransactionRequest = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
               const acctId = resolveAccountId(wasm, accountId);
               recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
+              await awaitTestConsumeAuthorization(walletAccountIdToSdk(accountId).toString(), targetNoteIds, request);
               return { accountId: acctId, request };
             },
             attempt,
@@ -2033,6 +2048,9 @@ export class MidenClientInterface {
           }
           const request = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
           return request.serialize();
+        });
+        await awaitTestConsumeAuthorization(walletAccountIdToSdk(accountId).toString(), targetNoteIds, {
+          serialize: () => requestBytes
         });
         try {
           const executed = await this.client.transactions.executeRequest(
@@ -2126,6 +2144,8 @@ export class MidenClientInterface {
         // other leg proves here, and both submit and apply themselves, so the apply after the submit
         // is reachable and a failure there classifies as landed. The prove is pre-submit, so a
         // delegated prove that fails falls back to a local attempt with a freshly built request.
+        await onStage?.('executing');
+        await awaitTestSendAuthorization(canonicalId, request, 'swap');
         const executed = await this.client.transactions.executeRequest(canonicalId, request);
         if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
         return await this.proveInRealmAndSubmit(executed, prover, attempt, 'swap', onStage);
