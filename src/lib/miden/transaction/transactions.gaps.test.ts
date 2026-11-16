@@ -1541,9 +1541,10 @@ describe('a throw after the leaf resolved', () => {
 
     expect(lap.outcome).toBe(false);
     expect(store.state.aborted).toBe(1);
+    expect(lap.warnings).toContain('Could not record the landed bridge note');
     const row = txStore.find(stored => stored.id === id)!;
     expect(row).toMatchObject({ status: ITransactionStatus.Failed, transactionId: 'landed-id' });
-    expect(isRequeueableTransaction(row)).toBe(false);
+    await expect(requeueFailedTransaction(row.id)).rejects.toThrow('is not retryable');
   });
 });
 
