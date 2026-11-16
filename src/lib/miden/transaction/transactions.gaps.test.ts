@@ -886,6 +886,68 @@ describe('a throw after the leaf resolved', () => {
       amount: BigInt(5),
       extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: BigInt(9), expirySeconds: 100 }
     });
+
+  // The tail reads the result at its start, so the id and the order a failed Completed write leaves for the landed
+  // write are the ones read then, not reads of a result whose client the failure replaced.
+  it('a loop swap whose Completed write fails and replaces the client names the id and order its tail read at its start', async () => {
+    const id = 'tx-swap-completed-write-replaced';
+    _gh.__noteTypeForTest = 'public';
+    queuedSwap(id);
+    const lateReads: string[] = [];
+    let replaced = false;
+    const answer =
+      <T>(name: string, read: () => T) =>
+      () => {
+        if (replaced) {
+          lateReads.push(name);
+          throw new Error('null pointer passed to rust');
+        }
+        return read();
+      };
+    const note = landedSwapOutput(undefined, ORDER_NOTE_ID);
+    const result = {
+      executedTransaction: answer('executedTransaction', () => ({
+        id: answer('id', () => ({ toHex: answer('toHex', () => 'landed-id') })),
+        outputNotes: answer('outputNotes', () => ({ notes: () => [note] }))
+      })),
+      serialize: answer('serialize', () => new Uint8Array([3]))
+    };
+    const where = require('lib/miden/repo').transactions.where as jest.Mock;
+    const storeWhere = where.getMockImplementation()!;
+    let failed = false;
+    where.mockImplementation((arg: unknown) => {
+      const query = storeWhere(arg);
+      if (typeof arg === 'string') return query;
+      return {
+        ...query,
+        modify: async (fn: (tx: any) => unknown) => {
+          const row = txStore.find(stored => stored.id === id);
+          if (!failed && row && row.status !== ITransactionStatus.Completed) {
+            const probe = { ...row, extraInputs: { ...row.extraInputs } };
+            fn(probe);
+            if (probe.status === ITransactionStatus.Completed) {
+              failed = true;
+              replaced = true;
+              throw new Error('IndexedDB transaction aborted');
+            }
+          }
+          return query.modify(fn);
+        }
+      };
+    });
+    try {
+      await runLoopWithWrite(jest.fn(async () => result));
+    } finally {
+      where.mockImplementation(storeWhere);
+    }
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(failed).toBe(true);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.transactionId).toBe('landed-id');
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(lateReads).toEqual([]);
+  });
   const setStatus = (id: string, status: ITransactionStatus, extraInputs?: Record<string, unknown>) => {
     const row = txStore.find(stored => stored.id === id);
     if (!row) return;
@@ -1982,8 +2044,8 @@ describe('completeCustomTransaction private-note delivery', () => {
     }
   });
 
-  // A result nobody recorded reads as current, so without the tail's record the fee read's trap retires the client the
-  // commit wait's replacement built.
+  // A result nobody recorded reads as current, so without the tail's record the trap the terminal write's second
+  // interpretation reads retires the client the commit wait's replacement built.
   it('a completion whose client was replaced during its relay wait retires nothing for a later trap in the same result', async () => {
     const retire = jest.fn();
     const restore = installLandedTrapRetirement(retire);
@@ -1993,13 +2055,22 @@ describe('completeCustomTransaction private-note delivery', () => {
       executedTransaction: () => ({
         id: () => ({ toHex: () => 'relay-wait-hash' }),
         outputNotes: () => ({ notes: () => [privateNote('relay-wait-note')] }),
-        blockHeader: () => {
+        blockHeader: () => ({ verificationBaseFee: () => 0 }),
+        inputNotes: () => {
           if (armed) throw trap;
-          return { verificationBaseFee: () => 0 };
+          return { notes: () => [] };
         }
       }),
       serialize: () => new Uint8Array([])
     };
+    // Every other read comes before the commit wait. The first interpretation fails there, so the terminal write
+    // interprets again after the wait, and that read meets the trap.
+    const interpret = jest.requireMock('../activity/helpers').interpretTransactionResult as jest.Mock;
+    interpret
+      .mockImplementationOnce(() => {
+        throw new Error('interpretation failed');
+      })
+      .mockImplementationOnce((_tx: unknown, landed: typeof result) => landed.executedTransaction().inputNotes());
     txStore.push({
       id: 'tx-relay-wait-trap',
       type: 'execute',
@@ -2024,10 +2095,14 @@ describe('completeCustomTransaction private-note delivery', () => {
     });
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
     try {
-      await generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
+      // The tail leaves as the landed error, with the trap the second interpretation read as its cause.
+      await expect(generateTransaction(txStore[0] as any, jest.fn(), false, {} as any)).rejects.toMatchObject({
+        name: 'LandedTailError',
+        cause: trap
+      });
       expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
       expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(interpret).toHaveBeenCalledTimes(2);
       expect(retire).not.toHaveBeenCalled();
     } finally {
       sdk.getMidenClient = origGetClient;
@@ -3307,6 +3382,8 @@ describe('generateTransaction execute + consume default switch arms', () => {
   });
 
   // Wrapping only the completion dispatch would record the result after the sync replaced the client, and retire it.
+  // A result that names no input notes refuses before its id read, so the landed catch's id read after the sync is the
+  // one read that meets the trap.
   it("a Guardian row's tail starts before its post-completion sync, so a client replaced there is not retired for a later trap", async () => {
     const retire = jest.fn();
     const restore = installLandedTrapRetirement(retire);
@@ -3317,10 +3394,10 @@ describe('generateTransaction execute + consume default switch arms', () => {
       const { row, fakeMultisigService } = await runGuardianConsume(
         'guardian-consume-sync-trap',
         {
-          outputNotes: () => ({ notes: () => [] }),
-          blockHeader: () => {
+          inputNotes: () => ({ notes: () => [] }),
+          id: () => {
             if (armed) throw trap;
-            return { verificationBaseFee: () => 0 };
+            return { toHex: () => 'guardian-consume-hash' };
           }
         },
         async () => {

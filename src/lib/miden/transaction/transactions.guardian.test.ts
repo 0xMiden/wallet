@@ -33,7 +33,7 @@ import {
   type GuardianCandidate,
   recordGuardianCandidate
 } from 'lib/miden/guardian/serialize';
-import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
+import { APPLY_RETRY_DELAYS_MS, isLandedTailError } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { installLandedTrapRetirement, retireLandedTrap } from 'lib/miden/sdk/landed-trap-retirement';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
@@ -593,10 +593,45 @@ jest.mock('./helper', () => {
   return { ...actual, setTransactionStage: jest.fn(actual.setTransactionStage) };
 });
 
+// A landed note as a result hands it out. `intoFull` answers the same body, as the SDK's full note carries the same
+// reads.
+const fixtureNote = (
+  id: string,
+  noteType: NoteType,
+  { faucet = 'faucet', amount = 0n, sender = 'note-sender', recipient }: FixtureNoteFields = {}
+) => {
+  const body = {
+    id: () => ({ toString: () => id }),
+    metadata: () => ({ noteType: () => noteType, sender: () => sender }),
+    assets: () => ({
+      fungibleAssets: () => [{ faucetId: () => ({ __faucet: faucet }), amount: () => amount }],
+      nonFungibleAssets: () => []
+    }),
+    ...(recipient === undefined ? {} : { recipient: () => recipient })
+  };
+  return { ...body, intoFull: () => body };
+};
+type FixtureNoteFields = { faucet?: string; amount?: bigint; sender?: string; recipient?: Record<string, unknown> };
+const PSWAP_ORDER_NOTE = `0x${'ab'.repeat(32)}`;
+const pswapFixtureNote = (orderId: bigint) =>
+  fixtureNote(PSWAP_ORDER_NOTE, NoteType.Public, {
+    recipient: {
+      script: () => ({ root: () => NoteScript.pswap().root() }),
+      serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => orderId }] })
+    }
+  });
+const inputFixtureNote = (id: string, fields: FixtureNoteFields) => ({
+  id: () => ({ toString: () => id }),
+  note: () => fixtureNote(id, NoteType.Public, fields)
+});
+
 // A result whose handles stop answering once `replace()` runs, as after a wait that replaced the client: each later read
-// is recorded and throws. Its one output note is the kernel's fee of 100 at a base fee of 10000.
-const makeReplaceableResult = () => {
+// is recorded and throws. Its first output note is the kernel's fee of 100 at a base fee of 10000; `output` and `input`
+// add notes whose every accessor, down to the values it returns, answers the same way. `log` holds every read answered,
+// in order, and a test may log its own events beside them.
+const makeReplaceableResult = ({ output = [], input = [] }: { output?: object[]; input?: object[] } = {}) => {
   const lateReads: string[] = [];
+  const log: string[] = [];
   let replaced = false;
   const answer =
     <T>(name: string, read: () => T) =>
@@ -605,8 +640,17 @@ const makeReplaceableResult = () => {
         lateReads.push(name);
         throw new Error('null pointer passed to rust');
       }
+      log.push(name);
       return read();
     };
+  const live = (name: string, value: unknown): unknown => {
+    if (typeof value === 'function') return answer(name, () => live(`${name}()`, value()));
+    if (Array.isArray(value)) return value.map(item => live(name, item));
+    if (typeof value !== 'object' || value === null) return value;
+    return Object.fromEntries(Object.entries(value).map(([key, field]) => [key, live(`${name}.${key}`, field)]));
+  };
+  const outputNotes = output.map((note, index) => live(`output[${index}]`, note));
+  const inputNotes = input.map((note, index) => live(`input[${index}]`, note));
   const nativeFaucet: string = jest.requireMock('lib/miden-chain/native-asset').getNativeAssetIdSync();
   const feeAsset = { faucetId: () => ({ __faucet: nativeFaucet }), amount: () => 100n };
   const feeNote = {
@@ -618,12 +662,12 @@ const makeReplaceableResult = () => {
     executedTransaction: answer('executedTransaction', () => ({
       id: answer('id', () => ({ toHex: answer('toHex', () => 'exec-tx-hash') })),
       blockHeader: answer('blockHeader', () => ({ verificationBaseFee: () => 10000 })),
-      outputNotes: answer('outputNotes', () => ({ notes: () => [feeNote] })),
-      inputNotes: answer('inputNotes', () => ({ notes: () => [] }))
+      outputNotes: answer('outputNotes', () => ({ notes: () => [feeNote, ...outputNotes] })),
+      inputNotes: answer('inputNotes', () => ({ notes: () => inputNotes }))
     })),
     serialize: answer('serialize', () => new Uint8Array([9, 9, 9]))
   };
-  return { result, lateReads, replace: () => (replaced = true), nativeFaucet };
+  return { result, lateReads, log, replace: () => (replaced = true), nativeFaucet };
 };
 
 const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
@@ -15742,6 +15786,446 @@ describe('generateTransaction - Guardian routing', () => {
       expect(failing.outcome.failed).toBe(true);
       expect(row()?.status).toBe(ITransactionStatus.Completed);
       expect(row()?.displayMessage).toBe('Sent');
+    });
+  });
+
+  // The Guardian sync before a value row's completion can replace the client, and the result's handles then stop
+  // answering, so the completion's reads come first. The stamps keep #1492's order.
+  describe('a Guardian value completion reads its result before the Guardian sync', () => {
+    type Row = Record<string, unknown>;
+    // Logs the row's stage beside the result's reads, after each write that changed it.
+    const logStages = (txId: string, log: string[]) => {
+      const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+      const realWhere = where.getMockImplementation()!;
+      where.mockImplementation((query: { id: string }) => {
+        const real = realWhere(query);
+        return {
+          ...real,
+          modify: async (fn: (row: Row) => unknown) => {
+            const before = txStore.find(r => r.id === query.id)?.stage;
+            await real.modify(fn);
+            const after = txStore.find(r => r.id === query.id)?.stage;
+            if (query.id === txId && after !== before) log.push(`stage:${String(after)}`);
+          }
+        };
+      });
+      return () => where.mockImplementation(realWhere);
+    };
+    // Fails the first write that turns the row Completed, once; the 'complete' stamp after it is not that write.
+    const failCompletedWriteOnce = () => {
+      const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+      const realWhere = where.getMockImplementation()!;
+      const outcome = { failed: false };
+      where.mockImplementation((query: { id: string }) => {
+        const real = realWhere(query);
+        return {
+          ...real,
+          modify: async (fn: (row: Row) => unknown) => {
+            const row = txStore.find(r => r.id === query.id);
+            if (!outcome.failed && row) {
+              const after: Row = { ...row, stageTimestamps: { ...(row.stageTimestamps as object | undefined) } };
+              fn(after);
+              if (row.status !== ITransactionStatus.Completed && after.status === ITransactionStatus.Completed) {
+                outcome.failed = true;
+                throw new Error('dexie write failed');
+              }
+            }
+            return real.modify(fn);
+          }
+        };
+      });
+      return { outcome, restore: () => where.mockImplementation(realWhere) };
+    };
+    const stagesFrom = (log: string[], first: string) => {
+      const stages = log.filter(entry => entry.startsWith('stage:'));
+      return stages.slice(stages.indexOf(first));
+    };
+    const readsAfter = (log: string[], event: string) =>
+      log.slice(log.indexOf(event) + 1).filter(entry => !entry.startsWith('stage:') && entry !== 'relay');
+    // The cause the landed arm settled, from its log line.
+    const landedTailCause = (warn: jest.SpyInstance): unknown =>
+      warn.mock.calls.map(([, error]) => error).find(error => isLandedTailError(error))?.cause;
+
+    const runGuardianValueRow = async (
+      row: Row,
+      { result, replace, log }: { result: object; replace: () => void; log: string[] },
+      proposal: Record<string, unknown>,
+      client: Record<string, unknown> = {}
+    ) => {
+      txStore.push({ ...row, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+      const service = {
+        ...proposal,
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate: jest.fn(async () => {}),
+        sync: jest.fn(async () => {
+          replace();
+        })
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(service);
+      const sendPrivateNote = jest.fn(async (_note: unknown, _recipient: string) => {
+        log.push('relay');
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        sendPrivateNote,
+        client: Object.assign(makeClientApi(result as never), { sync: jest.fn(async () => ({ blockNum: () => 100 })) }),
+        ...client
+      });
+      const stopLogging = logStages(String(row.id), log);
+      try {
+        await generateTransaction(
+          { delegateTransaction: false, ...row } as never,
+          jest.fn(async () => new Uint8Array([2])),
+          false,
+          makeGuardianProvider(true)
+        );
+      } finally {
+        stopLogging();
+      }
+      return { service, sendPrivateNote, row: txStore.find(r => r.id === row.id)! };
+    };
+    const landedFields = (nativeFaucet: string) => ({
+      status: ITransactionStatus.Completed,
+      transactionId: 'exec-tx-hash',
+      resultBytes: new Uint8Array([9, 9, 9]),
+      feeAmount: 100n,
+      feeFaucetId: nativeFaucet
+    });
+    const sendRow = (id: string, noteType: string) => ({
+      id,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      noteType
+    });
+    const sendProposal = () => ({ createSendProposal: jest.fn(async () => ({ id: 'prop-send' })) });
+    const consumeRow = (id: string) => ({ id, type: 'consume', accountId: 'guardian-acc', noteId: 'note-claim' });
+    const consumeProposal = () => ({
+      guardianEndpoint: 'https://old.guardian',
+      priorCandidateState: jest.fn(async (_nonce: number) => 'settled'),
+      createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop-consume' }))
+    });
+    const swapRow = (id: string) => ({
+      id,
+      type: 'swap',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      faucetId: 'offered-faucet',
+      requestBytes: new Uint8Array([21, 22, 23]),
+      extraInputs: { requestedFaucetId: 'requested-faucet', requestedAmount: 500n, expirySeconds: 100 }
+    });
+    const swapProposal = () => ({
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'swap-proposal' },
+        requestBytes: new Uint8Array([121, 122, 123])
+      }))
+    });
+    const swapClient = { getAccount: jest.fn(async () => ({ vault: jest.fn() })) };
+
+    it('a Guardian send records the id, bytes and fee it read before the Guardian sync', async () => {
+      const replaceable = makeReplaceableResult({ output: [fixtureNote('note-send', NoteType.Public)] });
+
+      const { service, row } = await runGuardianValueRow(
+        sendRow('guardian-send-read-before-sync', 'public'),
+        replaceable,
+        sendProposal()
+      );
+
+      expect(service.sync).toHaveBeenCalledTimes(1);
+      expect(row).toMatchObject({
+        ...landedFields(replaceable.nativeFaucet),
+        displayMessage: 'Sent',
+        outputNoteIds: ['note-send']
+      });
+      expect(replaceable.lateReads).toEqual([]);
+      expect(stagesFrom(replaceable.log, 'stage:guardian-syncing')).toEqual([
+        'stage:guardian-syncing',
+        'stage:guardian-synced',
+        'stage:complete'
+      ]);
+    });
+
+    it('a Guardian private send relays the note it read before the Guardian sync, and stamps guardian-syncing, guardian-synced, confirming, then delivering', async () => {
+      const replaceable = makeReplaceableResult({ output: [fixtureNote('note-private', NoteType.Private)] });
+
+      const { sendPrivateNote, row } = await runGuardianValueRow(
+        sendRow('guardian-private-send-read-before-sync', 'private'),
+        replaceable,
+        sendProposal()
+      );
+
+      expect(sendPrivateNote).toHaveBeenCalledTimes(1);
+      expect(sendPrivateNote.mock.calls[0]?.[1]).toBe('recipient');
+      expect(row).toMatchObject({
+        ...landedFields(replaceable.nativeFaucet),
+        displayMessage: 'Sent',
+        outputNoteIds: ['note-private'],
+        noteDelivery: 'relayed'
+      });
+      expect(replaceable.lateReads).toEqual([]);
+      expect(readsAfter(replaceable.log, 'stage:guardian-syncing')).toEqual([]);
+      expect(stagesFrom(replaceable.log, 'stage:guardian-syncing')).toEqual([
+        'stage:guardian-syncing',
+        'stage:guardian-synced',
+        'stage:confirming',
+        'stage:delivering',
+        'stage:complete'
+      ]);
+      expect(replaceable.log.indexOf('relay')).toBeGreaterThan(replaceable.log.indexOf('stage:delivering'));
+    });
+
+    it('a Guardian execute records the interpretation, id, bytes and fee it read before the Guardian sync', async () => {
+      const replaceable = makeReplaceableResult({
+        output: [fixtureNote('note-execute', NoteType.Public, { amount: 50n })]
+      });
+
+      const { row } = await runGuardianValueRow(
+        {
+          id: 'guardian-execute-read-before-sync',
+          type: 'execute',
+          accountId: 'guardian-acc',
+          requestBytes: new Uint8Array([4, 4]),
+          secondaryAccountId: 'recipient'
+        },
+        replaceable,
+        { createCustomProposal: jest.fn(async () => ({ id: 'prop-execute' })) }
+      );
+
+      expect(row).toMatchObject({
+        ...landedFields(replaceable.nativeFaucet),
+        displayMessage: 'Sent',
+        amount: 50n,
+        faucetId: 'faucet',
+        outputNoteIds: ['note-execute']
+      });
+      expect(replaceable.lateReads).toEqual([]);
+    });
+
+    it('a Guardian consume records the notes, id, bytes and fee it read before the Guardian sync', async () => {
+      const replaceable = makeReplaceableResult({
+        input: [inputFixtureNote('note-claim', { amount: 7n, sender: 'sender-x' })]
+      });
+
+      const { row } = await runGuardianValueRow(
+        consumeRow('guardian-consume-read-before-sync'),
+        replaceable,
+        consumeProposal()
+      );
+
+      expect(row).toMatchObject({
+        ...landedFields(replaceable.nativeFaucet),
+        displayMessage: 'Received',
+        secondaryAccountId: 'sender-x',
+        faucetId: 'faucet',
+        amount: 7n,
+        assetTotals: [{ faucetId: 'faucet', amount: 7n }]
+      });
+      expect(replaceable.lateReads).toEqual([]);
+    });
+
+    // Its own order: the split and the order, then the fee, the id and the bytes.
+    it('a Guardian swap records the order, fee, id and bytes it read before the Guardian sync, in its own read order', async () => {
+      const replaceable = makeReplaceableResult({ output: [pswapFixtureNote(42n)] });
+
+      const { row } = await runGuardianValueRow(
+        swapRow('guardian-swap-read-before-sync'),
+        replaceable,
+        swapProposal(),
+        swapClient
+      );
+
+      expect(row).toMatchObject({
+        ...landedFields(replaceable.nativeFaucet),
+        displayMessage: 'Swapped',
+        outputNoteIds: [PSWAP_ORDER_NOTE]
+      });
+      expect(row.extraInputs).toMatchObject({ orderId: 42n });
+      expect(replaceable.lateReads).toEqual([]);
+      const { log } = replaceable;
+      expect(log.lastIndexOf('toHex')).toBeGreaterThan(log.lastIndexOf('outputNotes'));
+      expect(log.lastIndexOf('serialize')).toBeGreaterThan(log.lastIndexOf('toHex'));
+    });
+
+    it('a Guardian Epoch bridged-send records the note, id, bytes and fee it read before the Guardian sync', async () => {
+      const replaceable = makeReplaceableResult({ output: [fixtureNote('note-bridge', NoteType.Public)] });
+      mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => new Uint8Array([63, 64, 65]) });
+
+      const { row } = await runGuardianValueRow(
+        {
+          id: 'guardian-bridged-send-read-before-sync',
+          type: 'bridged-send',
+          accountId: 'guardian-acc',
+          amount: '1000',
+          secondaryAccountId: 'allocator',
+          faucetId: 'faucet',
+          noteType: 'public',
+          requestBytes: new Uint8Array([63, 64, 65]),
+          approvedOutputNoteIds: ['note:recorded'],
+          extraInputs: {
+            provider: 'epoch',
+            destinationAddress: '0xevm',
+            destinationNetwork: 8453,
+            sourceFaucetId: 'faucet',
+            claimStatus: 'not-applicable',
+            recallBlocks: 1200
+          },
+          delegateTransaction: true
+        },
+        replaceable,
+        {
+          createSendProposal: jest.fn(),
+          createRebasedCustomProposal: jest.fn(async (bytes: Uint8Array) => ({
+            proposal: { id: 'bridge-proposal', nonce: 11 },
+            requestBytes: bytes
+          }))
+        }
+      );
+
+      expect(row).toMatchObject({
+        ...landedFields(replaceable.nativeFaucet),
+        displayMessage: 'Bridged to EVM',
+        outputNoteIds: ['note-bridge']
+      });
+      expect(replaceable.lateReads).toEqual([]);
+    });
+
+    it('a Guardian earn deposit records the collateral note, id and bytes it read before the Guardian sync', async () => {
+      const replaceable = makeReplaceableResult({ output: [fixtureNote('note-collateral', NoteType.Public)] });
+
+      const { row } = await runGuardianValueRow(
+        {
+          id: 'guardian-earn-read-before-sync',
+          type: 'earn-deposit',
+          accountId: 'guardian-acc',
+          amount: 1000n,
+          secondaryAccountId: 'allocator',
+          faucetId: 'faucet',
+          noteType: 'public',
+          requestBytes: new Uint8Array([11, 12, 13]),
+          extraInputs: { recallBlocks: 25 },
+          approvedOutputNoteIds: ['note:recorded'],
+          delegateTransaction: true
+        },
+        replaceable,
+        {
+          createCustomProposal: jest.fn(),
+          createSendProposal: jest.fn(),
+          createRebasedCustomProposal: jest.fn(async () => ({
+            proposal: { id: 'earn-proposal' },
+            requestBytes: new Uint8Array([111, 112, 113])
+          }))
+        }
+      );
+
+      expect(row).toMatchObject({
+        ...landedFields(replaceable.nativeFaucet),
+        displayMessage: 'Deposited to lending',
+        outputNoteIds: ['note-collateral']
+      });
+      expect(replaceable.lateReads).toEqual([]);
+    });
+
+    it('a Guardian swap whose Completed write fails after the Guardian sync names the id and order it read before the sync', async () => {
+      const replaceable = makeReplaceableResult({ output: [pswapFixtureNote(42n)] });
+      const failing = failCompletedWriteOnce();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        const { row } = await runGuardianValueRow(
+          swapRow('guardian-swap-completed-write-fails'),
+          replaceable,
+          swapProposal(),
+          swapClient
+        );
+
+        expect(failing.outcome.failed).toBe(true);
+        expect(row).toMatchObject({
+          status: ITransactionStatus.Completed,
+          transactionId: 'exec-tx-hash',
+          outputNoteIds: [PSWAP_ORDER_NOTE]
+        });
+        expect(row.extraInputs).toMatchObject({ orderId: 42n });
+        expect(replaceable.lateReads).toEqual([]);
+      } finally {
+        failing.restore();
+        warn.mockRestore();
+      }
+    });
+
+    it('a Guardian send whose result traps at its first read retires the client once, before the Guardian sync, and lands with the trap as its tail cause', async () => {
+      const txId = 'guardian-send-first-read-trap';
+      const retire = jest.fn();
+      const restore = installLandedTrapRetirement(retire);
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const landed = makeResult();
+      let armed = false;
+      // Armed by the leaf's apply, its last await, so the tail's first read is the first to trap.
+      const result = {
+        ...landed,
+        executedTransaction: () => {
+          if (armed) throw trap;
+          return landed.executedTransaction();
+        }
+      };
+      const apply = jest.fn(async () => {
+        armed = true;
+      });
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        const { service, row } = await runGuardianValueRow(
+          sendRow(txId, 'public'),
+          { result, replace: () => {}, log: [] },
+          sendProposal(),
+          { client: makeClientApi(result, apply) }
+        );
+
+        expect(retire.mock.calls).toEqual([[trap, txId]]);
+        expect(service.sync).toHaveBeenCalledTimes(1);
+        expect(retire.mock.invocationCallOrder[0]).toBeLessThan(service.sync.mock.invocationCallOrder[0]!);
+        expect(row.status).toBe(ITransactionStatus.Completed);
+        expect(landedTailCause(warn)).toBe(trap);
+      } finally {
+        warn.mockRestore();
+        restore();
+      }
+    });
+
+    // A refusal is found before the sync and thrown after it, where it always surfaced: a landed row's sync and its
+    // stamps still run.
+    it('a Guardian consume whose result names no input notes still syncs the Guardian before its completion refuses', async () => {
+      const replaceable = makeReplaceableResult();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        const { service, row } = await runGuardianValueRow(
+          consumeRow('guardian-consume-refusal-after-sync'),
+          { ...replaceable, replace: () => {} },
+          consumeProposal()
+        );
+
+        expect(service.sync).toHaveBeenCalledTimes(1);
+        expect(stagesFrom(replaceable.log, 'stage:guardian-syncing').slice(0, 2)).toEqual([
+          'stage:guardian-syncing',
+          'stage:guardian-synced'
+        ]);
+        expect(row.status).toBe(ITransactionStatus.Completed);
+        expect(snapshotCrashDiagnostics(landedTailCause(warn))).toMatchObject({
+          completionStep: 'result_read',
+          completionGuard: 'no_input_notes'
+        });
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 });
