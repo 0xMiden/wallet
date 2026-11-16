@@ -28,9 +28,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Use Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - name: Verify CLI kernel pin preparation
@@ -50,7 +50,7 @@ jobs:
       - name: Check Out Code
         # v4, not the v3 the older jobs in this file use: actionlint rejects v3 as too old
         # to run on GitHub Actions, and a new job should not add to that debt.
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Check E2E suite selector
         run: bash scripts/select-e2e-changes.test.sh
       # Pure bash too: which pull request the linked-PR injections read, on a pull request or a dispatch.
@@ -70,7 +70,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Use a PAT (not GITHUB_TOKEN) so the translation commit this job pushes
           # RE-TRIGGERS the PR checks automatically. By GitHub design, a commit
@@ -99,7 +99,7 @@ jobs:
           ref: ${{ github.head_ref }}
 
       - name: Use Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -127,7 +127,7 @@ jobs:
         uses: ./.github/actions/yarn-install
 
       - name: Generate Translation Files
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         env:
           # DeepL API key for the translation engine (utility/generateLanguageFiles.ts).
           # Add it under repo Settings → Secrets and variables → Actions → DEEPL_API_KEY.
@@ -160,14 +160,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Fork PRs: the head branch lives in the fork, not the base repo.
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.head_ref }}
 
       - name: Use Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -182,23 +182,29 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
+      - name: Check mainnet harness
+        run: |
+          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
+          yarn lint:e2e
+          E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list
+
       - name: Run ESLint
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: lint
 
       - name: Run TypeScript Check
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: ts
 
       - name: Run 1Click service unit tests
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: test:oneclick-service
 
       - name: Run Unit Tests
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: test
 
@@ -206,7 +212,7 @@ jobs:
       # checked before it can merge. It never gates a release build: a missing
       # entry only costs the card its summary.
       - name: Validate update manifest
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: check:update-manifest
 
@@ -216,13 +222,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.head_ref }}
 
       - name: Use Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -252,7 +258,7 @@ jobs:
         run: yarn test:custom-request
 
       - name: Install Chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce # v1
 
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
@@ -260,7 +266,7 @@ jobs:
           E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
 
       - name: Build chrome
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: build:chrome
         env:
@@ -269,6 +275,9 @@ jobs:
 
       - name: Verify the built extension manifest
         run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
+
+      - name: Verify emitted platform startup barriers
+        run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
 
       - name: Drop apt repositories this repo never installs from
         uses: ./.github/actions/apt-drop-unused-repos
@@ -284,7 +293,7 @@ jobs:
 
       - name: Upload wallet access screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wallet-access-screenshots
           path: test-results/**/wallet-access-*.png
@@ -293,7 +302,7 @@ jobs:
 
       - name: Upload profile settings screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: profile-settings-screenshots
           path: test-results/**/profile-settings-*.png
@@ -302,7 +311,7 @@ jobs:
 
       - name: Upload posture screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: posture-screenshots
           path: test-results/**/posture-*.png
@@ -311,7 +320,7 @@ jobs:
 
       - name: Upload wallet picker screenshots
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: appkit-picker-screenshots
           path: test-results/**/appkit-picker-*.png
@@ -324,7 +333,7 @@ jobs:
 
       - name: Upload Arcade sheet layout regression
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: arcade-sheet-layout
           path: test-results/arcade-visual/
@@ -337,7 +346,7 @@ jobs:
 
       - name: Upload token display visual verification
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: token-display-visual
           path: test-results/token-display-visual/
@@ -350,10 +359,58 @@ jobs:
 
       - name: Upload 1Click visual acceptance
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: one-click-visual
           path: test-results/one-click-visual/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Check out TokenDetail baseline
+        if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: token-detail-baseline
+
+      - name: Prepare TokenDetail baseline harness
+        if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        run: |
+          mkdir -p token-detail-baseline/playwright/visual
+          cp playwright.token-detail-visual.config.ts token-detail-baseline/
+          cp -R playwright/visual/token-detail token-detail-baseline/playwright/visual/
+          ln -s "$GITHUB_WORKSPACE/node_modules" token-detail-baseline/node_modules
+          printf '{"role":"before","sha":"%s"}\n' "$(git -C token-detail-baseline rev-parse HEAD)" > token-detail-baseline/token-detail-source.json
+
+      - name: Capture TokenDetail current-main baseline
+        if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        timeout-minutes: 5
+        working-directory: token-detail-baseline
+        env:
+          TOKEN_DETAIL_CAPTURE: before
+        run: |
+          "$GITHUB_WORKSPACE/node_modules/.bin/playwright" test --config playwright.token-detail-visual.config.ts
+
+      - name: Capture TokenDetail candidate
+        if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        timeout-minutes: 5
+        env:
+          TOKEN_DETAIL_CAPTURE: after
+        run: |
+          printf '{"role":"after","sha":"%s"}\n' "$(git rev-parse HEAD)" > token-detail-source.json
+          yarn playwright test --config playwright.token-detail-visual.config.ts
+
+      - name: Upload TokenDetail visual acceptance
+        if: always() && github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: token-detail-visual
+          path: |
+            token-detail-baseline/test-results/token-detail-visual/
+            token-detail-baseline/token-detail-source.json
+            test-results/token-detail-visual/
+            token-detail-source.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -398,13 +455,13 @@ jobs:
       JEST_COVERAGE_SHARD: '1'
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.head_ref }}
 
       - name: Use Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -446,7 +503,7 @@ jobs:
         continue-on-error: true
         run: node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-shard-${{ matrix.shard }}
           path: |
@@ -469,8 +526,8 @@ jobs:
         run: |
           if [ "$SHARDS_RESULT" != "success" ]; then
             echo "coverage shards $SHARDS_RESULT"; exit 1; fi
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       # Install outside the repo: `npm install` in the wallet tree reads
@@ -481,7 +538,7 @@ jobs:
           cd "$RUNNER_TEMP/covtools"
           npm init -y
           npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: coverage-shard-*
           path: coverage-shards
@@ -501,7 +558,7 @@ jobs:
       - name: Upload badge data
         if: steps.badge-data.outcome == 'success'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-badge-data
           path: ${{ runner.temp }}/badge-data.json
@@ -513,7 +570,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Fork PRs: the head branch lives in the fork, not the base repo.
           repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -530,7 +587,7 @@ jobs:
       # from source. `yarn install` takes ~90-140s either way; the save step
       # alone cost 13-130s per job.
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 

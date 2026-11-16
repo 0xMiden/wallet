@@ -26,6 +26,7 @@ import type { KeyDerivation } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { deriveClientSeed } from './derive-seed';
+import { isWasmTrap, rethrowTrapOrKill } from './sdk-error-code';
 
 const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
@@ -36,6 +37,7 @@ interface NativeWord {
 interface NativeAuthSecretKey {
   serialize(): Uint8Array;
   getPublicKeyAsWord(): NativeWord;
+  getEcdsaK256KeccakSecretKeyAsFelts(): unknown[];
 }
 
 interface NativeSdk {
@@ -259,5 +261,35 @@ describeWithNativeSdk('SDK keys from the golden seeds', () => {
     expect(toHex(sdk.AuthSecretKey.ecdsaWithRNG(new Array<number>(32).fill(0)).serialize())).toBe(
       ZERO_SEED_ECDSA_SECRET_KEY
     );
+  });
+});
+
+// The vault tells the schemes apart by calling the ECDSA accessor and reading a throw as Falcon, while a trap leaves
+// that probe as itself. Both SDK builds run one Rust match whose non-ECDSA arm returns an error rather than panicking.
+describeWithNativeSdk('the ECDSA accessor the scheme probe calls', () => {
+  let sdk: NativeSdk;
+
+  beforeAll(() => {
+    sdk = requireNativeSdk();
+  });
+
+  it('fails on a real Falcon key with an ordinary error, not a trap or a kill', () => {
+    const key = sdk.AuthSecretKey.rpoFalconWithRNG(new Array<number>(32).fill(2));
+    let thrown: unknown;
+    try {
+      key.getEcdsaK256KeccakSecretKeyAsFelts();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toEqual(expect.objectContaining({ message: 'Key is not an ECDSA K256 Keccak key' }));
+    expect(isWasmTrap(thrown)).toBe(false);
+    expect(() => rethrowTrapOrKill(thrown)).not.toThrow();
+  });
+
+  it('answers on a real ECDSA key', () => {
+    const key = sdk.AuthSecretKey.ecdsaWithRNG(new Array<number>(32).fill(2));
+
+    expect(key.getEcdsaK256KeccakSecretKeyAsFelts().length).toBeGreaterThan(0);
   });
 });

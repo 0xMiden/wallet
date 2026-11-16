@@ -27,6 +27,15 @@ function request(values?: bigint[], mismatch = false): TransactionRequest {
   } as never;
 }
 
+const thrownBy = (run: () => unknown): unknown => {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+};
+
 beforeEach(() => {
   hashingFails = false;
   hashInput = undefined;
@@ -81,4 +90,14 @@ it('does not consume the auth word or request and hashes only a private copy of 
   expect(authFree).not.toHaveBeenCalled();
   expect(requestFree).not.toHaveBeenCalled();
   expect(digest.free).toHaveBeenCalledTimes(1);
+});
+
+it('rethrows a trap from the auth read as that same object', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  const trapping = {
+    authArg: () => {
+      throw trap;
+    }
+  } as never;
+  expect(thrownBy(() => observeTransactionExecutionRequest(trapping, 'ordinary_new_transaction'))).toBe(trap);
 });

@@ -45,6 +45,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: async () => mockFeeFaucetId ?? 'native',
   getNativeAssetIdSync: () => mockFeeFaucetId ?? 'native',
   getVerificationBaseFee: async () => mockFee,
+  refreshVerificationBaseFee: async () => mockFee,
   getVerificationBaseFeeSync: () => mockFee
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({

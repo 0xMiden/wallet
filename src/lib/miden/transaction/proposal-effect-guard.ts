@@ -1,13 +1,20 @@
-import { netOutflowByFaucet, summaryBytesToView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
+import {
+  netOutflowByFaucet,
+  summaryBytesToView,
+  toHoldingsView,
+  type AssetAmount,
+  type TxAssetView,
+  type ViewNote
+} from 'app/confirm/decode';
 import { getMessage } from 'lib/i18n/core';
 import {
-  getVerificationBaseFee,
   getVerificationBaseFeeSync,
-  isVerificationBaseFeeKnownAbsent
+  isVerificationBaseFeeKnownAbsent,
+  refreshVerificationBaseFee
 } from 'lib/miden-chain/native-asset';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
-import type { IConsumeGcPurchaseExtraInputs, ITransaction, ITransactionType } from '../db/types';
+import type { IConsumeGcPurchaseExtraInputs, IExecuteApproval, ITransaction, ITransactionType } from '../db/types';
 import { canonicalWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { isKilledPipeline } from '../sdk/sdk-error-code';
@@ -16,69 +23,13 @@ import { isKilledPipeline } from '../sdk/sdk-error-code';
 interface Allowance {
   outflow: AssetAmount[];
   nfts: readonly string[];
-}
-
-const approvedTransfer = ({ faucetId, amount }: ITransaction): Allowance => {
-  if (typeof faucetId !== 'string' || faucetId.length === 0 || typeof amount !== 'bigint' || amount < 0n) {
-    throw new Error('the transaction has no valid approved asset and amount');
-  }
-  return { outflow: [{ faucetId, amount }], nfts: [] };
-};
-
-/** The allowance of each checked type. A type with no entry is not checked. */
-const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransaction) => Allowance>> = {
-  send: approvedTransfer,
-  swap: approvedTransfer,
-  'earn-deposit': approvedTransfer,
-  // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
-  consume: transaction => {
-    const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;
-    return {
-      outflow: purchase ? [{ faucetId: purchase.payFaucetId, amount: BigInt(purchase.fillAmount) }] : [],
-      nfts: []
-    };
-  },
-  // What the approval-time dry run showed leaving; a row queued before that was recorded falls back to its policy
-  // totals. A dry run that failed recorded neither, and a row queued before NFTs were recorded has none, so such a row
-  // may move nothing.
-  execute: transaction => ({
-    outflow: (transaction.approvedOutflow ?? transaction.spentAssetTotals ?? []).map(asset => ({
-      faucetId: asset.faucetId,
-      amount: BigInt(asset.amount)
-    })),
-    nfts: transaction.approvedNftOutflow ?? []
-  })
-};
-
-export const isEffectChecked = (type: ITransactionType): boolean => ALLOWED_OUTFLOW[type] !== undefined;
-
-/**
- * Why `view` moves more than `transaction` was approved to move, or undefined when it does not (or its type is not
- * checked).
- *
- * The outflow is the summary's NET vault change with the fee taken out (`summaryToView`), the figure an approval records
- * for a summary view. No credit is applied for notes the request brought in: the net change already counts every note
- * the transaction consumed, so crediting them again would let a request send that much more than it showed.
- */
-export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetView): string | undefined {
-  const allowedOutflow = ALLOWED_OUTFLOW[transaction.type];
-  if (allowedOutflow === undefined) return undefined;
-  const allowance = allowedOutflow(transaction);
-  const allowed = new Map<string, bigint>();
-  for (const asset of allowance.outflow) {
-    const faucetId = canonicalWalletAccountId(asset.faucetId);
-    allowed.set(faucetId, (allowed.get(faucetId) ?? 0n) + asset.amount);
-  }
-  const reasons = netOutflowByFaucet(view)
-    .filter(asset => asset.amount > (allowed.get(asset.faucetId) ?? 0n))
-    .map(asset => `${asset.amount} of ${asset.faucetId} leaves (approved ${allowed.get(asset.faucetId) ?? 0n})`);
-  const allowedNfts = new Set(allowance.nfts);
-  for (const nft of view.outgoingNfts) {
-    if (nft.key === undefined || !allowedNfts.has(nft.key)) reasons.push(`an unapproved NFT of ${nft.faucetId} leaves`);
-  }
-  // A vault change the summary cannot list may be an asset leaving, so it is never taken as nothing moving.
-  if (view.unlistedAssets > 0) reasons.push(`${view.unlistedAssets} vault change(s) the summary does not list`);
-  return reasons.length > 0 ? reasons.join('; ') : undefined;
+  /**
+   * Present: what leaves is measured from the account's holdings (`toHoldingsView`), crediting only these consumed
+   * notes. Absent: the view's net change.
+   */
+  introducedNoteIds?: readonly string[];
+  /** Present: the notes it may create; `'assetless'`: only notes that carry nothing. Absent: unbound. */
+  outputNoteIds?: readonly string[] | 'assetless';
 }
 
 /** The refusal the effect check throws for `transaction`, with the localized sentence the row shows. */
@@ -89,6 +40,140 @@ export const effectRefusal = (transaction: ITransaction, detail: string, cause?:
     getMessage('proposalEffectRefused'),
     cause === undefined ? undefined : { cause }
   );
+
+const approvedTransfer = ({ faucetId, amount }: ITransaction): Allowance => {
+  if (typeof faucetId !== 'string' || faucetId.length === 0 || typeof amount !== 'bigint' || amount < 0n) {
+    throw new Error('the transaction has no valid approved asset and amount');
+  }
+  return { outflow: [{ faucetId, amount }], nfts: [] };
+};
+
+// Its request bytes were built before signing, so it may create only the one note their build recorded. A row queued
+// before that was recorded is refused.
+const approvedPrebuiltTransfer = (transaction: ITransaction): Allowance => {
+  const builtNoteIds = transaction.approvedOutputNoteIds;
+  if (builtNoteIds?.length !== 1) {
+    throw effectRefusal(transaction, 'the transaction has no recorded note of its own');
+  }
+  return { ...approvedTransfer(transaction), outputNoteIds: builtNoteIds };
+};
+
+/** The allowance of each checked type. A type with no entry is not checked. */
+const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransaction) => Allowance>> = {
+  send: approvedTransfer,
+  swap: approvedTransfer,
+  'earn-deposit': approvedPrebuiltTransfer,
+  'bridged-send': approvedPrebuiltTransfer,
+  // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
+  consume: transaction => {
+    const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;
+    return {
+      outflow: purchase ? [{ faucetId: purchase.payFaucetId, amount: BigInt(purchase.fillAmount) }] : [],
+      nfts: []
+    };
+  },
+  // What the approval-time dry run showed leaving; a row queued before that was recorded falls back to its policy
+  // totals. A dry run that failed recorded neither, and a row queued before NFTs were recorded has none, so such a row
+  // may move nothing. A row that recorded no notes credits no consumed note and may create only notes carrying nothing.
+  execute: transaction => ({
+    outflow: (transaction.approvedOutflow ?? transaction.spentAssetTotals ?? []).map(asset => ({
+      faucetId: asset.faucetId,
+      amount: BigInt(asset.amount)
+    })),
+    nfts: transaction.approvedNftOutflow ?? [],
+    introducedNoteIds: transaction.approvedEffects?.introducedNoteIds ?? [],
+    outputNoteIds: transaction.approvedEffects?.approvedOutputNoteIds ?? 'assetless'
+  })
+};
+
+export const isEffectChecked = (type: ITransactionType): boolean => ALLOWED_OUTFLOW[type] !== undefined;
+
+const carriesNothing = (note: ViewNote): boolean =>
+  note.opaque !== true && note.amounts.length === 0 && note.nfts.length === 0;
+
+/**
+ * Why `view` moves more than `transaction` was approved to move, or undefined when it does not (or its type is not
+ * checked).
+ *
+ * A claim is measured on the summary's NET vault change with the fee taken out (`summaryToView`): it only takes in.
+ * A custom transaction is measured from the account's holdings: a consumed note counts as brought in only when its
+ * approval recorded it, so a note the account already held is value it spends. Each note it creates must be one its
+ * approval recorded, by id, which commits to the note's assets and recipient.
+ */
+export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetView): string | undefined {
+  const allowedOutflow = ALLOWED_OUTFLOW[transaction.type];
+  if (allowedOutflow === undefined) return undefined;
+  const allowance = allowedOutflow(transaction);
+  let measured = view;
+  if (allowance.introducedNoteIds !== undefined) {
+    try {
+      measured = toHoldingsView(view, allowance.introducedNoteIds);
+    } catch (error) {
+      return `the notes it consumes could not be measured (${error instanceof Error ? error.message : String(error)})`;
+    }
+  }
+  const allowed = new Map<string, bigint>();
+  for (const asset of allowance.outflow) {
+    const faucetId = canonicalWalletAccountId(asset.faucetId);
+    allowed.set(faucetId, (allowed.get(faucetId) ?? 0n) + asset.amount);
+  }
+  const reasons = netOutflowByFaucet(measured)
+    .filter(asset => asset.amount > (allowed.get(asset.faucetId) ?? 0n))
+    .map(asset => `${asset.amount} of ${asset.faucetId} leaves (approved ${allowed.get(asset.faucetId) ?? 0n})`);
+  const allowedNfts = new Set(allowance.nfts);
+  for (const nft of measured.outgoingNfts) {
+    if (nft.key === undefined || !allowedNfts.has(nft.key)) reasons.push(`an unapproved NFT of ${nft.faucetId} leaves`);
+  }
+  // A vault change the summary cannot list may be an asset leaving, so it is never taken as nothing moving.
+  if (view.unlistedAssets > 0) reasons.push(`${view.unlistedAssets} vault change(s) the summary does not list`);
+  const bound = allowance.outputNoteIds;
+  if (bound !== undefined) {
+    const approvedIds = bound === 'assetless' ? undefined : new Set(bound.map(id => id.toLowerCase()));
+    if (view.createdNotes === undefined) reasons.push('the notes it creates could not be read');
+    for (const note of view.createdNotes ?? []) {
+      const approved = approvedIds === undefined ? carriesNothing(note) : approvedIds.has(note.id.toLowerCase());
+      if (!approved) reasons.push(`creates a note that was not approved (${note.id})`);
+    }
+  }
+  return reasons.length > 0 ? reasons.join('; ') : undefined;
+}
+
+/**
+ * The signing allowance of a holdings view that is already measured. `holdings.heldNotesSpent` must be set, and
+ * `createdNotes` are the raw view's notes, not a second measure. This does not call `toHoldingsView`. Throws when the
+ * view is not measured from holdings, or when the raw view did not list the notes it creates.
+ */
+function executeApprovalFromHoldings(
+  holdings: TxAssetView,
+  createdNotes: readonly ViewNote[] | undefined,
+  introducedNoteIds: readonly string[]
+): IExecuteApproval {
+  if (holdings.heldNotesSpent === undefined) throw new Error('the view is not measured from holdings');
+  if (createdNotes === undefined) throw new Error('the view does not list the notes it creates');
+  return {
+    approvedOutflow: netOutflowByFaucet(holdings),
+    approvedNftOutflow: holdings.outgoingNfts.flatMap(nft => (nft.key === undefined ? [] : [nft.key])),
+    introducedNoteIds: [...new Set(introducedNoteIds.map(id => id.toLowerCase()))],
+    approvedOutputNoteIds: createdNotes.map(note => note.id)
+  };
+}
+
+/**
+ * The holdings view of an approval of `view`, and what it lets signing move, measured as `proposalEffectRefusal`
+ * measures a custom transaction: from the account's holdings, crediting only `introducedNoteIds`, the consumed notes
+ * the request brought in. Throws for a view that does not list its notes, or one already measured from holdings, which
+ * would count its held notes twice. `view` is that one measure; `signing` is the allowance built from it.
+ */
+export function executeApprovalOf(
+  view: TxAssetView,
+  introducedNoteIds: readonly string[]
+): { view: TxAssetView; signing: IExecuteApproval } {
+  if (view.heldNotesSpent !== undefined) throw new Error('the view is already measured from holdings');
+  const createdNotes = view.createdNotes;
+  if (createdNotes === undefined) throw new Error('the view does not list the notes it creates');
+  const holdings = toHoldingsView(view, introducedNoteIds);
+  return { view: holdings, signing: executeApprovalFromHoldings(holdings, createdNotes, introducedNoteIds) };
+}
 
 /** Decode `transaction`'s view and refuse it when it moves more than the row was approved to move. */
 async function assertDecodedViewApproved(
@@ -108,6 +193,9 @@ async function assertDecodedViewApproved(
   try {
     detail = proposalEffectRefusal(transaction, view);
   } catch (error) {
+    // The allowance's own refusal (a pre-built row with no recorded note) is already that error. Any other throw,
+    // such as an amount that does not parse, stays the unreadable-amounts refusal.
+    if (error instanceof ProposalEffectRefusedError) throw error;
     throw effectRefusal(transaction, 'its approved amounts could not be read', error);
   }
   if (detail !== undefined) throw effectRefusal(transaction, detail);
@@ -125,10 +213,10 @@ export async function assertViewEffectApproved(
 ): Promise<void> {
   if (!isEffectChecked(transaction.type)) return;
   // The fee note is told apart only once this realm knows the chain's fee; an untold fee reads as an outflow and
-  // refuses, so it is looked up first rather than left to whatever this realm cached. A null while discovery failed
-  // or the probe is cooling down is not an answer, and the summary stays unread. A number, 0 included, and a null
-  // the probe found absent, both continue; the decoder reads the fee the await just filled.
-  const chainFee = await getVerificationBaseFee();
+  // refuses, so it is read from the chain first rather than left to whatever this realm cached. A null while the read
+  // failed or the probe is cooling down is not an answer, and the summary stays unread. A number, 0 included, and a
+  // null the probe found absent, both continue; the decoder reads the fee the await just filled.
+  const chainFee = await refreshVerificationBaseFee();
   if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
     throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
   await assertDecodedViewApproved(transaction, decode);

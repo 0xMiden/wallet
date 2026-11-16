@@ -214,7 +214,8 @@ jest.mock('../sdk/miden-client', () => ({
 // A checked write decides the chain fee before it runs.
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getVerificationBaseFee: jest.fn(async () => 0)
+  getVerificationBaseFee: jest.fn(async () => 0),
+  refreshVerificationBaseFee: jest.fn(async () => 0)
 }));
 
 jest.mock('lib/miden/swap/fee-context', () => ({
@@ -699,19 +700,10 @@ describe('completeSendTransaction', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('catches update status error gracefully (console.error logged)', async () => {
-    const spy = jest.spyOn(console, 'error').mockImplementation();
+  it('lets a failed Completed write leave the tail, so the landed arm records the row', async () => {
     const tx = makeSendTx();
-    // Don't push to txStore — updateTransactionStatus will throw 'No transaction found'
-    try {
-      await completeSendTransaction(tx, makeResult());
-    } catch {
-      // May or may not throw depending on the error path
-    }
-    // `toBeDefined` on a spy is always true: it held whether the failure was
-    // logged or the path was never reached at all.
-    expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
+    // Not in txStore, so updateTransactionStatus throws 'No transaction found'
+    await expect(completeSendTransaction(tx, makeResult())).rejects.toThrow('No transaction found');
   });
 });
 
@@ -1755,6 +1747,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([51, 52, 53]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1782,6 +1776,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([54, 55, 56]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'epoch',
         claimStatus: 'not-applicable',
@@ -1834,6 +1830,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([57, 58, 59]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1881,6 +1879,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([61, 62, 63]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1924,6 +1924,7 @@ describe('generateTransactionsLoop error paths', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
       requestBytes: new Uint8Array([9]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', claimStatus: 'pending' }
     });
 
@@ -2371,6 +2372,7 @@ describe('generateTransactionsLoop error paths', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
       requestBytes: new Uint8Array([1]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 25 }
     });
     await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -2484,7 +2486,8 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'guardian-acc',
       secondaryAccountId: 'allocator',
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' },
-      requestBytes: earnBytes
+      requestBytes: earnBytes,
+      approvedOutputNoteIds: ['note:recorded']
     });
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -2519,6 +2522,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([64, 65, 66]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { ...extraInputs }
     });
 

@@ -264,12 +264,31 @@ export interface ICustomTransactionEffects {
  */
 export interface IApprovedCustomEffects extends ICustomTransactionEffects {
   /**
-   * The assets of the notes that the request introduced at approval. The spending-limit charge subtracts only this
-   * value. The wallet cannot calculate it again at generation, because the approval dry run imported those notes.
+   * Rows queued before approvals recorded `introducedNoteIds` only: the assets of the notes that the request introduced
+   * at approval, which their spending-limit charge subtracts. No longer written.
    */
-  introducedCredit: IConsumedAssetTotal[];
-  /** How many of the consumed notes the request introduced at approval. */
-  introducedCount: number;
+  introducedCredit?: IConsumedAssetTotal[];
+  /** Rows queued before approvals recorded `introducedNoteIds` only: how many consumed notes the request introduced. */
+  introducedCount?: number;
+  /**
+   * The consumed notes that the request itself brought in, by the approval dry run's provenance check. Signing credits
+   * only these; every other consumed note is value the account already held and spends. Absent means none.
+   */
+  introducedNoteIds?: string[];
+  /** The notes that the approval dry run created for the user (not the fee note). Absent means none may carry assets. */
+  approvedOutputNoteIds?: string[];
+}
+
+/**
+ * What an `execute` approval lets signing move. This allowance is `executeApprovalOf`'s `signing`, recorded with its
+ * holdings view by `approveCustomSimulation`. The first two go on the row's fields of the same name, the note ids on
+ * its `approvedEffects`.
+ */
+export interface IExecuteApproval {
+  approvedOutflow: IConsumedAssetTotal[];
+  approvedNftOutflow: string[];
+  introducedNoteIds: string[];
+  approvedOutputNoteIds: string[];
 }
 
 /** One note a consume claimed, as it was queued. */
@@ -376,7 +395,7 @@ export interface ISwitchGuardianExtraInputs {
   // `registerFailed`: the on-chain `update_guardian` committed but registering
   // the account on the NEW operator did not land, so that operator has no record
   // of the account. Recovery is owned by guardian-sync's missing-registration
-  // self-heal (`attemptMissingRegistrationSelfHeal`) — deliberately NOT the 401
+  // self-heal (`attemptMissingRegistrationSelfHeal`) - deliberately NOT the 401
   // cold-re-register self-heal, which needs a guardian state load and therefore
   // cannot run against an operator that has never seen the account.
   //
@@ -385,8 +404,8 @@ export interface ISwitchGuardianExtraInputs {
   // Completion attempts it first but does not guarantee it: both can fail, and
   // this flag and `endpointPersistFailed` can both be set on one row. When they
   // are, the vault still names the old operator, the missing-registration
-  // self-heal is pointed at the wrong host, and drift reconciliation — the repair
-  // `endpointPersistFailed` already names — is what recovers the account.
+  // self-heal is pointed at the wrong host, and drift reconciliation - the repair
+  // `endpointPersistFailed` already names - is what recovers the account.
   registerFailed?: boolean;
   // `endpointPersistFailed`: the rotation committed on chain but the vault still
   // names the previous operator (e.g. the wallet auto-locked mid-rotation, so the
@@ -397,7 +416,7 @@ export interface ISwitchGuardianExtraInputs {
   // UNILATERAL on-chain `update_guardian` instead of a proposal co-signed by the
   // outgoing operator, and the classified error that made the wallet choose that.
   // Written before the leaf executes, so the marker survives a row that then
-  // fails — which is what lets `reconcileStructuralApplyFailure` read it: on a
+  // fails - which is what lets `reconcileStructuralApplyFailure` read it: on a
   // post-submit apply failure it skips rebuilding a service from the operator
   // this row already found unreachable, rather than spending the WASM lock
   // waiting on it. Absent (an older row, or a coordinated switch) the reconcile
@@ -410,15 +429,15 @@ export interface ISwitchGuardianExtraInputs {
   // `commitUnconfirmed`: the direct rotation was SUBMITTED but the wallet never
   // established that it committed. The commit wait failed without a verdict and
   // the follow-up node read came back neither committed nor discarded, so
-  // `didDirectSwitchLand` answered `undefined`. Completion proceeds anyway —
+  // `didDirectSwitchLand` answered `undefined`. Completion proceeds anyway -
   // deliberately, since the alternative strands the account on an operator the
-  // direct path has already judged unreachable — but "we went ahead on no
+  // direct path has already judged unreachable - but "we went ahead on no
   // evidence" is not the same fact as "it committed", and every other surface
   // used to render them identically.
   //
   // It matters more here than the optimism usually would: if the rotation did
   // NOT land, the OLD operator is still the on-chain guardian while the vault
-  // now names the new one, and nothing detects that afterwards — drift compares
+  // now names the new one, and nothing detects that afterwards - drift compares
   // the on-chain guardian against its cached baseline, and both still name the
   // old operator, so it reports `in-sync` without ever reading the stored
   // endpoint. The receipt is the last place the user can be told, which is why
@@ -563,7 +582,7 @@ export interface IBridgedSendExtraInputs {
  * `extraInputs` shape for an `EarnDepositTransaction`. Opening an Epoch lending
  * position spends Miden-held collateral by sending a recallable P2IDE note to the
  * solver's allocator (same mechanics as an Epoch `bridged-send`), while the EVM
- * lending leg is solver-fulfilled — so there is no manual claim. The typed EVM
+ * lending leg is solver-fulfilled - so there is no manual claim. The typed EVM
  * address is the position owner / intent sponsor.
  */
 export interface IEarnDepositExtraInputs {
@@ -574,7 +593,7 @@ export interface IEarnDepositExtraInputs {
   marketUid: string;
   /** Miden faucet the deposited collateral was sourced from. */
   sourceFaucetId: string;
-  /** blocks-until-reclaim for the P2IDE note — its presence makes the note recallable. */
+  /** blocks-until-reclaim for the P2IDE note - its presence makes the note recallable. */
   recallBlocks?: number;
   /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
   intentNonce?: string;
@@ -594,7 +613,7 @@ export interface IEarnDepositExtraInputs {
 
 /**
  * Lifecycle of an `earn-withdraw` row. The row is born `Completed` (never enters
- * the prove/submit FIFO loop — see `EarnWithdrawTransaction`); its in-flight look
+ * the prove/submit FIFO loop - see `EarnWithdrawTransaction`); its in-flight look
  * comes entirely from this phase, mirroring `bridged-send`'s `epochStatus` chip.
  *   - redeeming  : row created, the gasless withdraw+swap+bridge intent is in flight
  *   - delivering : the Epoch intent settled; the bridged note is on its way to Miden
@@ -619,7 +638,7 @@ export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
  * `extraInputs` shape for an `EarnWithdrawTransaction`. Smart Withdraw redeems an
  * Epoch lending position and bridges the underlying back to Miden as a single
  * gasless intent (`sdk.helpers.executeActions`), so there is no Miden-side note to
- * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
+ * prove/submit - the row is a tracking-only record whose lifecycle lives in `phase`.
  */
 export interface IEarnWithdrawExtraInputs {
   /** Reviewed delivery floor for amount-selected withdrawals; source retries must not lower it. */
@@ -666,7 +685,7 @@ export interface IEarnWithdrawExtraInputs {
 /**
  * Bridge-in (EVM → Miden) metadata attached to the `consume` row that claimed
  * the bridged note. Epoch auto-consumes the note, so that consume row is the
- * only Miden-side trace of the deposit — tagging it lets the activity views
+ * only Miden-side trace of the deposit - tagging it lets the activity views
  * render it as a bridge row instead of a plain receive.
  */
 export interface IBridgeInInfo {
@@ -706,7 +725,7 @@ export interface IConsumeBridgeInExtraInputs {
 /**
  * `extraInputs` shape for a `consume` row queued by swap settlement
  * (`reconcileSwapOrderNotes`). History suppresses these rows while the linked
- * swap row exists — the swap row is the single trace of the whole order.
+ * swap row exists - the swap row is the single trace of the whole order.
  */
 export interface IConsumeSwapSettleExtraInputs {
   /** The `SwapTransaction.id` whose order this consume settles. */
@@ -767,7 +786,7 @@ export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> &
  *   - creating-proposal    : Guardian only, while building the multisig proposal
  *   - signing-proposal     : Guardian only, while the guardian signs the proposal
  *   - signing-locally      : direct switch-guardian only, while the wallet's own
- *                            hot+cold keys sign — no operator is contacted, which
+ *                            hot+cold keys sign - no operator is contacted, which
  *                            is why this cannot reuse `signing-proposal`: that
  *                            stage's copy says the guardian is signing, and the
  *                            direct path exists precisely because it is not
@@ -782,7 +801,7 @@ export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> &
  *
  * Declared as a runtime tuple with {@link ITransactionStage} DERIVED from it, so
  * the list exists at runtime for code that must validate a stage it did not
- * produce — the SW's reverse-IPC listener takes stage stamps off the extension
+ * produce - the SW's reverse-IPC listener takes stage stamps off the extension
  * message bus, where a `stage: ITransactionStage` field on a message type is a
  * compile-time claim about a value the compiler never saw. Deriving the union
  * from the tuple (rather than keeping a hand-copied parallel array) makes that
@@ -813,7 +832,7 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  * Separate from `status` because they answer different questions and can disagree
  * in the way that matters most. `status` tracks the TRANSACTION, which is on chain
  * and irreversible; this tracks DELIVERY, which is the only thing that makes a
- * private note reachable at all — the chain carries a commitment, not the note. A
+ * private note reachable at all - the chain carries a commitment, not the note. A
  * send can be legitimately Completed (the assets have left the account, so Failed
  * would be untrue and would offer a Retry that spends again) while its note
  * reached nobody.
@@ -821,7 +840,7 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  * Absent means the question does not apply or predates this field: a public send
  * needs no relay, and rows written by an older build never recorded one.
  *
- *   - `pending`     — a relay is OWED. Written BEFORE the relay is attempted,
+ *   - `pending`     - a relay is OWED. Written BEFORE the relay is attempted,
  *                     together with the evidence needed to reason about it later,
  *                     so an interruption mid-relay leaves a record rather than
  *                     nothing. This is the state the wallet previously had no way
@@ -836,11 +855,11 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     exactly that. And even a genuinely stored note can be
  *                     unreachable: the recipient's opaque pagination cursor never
  *                     goes back, so one that advanced past the note leaves it
- *                     invisible forever (note-transport-service#77) — a case NO
+ *                     invisible forever (note-transport-service#77) - a case NO
  *                     re-push can repair (see `note-delivery-sweep.ts`) and only the
  *                     nullifier can settle. `relayed` therefore means "believed to be
  *                     in flight", never "delivered".
- *   - `confirmed`   — the note was CONSUMED on chain. This is the only positive
+ *   - `confirmed`   - the note was CONSUMED on chain. This is the only positive
  *                     proof of delivery available: the recipient cannot consume a
  *                     private note without having received its body, so the
  *                     nullifier is the receipt. Terminal.
@@ -947,17 +966,25 @@ export interface ITransaction {
    */
   approvedEffects?: IApprovedCustomEffects;
   /**
-   * Execute only: the per-faucet outflow the approval-time dry run showed, recorded for every decoded dry run,
-   * including one whose `spentAssetTotals` the spending-limit policy withheld because the request consumed notes the
-   * wallet already held. Signing lets at most this leave (`proposal-effect-guard.ts`); a row without it falls back to
+   * Execute only: per-faucet value leaving the account's holdings. This allowance is `executeApprovalOf`'s `signing`,
+   * recorded with its holdings view by `approveCustomSimulation`. A consumed note the account already held counts as
+   * value it spends. Signing lets at most this leave (`proposal-effect-guard.ts`); a row without it falls back to
    * `spentAssetTotals`.
    */
   approvedOutflow?: IConsumedAssetTotal[];
   /**
-   * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving. Signing lets
-   * exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry run, may send none.
+   * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving the account's
+   * holdings. Signing lets exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry
+   * run, may send none.
    */
   approvedNftOutflow?: string[];
+  /**
+   * Bridged send and Earn deposit only: the one own output note their request bytes create, lowercased as the summary
+   * decode spells a created note's id. The bytes are built before signing, so the id is recorded where they are built
+   * and signing lets the transaction create only this note (`proposal-effect-guard.ts`); its id commits to the note's
+   * recipient, assets and serial. A row without it is not signed.
+   */
+  approvedOutputNoteIds?: string[];
   /** Set when signing refused the proposal for moving more than was approved (#2147). A retry would refuse again. */
   proposalEffectRefused?: true;
   /**
@@ -992,7 +1019,7 @@ export interface ITransaction {
    *
    * `initiatedAt` is whole seconds, so every row queued within the same second ties.
    * `Array.prototype.sort` is stable, so a tie preserved whatever order Dexie
-   * returned — primary-key order, and the primary key is a random `uuid()`. FIFO was
+   * returned - primary-key order, and the primary key is a random `uuid()`. FIFO was
    * therefore only approximate, and any caller that enqueued in a deliberate order had
    * that order silently randomized. Claim All depends on exactly this: it queues the
    * native-asset group FIRST so the claim that funds the vault runs before the claims
@@ -1042,14 +1069,14 @@ export interface ITransaction {
    */
   relayDeadNoteIds?: string[];
   extraInputs?: any;
-  /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
+  /** User-facing failure reason (possibly a friendly rewrite - see `rawError`). */
   error?: string;
   /** The untouched thrown error, kept when `error` was rewritten to a friendlier message. */
   rawError?: string;
   /**
    * Set on every row restored from a backup file. A dump is an archive of what
    * happened, so a restored row is a RECORD and must never become WORK: its
-   * contents — recipient, amount, `requestBytes` — come from whoever authored
+   * contents - recipient, amount, `requestBytes` - come from whoever authored
    * the file, and the FIFO loop and the Retry button both drive rows into the
    * signer without re-confirming any of that. `importDb` lands these rows in
    * `Failed`; this flag is what keeps them there.
@@ -1063,7 +1090,7 @@ export interface ITransaction {
   resultReleasedAt?: number;
   /**
    * Current sub-phase during active processing. Readers should treat this
-   * as informational only — it is overwritten without coordination with
+   * as informational only - it is overwritten without coordination with
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
@@ -1074,7 +1101,7 @@ export interface ITransaction {
    * entered, recorded by `setTransactionStage` (plus a synthetic `complete`
    * stamp written when the row reaches `Completed`). The generating-transaction
    * screen derives per-step durations from these persisted stamps rather than
-   * observing live `stage` transitions — a Dexie `liveQuery` coalesces rapid
+   * observing live `stage` transitions - a Dexie `liveQuery` coalesces rapid
    * adjacent stage writes, which would otherwise drop a step's start/end and
    * leave its duration blank. First-entry-wins WITHIN one attempt: a stage
    * re-entered during the same run keeps its original entry time (the meaningful
@@ -1084,9 +1111,9 @@ export interface ITransaction {
   stageTimestamps?: Partial<Record<ITransactionStage, number>>;
   /**
    * Earliest time (unix seconds) this Queued tx may be re-selected by the
-   * processing loop. Set by every arm that requeues rather than fails — the
+   * processing loop. Set by every arm that requeues rather than fails - the
    * guardian pending-delta 409, a 429 rate limit, a remote-prover outage, a
-   * locked-wallet deferral and an unauthorized-at-execution retry — so a
+   * locked-wallet deferral and an unauthorized-at-execution retry - so a
    * persistently-conflicting op backs off and yields its slot to other accounts
    * instead of being re-picked every cycle as the oldest row (head-of-line
    * starvation). Absent ⇒ always eligible (backward compatible);
@@ -1102,15 +1129,15 @@ export interface ITransaction {
    * It is not fixed, though: a requeue down an UNRELATED arm (409, 429, prover
    * outage) pushes it out by that arm's own cooldown. The budget is a wall clock
    * and those waits are not retry attempts, so charging them against it would
-   * let a single rate limit — which can park a row for 300s, longer than the
-   * whole budget — leave a row with nothing left for its next genuine race. So
+   * let a single rate limit - which can park a row for 300s, longer than the
+   * whole budget - leave a row with nothing left for its next genuine race. So
    * the floor is the budget; the ceiling is the budget plus whatever unrelated
    * backoff the row waited out, and `MAX_QUEUED_AGE` from `initiatedAt` remains
    * the terminal cap above both.
    *
    * Deliberately its own field rather than an offset from `initiatedAt`: that
-   * clock starts at ENQUEUE, so a row that waited behind a deep queue — the
-   * sustained-load case this retry exists for — would arrive with its whole
+   * clock starts at ENQUEUE, so a row that waited behind a deep queue - the
+   * sustained-load case this retry exists for - would arrive with its whole
    * budget already spent and never retry at all. An absolute deadline also
    * avoids comparing against a timestamp whose unit or origin the row does not
    * control. Absent ⇒ not yet retried for this reason (backward compatible).
@@ -1133,7 +1160,7 @@ export interface ITransaction {
    */
   guardianBusy?: true;
   /**
-   * Delivery state of this row's private output note — see
+   * Delivery state of this row's private output note - see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
    *
    * This is the wallet's OWN record that a relay is owed, and the only one: the
@@ -1180,28 +1207,29 @@ export interface ITransaction {
    * Sticky: set once some attempt on this row reached a point from which a
    * chain submit cannot be ruled out, and never unset. Guards the cached
    * `requestBytes` of a guardian recallable `send` from being rebuilt, since
-   * those bytes pin the note id that makes the chain reject a duplicate —
-   * rebuilding them after a possible submit risks paying the recipient twice.
+   * those bytes pin the note id that lets the node reject a duplicate while the
+   * first copy is in flight. Retry also asks before it reuses them, because
+   * once that copy commits the node accepts the duplicate.
    *
    * A per-attempt `stage` cannot carry this, for two independent reasons.
    * Requeueing clears `stage`, so the signal survived exactly one retry and the
    * next failure at an early stage looked pre-submit and cleared the bytes
    * anyway. And a row can be failed out from under a running pipeline by
    * `cancelTransaction`, which freezes `stage` wherever the cancel caught it
-   * while the pipeline goes on to submit — so the stage can say 'proving'
+   * while the pipeline goes on to submit - so the stage can say 'proving'
    * about a transfer that landed. "May have submitted" is a property of the
    * row's history, not of the attempt currently running, so the leaves write it
    * directly at the submit crossing (`markMayHaveSubmitted`).
    *
    * Absent does NOT by itself mean "never submitted". It means no attempt
-   * recorded a crossing, which for rows written by an older build — no leaf ever
-   * stamped this — is simply unknown; `PRE_SUBMIT_STAGES` documents how those are
+   * recorded a crossing, which for rows written by an older build - no leaf ever
+   * stamped this - is simply unknown; `PRE_SUBMIT_STAGES` documents how those are
    * read conservatively from the stage and the presence of cached bytes.
    */
   mayHaveSubmitted?: boolean;
   /**
-   * Unix seconds at which this row was failed from OUTSIDE its own pipeline —
-   * the Cancel button — while that pipeline was still running. Not the same
+   * Unix seconds at which this row was failed from OUTSIDE its own pipeline -
+   * the Cancel button - while that pipeline was still running. Not the same
    * claim as `mayHaveSubmitted`, and deliberately not merged into it.
    *
    * `mayHaveSubmitted` records a crossing that HAPPENED. This records that we
@@ -1219,7 +1247,7 @@ export interface ITransaction {
    * first version of this guard was a sticky flag, and a sticky "maybe" is
    * indistinguishable from "yes" forever: a send that failed while proving got
    * its bytes pinned permanently, so every retry replayed the identical bad
-   * request instead of rebuilding it — defeating the callback-asset fix this
+   * request instead of rebuilding it - defeating the callback-asset fix this
    * whole change exists for, and freezing an absolute reclaim height that a
    * later attempt could land already past. So:
    *
@@ -1231,7 +1259,7 @@ export interface ITransaction {
    *
    * Both the Cancel button and the stuck reaper set it. The reaper used to be
    * excluded, on the reasoning that a row it takes has already exceeded that same
-   * maximum and so cannot still be running — but the threshold is when the app
+   * maximum and so cannot still be running - but the threshold is when the app
    * stops waiting, not when the work stops: nothing aborts the pipeline, a mobile
    * write has no deadline at all, and the maximum is counted in ACTIVE seconds, so
    * a reaped row can still be mid-submit. That made the reaper the widest instance
@@ -1261,7 +1289,7 @@ export interface ITransaction {
  * NotesTransaction` opens a Dexie transaction per group and consecutive groups can
  * commit inside one millisecond, which is the tie this field exists to break.
  *
- * Per-realm, so it orders rows the same realm created — which is what every ordered
+ * Per-realm, so it orders rows the same realm created - which is what every ordered
  * enqueue in the app does. Across realms it stays comparable because it is wall clock.
  */
 let lastQueuedSeq = 0;
@@ -1399,7 +1427,7 @@ export class ConsumeTransaction implements ITransaction {
   type: ITransactionType;
   accountId: string;
   amount?: bigint;
-  /** First note id — kept for back-compat (dedup index, single-note readers) */
+  /** First note id - kept for back-compat (dedup index, single-note readers) */
   noteId: string;
   /** Every note consumed by this transaction (batch claims consume many in one tx) */
   noteIds: string[];
@@ -1475,7 +1503,7 @@ export class ConsumeTransaction implements ITransaction {
     this.faucetId = first.faucetId;
     this.secondaryAccountId = first.senderAddress;
     // Surface the note type in history only when it is known and uniform
-    // across the batch — a mixed private/public claim has no single answer.
+    // across the batch - a mixed private/public claim has no single answer.
     this.noteType = first.type !== 'unknown' && list.every(n => n.type === first.type) ? first.type : undefined;
     // Keyed rather than scanned: a Claim All is uncapped, and anyone can send the
     // account notes, so the batch length is not ours to bound.
@@ -1534,8 +1562,8 @@ export class ConsumeTransaction implements ITransaction {
  * `orderId` is strictly output info (the PSWAP lineage id resolved by
  * `completeSwapTransaction`) rather than an input, but it rides here to avoid a
  * Dexie schema change; it is absent until completion, and so are the stamps
- * below. Exported because readers of persisted rows — which predate any of these
- * optional fields — need the same shape without hand-rolling their own copy.
+ * below. Exported because readers of persisted rows - which predate any of these
+ * optional fields - need the same shape without hand-rolling their own copy.
  */
 export interface ISwapExtraInputs {
   /** Endpoint scope of the vault preflight; absent on legacy orders. */
@@ -1619,7 +1647,7 @@ export class SwapTransaction implements ITransaction {
    * Guardian path (`generateGuardianTransaction`) the first time the swap is
    * processed. Persisted so the custom proposal and the follow-up
    * `signAndCreateTransactionRequest` reuse identical bytes (the PSWAP serial
-   * number is random — a rebuild would diverge).
+   * number is random - a rebuild would diverge).
    */
   requestBytes?: Uint8Array;
 
@@ -1692,6 +1720,8 @@ export class BridgedSendTransaction implements ITransaction {
   secondaryAccountId?: string;
   noteType?: NoteType;
   requestBytes?: Uint8Array;
+  /** The one note `requestBytes` create. See `ITransaction.approvedOutputNoteIds`. */
+  approvedOutputNoteIds?: string[];
   transactionId?: string;
   outputNoteIds?: string[];
   status: ITransactionStatus;
@@ -1771,6 +1801,8 @@ export class EarnDepositTransaction implements ITransaction {
    * verbatim across the standard pipeline, guardian propose/sign, and retries.
    */
   requestBytes?: Uint8Array;
+  /** The one note `requestBytes` create. See `ITransaction.approvedOutputNoteIds`. */
+  approvedOutputNoteIds?: string[];
   status: ITransactionStatus;
   initiatedAt: number;
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
@@ -1992,7 +2024,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   displayIcon: ITransactionIcon;
   // `reRegisterFailed` (#619 gap 1): the on-chain rotation succeeded but the
   // best-effort post-rotation guardian re-register did not land. Observable-only
-  // — it gates nothing (recovery is owned by the guardian-sync 401 self-heal);
+  // - it gates nothing (recovery is owned by the guardian-sync 401 self-heal);
   // it exists so telemetry/E2E can tell a fully-clean rotation from one whose
   // allowlist push needs the self-heal to catch up.
   // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
@@ -2024,7 +2056,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
 /**
  * Sets an on-chain procedure threshold on a Guardian account (cold-signed).
  * Used to bring migrated legacy accounts up to the same hardening a freshly
- * created 3-key account gets — notably `update_guardian` at threshold 2 — which
+ * created 3-key account gets - notably `update_guardian` at threshold 2 - which
  * `update_signers` (the hot-key activation) cannot carry in the same tx.
  */
 export class UpdateProcedureThresholdTransaction implements ITransaction {

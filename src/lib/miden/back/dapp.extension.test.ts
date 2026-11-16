@@ -187,8 +187,17 @@ jest.mock('lib/miden/back/defaults', () => ({
  * The approval of a custom transaction needs a dry run that succeeds. The dry run itself is covered by
  * `simulate-custom-tx.test.ts`, so here it gives a result whose decoded view moves nothing.
  */
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return { simulateCustomTransaction: jest.fn(async () => measureApprovalDryRun({ summaryBytes: 'sumB64' })) };
+});
+
+// A custom summary's approval re-reads the chain fee before it decodes; the read is the node's, not this suite's.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: jest.fn(async () => 2),
+  getVerificationBaseFeeSync: () => 2
 }));
 
 jest.mock('app/confirm/decode', () => ({
@@ -201,7 +210,9 @@ jest.mock('app/confirm/decode', () => ({
     unlistedAssets: 0,
     inputNotesConsumed: 0,
     outputNotesCreated: 0,
-    storageChanged: false
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: []
   }),
   simulatedOutputRecipients: () => []
 }));
@@ -224,7 +235,7 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // routing sees the shape the poison contract promises.
 let currentWasmHold: object | null = null;
 // Simulates the watchdog handing the mutex to a successor while the current client
-// call is still parked — call from inside a client-method mock.
+// call is still parked - call from inside a client-method mock.
 const revokeWasmHold = (): void => {
   currentWasmHold = null;
 };
@@ -371,7 +382,7 @@ beforeEach(() => {
 });
 
 /** Drive the most recently registered intercom listener with a synthetic confirmation. */
-// @ts-ignore — kept for reference
+// @ts-ignore - kept for reference
 
 describe('requestConfirm window-position fallback', () => {
   it('keeps a confirmation onscreen when the focused window has no dimensions', async () => {
@@ -717,7 +728,7 @@ describe('requestConfirm placement Chrome refuses', () => {
 /**
  * `sourcePublicKey` on a sign request is a signer COMMITMENT, not an account id.
  * `connect` hands the page b64 of `Word.serialize()`, and the vault keys its
- * secret blobs by those same 32 bytes in hex — which is the form `signData`
+ * secret blobs by those same 32 bytes in hex - which is the form `signData`
  * looks up by. A fixture that is neither (an account id, say) cannot exercise
  * the key binding, and worse, would pass a check that only compared strings.
  */
@@ -743,10 +754,10 @@ const arrangeSignerAccount = () => {
   });
 };
 
-describe('requestSign — extension flow', () => {
+describe('requestSign - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
-    // Kick off requestSign — it'll register a listener and call windows.create.
+    // Kick off requestSign - it'll register a listener and call windows.create.
     // We don't need to await: the inner promise hangs until we synth-confirm.
     const sigPromise = dapp.requestSign('https://miden.xyz', {
       type: MidenDAppMessageType.SignRequest,
@@ -759,7 +770,7 @@ describe('requestSign — extension flow', () => {
     await new Promise(r => setTimeout(r, 0));
     expect(_g.__dappExtTest.intercomListeners.length).toBeGreaterThan(0);
     expect(browser.windows.create).toHaveBeenCalled();
-    // Avoid leaking the unhandled promise — we don't actually resolve it.
+    // Avoid leaking the unhandled promise - we don't actually resolve it.
     sigPromise.catch(() => {});
   });
 
@@ -869,7 +880,7 @@ describe('requestPermission existing-permission early-return', () => {
   });
 });
 
-describe('requestImportPrivateNote — extension flow', () => {
+describe('requestImportPrivateNote - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestImportPrivateNote('https://miden.xyz', {
@@ -883,7 +894,7 @@ describe('requestImportPrivateNote — extension flow', () => {
   });
 });
 
-describe('requestPrivateNotes — extension flow', () => {
+describe('requestPrivateNotes - extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
     _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([]);
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
@@ -995,7 +1006,7 @@ describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', ()
   });
 });
 
-describe('requestConsumableNotes — extension flow', () => {
+describe('requestConsumableNotes - extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
     _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
@@ -1009,7 +1020,7 @@ describe('requestConsumableNotes — extension flow', () => {
   });
 });
 
-describe('requestAssets — extension flow', () => {
+describe('requestAssets - extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
       vault: () => ({
@@ -1032,7 +1043,7 @@ describe('requestAssets — extension flow', () => {
   });
 });
 
-describe('requestTransaction — extension flow', () => {
+describe('requestTransaction - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestTransaction('https://miden.xyz', {
@@ -1052,7 +1063,7 @@ describe('requestTransaction — extension flow', () => {
   });
 });
 
-describe('requestSendTransaction — extension flow', () => {
+describe('requestSendTransaction - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestSendTransaction('https://miden.xyz', {
@@ -1072,7 +1083,7 @@ describe('requestSendTransaction — extension flow', () => {
   });
 });
 
-describe('requestConsumeTransaction — extension flow', () => {
+describe('requestConsumeTransaction - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestConsumeTransaction('https://miden.xyz', {
@@ -1807,14 +1818,14 @@ describe('Full confirmation cycles in extension mode', () => {
   /**
    * The signing key is a separate field from the account the session is resolved
    * by, and the vault's lookup is keyed by commitment alone with no
-   * back-reference to an account — so every key in the wallet is reachable from
+   * back-reference to an account - so every key in the wallet is reachable from
    * that one string. A page connected to its own account puts its own id in
    * `sourceAccountId` (so the permission check passes) and somebody else's
    * commitment in `sourcePublicKey`, and gets a signature from a key it was
    * never granted. Approving the sheet does not help: the sheet shows the
    * payload, not whose key will sign it.
    */
-  describe('requestSign — the key must belong to the account the session authorized', () => {
+  describe('requestSign - the key must belong to the account the session authorized', () => {
     const request = (sourcePublicKey: string) =>
       ({
         type: MidenDAppMessageType.SignRequest,
@@ -2447,8 +2458,8 @@ describe('a prompted request approved after the current account changed (#1419, 
 // ── Watchdog eviction mid-flow (#788 follow-up) ────────────────────
 
 describe('a watchdog eviction mid-read abandons the extension flow instead of double-borrowing', () => {
-  // Both tests revoke hold ownership from INSIDE the parking account read — the
-  // moment the real watchdog hands the mutex to a successor — and pin that the
+  // Both tests revoke hold ownership from INSIDE the parking account read - the
+  // moment the real watchdog hands the mutex to a successor - and pin that the
   // commitment reads on the returned Account never run: those are borrows of the
   // client's RefCell, so touching them after the eviction IS the double borrow.
 
@@ -3121,7 +3132,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
 
     expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume-1' });
     expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({ type: 'consume', noteId: '0xreal-note' });
-    expect(_g.__dappExtTest.lastPayloadResponse.payload.transactionMessages).toContain('Amount, +45');
+    expect(_g.__dappExtTest.lastPayloadResponse.payload.transactionMessages).toContain('Amount, +0.000045');
     expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).toHaveBeenCalledWith(
       'miden-account-1',
       '0xreal-note',

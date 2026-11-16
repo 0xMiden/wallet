@@ -56,10 +56,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Must match the pin in the E2E workflows: a binary built by a different
       # rustc must not be reused, which is why the version is in the cache key.
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
       - name: Compute shared cargo cache key
         id: cargo_cache_key
         run: |
@@ -76,7 +76,7 @@ jobs:
           echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli)
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin

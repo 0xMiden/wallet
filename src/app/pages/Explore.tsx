@@ -15,16 +15,11 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import {
-  AccountsDrawer,
-  AnimatedNumber,
-  AssetListItemSkeleton,
-  BalanceCard,
-  ErrorLine,
-  TextAction
-} from 'components/ui';
+import { AccountsDrawer, AssetListItemSkeleton, BalanceCard, ErrorLine, TextAction } from 'components/ui';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { springs, useMotion, usePreset } from 'lib/animation';
-import { toLocalFormat } from 'lib/i18n/numbers';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
+import { getNumberSymbols } from 'lib/i18n/core';
 import {
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
@@ -35,6 +30,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext }
 import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { isDustBalance } from 'lib/miden/front/dust';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
@@ -47,6 +43,7 @@ import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useHideDustTokens } from 'lib/settings/dust';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { isWalletReadyNow, useWalletStore } from 'lib/store';
@@ -95,6 +92,7 @@ const Explore: FC = () => {
   const address = account.publicKey;
 
   const { isHidden, unhide } = useHiddenTokens(address);
+  const hideDust = useHideDustTokens();
 
   const [pullDistance, setPullDistance] = useState(0);
   const [isPulling, setIsPulling] = useState(false);
@@ -249,8 +247,10 @@ const Explore: FC = () => {
     if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
     return fiatValues.get(b)! - fiatValues.get(a)!;
   });
-  // Put hidden tokens in a separate list.
-  const sortedTokens = sorted.filter(token => !isHidden(token.tokenId));
+  // Put hidden tokens in a separate list. A dust token is in neither list while the setting is on.
+  const sortedTokens = sorted.filter(
+    token => !isHidden(token.tokenId) && !(hideDust && isDustBalance(token, tokenPrices, midenFaucetId))
+  );
   const hiddenTokens = sorted.filter(token => isHidden(token.tokenId));
 
   const totalPriceSymbols = allTokenBalances
@@ -398,12 +398,6 @@ interface HomeOverviewProps {
   fundingNotes: readonly PendingNoteValue[] | undefined;
 }
 
-/**
- * The card's total: always two decimals, so a count never changes the number of them mid-flight.
- * No currency symbol: the card shows the currency as its own unit beside the amount.
- */
-const usdTotal = (value: number) => toLocalFormat(value, { decimalPlaces: 2 });
-
 const HomeOverview: FC<HomeOverviewProps> = ({
   address,
   tokenPrices,
@@ -422,6 +416,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   // Handed to HiddenAssets so an unhide that empties the section can still land focus somewhere.
   const assetListRef = useRef<HTMLDivElement>(null);
   const assetsHeadingId = useId();
+  const numberSymbols = getNumberSymbols();
   return (
     <>
       <Balance>
@@ -442,7 +437,14 @@ const HomeOverview: FC<HomeOverviewProps> = ({
               ) : (
                 // Keyed by the account: a switch lands on the new account's total instead of
                 // counting from the old one's (AnimatedNumber counts only within one subject).
-                <AnimatedNumber key={address} value={balance.toNumber()} format={usdTotal} />
+                <TokenAmount
+                  key={address}
+                  amount={balance.toNumber()}
+                  animated
+                  grouping
+                  trimTrailingZeros={false}
+                  separators={{ group: numberSymbols.group, decimal: numberSymbols.decimal }}
+                />
               )
             }
             // Until the first balance read lands the store has no entry for this
@@ -454,7 +456,9 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             delta={
               change && pricesLoaded(tokenPrices, totalPriceSymbols)
                 ? {
-                    absolute: `${change.absolute < 0 ? '-' : '+'}$${usdTotal(Math.abs(change.absolute))}`,
+                    absolute: `${change.absolute < 0 ? '-' : '+'}${formatUsdDisplay(Math.abs(change.absolute), {
+                      separators: { group: numberSymbols.group, decimal: numberSymbols.decimal }
+                    })}`,
                     percentage: `${change.percentage < 0 ? '-' : '+'}${Math.abs(change.percentage).toFixed(2)}%`
                   }
                 : undefined

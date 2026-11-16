@@ -6,6 +6,9 @@ import {
   partitionFeeNote,
   splitExecutedOutputNotes
 } from './fee';
+import { splitLandedOutputNotes } from './fee-notes';
+import { FEE_RESERVE_MULTIPLE } from '../fees/spendable';
+import { installLandedTrapRetirement } from '../sdk/landed-trap-retirement';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The fee note is corroborated against the chain's NATIVE faucet, so the suite has to
@@ -50,23 +53,52 @@ const result = (notes: ReturnType<typeof outputNote>[]) =>
     executedTransaction: () => ({ outputNotes: () => ({ notes: () => notes }) })
   }) as any;
 
+// The leaf's state is module scope and shared by every test in this file, so each read names its own landing.
 describe('feePaidFromResult', () => {
+  let retire: jest.Mock;
+  let restore: () => void;
+  beforeEach(() => {
+    retire = jest.fn();
+    restore = installLandedTrapRetirement(retire);
+  });
+  afterEach(() => restore());
+
   it('reads the fee from the TX_FEE output note', () => {
     const fee = feePaidFromResult(
-      result([outputNote(0x0, [asset(500n, 'tkn-faucet')]), outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])])
+      result([outputNote(0x0, [asset(500n, 'tkn-faucet')]), outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]),
+      'fee-read'
     );
     expect(fee).toEqual({ amount: 163840n, faucetId: 'bech32-native' });
   });
 
   it('returns undefined when the transaction created no fee note', () => {
     // A zero-fee chain creates none at all, so absence is normal, not an error.
-    expect(feePaidFromResult(result([outputNote(0x0, [asset(500n, 'tkn-faucet')])]))).toBeUndefined();
+    expect(feePaidFromResult(result([outputNote(0x0, [asset(500n, 'tkn-faucet')])]), 'fee-none')).toBeUndefined();
   });
 
   it('survives a note whose metadata is unavailable', () => {
     // Reading the fee must never break the caller that is recording the row.
     const broken = { metadata: () => undefined, assets: () => ({ fungibleAssets: () => [] }) };
-    expect(() => feePaidFromResult(result([broken as any]))).not.toThrow();
+    expect(() => feePaidFromResult(result([broken as any]), 'fee-broken')).not.toThrow();
+    expect(retire).not.toHaveBeenCalled();
+  });
+
+  it('reads the fee past a note whose tag read traps, since it runs past submit', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const unreadable = {
+      metadata: () => {
+        throw trap;
+      },
+      assets: () => ({ fungibleAssets: () => [asset(500n, 'tkn-faucet')], nonFungibleAssets: () => [] })
+    };
+    expect(
+      feePaidFromResult(
+        result([unreadable as any, outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]),
+        'fee-past-tag'
+      )
+    ).toEqual({ amount: 163840n, faucetId: 'bech32-native' });
+    warn.mockRestore();
   });
 
   it('propagates an eviction instead of reporting no fee', () => {
@@ -81,7 +113,56 @@ describe('feePaidFromResult', () => {
       },
       assets: () => ({ fungibleAssets: () => [] })
     };
-    expect(() => feePaidFromResult(result([evicted as any]))).toThrow(WasmClientPoisonedError);
+    expect(() => feePaidFromResult(result([evicted as any]), 'fee-evicted')).toThrow(WasmClientPoisonedError);
+    expect(retire).not.toHaveBeenCalled();
+  });
+
+  it('feePaidFromResult answers a trap in a fee check with no fee and retires under its row', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const read = landed(
+      executed([fee], () => {
+        throw trap;
+      })
+    );
+    expect(feePaidFromResult(read, 'fee-paid')).toBeUndefined();
+    expect(retire.mock.calls).toEqual([[trap, 'fee-paid']]);
+  });
+
+  it('feePaidFromResult answers a trap in a read after the split with no fee and retires under its row', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let amountReads = 0;
+    // The split's ceiling check reads the amount once, so only the fee figure's own read traps.
+    const fee = {
+      metadata: () => ({ tag: () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
+      assets: () => ({
+        fungibleAssets: () => [
+          {
+            amount: () => {
+              amountReads += 1;
+              if (amountReads > 1) throw trap;
+              return '163840';
+            },
+            faucetId: () => 'native'
+          }
+        ],
+        nonFungibleAssets: () => []
+      })
+    };
+    expect(feePaidFromResult(result([fee as any]), 'fee-after-split')).toBeUndefined();
+    expect(retire.mock.calls).toEqual([[trap, 'fee-after-split']]);
+  });
+
+  it('feeFieldsFromResult retires under the row it records', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const read = landed(
+      executed([fee], () => {
+        throw trap;
+      })
+    );
+    expect(feeFieldsFromResult(read, 'fee-fields')).toEqual({});
+    expect(retire.mock.calls).toEqual([[trap, 'fee-fields']]);
   });
 });
 
@@ -195,11 +276,39 @@ describe('partitionFeeNote', () => {
     const forged = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
     expect(partitionFeeNote([forged] as any, 'bech32-native', null).feeNote).toBeUndefined();
   });
+
+  // Omitting the argument keeps the kernel ceiling; the own-block case already pins that.
+  it("returns a fee-tagged native note above the kernel ceiling when the ceiling is 'recorded'", () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    const { feeNote } = partitionFeeNote([over] as any, native, CHARGING, 'recorded');
+    expect(feeNote).toBe(over);
+  });
+
+  it("leaves both fee-tagged native notes above the kernel ceiling as user notes for a 'recorded' split", () => {
+    const a = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    const b = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 2n, 'native')]);
+    const { feeNote, userNotes } = partitionFeeNote([a, b] as any, native, CHARGING, 'recorded');
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([a, b]);
+  });
+
+  it("identifies nothing for a 'recorded' split when the base fee is 0", () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    expect(partitionFeeNote([over] as any, native, 0, 'recorded').feeNote).toBeUndefined();
+  });
+
+  it("identifies nothing for a 'recorded' split before the native faucet is known", () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    expect(partitionFeeNote([over] as any, null, CHARGING, 'recorded').feeNote).toBeUndefined();
+  });
 });
 
 describe('feeFieldsFromResult', () => {
   it('produces the transaction-row fields when a fee was paid', () => {
-    const fields = feeFieldsFromResult(result([outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]));
+    const fields = feeFieldsFromResult(
+      result([outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]),
+      'fields-paid'
+    );
     // Bech32, so `assetsMetadata` (keyed by bech32) can resolve the fee token and the
     // receipt renders a fee line at all.
     expect(fields).toEqual({ feeAmount: 163840n, feeFaucetId: 'bech32-native' });
@@ -207,13 +316,13 @@ describe('feeFieldsFromResult', () => {
 
   it('produces no fields when there is no result at all', () => {
     // Some completion paths finish without a TransactionResult in hand.
-    expect(feeFieldsFromResult(undefined)).toEqual({});
+    expect(feeFieldsFromResult(undefined, 'fields-no-result')).toEqual({});
   });
 
   it('produces no fields at all when no fee was paid', () => {
     // Spread into an update object, so it must add nothing rather than write
     // undefined keys over values another writer may have set.
-    expect(feeFieldsFromResult(result([outputNote(0x0, [asset(1n, 'tkn')])]))).toEqual({});
+    expect(feeFieldsFromResult(result([outputNote(0x0, [asset(1n, 'tkn')])]), 'fields-no-fee')).toEqual({});
   });
 });
 
@@ -225,5 +334,363 @@ describe('feeTextFromTransaction', () => {
   it('renders nothing for a row that recorded no fee', () => {
     // Rows written before fees existed, and every row on a zero-fee chain.
     expect(feeTextFromTransaction({} as any, 6, 'MIDEN')).toBeUndefined();
+  });
+});
+
+describe("splitExecutedOutputNotes against the transaction's own block", () => {
+  const userNote = outputNote(0x0, [asset(500n, 'tkn-faucet')]);
+  // Within the ceiling of a base fee of 2 (60), so each case below is decided by which fee source the split reads.
+  const taggedNative = outputNote(TX_FEE_NOTE_TAG, [asset(50n, 'native')]);
+  const withHeader = (blockHeader: () => unknown, notes = [userNote, taggedNative]) =>
+    ({ outputNotes: () => ({ notes: () => notes }), blockHeader }) as any;
+  afterEach(() => {
+    mockVerificationBaseFee = CHARGING;
+  });
+  const headerCharging = (fee: number) => () => ({ verificationBaseFee: () => fee });
+
+  it("takes the fee rate from the transaction's own block: a fee-tagged native note on a free block stays a user note although the cache says 2", () => {
+    mockVerificationBaseFee = 2;
+    const { feeNote, userNotes } = splitExecutedOutputNotes(withHeader(headerCharging(0)));
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([userNote, taggedNative]);
+  });
+
+  it('identifies the fee note on a charging block although the cache says 0', () => {
+    mockVerificationBaseFee = 0;
+    const { feeNote, userNotes } = splitExecutedOutputNotes(withHeader(headerCharging(2)));
+    expect(feeNote).toBe(taggedNative);
+    expect(userNotes).toEqual([userNote]);
+  });
+
+  it('identifies nothing when the header read throws', () => {
+    mockVerificationBaseFee = 2;
+    const { feeNote, userNotes } = splitExecutedOutputNotes(
+      withHeader(() => {
+        throw new Error('no header');
+      })
+    );
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([userNote, taggedNative]);
+  });
+
+  it('lets an eviction from the header read through', () => {
+    const eviction = new WasmClientPoisonedError('watchdog');
+    expect(() =>
+      splitExecutedOutputNotes(
+        withHeader(() => {
+          throw eviction;
+        })
+      )
+    ).toThrow(eviction);
+  });
+
+  // The kernel charges at most the base fee times FEE_RESERVE_MULTIPLE, so a larger tagged note is never the fee.
+  it('leaves a fee-tagged native note above the kernel ceiling among the user notes', () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')]);
+    const { feeNote, userNotes } = splitExecutedOutputNotes(withHeader(headerCharging(CHARGING), [userNote, over]));
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([userNote, over]);
+  });
+
+  it('still takes a fee-tagged native note at exactly the kernel ceiling', () => {
+    const atCeiling = outputNote(TX_FEE_NOTE_TAG, [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE), 'native')]);
+    const { feeNote } = splitExecutedOutputNotes(withHeader(headerCharging(CHARGING), [userNote, atCeiling]));
+    expect(feeNote).toBe(atCeiling);
+  });
+
+  it("measures the ceiling against the transaction's own block fee", () => {
+    const over = outputNote(TX_FEE_NOTE_TAG, [asset(61n, 'native')]);
+    const { feeNote } = splitExecutedOutputNotes(withHeader(headerCharging(2), [userNote, over]));
+    expect(feeNote).toBeUndefined();
+  });
+
+  it('keeps the realm cache for an object without a header', () => {
+    mockVerificationBaseFee = 2;
+    const { feeNote } = splitExecutedOutputNotes({
+      outputNotes: () => ({ notes: () => [userNote, taggedNative] })
+    } as any);
+    expect(feeNote).toBe(taggedNative);
+  });
+});
+
+type FeeRead = 'tag' | 'faucet' | 'amount';
+const FEE_READS: FeeRead[] = ['tag', 'faucet', 'amount'];
+
+// A fee-tagged native note whose `where` read throws `failure`, so each fee check is reached in turn.
+const trapping = (where: FeeRead, failure: unknown) => {
+  const fail = () => {
+    throw failure;
+  };
+  return {
+    metadata: () => ({ tag: where === 'tag' ? fail : () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
+    assets: () => ({
+      fungibleAssets: () => [
+        { amount: where === 'amount' ? fail : () => '163840', faucetId: where === 'faucet' ? fail : () => 'native' }
+      ],
+      nonFungibleAssets: () => []
+    })
+  };
+};
+
+const executed = (notes: unknown[], blockHeader?: () => { verificationBaseFee: () => number }) =>
+  ({ outputNotes: () => ({ notes: () => notes }), ...(blockHeader ? { blockHeader } : {}) }) as any;
+
+const landed = (e: unknown) => ({ executedTransaction: () => e }) as any;
+
+const thrownBy = (fn: () => unknown): unknown => {
+  try {
+    fn();
+  } catch (caught) {
+    return caught;
+  }
+  return undefined;
+};
+
+const user = outputNote(0x0, [asset(500n, 'tkn')]);
+const poison = new WasmClientPoisonedError('watchdog');
+
+// The lock retires a trapped client only when the trap reaches it, so a fee check must not answer it.
+describe('a trap or a kill in a fee check', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+
+  it.each(FEE_READS)('splitExecutedOutputNotes rethrows a trap from the %s read as that same object', where => {
+    expect(thrownBy(() => splitExecutedOutputNotes(executed([user, trapping(where, trap)])))).toBe(trap);
+  });
+
+  it('rethrows a trap from the header read as that same object', () => {
+    const header = () => {
+      throw trap;
+    };
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    expect(thrownBy(() => splitExecutedOutputNotes(executed([user, fee], header)))).toBe(trap);
+  });
+
+  it('rethrows the eviction a wrapped tag-read failure carries, as the eviction', () => {
+    const wrapped = trapping('tag', new Error('wrapped', { cause: poison }));
+    expect(thrownBy(() => splitExecutedOutputNotes(executed([user, wrapped])))).toBe(poison);
+  });
+
+  it('still identifies nothing when a fee check fails with an ordinary error', () => {
+    const broken = trapping('tag', new TypeError('no accessor'));
+    expect(splitExecutedOutputNotes(executed([user, broken]))).toEqual({
+      feeNote: undefined,
+      userNotes: [user, broken]
+    });
+  });
+});
+
+describe('splitLandedOutputNotes', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  let retire: jest.Mock;
+  let restore: () => void;
+  beforeEach(() => {
+    retire = jest.fn();
+    restore = installLandedTrapRetirement(retire);
+  });
+  afterEach(() => restore());
+
+  it.each(FEE_READS)(
+    'identifies no fee note when the %s read traps, keeps every note, and retires under its row',
+    where => {
+      const trapped = trapping(where, trap);
+      expect(splitLandedOutputNotes(landed(executed([user, trapped])), `split-${where}`)).toEqual({
+        feeNote: undefined,
+        userNotes: [user, trapped]
+      });
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledWith(trap, `split-${where}`);
+    }
+  );
+
+  it('identifies no fee note when the header read traps', () => {
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const { feeNote, userNotes } = splitLandedOutputNotes(
+      landed(
+        executed([user, fee], () => {
+          throw trap;
+        })
+      ),
+      'split-header'
+    );
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([user, fee]);
+    expect(retire.mock.calls).toEqual([[trap, 'split-header']]);
+  });
+
+  it('retires once per row however many reads of it trap', () => {
+    // Every read of a landed result builds its objects again, so each read traps with a new object.
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const freshHeaderTrap = () => {
+      throw new WebAssembly.RuntimeError('unreachable');
+    };
+    splitLandedOutputNotes(landed(executed([user, fee], freshHeaderTrap)), 'split-twice');
+    splitLandedOutputNotes(landed(executed([user, fee], freshHeaderTrap)), 'split-twice');
+    expect(retire).toHaveBeenCalledTimes(1);
+  });
+
+  it('separates the fee note as splitExecutedOutputNotes does when nothing traps', () => {
+    const same = executed([user, outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])], () => ({
+      verificationBaseFee: () => CHARGING
+    }));
+    const split = splitLandedOutputNotes(landed(same), 'split-clean');
+    expect(split).toEqual(splitExecutedOutputNotes(same));
+    expect(split.feeNote).toBeDefined();
+    expect(retire).not.toHaveBeenCalled();
+  });
+
+  it('lets the eviction a wrapped failure carries through', () => {
+    const wrapped = trapping('tag', new Error('wrapped', { cause: poison }));
+    expect(thrownBy(() => splitLandedOutputNotes(landed(executed([user, wrapped])), 'split-evicted'))).toBe(poison);
+    expect(retire).not.toHaveBeenCalled();
+  });
+
+  it('lets a trap from the output-note read itself through', () => {
+    const unreadable = {
+      outputNotes: () => {
+        throw trap;
+      }
+    };
+    expect(thrownBy(() => splitLandedOutputNotes(landed(unreadable), 'split-unreadable'))).toBe(trap);
+    expect(retire).not.toHaveBeenCalled();
+  });
+
+  it('lets a trap from the executed-transaction read itself through', () => {
+    const undecodable = {
+      executedTransaction: () => {
+        throw trap;
+      }
+    };
+    expect(thrownBy(() => splitLandedOutputNotes(undecodable as any, 'split-undecodable'))).toBe(trap);
+    expect(retire).not.toHaveBeenCalled();
+  });
+
+  // A trap answers only the check that threw it, so a fee note the other checks identified is still split out (it would
+  // otherwise become a caller's first user note: a swap's order note, a private send's relayed note), unless the note
+  // that trapped cannot be ruled out as a second candidate, which leaves no note the fee, as two candidates do.
+  describe('answers a trap per check', () => {
+    const kernelFee = () => outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const untagged = (failure: unknown) => ({
+      metadata: () => {
+        throw failure;
+      },
+      assets: () => ({ fungibleAssets: () => [asset(500n, 'tkn')], nonFungibleAssets: () => [] })
+    });
+    let warn: jest.SpyInstance;
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it.each([['before'], ['after']])('splits out the fee note when a note %s it traps in its tag read', order => {
+      const fee = kernelFee();
+      const trapped = untagged(trap);
+      const notes = order === 'before' ? [trapped, fee] : [fee, trapped];
+      expect(splitLandedOutputNotes(landed(executed(notes)), `per-check-tag-${order}`)).toEqual({
+        feeNote: fee,
+        userNotes: [trapped]
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), [trap]);
+    });
+
+    it('warns once, naming both traps, when two notes trap', () => {
+      const other = new WebAssembly.RuntimeError('unreachable');
+      const fee = kernelFee();
+      const first = untagged(trap);
+      const second = untagged(other);
+      expect(splitLandedOutputNotes(landed(executed([first, fee, second])), 'per-check-two-traps')).toEqual({
+        feeNote: fee,
+        userNotes: [first, second]
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), [trap, other]);
+    });
+
+    // Two candidates mean neither is the fee, so a tagged note that cannot be ruled out keeps the split ambiguous.
+    it.each(['faucet', 'amount'] as const)(
+      'identifies no fee note when a second fee-tagged note traps in its %s read',
+      where => {
+        const fee = kernelFee();
+        const second = trapping(where, trap);
+        expect(splitLandedOutputNotes(landed(executed([fee, second])), `per-check-second-${where}`)).toEqual({
+          feeNote: undefined,
+          userNotes: [fee, second]
+        });
+      }
+    );
+
+    it('logs nothing when no check traps', () => {
+      splitLandedOutputNotes(
+        landed(executed([user, untagged(new TypeError('no accessor')), kernelFee()])),
+        'per-check-none'
+      );
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    // A trapped tag is unknown, not absent: a native note within the ceiling may be a second fee-tagged candidate.
+    it.each([['before'], ['after']])(
+      'identifies no fee note when a native note within the ceiling %s the fee note traps in its tag read',
+      order => {
+        const fee = kernelFee();
+        const unknownTag = trapping('tag', trap);
+        const notes = order === 'before' ? [unknownTag, fee] : [fee, unknownTag];
+        expect(splitLandedOutputNotes(landed(executed(notes)), `per-check-unknown-tag-${order}`)).toEqual({
+          feeNote: undefined,
+          userNotes: notes
+        });
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(expect.any(String), [trap]);
+      }
+    );
+
+    it.each(['faucet', 'amount'] as const)(
+      'identifies no fee note when a note traps in its tag read and then in its %s read',
+      second => {
+        const other = new WebAssembly.RuntimeError('unreachable');
+        const fail = (failure: unknown) => () => {
+          throw failure;
+        };
+        const fee = kernelFee();
+        const twice = {
+          metadata: () => ({ tag: fail(trap) }),
+          assets: () => ({
+            fungibleAssets: () => [
+              {
+                amount: second === 'amount' ? fail(other) : () => '163840',
+                faucetId: second === 'faucet' ? fail(other) : () => 'native'
+              }
+            ],
+            nonFungibleAssets: () => []
+          })
+        };
+        expect(splitLandedOutputNotes(landed(executed([twice, fee])), `per-check-tag-then-${second}`)).toEqual({
+          feeNote: undefined,
+          userNotes: [twice, fee]
+        });
+        expect(warn).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('splits out the fee note beside a native note whose tag traps and whose amount is over the ceiling', () => {
+      const fee = kernelFee();
+      const overCeiling = {
+        metadata: () => ({
+          tag: () => {
+            throw trap;
+          }
+        }),
+        assets: () => ({
+          fungibleAssets: () => [asset(BigInt(CHARGING * FEE_RESERVE_MULTIPLE) + 1n, 'native')],
+          nonFungibleAssets: () => []
+        })
+      };
+      expect(splitLandedOutputNotes(landed(executed([overCeiling, fee])), 'per-check-over-ceiling')).toEqual({
+        feeNote: fee,
+        userNotes: [overCeiling]
+      });
+      expect(warn).toHaveBeenCalledWith(expect.any(String), [trap]);
+    });
   });
 });

@@ -2560,7 +2560,8 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
     // The chain fee is decided before the write runs, so it is known here.
     jest.doMock('lib/miden-chain/native-asset', () => ({
       ...jest.requireActual('lib/miden-chain/native-asset'),
-      getVerificationBaseFee: jest.fn(async () => 0)
+      getVerificationBaseFee: jest.fn(async () => 0),
+      refreshVerificationBaseFee: jest.fn(async () => 0)
     }));
     const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
     const { bytesToB64 } = await import('./offscreen-codec');
@@ -4146,6 +4147,34 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect(env.argsB64[3]).toBe('s:"BwcH"');
     expect(env.argsB64[4]).toBe('s:null');
     expect(env.argsB64[5]).toBe('s:false');
+  });
+
+  it('keeps the explicit native authorization channel on the actual Guardian request wire', async () => {
+    const { dispatchGuardianPipeline } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from([9]).toString('base64'),
+      durationMs: 1
+    }));
+    const pending = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      'send'
+    );
+    await flush();
+    fireReady();
+    await pending;
+    const envelope = fakeChrome.runtime.sendMessage.mock.calls[0]?.[0];
+    expect(envelope.argsB64[6]).toBe('s:"send"');
+    expect(envelope.argsB64[1]).toBe('b:' + Buffer.from(trBytes()).toString('base64'));
   });
 
   it('flag ON → an ApplyTransactionAfterSubmitFailed reply rejects with the errorCode the GUARDIAN classifier reads (Completed, not Failed → requeue)', async () => {

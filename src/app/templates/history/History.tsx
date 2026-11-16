@@ -819,7 +819,10 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     bridgeEpochStatus: bridge?.epochStatus,
     bridgeFillTxHash: bridge?.fillTxHash,
     bridgeFillChainId: bridge?.fillChainId,
+    outputNoteIds: tx.outputNoteIds,
     bridgeReclaimHeight: bridge?.reclaimHeight,
+    bridgeReclaimNoteId: bridge?.reclaimNoteId,
+    bridgeSubmitClaimed: bridge?.submitClaimed,
     bridgeInPhase: bridgedReceive?.phase,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
     earnWithdrawPhase: earnWithdraw?.phase,
@@ -827,7 +830,13 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
   };
 };
 
-const patchLoadedActivityStatus = (
+// IndexedDB returns a fresh copy of an array field (outputNoteIds) on every read, so it is equal by its elements.
+const sameLoadedField = (shown: unknown, fresh: unknown): boolean =>
+  Array.isArray(shown) && Array.isArray(fresh)
+    ? shown.length === fresh.length && shown.every((value, index) => value === fresh[index])
+    : shown === fresh;
+
+export const patchLoadedActivityStatus = (
   state: ScopedEntries,
   key: string,
   ids: ReadonlySet<string>,
@@ -840,7 +849,9 @@ const patchLoadedActivityStatus = (
     const row = fresh.get(entry.txId);
     if (row === undefined) return entry;
     const fields = loadedActivityStatusFields(row);
-    if (Object.entries(fields).every(([field, value]) => entry[field as keyof IHistoryEntry] === value)) return entry;
+    if (Object.entries(fields).every(([field, value]) => sameLoadedField(entry[field as keyof IHistoryEntry], value))) {
+      return entry;
+    }
     changed = true;
     return { ...entry, ...fields };
   });
@@ -1048,7 +1059,10 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeEpochStatus: bridge?.epochStatus,
       usdcxBurn: bridge?.usdcxBurn,
       bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
+      outputNoteIds: tx.outputNoteIds,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      bridgeReclaimNoteId: bridge?.reclaimNoteId,
+      bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
@@ -1198,7 +1212,10 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeEpochStatus: bridge?.epochStatus,
       usdcxBurn: bridge?.usdcxBurn,
       bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
+      outputNoteIds: tx.outputNoteIds,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      bridgeReclaimNoteId: bridge?.reclaimNoteId,
+      bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus
     } as IHistoryEntry;
