@@ -1023,7 +1023,7 @@ export async function verifyUnstartedNearForward(
       serviceUrl: state.serviceUrl,
       appFees: state.appFees,
       feePolicy: state.feePolicy,
-      midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.faucetId, decimals: 6 }]
+      midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }]
     },
     quote.depositAddress,
     undefined,
@@ -1056,7 +1056,7 @@ async function originalMainnetNearStatus(
     serviceUrl: state.serviceUrl,
     appFees: state.appFees,
     feePolicy: state.feePolicy,
-    midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.faucetId, decimals: 6 }]
+    midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }]
   };
   const fetcher = createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId);
   const checked = (status: OneClickStatusResponse) => {
