@@ -300,7 +300,8 @@ describe('the mobile/desktop custom-transaction sheet states the simulated effec
       address: 'miden-account-1',
       transactionRequest: 'reqB64',
       importNotes: ['noteB64'],
-      feeScope: 'rpc|testnet'
+      feeScope: 'rpc|testnet',
+      chainFeeRead: expect.any(Promise)
     });
     expect(mockSummaryBytesToView).toHaveBeenCalledWith('sumB64');
   });
@@ -434,6 +435,34 @@ const refusedBeforePrompt = async (): Promise<string> => {
 };
 
 describe('a request that cannot be simulated is refused before any prompt', () => {
+  it('refuses a failed dry run while the fee refresh it started has not settled', async () => {
+    mockRefreshVerificationBaseFee.mockImplementationOnce(() => new Promise<number | null>(() => undefined));
+    mockSimulate.mockResolvedValue({ error: 'note not found' });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let outcome: string;
+    try {
+      outcome = await Promise.race([
+        requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+          () => 'not refused',
+          (error: Error) => error.message
+        ),
+        new Promise<string>(resolve => {
+          timer = setTimeout(() => resolve('still waiting on the fee read'), 1_000);
+        })
+      ]);
+    } finally {
+      clearTimeout(timer);
+      errSpy.mockRestore();
+    }
+
+    expect(outcome).toMatch(new RegExp(`^${MidenDAppErrorType.NotGranted}: The transaction could not be simulated`));
+    expect(outcome).toContain('Reason: note not found');
+    expect(mockRefreshVerificationBaseFee).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+  });
+
   it('refuses with the reason when the simulation errors', async () => {
     mockSimulate.mockResolvedValue({ error: 'note not found' });
 
@@ -804,12 +833,12 @@ describe('the outflow an approval records', () => {
 });
 
 /**
- * A summary's fee note is told apart only by the chain fee this realm just read, so the approval reads it before the
- * dry run, whose hold measures the approval. Only a summary is refused when that read is unknown: an executed dry run
- * splits on the fee of its own block.
+ * A summary's fee note is told apart only by the chain fee this realm just read, so the approval starts that read before
+ * the dry run, whose hold waits for it before measuring a summary. Only a summary is refused when that read is unknown:
+ * an executed dry run splits on the fee of its own block.
  */
 describe('the chain fee the approval decodes with', () => {
-  it('reads the chain fee once, before the dry run, for a summary and for an executed dry run', async () => {
+  it('starts the chain fee read once, before the dry run, for a summary and for an executed dry run', async () => {
     await raiseSheet(false);
 
     expect(mockRefreshVerificationBaseFee).toHaveBeenCalledTimes(1);

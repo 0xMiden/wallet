@@ -129,11 +129,12 @@ const mockNoteFlowFromSimulatedBytes = jest.fn((_dryRun: unknown): unknown => un
 jest.mock('lib/miden/transaction/custom-effects', () => ({
   approveCustomSimulation: (dryRun: unknown) => mockApproveCustomSimulation(dryRun)
 }));
-// The summary decode reads the cached chain fee. This suite publishes no refresh; the fee beside one of 2 is 2.
+// The summary decode reads the cached chain fee, 2 unless a test's fee read lands another value.
 const mockCacheScope = jest.fn(() => 'rpc|testnet');
+let mockSyncFee: number | null = 2;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getVerificationBaseFeeSync: () => 2,
+  getVerificationBaseFeeSync: () => mockSyncFee,
   cacheScope: () => mockCacheScope()
 }));
 jest.mock('app/confirm/note-flow', () => ({
@@ -155,6 +156,7 @@ describe('simulateCustomTransaction', () => {
     jest.clearAllMocks();
     mockCacheScope.mockReset();
     mockCacheScope.mockImplementation(() => 'rpc|testnet');
+    mockSyncFee = 2;
     mockQuarantinedIds.clear();
     delete mockQuarantineCallObserver.current;
     mockBeginQuarantineAttempt.mockReset().mockImplementation(() => ({ abandoned: false }));
@@ -688,6 +690,23 @@ describe('simulateCustomTransaction', () => {
       await expectHoldLoss(simulation, 'before the approval decode');
       expect(mockApproveCustomSimulation).not.toHaveBeenCalled();
     });
+
+    it("during the summary's wait for the fee read: nothing is measured", async () => {
+      const awaitingFeeRead = {
+        address: 'mtst1abc',
+        transactionRequest: 'reqB64',
+        feeScope: 'rpc|testnet',
+        chainFeeRead: new Promise<number | null>(resolve =>
+          setTimeout(() => {
+            revokeWasmHold();
+            resolve(2);
+          }, 0)
+        )
+      };
+
+      await expectHoldLoss(simulateCustomTransaction(awaitingFeeRead), 'before the approval decode');
+      expect(mockApproveCustomSimulation).not.toHaveBeenCalled();
+    });
   });
 
   it('a simulation timeout rejects with CustomSimulationTimeoutError', async () => {
@@ -778,6 +797,86 @@ describe('simulateCustomTransaction', () => {
 
   it('does not refuse an executed dry run because the fee scope differs', () => {
     expect(measureApprovalDryRun({ executedBytes: 'exec' }, 'rpc-other|testnet')).toEqual({ executedBytes: 'exec' });
+  });
+
+  /**
+   * The caller starts its fee refresh before the dry run and passes the pending read in. Only a summary's decode waits
+   * for it, inside the hold, so a dry run that fails or executes is never held up by the node.
+   */
+  describe('the pending fee read', () => {
+    const awaitingFeeRead = (chainFeeRead: Promise<number | null>) => ({
+      address: 'mtst1abc',
+      transactionRequest: 'reqB64',
+      feeScope: 'rpc|testnet',
+      chainFeeRead
+    });
+    /** Lands on a later macrotask: `land` stands in for what the refresh writes to the cache. */
+    const feeReadLanding = (land: () => void) =>
+      new Promise<number | null>(resolve =>
+        setTimeout(() => {
+          land();
+          resolve(mockSyncFee);
+        }, 0)
+      );
+    const unsettledFeeRead = () => new Promise<number | null>(() => undefined);
+
+    it('decodes a summary inside the hold with the fee the refresh cached, not the stale one', async () => {
+      mockSyncFee = 1;
+      const decodes: { fee: number | null; inHold: boolean }[] = [];
+      mockApproveCustomSimulation.mockImplementation(() => {
+        decodes.push({ fee: mockSyncFee, inHold: currentWasmHold !== null });
+        return undefined;
+      });
+
+      await simulateCustomTransaction(
+        awaitingFeeRead(
+          feeReadLanding(() => {
+            mockSyncFee = 3;
+          })
+        )
+      );
+
+      expect(decodes).toEqual([{ fee: 3, inHold: true }]);
+    });
+
+    it('refuses a summary whose fee the refresh left unknown', async () => {
+      const result = await simulateCustomTransaction(
+        awaitingFeeRead(
+          feeReadLanding(() => {
+            mockSyncFee = null;
+          })
+        )
+      );
+
+      expect(result.feeUnknown).toBe(true);
+      expect(mockApproveCustomSimulation).not.toHaveBeenCalled();
+    });
+
+    it('refuses a summary when the endpoint changes while the read is pending', async () => {
+      const result = await simulateCustomTransaction(
+        awaitingFeeRead(feeReadLanding(() => mockCacheScope.mockImplementation(() => 'rpc-other|testnet')))
+      );
+
+      expect(result.feeUnknown).toBe(true);
+      expect(mockApproveCustomSimulation).not.toHaveBeenCalled();
+    });
+
+    it('does not wait for the read when the dry run executes instead of summarizing', async () => {
+      jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(new Error('failed to generate signature'));
+
+      await expect(simulateCustomTransaction(awaitingFeeRead(unsettledFeeRead()))).resolves.toMatchObject({
+        executedBytes: 'b64:9-9'
+      });
+    });
+
+    it('does not wait for the read when the summary is refused before its approval decode', async () => {
+      mockSimulatedBytesToView.mockReturnValueOnce({});
+
+      await expect(simulateCustomTransaction(awaitingFeeRead(unsettledFeeRead()))).resolves.toEqual({
+        error: 'the view does not list the notes it consumes'
+      });
+      expect(mockApproveCustomSimulation).not.toHaveBeenCalled();
+    });
   });
 });
 
