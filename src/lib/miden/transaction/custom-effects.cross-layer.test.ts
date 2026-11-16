@@ -237,9 +237,10 @@ describe('one approval, measured alike by the approval, the generation check and
       transactionRequest: Buffer.from('custom-request').toString('base64'),
       importNotes: ['0xheld']
     });
-    expect(simulated).toEqual({ summaryBytes: SUMMARY_BYTES, introducedNoteIds: [] });
-    const approval = approveCustomSimulation(simulated);
+    expect(simulated).toMatchObject({ summaryBytes: SUMMARY_BYTES, introducedNoteIds: [] });
+    const approval = simulated.approval;
     if (approval === undefined) throw new Error('the dry run gave no approval');
+    expect(approval).toEqual(approveCustomSimulation(simulated));
     const row = await queuedRow(approval);
 
     expect(approval.view.outgoing).toEqual([{ faucetId: 'bech32:fX', amount: 1050n }]);

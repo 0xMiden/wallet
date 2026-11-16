@@ -1,3 +1,8 @@
+# Native platform-authentication tests
+
+- Distinguish native Windows Hello coverage from physical-hardware coverage. For a cloud-testing request, investigate Windows 11 VMs and PIN verification before proposing physical-PC rental.
+- A cloud desktop, a virtual WebAuthn authenticator, and authentication redirected to the client prove different things. Qualify Hello/PRF inside the chosen VM before treating it as native Windows coverage.
+
 # Fee asset discovery
 
 - Apply an explicit final-review severity cutoff to new findings. Preserve lower-severity findings as deferred evidence without restarting the review or delaying the requested release.

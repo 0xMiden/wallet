@@ -44,6 +44,7 @@ before(async () => {
     'sdk/sdk-error-code.ts',
     new Map([
       ['./wasm-client-poison', await transpiled('sdk/wasm-client-poison.ts', new Map())],
+      ['./wasm-handle', await transpiled('sdk/wasm-handle.ts', new Map())],
       ['../back/offscreen-codec', await transpiled('back/offscreen-codec.ts', new Map())]
     ])
   );

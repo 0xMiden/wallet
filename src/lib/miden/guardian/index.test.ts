@@ -1,5 +1,5 @@
 /**
- * MultisigService — wraps MultisigClient/Multisig/GuardianHttpClient into a
+ * MultisigService - wraps MultisigClient/Multisig/GuardianHttpClient into a
  * narrower surface used by the wallet. These tests cover:
  *   - constructor / accountId getter
  *   - proposal builders (send, consume, custom)
@@ -42,9 +42,9 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm
  * These tests replaced `setTimeout` with an immediate-invoke stub so they would
  * not sit on real backoff timers. That also fires the `withTimeout` deadlines the
  * guardian calls are wrapped in, so every bounded request "timed out" on its
- * first tick — the stub silently rewrote what was under test. Bounded by the cap
+ * first tick - the stub silently rewrote what was under test. Bounded by the cap
  * on the delays being skipped (`GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS`, and the
- * shorter sync retry wait below it), so anything longer — i.e. a deadline — keeps
+ * shorter sync retry wait below it), so anything longer - i.e. a deadline - keeps
  * a real timer and never fires before the promise it guards settles.
  */
 const skipRetryBackoffs = () => {
@@ -73,7 +73,7 @@ jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn(() => new Uint8Array([1, 2, 3]))
 }));
 
-// Keep the id parser simple — we only assert it was called with the inputs we
+// Keep the id parser simple - we only assert it was called with the inputs we
 // passed; the real implementation parses bech32/hex, which needs WASM.
 const mockAccountRefToSdk = jest.fn((ref: string) => ({ toString: () => `sdk(${ref})` }));
 const mockFeeAwareRequestBuilder = jest.fn();
@@ -164,7 +164,7 @@ jest.mock('../sdk/miden-client', () => {
     getCurrentWasmLockHold: () => currentWasmHold,
     yieldWasmClientLock: (...args: Parameters<typeof mockYieldWasmClientLock>) => mockYieldWasmClientLock(...args),
     // The shared post-await re-check (#788 follow-up). Re-implements the
-    // comparison against THIS mock's current hold — a no-op stub here would make
+    // comparison against THIS mock's current hold - a no-op stub here would make
     // every eviction test below vacuously green.
     assertWasmHoldCurrent: (hold: object | null, where: string) => {
       if (hold !== null && currentWasmHold === hold) return;
@@ -199,7 +199,7 @@ jest.mock('../sdk/miden-client-interface', () => ({
   }
 }));
 
-// Guardian SDK stubs — each constructor pulls from a per-test config so the
+// Guardian SDK stubs - each constructor pulls from a per-test config so the
 // same `new GuardianHttpClient(...)` call can return different behavior per
 // test without juggling prototypes.
 const guardianConfig: {
@@ -265,7 +265,7 @@ jest.mock('./account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
   insertGuardianAccountMonotonically: (...a: unknown[]) => mockInsertGuardianAccountMonotonically(...a),
   // Resolve to the per-account endpoint, falling back to the stored value the
-  // fetchFromStorage mock returns — mirrors the real resolveGuardianEndpoint.
+  // fetchFromStorage mock returns - mirrors the real resolveGuardianEndpoint.
   resolveGuardianEndpoint: (acc: { guardianEndpoint?: string }) =>
     acc.guardianEndpoint ?? 'https://stored.guardian.test'
 }));
@@ -277,7 +277,7 @@ jest.mock('./serialize', () => ({ ...jest.requireActual('./serialize'), NEW_GUAR
 const { mockProbeVerdicts, resetMockProbes } =
   jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
-// atob is globally available on Node 16+ but jsdom stubs can vary — provide
+// atob is globally available on Node 16+ but jsdom stubs can vary - provide
 // a deterministic polyfill for these tests.
 if (typeof global.atob === 'undefined') {
   global.atob = (str: string) => Buffer.from(str, 'base64').toString('binary');
@@ -357,7 +357,7 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   ...overrides
 });
 
-// The gate that decides whether the sync loop may cold-re-register — i.e.
+// The gate that decides whether the sync loop may cold-re-register - i.e.
 // whether this device may POST `/configure`, an account-wide write. Every test
 // that drives that path lives in guardian-sync.test.ts, which stubs this module,
 // so the real classifier had no test of its own: it could have been inverted or
@@ -482,7 +482,7 @@ describe('MultisigService', () => {
   describe('proposal builders', () => {
     // Through `accountRefToSdk`, not the bech32-only parser: faucet ids reach
     // the wallet in both hex and bech32 form, and the sibling recallable-send
-    // path already accepts both — a hex id it sends fine must not throw here.
+    // path already accepts both - a hex id it sends fine must not throw here.
     it('createSendProposal normalizes recipient+faucet ids through accountRefToSdk', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
@@ -491,7 +491,7 @@ describe('MultisigService', () => {
 
       expect(mockAccountRefToSdk).toHaveBeenCalledWith('rec');
       expect(mockAccountRefToSdk).toHaveBeenCalledWith('fauc');
-      // Options are the 4th argument since multisig-client 0.17 — they used to
+      // Options are the 4th argument since multisig-client 0.17 - they used to
       // sit behind a `nonce` slot that no longer exists.
       expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, {
         noteType: 'Private'
@@ -500,7 +500,7 @@ describe('MultisigService', () => {
     });
 
     // Was hardcoded Private, so a Public guardian send emitted a private note
-    // the recipient was never handed — the row said 'public', so the relay in
+    // the recipient was never handed - the row said 'public', so the relay in
     // completeSendTransaction was skipped too.
     it('createSendProposal forwards the caller-resolved note type', async () => {
       const multisig = makeMultisig();
@@ -841,6 +841,80 @@ describe('MultisigService', () => {
         // Past an eviction the WASM objects belong to an abandoned flow.
         expect(request.free).not.toHaveBeenCalled();
         expect(mockSummaryFree).not.toHaveBeenCalled();
+      });
+
+      describe('a read that fails', () => {
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        const throwing = () => {
+          throw new Error('freed after the trap');
+        };
+
+        it('rejects with a trap from the commitment read and frees nothing the trap left behind', async () => {
+          const request = { free: jest.fn(throwing) };
+          mockTransactionRequestDeserialize.mockImplementation(() => request);
+          const commitmentFree = jest.fn(throwing);
+          mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+            serialize: () => new Uint8Array([0xab]),
+            toCommitment: () => ({
+              toHex: () => {
+                throw trap;
+              },
+              free: commitmentFree
+            }),
+            free: () => {
+              mockSummaryFree();
+              throwing();
+            }
+          }));
+          const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+          const service = new MultisigService(makeMultisig({ createProposal }) as never, {} as never, 'https://x');
+
+          await expect(service.createCustomProposal(bytes)).rejects.toBe(trap);
+          expect(commitmentFree).not.toHaveBeenCalled();
+          expect(mockSummaryFree).not.toHaveBeenCalled();
+          expect(request.free).not.toHaveBeenCalled();
+          expect(createProposal).not.toHaveBeenCalled();
+        });
+
+        it('rejects with a trap from the summary serialize and frees neither the summary nor the request', async () => {
+          const request = { free: jest.fn(throwing) };
+          mockTransactionRequestDeserialize.mockImplementation(() => request);
+          const commitmentFree = jest.fn();
+          mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+            serialize: () => {
+              throw trap;
+            },
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: commitmentFree }),
+            free: () => {
+              mockSummaryFree();
+              throwing();
+            }
+          }));
+          const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+          const service = new MultisigService(makeMultisig({ createProposal }) as never, {} as never, 'https://x');
+
+          await expect(service.createCustomProposal(bytes)).rejects.toBe(trap);
+          expect(commitmentFree).toHaveBeenCalledTimes(1);
+          expect(mockSummaryFree).not.toHaveBeenCalled();
+          expect(request.free).not.toHaveBeenCalled();
+        });
+
+        it('still frees the summary and the request when the serialize fails with an ordinary error', async () => {
+          const request = { free: jest.fn() };
+          mockTransactionRequestDeserialize.mockImplementation(() => request);
+          mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+            serialize: () => {
+              throw new Error('layout');
+            },
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: jest.fn() }),
+            free: () => mockSummaryFree()
+          }));
+          const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
+
+          await expect(service.createCustomProposal(bytes)).rejects.toThrow('layout');
+          expect(request.free).toHaveBeenCalledTimes(1);
+          expect(mockSummaryFree).toHaveBeenCalledTimes(1);
+        });
       });
     });
 
@@ -1833,7 +1907,7 @@ describe('MultisigService', () => {
 
     it('bounds adoptGuardianStateOnce too, not just the retrying sync (#777)', async () => {
       // The read-half adopt takes its own hold, and it is the one a cold restore
-      // and the stale-allowlist check go through — an unbounded hold there is the
+      // and the stale-allowlist check go through - an unbounded hold there is the
       // same five-minute app-wide WASM freeze as the retrying sync's.
       wasmLockOptionsSeen.length = 0;
       const multisig = makeMultisig();
@@ -1871,7 +1945,7 @@ describe('MultisigService', () => {
 
     it('holds the WASM lock on the bounded sync ceiling (#777)', async () => {
       // A guardian sync is a pure-sync hold whose RPC carries no transport
-      // deadline on wasm32, and guardian is the wallet's default account type — on
+      // deadline on wasm32, and guardian is the wallet's default account type - on
       // the five-minute backstop one parked guardian sync froze every send, claim
       // and balance read in the app for five minutes at a time.
       wasmLockOptionsSeen.length = 0;
@@ -1930,7 +2004,7 @@ describe('MultisigService', () => {
 
     it('waits out a canonicalizing guardian without re-registering, then the retried sync succeeds', async () => {
       // "Refusing to overwrite local state" means the guardian is mid-canonicalization
-      // (its blob briefly lags on-chain). It's transient, so we WAIT and retry — we must
+      // (its blob briefly lags on-chain). It's transient, so we WAIT and retry - we must
       // NOT re-register on the first sign (that re-`configure`s the old guardian after a
       // switch and strands the account).
       const restoreTimers = skipRetryBackoffs();
@@ -2237,7 +2311,7 @@ describe('MultisigService', () => {
 
     // #788 follow-up: this method is reachable from the BACKGROUND runSync
     // stage-2 last resort, i.e. exactly the unattended loop whose failure mode is
-    // a client parked on a node that never answers — the population the watchdog
+    // a client parked on a node that never answers - the population the watchdog
     // eviction exists for. Pre-registration throughout, so stopping is safe.
     it('stops before the account read when the hold is evicted during the sync (#788)', async () => {
       const multisig = makeMultisig();
@@ -2367,7 +2441,7 @@ describe('MultisigService', () => {
 
       expect(guardianConfig.setSigner).toHaveBeenCalled();
       expect(mockAccountDeserialize).toHaveBeenCalled();
-      // Routed through the guard, never straight to accounts.insert — an
+      // Routed through the guard, never straight to accounts.insert - an
       // unguarded overwrite here is what let a stale snapshot win.
       expect(mockInsertGuardianAccountMonotonically).toHaveBeenCalledWith(webClient, fakeAccount);
       expect(webClient.accounts.insert).not.toHaveBeenCalled();
@@ -2509,7 +2583,7 @@ describe('MultisigService', () => {
 
       expect(newEndpoint).toBe('https://new');
       expect(multisig.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new', NEW_GUARDIAN_COMMITMENT);
-      // `createSwitchGuardianProposal` already creates the proposal — it must NOT
+      // `createSwitchGuardianProposal` already creates the proposal - it must NOT
       // be re-created via the generic `createProposal` (that would duplicate it).
       expect(multisig.createProposal).not.toHaveBeenCalled();
       // On mobile the new endpoint stays routed through native HTTP once its key checks out.
@@ -2544,7 +2618,7 @@ describe('MultisigService', () => {
 
     // The SDK interpolates this value into MASM source after a `normalizeHexWord`
     // that only lowercases and left-pads to 64, so an over-long response passes
-    // through with whatever followed it — including newlines. The coordinated path
+    // through with whatever followed it - including newlines. The coordinated path
     // has the same sink as the direct one and gets the same guard.
     it('createSwitchGuardianProposal refuses a malformed commitment and releases the new origin', async () => {
       const multisig = makeMultisig();
@@ -2846,12 +2920,12 @@ describe('MultisigService', () => {
     });
 
     // Both calls this makes to the NEW guardian sit PAST the on-chain commit, and
-    // `GuardianHttpClient` uses bare `fetch` with no `AbortSignal` — so an operator
+    // `GuardianHttpClient` uses bare `fetch` with no `AbortSignal` - so an operator
     // that accepts the connection and then goes silent produces no error at all.
     // The retry budget bounds REJECTIONS and never advances on silence, so an
     // unbounded wait here parks `completeSwitchGuardianTransaction` before its
     // terminal status write: a committed rotation stuck at GeneratingTransaction,
-    // with `registerFailed` — the flag whose self-heal would finish the job —
+    // with `registerFailed` - the flag whose self-heal would finish the job -
     // never written. F-144 bounded the endpoint persist beside it and left these.
     it('finalizeGuardianSwitch gives up on a new guardian whose /pubkey never answers', async () => {
       const multisig = makeMultisig();
@@ -2888,7 +2962,7 @@ describe('MultisigService', () => {
           (err: Error) => err.message
         );
         // Every attempt has to expire on its own deadline, so the whole budget is
-        // what bounds the silence — and it terminates.
+        // what bounds the silence - and it terminates.
         await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS * 10 + 60_000 * 10);
         expect(await outcome).toMatch('Failed to register account on the new guardian');
       } finally {
@@ -2908,7 +2982,7 @@ describe('MultisigService', () => {
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       await expect(service.finalizeGuardianSwitch('https://new')).resolves.toBeUndefined();
-      // Not retried into the budget — one look is enough.
+      // Not retried into the budget - one look is enough.
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
     });
 
@@ -3241,7 +3315,7 @@ describe('MultisigService', () => {
       expect(svc).toBeInstanceOf(MultisigService);
       // The service initialized via init forwards the COLD pubkey/commitment
       // (each prefixed with 0x) to the WalletSigner. We can't introspect that
-      // directly here, so we assert load was called — proving init proceeded.
+      // directly here, so we assert load was called - proving init proceeded.
       expect(multisigClientConfig.load).toHaveBeenCalledWith('acc-id', expect.anything());
       // Endpoint is resolved per-account (here falling back to the stored value).
       expect(svc.guardianEndpoint).toBe('https://stored.guardian.test');
@@ -3460,7 +3534,7 @@ describe('MultisigService', () => {
       expect(snapshotCrashDiagnostics(buildError)).toEqual({});
     });
 
-    // #788 follow-up: an eviction ABANDONS this flow rather than cancelling it —
+    // #788 follow-up: an eviction ABANDONS this flow rather than cancelling it -
     // the mutex belongs to a successor the instant the watchdog fires, so every
     // WASM call after a parking await would be a second borrow of a client
     // somebody else is inside. All three transitions here are pre-sign/pre-submit,
@@ -3525,6 +3599,31 @@ describe('MultisigService', () => {
       // The summary and salt are borrows of the client a successor now owns.
       expect(summarySerialize).not.toHaveBeenCalled();
       expect(summaryToCommitment).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+    });
+
+    it('rejects with a trap from the commitment read without freeing the commitment', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const commitmentFree = jest.fn(() => {
+        throw new Error('freed after the trap');
+      });
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      seedReplaceHotKeyCollaborators();
+      mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+        serialize: () => new Uint8Array([0xab]),
+        toCommitment: () => ({
+          toHex: () => {
+            throw trap;
+          },
+          free: commitmentFree
+        }),
+        free: () => mockSummaryFree()
+      }));
+
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(trap);
+      expect(commitmentFree).not.toHaveBeenCalled();
       expect(multisig.createProposal).not.toHaveBeenCalled();
     });
 

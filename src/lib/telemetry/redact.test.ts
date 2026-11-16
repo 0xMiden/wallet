@@ -48,6 +48,19 @@ const SECRET_KEY_HEX = 'a3bf4f1b2b0b822cd15d6c15b0f00a089f86d081884c7d659a2feaa0
 const ADDRESS = 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe';
 const COMPOSITE_ADDRESS = 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe_qr7qqq9wr6w';
 
+describe('platform unlock request privacy', () => {
+  const prfSecret = 'z'.repeat(42) + 'w';
+
+  it.each(['commit', 'unlock'])('redacts the %s PRF in structured and serialized requests', action => {
+    const request = { type: 'PLATFORM_UNLOCK_REQUEST', command: { action, prfSecret } };
+    const scrubbed = { ...request, command: { ...request.command } };
+    redactInPlace(scrubbed, wordlist);
+    expect(JSON.stringify(scrubbed)).not.toContain(prfSecret);
+    expect(redactText(JSON.stringify(request), wordlist)).not.toContain(prfSecret);
+    expect(redactText(JSON.stringify(JSON.stringify(request)), wordlist)).not.toContain(prfSecret);
+  });
+});
+
 const b64 = (value: string) => Buffer.from(value, 'utf8').toString('base64');
 const b64url = (value: string) => b64(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 

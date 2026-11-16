@@ -14,6 +14,7 @@ import type {
   SpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
@@ -176,6 +177,7 @@ export interface WalletActions {
     importedAccounts: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
+  platformUnlock: (command: PlatformUnlockCommand) => Promise<PlatformUnlockResult>;
 
   // Account actions
   createAccount: (walletType: WalletType, name?: string) => Promise<PostActionRefreshOutcome>;
