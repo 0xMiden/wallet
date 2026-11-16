@@ -1543,6 +1543,12 @@ export const initiateUpdateProcedureThresholdTransaction = async (
   return queueRecoveryChange(dbTransaction);
 };
 
+/** The activation mode of a hot-key rotation row; a revocation and the other recovery changes have none. */
+function activationModeOf(transaction: ITransaction): HotKeyActivationMode | undefined {
+  if (transaction.type !== 'replace-hot-key' || transaction.extraInputs?.revokedSignerCommitment) return undefined;
+  return transaction.extraInputs?.mode ?? 'replace';
+}
+
 async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
   return Repo.db.transaction('rw', Repo.transactions, async () => {
     const existing = await Repo.transactions
@@ -1557,7 +1563,16 @@ async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
           row.extraInputs?.threshold === transaction.extraInputs?.threshold
       )
       .first();
-    if (existing) return existing.id;
+    if (existing) {
+      // One live rotation per account, run in the mode it was queued with: a Replace cuts every other
+      // device off and an Add keeps them, so returning one for the other would let the recovery seed
+      // authorize a change the user did not ask for. A second row would run two rotations against one
+      // signer set, so the other mode is refused until this one ends. A missing mode is a replace.
+      if (activationModeOf(existing) !== activationModeOf(transaction)) {
+        throw new Error(getMessage('recoveryActionUnavailable'));
+      }
+      return existing.id;
+    }
     await Repo.transactions.add(transaction);
     return transaction.id;
   });

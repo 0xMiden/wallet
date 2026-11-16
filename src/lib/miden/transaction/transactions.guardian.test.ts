@@ -14741,14 +14741,33 @@ describe('initiateReplaceHotKeyTransaction', () => {
     expect(txStore[0]?.extraInputs).toEqual({ mode: 'replace', guardianEndpoint: 'https://old.guardian' });
   });
 
-  // A pending rotation is reused whatever the mode asks: the row keeps the mode it was queued with.
-  it('reuses a pending rotation and keeps its mode when a second call asks for another mode', async () => {
+  // One live rotation per account, and it runs only the mode it was queued with: a Replace (which cuts
+  // every other device off) must never return a pending Add (which keeps them), nor the reverse. A
+  // second row would run two rotations against one signer set, so the other mode is refused.
+  it.each([
+    ['add', 'replace'],
+    ['replace', 'add']
+  ] as const)('refuses a %s rotation in flight to a call that asks for %s, and keeps one row', async (queued, asked) => {
     const provider = makeGuardianProvider(true);
-    const firstId = await initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add');
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider, queued);
 
-    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, 'replace')).resolves.toBe(firstId);
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, asked)).rejects.toThrow(
+      getMessage('recoveryActionUnavailable')
+    );
     expect(txStore).toHaveLength(1);
-    expect(txStore[0]?.extraInputs).toEqual(expect.objectContaining({ mode: 'add' }));
+    expect(txStore[0]?.extraInputs).toEqual(expect.objectContaining({ mode: queued }));
+  });
+
+  it('reuses a pending rotation for a call in its own mode, a missing mode being a replace', async () => {
+    const provider = makeGuardianProvider(true);
+    const addId = await initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add');
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add')).resolves.toBe(addId);
+    txStore[0]!.status = ITransactionStatus.Completed;
+
+    const replaceId = await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    delete (txStore[1]!.extraInputs as { mode?: string }).mode;
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, 'replace')).resolves.toBe(replaceId);
+    expect(txStore).toHaveLength(2);
   });
 
   it('records the guardian when the provider spells the account id differently', async () => {
