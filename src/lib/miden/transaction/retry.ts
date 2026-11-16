@@ -2,6 +2,7 @@ import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { claimFeeDecisions } from 'lib/miden/fees/spendable';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { annotatePendingRetry, type PendingRetryReason } from 'lib/telemetry/ui-producer-diagnostics';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
@@ -454,7 +455,10 @@ const planRequeue = async (
         : retryRefusal(new Error(TRANSACTION_REPLAY_CHECK_FAILED_ERROR), 'replay_check_failed');
     }
     if (pinned.kind === 'committed') {
-      const written = await writePinnedLanding(tx, baseline, pinned);
+      // A swap's order expires a window after it landed. Read before the write, which cannot await the network.
+      const landedAt =
+        tx.type === 'swap' ? (await getBlockTimestamps([pinned.block], pinned.scope)).get(pinned.block) : undefined;
+      const written = await writePinnedLanding(tx, baseline, pinned, landedAt);
       // On chain, but maybe not this row's: neither a replay nor a completion.
       if (written === 'claimed') throw retryRefusal(new Error(TRANSACTION_RETRY_UNSAFE_ERROR), 'unsafe_retry');
       if (written === 'declined') throw retryRefusal(new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR), 'verdict_busy');
@@ -488,12 +492,14 @@ type PinnedLandingWrite = 'written' | 'declined' | 'claimed';
  * Complete a row whose pinned note the node holds, as the reconciler's note landing completes one: in one write that
  * declines once the row moved from what Retry judged (its status, stage, evidence or bytes), and that re-reads the
  * account's rows, since another attempt naming that note may be the one that created it. A swap opens the order its
- * pinned note names when the row holds none ({@link applyVerifiedLanding}).
+ * pinned note names when the row holds none ({@link applyVerifiedLanding}), with its expiry anchored at `landedAt`,
+ * the including block's time; without it at now, which is later and so never cancels the order early.
  */
 const writePinnedLanding = async (
   tx: ITransaction,
   baseline: string,
-  pinned: Extract<PinnedReplayCheck, { kind: 'committed' }>
+  pinned: Extract<PinnedReplayCheck, { kind: 'committed' }>,
+  landedAt: number | undefined
 ): Promise<PinnedLandingWrite> => {
   const outcome = await Repo.db.transaction(
     'rw',
@@ -510,7 +516,11 @@ const writePinnedLanding = async (
         return { write: 'declined' };
       }
       if (noteClaimedElsewhere(fresh, pinned.noteId, await accountRowsOf(fresh))) return { write: 'claimed' };
-      applyVerifiedLanding(fresh, { ...verifiedLandingRowFields(fresh), completedAt: nowSeconds() }, pinned.order);
+      applyVerifiedLanding(
+        fresh,
+        { ...verifiedLandingRowFields(fresh), completedAt: landedAt ?? nowSeconds() },
+        pinned.order
+      );
       const target = recordLandedDeliveryTarget(fresh, { proof: { kind: 'note', noteId: pinned.noteId } });
       if (storedNoteIds(fresh.outputNoteIds).length === 0) fresh.outputNoteIds = pinned.noteIds;
       await Repo.transactions.put(fresh);

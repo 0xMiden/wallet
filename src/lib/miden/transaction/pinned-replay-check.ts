@@ -5,6 +5,7 @@
 import { type Note, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { createNodeReads, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import type { ITransaction } from '../db/types';
@@ -23,6 +24,9 @@ export type PinnedReplayCheck =
       noteIds: string[];
       /** The pinned note the node holds. */
       noteId: string;
+      /** The block that includes it, numbered by `scope`, the endpoint the check took before its read. */
+      block: number;
+      scope: string;
       /** A swap's order, from its one public PSWAP note, in the landed facts' shape. */
       order?: Pick<LandedTransaction, 'orderId' | 'orderNoteId'>;
     }
@@ -81,6 +85,7 @@ export async function checkPinnedReplayNotes(
   }
   if (pinned.noteIds.length === 0) return { kind: 'none' };
 
+  const scope = getEffectiveRpcUrl();
   let node: NodeReads;
   try {
     node = await (deps.createReads ?? createNodeReads)();
@@ -90,7 +95,17 @@ export async function checkPinnedReplayNotes(
   }
   const held = await node.noteInclusions(pinned.noteIds, RPC_READ_TIMEOUT_MS);
   if (held === undefined) return { kind: 'unknown', cause: 'read' };
-  const noteId = pinned.noteIds.find(id => held.has(id));
-  if (noteId === undefined) return { kind: 'absent', noteIds: pinned.noteIds };
-  return { kind: 'committed', noteIds: pinned.noteIds, noteId, ...(pinned.order ? { order: pinned.order } : {}) };
+  for (const noteId of pinned.noteIds) {
+    const block = held.get(noteId);
+    if (block === undefined) continue;
+    return {
+      kind: 'committed',
+      noteIds: pinned.noteIds,
+      noteId,
+      block,
+      scope,
+      ...(pinned.order ? { order: pinned.order } : {})
+    };
+  }
+  return { kind: 'absent', noteIds: pinned.noteIds };
 }
