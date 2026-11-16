@@ -4806,6 +4806,66 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.retireWasmClientForCaughtTrap.mock.calls[0][1]).toBe(trap);
   });
 
+  // The leaf submitted and applied before the serialize, so a trap there is the client failing past submit. It is
+  // retired through the dispatch's own hold and replies as landed: an untagged reply fails a row the node holds.
+  it.each(['swapTransaction', 'newTransaction', 'guardianPipeline'])(
+    "%s: a trap serializing the applied result retires through the dispatch's hold and replies landed",
+    async method => {
+      await loadModule();
+      const miden = jest.requireMock<typeof import('lib/miden/sdk/miden-client')>('lib/miden/sdk/miden-client');
+      const { isApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      G.__off.retireWasmClientForCaughtTrap = jest.fn();
+      let dispatchHold: unknown;
+      const trappingResult = () => {
+        dispatchHold = miden.getCurrentWasmLockHold();
+        return {
+          serialize: () => {
+            throw trap;
+          }
+        };
+      };
+      G.__off.clientSwapTransaction = jest.fn(async () => trappingResult());
+      G.__off.clientNewTransaction = jest.fn(async () => trappingResult());
+      const guardianExecute = G.__off.guardianExecuteRequest.getMockImplementation()!;
+      G.__off.guardianExecuteRequest = jest.fn(async (accountId: string, request: unknown) => ({
+        ...(await guardianExecute(accountId, request)),
+        result: trappingResult()
+      }));
+      const args: Record<string, unknown[]> = {
+        swapTransaction: [
+          {
+            accountId: 'a',
+            faucetId: 'f',
+            amount: '1',
+            extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' },
+            swapFeeContext: {
+              scope: 'testnet|queued-endpoint',
+              nativeAssetId: 'mtst1qfee',
+              feeFaucetId: null,
+              baseFee: '7'
+            }
+          }
+        ],
+        newTransaction: ['a', new Uint8Array([1]), false],
+        guardianPipeline: ['mtst1qguardian', new Uint8Array([1]), false]
+      };
+      const sendResponse = jest.fn();
+
+      capturedListener!(callReq({ method, argsB64: args[method]!.map(encodeArg) }), {}, sendResponse);
+      await waitForReply(sendResponse);
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp).toMatchObject({ ok: false, errorCode: 'ApplyTransactionAfterSubmitFailed' });
+      expect(resp.errorLanded).toBeUndefined();
+      expect(resp.errorBeforeSubmit).toBeUndefined();
+      expect(isApplyAfterSubmitError({ errorCode: resp.errorCode })).toBe(true);
+      expect(dispatchHold).toBeTruthy();
+      expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledTimes(1);
+      expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledWith(dispatchHold, trap);
+    }
+  );
+
   it('guardianPipeline: a failure before the submit call replies tagged (#1081)', async () => {
     await loadModule();
     G.__off.guardianExecuteRequest = jest.fn(async () => {
