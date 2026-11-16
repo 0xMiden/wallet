@@ -1052,7 +1052,9 @@ describe('MultisigService', () => {
           sdk: 'createProposal',
           create: service => {
             mockGetAccount.mockResolvedValueOnce({ kind: 'fresh-account' });
-            const [hotA, cold, hotB] = ['a1', 'c0', 'b2'].map(byte => `0x${byte.repeat(32)}`);
+            const hotA = `0x${'a1'.repeat(32)}`;
+            const cold = `0x${'c0'.repeat(32)}`;
+            const hotB = `0x${'b2'.repeat(32)}`;
             mockSignerCommitments = [hotA, cold, hotB];
             mockFindOwnSignerCommitment.mockImplementation(async (_account, publicKeyHex) =>
               publicKeyHex === 'hotpk' ? hotB : publicKeyHex === 'coldpk' ? cold : undefined
