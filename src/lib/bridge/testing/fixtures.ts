@@ -2,6 +2,7 @@ import { deserialize, serialize } from 'v8';
 
 import type { BridgeRoute } from '../core/routes';
 import type { DerivedBridgeConfig, DerivedChainConfig } from 'lib/remote-config/derive';
+import { parseStoredDerived } from 'lib/remote-config/derived-snapshot';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { parseBridgeConfig, type EvmAddress } from 'lib/remote-config/schema';
 
@@ -49,7 +50,8 @@ export function referenceSnapshot(network: 'mainnet' | 'testnet'): BridgeConfigS
   const config = parseBridgeConfig(document, network);
   if (!config) throw new Error('Invalid pinned reference document');
   config.features.fastBridge = true;
-  config['bridge-providers'].epoch.allocatorUrl = 'https://mainnet-api.epochprotocol.xyz';
+  if (network === 'mainnet') config['bridge-providers'].epoch.allocatorUrl = 'https://mainnet-api.epochprotocol.xyz';
+  config['bridge-providers'].epoch.positionsUrl = 'https://positions.example';
   config.limits = { bridgeInMaxBalanceUsd: 1232.462 };
   const chains: Record<number, DerivedChainConfig> = {};
   for (const connection of connections[network]) {
@@ -86,6 +88,10 @@ export function referenceSnapshot(network: 'mainnet' | 'testnet'): BridgeConfigS
     if (connection.provider === 'epoch') {
       const epoch = chain.bridges.epoch ?? { depositEnabled: true, withdrawalEnabled: true, tokens: {} };
       chain.bridges.epoch = epoch;
+      config['bridge-providers'].epoch.outputs = {
+        ...config['bridge-providers'].epoch.outputs,
+        [connection.miden.symbol]: { faucetId: connection.miden.faucetId }
+      };
       epoch.tokens[connection.evm.symbol] = {
         contractAddress: address('address' in connection.evm ? connection.evm.address : `0x${'0'.repeat(40)}`),
         outputs: [connection.miden.symbol]
@@ -131,6 +137,7 @@ export function referenceSnapshot(network: 'mainnet' | 'testnet'): BridgeConfigS
     derivedAt: now,
     chains,
     agglayer: { indexer: { state: 'ok', value: true } },
+    swap: { pairs: { state: 'skipped' } },
     epoch: {
       allocator: { state: 'ok', value: true },
       allocatorAccount: { state: 'ok', value: { accountId: accounts.midenAccount } },
@@ -139,7 +146,12 @@ export function referenceSnapshot(network: 'mainnet' | 'testnet'): BridgeConfigS
       vaults: { state: 'skipped' }
     }
   };
-  return { network, status: 'ready', config, derived, lastFetch: null };
+  const accepted = parseBridgeConfig(config, network);
+  const acceptedDerived = parseStoredDerived(derived, network, config.version);
+  expect(accepted).toEqual(config);
+  expect(acceptedDerived).toEqual(derived);
+  if (!accepted || !acceptedDerived) throw new Error('Reference fixture cannot be accepted');
+  return { network, status: 'ready', config: accepted, derived: acceptedDerived, lastFetch: null };
 }
 
 export function testRoute(mode: 'receive' | 'send' = 'receive'): BridgeRoute {
