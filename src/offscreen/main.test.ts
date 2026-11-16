@@ -250,6 +250,8 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     __evictHolder,
     __lastRunning: () => lastRunning,
     getCurrentWasmLockHold: () => currentHold,
+    // A caught trap's retire, routed to the control object so a test can see which hold it was handed.
+    retireWasmClientForCaughtTrap: (...a: unknown[]) => g.__off.retireWasmClientForCaughtTrap?.(...a),
     // #788 follow-up: the shared post-await ownership re-check the dispatches run.
     // Re-implements the REAL comparison against this mock's own `currentHold` —
     // a no-op here would satisfy every eviction test below vacuously, because the
@@ -4777,6 +4779,32 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       {},
       sendResponse
     );
+
+  it("guardianPipeline: a trap in the apply after submit retires through the dispatch's hold and replies with the apply-after-submit code", async () => {
+    await loadModule();
+    const miden = jest.requireMock<typeof import('lib/miden/sdk/miden-client')>('lib/miden/sdk/miden-client');
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    G.__off.retireWasmClientForCaughtTrap = jest.fn();
+    const apply = jest.fn(async () => {
+      throw trap;
+    });
+    let submittingHold: unknown;
+    G.__off.guardianSubmitProven = jest.fn(async () => {
+      submittingHold = miden.getCurrentWasmLockHold();
+      return { apply };
+    });
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorCode: 'ApplyTransactionAfterSubmitFailed' });
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(submittingHold).toBeTruthy();
+    expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledTimes(1);
+    expect(G.__off.retireWasmClientForCaughtTrap.mock.calls[0][0]).toBe(submittingHold);
+    expect(G.__off.retireWasmClientForCaughtTrap.mock.calls[0][1]).toBe(trap);
+  });
 
   it('guardianPipeline: a failure before the submit call replies tagged (#1081)', async () => {
     await loadModule();

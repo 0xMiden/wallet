@@ -2228,6 +2228,32 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  it("Guardian send: a trap in the local apply after submit retires through the pipeline's hold once and completes the row as landed", async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const apply = jest.fn(async () => {
+      throw trap;
+    });
+    // The real retire returns for any hold but the lock's current one, so the hold it is handed is what matters.
+    const holdsAtRetire: (object | null)[] = [];
+    mockRetireWasmClientForCaughtTrap.mockImplementationOnce(() => holdsAtRetire.push(currentHold));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      const row = await runGuardianSend('send-guardian-apply-trap', makeClientApi(makeResult(), apply));
+      // No retry, so no 250 ms wait either.
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledTimes(1);
+      expect(holdsAtRetire[0]).toEqual({ mock: 'wasm-lock-hold' });
+      expect(mockRetireWasmClientForCaughtTrap.mock.calls[0]![0]).toBe(holdsAtRetire[0]);
+      expect(mockRetireWasmClientForCaughtTrap.mock.calls[0]![1]).toBe(trap);
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Sent' });
+      expect(row.transactionId).toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   it("Guardian send: a trap in the tail's tx-id read retires once under the row, with the trap itself, and records it landed", async () => {
     const txId = 'send-guardian-landing-id-trap';
     const retire = jest.fn();

@@ -1318,6 +1318,37 @@ describe('ProveAttempt worker members', () => {
     expect(await getMidenClient()).toBe(holder);
     unsubscribe();
   });
+
+  it('a live write retires a caught trap onto its own client', async () => {
+    const harness = buildHarness();
+    const { proveWithFallback, withWasmClientLock } = await load(harness);
+    const { getMidenClient, onWasmClientPoisoned } = await import('./miden-client');
+    const holder = await getMidenClient();
+    const listener = jest.fn();
+    const unsubscribe = onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await withWasmClientLock(async () => {
+        await proveWithFallback(
+          async (_prover, attempt) => {
+            attempt.retireCaughtTrap(trap);
+            return null;
+          },
+          false,
+          { disposed: false }
+        );
+      });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(holder.isDisposed).toBe(true);
+      expect(await getMidenClient()).not.toBe(holder);
+    } finally {
+      errSpy.mockRestore();
+      unsubscribe();
+    }
+  });
 });
 
 describe('local-prove window markers without a transport', () => {
