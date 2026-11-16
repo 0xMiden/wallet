@@ -11,7 +11,7 @@ import { createNodeReads, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-rea
 import type { ITransaction } from '../db/types';
 import { swapOrderOf } from '../sdk/apply-after-submit';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { isKilledPipeline, type LandedTransaction } from '../sdk/sdk-error-code';
+import { type LandedTransaction, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
 
 export type PinnedReplayCheck =
@@ -30,8 +30,8 @@ export type PinnedReplayCheck =
       order?: Pick<LandedTransaction, 'orderId' | 'orderNoteId'>;
     }
   /**
-   * `decode`: the saved request does not decode, so no Retry can resend it. `read`: the SDK, the WASM lock or the node
-   * gave no answer this time.
+   * `decode`: the saved request's bytes do not deserialize, so no Retry can resend it. `read`: the SDK, the WASM
+   * engine (a trap), the WASM lock or the node gave no answer this time.
    */
   | { kind: 'unknown'; cause: 'decode' | 'read' };
 
@@ -39,6 +39,9 @@ interface PinnedNotes {
   noteIds: string[];
   order?: Pick<LandedTransaction, 'orderId' | 'orderNoteId'>;
 }
+
+/** The saved request's own bytes did not deserialize, so no Retry can resend them. */
+class SavedRequestUnreadable extends Error {}
 
 /** `swapOrderOf` on the saved request's notes, with the fee note not set aside. */
 const pinnedOrderOf = (notes: Note[]): Pick<LandedTransaction, 'orderId' | 'orderNoteId'> | undefined =>
@@ -65,7 +68,15 @@ export async function checkPinnedReplayNotes(
   try {
     pinned = await withWasmClientLock(
       async (): Promise<PinnedNotes> => {
-        const notes = TransactionRequest.deserialize(bytes).expectedOutputOwnNotes();
+        let request: TransactionRequest;
+        try {
+          request = TransactionRequest.deserialize(bytes);
+        } catch (error) {
+          // A trap is the engine failing, not the bytes, so it leaves as itself for the lock to retire.
+          rethrowTrapOrKill(error);
+          throw new SavedRequestUnreadable('the saved request does not deserialize', { cause: error });
+        }
+        const notes = request.expectedOutputOwnNotes();
         const noteIds = notes.map(note => normalizeHex(note.id().toString()));
         if (row.type !== 'swap') return { noteIds };
         const order = pinnedOrderOf(notes);
@@ -75,7 +86,7 @@ export async function checkPinnedReplayNotes(
     );
   } catch (error) {
     console.warn('[retry] could not read the notes the saved request creates', error);
-    return { kind: 'unknown', cause: isKilledPipeline(error) ? 'read' : 'decode' };
+    return { kind: 'unknown', cause: error instanceof SavedRequestUnreadable ? 'decode' : 'read' };
   }
   if (pinned.noteIds.length === 0) return { kind: 'none' };
 

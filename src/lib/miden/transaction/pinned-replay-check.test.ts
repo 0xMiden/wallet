@@ -137,14 +137,25 @@ describe('checkPinnedReplayNotes', () => {
     expect(createReads).not.toHaveBeenCalled();
   });
 
-  it('a trap while decoding reaches the WASM lock and reports unknown without a node read', async () => {
+  it('a trap while decoding reaches the WASM lock and reports a read that gave no answer, without a node read', async () => {
     const trap = new WebAssembly.RuntimeError('unreachable');
     mockDeserialize.mockImplementation(() => {
       throw trap;
     });
 
-    await expect(checkPinnedReplayNotes(send, { createReads })).resolves.toEqual({ kind: 'unknown', cause: 'decode' });
+    await expect(checkPinnedReplayNotes(send, { createReads })).resolves.toEqual({ kind: 'unknown', cause: 'read' });
     expect(mockCallbackOutcomes).toEqual([{ rejected: trap }]);
+    expect(createReads).not.toHaveBeenCalled();
+  });
+
+  it('a read that fails after the request decoded is a read that gave no answer, not an unreadable request', async () => {
+    mockDeserialize.mockImplementation(() => ({
+      expectedOutputOwnNotes: () => {
+        throw new Error('recursive use of an object detected');
+      }
+    }));
+
+    await expect(checkPinnedReplayNotes(send, { createReads })).resolves.toEqual({ kind: 'unknown', cause: 'read' });
     expect(createReads).not.toHaveBeenCalled();
   });
 
