@@ -1,0 +1,66 @@
+name: Independently audit bridge-only no-spend outcome
+on:
+  push:
+    branches: [wiktor/mainnet-bridgeonly-zero-audit]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  private-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+      WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Bind the qualified source and read-only audit overlay
+        run: |
+          test "$(git rev-parse HEAD^)" = 5622269cf459a2c367f9368fad1689962645e65c
+          test "$(git diff --name-only HEAD^ HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/mainnet-bridge-only-private-audit.spec.ts)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 43785401179
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43785401179
+          path: test-results/swap
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 43785401179
+          github-token: ${{ github.token }}
+          name: mainnet-epoch-final-43785401179
+          path: test-results/epoch
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - run: yarn test:e2e:blockchain:build
+      - name: Independently restore original private portfolios without granting
+        run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/private-audit" xvfb-run -a yarn playwright test mainnet-bridge-only-private-audit.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/private-audit.log" 2>&1 || code=$?
+          node --input-type=module <<'NODE'
+          import {existsSync,readFileSync} from 'node:fs';
+          for(const file of ['test-results/bridge-only-private-audit-status.json','test-results/bridge-only-private-audit.json'])if(existsSync(file))console.log(JSON.stringify(JSON.parse(readFileSync(file,'utf8'))));
+          NODE
+          exit "$code"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: bridge-only-private-audit
+          path: |
+            test-results/bridge-only-private-audit.json
+            test-results/bridge-only-private-audit-status.json
+          if-no-files-found: error
