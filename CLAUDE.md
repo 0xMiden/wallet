@@ -2,6 +2,14 @@
 
 Guidance for Claude Code. **Self-maintaining:** update proactively when you learn a gotcha, pattern, or debugging trick worth keeping.
 
+## Amount displays
+
+Use `TokenAmount` or `UsdAmount` from `components/ui/TokenAmount` for user-facing monetary values. The default is `formatting="adaptive"`. Set `rounding="up"` for payments and fees, and `rounding="down"` for receipts and available balances. Use `formatting="exact"` for typed review amounts, approval values, and exact detail rows. Exact formatting does not round. Pass bigint base units with their known `decimals`; pass decimal strings and numbers without `decimals`. Do not guess a token scale.
+
+Keep each screen's text styles through `className` and `symbolClassName`. Use `animated` to retain the gradual `AnimatedNumber` transition; precision stays fixed during each transition. Do not create another amount display component or format values in JSX with base-unit converters. ESLint checks these paths.
+
+For translations, accessibility text, and APIs that require a string, use `formatAmountDisplay` or `amountFormatterFor` from `lib/i18n/amount-display`. These are the same policy used by the components. Keep exact transaction calculations, editable inputs, MAX values, and stored amounts separate. Never use a rounded display value as transaction input.
+
 ## Coverage runs only in CI
 
 Never run coverage locally for this wallet, in any checkout or worktree. This includes `yarn test:coverage`, Jest `--coverage`, and local coverage shards. Use local noncoverage regression tests, type/lint checks and builds as appropriate. Coverage is measured by CI only; fix gaps from CI results without lowering thresholds. Merge only when the current-head CI coverage gate passes. Stop an active local coverage run when this rule is applied, and never count an interrupted run as passing.

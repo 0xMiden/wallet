@@ -1011,6 +1011,41 @@ describe('TokenDetail', () => {
   });
 
   describe('token info card', () => {
+    it('shows a distinct metadata name while keeping the symbol as the page title', () => {
+      const name = 'Synthetic Testnet Asset Name 32';
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { name, symbol: 'IETH', decimals: 8 } }]
+      });
+
+      expect(screen.getByTestId('nav-title')).toHaveTextContent('IETH');
+      expect(within(screen.getByTestId('token-detail-name')).getByText(name)).toBeInTheDocument();
+    });
+
+    it('omits a duplicate token name when it is the symbol', () => {
+      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { name: 'IETH', symbol: 'IETH' } }] });
+
+      expect(screen.queryByTestId('token-detail-name')).not.toBeInTheDocument();
+    });
+
+    it('reveals the full faucet id through an accessible disclosure', () => {
+      renderPage();
+
+      const toggle = screen.getByTestId('token-detail-contract-toggle');
+      expect(toggle).toHaveAttribute('type', 'button');
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      toggle.focus();
+      expect(toggle).toHaveFocus();
+      fireEvent.click(toggle);
+
+      const fullId = screen.getByTestId('token-detail-full-faucet-id');
+      expect(fullId.textContent).toBe(TOKEN_ID);
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(document.getElementById(toggle.getAttribute('aria-controls') ?? '')).toContainElement(fullId);
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('token-detail-full-faucet-id')).not.toBeInTheDocument();
+    });
+
     it('renders the faucet id under the name the transaction page uses, trimmed and copyable', () => {
       renderPage({ network: MIDEN_NETWORK_NAME.DEVNET });
 
@@ -1027,13 +1062,14 @@ describe('TokenDetail', () => {
       // One name for one thing: "Faucet ID", as the transaction detail page says it.
       expect(within(contract).getByText('faucetId')).toBeInTheDocument();
 
-      // A bare copy control in the row's value style, named by its action (its visible label is a
-      // value), showing the id cut to its first 8 and last 4 characters.
+      const toggle = within(contract).getByRole('button', { expanded: false });
+      expect(toggle).toHaveTextContent(`${TOKEN_ID.slice(0, 8)}…${TOKEN_ID.slice(-4)}`);
+      expect(toggle).not.toHaveTextContent(TOKEN_ID);
+      fireEvent.click(toggle);
+      expect(within(contract).getByTestId('token-detail-full-faucet-id')).toHaveTextContent(TOKEN_ID);
       const copy = within(contract).getByRole('button', { name: 'copyToClipboard' });
       expect(copy).toHaveAttribute('data-testid', 'token-detail-copy-contract');
       expect(copy).toHaveClass('text-ink');
-      expect(copy).toHaveTextContent(`${TOKEN_ID.slice(0, 8)}…${TOKEN_ID.slice(-4)}`);
-      expect(copy).not.toHaveTextContent(TOKEN_ID);
 
       expect(within(info).getByText('fungible')).toBeInTheDocument();
       expect(within(info).getByText('devnet')).toBeInTheDocument();
@@ -1051,6 +1087,7 @@ describe('TokenDetail', () => {
       mockClipboardWrite.mockResolvedValue(undefined);
       renderPage();
 
+      fireEvent.click(screen.getByTestId('token-detail-contract-toggle'));
       const copy = screen.getByTestId('token-detail-copy-contract');
 
       await act(async () => {

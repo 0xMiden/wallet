@@ -239,6 +239,11 @@ import {
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
 import { readSubmitEvidence } from '../sdk/submit-evidence';
+import {
+  assertTestGuardianRequestAuthorization,
+  authorizeTestGuardianRequest,
+  type TestGuardianAuthorizationKind
+} from '../sdk/test-guardian-authorization';
 import { observeTransactionExecutionRequest } from '../sdk/transaction-execution-diagnostics';
 import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { isRecoveredReturnOrder } from '../swap/recovered-order';
@@ -2697,7 +2702,8 @@ const runGuardianPipeline = async (
   oneClickDeadline?: string,
   oneClickRequired = false,
   onSubmitCallReached?: () => void,
-  onLockEvicted?: () => void
+  onLockEvicted?: () => void,
+  testAuthorizationKind?: TestGuardianAuthorizationKind
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
@@ -2729,6 +2735,8 @@ const runGuardianPipeline = async (
         assertStillHoldingLock(hold, 'while preparing tip execution')
       );
       assertStillHoldingLock(hold, 'before executing at the tip');
+      await assertTestGuardianRequestAuthorization(accountId, tr, testAuthorizationKind);
+      assertStillHoldingLock(hold, 'after exact Guardian authorization verification');
       execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
       return midenClient.client.transactions.executeRequest(accountId, tr);
     };
@@ -4660,6 +4668,14 @@ const generateGuardianTransaction = async (
     const oneClickRequired = oneClick !== undefined;
 
     await requireBridgeSubmitClaim(transaction);
+    const testAuthorizationKind = await authorizeTestGuardianRequest(transaction, tr, async noteId => {
+      const client = await getMidenClient();
+      return withWasmClientLock(async hold => {
+        const record = await client.getInputNote(noteId);
+        assertStillHoldingLock(hold, 'after reading the exact authorized consume note');
+        return record?.toNote() ?? null;
+      });
+    });
     await setTransactionStage(transaction.id, 'sending');
     const attempt = attemptContextOf(transaction, proposalResult.nonce);
     if (offscreenLeaf) {
@@ -4717,7 +4733,8 @@ const generateGuardianTransaction = async (
           chainAnchorB64,
           submitGate.gate,
           oneClickDeadline,
-          oneClickRequired
+          oneClickRequired,
+          testAuthorizationKind
         )
       );
     } else {
@@ -4734,7 +4751,8 @@ const generateGuardianTransaction = async (
         },
         () => {
           inlineLockEvicted = true;
-        }
+        },
+        testAuthorizationKind
       );
     }
   } catch (error) {
