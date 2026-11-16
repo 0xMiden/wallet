@@ -32,6 +32,12 @@ export interface SimulateCustomTxInput {
   importNotes?: string[];
   /** Endpoint scope the caller's fresh fee read answered for. Checked again when a summary is decoded. */
   feeScope?: string;
+  /**
+   * The caller's fresh fee read, started before the dry run and still pending. A summary's decode waits for it inside
+   * the hold; an executed dry run and a dry run refused before the decode never do. It must resolve, null for an
+   * unknown fee. Omitted, the decode checks the cache alone.
+   */
+  chainFeeRead?: Promise<number | null>;
 }
 
 export interface SimulateCustomTxResult {
@@ -192,8 +198,9 @@ export function measureApprovalDryRun(dryRun: SimulateCustomTxResult, feeScope?:
  * authorized, which is every ordinary single-sig account on the 0.16 line. Both
  * describe the same executed transaction; the confirm UI decodes whichever
  * arrives. The same hold then measures the approval and the note flow
- * (`measureApprovalDryRun`). The caller's refresh is the fresh read, and the
- * refresh's scope and the cache are checked again at the summary decode.
+ * (`measureApprovalDryRun`). The caller's refresh is the fresh read, which a
+ * summary waits for in the hold, and the refresh's scope and the cache are
+ * checked again at the summary decode.
  * All WASM work runs inside a single `withWasmClientLock` scope (the client is
  * single-threaded). An ordinary failure resolves to `{ error }`, and so does a
  * WebAssembly trap once the lock has retired the client. A killed pipeline
@@ -322,6 +329,10 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         const carried = new Set(carriedIds.map(id => id.toLowerCase()));
         const embeddedIds = consumed.ids.filter(id => !carried.has(id.toLowerCase()));
         const embeddedIntroduced = await idsNotAlreadyHeld(client, embeddedIds, hold);
+        // The decode tells a summary's fee note apart by the fee the caller's read caches, so it waits for that read
+        // here and not before the dry run, where a request that fails would wait on the node too. The read uses an
+        // RpcClient of its own under an RPC timeout and takes no WASM lock, so this wait is bounded.
+        if (dryRun.summaryBytes && input.chainFeeRead !== undefined) await input.chainFeeRead;
         // An evicted hold measures nothing, since a trap in its decode would reach no lock.
         assertWasmHoldCurrent(hold, 'before the approval decode');
         return measureApprovalDryRun(

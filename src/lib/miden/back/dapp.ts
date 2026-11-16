@@ -2422,38 +2422,43 @@ const generatePromisifyTransaction = async (
       // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
       throw dappSendFailure(e);
     };
-    let dryRun: { feeUnknown: boolean; simulated: SimulateCustomTxResult };
+    let dryRun: { chainFeeRead: Promise<number | null>; simulated: SimulateCustomTxResult };
     try {
       dryRun = await withUnlocked(async () => {
-        // The refresh is the fresh read, before the dry run and outside every WASM hold: a failed refresh keeps a
-        // stale cached fee, so the cache alone would accept it. One that throws is an unknown fee. The refresh's
-        // scope and the cache are checked again at the summary decode.
-        const chainFee = await refreshVerificationBaseFee().catch((error: unknown) => {
+        // The refresh is the fresh read, outside every WASM hold: a failed refresh keeps a stale cached fee, so the
+        // cache alone would accept it. One that throws is an unknown fee. It starts before the dry run without holding
+        // it up, so a request whose dry run fails is refused without waiting on the node; a summary's decode waits for
+        // it in the hold, where the refresh's scope and the cache are checked again.
+        const chainFeeRead = refreshVerificationBaseFee().catch((error: unknown) => {
           console.warn('Failed to read the chain fee for a custom transaction approval', error);
           return null;
         });
         const feeScope = cacheScope();
-        const feeUnknown = chainFee === null && !isVerificationBaseFeeKnownAbsent();
         try {
           const simulated = await simulateCustomTransaction({
             address: customTransaction.address,
             transactionRequest: customTransaction.transactionRequest,
             importNotes: customTransaction.importNotes,
-            feeScope
+            feeScope,
+            chainFeeRead
           });
-          return { feeUnknown, simulated };
+          return { chainFeeRead, simulated };
         } catch (e) {
           if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) throw e;
           console.error('Failed to simulate a custom transaction for approval', e);
-          return { feeUnknown, simulated: { error: consentReason(e) } };
+          return { chainFeeRead, simulated: { error: consentReason(e) } };
         }
       });
     } catch (e) {
       if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) return releaseRefusedRequest(e);
       throw pipelineKillIn(e) ?? e;
     }
-    const { feeUnknown, simulated } = dryRun;
+    const { chainFeeRead, simulated } = dryRun;
     try {
+      // Only a summary waits for the read, which its decode already waited for; anything else would wait on the node.
+      const feeUnknown = simulated.summaryBytes
+        ? (await chainFeeRead) === null && !isVerificationBaseFeeKnownAbsent()
+        : false;
       // Unknown at the fresh read, or a different endpoint or an unknown fee at the summary decode, refused before
       // any prompt. An executed dry run has no summary and still splits on its own header. The refresh's scope is
       // checked again at the summary decode.
