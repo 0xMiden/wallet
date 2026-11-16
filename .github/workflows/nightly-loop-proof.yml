@@ -1,0 +1,123 @@
+name: Independently reconcile the original Epoch first claim and whole fresh cost
+on:
+  push:
+    branches: [wiktor/epoch-restored-claim-audit]
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  public-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
+      - name: Bind qualified application and read-only settlement overlay
+        run: |
+          test "$(git rev-parse HEAD^)" = 4e6001d2288bbbe9f0f104c4ca806cf324bb72aa
+          test "$(git diff --name-only HEAD^ HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/fresh-epoch-claim-private.spec.ts scripts/fresh-epoch-claim-settlement.mjs)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked Guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 43967259170
+          github-token: ${{ github.token }}
+          pattern: mainnet-*-43967259170
+          path: test-results/evidence
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 43961933479
+          github-token: ${{ github.token }}
+          name: mainnet-epoch-final-43961933479
+          path: test-results/original
+      - name: Bind immutable recovered final and original first-claim SDK snapshots
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          for(const [name,role] of Object.entries({'mainnet-swap-final':'fresh','mainnet-epoch-final':'final','mainnet-1click-final':'near','mainnet-epoch-return-authorized':'claim'}))fs.cpSync(`test-results/evidence/${name}-43967259170`,`test-results/${role}`,{recursive:true});
+          NODE
+      - name: Exact production read-only SDK bootstrap
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import YAML from 'yaml';
+          const doc=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8')),step=doc.jobs['mainnet-nightly'].steps.find(step=>step.name==='Build read-only Epoch SDK');
+          if(!step?.run)throw new Error('Missing production SDK bootstrap');execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
+          NODE
+      - name: Verify original authority, actual first SDK claim bytes, on-chain settlement and once-only costs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-epoch-evm.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-evm.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-epoch-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-request.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-miden-read.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-miden-read.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-budget.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-loop-budget.mjs
+          node scripts/fresh-epoch-claim-settlement.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: fresh-epoch-claim-public-settlement
+          path: test-results/fresh-epoch-claim-public-settlement.json
+  private-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+      WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked Guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 43967259170
+          github-token: ${{ github.token }}
+          pattern: mainnet-*-43967259170
+          path: test-results/evidence
+      - name: Bind immutable final holdings
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          for(const [name,role] of Object.entries({'mainnet-swap-final':'fresh','mainnet-epoch-final':'final','mainnet-1click-final':'near'}))fs.cpSync(`test-results/evidence/${name}-43967259170`,`test-results/${role}`,{recursive:true});
+          NODE
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - run: yarn test:e2e:blockchain:build
+      - name: Restore original private holdings and independently calculate postclaim cost without a grant
+        run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/claim-private" xvfb-run -a yarn playwright test fresh-epoch-claim-private.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/claim-private.log" 2>&1 || code=$?
+          node --input-type=module <<'NODE'
+          import {existsSync,readFileSync} from 'node:fs';
+          for(const file of ['test-results/fresh-epoch-claim-private-status.json','test-results/fresh-epoch-claim-private-settlement.json'])if(existsSync(file))console.log(JSON.stringify(JSON.parse(readFileSync(file,'utf8'))));
+          NODE
+          exit "$code"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: fresh-epoch-claim-private-settlement
+          path: |
+            test-results/fresh-epoch-claim-private-status.json
+            test-results/fresh-epoch-claim-private-settlement.json
