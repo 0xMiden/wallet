@@ -1,5 +1,5 @@
 import { judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
-import { AccountState, NodeReads } from './reconcile-reads';
+import { AccountState, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
@@ -20,6 +20,8 @@ interface FakeChain {
   headers?: Record<number, string | undefined>;
   history?: Record<number, AccountState | 'pruned'>;
   notes?: Record<string, number>;
+  /** The account that created a note: a read naming another sender gets no answer, as the real read's. */
+  creators?: Record<string, string>;
   spent?: Record<string, number>;
   tipFails?: boolean;
   notesFail?: boolean;
@@ -34,12 +36,16 @@ interface FakeChain {
   tipAfterChange?: AccountState;
 }
 
-const chain = (fake: FakeChain): NodeReads & { calls: string[] } => {
+const chain = (
+  fake: FakeChain
+): NodeReads & { calls: string[]; noteReads: Parameters<NodeReads['noteInclusions']>[] } => {
   const calls: string[] = [];
+  const noteReads: Parameters<NodeReads['noteInclusions']>[] = [];
   let headerReads = 0;
   const swapped = () => fake.headerChangesAfter !== undefined && headerReads > fake.headerChangesAfter;
   return {
     calls,
+    noteReads,
     blockCommitment: async block => {
       calls.push(`header:${block}`);
       headerReads += 1;
@@ -59,12 +65,17 @@ const chain = (fake: FakeChain): NodeReads & { calls: string[] } => {
       if (state === 'pruned') return { ok: false, pruned: true, timedOut: false };
       return state === undefined ? { ok: false, pruned: false, timedOut: false } : { ok: true, state };
     },
-    noteInclusions: async ids => {
+    noteInclusions: async (...args) => {
+      const [ids, , sender] = args;
       calls.push('notes');
+      noteReads.push(args);
       if (fake.notesFail) return undefined;
       const found = new Map<string, number>();
       for (const id of ids) {
         const block = fake.notes?.[id];
+        const creator = fake.creators?.[id];
+        if (block !== undefined && sender !== undefined && creator !== undefined && creator !== sender)
+          return undefined;
         if (block !== undefined) found.set(id, block);
       }
       return found;
@@ -242,6 +253,52 @@ describe('row 2: an attributable output note on chain', () => {
       await resultOf(row('t'), { tip: { blockNum: 150, commitment: OTHER }, notes: { [NOTE]: 140 } }, [dapp])
     ).toBe('pending');
   });
+});
+
+describe('the account that created an execute`s attempt note (#2147)', () => {
+  // A dApp's row stores the bare address; the read compares the sender in canonical form.
+  const DAPP_ACCOUNT = 'mtst1acct';
+  const execute = () =>
+    row('t', { type: 'execute', accountId: DAPP_ACCOUNT, submitEvidence: [entry({ fromExecute: true })] });
+  const onChain = (creator: string): FakeChain => ({
+    tip: { blockNum: 150, commitment: OTHER },
+    notes: { [NOTE]: 140 },
+    creators: { [NOTE]: creator }
+  });
+  const judgedWith = async (target: ITransaction, fake: FakeChain) => {
+    const node = chain(fake);
+    const judged = await judgeSubmitEvidence(target, { node, accountRows: [target], nowSec: NOW, cadenceMs: 3_000 });
+    return { judged, noteReads: node.noteReads };
+  };
+
+  it('a note the node holds only as another account`s gives no read, never a landing', async () => {
+    const { judged, noteReads } = await judgedWith(execute(), onChain('mtst1other'));
+    expect(judged.entries).toEqual([{ attemptId: 'a1', result: 'no-read', readsFailed: true }]);
+    expect(judged.landed).toBeUndefined();
+    expect(judged.allDead).toBe(false);
+    expect(judged.landingHeld).toBe(false);
+    expect(noteReads).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, DAPP_ACCOUNT]]);
+  });
+
+  it('a note its own account created still lands and binds it', async () => {
+    const { judged, noteReads } = await judgedWith(execute(), onChain(DAPP_ACCOUNT));
+    expect(judged.entries[0]).toMatchObject({
+      result: 'landed',
+      proof: { kind: 'note', noteId: NOTE },
+      landingRecord: { block: 140, by: 2 }
+    });
+    expect(judged.landed?.boundTransactionId).toBe(hex(2));
+    expect(noteReads).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, DAPP_ACCOUNT]]);
+  });
+
+  it.each(['send', 'swap'] as const)(
+    'a %s`s note read names no sender, so a note another account created still lands it',
+    async type => {
+      const { judged, noteReads } = await judgedWith(row('t', { type }), onChain('mtst1other'));
+      expect(judged.entries[0]).toMatchObject({ result: 'landed', proof: { kind: 'note', noteId: NOTE } });
+      expect(noteReads).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS]]);
+    }
+  );
 });
 
 describe('row 3: E`s nullifier spent at h with the account at E.final there', () => {

@@ -6,7 +6,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
 import { RowJudgement } from './reconcile-judge';
-import { AccountState, NodeReads } from './reconcile-reads';
+import { AccountState, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { applyEntryWrites, checkEvidenceForRetry, judgeAndWrite } from './reconcile-unconfirmed';
 import { INoteDeliveryState, ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 
@@ -684,5 +684,73 @@ describe('checkEvidenceForRetry (#1081)', () => {
         node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 }, headerAfter: OTHER })
     });
     expect(check.kind).toBe('landing-pending');
+  });
+});
+
+describe('the account that created an execute`s attempt note (#2147)', () => {
+  // A dApp's row stores the bare address; the read compares the sender in canonical form.
+  const DAPP_ACCOUNT = 'mtst1acct';
+  const execute = () =>
+    unconfirmed({ type: 'execute', accountId: DAPP_ACCOUNT, submitEvidence: [entry({ fromExecute: true })] });
+  /** NOTE on chain as `creator` created it: a read naming another sender gets no answer, as the real read's. */
+  const heldBy = (creator: string) => {
+    const noteInclusions = jest.fn(
+      async (
+        ...[, , sender]: Parameters<NodeReads['noteInclusions']>
+      ): Promise<ReadonlyMap<string, number> | undefined> =>
+        sender === undefined || sender === creator ? new Map([[NOTE, 140]]) : undefined
+    );
+    const reads: NodeReads = { ...node({ blockNum: 150, commitment: OTHER }), noteInclusions };
+    return { reads, noteInclusions };
+  };
+  type Check = (reads: NodeReads) => Promise<string>;
+  const reconciler: Check = async reads => (await judgeAndWrite('tx-1', context(reads))).kind;
+  const tapTime: Check = async reads => {
+    const row = await read();
+    if (row === undefined) throw new Error('the row is missing');
+    return (await checkEvidenceForRetry(row, { createReads: async () => reads })).kind;
+  };
+
+  it.each<[string, Check, string]>([
+    ['the reconciler', reconciler, 'pending'],
+    ['the tap-time check', tapTime, 'undecided']
+  ])(
+    '%s leaves an execute unresolved, not Completed, when the node holds its note only as another account`s',
+    async (_label, check, kind) => {
+      await Repo.transactions.put(execute());
+      const { reads, noteInclusions } = heldBy('mtst1other');
+      expect(await check(reads)).toBe(kind);
+      const row = await read();
+      expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+      expect(row?.transactionId).toBeUndefined();
+      expect(row?.neverCommittedAt).toBeUndefined();
+      expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
+      expect(row?.submitEvidence?.[0]?.verdict).toBeUndefined();
+      expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, DAPP_ACCOUNT]]);
+    }
+  );
+
+  it.each<[string, Check]>([
+    ['the reconciler', reconciler],
+    ['the tap-time check', tapTime]
+  ])('%s still completes an execute from a note its own account created', async (_label, check) => {
+    await Repo.transactions.put(execute());
+    const { reads, noteInclusions } = heldBy(DAPP_ACCOUNT);
+    expect(await check(reads)).toBe('landed');
+    expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, transactionId: hex(2) });
+    expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, DAPP_ACCOUNT]]);
+  });
+
+  it.each<[string, Check, 'send' | 'swap']>([
+    ['the reconciler', reconciler, 'send'],
+    ['the reconciler', reconciler, 'swap'],
+    ['the tap-time check', tapTime, 'send'],
+    ['the tap-time check', tapTime, 'swap']
+  ])('%s completes a %s from a note another account created, asking with no sender', async (_label, check, type) => {
+    await Repo.transactions.put(unconfirmed({ type }));
+    const { reads, noteInclusions } = heldBy('mtst1other');
+    expect(await check(reads)).toBe('landed');
+    expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, transactionId: hex(2) });
+    expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS]]);
   });
 });
