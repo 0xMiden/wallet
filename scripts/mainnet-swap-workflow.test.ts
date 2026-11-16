@@ -63,6 +63,9 @@ describe('funded nightly swap workflow', () => {
     expect(inputs).toHaveProperty('bridges_only');
     expect(object(inputs.bridges_only)).toMatchObject({ type: 'boolean', default: false });
     expect(object(inputs.swaps_only)).toMatchObject({ type: 'boolean', default: false });
+    expect(object(object(jobs['mainnet-nightly']).env).MAINNET_LOOP_BRIDGES_ONLY).toBe(
+      "${{ inputs.bridges_only && 'true' || 'false' }}"
+    );
   });
   it.each([
     { mode: 'nightly', swaps_only: false, bridges_only: false, loops_only: false, swaps: true, bridges: true },
