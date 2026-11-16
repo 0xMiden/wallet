@@ -1,3 +1,4 @@
+import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import {
   captureNativeAssetSnapshot,
@@ -27,7 +28,8 @@ export function deriveBridgeRoutes(snapshot: ReturnType<typeof getBridgeConfigSn
   const recovery: BridgeRecoveryConfig = structuredClone({ network, config, derived });
   if (network === getEffectiveNetworkName()) {
     const before = captureNativeAssetSnapshot();
-    const faucetId = getNativeAssetIdSync();
+    const nativeId = getNativeAssetIdSync();
+    const faucetId = nativeId ? canonicalWalletAccountId(nativeId) : null;
     const metadata = getNativeAssetMetadataSync();
     const after = captureNativeAssetSnapshot();
     if (

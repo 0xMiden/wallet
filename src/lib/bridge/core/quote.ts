@@ -26,6 +26,9 @@ export function isQuoteReviewable(quote: QuoteResult | null | undefined, now: nu
     quote &&
     /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(quote.received) &&
     new BigNumber(quote.received).gt(0) &&
+    (quote.kind !== 'cctp' ||
+      quote.authorization.expiresAt === undefined ||
+      (Number.isFinite(quote.authorization.expiresAt) && quote.authorization.expiresAt * 1000 > now)) &&
     (quote.validity.kind === 'provider' ||
       (Number.isFinite(quote.validity.expiresAt) && quote.validity.expiresAt > now))
   );
