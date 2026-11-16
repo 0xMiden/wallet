@@ -5,6 +5,7 @@ import type { QuoteValidity } from 'lib/bridge/core/quote';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
@@ -172,7 +173,7 @@ function reviewedOutputOf(args: EpochSendArgs): EpochReviewedOutput | undefined 
       chain.chainId !== args.destinationChainId ||
       reviewedEpochMinimum(review.quote.received, route.destination.decimals) !== args.minimumOutputBaseUnits
     )
-      throw new Error('Epoch review terms changed');
+      throw new EpochReviewChangedError();
     const token =
       route.destination.kind === 'native' ? '0x0000000000000000000000000000000000000000' : route.destination.address;
     const owned: EpochReviewedQuote = {
@@ -184,7 +185,7 @@ function reviewedOutputOf(args: EpochSendArgs): EpochReviewedOutput | undefined 
       quote !== undefined &&
       configKey({ ...quote, outputTokenAddress: quote.outputTokenAddress.toLowerCase() }) !== configKey(owned)
     )
-      throw new Error('Epoch review terms changed');
+      throw new EpochReviewChangedError();
     quote = owned;
   }
   return quote === undefined ? undefined : { ...quote, minimumOutputBaseUnits: args.minimumOutputBaseUnits.toString() };
@@ -238,7 +239,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
       usdc.address.toLowerCase() !== reviewedOutput.outputTokenAddress.toLowerCase() ||
       usdc.decimals !== reviewedOutput.outputTokenDecimals
     )
-      throw new Error('Epoch review terms changed');
+      throw new EpochReviewChangedError();
     if (args.operation) {
       const review = args.operation.review;
       const recovery = review.route.recovery;
@@ -247,7 +248,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
         configKey([snapshot.network, snapshot.config, snapshot.derived]) !==
           configKey([recovery.network, recovery.config, recovery.derived])
       )
-        throw new Error('Epoch review terms changed');
+        throw new EpochReviewChangedError();
       assertReviewedBridge(review, review, Date.now());
     }
   };
@@ -307,7 +308,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
       ]);
       if (noteResult) {
         if (key === noteKey) return noteResult;
-        noteError ??= new Error('Epoch collateral callback terms changed');
+        noteError ??= new EpochReviewChangedError();
         return Promise.resolve({ success: false });
       }
       noteKey = key;

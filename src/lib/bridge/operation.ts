@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 import { isHash, parseUnits, type Hash } from 'viem';
 
 import { reviewedEpochMinimum } from 'lib/epoch/bridge';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import type { IBridgedReceiveExtraInputs, IBridgedSendExtraInputs, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
@@ -173,7 +174,7 @@ function assertBridgeMinimum(row: ITransaction, review: ReviewedTransfer): void 
       output.outputTokenAddress.toLowerCase() !== token.toLowerCase() ||
       configKey(output.validity) !== configKey(review.quote?.validity)
     )
-      throw new Error('Bridge minimum changed');
+      throw new EpochReviewChangedError();
   }
 }
 

@@ -32,6 +32,7 @@ import { usePreset } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { assertEpochReviewedOutput, reviewedEpochMinimum } from 'lib/epoch/bridge';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
@@ -642,14 +643,20 @@ export const ReviewTransaction: React.FC = () => {
         }
         settleSendFlow(flow => flow.fail(classifyError(error)));
         setSubmitErrorId(
-          error instanceof UsdcxBurnError && isUserErrorId(error.translationKey) ? error.translationKey : failureId
+          error instanceof EpochReviewChangedError
+            ? error.translationKey
+            : error instanceof UsdcxBurnError && isUserErrorId(error.translationKey)
+              ? error.translationKey
+              : failureId
         );
         setSubmitError(
-          error instanceof UsdcxBurnError
-            ? t(error.translationKey, error.values)
-            : error instanceof Error
-              ? error.message
-              : String(error)
+          error instanceof EpochReviewChangedError
+            ? t(error.translationKey)
+            : error instanceof UsdcxBurnError
+              ? t(error.translationKey, error.values)
+              : error instanceof Error
+                ? error.message
+                : String(error)
         );
         setIsSubmitting(false);
       }

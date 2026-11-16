@@ -8,6 +8,7 @@ import type { BridgeOperationInput } from 'lib/bridge/operation';
 import { reviewedEpochMinimum } from 'lib/epoch/bridge';
 import { bridgeEpochSend, quoteEpochSendOutput } from 'lib/epoch/epoch-send';
 import type { BridgeNoteDeps } from 'lib/epoch/miden-note';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 export { pollEpochIntentFill } from 'lib/epoch/epoch-send';
@@ -27,7 +28,7 @@ function sendTerms(request: QuoteRequest) {
     !midenAccount.trim() ||
     !/^0x[\da-f]{40}$/i.test(evmAddress)
   )
-    throw new Error('Epoch requires a configured Miden-source route');
+    throw new EpochReviewChangedError();
   validateTransferAmount(route, amount);
   return {
     amount: reviewedEpochMinimum(amount, source.decimals),
@@ -49,13 +50,13 @@ export async function quoteEpochSend(request: QuoteRequest): Promise<QuoteResult
       configKey([current.network, current.config, current.derived]) !==
         configKey([recovery.network, recovery.config, recovery.derived])
     )
-      throw new Error('Epoch quote route changed');
+      throw new EpochReviewChangedError();
   };
   assertCurrent();
   const output = await quoteEpochSendOutput(terms);
   assertCurrent();
   reviewedEpochMinimum(output.amount, request.route.destination.decimals);
-  if (!output.validity) throw new Error('Epoch quote validity is unavailable');
+  if (!output.validity) throw new EpochReviewChangedError();
   return { kind: 'epoch', received: output.amount, validity: output.validity };
 }
 
@@ -67,7 +68,7 @@ export async function runEpochSend(
   operation = structuredClone(operation);
   const { review } = operation;
   const terms = sendTerms({ route: review.route, amount: review.amount, ...review.accounts });
-  if (!review.quote) throw new Error('Epoch quote requires a new review');
+  if (!review.quote) throw new EpochReviewChangedError();
   return bridgeEpochSend({
     ...terms,
     minimumOutputBaseUnits: reviewedEpochMinimum(review.quote.received, review.route.destination.decimals),

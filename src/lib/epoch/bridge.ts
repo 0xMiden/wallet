@@ -10,6 +10,7 @@ import {
 import { AccountId } from '@miden-sdk/miden-sdk';
 import { formatUnits, parseUnits } from 'viem';
 
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
@@ -24,10 +25,9 @@ export function reviewedEpochMinimum(value: string, decimals: number): bigint {
     !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) ||
     (value.split('.')[1]?.length ?? 0) > decimals
   )
-    throw new Error('Epoch requires an exact positive reviewed output minimum');
+    throw new EpochReviewChangedError();
   const minimum = parseUnits(value, decimals);
-  if (minimum <= 0n || minimum >= 1n << 256n)
-    throw new Error('Epoch requires an exact positive reviewed output minimum');
+  if (minimum <= 0n || minimum >= 1n << 256n) throw new EpochReviewChangedError();
   return minimum;
 }
 
@@ -47,7 +47,7 @@ export function assertEpochReviewedOutput(output: EpochReviewedOutput | undefine
         !Number.isFinite(output.validity.expiresAt) ||
         output.validity.expiresAt <= Date.now()))
   )
-    throw new Error('Epoch quote requires a new review');
+    throw new EpochReviewChangedError();
 }
 
 export interface CrossChainQuote {

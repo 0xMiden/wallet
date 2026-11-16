@@ -1,4 +1,5 @@
 import { captureBridgeWalletScope, type BridgeOperationInput } from 'lib/bridge/operation';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -143,7 +144,7 @@ export async function createBridgeP2IDENote(
     if (expectedWalletScope) {
       const current = captureBridgeWalletScope();
       if (expectedWalletScope.network !== current.network || expectedWalletScope.rpcUrl !== current.rpcUrl)
-        throw new Error('Epoch wallet scope changed');
+        throw new EpochReviewChangedError();
     }
     const txId = await initiateBridgedSendTransaction(
       ifHextoBech32(senderAccountId),
