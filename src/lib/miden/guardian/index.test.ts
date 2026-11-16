@@ -1034,8 +1034,35 @@ describe('MultisigService', () => {
               '0xnewhotcommit'
             );
           }
+        },
+        {
+          path: 'add-hot-key',
+          sdk: 'createProposal',
+          create: service => {
+            mockGetAccount.mockResolvedValueOnce({ kind: 'fresh-account' });
+            mockSignerCommitments = ['0xhota', '0xcold'];
+            return service.createAddHotKeyProposal(
+              { id: () => ({ toString: () => 'acc-id' }) } as never,
+              '0xnewhotcommit'
+            );
+          }
+        },
+        {
+          path: 'revoke-device',
+          sdk: 'createProposal',
+          create: service => {
+            mockGetAccount.mockResolvedValueOnce({ kind: 'fresh-account' });
+            const [hotA, cold, hotB] = ['a1', 'c0', 'b2'].map(byte => `0x${byte.repeat(32)}`);
+            mockSignerCommitments = [hotA, cold, hotB];
+            mockFindOwnSignerCommitment.mockImplementation(async (_account, publicKeyHex) =>
+              publicKeyHex === 'hotpk' ? hotB : publicKeyHex === 'coldpk' ? cold : undefined
+            );
+            return service.createRevokeDeviceProposal(hotA, 'hotpk', 'coldpk');
+          }
         }
       ];
+      // The signer changes build in their own hold and create the proposal after it, so no hold is yielded.
+      const holdlessPaths = ['replace-hot-key', 'add-hot-key', 'revoke-device'];
 
       const arrange = (sdk: string, id: string, abandonCandidate: jest.Mock) => {
         let pathHold: object | null = null;
@@ -1068,7 +1095,7 @@ describe('MultisigService', () => {
           expect(abandonCandidate).toHaveBeenCalledTimes(1);
           expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE);
           expect(multisig.signProposal).not.toHaveBeenCalled();
-          expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(path === 'replace-hot-key' ? 0 : 1);
+          expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(holdlessPaths.includes(path) ? 0 : 1);
         }
       );
 
@@ -1097,7 +1124,7 @@ describe('MultisigService', () => {
         }
       });
 
-      it.each(paths.filter(entry => entry.path !== 'replace-hot-key'))(
+      it.each(paths.filter(entry => !holdlessPaths.includes(entry.path)))(
         '$path: the mismatch abandon observes a null hold',
         async ({ sdk, create }) => {
           let holdDuringAbandon: object | null = null;

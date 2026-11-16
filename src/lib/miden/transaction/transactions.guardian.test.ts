@@ -11699,6 +11699,68 @@ describe('generateTransaction - Guardian routing', () => {
     expect(row()?.status).toBe(ITransactionStatus.Completed);
   });
 
+  // A revoke rides the replace-hot-key row: it removes another device's signer and keeps this
+  // device's own key, so it mints, persists and installs nothing.
+  it('Guardian replace-hot-key: a revoke row proposes the revocation of its target and mints no key', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, coldService, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+    const target = `0x${'a1'.repeat(32)}`;
+    const createRevokeDeviceProposal = jest.fn(async (_target: string, _hot: string, _cold: string) => ({
+      id: 'prop-revoke',
+      nonce: 7
+    }));
+    Object.assign(coldService, { createRevokeDeviceProposal });
+    tx.extraInputs = { revokedSignerCommitment: target };
+    const revokeProvider = {
+      ...provider,
+      getAccounts: async () =>
+        (await provider.getAccounts()).map(account => ({
+          ...account,
+          hotPublicKey: 'hot-pk',
+          coldPublicKey: 'cold-pk'
+        }))
+    };
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      revokeProvider
+    );
+
+    expect(createRevokeDeviceProposal).toHaveBeenCalledTimes(1);
+    expect(createRevokeDeviceProposal).toHaveBeenCalledWith(target, 'hot-pk', 'cold-pk');
+    expect(createProposal).not.toHaveBeenCalled();
+    expect(coldService.createAddHotKeyProposal).not.toHaveBeenCalled();
+    expect(mockGenerateHotKey).not.toHaveBeenCalled();
+    expect(persistNewHotKey).not.toHaveBeenCalled();
+    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-revoke', undefined);
+    // Completion re-registers the post-revoke signer set and installs no key.
+    expect(coldService.reRegisterCurrentStateOnGuardian).toHaveBeenCalled();
+    expect(swapHotKey).not.toHaveBeenCalled();
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
+    expect(row()?.displayMessage).toBe(getMessage('deviceRevoked'));
+  });
+
+  it('Guardian replace-hot-key: a revoke row fails without proposing when a device key is unknown', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, coldService, provider } = arrangeRotation(createProposal);
+    const createRevokeDeviceProposal = jest.fn();
+    Object.assign(coldService, { createRevokeDeviceProposal });
+    tx.extraInputs = { revokedSignerCommitment: `0x${'a1'.repeat(32)}` };
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(createRevokeDeviceProposal).not.toHaveBeenCalled();
+    expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
+  });
+
   it('Guardian replace-hot-key: a row that already persisted its key proposes with that key and mints nothing (#904)', async () => {
     const createProposal = proposalFor();
     const { tx, row, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);

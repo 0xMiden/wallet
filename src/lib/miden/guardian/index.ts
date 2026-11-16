@@ -1405,17 +1405,7 @@ export class MultisigService {
     // The id of the proposal must be the commitment of the summary this device derived and sent, before any signature.
     const proposal = await this.proposalStep(
       'proposal_create',
-      async () => {
-        const nonce = Date.now();
-        try {
-          const created = await this.multisig.createProposal(nonce, summaryBase64, metadata);
-          await this.requireProposalIdIsCommitment(created, summaryCommitmentHex);
-          return created;
-        } catch (error) {
-          if (isPostPushProposalVerificationFailure(error)) await this.abandonMismatchCandidate(nonce);
-          throw error;
-        }
-      },
+      () => this.createVerifiedProposal(summaryBase64, summaryCommitmentHex, metadata),
       'replace-hot-key'
     );
     console.log('Created replace-hot-key proposal:', proposal.id);
@@ -1450,7 +1440,7 @@ export class MultisigService {
     // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
-    const { summaryBase64, saltHex, boundBlockNum, targetSignerCommitments } = await withWasmClientLock(
+    const added = await withWasmClientLock(
       async hold => {
         const webClient = (await getMidenClient()).client;
         // An eviction ABANDONS this callback rather than cancelling it, so every
@@ -1487,6 +1477,9 @@ export class MultisigService {
         assertWasmHoldCurrent(hold, 'add-hot-key: after the summary execution');
         return {
           summaryBase64: u8ToB64(summary.serialize()),
+          summaryCommitmentHex: readWasmHandle(summary.toCommitment(), commitment =>
+            normalizeProposalHexWord(commitment.toHex())
+          ),
           saltHex: salt.toHex(),
           boundBlockNum: builtBoundBlockNum,
           targetSignerCommitments: targets
@@ -1494,6 +1487,7 @@ export class MultisigService {
       },
       { label: 'add-hot-key-build' }
     );
+    const { summaryBase64, summaryCommitmentHex, saltHex, boundBlockNum, targetSignerCommitments } = added;
     const metadata: ProposalMetadata = {
       proposalType: 'add_signer',
       targetThreshold,
@@ -1506,7 +1500,7 @@ export class MultisigService {
 
     const proposal = await this.proposalStep(
       'proposal_create',
-      () => this.multisig.createProposal(Date.now(), summaryBase64, metadata),
+      () => this.createVerifiedProposal(summaryBase64, summaryCommitmentHex, metadata),
       'replace-hot-key'
     );
     console.log('Created add-hot-key proposal:', proposal.id);
@@ -1548,6 +1542,9 @@ export class MultisigService {
         assertWasmHoldCurrent(hold, 'revoke device', 'after summary execution');
         return {
           summaryBase64: u8ToB64(summary.serialize()),
+          summaryCommitmentHex: readWasmHandle(summary.toCommitment(), commitment =>
+            normalizeProposalHexWord(commitment.toHex())
+          ),
           saltHex: salt.toHex(),
           boundBlockNum,
           targetSignerCommitments
@@ -1566,9 +1563,31 @@ export class MultisigService {
     };
     return this.proposalStep(
       'proposal_create',
-      () => this.multisig.createProposal(Date.now(), built.summaryBase64, metadata),
+      () => this.createVerifiedProposal(built.summaryBase64, built.summaryCommitmentHex, metadata),
       'replace-hot-key'
     );
+  }
+
+  /**
+   * Create a signer-change proposal and accept it only when its id is the commitment of the
+   * summary this device derived and sent, before any signature. A Guardian that answers with
+   * another proposal would otherwise have the cold key sign a signer set this device never
+   * built. A mismatch releases the candidate at the nonce this call pushed.
+   */
+  private async createVerifiedProposal(
+    summaryBase64: string,
+    summaryCommitmentHex: string,
+    metadata: ProposalMetadata
+  ): Promise<Proposal> {
+    const nonce = Date.now();
+    try {
+      const created = await this.multisig.createProposal(nonce, summaryBase64, metadata);
+      await this.requireProposalIdIsCommitment(created, summaryCommitmentHex);
+      return created;
+    } catch (error) {
+      if (isPostPushProposalVerificationFailure(error)) await this.abandonMismatchCandidate(nonce);
+      throw error;
+    }
   }
 
   /**
