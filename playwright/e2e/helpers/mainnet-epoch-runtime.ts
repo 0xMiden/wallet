@@ -3,7 +3,7 @@ import { parseQuoteFromPath } from '@epoch-protocol/epoch-commons-sdk';
 import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Endpoint, NoteId, RpcClient } from '@miden-sdk/miden-sdk';
-import { createHash } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 
 import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
@@ -65,6 +65,8 @@ import { exportPublicInputNote } from './swap';
 import { BRIDGE_DEPOSIT_LAYER } from './send-flow-scripts';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
 
+let epochReturnDiagnosticKey: Buffer | undefined;
+
 async function withEpochReturnStage<T>(
   stage: 'provider-note-readiness' | 'wallet-sync' | 'note-import' | 'note-inspection',
   checkpointPath: string,
@@ -76,12 +78,14 @@ async function withEpochReturnStage<T>(
     try {
       const message =
         error instanceof Error ? error.message : typeof error === 'string' ? error : 'non-error rejection';
+      // An unretained process key prevents guessing low-entropy secrets from public fingerprints.
+      epochReturnDiagnosticKey ??= randomBytes(32);
       writeFileSync(
         `${checkpointPath}.return-readiness-failure.json`,
         JSON.stringify({
           stage,
           observedAt: new Date().toISOString(),
-          errorSha256: createHash('sha256').update(message).digest('hex')
+          errorSha256: createHmac('sha256', epochReturnDiagnosticKey).update(message).digest('hex')
         }) + '\n',
         { mode: 0o600 }
       );
