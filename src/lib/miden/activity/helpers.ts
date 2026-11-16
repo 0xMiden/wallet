@@ -98,14 +98,14 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
   let displayIcon = transaction.displayIcon;
   let secondaryAccountId = transaction.secondaryAccountId;
   const inputNotes = result.executedTransaction().inputNotes().notes();
-  const { userNotes: userOutputNotes } = splitLandedOutputNotes(result.executedTransaction());
+  const { userNotes: userOutputNotes } = splitLandedOutputNotes(result, transaction.id);
 
   // Both totals ACCUMULATE across notes, and both faucet sets are deduped across
   // the whole loop (not per note). A custom (`execute`) transaction can consume or
   // emit several notes: assigning per note left only the LAST note's total behind,
   // so a two-note consume recorded half the value that actually moved, and pushing
   // one faucet id per note made a two-note single-faucet transaction look like two
-  // distinct faucets — failing both single-faucet branches below and degrading the
+  // distinct faucets - failing both single-faucet branches below and degrading the
   // row to the generic 'Executed' label.
   const inputFaucetIds = new Set<string>();
   const outputFaucetIds = new Set<string>();
