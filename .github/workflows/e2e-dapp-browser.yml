@@ -1,0 +1,148 @@
+name: '2147 current public source root typecheck'
+
+# Isolated orphan QA transport only; this registered filename runs no native E2E jobs.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_source:
+        description: Exact reviewed QA transport commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  current-root-types:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SOURCE: ${{ inputs.expected_source }}
+    steps:
+      - name: Bind manual dispatch to the reviewed QA branch and SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/qa/2147-current-types-33431-20261115
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$EXPECTED_SOURCE" = "$GITHUB_SHA"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          ref: ${{ inputs.expected_source }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify orphan transport scope, modes and payload hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          test -z "$(git show -s --format=%P HEAD)"
+          expected=$(cat <<'FILES'
+          .github/workflows/e2e-dapp-browser.yml
+          source-after.sha256
+          source-before.sha256
+          source-overlay.patch
+          FILES
+          )
+          test "$(git ls-tree -r --name-only HEAD | LC_ALL=C sort)" = "$expected"
+          test "$(git ls-tree -r --format='%(objectmode)' HEAD | LC_ALL=C sort -u)" = 100644
+          sha256sum --check <<'PAYLOAD'
+          8274691eed352a1b7029c92bb2a56607eab77dae2c33b57382cfe25e51e4e00d  source-overlay.patch
+          38a6ccd2b4e1df98e11d6f78d61f0047b33e1b3918057c94c83df47ac6af9d2e  source-before.sha256
+          9245740ae7ffa177f136c4f2d55a6299ea5b74f38754f77f8736e8335027ca09  source-after.sha256
+          PAYLOAD
+
+      - name: Check out approved public wallet baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          repository: 0xMiden/wallet
+          ref: 293d668a14aa4226cd666d2f3344de6d65c5d762
+          fetch-depth: 2
+          path: wallet
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Ordinary frozen install on unchanged public baseline
+        working-directory: wallet
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 293d668a14aa4226cd666d2f3344de6d65c5d762
+          test "$(git rev-parse 'HEAD^{tree}')" = 3fe0463e0c0fd443d480bc3eb511c2f9f63af10f
+          test "$(git show -s --format=%P HEAD)" = 9f239a3171140260d1c3b1133b49a04eaecc5683
+          test -z "$(git status --porcelain --untracked-files=all)"
+          sha256sum --check <<'INPUTS'
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73  .nvmrc
+          INPUTS
+          test "$(yarn --version)" = 1.22.22
+          yarn install --frozen-lockfile --network-timeout 600000
+
+      - name: Check and apply only the 62 reviewed source postimages
+        id: source
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code HEAD
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test "$(wc -l < ../source-before.sha256)" -eq 46
+          test "$(wc -l < ../source-after.sha256)" -eq 62
+          sha256sum --check ../source-before.sha256
+          while IFS= read -r file; do
+            test ! -e "$file"
+            test ! -L "$file"
+          done < <(comm -13 <(cut -c67- ../source-before.sha256) <(cut -c67- ../source-after.sha256))
+          git apply --check ../source-overlay.patch
+          git apply ../source-overlay.patch
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = a5b3ea65a6423f43f9e3db9340778719cc225f670e905d6c81d5f751b0517ffe
+          test "$(git ls-files --others --exclude-standard | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = ae1692f7b98b19276aa239dbc19e4eae033c3925538ce30c13491afdbc5a7552
+          test "$(node --version | cut -d. -f1)" = v22
+          test "$(yarn --version)" = 1.22.22
+          test "$(node -p "require('./node_modules/typescript/package.json').version")" = 5.9.3
+          node --version
+          yarn --version
+          node -p "require('./node_modules/typescript/package.json').version"
+
+      - name: Original full root typecheck
+        working-directory: wallet
+        timeout-minutes: 8
+        run: |
+          yarn tsc --noEmit
+
+      - name: Verify unchanged source after the typecheck attempt
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 293d668a14aa4226cd666d2f3344de6d65c5d762
+          git diff --cached --exit-code
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = a5b3ea65a6423f43f9e3db9340778719cc225f670e905d6c81d5f751b0517ffe
+          test "$(git ls-files --others --exclude-standard | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = ae1692f7b98b19276aa239dbc19e4eae033c3925538ce30c13491afdbc5a7552
+          sha256sum --check <<'INPUTS'
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73  .nvmrc
+          INPUTS
