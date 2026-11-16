@@ -38,6 +38,7 @@ import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
 
 import { checkPinnedReplayNotes, orderFromSavedRequest, swapOpensOrderFromRead } from './pinned-replay-check';
 import { NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
+import type { IApprovedCustomEffects } from '../db/types';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 const FIRST = `0x${'AA'.repeat(32)}`;
@@ -206,6 +207,82 @@ describe('the order a pinned swap opens', () => {
 
     expect(check).toMatchObject({ kind: 'committed', noteId: FIRST.toLowerCase() });
     expect(check).not.toHaveProperty('order');
+  });
+});
+
+describe('the notes an execute`s approval recorded', () => {
+  const THIRD = `0x${'CC'.repeat(32)}`;
+  /** An execute row whose approval recorded `approvedOutputNoteIds`, as the store holds it. */
+  const execute = (approvedOutputNoteIds: unknown) => {
+    const approvedEffects: IApprovedCustomEffects = {
+      shape: 'summary',
+      outgoing: [],
+      incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
+      recipients: [],
+      inputNotesConsumed: 0,
+      outputNotesCreated: 1,
+      storageChanged: false
+    };
+    // The store can hold anything here (`importDb` fills it from a user-supplied file).
+    Object.assign(approvedEffects, { approvedOutputNoteIds });
+    return { type: 'execute' as const, requestBytes: BYTES, approvedEffects };
+  };
+
+  it('asks the node for its own notes and the well-formed approved ones, each once', async () => {
+    decodesTo(requestNote(FIRST));
+    const approved = [SECOND, FIRST.toLowerCase(), 'not-a-note-id', `0x${'dd'.repeat(31)}`, 7];
+
+    await expect(checkPinnedReplayNotes(execute(approved), { createReads })).resolves.toEqual({
+      kind: 'absent',
+      noteIds: [FIRST.toLowerCase(), SECOND.toLowerCase()]
+    });
+    expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase(), SECOND.toLowerCase()], RPC_READ_TIMEOUT_MS);
+  });
+
+  it('reports an approved note the node holds as committed when the request pins no own note', async () => {
+    decodesTo();
+    noteInclusions.mockResolvedValue(new Map([[THIRD.toLowerCase(), 140]]));
+
+    await expect(checkPinnedReplayNotes(execute([THIRD]), { createReads })).resolves.toEqual({
+      kind: 'committed',
+      noteId: THIRD.toLowerCase(),
+      noteIds: [THIRD.toLowerCase()],
+      block: 140,
+      scope: 'https://node-a.example'
+    });
+  });
+
+  it('reports none, with no node read, when neither the request nor the approval names a well-formed note', async () => {
+    decodesTo();
+
+    await expect(checkPinnedReplayNotes(execute(['not-a-note-id']), { createReads })).resolves.toEqual({
+      kind: 'none'
+    });
+    await expect(checkPinnedReplayNotes(execute('not-a-list'), { createReads })).resolves.toEqual({ kind: 'none' });
+    expect(createReads).not.toHaveBeenCalled();
+  });
+
+  it('an approved note does not stand in for a saved request that does not decode', async () => {
+    mockDeserialize.mockImplementation(() => {
+      throw new Error('could not deserialize');
+    });
+
+    await expect(checkPinnedReplayNotes(execute([THIRD]), { createReads })).resolves.toEqual({
+      kind: 'unknown',
+      cause: 'decode'
+    });
+    expect(createReads).not.toHaveBeenCalled();
+  });
+
+  it('a send`s check reads only the notes its request pins', async () => {
+    decodesTo(requestNote(FIRST));
+
+    await checkPinnedReplayNotes({ ...execute([THIRD]), type: 'send' }, { createReads });
+
+    expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase()], RPC_READ_TIMEOUT_MS);
   });
 });
 

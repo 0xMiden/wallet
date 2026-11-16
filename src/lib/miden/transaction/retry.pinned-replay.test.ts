@@ -39,7 +39,7 @@ import {
 import { noteDeliveryWriteCount } from './helper';
 import { NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { acknowledgementOf, requeueFailedTransaction, RETRY_REFUSAL_COPY, RetryOptions } from './retry';
-import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+import { IApprovedCustomEffects, ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { NoteTypeEnum } from '../types';
 
 const NOW = Math.floor(Date.now() / 1000);
@@ -110,6 +110,27 @@ const BRIDGED: Partial<ITransaction> = {
   mayHaveSubmitted: undefined,
   extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', destinationNetwork: 1 }
 };
+/** A dApp execute in doubt: its run left only the pin of its crossing, so the acknowledgeable refusal meets it. */
+const EXECUTE: Partial<ITransaction> = {
+  type: 'execute',
+  mayHaveSubmitted: undefined,
+  submitEvidence: [pin({ fromExecute: true })]
+};
+const APPROVED = hex(0xb2);
+/** The effects an approval recorded, creating exactly `approvedOutputNoteIds`. */
+const approvedEffects = (approvedOutputNoteIds: string[]): IApprovedCustomEffects => ({
+  shape: 'summary',
+  outgoing: [],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  recipients: [],
+  inputNotesConsumed: 0,
+  outputNotesCreated: approvedOutputNoteIds.length,
+  storageChanged: false,
+  approvedOutputNoteIds
+});
 
 const read = async (id = 'tx-pin') => Repo.transactions.where({ id }).first();
 const refusal = async (id = 'tx-pin', options?: RetryOptions): Promise<unknown> =>
@@ -376,6 +397,172 @@ describe('what the check leaves as it was', () => {
     await Repo.transactions.put(pinnedRow({ cancelledInFlightAt: NOW - 10 }));
     const error = await refusal();
     expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.sendLive);
+
+    expect(mockDeserialize).not.toHaveBeenCalled();
+    expect(mockCreateReads).not.toHaveBeenCalled();
+  });
+});
+
+describe('an execute in doubt asks the node only once the user acknowledged it', () => {
+  it('an acknowledged Retry of an execute whose saved request pins a note the node holds completes it and never requeues', async () => {
+    await Repo.transactions.put(pinnedRow(EXECUTE));
+    nodeHolds(PINNED);
+
+    await requeueFailedTransaction('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    const row = await read();
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      stage: 'complete',
+      queuedSeq: 7,
+      attemptId: 'a1'
+    });
+    expect(row?.error).toBeUndefined();
+    expect(Array.from(row?.requestBytes ?? [])).toEqual(Array.from(BYTES()));
+    expect(mockDeserialize).toHaveBeenCalledTimes(1);
+    expect(noteInclusions).toHaveBeenCalledWith([PINNED], RPC_READ_TIMEOUT_MS);
+  });
+
+  it('a completed pinned execute naming a recipient records no root output note, so the delivery sweep leaves it inert', async () => {
+    await Repo.transactions.put(pinnedRow(EXECUTE));
+    nodeHolds(PINNED);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.secondaryAccountId).toBe('mtst1recipient');
+    expect(row?.noteDelivery).toBe('undelivered');
+    expect(row?.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  it('an acknowledged Retry of an execute whose request pins no own note completes it from a note its approval recorded', async () => {
+    await Repo.transactions.put(pinnedRow({ ...EXECUTE, approvedEffects: approvedEffects([APPROVED]) }));
+    decodesTo();
+    nodeHolds(APPROVED);
+
+    await requeueFailedTransaction('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    const row = await read();
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, queuedSeq: 7, attemptId: 'a1' });
+    expect(row?.outputNoteIds).toBeUndefined();
+    expect(noteInclusions).toHaveBeenCalledWith([APPROVED], RPC_READ_TIMEOUT_MS);
+  });
+
+  it.each<[string, () => void, string, string, number]>([
+    [
+      'the node read fails',
+      () => noteInclusions.mockResolvedValue(undefined),
+      TRANSACTION_REPLAY_CHECK_FAILED_ERROR,
+      'replay_check_failed',
+      1
+    ],
+    [
+      'the saved request does not decode',
+      () =>
+        mockDeserialize.mockImplementation(() => {
+          throw new Error('could not deserialize the request');
+        }),
+      TRANSACTION_REPLAY_UNREADABLE_ERROR,
+      'replay_request_unreadable',
+      0
+    ]
+  ])(
+    'an acknowledged Retry of a pinned execute refuses with no acknowledgeable exit when %s',
+    async (_t, arrange, message, reason, nodeReads) => {
+      await Repo.transactions.put(pinnedRow(EXECUTE));
+      arrange();
+
+      const error = await refusal('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+      expect(error).toHaveProperty('message', message);
+      expect(acknowledgementOf(error)).toBeNull();
+      expect(snapshotPendingRetry(error)).toBe(reason);
+      const row = await read();
+      expect(row).toMatchObject({ status: ITransactionStatus.Failed, queuedSeq: 7 });
+      expect(Array.from(row?.requestBytes ?? [])).toEqual(Array.from(BYTES()));
+      expect(mockCreateReads).toHaveBeenCalledTimes(nodeReads);
+    }
+  );
+
+  it('refuses an acknowledged pinned execute as unsafe when another row of the account names the pinned note', async () => {
+    await Repo.transactions.put(pinnedRow(EXECUTE));
+    await Repo.transactions.put({
+      id: 'tx-sibling',
+      type: 'execute',
+      accountId: 'mtst1acct',
+      status: ITransactionStatus.Completed,
+      initiatedAt: NOW - 900,
+      displayIcon: 'DEFAULT',
+      submitEvidence: [{ attemptId: 's1', capturedAt: NOW - 890, source: 'stage', outputNoteIds: [PINNED] }]
+    });
+    nodeHolds(PINNED);
+
+    const error = await refusal('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    expect(error).toHaveProperty('message', TRANSACTION_RETRY_UNSAFE_ERROR);
+    expect(snapshotPendingRetry(error)).toBe('unsafe_retry');
+    const row = await read();
+    expect(row).toMatchObject({ status: ITransactionStatus.Failed, queuedSeq: 7 });
+    expect(row?.requestBytes).toBeDefined();
+  });
+
+  it('an acknowledged execute whose pinned notes the node does not hold requeues the same bytes', async () => {
+    await Repo.transactions.put(pinnedRow(EXECUTE));
+    nodeHolds();
+
+    await requeueFailedTransaction('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    expect(Array.from(row?.requestBytes ?? [])).toEqual(Array.from(BYTES()));
+    expect(noteInclusions).toHaveBeenCalledWith([PINNED], RPC_READ_TIMEOUT_MS);
+  });
+
+  // The #1081 exit for what the node cannot answer: a request that pins no note is not refused.
+  it('an acknowledged execute whose request pins no note requeues the same bytes with no node read', async () => {
+    await Repo.transactions.put(pinnedRow(EXECUTE));
+    decodesTo();
+
+    await requeueFailedTransaction('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    expect(Array.from(row?.requestBytes ?? [])).toEqual(Array.from(BYTES()));
+    expect(mockCreateReads).not.toHaveBeenCalled();
+  });
+
+  // Rules (a) and (b): the acknowledgeable refusal takes no lock and makes no network read.
+  it('a first Retry of a pinned execute refuses with the acknowledgeable copy without decoding the request or reading the node', async () => {
+    await Repo.transactions.put(pinnedRow(EXECUTE));
+    nodeHolds(PINNED);
+
+    const error = await refusal();
+
+    expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.executeStopped);
+    expect(acknowledgementOf(error)).toEqual({ attemptId: 'a1' });
+    expect(mockDeserialize).not.toHaveBeenCalled();
+    expect(mockCreateReads).not.toHaveBeenCalled();
+    expect((await read())?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('a proven, live or nullifier-listing execute never reads its pinned notes', async () => {
+    nodeHolds(PINNED);
+    await Repo.transactions.put(pinnedRow({ ...EXECUTE, neverCommittedAt: NOW - 30 }));
+    await requeueFailedTransaction('tx-pin');
+    expect((await read())?.status).toBe(ITransactionStatus.Queued);
+
+    await Repo.transactions.put(pinnedRow({ ...EXECUTE, cancelledInFlightAt: NOW - 10 }));
+    const error = await refusal();
+    expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.executeLive);
+
+    await Repo.transactions.put(
+      pinnedRow({ ...EXECUTE, submitEvidence: [pin({ fromExecute: true, nullifiers: [hex(0xc3)] })] })
+    );
+    await requeueFailedTransaction('tx-pin');
+    expect((await read())?.status).toBe(ITransactionStatus.Queued);
 
     expect(mockDeserialize).not.toHaveBeenCalled();
     expect(mockCreateReads).not.toHaveBeenCalled();
