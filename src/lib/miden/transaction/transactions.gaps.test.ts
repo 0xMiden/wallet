@@ -868,7 +868,7 @@ describe('a throw after the leaf resolved', () => {
     const row = txStore.find(stored => stored.id === id)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.extraInputs.orderId).toBeUndefined();
-    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.extraInputs.expiresAt).toBeUndefined();
     expect(retire).toHaveBeenCalledWith(trap, id);
     expect(report).toHaveBeenCalledWith(expect.objectContaining({ error: tailFailure }));
   });

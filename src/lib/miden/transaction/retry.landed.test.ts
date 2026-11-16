@@ -257,6 +257,20 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
     expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
   });
 
+  // An ambiguous post-submit abort records no order. An expiry would read as one the wallet settles.
+  it('completes a landed swap whose failure decided no order without an expiry', async () => {
+    const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+    await Repo.transactions.put(decidedSwap({ extraInputs }));
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toEqual(extraInputs);
+    expect(row?.outputNoteIds).toBeUndefined();
+  });
+
   it('a proven-dead swap`s requeue drops the order its dead attempt decided', async () => {
     const submitEvidence = [{ attemptId: 'a1', capturedAt: 1100, source: 'stage' as const }];
     await Repo.transactions.put(decidedSwap({ neverCommittedAt: 1150, submitEvidence }));

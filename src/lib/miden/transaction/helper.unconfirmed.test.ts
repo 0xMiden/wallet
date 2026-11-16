@@ -118,6 +118,7 @@ describe('a verified landing of a swap opens the order its landed failure decide
     applyVerifiedLanding(row);
 
     expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.expiresAt).toBeUndefined();
     expect(row.extraInputs.landedOrder).toBeUndefined();
     expect(row.outputNoteIds).toBeUndefined();
   });
@@ -128,6 +129,7 @@ describe('a verified landing of a swap opens the order its landed failure decide
     applyVerifiedLanding(row);
 
     expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.expiresAt).toBeUndefined();
   });
 
   it('a decided note that is not note-id shaped is not recorded as the row`s output note', () => {
@@ -170,13 +172,14 @@ describe('a verified landing of a swap opens the order its landed failure decide
     expect(row.outputNoteIds).toEqual([`0x${'cd'.repeat(32)}`]);
   });
 
-  it('a swap with no decided order opens none and expires at the user`s window from its completion', () => {
+  // The receipt reads an expiry as an order the wallet settles, so a row with no order keeps its claim route.
+  it('a swap with no decided order opens none and gets no expiry', () => {
     const row = failedSwap({});
 
     applyVerifiedLanding(row, { completedAt: 2000 });
 
     expect(row.extraInputs.orderId).toBeUndefined();
-    expect(row.extraInputs.expiresAt).toBe(2100);
+    expect(row.extraInputs.expiresAt).toBeUndefined();
     expect(row.outputNoteIds).toBeUndefined();
   });
 
