@@ -10,13 +10,13 @@
 ## Global Constraints
 - Original2000000 micro-USD cap; verified90246spent/1909754remaining. No reset, new funds/accounts or replay.
 - Preserve SDK-byte upload/ACK, original recovery, retention, concurrency, shared budget and95%canonical coverage.
-- No product logic, retry, deadline, amount or public rollout changes. No merge/admin or additional Council.
+- Only evidenced status-envelope tracing normalization; no retry, deadline, amount, signature/authentication policy or public rollout changes. No merge/admin or additional Council.
 - Guarded local preflight only; full tests, coverage, compilation and live wallets on CI. Signed feature commits with original user identity; no dependency changes.
 
 ## Review Focus
 - Missing/duplicate GitHub jobs/steps or attempted downstream gates must never certify an unsigned checkpoint.
 - A green audit must bind exact repository/run/source/attempt and both actual public/private jobs.
-- A valid-looking pending status for another quote must fail canonical hash/correlation binding.
+- A valid-looking pending status for another quote must fail signature and canonical hash binding; unsigned per-request tracing metadata is not an authority field.
 - A changed Guardian, principal, fee, balance or pending nonce must leave the checkpoint untouched.
 - Clearing an expired quote must not release fresh funding in the same run.
 

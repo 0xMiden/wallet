@@ -1033,7 +1033,6 @@ export async function verifyUnstartedNearForward(
   if (
     status.status !== 'PENDING_DEPOSIT' ||
     hashOneClickQuote(status.quoteResponse) !== quote.quoteHash ||
-    status.quoteResponse.correlationId !== quote.correlationId ||
     status.quoteResponse.quote.depositAddress !== quote.depositAddress ||
     status.swapDetails.intentHashes.length ||
     status.swapDetails.nearTxHashes.length ||
@@ -1060,10 +1059,7 @@ async function originalMainnetNearStatus(
   };
   const fetcher = createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId);
   const checked = (status: OneClickStatusResponse) => {
-    if (
-      hashOneClickQuote(status.quoteResponse) !== authority.quoteHash ||
-      status.quoteResponse.correlationId !== authority.correlationId
-    )
+    if (hashOneClickQuote(status.quoteResponse) !== authority.quoteHash)
       throw new Error('Native NEAR provider response differs from the original recorded quote');
     return status;
   };
