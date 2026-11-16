@@ -35,7 +35,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
-import { installLandedTrapRetirement } from 'lib/miden/sdk/landed-trap-retirement';
+import { installLandedTrapRetirement, retireLandedTrap } from 'lib/miden/sdk/landed-trap-retirement';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { ConsumableNote } from 'lib/miden/types';
@@ -17422,6 +17422,74 @@ describe('Guardian proposal effect check', () => {
       mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
       mockVerifyPreparedCustomRequest.mockReset();
       mockVerifyPreparedCustomRequest.mockImplementation(async () => undefined);
+    }
+  });
+
+  // The summary decode after a custom proposal runs outside any WASM hold, so no lock sees a trap in it.
+  const runTrappedProposalDecode = async (id: string) => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockDeserializeSummary.mockImplementation(() => {
+      throw trap;
+    });
+    mockAssertCustomEffectsApproved.mockImplementationOnce(
+      jest.requireActual<typeof import('./custom-effects')>('./custom-effects').assertCustomEffectsApproved
+    );
+    mockAssertProposalEffect.mockClear();
+    const service = serviceWith({ id: 'prop-decode-trap', nonce: 9, metadata: {}, txSummary: 'dHJhcA==' });
+    const queued = {
+      id,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4]),
+      spentAssetTotals: [],
+      approvedEffects: approvedEffects([])
+    };
+    txStore.push({ ...queued, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    await generateTransaction(
+      { ...queued, delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+    return { trap, service, row: txStore.find(r => r.id === id) as Record<string, unknown> };
+  };
+
+  it('retires the client once for a trap in the custom proposal summary decode and fails the row with that trap', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const { trap, service, row } = await runTrappedProposalDecode('execute-proposal-decode-trap');
+
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls[0]![0]).toBe(trap);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(mockAssertProposalEffect).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(9);
+      // The trap itself fails the row, not the copy of an effects mismatch.
+      expect(row).toMatchObject({ status: ITransactionStatus.Failed, error: 'RuntimeError: unreachable' });
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it("leaves the row's landed retire open after a trap in its custom proposal summary decode", async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const id = 'execute-proposal-decode-trap-then-landed';
+      await runTrappedProposalDecode(id);
+      // A later attempt of the same row lands, and a landed reader keyed by the row id traps.
+      const landedTrap = new WebAssembly.RuntimeError('unreachable');
+      retireLandedTrap(landedTrap, id, undefined);
+
+      expect(retire).toHaveBeenCalledTimes(2);
+      expect(retire.mock.calls[1]).toEqual([landedTrap, id]);
+    } finally {
+      errSpy.mockRestore();
+      restore();
     }
   });
 
