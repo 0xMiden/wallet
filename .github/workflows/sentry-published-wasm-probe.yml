@@ -39,7 +39,9 @@ jobs:
           results="$RUNNER_TEMP/published-wasm-results"
           mkdir -m 700 "$results"
           printf 'PROBE_PRIVATE=%s\nPROBE_RESULTS=%s\nEXTENSION_DIST=%s\n' "$private" "$results" "$private/extension" >> "$GITHUB_ENV"
-          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 120 \
+          curl_version=$(curl --version | awk 'NR == 1 { split($2, v, /[.]/); printf "%d%03d", v[1], v[2] }')
+          test "$curl_version" -ge 8004
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 120 --max-filesize 15535119 \
             https://github.com/0xMiden/wallet/releases/download/v1.17.8/MidenWallet.1.17.8.Testnet.zip \
             --output "$private/archive.zip"
           cat > "$private/archive-check.py" <<'PY'
