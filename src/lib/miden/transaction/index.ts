@@ -152,6 +152,7 @@ import {
   recordSubmitCrossing,
   setTransactionStage,
   stampPostSubmitStage,
+  swapOrderExpiresAt,
   updateTransactionStatus
 } from './helper';
 import { assertProposalEffectApproved } from './proposal-effect-guard';
@@ -188,6 +189,7 @@ import {
   IConsumeGcPurchaseExtraInputs,
   IRequeueStreak,
   IRequeueStreakArm,
+  type ISwapLandedOrder,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -1205,19 +1207,38 @@ const landedFactsOf = (error: unknown): LandedWithoutResult => {
 
 /**
  * Stamp a landed row's transaction id before a result-awaiting arm fails it (#1233), so its receipt
- * still names the transaction. Guard-free like `markMayHaveSubmitted`: the cancel that follows is
- * what makes the row terminal. A failed write is logged, never thrown: the store that just failed the
- * apply can fail this one too, and the cancel is what releases the awaiting caller.
+ * still names the transaction, and hold a swap's order beside it. Guard-free like `markMayHaveSubmitted`:
+ * the cancel that follows is what makes the row terminal, and a Cancel or the reaper that finalizes the
+ * row before its Completed write lands still leaves both. Each fact is recorded without the other, since
+ * they are separate reads. A failed write is logged, never thrown: the store that just failed the apply
+ * can fail this one too, and the cancel is what releases the awaiting caller.
  */
-const recordLandedTransactionId = async (txId: string, error: unknown): Promise<void> => {
-  const { transactionId } = landedFactsOf(error);
-  if (transactionId === undefined) return;
+const recordLandedFacts = async (txId: string, error: unknown): Promise<void> => {
+  const { transactionId, orderId, orderNoteId } = landedFactsOf(error);
+  if (transactionId === undefined && orderId === undefined) return;
+  const landedAt = Math.floor(Date.now() / 1000); // seconds
   try {
     await Repo.transactions.where({ id: txId }).modify(row => {
-      row.transactionId = transactionId;
+      // A row that already holds its own order keeps it: the completion that stamped it read the result.
+      const recordsOrder =
+        orderId !== undefined &&
+        row.type === 'swap' &&
+        row.status !== ITransactionStatus.Completed &&
+        row.extraInputs?.orderId == null;
+      if (transactionId === undefined && !recordsOrder) return false;
+      if (transactionId !== undefined) row.transactionId = transactionId;
+      if (recordsOrder) {
+        const landedOrder: ISwapLandedOrder = {
+          orderId,
+          expiresAt: swapOrderExpiresAt(row.extraInputs, landedAt),
+          ...(orderNoteId === undefined ? {} : { noteId: orderNoteId })
+        };
+        row.extraInputs = { ...row.extraInputs, landedOrder };
+      }
+      return undefined;
     });
   } catch (recordError) {
-    console.warn('Could not record the landed transaction id', { txId, recordError });
+    console.warn('Could not record the landed facts', { txId, recordError });
   }
 };
 
@@ -1701,15 +1722,16 @@ const settleLandedStructuralRow = async (
 
 /**
  * The only status verdict for a non-structural row whose submit already resolved, shared by the Guardian catch and
- * the loop catch: its local apply failed, or its post-submit tail threw. The landed id is stamped before the row is
- * read, and that stamp is not gated on the row still being queued, so a Cancel or the reaper that finalized it during
- * the tail still leaves the id on the receipt. A missing row and a stored structural row stop after the stamp. A
- * result-awaiting row (an earn deposit, or an Epoch bridged-send) records its collateral note and is failed, so the
- * caller waiting on `resultBytes` stops; one that has already left the queue is not failed again. Every other stored
- * row is Completed. `attemptId` is the attempt the catch picked the row with, which is what the cancel compares.
+ * the loop catch: its local apply failed, or its post-submit tail threw. The landed id and a swap's order are
+ * recorded before the row is read, and that record is not gated on the row still being queued, so a Cancel or the
+ * reaper that finalized it during the tail still leaves the id on the receipt and the order on the row. A missing row
+ * and a stored structural row stop after the record. A result-awaiting row (an earn deposit, or an Epoch
+ * bridged-send) records its collateral note and is failed, so the caller waiting on `resultBytes` stops; one that has
+ * already left the queue is not failed again. Every other stored row is Completed. `attemptId` is the attempt the
+ * catch picked the row with, which is what the cancel compares.
  */
 const settleLandedValueRow = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
-  await recordLandedTransactionId(txId, error);
+  await recordLandedFacts(txId, error);
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (tx === undefined) return;
   // The Guardian catch settles both landed shapes of a structural row before they reach here

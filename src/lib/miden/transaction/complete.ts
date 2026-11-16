@@ -40,6 +40,7 @@ import {
   reportVerifiedLanding,
   setTransactionStage,
   stampPostSubmitStage,
+  swapOrderExpiresAt,
   undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
@@ -469,6 +470,8 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // display (offered/requested asset breakdown). For now record the tx as
   // Completed with the output note ids so the swap shows up in history.
   const completedAt = Math.floor(Date.now() / 1000); // seconds
+  // An order an earlier attempt's landed failure held is not this attempt's; the result names the row's own.
+  const { landedOrder: _earlierLanding, ...extraInputs } = tx.extraInputs;
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...feeFieldsFromResult(result, tx.id),
     displayMessage: 'Swapped',
@@ -482,7 +485,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
     // "explicit expiry" review change), and an earlier hot-key-rotation commit
     // accidentally reverted this stamp - leaving `expiresAt` undefined so active
     // orders were never reclaimed (swap-partial-fill lineage stuck `active`).
-    extraInputs: { ...tx.extraInputs, orderId, expiresAt: completedAt + (tx.extraInputs.expirySeconds ?? 120) }
+    extraInputs: { ...extraInputs, orderId, expiresAt: swapOrderExpiresAt(extraInputs, completedAt) }
   });
 };
 

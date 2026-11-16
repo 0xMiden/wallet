@@ -21,6 +21,7 @@ import {
   IBridgedSendExtraInputs,
   ICON_BY_TYPE,
   INoteDeliveryState,
+  type ISwapExtraInputs,
   ITransaction,
   ITransactionIcon,
   ITransactionStage,
@@ -648,6 +649,10 @@ export type LandedWithoutResult = LandedTransaction;
 /** The landed id as row fields, so the receipt names the transaction; empty when there is none. */
 export const landedTransactionIdFields = (landed: LandedWithoutResult | undefined): { transactionId?: string } =>
   landed?.transactionId === undefined ? {} : { transactionId: landed.transactionId };
+
+/** When a swap order opened at `at` (seconds) expires, at the user's chosen window or the default one. */
+export const swapOrderExpiresAt = (extraInputs: Pick<ISwapExtraInputs, 'expirySeconds'> | undefined, at: number) =>
+  at + (extraInputs?.expirySeconds ?? 120);
 
 /**
  * The Completed fields for a value-moving row whose submit landed and whose local reconcile did not,
