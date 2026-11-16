@@ -347,6 +347,10 @@ const INGEST_URL = 'https://eu.aptabase.com/api/v0/event';
 const SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
 
 const wireText = (): string => captured.map(entry => `${entry.url}\n${entry.headers}\n${entry.body}`).join('\n');
+// Sentry's own report and trace ids are hex by design, so they are the one hex the wire may carry. A short hex needle
+// is checked without them, or a random id that happens to contain it fails the check.
+const withoutSentryIds = (text: string): string =>
+  text.replace(/"(?:event_id|trace_id|span_id|parent_span_id)":"[0-9a-f]+"/g, '');
 
 /** Flush the fire-and-forget reporting chain, plus Sentry's transport buffer. */
 async function flushEgress(): Promise<void> {
@@ -1561,7 +1565,7 @@ describe('crash-report egress', () => {
       'User rejected',
       'Request Arguments'
     ]) {
-      expect(wireText()).not.toContain(text);
+      expect(withoutSentryIds(wireText())).not.toContain(text);
     }
     expect(leaksIn(wireText())).toEqual([]);
   });
@@ -2735,9 +2739,6 @@ describe('WalletConnect relay failure reports', () => {
       cause: new Error(`Subscribing to ${TOPIC} failed, please try again`)
     });
 
-  // Sentry's own report and trace ids are hex by design, so they are the one hex the wire may carry.
-  const withoutSentryIds = (text: string): string =>
-    text.replace(/"(?:event_id|trace_id|span_id|parent_span_id)":"[0-9a-f]+"/g, '');
 
   /** The failure range of each report on the wire, in the order sent. */
   const relayRanges = (): Array<string | undefined> =>
