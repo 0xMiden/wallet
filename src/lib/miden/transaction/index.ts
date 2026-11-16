@@ -1245,8 +1245,8 @@ const recordLandedFacts = async (txId: string, error: unknown): Promise<void> =>
  * it: the leaf resolved, so the catches record the row as landed instead of failing it, and Retry cannot submit it again
  * (PR #2183). A structural row's tail is left as it is once it holds its id. It settles on the node's verdict itself (a
  * discard fails it, a rotation with no verdict never completes, nothing finalizes after an eviction), and its row offers
- * no Retry. The id read comes before any verdict, so its failure leaves the tail as `LandedTailError`
- * (`readTailTransactionId`).
+ * no Retry. Its id read comes before any verdict, so that read's failure leaves the tail as `LandedTailError`
+ * (`readTailTransactionId`). A value row's tail reads no id of its own.
  */
 const runLandedTail = async (
   transaction: Pick<ITransaction, 'id' | 'type'>,
@@ -1330,13 +1330,11 @@ const readLandedTransactionId = (landing: string, result: TransactionResult): st
 };
 
 /**
- * The executed transaction's id at the start of a landed tail. A structural row asks the node about it, so a read that
- * throws leaves its tail before any node verdict: the trap is retired once under the row and the read rejects as
- * `LandedTailError` with no id, which the Guardian catch settles through the structural landed reconcile. A value
- * row's read throws as it is, for `runLandedTail` to wrap.
+ * The executed transaction's id a structural row's tail asks the node about, read before its commit wait. A read that
+ * throws leaves the tail before any node verdict: the trap is retired once under the row and the read rejects as
+ * `LandedTailError` with no id, which the Guardian catch settles through the structural landed reconcile.
  */
-const readTailTransactionId = (transaction: Pick<ITransaction, 'id' | 'type'>, result: TransactionResult): string => {
-  if (!STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) return result.executedTransaction().id().toHex();
+const readTailTransactionId = (transaction: Pick<ITransaction, 'id'>, result: TransactionResult): string => {
   try {
     return result.executedTransaction().id().toHex();
   } catch (error) {
@@ -4986,13 +4984,6 @@ const generateGuardianTransaction = async (
       await pushSwitchDeltaToOutgoingGuardian(transaction, service, proposalResult);
     }
 
-    // The tx id, re-derived from the (possibly offscreen-round-tripped) result
-    // rather than a separate handle: the offscreen pipeline returns only the
-    // serialized TransactionResult, and `executedTransaction()` survives that
-    // round-trip (slice 5b). Byte-identical to the former
-    // `submittedTransaction.id.toHex()`.
-    const id = readTailTransactionId(transaction, result);
-
     // For switch-guardian, the new guardian must be seeded with the POST-switch
     // account state. submit() returns after submission, not after inclusion, so
     // without this wait finalizeGuardianSwitch would serialize the pre-switch
@@ -5010,6 +5001,11 @@ const generateGuardianTransaction = async (
       transaction.type === 'update-procedure-threshold'
     ) {
       await stampPostSubmitStage(transaction.id, 'confirming');
+      // The tx id, re-derived from the (possibly offscreen-round-tripped) result
+      // rather than a separate handle: the offscreen pipeline returns only the
+      // serialized TransactionResult, and `executedTransaction()` survives that
+      // round-trip (slice 5b). Only this wait uses it, so a value row never reads it.
+      const id = readTailTransactionId(transaction, result);
       // Route the commit-wait through the proxy so it polls the SAME client that
       // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
       // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here

@@ -1869,6 +1869,78 @@ describe('generateTransaction - Guardian routing', () => {
     return txStore.find(r => r.id === txId)!;
   };
 
+  // Only the structural commit wait uses the tail's transaction id, so a value row's completion runs without that read.
+  const armValueTailIdTrap = () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let armed = false;
+    const readsAfterApply = { inputNotes: 0, outputNotes: 0 };
+    const executed = {
+      id: () => {
+        if (armed) throw trap;
+        return { toHex: () => 'exec-tx-hash' };
+      },
+      outputNotes: () => {
+        if (armed) readsAfterApply.outputNotes++;
+        return { notes: () => [] };
+      },
+      inputNotes: () => {
+        if (armed) readsAfterApply.inputNotes++;
+        return { notes: () => [] };
+      }
+    };
+    const result = { executedTransaction: () => executed, serialize: () => new Uint8Array([9, 9, 9]) };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    return { result, apply, readsAfterApply };
+  };
+
+  it('Guardian send: a tail whose id read would trap still runs the send completion', async () => {
+    const { result, apply, readsAfterApply } = armValueTailIdTrap();
+
+    await runGuardianSend('send-guardian-tail-id-unread', makeClientApi(result, apply));
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(readsAfterApply.outputNotes).toBeGreaterThan(0);
+  });
+
+  it('Guardian consume: a tail whose id read would trap still runs the consume completion', async () => {
+    const txId = 'consume-guardian-tail-id-unread';
+    const { result, apply, readsAfterApply } = armValueTailIdTrap();
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      guardianEndpoint: 'https://old.guardian',
+      priorCandidateState: jest.fn(async (_nonce: number) => 'settled'),
+      createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop-consume' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result, apply)
+    });
+    txStore.push({
+      id: txId,
+      type: 'consume',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      noteId: 'note-xyz'
+    });
+
+    await generateTransaction(
+      { id: txId, type: 'consume', accountId: 'guardian-acc', noteId: 'note-xyz', delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(readsAfterApply.inputNotes).toBeGreaterThan(0);
+  });
+
   // The landed boundary starts after the leaf resolves: one that started inside it would retire this trap as landed.
   it('Guardian send: a trap the leaf throws before its submit retires nothing under the landed rule', async () => {
     const retire = jest.fn();
