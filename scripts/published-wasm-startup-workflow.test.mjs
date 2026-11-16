@@ -315,6 +315,40 @@ function assertConfinement(text) {
   assert.match(text, /timeout --signal=TERM --kill-after=10s 300s/);
   assert.ok(text.indexOf('playwright install') < text.indexOf('sudo unshare'));
   assert.doesNotMatch(text, /--no-sandbox|continue-on-error|\|\| true/);
+  const opener = "          sudo unshare --net -- bash -euo pipefail -c '";
+  const token = 'node_modules/@playwright/test/cli.js';
+  const commandLine = '              "$8" node_modules/@playwright/test/cli.js test \\';
+  const workersLine = '              --workers=1 --retries=0 --timeout=60000 --global-timeout=180000 \\';
+  const traceLine = '              --trace=off --reporter=dot --output="$9/playwright-private"';
+  const openerAt = text.indexOf(`\n${opener}\n`);
+  const openEnd = openerAt + 1 + opener.length;
+  const closerAt = text.indexOf("\n          ' probe", openEnd);
+  const tokenAt = text.indexOf(token);
+  const commandAt = text.indexOf(`\n${commandLine}\n`);
+  const workersAt = text.indexOf(`\n${workersLine}\n`);
+  const traceAt = text.indexOf(`\n${traceLine}\n`);
+  const hostAt = text.indexOf('node playwright/tests/published-wasm/setup-failure.mjs');
+  assert.ok(openerAt >= 0 && closerAt > openEnd, 'published_wasm_namespace_bound_invocation');
+  assert.ok(
+    tokenAt >= openEnd && tokenAt + token.length <= closerAt && text.indexOf(token, tokenAt + token.length) === -1,
+    'published_wasm_namespace_bound_invocation'
+  );
+  assert.equal(tokenAt, commandAt + 1 + commandLine.indexOf(token), 'published_wasm_namespace_bound_invocation');
+  assert.ok(
+    commandAt >= openEnd &&
+      workersAt >= commandAt + commandLine.length + 1 &&
+      traceAt >= workersAt + workersLine.length + 1 &&
+      closerAt > traceAt + traceLine.length &&
+      hostAt > closerAt,
+    'published_wasm_namespace_bound_invocation'
+  );
+  const helper = readFileSync(new URL('../playwright/tests/published-wasm/published-wasm-startup-preflight.ts', import.meta.url), 'utf8');
+  const run = helper.indexOf('export async function runPublishedProbe(');
+  const netns = helper.indexOf("\n    assert.match(process.env.PROBE_ORIGINAL_NETNS ?? '', /^net:\\[\\d+\\]$/);", run);
+  const differentNetns = helper.indexOf("\n    assert.notEqual(readlinkSync('/proc/self/ns/net'), process.env.PROBE_ORIGINAL_NETNS);", run);
+  const noNewPrivs = helper.indexOf('\n    assert.match(status, /^NoNewPrivs:\\s+1$/m);', run);
+  const launch = helper.indexOf('\n    context = await launch(profile, extension);', run);
+  assert.ok(run >= 0 && netns > run && differentNetns > netns && noNewPrivs > differentNetns && launch > noNewPrivs, 'published_wasm_namespace_bound_invocation');
 }
 
 test('published-wasm workflow confines the entire probe to a loopback-only namespace as a non-root user', () => {
@@ -331,6 +365,16 @@ test('published-wasm confinement guard rejects the actual CLI moved outside unsh
   const mutant = text.slice(0, start) + '              "$8" -e ""\n' + text.slice(closer, after) + '\n' + command + text.slice(after);
   assert.equal([...mutant.matchAll(/node_modules\/@playwright\/test\/cli\.js/g)].length, 1);
   assert.throws(() => assertConfinement(mutant), { code: 'ERR_ASSERTION' }, 'published_wasm_namespace_bound_invocation');
+  const commented = text.replace(
+    '              "$8" node_modules/@playwright/test/cli.js test \\',
+    '              # "$8" node_modules/@playwright/test/cli.js test \\'
+  );
+  assert.notEqual(commented, text, 'commented CLI fixture must change active source');
+  assert.equal([...commented.matchAll(/node_modules\/@playwright\/test\/cli\.js/g)].length, 1);
+  assert.throws(() => assertConfinement(commented), { code: 'ERR_ASSERTION' }, 'published_wasm_namespace_bound_invocation');
+  const commentedOpener = text.replace("          sudo unshare --net -- bash -euo pipefail -c '", "          # sudo unshare --net -- bash -euo pipefail -c '");
+  assert.notEqual(commentedOpener, text, 'commented namespace fixture must change active source');
+  assert.throws(() => assertConfinement(commentedOpener), { code: 'ERR_ASSERTION' }, 'published_wasm_namespace_bound_invocation');
 });
 
 function assertSelectedCases(text) {
