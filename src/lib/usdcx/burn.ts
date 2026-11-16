@@ -19,6 +19,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
+import { soleOwnOutputNoteId } from 'lib/miden/sdk/own-output-request';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -75,13 +76,12 @@ export function buildUsdcxBurnRequest(
     NoteExecutionHint.always()
   ).toAttachment();
   const note = Note.withAttachments(new NoteAssets([asset]), metadata, recipient, [routing, withdrawal]);
-  // NoteArray takes ownership. Capture identity before transferring the note.
-  const burnNoteId = note.id().toString();
   const request = new TransactionRequestBuilder()
     .withOwnOutputNotes(new NoteArray([note]))
     .withFeeConversionSalt(randomFeeSalt())
     .build();
-  return { burnNoteId, requestBytes: request.serialize() };
+  // The burn is tracked by this id and signing may create only this note, so both read it from the request itself.
+  return { burnNoteId: soleOwnOutputNoteId(request), requestBytes: request.serialize() };
 }
 
 export async function initiateUsdcxBurn(args: {
@@ -117,6 +117,7 @@ export async function initiateUsdcxBurn(args: {
     destinationAddress,
     destinationChainId,
     'usdcx',
+    built.burnNoteId,
     built.requestBytes,
     true,
     undefined,
