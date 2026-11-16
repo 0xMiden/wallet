@@ -14,9 +14,11 @@ const jobs=github(`actions/runs/${runId}/jobs?per_page=100`);
 const matching=jobs.jobs.filter(job=>job.name==='Chrome mainnet round trip');assert.equal(matching.length,1);
 const steps=matching[0].steps;
 assert.deepEqual(steps.filter(s=>s.conclusion==='failure').map(s=>s.name),['Report recovery-only coverage']);
-for(const name of ['Recover prior mainnet NEAR','Wait for original NEAR recovery','Verify no new provider principal remains unresolved']) {
+for(const name of ['Recover prior mainnet NEAR','Wait for original NEAR recovery']) {
  const rows=steps.filter(s=>s.name===name);assert.equal(rows.length,1);assert.equal(rows[0].conclusion,'success');
 }
+const freshOnlyBarrier=steps.filter(s=>s.name==='Verify no new provider principal remains unresolved');
+assert.equal(freshOnlyBarrier.length,1);assert.equal(freshOnlyBarrier[0].conclusion,'skipped');
 const fresh=steps.filter(s=>s.name.startsWith('Run mainnet ')||['Prepare mainnet solver swap','Prepare mainnet Epoch loop','Prepare mainnet NEAR loop','Run native mainnet round trip','Run USDCx bridge loops'].includes(s.name));
 assert.ok(fresh.length>=9);assert.ok(fresh.every(s=>s.status==='completed'&&s.conclusion==='skipped'));
 const authorityArtifacts=github(`actions/runs/${runId}/artifacts?per_page=100`).artifacts.filter(a=>/authorized|signed|claim/.test(a.name));assert.deepEqual(authorityArtifacts,[]);
@@ -31,7 +33,8 @@ assert.deepEqual({...near,phase:original.phase,updatedAt:original.updatedAt},ori
 assert.ok(Date.parse(near.updatedAt)>Date.parse(original.updatedAt));
 const report=JSON.parse(readFileSync('test-results/public/mainnet-near-recovery.json','utf8'));
 assert.equal(report.recoveryOnly,true);assert.equal(report.sourceRunId,'43811169447');
-const epoch=JSON.parse(raw('final'));const account=epoch.evm.account;const holdings=[];
+assert.equal(JSON.parse(raw('fresh')).phase,'complete');
+const epoch=JSON.parse(raw('final'));assert.equal(epoch.phase,'complete');const account=epoch.evm.account;const holdings=[];
 for(const [chain,url,token,units,gas,nonce] of [[1,'https://ethereum.publicnode.com',epoch.evm.token,253042125n,297568063255111083n,105n],[42161,'https://arb1.arbitrum.io/rpc',original.evm.token,38682541n,19429691940260000n,84n]]) {
  const rpc=async(method,params)=>{
   const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'wallet-independent-readonly-audit/1.0'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params}),signal:AbortSignal.timeout(20000)});
