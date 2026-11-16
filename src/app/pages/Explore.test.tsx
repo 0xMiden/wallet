@@ -1461,7 +1461,8 @@ describe('Explore', () => {
         expect.any(Boolean),
         false,
         'auto_consume',
-        expect.any(Function)
+        expect.any(Function),
+        7
       );
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
@@ -1487,7 +1488,8 @@ describe('Explore', () => {
         true, // isDelegatedProvingEnabled
         false,
         'auto_consume',
-        expect.any(Function)
+        expect.any(Function),
+        0
       );
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1533,7 +1535,8 @@ describe('Explore', () => {
         false,
         false,
         'auto_consume',
-        expect.any(Function)
+        expect.any(Function),
+        0
       );
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).toHaveBeenCalledTimes(1);
