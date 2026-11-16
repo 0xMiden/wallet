@@ -14747,16 +14747,19 @@ describe('initiateReplaceHotKeyTransaction', () => {
   it.each([
     ['add', 'replace'],
     ['replace', 'add']
-  ] as const)('refuses a %s rotation in flight to a call that asks for %s, and keeps one row', async (queued, asked) => {
-    const provider = makeGuardianProvider(true);
-    await initiateReplaceHotKeyTransaction('acc-1', false, provider, queued);
+  ] as const)(
+    'refuses a %s rotation in flight to a call that asks for %s, and keeps one row',
+    async (queued, asked) => {
+      const provider = makeGuardianProvider(true);
+      await initiateReplaceHotKeyTransaction('acc-1', false, provider, queued);
 
-    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, asked)).rejects.toThrow(
-      getMessage('recoveryActionUnavailable')
-    );
-    expect(txStore).toHaveLength(1);
-    expect(txStore[0]?.extraInputs).toEqual(expect.objectContaining({ mode: queued }));
-  });
+      await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, asked)).rejects.toThrow(
+        getMessage('recoveryActionUnavailable')
+      );
+      expect(txStore).toHaveLength(1);
+      expect(txStore[0]?.extraInputs).toEqual(expect.objectContaining({ mode: queued }));
+    }
+  );
 
   it('reuses a pending rotation for a call in its own mode, a missing mode being a replace', async () => {
     const provider = makeGuardianProvider(true);
