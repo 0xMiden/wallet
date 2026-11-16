@@ -9,8 +9,9 @@ import { loadMainnetEpochCheckpoint } from '../../helpers/mainnet-epoch-checkpoi
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { loadMainnetNearCheckpoint } from '../../helpers/mainnet-near-checkpoint';
 import { verifyUnstartedNearForward } from '../../helpers/mainnet-near-runtime';
-import { fetchOneClickStatus } from '../../../../src/lib/one-click/client';
-import { hashOneClickQuote } from '../../../../src/lib/one-click/signature';
+import { fetchOneClickStatus, parseOneClickQuoteResponse } from '../../../../src/lib/one-click/client';
+import { hashOneClickQuote, verifyOneClickQuoteSignature } from '../../../../src/lib/one-click/signature';
+import { isRecord } from '../../../../src/lib/update/guards';
 import { createMainnetOneClickOriginFetcher } from '../../helpers/mainnet-one-click-origin';
 import { loadMainnetSwapCheckpoint } from '../../helpers/mainnet-swap-checkpoint';
 
@@ -50,6 +51,21 @@ test('read-only diagnosis of the original unsigned NEAR live verification', asyn
     report.depositMemoPresent=status.quoteResponse.quote.depositMemo!==undefined;
     report.intentCount=status.swapDetails.intentHashes.length;report.originTxCount=status.swapDetails.originChainTxHashes.length;report.destinationTxCount=status.swapDetails.destinationChainTxHashes.length;report.nearTxCount=status.swapDetails.nearTxHashes.length;report.depositedAmount=status.swapDetails.depositedAmount;
   } catch(error) {if(error instanceof Error){report.providerErrorClass=error.name;report.providerErrorSha256=createHash('sha256').update(error.message).digest('hex');report.providerErrorSite=error.stack?.match(/(?:mainnet-near-runtime|client|mainnet-one-click-origin)\.ts:\d+:\d+/)?.[0];}}
+  try {
+    const fetcher=createMainnetOneClickOriginFetcher(original.serviceUrl,walletB.extensionId);
+    const response=await fetcher(`${original.serviceUrl}/v0/status?${new URLSearchParams({depositAddress:original.forwardQuote.depositAddress})}`);
+    assert.ok(response.ok);const text=await response.text();assert.ok(text.length<=64000);const raw:unknown=JSON.parse(text);
+    assert.ok(isRecord(raw)&&isRecord(raw.quoteResponse));
+    report.rawProviderStatus=raw.status;report.rawRootCorrelationMatchesOriginal=raw.correlationId===original.forwardQuote.correlationId;
+    report.rawNestedCorrelationPresent=raw.quoteResponse.correlationId!==undefined;
+    const parsed=parseOneClickQuoteResponse({...raw.quoteResponse,correlationId:raw.quoteResponse.correlationId??original.forwardQuote.correlationId});
+    report.originalSignedPayloadHashMatched=hashOneClickQuote(parsed)===original.forwardQuote.quoteHash;
+    report.managerSignatureValid=verifyOneClickQuoteSignature(parsed);
+    report.signedDepositReferenceMatched=parsed.quote.depositAddress===original.forwardQuote.depositAddress;
+    report.signedAmountInMatched=parsed.quote.amountIn===original.forwardQuote.amountIn;
+    report.signedMinimumOutputMatched=parsed.quote.minAmountOut===original.forwardQuote.minimumOutput;
+    report.signedRefundFeeMatched=parsed.quote.refundFee===original.forwardQuote.refundFee;
+  } catch(error) {if(error instanceof Error){report.signedProbeErrorClass=error.name;report.signedProbeErrorSha256=createHash('sha256').update(error.message).digest('hex');report.signedProbeErrorSite=error.stack?.match(/(?:client|signature|recovery-zero-private\.spec)\.ts:\d+:\d+/)?.[0];}}
   assert.deepEqual(hashes(),before);report.checkpointsUnchanged=true;
   writeFileSync('test-results/recovery-readonly-diagnostic.json',JSON.stringify(report));
 });
