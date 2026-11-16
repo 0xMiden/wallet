@@ -139,12 +139,16 @@ const authSecretKeyFromSeed = (scheme: AuthScheme, seed: Uint8Array): AuthSecret
  * `getEcdsaK256KeccakSecretKeyAsFelts` / `getRpoFalcon512SecretKeyAsFelts`
  * methods throw on type mismatch. Try the cheap ECDSA path first; falling
  * back to Falcon is correct because `AuthScheme` has only these two members.
+ * A `WebAssembly.RuntimeError` and a killed pipeline leave as that same
+ * object. Any other throw, including a missing
+ * `getEcdsaK256KeccakSecretKeyAsFelts`, still returns `'falcon'`.
  */
 const detectAuthScheme = (key: AuthSecretKey): AuthScheme => {
   try {
     key.getEcdsaK256KeccakSecretKeyAsFelts();
     return 'ecdsa';
-  } catch {
+  } catch (error) {
+    rethrowTrapOrKill(error);
     return 'falcon';
   }
 };
@@ -761,6 +765,7 @@ export class Vault {
               try {
                 secretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKeyHex!, 'hex')));
               } catch (cause) {
+                rethrowTrapOrKill(cause);
                 fail('secret-deserialize', cause);
               }
               if (
@@ -1547,6 +1552,7 @@ export class Vault {
                   new Uint8Array(Buffer.from(normalizeBackupHex(restoredBackup.secretKeyHex), 'hex'))
                 );
               } catch (cause) {
+                rethrowTrapOrKill(cause);
                 failMalformedImport('secret-deserialize', cause);
               }
               if (
@@ -1956,7 +1962,8 @@ export class Vault {
           let secretKey: AuthSecretKey;
           try {
             secretKey = AuthSecretKey.deserialize(secretKeyBytes);
-          } catch {
+          } catch (error) {
+            rethrowTrapOrKill(error);
             throw new PublicError('Invalid private key');
           }
 
