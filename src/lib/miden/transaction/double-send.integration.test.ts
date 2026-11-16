@@ -93,6 +93,24 @@ jest.mock('./cancel', () => ({
   getConsumeVerdict: jest.fn(async () => 'unknown')
 }));
 
+// The note the cached request pins, and the node's answer for it. The defaults decode to no own note, so Retry asks
+// the node nothing, as for every row a real decode of these bytes would refuse.
+const mockDeserialize = jest.fn(() => ({ expectedOutputOwnNotes: (): unknown[] => [] }));
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
+  TransactionRequest: { deserialize: () => mockDeserialize() }
+}));
+const mockNoteInclusions = jest.fn(async (): Promise<ReadonlyMap<string, number> | undefined> => new Map());
+jest.mock('./reconcile-reads', () => ({
+  ...jest.requireActual('./reconcile-reads'),
+  createNodeReads: async () => ({
+    blockCommitment: async () => undefined,
+    account: async () => ({ ok: false, pruned: false, timedOut: false }),
+    noteInclusions: () => mockNoteInclusions(),
+    nullifierHeight: async () => undefined
+  })
+}));
+
 const BYTES = () => new Uint8Array([0xca, 0xfe, 0xba, 0xbe]);
 
 /**
@@ -140,6 +158,8 @@ const expectLivenessRefusal = async (id: string) => {
 beforeEach(async () => {
   jest.clearAllMocks();
   mockVerifySendLanded.mockResolvedValue('unknown');
+  mockDeserialize.mockImplementation(() => ({ expectedOutputOwnNotes: () => [] }));
+  mockNoteInclusions.mockImplementation(async () => new Map());
   globalThis.__testIsMobile = false;
   globalThis.__testHiddenSeconds = 0;
   await Repo.transactions.clear();
@@ -1012,6 +1032,37 @@ describe('the marker lands only where there is still a pipeline to outlive the c
     await cancelTransactionById('queued', 'user cancelled');
 
     expect((await read('queued')).cancelledInFlightAt).toBeUndefined();
+  });
+});
+
+// The node rejects a duplicate of a note only while the first copy is in its mempool, so a cached request whose note
+// is already on chain must complete its row instead of debiting the account again.
+describe('a cancelled pinned send whose note is on chain is completed, not replayed', () => {
+  it('an acknowledged Retry of a cancelled pinned send whose note committed completes it on the real schema', async () => {
+    const note = `0x${'ab'.repeat(32)}`;
+    const now = Math.floor(Date.now() / 1000);
+    await Repo.transactions.add(inFlightSend('pinned-landed', { processingStartedAt: now - 10_000, queuedSeq: 3 }));
+    await markMayHaveSubmitted('pinned-landed');
+    await cancelStuckTransactions();
+    await Repo.transactions.where({ id: 'pinned-landed' }).modify(r => {
+      r.cancelledInFlightAt = now - (MAX_WAIT_BEFORE_CANCEL + 60);
+    });
+    mockDeserialize.mockReturnValueOnce({
+      expectedOutputOwnNotes: () => [
+        { id: () => ({ toString: () => note }), metadata: () => ({ noteType: () => 'Private' }) }
+      ]
+    });
+    mockNoteInclusions.mockResolvedValueOnce(new Map([[note, 140]]));
+
+    await requeueFailedTransaction('pinned-landed', { acknowledged: { attemptId: null } });
+
+    const row = await read('pinned-landed');
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(Array.from(row.requestBytes!)).toEqual(Array.from(BYTES()));
+    expect(row.mayHaveSubmitted).toBe(true);
+    expect(row.outputNoteIds).toEqual([note]);
+    // A requeue re-stamps the sequence.
+    expect(row.queuedSeq).toBe(3);
   });
 });
 
