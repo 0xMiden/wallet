@@ -169,7 +169,7 @@ import {
 } from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
-import { writeCommittedCompleted } from './terminal-write';
+import { readRowWithinTerminalBudget, writeCommittedCompleted } from './terminal-write';
 import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
@@ -1707,11 +1707,13 @@ const settleLandedStructuralRow = async (
  * and a stored structural row stop after the record. A result-awaiting row (an earn deposit, or an Epoch
  * bridged-send) records its collateral note and is failed, so the caller waiting on `resultBytes` stops; one that has
  * already left the queue is not failed again. Every other stored row is Completed. `attemptId` is the attempt the
- * catch picked the row with, which is what the cancel compares.
+ * catch picked the row with, which is what the cancel compares. A store error leaving here would fail the landed row on
+ * the Guardian route and strand it for the reaper on the loop route, so the row is read under the terminal write's
+ * budget, and a row it cannot read stops as a missing one does.
  */
 const settleLandedValueRow = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
   await recordLandedFacts(txId, error);
-  const tx = await Repo.transactions.where({ id: txId }).first();
+  const tx = await readRowWithinTerminalBudget(txId, 'landed');
   if (tx === undefined) return;
   // The Guardian catch settles both landed shapes of a structural row before they reach here
   // (`settleLandedStructuralRow`). A stored structural row has no status write on this path.
@@ -1721,7 +1723,12 @@ const settleLandedValueRow = async (txId: string, error: unknown, attemptId: str
       `${tx.type} submitted but ${landedFailureText(error)} - marking Failed so the awaiting caller stops waiting:`,
       error
     );
-    await recordBridgeNoteLanded(tx.id);
+    // Logged, not thrown, as the landed record is: the cancel after it is what releases the awaiting caller.
+    try {
+      await recordBridgeNoteLanded(tx.id);
+    } catch (recordError) {
+      console.warn('Could not record the landed bridge note', { txId: tx.id, recordError });
+    }
     if (!hasLeftQueue(tx)) {
       await cancelTransactionAfterPipelineStopped(tx, landedFailureOf(error), attemptId);
     }
