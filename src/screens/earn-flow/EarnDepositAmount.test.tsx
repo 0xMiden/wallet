@@ -241,6 +241,33 @@ it('restores the exact deposit amount after review Back and clears it on account
 const FOUND_VAULT = EARN_DATA.vaults[2]!; // The Aave V3 USDC market on Base, which accepts deposits.
 const CLOSED_VAULT = EARN_DATA.vaults[1]!; // A Morpho market that accepts no deposits now.
 
+it('uses only the current Earn draft after switching vaults without remounting the amount owner', () => {
+  const otherVault = EARN_DATA.vaults[0]!;
+  const page = (vaultId: string, scope = DRAFT_SCOPE) => (
+    <CommandDraftProvider scope={scope}>
+      <EarnDepositAmount vaultId={vaultId} />
+    </CommandDraftProvider>
+  );
+  const { rerender } = render(page(FOUND_VAULT.id));
+  fireEvent.change(screen.getByTestId('amount-input'), { target: { value: '1.000001' } });
+  rerender(page(otherVault.id));
+  expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', otherVault.id);
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+  const newScope = { ...DRAFT_SCOPE, accountId: 'account-b' };
+  rerender(page(otherVault.id, newScope));
+  rerender(page(FOUND_VAULT.id, newScope));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+  rerender(page(otherVault.id, newScope));
+  fireEvent.change(screen.getByTestId('amount-input'), { target: { value: '2.000002' } });
+  rerender(page(FOUND_VAULT.id, newScope));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+  rerender(page(otherVault.id, newScope));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '2.000002');
+  rerender(page(otherVault.id, { ...newScope, accountId: 'account-c' }));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+  expect(navigate).not.toHaveBeenCalled();
+});
+
 const setAmount = (value: string) => fireEvent.change(screen.getByTestId('amount-input'), { target: { value } });
 
 beforeEach(() => {

@@ -32,17 +32,15 @@ let mockPositionFailure: object = {};
 jest.mock('./useEarnPositions', () => ({
   earnItemLoadState: () => ({ loadFailed: false, pending: false }),
   useEarnPositions: () => ({
-    positions: [
-      {
-        id: 'p',
-        asset: 'USDC',
-        protocol: 'Dummy Lending',
-        network: 'Sepolia',
-        decimals: 18,
-        withdrawable: mockAvailable,
-        stale: mockStale
-      }
-    ],
+    positions: ['p', 'other-position'].map(id => ({
+      id,
+      asset: 'USDC',
+      protocol: 'Dummy Lending',
+      network: 'Sepolia',
+      decimals: 18,
+      withdrawable: mockAvailable,
+      stale: mockStale
+    })),
     ...mockPositionFailure,
     refetch: jest.fn()
   })
@@ -78,6 +76,36 @@ it('submits an exact partial withdrawal to review through one real Command foote
   form.requestSubmit(confirm);
   expect(navigate).toHaveBeenCalledTimes(1);
   expect(navigate).toHaveBeenCalledWith('/earn/positions/p/withdraw/review?amount=1.000000000000000001');
+});
+
+it('uses only the current Earn draft after switching positions without remounting the amount owner', () => {
+  const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc.example' };
+  const page = (positionId: string, currentScope = scope) => (
+    <CommandDraftProvider scope={currentScope}>
+      <EarnWithdrawAmount positionId={positionId} />
+    </CommandDraftProvider>
+  );
+  const { rerender } = render(page('p'));
+  fireEvent.click(screen.getByRole('button', { name: 'max' }));
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('10.123456789012345678');
+  rerender(page('other-position'));
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('');
+  const newScope = { ...scope, rpcUrl: 'https://other.example' };
+  rerender(page('other-position', newScope));
+  rerender(page('p', newScope));
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('');
+  rerender(page('other-position', newScope));
+  expect(screen.queryByText('earnWithdrawFullBalanceSelected')).toBeNull();
+  fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), {
+    target: { value: '2.000000000000000001' }
+  });
+  rerender(page('p', newScope));
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('');
+  rerender(page('other-position', newScope));
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('2.000000000000000001');
+  rerender(page('other-position', { ...newScope, network: 'devnet' }));
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('');
+  expect(navigate).not.toHaveBeenCalled();
 });
 
 it('restores exact partial withdrawal after review Back but not for another RPC or network', () => {

@@ -35,7 +35,13 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
     positionId,
     amount: saved?.mode === 'withdraw' && saved.subjectId === positionId ? saved.amount : ''
   }));
-  const amount = input.positionId === positionId ? input.amount : '';
+  const amount = drafts
+    ? saved?.mode === 'withdraw' && saved.subjectId === positionId
+      ? saved.amount
+      : ''
+    : input.positionId === positionId
+      ? input.amount
+      : '';
   const setAmount = (value: string) => {
     setInput({ positionId, amount: value });
     drafts?.writeDraft('earn', { mode: 'withdraw', subjectId: positionId, amount: value });
@@ -43,6 +49,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
   const [fullBalanceSelected, setFullBalanceSelected] = useState(false);
   const { positions, isLoading, isRefreshing, error, errorDiagnostics, refetch } = useEarnPositions();
   const position = positions.find(item => item.id === positionId);
+  const fullBalanceForAmount = fullBalanceSelected && amount === position?.withdrawable;
   const { pending } = earnItemLoadState(position, { isLoading, error });
   const validation = position ? withdrawalAmountError(amount, position.withdrawable, position.decimals) : undefined;
   const canReview = Boolean(position && !position.stale && !validation);
@@ -102,7 +109,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                 externalAsset
                 quote={evmQuote(prices, Number(position.chainId), position.underlyingAddress)}
                 value={amount}
-                tokenIntentKey={fullBalanceSelected}
+                tokenIntentKey={fullBalanceForAmount}
                 onUserEdit={() => setFullBalanceSelected(false)}
                 onValueChange={value => setAmount(value ?? '')}
                 label={<span className="text-row-title text-muted">{t('earnWithdrawAmount')}</span>}
@@ -121,7 +128,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                     <Button
                       title={t('max')}
                       size="sm"
-                      variant={fullBalanceSelected ? ButtonVariant.Secondary : ButtonVariant.Ghost}
+                      variant={fullBalanceForAmount ? ButtonVariant.Secondary : ButtonVariant.Ghost}
                       accent="earn"
                       disabled={position.stale}
                       onClick={() => {
@@ -134,7 +141,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                 }
                 helper={
                   <div className="flex flex-col gap-1 text-caption text-muted face-heading">
-                    {fullBalanceSelected && (
+                    {fullBalanceForAmount && (
                       <span className="text-accent-earn-ink">{t('earnWithdrawFullBalanceSelected')}</span>
                     )}
                     <span>

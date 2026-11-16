@@ -46,7 +46,13 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
     vaultId,
     amount: saved?.mode === 'deposit' && saved.subjectId === vaultId ? saved.amount : ''
   }));
-  const amount = input.vaultId === vaultId ? input.amount : '';
+  const amount = drafts
+    ? saved?.mode === 'deposit' && saved.subjectId === vaultId
+      ? saved.amount
+      : ''
+    : input.vaultId === vaultId
+      ? input.amount
+      : '';
   const setAmount = (value: string) => {
     setInput({ vaultId, amount: value });
     drafts?.writeDraft('earn', { mode: 'deposit', subjectId: vaultId, amount: value });
