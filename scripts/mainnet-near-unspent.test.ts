@@ -145,6 +145,18 @@ it('reconciles the known expired unsigned quote after live checks, retains every
   );
   noFunding();
 });
+it('passes the canonical hex faucet required by the real 1Click client configuration boundary', async () => {
+  await expect(recover()).resolves.toBeUndefined();
+  expect(mockStatus).toHaveBeenCalledWith(
+    expect.objectContaining({
+      midenAssets: [{ assetId: mockState().nativeAssetId, faucetId: mockState().native.hex, decimals: 6 }]
+    }),
+    expect.any(String),
+    undefined,
+    undefined,
+    expect.any(Function)
+  );
+});
 it.each(['false', '', undefined])(
   'does not infer an unspent state without exact official provenance: %s',
   async verified => {
