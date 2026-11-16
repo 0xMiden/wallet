@@ -506,6 +506,8 @@ export interface IUsdcxBurn {
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
   epochReviewedOutput?: EpochReviewedOutput;
+  /** Local original unsigned collateral, for handoff comparison only; never signing authority or backup data. */
+  epochCollateralRequestBytes?: Uint8Array;
   bridgeOperation?: BridgeOperationSnapshot;
   agglayerRoute?: AgglayerRecoveryConfig;
   epochAllocatorUrl?: string;

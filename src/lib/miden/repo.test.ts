@@ -12,7 +12,7 @@ import {
 import { badgesFromHistory } from '../badges/backfill';
 import { BADGE_EVIDENCE_TYPES } from '../badges/evidence';
 import { compareAccountIds } from './activity/utils';
-import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
+import { BridgedSendTransaction, ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
   BADGE_EVIDENCE_ROW_TYPES,
   createSchemaFor,
@@ -437,6 +437,26 @@ describe('miden repo export/import', () => {
     const [restored] = await transactions.toArray();
     expect(restored!.restoredFromBackup).toBe(true);
     expect(isRequeueableTransaction(restored!)).toBe(false);
+  });
+
+  it('omits local original Epoch collateral facts while retaining actual execution bytes and history', async () => {
+    const row = new BridgedSendTransaction(
+      'acc1',
+      1n,
+      '0x1111111111111111111111111111111111111111',
+      11155111,
+      'epoch',
+      'faucet',
+      new Uint8Array([91, 92])
+    );
+    row.extraInputs.epochCollateralRequestBytes = new Uint8Array([81, 82]);
+    row.extraInputs.intentNonce = 'original-nonce';
+    await transactions.add(row);
+    const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
+    expect(dumped.extraInputs).not.toHaveProperty('epochCollateralRequestBytes');
+    expect(dumped.requestBytes).toEqual([91, 92]);
+    expect(dumped.extraInputs.intentNonce).toBe('original-nonce');
+    expect((await transactions.get(row.id))?.extraInputs.epochCollateralRequestBytes).toEqual(new Uint8Array([81, 82]));
   });
 
   // A backup must not record which dApps the user used, and a restored row is never waitable by one (#1416). Asserted

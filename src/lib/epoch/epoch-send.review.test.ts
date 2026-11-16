@@ -46,7 +46,18 @@ jest.mock('lib/miden/activity', () => ({
   requestSWTransactionProcessing: jest.fn(),
   startBackgroundTransactionProcessing: jest.fn(),
   waitForTransactionCompletion: (id: string) => mockWait(id),
-  ...jest.requireActual('lib/miden/transaction/complete')
+  markBridgedSendFailed: (
+    ...args: Parameters<(typeof import('lib/miden/transaction/complete'))['markBridgedSendFailed']>
+  ) =>
+    jest
+      .requireActual<typeof import('lib/miden/transaction/complete')>('lib/miden/transaction/complete')
+      .markBridgedSendFailed(...args),
+  updateBridgeClaimStatus: (
+    ...args: Parameters<(typeof import('lib/miden/transaction/complete'))['updateBridgeClaimStatus']>
+  ) =>
+    jest
+      .requireActual<typeof import('lib/miden/transaction/complete')>('lib/miden/transaction/complete')
+      .updateBridgeClaimStatus(...args)
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   ...jest.requireActual('lib/miden/sdk/helpers'),
@@ -513,6 +524,32 @@ it('keeps original funded continuation and nonce after deadline and scope depart
   expect(noteBuilds).toBe(1);
   expect(mockSolve).toHaveBeenCalledTimes(1);
 });
+
+it.each(['scope', 'collateral'])(
+  'retains the original %s callback refusal instead of funding a later callback',
+  async refusal => {
+    mockSolve.mockImplementation(async (params: SolveIntentParams) => {
+      callback = params.createMidenP2IDENote!;
+      if (refusal === 'scope') {
+        jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://temporarily-changed.example/private');
+      }
+      const first =
+        refusal === 'scope'
+          ? await createNote()
+          : await callback('0x123456789abcdef0123456789abcde', input.amount.toString(), accounts.midenAccount, 5000, [
+              1n,
+              2n
+            ]);
+      expect(first).toEqual({ success: false });
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
+      expect(await createNote()).toEqual({ success: false });
+      return { nonce: 'refused-callback-nonce' };
+    });
+    await expect(bridgeEpochSend(input)).rejects.toThrow();
+    expect(noteBuilds).toBe(0);
+    expect(await Repo.transactions.count()).toBe(0);
+  }
+);
 
 it('does not retry a failed callback or create a second collateral row', async () => {
   mockWait.mockResolvedValue({ errorMessage: 'original interrupted attempt' });
