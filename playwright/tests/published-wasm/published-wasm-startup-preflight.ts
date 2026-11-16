@@ -263,6 +263,21 @@ export async function runPublishedProbe(
 }
 
 export function finalizePublishedProbeCleanup(profile: string | undefined, result: Result, save: () => void): void {
-  if (profile) rmSync(profile, { recursive: true, force: true });
-  save();
+  let removalFailed = false;
+  try {
+    if (profile) rmSync(profile, { recursive: true, force: true });
+  } catch (error) {
+    removalFailed = true;
+    result.outcome = 'failed';
+    result.phase = 'cleanup';
+    result.error_family = 'other';
+    throw error;
+  } finally {
+    try {
+      save();
+    } catch (error) {
+      // Preserve the primary cleanup error if receipt persistence also fails.
+      if (!removalFailed) throw error;
+    }
+  }
 }
