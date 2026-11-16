@@ -84,7 +84,6 @@ import {
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction,
   initiateUpdateProcedureThresholdTransaction,
-  isRequeueableTransaction,
   LANDED_CONFIRM_BOUND_MS,
   LANDED_CONFIRM_POLL_MS,
   failInterruptedTransactions,
@@ -92,6 +91,7 @@ import {
   requeueFailedTransaction,
   SESSION_STARTED_AT
 } from './index';
+import { isRequeueableTransaction } from './retry';
 import { keptCandidateHoldUntil } from './verdict-rules';
 import { getConnectivityState, resetConnectivityState } from '../activity/connectivity-state';
 import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
@@ -2086,10 +2086,12 @@ describe('generateTransaction - Guardian routing', () => {
       id: txId,
       type: 'bridged-send',
       accountId: 'guardian-acc',
-      amount: '1000',
+      amount: 1000n,
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
       noteType: 'public',
+      requestBytes: new Uint8Array([54, 55, 56]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'epoch',
         destinationAddress: '0xevm',
@@ -2953,11 +2955,8 @@ describe('generateTransaction - Guardian routing', () => {
     });
   });
 
-  it('Guardian Epoch bridged-send builds a public recallable P2IDE custom proposal (the allocator rejects a plain P2ID)', async () => {
+  it('Guardian Epoch bridged-send with no request of its own is refused before a proposal', async () => {
     const txId = 'guardian-bridged-send';
-    const result = makeResult();
-    const requestBytes = new Uint8Array([4, 5, 6]);
-    const rebasedBytes = new Uint8Array([104, 105, 106]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'bridged-send',
@@ -2966,36 +2965,19 @@ describe('generateTransaction - Guardian routing', () => {
       faucetId: 'faucet',
       noteType: 'public',
       requestBytes: undefined,
-      // provider 'epoch' + recallBlocks select the P2IDE Epoch branch; the Agglayer
-      // path carries pre-built requestBytes with provider 'agglayer'.
       extraInputs: { provider: 'epoch', recallBlocks: 30 },
       delegateTransaction: false
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
-
     const multisigService = {
-      createSendProposal: jest.fn(),
-      createCustomProposal: jest.fn(),
-      createRebasedCustomProposal: jest.fn(async () => ({
-        proposal: { id: 'bridge-proposal' },
-        requestBytes: rebasedBytes
-      })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({
-        serialize: () => new Uint8Array([1]),
-        authArg: () => undefined
-      })),
-      sync: jest.fn(async () => {})
+      createRebasedCustomProposal: jest.fn()
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
-
-    // The fresh-height proxy reads the summary returned by interface syncState.
-    const client = makeClientApi(result);
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
       syncState: jest.fn(async () => ({ blockNum: () => 200 })),
-      client
+      client: makeClientApi(makeResult())
     });
 
     await generateTransaction(
@@ -3005,28 +2987,16 @@ describe('generateTransaction - Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    // A plain P2ID (createSendProposal) is rejected by the allocator; the note must
-    // be a PUBLIC recallable P2IDE built from the row's recallBlocks (absolute
-    // reclaim height = fresh syncHeight 200 + recallBlocks 30 = 230).
-    expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({ toString: expect.any(Function) }),
-      expect.objectContaining({ toString: expect.any(Function) }),
-      'faucet',
-      1000n,
-      'Public',
-      180,
-      230,
-      FEE_AWARE_BUILDER
+    expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
+    const row = txStore.find(stored => stored.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.proposalEffectRefused).toBe(true);
+    expect(row?.error).toBe(getMessage('proposalEffectRefused'));
+    expect(row?.rawError).toBe(
+      'ProposalEffectRefusedError: Refused to sign this bridged-send transaction: the transaction has no request bytes of its own'
     );
-    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
-      feeConversionSalt: 'SALT'
-    });
-    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send', 180);
-    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
-    expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('bridge-proposal', rebasedBytes);
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
   });
 
   it('Guardian Agglayer bridged-send waits out a pending-delta 409 in process, like the Epoch route (#312)', async () => {
@@ -3041,6 +3011,7 @@ describe('generateTransaction - Guardian routing', () => {
         amount: 1000n,
         faucetId: 'faucet',
         requestBytes,
+        approvedOutputNoteIds: ['note:recorded'],
         extraInputs: {
           provider: 'agglayer',
           destinationAddress: '0xevm',
@@ -3107,7 +3078,8 @@ describe('generateTransaction - Guardian routing', () => {
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
       noteType: 'public',
-      requestBytes: undefined,
+      requestBytes: new Uint8Array([4, 5, 6]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 30, claimStatus: 'not-applicable', epochStatus: 'pending' },
       delegateTransaction: false
     });
@@ -3167,6 +3139,7 @@ describe('generateTransaction - Guardian routing', () => {
       faucetId: 'faucet',
       noteType: 'public',
       extraInputs: { recallBlocks: 25 },
+      approvedOutputNoteIds: ['note:recorded'],
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
@@ -3216,13 +3189,8 @@ describe('generateTransaction - Guardian routing', () => {
     expect(completed?.displayMessage).toBe('Deposited to lending');
   });
 
-  it('Guardian Epoch bridged-send: falls back to the last-synced height when the fresh sync fails', async () => {
-    // A transient network sync failure must NOT fail an otherwise-submittable bridge:
-    // the note build falls back to the cached getSyncHeight() (the recall buffer absorbs
-    // mild lag), keeping the guardian path no more network-fragile than before. Only a
-    // bridged-send row without bytes still builds its collateral note here.
+  it('Guardian Epoch bridged-send with no request of its own never reads a sync height', async () => {
     const txId = 'bridge-guardian-syncfail';
-    const requestBytes = new Uint8Array([51, 52, 53]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'bridged-send',
@@ -3236,23 +3204,11 @@ describe('generateTransaction - Guardian routing', () => {
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
-
     const multisigService = {
-      createRebasedCustomProposal: jest.fn(async () => ({
-        proposal: { id: 'bridge-syncfail-proposal' },
-        requestBytes: new Uint8Array([151, 152, 153])
-      })),
-      createSendProposal: jest.fn(),
-      signAndCreateTransactionRequest: jest.fn(async () => ({
-        serialize: () => new Uint8Array([1]),
-        authArg: () => undefined
-      })),
-      sync: jest.fn(async () => {})
+      createRebasedCustomProposal: jest.fn()
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
-    // Fresh sync throws; getSyncHeight (the fallback) returns 200.
     const client = Object.assign(makeClientApi(makeResult()), {
       sync: jest.fn(async () => {
         throw new Error('sync timed out');
@@ -3272,22 +3228,18 @@ describe('generateTransaction - Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    // Built with the fallback height (200 + 25 = 225) and proceeded to a custom proposal.
-    expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({ toString: expect.any(Function) }),
-      expect.objectContaining({ toString: expect.any(Function) }),
-      'faucet',
-      1000n,
-      'Public',
-      180,
-      225,
-      FEE_AWARE_BUILDER
+    expect(client.sync).not.toHaveBeenCalled();
+    expect(client.getSyncHeight).not.toHaveBeenCalled();
+    expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
+    const row = txStore.find(stored => stored.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.proposalEffectRefused).toBe(true);
+    expect(row?.error).toBe(getMessage('proposalEffectRefused'));
+    expect(row?.rawError).toBe(
+      'ProposalEffectRefusedError: Refused to sign this bridged-send transaction: the transaction has no request bytes of its own'
     );
-    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
-      feeConversionSalt: 'SALT'
-    });
-    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send', 180);
   });
 
   it('Guardian earn-deposit reuses persisted request bytes after a retry', async () => {
@@ -3303,6 +3255,7 @@ describe('generateTransaction - Guardian routing', () => {
       faucetId: 'faucet',
       noteType: 'public',
       extraInputs: { recallBlocks: 25 },
+      approvedOutputNoteIds: ['note:recorded'],
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
@@ -3406,7 +3359,8 @@ describe('generateTransaction - Guardian routing', () => {
       extraInputs: { recallBlocks: 25 },
       delegateTransaction,
       initiatedAt: Math.floor(Date.now() / 1000),
-      requestBytes
+      requestBytes,
+      approvedOutputNoteIds: ['note:recorded']
     };
     txStore.push({ ...row });
     return Object.assign(new Transaction('guardian-acc', new Uint8Array()), row);
@@ -3855,6 +3809,7 @@ describe('generateTransaction - Guardian routing', () => {
       faucetId: 'faucet',
       noteType: 'public',
       extraInputs: { recallBlocks: 25 },
+      approvedOutputNoteIds: ['note:recorded'],
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
@@ -3918,7 +3873,8 @@ describe('generateTransaction - Guardian routing', () => {
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
       noteType: 'public',
-      requestBytes: undefined,
+      requestBytes: new Uint8Array([54, 55, 56]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'epoch',
         destinationAddress: '0xevm',
@@ -3985,6 +3941,8 @@ describe('generateTransaction - Guardian routing', () => {
     secondaryAccountId: 'allocator',
     faucetId: 'faucet',
     noteType: 'public',
+    requestBytes: new Uint8Array([63, 64, 65]),
+    approvedOutputNoteIds: ['note:recorded'],
     extraInputs: {
       provider: 'epoch',
       destinationAddress: '0xevm',
@@ -4168,6 +4126,7 @@ describe('generateTransaction - Guardian routing', () => {
       faucetId: 'faucet',
       noteType: 'public',
       extraInputs: { recallBlocks: 25 },
+      approvedOutputNoteIds: ['note:recorded'],
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
@@ -4229,7 +4188,8 @@ describe('generateTransaction - Guardian routing', () => {
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
       noteType: 'public',
-      requestBytes: undefined,
+      requestBytes,
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'epoch',
         destinationAddress: '0xevm',
@@ -4242,8 +4202,6 @@ describe('generateTransaction - Guardian routing', () => {
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    // Built through the shared helper against the sender's vault, not a transient
-    // raw client - see `ensureGuardianRecallableSendRequestBytes`.
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
@@ -4304,6 +4262,7 @@ describe('generateTransaction - Guardian routing', () => {
       amount: 1000n,
       faucetId: 'faucet',
       requestBytes,
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'agglayer',
         destinationAddress: '0xevm',
@@ -4380,6 +4339,7 @@ describe('generateTransaction - Guardian routing', () => {
         amount: 1000n,
         faucetId: 'faucet',
         requestBytes,
+        approvedOutputNoteIds: ['note:recorded'],
         extraInputs: {
           provider: 'agglayer',
           destinationAddress: '0xevm',
@@ -4463,7 +4423,8 @@ describe('generateTransaction - Guardian routing', () => {
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
       noteType: 'public',
-      requestBytes: undefined,
+      requestBytes,
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'epoch',
         destinationAddress: '0xevm',
@@ -4856,6 +4817,7 @@ describe('generateTransaction - Guardian routing', () => {
       faucetId: 'faucet',
       noteType: 'public',
       extraInputs: { recallBlocks: 25 },
+      approvedOutputNoteIds: ['note:recorded'],
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
@@ -7245,7 +7207,8 @@ describe('generateTransaction - Guardian routing', () => {
           faucetId: 'faucet',
           amount: 1000n,
           extraInputs: { recallBlocks: 25 },
-          requestBytes: new Uint8Array([8])
+          requestBytes: new Uint8Array([8]),
+          approvedOutputNoteIds: ['note:recorded']
         },
         'createRebasedCustomProposal'
       ]
@@ -7858,7 +7821,8 @@ describe('generateTransaction - Guardian routing', () => {
         faucetId: 'faucet',
         amount: 1000n,
         extraInputs: { recallBlocks: 25 },
-        requestBytes: new Uint8Array([8])
+        requestBytes: new Uint8Array([8]),
+        approvedOutputNoteIds: ['note:recorded']
       };
       // A kept candidate's record names the attempt that kept it, which the row's kept entry names too (#1081).
       const keptRecordOf = (rowId: string, nonce: number): GuardianCandidate => {
@@ -8286,6 +8250,7 @@ describe('generateTransaction - Guardian routing', () => {
           amount: 1000n,
           faucetId: 'faucet',
           requestBytes: new Uint8Array([81]),
+          approvedOutputNoteIds: ['note:recorded'],
           extraInputs: {
             provider: 'agglayer',
             destinationAddress: '0xevm',
@@ -13097,6 +13062,7 @@ describe('generateTransaction - Guardian routing', () => {
       faucetId: 'faucet',
       noteType: 'public',
       extraInputs: { recallBlocks: 25 },
+      approvedOutputNoteIds: ['note:recorded'],
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
@@ -17017,5 +16983,309 @@ describe('Guardian proposal effect check', () => {
       nativeAsset.isVerificationBaseFeeKnownAbsent.mockReset();
       nativeAsset.isVerificationBaseFeeKnownAbsent.mockImplementation(() => false);
     }
+  });
+
+  // An Agglayer bridged send's or Earn deposit's proposal is held to the faucet and amount its row reviewed, and to the
+  // note its request was built with, whichever realm then runs it.
+  describe.each([
+    ['inline', undefined],
+    ['offscreen', 'true']
+  ])('bridged send and Earn deposit (%s)', (_realm, flag) => {
+    beforeEach(() => {
+      if (flag === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      else process.env.MIDEN_USE_OFFSCREEN_CLIENT = flag;
+      mockDispatchGuardianPipeline.mockReset();
+      mockDispatchGuardianPipeline.mockImplementation(async () => makeResult());
+    });
+    afterEach(() => {
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+    });
+
+    const rebasedBytes = new Uint8Array([171, 172, 173]);
+    const bridgeService = (nonce: number) => {
+      const proposal = { id: `prop-bridge-${nonce}`, nonce, metadata: {}, txSummary: 'YnJpZGdl' };
+      const service = {
+        ...serviceWith(proposal),
+        createRebasedCustomProposal: jest.fn(async () => ({ proposal, requestBytes: rebasedBytes }))
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(service);
+      const client = makeClientApi(makeResult());
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+      return { service, client };
+    };
+    // Reviewed to move 1000 of `faucet` in the one note its build recorded: the note `summary` gives that amount.
+    const builtNote = { approvedOutputNoteIds: ['note:faucet-1000'] };
+    const bridge = (id: string) => ({
+      id,
+      type: 'bridged-send',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      faucetId: 'faucet',
+      requestBytes: new Uint8Array([71, 72, 73]),
+      extraInputs: {
+        provider: 'agglayer',
+        destinationAddress: '0xevm',
+        destinationNetwork: 0,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'pending'
+      },
+      ...builtNote
+    });
+    const deposit = (id: string) => ({
+      id,
+      type: 'earn-deposit',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      faucetId: 'faucet',
+      secondaryAccountId: 'allocator',
+      noteType: 'public',
+      requestBytes: new Uint8Array([81, 82, 83]),
+      extraInputs: {
+        evmRecipient: '0xevm',
+        marketUid: 'AAVE:8453:0xusdc',
+        sourceFaucetId: 'faucet',
+        recallBlocks: 25,
+        epochStatus: 'pending'
+      },
+      ...builtNote
+    });
+    // The row `createBridgeP2IDENote` queues: its collateral note built at initiate, reclaimable by that same id.
+    const epoch = (id: string) => ({
+      id,
+      type: 'bridged-send',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      faucetId: 'faucet',
+      secondaryAccountId: 'allocator',
+      noteType: 'public',
+      requestBytes: new Uint8Array([91, 92, 93]),
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        recallBlocks: 25,
+        reclaimNoteId: 'note:faucet-1000',
+        claimStatus: 'not-applicable',
+        epochStatus: 'pending'
+      },
+      ...builtNote
+    });
+
+    it('fails one whose summary moves one unit more, never signs or runs it, and abandons its candidate', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1001n)] }));
+      const { service, client } = bridgeService(12);
+
+      const row = await run(bridge('bridge-over'));
+
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(12);
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      // A note carrying another amount is another note, so it is not the one the row was built with either.
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this bridged-send transaction: 1001 of faucet leaves ' +
+          '(approved 1000); creates a note that was not approved (note:faucet-1001)'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+    });
+
+    it.each([
+      ['an Agglayer bridged send', bridge],
+      ['an Epoch bridged send', epoch],
+      ['an Earn deposit', deposit]
+    ])(
+      'fails %s whose summary creates another note than the one it was built with, never signs or runs it',
+      async (_kind, queued) => {
+        mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+        const { service, client } = bridgeService(15);
+
+        const row = await run({ ...queued('built-other'), approvedOutputNoteIds: ['note:built'] });
+
+        expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+        expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+        expect(service.abandonCandidate).toHaveBeenCalledWith(15);
+        expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+        expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+        expect(row.status).toBe(ITransactionStatus.Failed);
+        expect(row.rawError).toBe(
+          `ProposalEffectRefusedError: Refused to sign this ${String(row.type)} transaction: ` +
+            'creates a note that was not approved (note:faucet-1000)'
+        );
+        expect(row.proposalEffectRefused).toBe(true);
+      }
+    );
+
+    // A row queued before its build recorded a note: it fails before the proposal, and Retry is refused the same way.
+    it('fails a legacy bridged send that recorded no note of its own, unsigned and unrun, without offering Retry', async () => {
+      const { service, client } = bridgeService(17);
+      const { approvedOutputNoteIds: _recorded, ...legacy } = bridge('bridge-legacy');
+      txStore.push({ ...legacy, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+      await generateTransaction(
+        { ...legacy, delegateTransaction: false } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      const row = txStore.find(stored => stored.id === legacy.id) as Record<string, unknown>;
+
+      expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this bridged-send transaction: the transaction has no recorded note of its own'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+      expect(isRequeueableTransaction({ ...(row as unknown as ITransaction), bridgeProvider: 'agglayer' })).toBe(false);
+    });
+
+    // An Earn deposit queued before its build recorded one note fails before the proposal, and Retry is refused the
+    // same way.
+    it('fails a legacy Earn deposit that recorded no note of its own, unsigned and unrun, without offering Retry', async () => {
+      const { service } = bridgeService(19);
+      const { approvedOutputNoteIds: _recorded, ...legacy } = deposit('earn-legacy');
+      mockGetOrCreateMultisigService.mockClear();
+
+      const row = await run(legacy);
+
+      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+      expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this earn-deposit transaction: the transaction has no recorded note of its own'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+      expect(isRequeueableTransaction(row as unknown as ITransaction)).toBe(false);
+    });
+
+    // Checked before the chain fee is read, so an unknown fee cannot requeue a deposit that recorded no note.
+    it('refuses a legacy Earn deposit before it reads the chain fee, even while that fee is unknown', async () => {
+      const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+      nativeAsset.refreshVerificationBaseFee.mockResolvedValue(null);
+      try {
+        const { service } = bridgeService(20);
+        const { approvedOutputNoteIds: _recorded, ...legacy } = deposit('earn-legacy-fee');
+        nativeAsset.refreshVerificationBaseFee.mockClear();
+        mockGetOrCreateMultisigService.mockClear();
+
+        const row = await run(legacy);
+
+        expect(nativeAsset.refreshVerificationBaseFee).not.toHaveBeenCalled();
+        expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+        expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+        expect(service.abandonCandidate).not.toHaveBeenCalled();
+        expect(row.status).toBe(ITransactionStatus.Failed);
+        expect(row.status).not.toBe(ITransactionStatus.Queued);
+        expect(row.nextEligibleAt).toBeUndefined();
+        expect(row.rawError).toBe(
+          'ProposalEffectRefusedError: Refused to sign this earn-deposit transaction: the transaction has no recorded note of its own'
+        );
+        expect(row.proposalEffectRefused).toBe(true);
+        expect(isRequeueableTransaction(row as unknown as ITransaction)).toBe(false);
+      } finally {
+        nativeAsset.refreshVerificationBaseFee.mockReset();
+        nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
+      }
+    });
+
+    // Checked before the guardian service load, so an unreachable guardian cannot requeue a deposit with no note.
+    it('refuses a legacy Earn deposit before it loads the guardian, even when that load would fail', async () => {
+      const { service } = bridgeService(21);
+      mockGetOrCreateMultisigService.mockRejectedValue(new TypeError('Failed to fetch'));
+      const { approvedOutputNoteIds: _recorded, ...legacy } = deposit('earn-legacy-fetch');
+      mockGetOrCreateMultisigService.mockClear();
+
+      const row = await run(legacy);
+
+      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+      expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.nextEligibleAt).toBeUndefined();
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this earn-deposit transaction: the transaction has no recorded note of its own'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+      expect(isRequeueableTransaction(row as unknown as ITransaction)).toBe(false);
+    });
+
+    it('proposes an Epoch bridged send from the bytes it was built with, and signs and runs it', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+      const { service } = bridgeService(18);
+
+      const row = await run(epoch('epoch-exact'));
+
+      expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledWith(
+        new Uint8Array([91, 92, 93]),
+        'bridged_send',
+        180
+      );
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-bridge-18', rebasedBytes);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it('signs and runs an Earn deposit whose summary creates only the note it was built with', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+      const { service } = bridgeService(16);
+
+      const row = await run(deposit('deposit-exact'));
+
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-bridge-16', rebasedBytes);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it('signs and runs one whose summary moves its reviewed amount', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+      const { service, client } = bridgeService(13);
+
+      const row = await run(bridge('bridge-exact'));
+
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-bridge-13', rebasedBytes);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(client.transactions.executeRequest).toHaveBeenCalledTimes(flag === undefined ? 1 : 0);
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(flag === undefined ? 0 : 1);
+      expect(row.status).toBe(ITransactionStatus.Completed);
+    });
+
+    // Not requeued, unlike an Earn deposit: the row fails unsigned and the user retries it.
+    it('fails one while the chain fee is unknown, unsigned and unrun, and offers Retry', async () => {
+      const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+      nativeAsset.refreshVerificationBaseFee.mockResolvedValue(null);
+      try {
+        mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+        const { service, client } = bridgeService(14);
+
+        const row = await run(bridge('bridge-fee-unknown'));
+
+        expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+        expect(service.abandonCandidate).toHaveBeenCalledWith(14);
+        expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+        expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+        expect(row.status).toBe(ITransactionStatus.Failed);
+        expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+        expect(row.nextEligibleAt).toBeUndefined();
+        expect(row.proposalEffectRefused).toBeUndefined();
+        expect(isRequeueableTransaction({ ...(row as unknown as ITransaction), bridgeProvider: 'agglayer' })).toBe(
+          true
+        );
+      } finally {
+        nativeAsset.refreshVerificationBaseFee.mockReset();
+        nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
+      }
+    });
   });
 });

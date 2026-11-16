@@ -978,6 +978,13 @@ export interface ITransaction {
    * run, may send none.
    */
   approvedNftOutflow?: string[];
+  /**
+   * Bridged send and Earn deposit only: the one own output note their request bytes create, lowercased as the summary
+   * decode spells a created note's id. The bytes are built before signing, so the id is recorded where they are built
+   * and signing lets the transaction create only this note (`proposal-effect-guard.ts`); its id commits to the note's
+   * recipient, assets and serial. A row without it is not signed.
+   */
+  approvedOutputNoteIds?: string[];
   /** Set when signing refused the proposal for moving more than was approved (#2147). A retry would refuse again. */
   proposalEffectRefused?: true;
   /**
@@ -1713,6 +1720,8 @@ export class BridgedSendTransaction implements ITransaction {
   secondaryAccountId?: string;
   noteType?: NoteType;
   requestBytes?: Uint8Array;
+  /** The one note `requestBytes` create. See `ITransaction.approvedOutputNoteIds`. */
+  approvedOutputNoteIds?: string[];
   transactionId?: string;
   outputNoteIds?: string[];
   status: ITransactionStatus;
@@ -1792,6 +1801,8 @@ export class EarnDepositTransaction implements ITransaction {
    * verbatim across the standard pipeline, guardian propose/sign, and retries.
    */
   requestBytes?: Uint8Array;
+  /** The one note `requestBytes` create. See `ITransaction.approvedOutputNoteIds`. */
+  approvedOutputNoteIds?: string[];
   status: ITransactionStatus;
   initiatedAt: number;
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */

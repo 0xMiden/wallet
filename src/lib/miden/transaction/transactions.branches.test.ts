@@ -1747,6 +1747,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([51, 52, 53]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1774,6 +1776,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([54, 55, 56]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'epoch',
         claimStatus: 'not-applicable',
@@ -1826,6 +1830,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([57, 58, 59]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1873,6 +1879,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([61, 62, 63]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1916,6 +1924,7 @@ describe('generateTransactionsLoop error paths', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
       requestBytes: new Uint8Array([9]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', claimStatus: 'pending' }
     });
 
@@ -2363,6 +2372,7 @@ describe('generateTransactionsLoop error paths', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
       requestBytes: new Uint8Array([1]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 25 }
     });
     await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -2476,7 +2486,8 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'guardian-acc',
       secondaryAccountId: 'allocator',
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' },
-      requestBytes: earnBytes
+      requestBytes: earnBytes,
+      approvedOutputNoteIds: ['note:recorded']
     });
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -2511,6 +2522,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([64, 65, 66]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { ...extraInputs }
     });
 

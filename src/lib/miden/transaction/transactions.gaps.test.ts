@@ -965,6 +965,7 @@ describe('a throw after the leaf resolved', () => {
     queuedRow('tx-tail-earn', {
       type: 'earn-deposit',
       requestBytes: new Uint8Array([9, 9]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
     });
 
@@ -1061,6 +1062,7 @@ describe('a throw after the leaf resolved', () => {
     queuedRow(id, {
       type: 'bridged-send',
       requestBytes: new Uint8Array([9]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'epoch',
         destinationAddress: '0xevm',
@@ -2789,7 +2791,7 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
     expect(row.requestBytes).toBeUndefined();
   });
 
-  it('Epoch bridged-send: does not fall back to the cached height when the hold is evicted during the fresh sync', async () => {
+  it('Epoch bridged-send with no request of its own is refused before a sync height read', async () => {
     txStore.push({
       id: 'bridged-evict-1',
       type: 'bridged-send',
@@ -2802,22 +2804,13 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
       extraInputs: { provider: 'epoch', recallBlocks: 500 }
     });
     const row = txStore[0];
-    const service = seedGuardianService();
+    const guardianManager = require('lib/miden/front/guardian-manager');
+    guardianManager.isGuardianAccount.mockResolvedValueOnce(true);
     const plainHeightRead = jest.fn(() => 100);
     const getAccount = jest.fn();
-    // The initial bounded sync succeeds; the request's fresh-height sync parks
-    // and loses its hold before rejecting. Its cached-height fallback must stop.
-    const syncState = jest
-      .fn(async () => ({ blockNum: () => 100 }))
-      .mockImplementationOnce(async () => ({ blockNum: () => 100 }))
-      .mockImplementationOnce(async () => {
-        gapsHold = null;
-        throw new Error('node parked');
-      });
     await withPatchedClient(
       {
         getAccount,
-        syncState,
         client: {
           getSyncHeight: plainHeightRead
         }
@@ -2826,11 +2819,15 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
         await generateTransaction(row, jest.fn(), false, provider as any);
       }
     );
-    expect(syncState).toHaveBeenCalledTimes(2);
     expect(plainHeightRead).not.toHaveBeenCalled();
     expect(getAccount).not.toHaveBeenCalled();
     expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();
-    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(guardianManager.getOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.proposalEffectRefused).toBe(true);
+    expect(row.rawError).toBe(
+      'ProposalEffectRefusedError: Refused to sign this bridged-send transaction: the transaction has no request bytes of its own'
+    );
   });
 
   it('swap: never reaches the realm reader when the hold is evicted during the account read', async () => {
