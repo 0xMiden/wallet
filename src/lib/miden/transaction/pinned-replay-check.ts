@@ -15,7 +15,7 @@ import { landedOrderFacts, type LandedTransaction, rethrowTrapOrKill } from '../
 import { normalizeHex } from '../sdk/submit-evidence';
 
 export type PinnedReplayCheck =
-  /** No saved request, or one that creates no own note, so a replay cannot re-create one. */
+  /** No saved request, or one that creates no own note (nor, for an execute, an approved one) to check. */
   | { kind: 'none' }
   | { kind: 'absent'; noteIds: string[] }
   | {
@@ -42,6 +42,26 @@ interface PinnedNotes {
 
 /** The saved request's own bytes did not deserialize, so no Retry can resend them. */
 class SavedRequestUnreadable extends Error {}
+
+const NOTE_ID_HEX = /^0x[0-9a-f]{64}$/i;
+
+/**
+ * The notes an execute's approval recorded, which the signing guard lets an attempt create only from (by id), added
+ * to its own notes. The store can hold anything here (`importDb`), and the node read takes every id or none, so an id
+ * that is not note-id shaped is left out.
+ */
+const withApprovedNoteIds = (
+  noteIds: string[],
+  approvedEffects: ITransaction['approvedEffects'] | undefined
+): string[] => {
+  const approved: unknown = approvedEffects?.approvedOutputNoteIds;
+  if (!Array.isArray(approved)) return noteIds;
+  const ids = new Set(noteIds);
+  for (const noteId of approved) {
+    if (typeof noteId === 'string' && NOTE_ID_HEX.test(noteId)) ids.add(normalizeHex(noteId));
+  }
+  return [...ids];
+};
 
 /** `swapOrderOf` on the saved request's notes, with the fee note not set aside. */
 const pinnedOrderOf = (notes: Note[]): ReturnType<typeof swapOrderOf> =>
@@ -101,12 +121,12 @@ export const orderFromSavedRequest = async (bytes: Uint8Array | undefined): Prom
 };
 
 /**
- * Ask the node whether a note `row`'s request bytes create is committed. The decode is static but runs in a labelled
- * hold that catches nothing, so a trap reaches the lock, which retires the client it trapped on. Every failure answers
- * `unknown`, never `absent`: the caller replays nothing on it.
+ * Ask the node whether a note `row`'s request bytes create is committed, and for an execute a note its approval
+ * recorded. The decode is static but runs in a labelled hold that catches nothing, so a trap reaches the lock, which
+ * retires the client it trapped on. Every failure answers `unknown`, never `absent`: the caller replays nothing on it.
  */
 export async function checkPinnedReplayNotes(
-  row: Pick<ITransaction, 'type' | 'requestBytes'>,
+  row: Pick<ITransaction, 'type' | 'requestBytes' | 'approvedEffects'>,
   deps: { createReads?: () => Promise<NodeReads> } = {}
 ): Promise<PinnedReplayCheck> {
   const bytes = row.requestBytes;
@@ -141,7 +161,8 @@ export async function checkPinnedReplayNotes(
     console.warn('[retry] could not read the notes the saved request creates', error);
     return { kind: 'unknown', cause: error instanceof SavedRequestUnreadable ? 'decode' : 'read' };
   }
-  if (pinned.noteIds.length === 0) return { kind: 'none' };
+  const noteIds = row.type === 'execute' ? withApprovedNoteIds(pinned.noteIds, row.approvedEffects) : pinned.noteIds;
+  if (noteIds.length === 0) return { kind: 'none' };
 
   const scope = getEffectiveRpcUrl();
   let node: NodeReads;
@@ -151,19 +172,19 @@ export async function checkPinnedReplayNotes(
     console.warn('[retry] could not reach the node to check the saved request', error);
     return { kind: 'unknown', cause: 'read' };
   }
-  const held = await node.noteInclusions(pinned.noteIds, RPC_READ_TIMEOUT_MS);
+  const held = await node.noteInclusions(noteIds, RPC_READ_TIMEOUT_MS);
   if (held === undefined) return { kind: 'unknown', cause: 'read' };
-  for (const noteId of pinned.noteIds) {
+  for (const noteId of noteIds) {
     const block = held.get(noteId);
     if (block === undefined) continue;
     return {
       kind: 'committed',
-      noteIds: pinned.noteIds,
+      noteIds,
       noteId,
       block,
       scope,
       ...(pinned.order ? { order: pinned.order } : {})
     };
   }
-  return { kind: 'absent', noteIds: pinned.noteIds };
+  return { kind: 'absent', noteIds };
 }
