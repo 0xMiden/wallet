@@ -1,9 +1,9 @@
 import { isHash } from 'viem';
 
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
+import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { walletBridgeProvider } from 'lib/bridge/core/provider';
 import { bridgeOperationOf, claimBridgeSourceAttempt, hasBridgeOperation } from 'lib/bridge/operation';
-import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';

@@ -1,5 +1,5 @@
 import Dexie from 'dexie';
-import { parseUnits, type Hash } from 'viem';
+import { encodeFunctionData, erc20Abi, parseUnits, type Hash } from 'viem';
 
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -16,7 +16,7 @@ import {
 } from './operation';
 import { accounts, now, testRoute } from './testing/fixtures';
 import { reviewedCircleTransfer, reviewedErc20Transfer } from './testing/operation-fixtures';
-import { createBridgeReceiveReconciler } from '../miden/activity/bridge-receive';
+import { createBridgeReceiveReconciler, type BridgeReceiveLockManager } from '../miden/activity/bridge-receive';
 import { BridgedReceiveTransaction, ITransactionStatus, type ITransaction } from '../miden/db/types';
 import * as Repo from '../miden/repo';
 import { initiateBridgedReceiveTransaction, initiateBridgedSendTransaction } from '../miden/transaction/initiate';
@@ -124,6 +124,41 @@ async function snapshot(id: string): Promise<BridgeOperationSnapshot> {
   return operation;
 }
 
+async function claimedApprovalFixture(amount?: string) {
+  const reviewed = reviewedErc20Transfer('agglayer');
+  const id = await seed(reviewed);
+  const admitted = await snapshot(id);
+  const claim = await claimBridgeSourceAttempt(admitted.operationId, admitted.revision);
+  const operation = await snapshot(id);
+  const row = await Repo.transactions.get(id);
+  const token = reviewed.route.source;
+  const spender: unknown = row?.extraInputs.agglayerRoute?.contractAddress;
+  if (token.kind !== 'erc20' || typeof spender !== 'string' || !/^0x[0-9a-f]{40}$/i.test(spender))
+    throw new Error('Missing accepted approval scope');
+  const approval: BridgeApproval = {
+    chainId: 11155111,
+    account: accounts.evmAddress,
+    token: `0x${token.address.slice(2)}`,
+    spender: `0x${spender.slice(2)}`,
+    amount: amount ?? parseUnits(reviewed.amount, token.decimals).toString(),
+    hash: `0x${'4'.repeat(64)}`
+  };
+  const transaction: SourceTransaction = {
+    chainId: approval.chainId,
+    hash: approval.hash,
+    from: `0x${accounts.evmAddress.slice(2)}`,
+    to: approval.token,
+    nonce: 3,
+    value: '0',
+    input: encodeFunctionData({
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [approval.spender, BigInt(approval.amount)]
+    })
+  };
+  return { id, claim, operation, approval, transaction };
+}
+
 beforeEach(async () => {
   jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
@@ -192,6 +227,65 @@ it('does not let an existing operation ID substitute a changed review or re-admi
   expect(await Repo.transactions.count()).toBe(1);
 });
 
+it.each(['admission', 'source claim', 'already-funded record'])(
+  'handles a zero native-unit receipt at %s without turning facts into new permission',
+  async boundary => {
+    const reviewed = reviewedErc20Transfer('epoch');
+    const destination = reviewed.route.destination;
+    if (!reviewed.quote || destination.kind !== 'miden') throw new Error('Missing positive Epoch receipt fixture');
+    reviewed.quote.received = `0.${'0'.repeat(destination.decimals)}1`;
+    assertReviewedBridge(reviewed, structuredClone(reviewed), now);
+    const args = {
+      accountId: accounts.midenAccount,
+      amount: 0n,
+      faucetId: destination.faucetId,
+      provider: 'epoch',
+      sourceAddress: accounts.evmAddress,
+      sourceAmount: reviewed.amount,
+      sourceSymbol: reviewed.route.source.symbol,
+      sourceChainId: 11155111,
+      epochAllocatorUrl: reviewed.route.recovery.config['bridge-providers'].epoch.allocatorUrl,
+      operation: { operationId: 'below-native-quantum', review: reviewed }
+    } satisfies Parameters<typeof initiateBridgedReceiveTransaction>[0];
+    if (boundary === 'admission') {
+      await expect(initiateBridgedReceiveTransaction(args)).rejects.toThrow();
+      expect(await Repo.transactions.count()).toBe(0);
+    } else {
+      const row = new BridgedReceiveTransaction(
+        args.accountId,
+        args.amount,
+        args.faucetId,
+        args.provider,
+        args.sourceAddress,
+        args.sourceAmount,
+        args.sourceSymbol
+      );
+      row.extraInputs.sourceChainId = args.sourceChainId;
+      row.extraInputs.epochAllocatorUrl = args.epochAllocatorUrl;
+      row.extraInputs.bridgeOperation = {
+        ...args.operation,
+        version: 1,
+        owner: 'wallet',
+        revision: 'admitted',
+        walletScope: { network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() }
+      };
+      if (boundary === 'already-funded record') row.extraInputs.bridgeOperation.sourceAttempt = { phase: 'running' };
+      await Repo.transactions.add(row);
+      if (boundary === 'source claim') {
+        expect(await claimBridgeSourceAttempt(args.operation.operationId, 'admitted')).toBe('uncertain');
+        expect((await snapshot(row.id)).sourceAttempt).toBeUndefined();
+      } else {
+        const hash: Hash = `0x${'1'.repeat(64)}`;
+        expect(
+          await recordBridgeSourceAttempt(args.operation.operationId, 'admitted', { hash, intentNonce: '42' })
+        ).toBe(true);
+        expect((await snapshot(row.id)).sourceAttempt).toMatchObject({ phase: 'known', hash, intentNonce: '42' });
+        expect(await claimBridgeSourceAttempt(args.operation.operationId, 'admitted')).toBe('already-running');
+      }
+    }
+  }
+);
+
 it('claims once across independent realm modules and DB connections without navigator.locks', async () => {
   const id = await seed();
   const admitted = await snapshot(id);
@@ -220,31 +314,47 @@ it('claims once across independent realm modules and DB connections without navi
 });
 
 it('drives one submission/solve for duplicate clicks and reload, keeping the same row', async () => {
-  const firstRealm = createBridgeReceiveReconciler({ getLocks: () => undefined });
-  const secondRealm = createBridgeReceiveReconciler({ getLocks: () => undefined });
-  let finish: () => void = () => {
-    throw new Error('Submission not started');
+  const runs: Promise<void>[] = [];
+  // Observe completion only: no navigator.locks or mutual exclusion is offered to any realm.
+  const observer: BridgeReceiveLockManager = {
+    request: async (_name, _options, callback) => {
+      const run = callback(null);
+      runs.push(run);
+      await run;
+    }
   };
+  const firstRealm = createBridgeReceiveReconciler({ getLocks: () => observer });
+  const secondRealm = createBridgeReceiveReconciler({ getLocks: () => observer });
+  let finish: () => void = () => undefined;
   const pending = new Promise<void>(resolve => {
     finish = resolve;
+  });
+  let started: () => void = () => undefined;
+  const entered = new Promise<void>(resolve => {
+    started = resolve;
   });
   const submissions: string[] = [];
   const drive = async (id: string) => {
     submissions.push(id);
+    started();
     await pending;
   };
   const ids = await Promise.all([
     firstRealm.startSubmission(() => admit(), drive),
     secondRealm.startSubmission(() => admit(), drive)
   ]);
-  await new Promise(resolve => setTimeout(resolve, 0));
-  expect(ids[0]).toBe(ids[1]);
+  try {
+    await entered;
+    expect(ids[0]).toBe(ids[1]);
+    expect(submissions).toEqual([ids[0]]);
+    const reloaded = createBridgeReceiveReconciler({ getLocks: () => observer });
+    await reloaded.startSubmission(() => admit(), drive);
+  } finally {
+    finish();
+    await Promise.all(runs);
+  }
   expect(submissions).toEqual([ids[0]]);
-  const reloaded = createBridgeReceiveReconciler({ getLocks: () => undefined });
-  await reloaded.startSubmission(() => admit(), drive);
-  await new Promise(resolve => setTimeout(resolve, 0));
-  expect(submissions).toEqual([ids[0]]);
-  finish();
+  expect(await Repo.transactions.count()).toBe(1);
 });
 
 it('records known hash/intent before further reads and rejects late callbacks with the old revision', async () => {
@@ -328,6 +438,113 @@ it('keeps actual approvals separate from the source transfer through export/impo
   expect(await claimBridgeSourceAttempt('operation-1', claimed.revision)).toBe('uncertain');
 });
 
+it.each(['0', '1000000', ((1n << 256n) - 1n).toString()])(
+  'records an actual allowance of %s without treating it as source consent or success',
+  async amount => {
+    const { id, claim, operation, approval, transaction } = await claimedApprovalFixture(amount);
+    expect(claim).toBe('claimed');
+    const actual = { ...approval, transaction };
+    expect(await recordBridgeApproval(operation.operationId, operation.revision, actual)).toBe(true);
+    expect((await snapshot(id)).approvals).toEqual([actual]);
+    expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBeUndefined();
+    expect((await snapshot(id)).sourceAttempt).toMatchObject({ phase: 'running' });
+    expect(await claimBridgeSourceAttempt(operation.operationId, operation.revision)).toBe('already-running');
+  }
+);
+
+it.each(['repriced', 'cancelled', 'replaced'])(
+  'retains verified %s approval recovery separately from its source',
+  async reason => {
+    const { id, claim, operation, approval, transaction: original } = await claimedApprovalFixture();
+    expect(claim).toBe('claimed');
+    const first = { ...approval, transaction: original };
+    expect(await recordBridgeApproval(operation.operationId, operation.revision, first)).toBe(true);
+    const current: SourceTransaction = { ...original, hash: `0x${'6'.repeat(64)}` };
+    if (reason === 'cancelled') {
+      current.to = original.from;
+      current.input = '0x';
+    }
+    if (reason === 'replaced') current.input = '0x1234';
+    if (reason !== 'repriced' && reason !== 'cancelled' && reason !== 'replaced')
+      throw new Error('Invalid fixture reason');
+    const actual: BridgeApproval = {
+      ...approval,
+      hash: current.hash,
+      transaction: current,
+      originalTransaction: original,
+      replacementReason: reason
+    };
+    expect(await recordBridgeApproval(operation.operationId, operation.revision, actual)).toBe(true);
+    expect((await snapshot(id)).approvals).toEqual([first, actual]);
+    expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBeUndefined();
+    expect((await snapshot(id)).sourceAttempt?.hash).toBeUndefined();
+  }
+);
+
+it.each([
+  ['missing original', () => ({ originalTransaction: undefined })],
+  ['wrong original hash', original => ({ originalTransaction: { ...original, hash: `0x${'5'.repeat(64)}` } })],
+  ['malformed original hash', original => ({ originalTransaction: { ...original, hash: '0xbad' } })],
+  ['wrong original chain', original => ({ originalTransaction: { ...original, chainId: 1 } })],
+  ['wrong original account', original => ({ originalTransaction: { ...original, from: `0x${'5'.repeat(40)}` } })],
+  ['wrong original nonce', original => ({ originalTransaction: { ...original, nonce: original.nonce + 1 } })],
+  ['wrong original token', original => ({ originalTransaction: { ...original, to: `0x${'5'.repeat(40)}` } })],
+  ['wrong original call', original => ({ originalTransaction: { ...original, input: '0x1234' } })],
+  ['wrong original value', original => ({ originalTransaction: { ...original, value: '1' } })],
+  ['wrong current hash', (_original, current) => ({ transaction: { ...current, hash: `0x${'7'.repeat(64)}` } })],
+  ['wrong current chain', (_original, current) => ({ transaction: { ...current, chainId: 1 } })],
+  ['wrong current account', (_original, current) => ({ transaction: { ...current, from: `0x${'5'.repeat(40)}` } })],
+  ['wrong current nonce', (_original, current) => ({ transaction: { ...current, nonce: current.nonce + 1 } })],
+  ['forged current call', (original, current) => ({ transaction: { ...original, hash: current.hash } })],
+  ['forged reason', () => ({ replacementReason: 'replaced' })],
+  ['forged amount', () => ({ amount: '0' })],
+  ['forged spender', () => ({ spender: `0x${'5'.repeat(40)}` })]
+] satisfies Array<[string, (original: SourceTransaction, current: SourceTransaction) => Partial<BridgeApproval>]>)(
+  'a reason flag cannot bypass approval identity: %s',
+  async (_name, change) => {
+    const { id, claim, operation, approval, transaction: original } = await claimedApprovalFixture();
+    expect(claim).toBe('claimed');
+    const first = { ...approval, transaction: original };
+    expect(await recordBridgeApproval(operation.operationId, operation.revision, first)).toBe(true);
+    const current: SourceTransaction = { ...original, hash: `0x${'6'.repeat(64)}`, to: original.from, input: '0x' };
+    const bad: BridgeApproval = {
+      ...approval,
+      hash: current.hash,
+      transaction: current,
+      originalTransaction: original,
+      replacementReason: 'cancelled',
+      ...change(original, current)
+    };
+    expect(await recordBridgeApproval(operation.operationId, operation.revision, bad).catch(() => false)).toBe(false);
+    expect((await snapshot(id)).approvals).toEqual([first]);
+    expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBeUndefined();
+  }
+);
+
+it('refuses a malformed spender even on an unverified hash-only reference', async () => {
+  const { id, claim, operation, approval } = await claimedApprovalFixture();
+  expect(claim).toBe('claimed');
+  expect(
+    await recordBridgeApproval(operation.operationId, operation.revision, {
+      ...approval,
+      spender: `0x${'g'.repeat(40)}`
+    }).catch(() => false)
+  ).toBe(false);
+  expect((await snapshot(id)).approvals).toBeUndefined();
+});
+
+it('keeps old hash-only approvals unverified and imported history inert', async () => {
+  const { id, claim, operation, approval } = await claimedApprovalFixture();
+  expect(claim).toBe('claimed');
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);
+  expect((await snapshot(id)).approvals).toEqual([approval]);
+  expect((await snapshot(id)).approvals?.[0]?.transaction).toBeUndefined();
+  expect((await snapshot(id)).approvals?.[0]?.originalTransaction).toBeUndefined();
+  await Repo.importDb(await Repo.exportDb());
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(false);
+  expect(await claimBridgeSourceAttempt(operation.operationId, operation.revision)).toBe('uncertain');
+});
+
 it.each<'restoredFromBackup' | 'recovered'>(['restoredFromBackup', 'recovered'])(
   'history provenance %s cannot authorize a new source write',
   async provenance => {
@@ -353,6 +570,35 @@ it('does not broadcast after row creation fails or source ownership cannot be pe
   jest.spyOn(Repo.db, 'transaction').mockImplementationOnce(() => Dexie.Promise.reject(new Error('storage offline')));
   await reconciler.startSubmission(async () => id, drive);
   await new Promise(resolve => setTimeout(resolve, 0));
+  expect(drive).not.toHaveBeenCalled();
+});
+
+it('never falls through to legacy source work when the just-created tracking row is missing', async () => {
+  let finished: () => void = () => undefined;
+  const completed = new Promise<void>(resolve => {
+    finished = resolve;
+  });
+  const observer: BridgeReceiveLockManager = {
+    request: async (_name, _options, callback) => {
+      try {
+        await callback(null);
+      } finally {
+        finished();
+      }
+    }
+  };
+  const reconciler = createBridgeReceiveReconciler({ getLocks: () => observer });
+  const drive = jest.fn(async () => undefined);
+  let finishRead: (row: ITransaction | undefined) => void = () => undefined;
+  const read = new Dexie.Promise<ITransaction | undefined>(resolve => {
+    finishRead = resolve;
+  });
+  const lookup = jest.spyOn(Repo.transactions, 'get').mockReturnValueOnce(read);
+  expect(await reconciler.startSubmission(async () => 'deleted-owned-row', drive)).toBe('deleted-owned-row');
+  expect(lookup).toHaveBeenCalledWith('deleted-owned-row');
+  expect(drive).not.toHaveBeenCalled();
+  finishRead(undefined);
+  await completed;
   expect(drive).not.toHaveBeenCalled();
 });
 

@@ -313,6 +313,31 @@ describe('owned native bridge scope on the existing single-key pipeline', () => 
     expect(signCallback).not.toHaveBeenCalled();
   });
 
+  it('the single-key post-proof gate stamps its original crossing before refusing a changed RPC', async () => {
+    const tx = ownedNativeBridgeRow();
+    txStore.push({ ...tx });
+    const proved = jest.fn();
+    const sourceSubmit = jest.fn();
+    mockProxyNewTransaction.mockImplementation(async (...args: unknown[]) => {
+      proved();
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('changed-after-single-key-prove');
+      const gate = args[5];
+      if (typeof gate === 'function') {
+        const allowed: unknown = await Reflect.apply(gate, undefined, []);
+        if (allowed !== true) throw new Error('Native source gate refused');
+      } else {
+        const stamp = args[4];
+        if (typeof stamp === 'function') await Reflect.apply(stamp, undefined, ['submitting']);
+      }
+      sourceSubmit();
+      return makeResult();
+    });
+    await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+    expect(proved).toHaveBeenCalledTimes(1);
+    expect(sourceSubmit).not.toHaveBeenCalled();
+    expect(txStore[0]?.mayHaveSubmitted).toBe(true);
+  });
+
   it.each([null, {}, { version: 2, owner: 'wallet' }])(
     'tagged malformed metadata is not legacy source permission case %#',
     async metadata => {

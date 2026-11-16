@@ -51,6 +51,7 @@ it('retains a repriced approval as an approval, not a bridge source transfer', (
     ...approval,
     hash: next.hash,
     transaction: next,
+    originalTransaction: transaction,
     replacementReason: 'repriced'
   });
 });
@@ -63,7 +64,13 @@ it.each([
   (change, reason) => {
     const next: SourceTransaction = { ...transaction, hash: `0x${'6'.repeat(64)}`, ...change };
     const replaced = replaceApproval({ ...approval, transaction }, next);
-    expect(replaced).toEqual({ ...approval, hash: next.hash, transaction: next, replacementReason: reason });
+    expect(replaced).toEqual({
+      ...approval,
+      hash: next.hash,
+      transaction: next,
+      originalTransaction: transaction,
+      replacementReason: reason
+    });
     expect(() => assertApprovalTransaction(replaced, next)).toThrow();
   }
 );
@@ -71,4 +78,52 @@ it.each([
 it('cannot attach an unrelated nonce as a repriced approval', () => {
   expect(() => replaceApproval({ ...approval, transaction }, { ...transaction, nonce: 4 })).toThrow();
   expect(() => replaceApproval(approval, transaction)).toThrow();
+});
+
+it('preserves the first verified own approval through repeated repricing and later replacement facts', () => {
+  const repriced = replaceApproval({ ...approval, transaction }, { ...transaction, hash: `0x${'6'.repeat(64)}` });
+  const again = replaceApproval(repriced, { ...transaction, hash: `0x${'7'.repeat(64)}` });
+  expect(again.originalTransaction).toEqual(transaction);
+  const cancelled = replaceApproval(again, {
+    ...transaction,
+    hash: `0x${'8'.repeat(64)}`,
+    to: transaction.from,
+    input: '0x'
+  });
+  expect(cancelled.originalTransaction).toEqual(transaction);
+  expect(cancelled.replacementReason).toBe('cancelled');
+  const replaced = replaceApproval(cancelled, { ...transaction, hash: `0x${'9'.repeat(64)}`, input: '0x1234' });
+  expect(replaced.originalTransaction).toEqual(transaction);
+  expect(replaced.replacementReason).toBe('replaced');
+  expect(() => assertApprovalTransaction(replaced, replaced.transaction ?? transaction)).toThrow();
+});
+
+it.each([
+  { chainId: 1 },
+  { from: `0x${'5'.repeat(40)}` },
+  { to: `0x${'5'.repeat(40)}` },
+  { hash: `0x${'5'.repeat(64)}` },
+  { nonce: 4 },
+  { value: '1' },
+  { input: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [approval.spender, 101n] }) },
+  { input: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [`0x${'5'.repeat(40)}`, 100n] }) }
+] satisfies Partial<SourceTransaction>[])('never replaces a forged original own-approval identity case %#', change => {
+  expect(() =>
+    replaceApproval(
+      { ...approval, transaction, originalTransaction: { ...transaction, ...change } },
+      { ...transaction, hash: `0x${'6'.repeat(64)}` }
+    )
+  ).toThrow();
+});
+
+it('refuses a forged stored replacement reason even when the original and current hashes are individually well formed', () => {
+  const current: SourceTransaction = { ...transaction, hash: `0x${'6'.repeat(64)}` };
+  const forged: BridgeApproval = {
+    ...approval,
+    hash: current.hash,
+    transaction: current,
+    originalTransaction: transaction,
+    replacementReason: 'cancelled'
+  };
+  expect(() => replaceApproval(forged, { ...current, hash: `0x${'7'.repeat(64)}` })).toThrow();
 });

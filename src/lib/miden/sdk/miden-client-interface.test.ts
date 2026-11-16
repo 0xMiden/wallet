@@ -3871,17 +3871,20 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recip',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(100),
-        extraInputs: {}
-      } as any);
+      await expect(
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+      ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
+      expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
     });
 
     it.each([

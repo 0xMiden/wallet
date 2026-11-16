@@ -19,6 +19,7 @@ import { getUsdcxRemoteDomain } from 'lib/usdcx/constant';
 import { installBridgeInTestHooks } from './bridge-in-test-hooks';
 import { reconcileBridgedReceives } from './bridge-receive';
 import type { IBridgedReceiveExtraInputs } from '../db/types';
+import * as completion from '../transaction/complete';
 
 const ARC_TESTNET_CHAIN_ID = 5_042_002;
 
@@ -119,6 +120,21 @@ beforeEach(async () => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+it('does not report completion when tracking creation or the actual delivering write fails', async () => {
+  await startUp();
+  installBridgeInTestHooks();
+  const add = jest.spyOn(Repo.transactions, 'add').mockRejectedValueOnce(new Error('tracking storage unavailable'));
+  await expect(createArcReceive()).rejects.toThrow('tracking storage unavailable');
+  add.mockRestore();
+  jest
+    .spyOn(completion, 'updateBridgedReceivePhase')
+    .mockRejectedValueOnce(new Error('delivering storage unavailable'));
+  await expect(createArcReceive()).rejects.toThrow('delivering storage unavailable');
+  const row = (await Repo.transactions.toArray())[0];
+  expect(row?.extraInputs?.phase).toBe('submitting');
+  expect(row?.extraInputs?.evmTxHash).toBeUndefined();
 });
 
 it('creates a USDCx tracking row with the document domain right after a wallet-creation wipe, with no fetch', async () => {

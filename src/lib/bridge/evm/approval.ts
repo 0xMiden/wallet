@@ -10,6 +10,8 @@ export interface BridgeApproval {
   amount: string;
   hash: Hash;
   transaction?: SourceTransaction;
+  /** The first verified own approve call, retained when the current transaction cancels or replaces it. */
+  originalTransaction?: SourceTransaction;
   replacementReason?: 'repriced' | 'cancelled' | 'replaced';
 }
 
