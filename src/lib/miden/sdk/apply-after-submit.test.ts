@@ -1,6 +1,12 @@
 import { NoteType, type OutputNote } from '@miden-sdk/miden-sdk/lazy';
 
-import { APPLY_RETRY_DELAYS_MS, applyAfterSubmit, type ApplyAfterSubmitRetry } from './apply-after-submit';
+import {
+  APPLY_RETRY_DELAYS_MS,
+  applyAfterSubmit,
+  type ApplyAfterSubmitRetry,
+  isLandedTailError,
+  LandedTailError
+} from './apply-after-submit';
 import { extractLanded, extractSdkErrorCode, isApplyAfterSubmitError } from './sdk-error-code';
 
 // A chain whose fee is not known yet, so no output note is set aside as the fee note.
@@ -374,5 +380,29 @@ describe('applyAfterSubmit (#1233)', () => {
 
     expect(extractLanded(error)).toEqual({});
     expect(executedTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('LandedTailError (PR #2183)', () => {
+  it('carries what left the tail as its cause, and the id read after it', () => {
+    const cause = new Error('fee read');
+    const error = new LandedTailError(cause, { transactionId: 'landed-id' });
+
+    expect(error.cause).toBe(cause);
+    expect(error.transactionId).toBe('landed-id');
+    expect(isLandedTailError(error)).toBe(true);
+  });
+
+  // Text never classifies it: the wrap is made only after the leaf resolved.
+  it('is not an apply-after-submit error, and an error that is not one is not landed', () => {
+    expect(isApplyAfterSubmitError(new LandedTailError(new Error('fee read')))).toBe(false);
+    expect(isLandedTailError(new Error('fee read'))).toBe(false);
+    expect(isLandedTailError(undefined)).toBe(false);
+  });
+
+  it('is found one cause deeper, so a caller wrapping it does not turn a landed row into a failed one', () => {
+    const wrapped = new Error('pipeline failed', { cause: new LandedTailError(new Error('fee read')) });
+
+    expect(isLandedTailError(wrapped)).toBe(true);
   });
 });

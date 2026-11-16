@@ -28,14 +28,15 @@ import { armRecallBlocks } from '../../helpers/recall';
  * terminal: the `setStage('submitting')` that would have recorded the broadcast,
  * and the completion write that would have captured the transaction id. The row
  * is left frozen at whichever PRE-submit stage it held when the cancel landed,
- * with no id — and Retry reads exactly those two facts as proof that nothing was
+ * with no id - and Retry reads exactly those two facts as proof that nothing was
  * broadcast. It drops the cached `requestBytes`, the rebuilt request draws a
  * fresh note serial, and the chain has no reason to reject it. The recipient is
  * paid a second time.
  *
- * The cached bytes are the whole defence: they pin the note serial, and the note
- * id derived from that serial is the ONLY reason a duplicate submit is rejected.
- * `markMayHaveSubmitted` is what preserves them — a sticky flag the leaf stamps
+ * Retry asks before it replays a send that may have submitted, and the cached
+ * bytes pin the note serial, whose note id is what lets the node reject a
+ * duplicate submit while the first copy is in flight.
+ * `markMayHaveSubmitted` is what preserves them - a sticky flag the leaf stamps
  * before broadcasting, deliberately exempt from the terminal-row guard that
  * suppresses the stage write.
  *
@@ -43,9 +44,17 @@ import { armRecallBlocks } from '../../helpers/recall';
  *
  * Unit and integration coverage can prove the bytes survive
  * (`double-send.integration.test.ts` runs the real writers against the real
- * Dexie schema). Only a chain can prove what the bytes BUY, because "the
- * duplicate was rejected" is a property of the node, not of the wallet. The
- * assertion here is the recipient's balance.
+ * Dexie schema). Only a chain can prove what the bytes BUY: they pin the note
+ * serial, so the replay, a new transaction carrying the same note, re-creates
+ * the same note id and the recipient holds one payment. The assertions here are
+ * that the first Retry asks, that the replay re-creates the note id, and the
+ * recipient's balance.
+ *
+ * The sender's balance is deliberately not asserted. The node rejects the
+ * duplicate note id only while the first copy is in flight, and this Retry
+ * comes long after that, so the replay is accepted and debits A again. That
+ * second debit is the cost the user accepts with Retry anyway, and asserting it
+ * either way would test the block timing rather than the wallet.
  *
  * ── Why it is deterministic ─────────────────────────────────────────────────
  *
@@ -60,7 +69,7 @@ import { armRecallBlocks } from '../../helpers/recall';
  * The shape is nonetheless a deliberate composite rather than a transcript of
  * one production row: it carries the reaper's reason at the INLINE pipeline's
  * stage. A real reaper cancel caught at 'proving' would not persist that string
- * — `cancelTransaction` passes an error through verbatim only for the user
+ * - `cancelTransaction` passes an error through verbatim only for the user
  * cancel and the startup interruption, and routes everything else through
  * `resolveTransactionErrorMessage`, which rewrites at 'proving'. So the stuck
  * reason arrives there as the prover-failed copy, demoted to `rawError`. (It
@@ -75,7 +84,7 @@ import { armRecallBlocks } from '../../helpers/recall';
  *     deliberately not. At 'sending' the `!failedPreSubmit` disjunct makes
  *     `submitPossible` true on its own, the cached bytes survive with or
  *     without the crossing stamp, and the first falsifiability claim below
- *     would quietly stop holding — removing the stamp would no longer produce a
+ *     would quietly stop holding - removing the stamp would no longer produce a
  *     double payment.
  *
  * `verifySendLanded` returns `'unknown'` precisely when the row carries no
@@ -104,9 +113,9 @@ import { armRecallBlocks } from '../../helpers/recall';
  * defend. That is what is planted below.
  *
  * Falsifiability, in both directions:
- *   - Remove the leaf's crossing stamp and the flag is absent, Retry drops the
- *     bytes, a fresh serial is drawn and B is credited TWICE — the balance
- *     assertion goes red.
+ *   - Remove the leaf's crossing stamp and the flag is absent, Retry anyway
+ *     drops the bytes, a fresh serial is drawn and B is credited TWICE - the
+ *     note id and balance assertions go red.
  *   - If Retry silently did nothing at all, B would trivially stay at one
  *     payment and this spec would be a false green, so it also asserts the row
  *     actually left Failed.
@@ -119,7 +128,7 @@ const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
 const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
 
 // Long enough that the note stays un-reclaimable for the whole run on either
-// block cadence — this spec is about duplicate payment, and a window that
+// block cadence - this spec is about duplicate payment, and a window that
 // expired mid-run would let a recall confuse the balance it asserts on.
 const RECALL_BLOCKS = 100_000;
 
@@ -132,10 +141,12 @@ const DOUBLE_PAY_WATCH_MS = 120_000;
 const TX_DB = 'TridentMain';
 const TX_STORE = 'transactions';
 
-/** The two fields that decide the guard, neither of which `TransactionRowSnapshot` carries. */
+/** The fields that decide the guard and what the replay re-creates, none of which `TransactionRowSnapshot` carries. */
 interface GuardFields {
   mayHaveSubmitted?: boolean;
   hasRequestBytes: boolean;
+  /** Every output note id the row records, at its root and on its evidence entries, in lower case. */
+  noteIds: string[];
 }
 
 async function readGuardFields(page: import('@playwright/test').Page, rowId: string): Promise<GuardFields> {
@@ -154,9 +165,15 @@ async function readGuardFields(page: import('@playwright/test').Page, rowId: str
           r.onerror = () => rej(r.error);
         });
         const bytes = row?.requestBytes as ArrayLike<number> | undefined;
+        const evidence = row?.submitEvidence;
+        const entries = (Array.isArray(evidence) ? evidence : []) as Record<string, unknown>[];
+        const recorded = [row?.outputNoteIds, ...entries.map(entry => entry.outputNoteIds)].flatMap(ids =>
+          Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
+        );
         return {
           mayHaveSubmitted: row?.mayHaveSubmitted as boolean | undefined,
-          hasRequestBytes: bytes !== undefined && bytes !== null && bytes.length > 0
+          hasRequestBytes: bytes !== undefined && bytes !== null && bytes.length > 0,
+          noteIds: [...new Set(recorded.map(id => id.toLowerCase()))]
         };
       } finally {
         db.close();
@@ -174,7 +191,7 @@ type DexieConstructor = new (databaseName: string) => {
 };
 
 /**
- * Rewrite a landed send into the row a mid-flight cancel leaves behind — the
+ * Rewrite a landed send into the row a mid-flight cancel leaves behind - the
  * stuck-row reaper's, whose error string leaves Retry reachable (see the
  * header, which also covers why this pairing is a composite).
  *
@@ -183,23 +200,30 @@ type DexieConstructor = new (databaseName: string) => {
  * completion evidence (`transactionId`, `outputNoteIds`, `completedAt`) that was
  * never captured because the completion write threw. `requestBytes` and
  * `mayHaveSubmitted` are deliberately left EXACTLY as the real pipeline wrote
- * them — they are the subject of the test, and planting them would be assuming
+ * them - they are the subject of the test, and planting them would be assuming
  * the answer.
  *
- * Two things a real reaper cancel also does are left out.
+ * The attempt's evidence entries are cut back to the crossing pin. The run that
+ * landed recorded the leaf's full evidence at its 'submitting' stamp, and with
+ * that entry the row is in the reconciler's set: the tap-time proof and the
+ * background pass find its output note on chain and complete the row before any
+ * refusal, so Retry anyway never appears. A send that reaches this Retry is one
+ * whose evidence never arrived - an offscreen stamp lost with its realm leaves
+ * only the pre-dispatch pin (`pinGuardianCrossing`), which nothing can prove -
+ * so that is what is planted.
+ *
+ * Three things a real reaper cancel also does are left out.
  * `cancelTransaction` sets `displayIcon`, which nothing this spec asserts on
  * reads (the screen still renders it, so the planted row shows a completed
  * send's icon on a Failed row in the step screenshots).
  *
  * `cancelWhilePipelineMayStillRun` stamps `cancelledInFlightAt` for a send, and
- * leaving it off is required rather than merely harmless. It is never consulted
- * on this run only because `mayHaveSubmitted` short-circuits the `submitPossible`
- * disjunction ahead of it; strip the crossing stamp, as the first falsifiability
- * claim below does, and a live marker would be reached, keep the cached bytes on
- * its own and produce no double payment — the mutation would stop killing the
- * test. Omitting it plants the same verdict an expired stamp gives
- * (`pipelineMayStillBeRunning` is false for both), i.e. a user retrying after
- * the window has passed.
+ * its out-of-band end records the crossed attempt's Guardian candidate as kept.
+ * Leaving both off is required rather than merely harmless: while the marker is
+ * live Retry meets the liveness refusal, and while the kept candidate is under
+ * 18 minutes old it meets the Guardian hold, and neither offers Retry anyway.
+ * Omitting them plants the verdict an expired stamp and a cleared hold give,
+ * i.e. a user retrying after both windows have passed.
  */
 async function plantCancelledMidFlightShape(page: import('@playwright/test').Page, rowId: string): Promise<void> {
   const planted = await page.evaluate(
@@ -222,10 +246,19 @@ async function plantCancelledMidFlightShape(page: import('@playwright/test').Pag
         // Frozen mid-prove: `setTransactionStage` refused to advance it once the
         // cancel made the row terminal.
         row.stage = 'proving';
-        // Never captured — `updateTransactionStatus` threw on the terminal row.
+        // Never captured - `updateTransactionStatus` threw on the terminal row.
         delete row.transactionId;
         delete row.outputNoteIds;
         delete row.completedAt;
+        // Only the pre-dispatch pin of each crossing: its evidence-bearing stamp was lost (see the docblock).
+        const entries = (Array.isArray(row.submitEvidence) ? row.submitEvidence : []) as Record<string, unknown>[];
+        row.submitEvidence = entries.map(entry => {
+          const pin: Record<string, unknown> = { source: 'pin' };
+          for (const key of ['attemptId', 'capturedAt', 'guardianProposalNonce', 'raisedFlag', 'fromExecute']) {
+            if (entry[key] !== undefined) pin[key] = entry[key];
+          }
+          return pin;
+        });
 
         await table.put(row);
         return true;
@@ -241,7 +274,7 @@ async function plantCancelledMidFlightShape(page: import('@playwright/test').Pag
   }
 }
 
-test.describe('infra resilience — a cancelled send is not paid twice on retry', () => {
+test.describe('infra resilience - a cancelled send is not paid twice on retry', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('retrying a send that was cancelled after it broadcast credits the recipient exactly once', async ({
@@ -259,6 +292,7 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
     let addressA = '';
     let addressB = '';
     let sendRowId = '';
+    let landed: GuardFields | undefined;
 
     await steps.step('create_wallets', async () => {
       const a = await walletA.createGuardianWallet(GUARDIAN_URL);
@@ -287,7 +321,7 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
     await steps.step(
       'recallable_send_that_really_lands',
       async () => {
-        // Recallable, because a plain send never caches `requestBytes` — the
+        // Recallable, because a plain send never caches `requestBytes` - the
         // guardian recallable path is the only send that has anything to protect
         // (`ensureGuardianRecallableSendRequestBytes`). `claimAllNotes` reloads
         // the page, so this must be armed after it.
@@ -335,12 +369,14 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
       const guard = await readGuardFields(walletA.page, sendRowId);
       expect(
         guard.mayHaveSubmitted,
-        'the guardian leaf must stamp mayHaveSubmitted before it submits — without it, Retry has nothing to ' +
+        'the guardian leaf must stamp mayHaveSubmitted before it submits - without it, Retry has nothing to ' +
           'distinguish a broadcast send from one that died while proving'
       ).toBe(true);
       expect(guard.hasRequestBytes, 'a recallable send must cache the requestBytes that pin its note serial').toBe(
         true
       );
+      expect(guard.noteIds, 'the landed send must record the one note it created').toHaveLength(1);
+      landed = guard;
     });
 
     await steps.step('plant_the_row_a_mid_flight_cancel_leaves', async () => {
@@ -350,8 +386,8 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
         severity: 'info',
         message:
           `Send row ${sendRowId} rewritten to a reaper cancel-mid-flight shape: Failed with the stuck-row ` +
-          `reaper's reason at the inline pipeline's stage 'proving', no transactionId, cached requestBytes and ` +
-          `mayHaveSubmitted left as the pipeline wrote them`,
+          `reaper's reason at the inline pipeline's stage 'proving', no transactionId, evidence cut back to the ` +
+          `crossing pin, cached requestBytes and mayHaveSubmitted left as the pipeline wrote them`,
         data: { rowId: sendRowId, sentBaseUnits: SEND_BASE_UNITS.toString() }
       });
     });
@@ -364,30 +400,47 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
         await retryButton.waitFor({ state: 'visible', timeout: 60_000 });
         await retryButton.click({ timeout: 30_000 });
 
+        // The row left the queue and recorded its crossing, so the first tap asks and replays nothing: the
+        // acknowledgeable refusal, with Retry anyway beside it, on a row that is still Failed.
+        await expect(
+          walletA.page.getByTestId('history-retry-error'),
+          'the first Retry must ask before replaying a send that may already have gone through'
+        ).toContainText('may already have reached the network', { timeout: 30_000 });
+        const retryAnywayButton = walletA.page.getByTestId('history-retry-anyway-button');
+        await retryAnywayButton.waitFor({ state: 'visible', timeout: 30_000 });
+        await waitForTransactionRow(walletA.page, sendRowId, row => row?.status === TxStatus.Failed, {
+          what: 'the row to stay Failed after the first Retry tap, which must requeue nothing',
+          timeoutMs: 5_000
+        });
+        await retryAnywayButton.click({ timeout: 30_000 });
+
         // Falsifiability: a Retry that threw or no-opped would leave B at one
         // payment for reasons that have nothing to do with the guard. The row
         // must actually be picked back up. (`requeueFailedTransaction` used to
-        // throw here for a DIFFERENT reason — its landed-verdict branch called
-        // `updateTransactionStatus` on the Failed row it is defined over — which
+        // throw here for a DIFFERENT reason - its landed-verdict branch called
+        // `updateTransactionStatus` on the Failed row it is defined over - which
         // is why the error surface is asserted too.)
         await expect(
           walletA.page.getByTestId('history-retry-error'),
           'Retry reported an error instead of requeueing the row'
         ).toHaveCount(0, { timeout: 15_000 });
 
-        // Either Queued or GeneratingTransaction — which one is caught depends on
+        // Either Queued or GeneratingTransaction - which one is caught depends on
         // how fast the loop picks it up, and the point is only that it left the
         // terminal state the plant put it in.
         await waitForTransactionRow(walletA.page, sendRowId, row => row !== null && row.status !== TxStatus.Failed, {
-          what: 'the retried row to leave Failed — if it never does, this spec proves nothing about the guard',
+          what: 'the retried row to leave Failed - if it never does, this spec proves nothing about the guard',
           timeoutMs: 60_000
         });
 
-        // THE ASSERTION. The resubmit reuses the cached request, so the note id
-        // is the one already on chain and the node rejects the duplicate. B is
-        // never credited a second time. Sampled across the window rather than
-        // read once at the end, so a second note that lands and is then
-        // reclaimed still trips it.
+        // THE ASSERTION. The resubmit is a new transaction carrying the cached
+        // note, so it re-creates the note id already on chain and B holds one
+        // payment; a rebuild would draw a fresh serial and pay B twice. Sampled
+        // across the window rather than read once at the end, so a second note
+        // that lands and is then reclaimed still trips it. A is not asserted: the
+        // node rejects the duplicate note id only while the first copy is in
+        // flight, which is long past, so A's second debit is the cost the user
+        // accepted with Retry anyway (see the header).
         const peak = await maxPendingNoteTotal(walletB.page, TOKEN, { forMs: DOUBLE_PAY_WATCH_MS });
         expect(
           peak,
@@ -395,18 +448,25 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
             `request with a fresh note serial and paid the recipient again.`
         ).toBe(SEND_BASE_UNITS);
 
-        // The sender's side of the same fact: one debit, not two.
-        await waitForVaultBalance(walletA.page, TOKEN, MINT_BASE_UNITS - SEND_BASE_UNITS, {
-          timeoutMs: 60_000,
-          decimals: TOKEN_DECIMALS
-        });
+        // The plant removed every note id the row recorded, so any id it holds now is the replay's.
+        await expect
+          .poll(async () => (await readGuardFields(walletA.page, sendRowId)).noteIds, {
+            message: 'the replay never recorded the note it created',
+            timeout: 180_000,
+            intervals: [2_000]
+          })
+          .not.toEqual([]);
+        const replayed = await readGuardFields(walletA.page, sendRowId);
+        expect(replayed.noteIds, 'the replay must re-create the note id the first attempt created').toEqual(
+          landed?.noteIds
+        );
 
         timeline.emit({
           category: 'blockchain_state',
           severity: 'info',
           message:
-            `Retry of a cancelled-mid-flight send reused its cached request: B peaked at ${peak} base units ` +
-            `(one payment) and A stayed debited exactly once`,
+            `Retry of a cancelled-mid-flight send asked first, then replayed its cached note: the replay ` +
+            `re-created note ${replayed.noteIds[0]} and B peaked at ${peak} base units (one payment)`,
           data: { peakBaseUnits: peak.toString(), sentBaseUnits: SEND_BASE_UNITS.toString() }
         });
       },

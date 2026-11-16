@@ -4,22 +4,23 @@
  * Every other test around this guard mocks `lib/miden/repo` with a hand-rolled
  * object, and each one exercises a single writer in isolation. That is exactly
  * how the cancel-mid-flight double payment survived the whole suite: no test
- * ever composed the four writers that actually meet on a row —
+ * ever composed the four writers that actually meet on a row -
  * `cancelTransaction`, the leaf's stage/crossing writes, and
- * `requeueFailedTransaction` — and the hand-rolled fakes did not reproduce the
+ * `requeueFailedTransaction` - and the hand-rolled fakes did not reproduce the
  * one Dexie behavior the bug turned on, that `.modify()` on an already-terminal
  * row is a silent no-op rather than an error.
  *
  * So this file mocks none of them. `lib/miden/repo` is the real Dexie schema on
  * `fake-indexeddb` (already a global Jest setup file), and cancel, stage, the
  * crossing stamp and requeue are all the real implementations. Only the edges
- * the wallet talks to — the WASM client, the offscreen proxy, notifications —
+ * the wallet talks to - the WASM client, the offscreen proxy, notifications -
  * are stubbed.
  *
  * The invariant under test, stated once: a guardian recallable send's cached
  * `requestBytes` pin its note serial, and the note id derived from that serial
- * is the ONLY reason the chain rejects a duplicate. Rebuilding them after a
- * submit that may have landed therefore mints a second payment. The row's
+ * is what lets the node reject a duplicate while the first copy is in flight.
+ * Rebuilding them after a submit that may have landed therefore mints a second
+ * payment, and Retry asks before it replays them. The row's
  * `stage` cannot decide this, because a cancel freezes it wherever it happened
  * to be while the pipeline runs on and submits.
  */
@@ -33,7 +34,7 @@ import {
   cancelTransactionById
 } from './cancel';
 import { markMayHaveSubmitted, setTransactionStage, updateTransactionStatus } from './helper';
-import { isUnverifiableSendRetryError, requeueFailedTransaction } from './retry';
+import { acknowledgementOf, isUnverifiableSendRetryError, requeueFailedTransaction } from './retry';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
@@ -64,7 +65,7 @@ jest.mock('../sdk/miden-client', () => ({
 //
 // Held on `globalThis` rather than in module-scope `jest.fn`s because `cancel.ts`
 // calls `isMobile()` at import time (`MAX_WAIT_BEFORE_CANCEL`), which is before a
-// `const` in this file is initialized — a closure over one throws on load. Reading
+// `const` in this file is initialized - a closure over one throws on load. Reading
 // an unset global just yields the desktop default, which is what the rest of the
 // file wants anyway.
 declare const globalThis: { __testIsMobile?: boolean; __testHiddenSeconds?: number } & typeof global;
@@ -119,6 +120,23 @@ const inFlightSend = (id: string, overrides: Partial<ITransaction> = {}): SendTr
 
 const read = async (id: string) => (await Repo.transactions.where({ id }).first())!;
 
+/** Retry on a row that may have submitted: it asks first, and the user answers Retry anyway. */
+const retryAnyway = async (id: string) => {
+  const refusal = await requeueFailedTransaction(id).catch((error: unknown) => error);
+  expect(isUnverifiableSendRetryError(refusal)).toBe(true);
+  await requeueFailedTransaction(id, { acknowledged: acknowledgementOf(refusal) ?? undefined });
+};
+
+/** Retry while the cancelled pipeline may still run: refused with no acknowledgement to give, and none passes it. */
+const expectLivenessRefusal = async (id: string) => {
+  for (const options of [{}, { acknowledged: { attemptId: null } }]) {
+    const refusal = await requeueFailedTransaction(id, options).catch((error: unknown) => error);
+    expect(isUnverifiableSendRetryError(refusal)).toBe(true);
+    expect(acknowledgementOf(refusal)).toBeNull();
+  }
+  expect((await read(id)).status).toBe(ITransactionStatus.Failed);
+};
+
 beforeEach(async () => {
   jest.clearAllMocks();
   mockVerifySendLanded.mockResolvedValue('unknown');
@@ -137,7 +155,7 @@ describe('the row is real: what a cancel actually does to a running send', () =>
     await Repo.transactions.add(tx);
 
     await cancelTransaction(tx, 'user cancelled');
-    // The pipeline is NOT aborted by the cancel — it keeps going and reports
+    // The pipeline is NOT aborted by the cancel - it keeps going and reports
     // the stage it reaches next. That write is silently dropped.
     await setTransactionStage('frozen', 'submitting');
 
@@ -154,7 +172,7 @@ describe('the row is real: what a cancel actually does to a running send', () =>
     await markMayHaveSubmitted('crossing');
 
     const row = await read('crossing');
-    // Still lying about where the pipeline got to — which is the whole reason
+    // Still lying about where the pipeline got to - which is the whole reason
     // the crossing has to be recorded in a field of its own.
     expect(row.stage).toBe('proving');
     expect(row.mayHaveSubmitted).toBe(true);
@@ -180,7 +198,7 @@ describe('the row is real: what a cancel actually does to a running send', () =>
 });
 
 // Reconciling a Failed row the node can prove landed is the ONLY way out of the
-// state above, and it ran through `updateTransactionStatus` — whose terminal
+// state above, and it ran through `updateTransactionStatus` - whose terminal
 // guard rejects the Failed row `requeueFailedTransaction` is defined over. The
 // branch therefore threw on every invocation, the row stayed Failed for a send
 // that had succeeded, and both UI callers rendered the raw internal message
@@ -203,7 +221,7 @@ describe('a send the node CAN prove landed is reconciled, not resubmitted', () =
     expect(row.rawError).toBeUndefined();
   });
 
-  it('does not resubmit it — the row never returns to Queued', async () => {
+  it('does not resubmit it - the row never returns to Queued', async () => {
     mockVerifySendLanded.mockResolvedValue('landed');
     const tx = inFlightSend('no-resubmit');
     await Repo.transactions.add(tx);
@@ -220,7 +238,7 @@ describe('a send cancelled while in flight is not paid twice', () => {
   /**
    * Replays the pipeline from the moment it is cancelled: the leaf keeps
    * running, reaches the submit crossing, and the submit lands. `stampCrossing`
-   * models whether the leaf records that crossing — with it, the fix; without
+   * models whether the leaf records that crossing - with it, the fix; without
    * it, the shipped bug.
    */
   const runCancelledLeaf = async (id: string, { stampCrossing }: { stampCrossing: boolean }) => {
@@ -235,20 +253,20 @@ describe('a send cancelled while in flight is not paid twice', () => {
     await setTransactionStage(id, 'submitting');
 
     // 3. The submit LANDS, and `completeSendTransaction` tries to record it. The
-    //    write is REFUSED — `updateTransactionStatus` throws on a terminal row —
+    //    write is REFUSED - `updateTransactionStatus` throws on a terminal row -
     //    so no transaction id is ever captured, which is why the node check in
     //    step 4 comes back 'unknown' rather than 'landed'.
     await expect(
       updateTransactionStatus(id, ITransactionStatus.Completed, { transactionId: '0xlanded' })
     ).rejects.toThrow('already in a finalized state');
 
-    // 4. The user taps Retry on a row that looks simply failed.
-    await requeueFailedTransaction(id);
+    // 4. The user taps Retry on a row that looks simply failed. A recorded crossing makes it ask first.
+    await (stampCrossing ? retryAnyway(id) : requeueFailedTransaction(id));
 
     return read(id);
   };
 
-  it('keeps the bytes that pin the note id, so the chain rejects the duplicate', async () => {
+  it('keeps the bytes that pin the note id, so the acknowledged Retry replays them', async () => {
     const row = await runCancelledLeaf('p0-fixed', { stampCrossing: true });
 
     expect(row.status).toBe(ITransactionStatus.Queued);
@@ -258,9 +276,9 @@ describe('a send cancelled while in flight is not paid twice', () => {
 
   // Falsifiability. Same sequence with the leaf's crossing write removed is the
   // original P0: the stage still reads 'proving', Retry believes nothing was
-  // broadcast, and the rebuilt request draws a fresh serial — a second payment.
+  // broadcast, and the rebuilt request draws a fresh serial - a second payment.
   // If this ever stops failing, the guard has become decorative.
-  it('would rebuild them — a second payment — if the leaf did not record the crossing', async () => {
+  it('would rebuild them - a second payment - if the leaf did not record the crossing', async () => {
     const row = await runCancelledLeaf('p0-unfixed', { stampCrossing: false });
 
     expect(row.requestBytes).toBeUndefined();
@@ -269,13 +287,13 @@ describe('a send cancelled while in flight is not paid twice', () => {
   it('stays protected across a second failure at an early stage', async () => {
     await runCancelledLeaf('p0-sticky', { stampCrossing: true });
 
-    // The requeued row is picked up again and dies during sync — genuinely
+    // The requeued row is picked up again and dies during sync - genuinely
     // pre-submit for THIS attempt, but the earlier crossing still stands.
     await Repo.transactions.where({ id: 'p0-sticky' }).modify(r => {
       r.status = ITransactionStatus.Failed;
       r.stage = 'syncing';
     });
-    await requeueFailedTransaction('p0-sticky');
+    await retryAnyway('p0-sticky');
 
     const row = await read('p0-sticky');
     expect(row.requestBytes).toBeDefined();
@@ -284,7 +302,7 @@ describe('a send cancelled while in flight is not paid twice', () => {
 });
 
 // The guard has to be discriminating, not merely conservative. A send that
-// provably never reached a submit must still rebuild its request — that rebuild
+// provably never reached a submit must still rebuild its request - that rebuild
 // is the PR's actual fix for the callback-asset bug, and freezing bytes on every
 // failure would quietly undo it.
 describe('a send that never got near a submit still rebuilds', () => {
@@ -292,7 +310,7 @@ describe('a send that never got near a submit still rebuilds', () => {
     const tx = inFlightSend('pre-submit');
     await Repo.transactions.add(tx);
 
-    // Failed at 'proving' with no crossing recorded — the prover died.
+    // Failed at 'proving' with no crossing recorded - the prover died.
     await cancelTransaction(tx, 'prover timeout');
     await requeueFailedTransaction('pre-submit');
 
@@ -315,8 +333,8 @@ describe('a send that never got near a submit still rebuilds', () => {
     }
   );
 
-  // 'sending' is stamped before the guardian leaf and the OFFSCREEN leaf — the
-  // shipping default — never narrows it, so it can enclose a submit.
+  // 'sending' is stamped before the guardian leaf and the OFFSCREEN leaf - the
+  // shipping default - never narrows it, so it can enclose a submit.
   it.each(['sending', 'submitting'] as const)('keeps the bytes after a failure at %s', async stage => {
     const tx = inFlightSend(`post-${stage}`, { stage });
     await Repo.transactions.add(tx);
@@ -331,7 +349,7 @@ describe('a send that never got near a submit still rebuilds', () => {
 describe('rows written by an older build, which carry no crossing record at all', () => {
   it('keeps bytes when the stage is missing but bytes exist', async () => {
     // Pickup stamps 'syncing' then 'sending' before any request is built, so a
-    // row holding bytes with no stage was RESET by an earlier requeue — the
+    // row holding bytes with no stage was RESET by an earlier requeue - the
     // history it was reset from is exactly what is unknown.
     const tx = inFlightSend('legacy-reset', { stage: undefined });
     await Repo.transactions.add(tx);
@@ -345,8 +363,8 @@ describe('rows written by an older build, which carry no crossing record at all'
 
 /**
  * The leaf's crossing stamp only runs from the moment the leaf reaches it. A
- * cancel during execute or prove lands BEFORE that — a window of seconds to
- * minutes, and the one a user actually reaches for Cancel in — so between the
+ * cancel during execute or prove lands BEFORE that - a window of seconds to
+ * minutes, and the one a user actually reaches for Cancel in - so between the
  * cancel and the stamp the row looks, to Retry, exactly like a send that never
  * broadcast. Retry in that window is one click away on the same screen.
  *
@@ -372,10 +390,10 @@ describe('a cancel that does not stop the pipeline says so', () => {
     const tx = inFlightSend('retry-before-stamp', { stage: 'proving' });
     await Repo.transactions.add(tx);
 
-    // Cancel, then Retry immediately — the leaf is still proving and has not
+    // Cancel, then Retry immediately - the leaf is still proving and has not
     // stamped anything. This is the sequence the leaf-side stamp alone misses.
     await cancelTransactionById('retry-before-stamp', 'user cancelled');
-    await requeueFailedTransaction('retry-before-stamp');
+    await expectLivenessRefusal('retry-before-stamp');
 
     expect((await read('retry-before-stamp')).requestBytes).toBeDefined();
   });
@@ -387,13 +405,13 @@ describe('a cancel that does not stop the pipeline says so', () => {
       await Repo.transactions.add(tx);
 
       await cancelTransactionById(`live-${stage}`, 'user cancelled');
-      await requeueFailedTransaction(`live-${stage}`);
+      await expectLivenessRefusal(`live-${stage}`);
 
       expect((await read(`live-${stage}`)).requestBytes).toBeDefined();
     }
   );
 
-  it('leaves a QUEUED send alone — it was never picked up, so nothing is in flight', async () => {
+  it('leaves a QUEUED send alone - it was never picked up, so nothing is in flight', async () => {
     const tx = inFlightSend('never-picked-up', { status: ITransactionStatus.Queued, stage: undefined });
     await Repo.transactions.add(tx);
 
@@ -403,8 +421,8 @@ describe('a cancel that does not stop the pipeline says so', () => {
   });
 
   // The counterweight. If every failure were flagged, the rebuild this guard
-  // gates would never happen and the PR's actual fix — a send whose request was
-  // built against the wrong vault slot — could never recover.
+  // gates would never happen and the PR's actual fix - a send whose request was
+  // built against the wrong vault slot - could never recover.
   it('leaves the pipeline\u2019s OWN failure unflagged, so a bad request still rebuilds', async () => {
     const tx = inFlightSend('prove-died', { stage: 'proving' });
     await Repo.transactions.add(tx);
@@ -422,7 +440,7 @@ describe('a cancel that does not stop the pipeline says so', () => {
 
 /**
  * The marker says "we do not yet know", so something has to make it stop
- * saying that — otherwise it is a sticky flag again, and a send that failed
+ * saying that - otherwise it is a sticky flag again, and a send that failed
  * early has its request pinned forever and replays it on every retry. Which is
  * exactly the request the callback-asset fix in this change needs to REBUILD.
  *
@@ -447,7 +465,7 @@ describe('the in-flight marker resolves, so a bad request is not pinned forever'
     expect((await read('cancel-then-die')).requestBytes).toBeUndefined();
   });
 
-  it('but not when the leaf stamped a real crossing first — that flag is sticky', async () => {
+  it('but not when the leaf stamped a real crossing first - that flag is sticky', async () => {
     const tx = inFlightSend('cancel-then-submit-then-die', { stage: 'proving' });
     await Repo.transactions.add(tx);
 
@@ -457,12 +475,12 @@ describe('the in-flight marker resolves, so a bad request is not pinned forever'
     // Then the post-submit apply blew up and the catch ran.
     await cancelTransactionAfterPipelineStopped(await read('cancel-then-submit-then-die'), new Error('apply failed'));
 
-    await requeueFailedTransaction('cancel-then-submit-then-die');
+    await retryAnyway('cancel-then-submit-then-die');
 
     const row = await read('cancel-then-submit-then-die');
     expect(row.cancelledInFlightAt).toBeUndefined();
     expect(row.mayHaveSubmitted).toBe(true);
-    // The bytes that pin the note id survive, so the chain rejects the duplicate.
+    // The bytes that pin the note id survive, so the acknowledged Retry replays them.
     expect(row.requestBytes).toBeDefined();
   });
 
@@ -488,7 +506,7 @@ describe('the in-flight marker resolves, so a bad request is not pinned forever'
  * cached request of every stuck send with nothing to unpin it, so the row
  * replayed the identical failing request on every retry, forever.
  *
- * It does mark them — reaping stops the spinner, not the work; see
+ * It does mark them - reaping stops the spinner, not the work; see
  * `cancelStuckTransactions`. The requirement is that the mark lapses, so a
  * request the reap caught mid-prove is rebuilt once the pipeline can no longer
  * be alive rather than replayed for good.
@@ -522,7 +540,8 @@ describe('the stuck reaper does not pin the request of a send it reaps for good'
     expect(reaped.mayHaveSubmitted).toBeUndefined();
 
     await lapseMarker('reaped');
-    await requeueFailedTransaction('reaped');
+    // It left the queue, so Retry asks first.
+    await retryAnyway('reaped');
     expect((await read('reaped')).requestBytes).toBeUndefined();
   });
 
@@ -536,7 +555,7 @@ describe('the stuck reaper does not pin the request of a send it reaps for good'
     expect(notifyBackgroundTransactionNotConfirmed).toHaveBeenCalledTimes(1);
     expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
     await lapseMarker('reaped-submitted');
-    await requeueFailedTransaction('reaped-submitted');
+    await retryAnyway('reaped-submitted');
 
     expect((await read('reaped-submitted')).requestBytes).toBeDefined();
   });
@@ -546,7 +565,7 @@ describe('the stuck reaper does not pin the request of a send it reaps for good'
  * `requeueFailedTransaction` reads the row, awaits a network round trip in
  * `verifySendLanded`, and only then writes. `markMayHaveSubmitted` writes the
  * flag and nothing else, so a crossing recorded inside that window passes the
- * status/stage re-check untouched — and deciding from the pre-await snapshot
+ * status/stage re-check untouched - and deciding from the pre-await snapshot
  * would clear the bytes of a send that had just broadcast.
  */
 describe('a crossing recorded while Retry is mid-flight is not missed', () => {
@@ -598,7 +617,7 @@ describe('a plain send with nothing left to prove either way is not retried blin
     expect((await read('wedged')).mayHaveSubmitted).toBe(true);
   });
 
-  it('records a lock-recovery eviction (WasmClientPoisonedError) as a real crossing too — the pipeline was abandoned, not stopped', async () => {
+  it('records a lock-recovery eviction (WasmClientPoisonedError) as a real crossing too - the pipeline was abandoned, not stopped', async () => {
     // Issue #775: a watchdog eviction rejects the caller but cannot cancel the
     // operation, which may still reach submit. Clearing the in-flight marker
     // here would let Retry mint a second payment while the abandoned pipeline
@@ -612,9 +631,9 @@ describe('a plain send with nothing left to prove either way is not retried blin
     expect((await read('wedged-poison')).mayHaveSubmitted).toBe(true);
   });
 
-  it('does NOT record a crossing for an eviction during the pre-write sync — that send provably never built one', async () => {
+  it('does NOT record a crossing for an eviction during the pre-write sync - that send provably never built one', async () => {
     // Issue #775. `generateTransaction`'s first act is a locked `syncState()`,
-    // taken while the row still reads 'syncing' — an untimed call, so one of the
+    // taken while the row still reads 'syncing' - an untimed call, so one of the
     // likeliest places for a watchdog eviction to land. `mayHaveSubmitted` is
     // permanent and Retry refuses on it, so recording it here would brick the
     // user's retry on a send that demonstrably never touched the chain.
@@ -630,8 +649,8 @@ describe('a plain send with nothing left to prove either way is not retried blin
   it('gives an ABORT from the pre-write sync the same exemption as an eviction', async () => {
     // The pre-flight sync can end either way. Locally the watchdog evicts it;
     // through the offscreen proxy the dispatch deadline rejects it with
-    // `OperationAbortedError`. Both arrive from the identical point — before any
-    // request exists — so gating the exemption on the poison shape alone
+    // `OperationAbortedError`. Both arrive from the identical point - before any
+    // request exists - so gating the exemption on the poison shape alone
     // recorded a permanent crossing for one half of the same event, and left the
     // user with a warning ("this may already have reached the network") that they
     // cannot answer truthfully about a send that never built a request.
@@ -647,7 +666,7 @@ describe('a plain send with nothing left to prove either way is not retried blin
     // The crossing and the message have to agree. Withholding the crossing (so Retry is
     // permitted) while persisting the hedge ("left in an unknown state, check your
     // activity before trying again") told the user not to take the retry the same
-    // decision had just unlocked — and the extension reaches this on a routine
+    // decision had just unlocked - and the extension reaches this on a routine
     // non-critical `deadline-no-kill`, so it is not a corner.
     const { TRANSACTION_ENGINE_RECOVERED_ERROR, TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR } = require('./constants');
     const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
@@ -673,7 +692,7 @@ describe('a plain send with nothing left to prove either way is not retried blin
 
   it('records the crossing for a picked-up row even at stage syncing', async () => {
     // What makes 'syncing' provably pre-write is not the name, it is that the
-    // stage is only ever committed BEFORE pickup — `updateTransactionStatus`
+    // stage is only ever committed BEFORE pickup - `updateTransactionStatus`
     // stamps `processingStartedAt` and stage 'sending' in one write, so
     // (picked-up, 'syncing') never lands in production. That invariant is spread
     // across four files, and if any future writer breaks it the exemption
@@ -720,7 +739,7 @@ describe('a plain send with nothing left to prove either way is not retried blin
     await cancelTransactionAfterPipelineStopped(await read('wedged-retry'), abort());
 
     await expect(requeueFailedTransaction('wedged-retry')).rejects.toThrow(/may already have reached the network/);
-    // Still Failed — not quietly requeued behind the error.
+    // Still Failed - not quietly requeued behind the error.
     expect((await read('wedged-retry')).status).toBe(ITransactionStatus.Failed);
   });
 
@@ -738,12 +757,12 @@ describe('a plain send with nothing left to prove either way is not retried blin
     expect((await read('wedged-with-id')).status).toBe(ITransactionStatus.Queued);
   });
 
-  it('retries normally when bytes pin the note id, because the chain rejects the duplicate', async () => {
+  it('asks first when bytes pin the note id, then replays them', async () => {
     const tx = inFlightSend('wedged-with-bytes', { stage: 'sending' });
     await Repo.transactions.add(tx);
     await cancelTransactionAfterPipelineStopped(await read('wedged-with-bytes'), abort());
 
-    await requeueFailedTransaction('wedged-with-bytes');
+    await retryAnyway('wedged-with-bytes');
 
     const row = await read('wedged-with-bytes');
     expect(row.status).toBe(ITransactionStatus.Queued);
@@ -774,15 +793,15 @@ describe('a plain send with nothing left to prove either way is not retried blin
 
     await cancelTransactionAfterPipelineStopped(await read('wedged-swap'), abort());
 
-    // A swap's bytes are reused byte-identically, so the chain rejects a
-    // duplicate on its own and the row stays retryable.
+    // The abort rule stamps a send only: a swap's Retry reads its own evidence
+    // and whether it left the queue, which this row never did.
     expect((await read('wedged-swap')).mayHaveSubmitted).toBeUndefined();
     await requeueFailedTransaction('wedged-swap');
     expect((await read('wedged-swap')).status).toBe(ITransactionStatus.Queued);
   });
 });
 
-// The guard's failure mode is not letting a double-send through — it is refusing
+// The guard's failure mode is not letting a double-send through - it is refusing
 // a send that was never at risk. A plain (non-guardian) send is where the two are
 // easiest to confuse: it holds no bytes, and its pipeline stamps 'sending' ONCE at
 // pickup and never narrows, so `PRE_SUBMIT_STAGES` cannot vouch for any of its
@@ -809,7 +828,7 @@ describe('a plain send is not refused on the strength of a stage it never had', 
 
   // The regression this pair pins: the flag used to be written from the stage
   // alone, so every plain send earned it on its first requeue and was refused on
-  // its second — Retry working exactly once, then failing shut for good.
+  // its second - Retry working exactly once, then failing shut for good.
   it('is still retryable after failing again, and again', async () => {
     await Repo.transactions.add(plainSend('plain-2'));
 
@@ -848,7 +867,8 @@ describe('a plain send is not refused on the strength of a stage it never had', 
   });
 
   // A row WITH bytes keeps the stage-derived flag: there the flag protects
-  // something, and pinning the note id is what makes the duplicate rejectable.
+  // something, and pinning the note id is what makes the duplicate rejectable
+  // while the first copy is in flight.
   it('still persists the stage verdict when there are bytes to protect', async () => {
     await Repo.transactions.add(inFlightSend('guardian-row', { stage: 'sending', status: ITransactionStatus.Failed }));
 
@@ -861,7 +881,7 @@ describe('a plain send is not refused on the strength of a stage it never had', 
 
   // An unresolved "don't know yet" must not be laundered into a permanent "yes"
   // by passing through a requeue: it expires by design, and freezing it would
-  // pin the request — and its absolute reclaim height — forever.
+  // pin the request - and its absolute reclaim height - forever.
   it('does not promote an expiring cancel marker into a permanent crossing', async () => {
     await Repo.transactions.add(
       inFlightSend('cancel-marker', {
@@ -871,7 +891,8 @@ describe('a plain send is not refused on the strength of a stage it never had', 
       })
     );
 
-    await requeueFailedTransaction('cancel-marker');
+    // The marker still says the pipeline may submit, so Retry waits for it and writes nothing.
+    await expectLivenessRefusal('cancel-marker');
 
     const row = await read('cancel-marker');
     // Bytes held, because the marker still says a submit is possible...
@@ -882,7 +903,7 @@ describe('a plain send is not refused on the strength of a stage it never had', 
   });
 });
 
-// `MAX_WAIT_BEFORE_CANCEL` is denominated in ACTIVE seconds — the reaper that
+// `MAX_WAIT_BEFORE_CANCEL` is denominated in ACTIVE seconds - the reaper that
 // owns it subtracts backgrounded time. The marker compared wall clock against it,
 // so on a phone the two disagreed about the same row.
 describe('the marker is measured on the same clock as the threshold it is bounded by', () => {
@@ -928,7 +949,7 @@ describe('the marker is measured on the same clock as the threshold it is bounde
 
   // A stamp cannot be written in the future, so a future one means the clock moved
   // backwards under us. Read as a plain `now - at <= MAX` that is negative, hence
-  // "live", for the whole span of the discrepancy — days, for a restored row.
+  // "live", for the whole span of the discrepancy - days, for a restored row.
   it('treats a wildly future-dated stamp as telling us nothing, not as live forever', async () => {
     await Repo.transactions.add(
       inFlightSend('skewed', {
@@ -983,7 +1004,7 @@ describe('the marker lands only where there is still a pipeline to outlive the c
     expect((await read('live')).cancelledInFlightAt).toBeDefined();
   });
 
-  it('leaves a Queued row alone — it was never picked up', async () => {
+  it('leaves a Queued row alone - it was never picked up', async () => {
     await Repo.transactions.add(
       inFlightSend('queued', { status: ITransactionStatus.Queued, stage: undefined, requestBytes: undefined })
     );
@@ -1019,7 +1040,7 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
   // it survives: the row demonstrably left the queue, and for a send that is
   // never narrowed any further, so a submit still cannot be ruled out from the
   // row alone. What keeps this from bricking is the acknowledgement below, not
-  // the clock — the user reads their own balance and answers the one question
+  // the clock - the user reads their own balance and answers the one question
   // the wallet cannot.
   it('still refuses once the window has passed, and requeues when the user acknowledges', async () => {
     await Repo.transactions.add(
@@ -1041,7 +1062,7 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
     expect((await read('reaped-later')).status).toBe(ITransactionStatus.Queued);
   });
 
-  // Issue #775, F-062: a poison eviction ABANDONS the pipeline — it can still
+  // Issue #775: a poison eviction ABANDONS the pipeline - it can still
   // submit AFTER the user answers the acknowledgement dialog, so the user's
   // "it never arrived" is true at the moment they say it and wrong a minute
   // later. The poison arm therefore stamps the TIME-BOUNDED liveness marker
@@ -1087,7 +1108,7 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
 
 // A guard whose only outcome is a permanently broken row gets worked around: the
 // Retry button never hides, so it throws the same error on every tap, and the way
-// out is to send again by hand — the double payment the guard exists to prevent.
+// out is to send again by hand - the double payment the guard exists to prevent.
 // The wallet cannot tell whether the send landed; the user can see it in their
 // balance, so it asks them.
 describe('a refused send is not a dead end', () => {
@@ -1121,7 +1142,7 @@ describe('a refused send is not a dead end', () => {
   it('clears the markers rather than bypassing them', async () => {
     await refused('ack-3');
     // Lapsed, not live: while the liveness window is open even an acknowledged
-    // retry is refused (issue #775 — the abandoned pipeline may still submit
+    // retry is refused (issue #775 - the abandoned pipeline may still submit
     // after the user answers), so the clearing path is only reachable past it.
     await Repo.transactions.where({ id: 'ack-3' }).modify(r => {
       r.cancelledInFlightAt = Math.floor(Date.now() / 1000) - (MAX_WAIT_BEFORE_CANCEL + 60);
