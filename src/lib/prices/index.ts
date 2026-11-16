@@ -6,11 +6,17 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getBridgeConfigSnapshot, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
-import { loadTokenPriceAssets, peekTokenPriceAssets } from 'lib/token-list/runtime';
+import {
+  loadTokenPriceAssets,
+  peekTokenBaskets,
+  peekTokenDecimals,
+  peekTokenPriceAssets
+} from 'lib/token-list/runtime';
 import { useLoadedList } from 'lib/token-list/useLoadedList';
 
+import { basketPriceSources, fetchBasketPrices } from './basket-nav';
 import type { Timeframe } from './binance';
-import { fetchKlineData, fetchTokenPrices } from './feed';
+import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket } from './feed';
 import { writeUsdPriceCache } from './usd';
 
 export { listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
@@ -32,9 +38,26 @@ export function useTokenSparkline(symbol: string | undefined, timeframe: Timefra
   return useMemo(() => (data ?? []).map(p => p.value), [data]);
 }
 
-const sameAssets = (a: Map<string, string> | null, b: Map<string, string> | null): boolean =>
-  a === b ||
-  (a !== null && b !== null && a.size === b.size && Array.from(a).every(([id, asset]) => b.get(id) === asset));
+function entries<T>(map: Map<string, T> | null | undefined): [string, T][] | null | undefined {
+  return map ? Array.from(map) : map;
+}
+
+/**
+ * Everything the price fetch reads from the loaded list (price assets, baskets and decimals), as one string, or
+ * undefined before the first load. A refresh that changes any of them changes this key, so the fetch runs again.
+ */
+function peekPriceListKey(network: string): string | undefined {
+  const assets = peekTokenPriceAssets(network);
+  if (assets === undefined) return undefined;
+  return JSON.stringify([entries(assets), entries(peekTokenBaskets(network)), entries(peekTokenDecimals(network))]);
+}
+
+async function loadPriceListKey(network: string): Promise<string | undefined> {
+  await loadTokenPriceAssets(network);
+  return peekPriceListKey(network);
+}
+
+const sameKey = (a: string | undefined, b: string | undefined): boolean => a === b;
 
 /**
  * PriceProvider - Fetches token prices from Binance and syncs to Zustand store.
@@ -48,7 +71,7 @@ export function PriceProvider() {
   const network = getEffectiveNetworkName();
   const enabled = locked || ready;
   useSyncExternalStore(subscribeBridgeConfig, getBridgeConfigSnapshot);
-  useLoadedList(network, enabled ? loadTokenPriceAssets : null, peekTokenPriceAssets, sameAssets);
+  const listKey = useLoadedList(network, enabled ? loadPriceListKey : null, peekPriceListKey, sameKey) ?? '';
   const assets = getPriceAssets();
   const symbols = [...new Set(assets.values())].filter(symbol => symbol !== 'USDCX').sort();
   const assetKey = JSON.stringify(Array.from(assets).sort(([a], [b]) => a.localeCompare(b)));
@@ -57,8 +80,15 @@ export function PriceProvider() {
     error: priceError,
     isLoading: pricesLoading
   } = useRetryableSWR(
-    enabled ? ['token-prices', network, assetKey] : null,
-    async () => ({ network, assetKey, prices: await fetchTokenPrices(symbols) }),
+    enabled ? ['token-prices', network, assetKey, listKey] : null,
+    async () => {
+      const prices = await fetchTokenPrices(symbols);
+      // After the feed, which is what rules a market out and prices the constituents: a basket's value never stands
+      // in for an exchange's price.
+      const sources = basketPriceSources(peekTokenBaskets(network), assets, peekTokenDecimals(network), hasNoUsdMarket);
+      const basketPrices = sources.length > 0 ? await fetchBasketPrices(sources, prices) : {};
+      return { network, assetKey, listKey, prices, basketPrices };
+    },
     { refreshInterval: 5 * 60_000, dedupingInterval: 30_000, keepPreviousData: false }
   );
 
@@ -66,18 +96,20 @@ export function PriceProvider() {
     useWalletStore.setState({ tokenPricesStatus: pricesLoading ? 'loading' : priceError ? 'error' : 'ready' });
   }, [pricesLoading, priceError]);
 
+  // A list change that only moves a basket or its decimals clears its old value too, not only a price asset change.
   useEffect(() => {
     setTokenPrices({});
-  }, [network, assetKey, setTokenPrices]);
+  }, [network, assetKey, listKey, setTokenPrices]);
 
   useEffect(() => {
-    if (enabled && prices?.network === network && prices.assetKey === assetKey) {
-      setTokenPrices(prices.prices);
+    if (enabled && prices?.network === network && prices.assetKey === assetKey && prices.listKey === listKey) {
+      setTokenPrices({ ...prices.basketPrices, ...prices.prices });
       // The enforcement path runs in the backend realm and cannot see this store. Writing through
       // is what keeps the cache warm enough that the backend rarely fetches on the send path.
+      // Exchange quotes only: a basket's value is for display and never values a spend.
       writeUsdPriceCache(prices.prices).catch(() => undefined);
     }
-  }, [enabled, network, assetKey, prices, setTokenPrices]);
+  }, [enabled, network, assetKey, listKey, prices, setTokenPrices]);
 
   return null;
 }
