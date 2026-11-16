@@ -1,5 +1,7 @@
 import type { Hash } from 'viem';
 
+import type { AccountScope } from 'lib/miden-chain/account-scope';
+
 import type { ReviewedTransfer } from './core/review';
 import type { BridgeApproval } from './evm/approval';
 import type { SourceTransaction } from './evm/source-transaction';
@@ -18,6 +20,7 @@ export interface BridgeOperationSnapshot extends BridgeOperationInput {
   version: 1;
   owner: 'wallet';
   revision: string;
+  walletScope?: Pick<AccountScope, 'network' | 'rpcUrl'>;
   sourceAttempt?: BridgeSourceAttempt;
   approvals?: BridgeApproval[];
 }

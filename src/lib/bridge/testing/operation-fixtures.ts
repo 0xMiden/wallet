@@ -1,7 +1,7 @@
+import { accounts, connections, now, referenceSnapshot } from './fixtures';
 import { bindTransferQuote } from '../core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from '../core/review';
 import type { BridgeRoute } from '../core/routes';
-import { accounts, connections, now, referenceSnapshot } from './fixtures';
 
 export function reviewedErc20Transfer(
   provider: 'agglayer' | 'epoch',

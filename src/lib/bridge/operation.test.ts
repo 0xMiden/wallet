@@ -1,6 +1,8 @@
 import Dexie from 'dexie';
 import { parseUnits, type Hash } from 'viem';
 
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
 import { assertReviewedBridge, type ReviewedTransfer } from './core/review';
@@ -26,7 +28,8 @@ jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getActiveOverride: () => null,
-  getEffectiveNetworkName: () => 'testnet'
+  getEffectiveNetworkName: jest.fn(() => 'testnet'),
+  getEffectiveRpcUrl: jest.fn(() => 'https://wallet-rpc.example/private')
 }));
 jest.mock('lib/remote-config/runtime', () =>
   jest
@@ -107,6 +110,7 @@ async function seed(reviewed = review()): Promise<string> {
     owner: 'wallet',
     operationId: 'operation-1',
     revision: 'admitted-revision',
+    walletScope: { network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() },
     review: reviewed
   };
   await Repo.transactions.update(id, { 'extraInputs.bridgeOperation': operation });
@@ -120,6 +124,8 @@ async function snapshot(id: string): Promise<BridgeOperationSnapshot> {
 }
 
 beforeEach(async () => {
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   jest.spyOn(Date, 'now').mockReturnValue(now);
   await Repo.transactions.clear();
   const reviewed = review();
@@ -137,6 +143,7 @@ it('atomically coalesces only the same reviewed operation and generates its revi
     owner: 'wallet',
     operationId: 'operation-1',
     revision: expect.any(String),
+    walletScope: { network: 'testnet', rpcUrl: 'https://wallet-rpc.example/private' },
     review: review()
   });
   const independent = await admit('operation-2');
@@ -168,7 +175,7 @@ it.each([
   { sourceAmount: '2' },
   { amount: 200000000n }
 ] satisfies Partial<Parameters<typeof initiateBridgedReceiveTransaction>[0]>[])(
-  'cannot attach a valid review to a different native admission %j',
+  'cannot attach a valid review to a different native admission case %#',
   async changes => {
     await expect(admit('operation-1', review(), changes)).rejects.toThrow();
     expect(await Repo.transactions.count()).toBe(0);
@@ -328,6 +335,51 @@ it('never reclaims a lost post-broadcast hash write, idle realm or abandoned lat
   expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('submitting');
   expect(await recordBridgeSourceAttempt('operation-1', claimed.revision, { hash: `0x${'1'.repeat(64)}` })).toBe(true);
   expect(await claimBridgeSourceAttempt('operation-1', claimed.revision)).toBe('already-running');
+});
+
+it('refuses a new admission when wallet RPC scope changes during its asynchronous reads', async () => {
+  jest
+    .mocked(getEffectiveRpcUrl)
+    .mockReturnValueOnce('https://wallet-rpc.example/private')
+    .mockReturnValue('https://other-rpc.example');
+  await expect(admit()).rejects.toThrow();
+  expect(await Repo.transactions.count()).toBe(0);
+});
+
+it.each([undefined, { network: 'testnet' }, { network: 'mainnet', rpcUrl: 'https://wallet-rpc.example/private' }])(
+  'does not grant new source permission from missing or malformed scope case %#',
+  async scope => {
+    const id = await seed();
+    await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.walletScope': scope });
+    expect(await claimBridgeSourceAttempt('operation-1', 'admitted-revision')).toBe('uncertain');
+  }
+);
+
+it('same-network RPC changes cannot authorize a source attempt or export its private endpoint', async () => {
+  const id = await seed();
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example');
+  expect(await claimBridgeSourceAttempt('operation-1', 'admitted-revision')).toBe('uncertain');
+  const dump = await Repo.exportDb();
+  expect(dump).not.toContain('https://wallet-rpc.example/private');
+  expect((await snapshot(id)).walletScope?.rpcUrl).toBe('https://wallet-rpc.example/private');
+});
+
+it.each([null, {}, { version: 2, owner: 'wallet' }, { version: 1, owner: 'portal' }])(
+  'malformed or unknown owned metadata never falls through to legacy source dispatch case %#',
+  async metadata => {
+    const id = await seed();
+    await Repo.transactions.update(id, { 'extraInputs.bridgeOperation': metadata });
+    const drive = jest.fn(async () => undefined);
+    await createBridgeReceiveReconciler({ getLocks: () => undefined }).startSubmission(async () => id, drive);
+    await Repo.transactions.count();
+    expect(drive).not.toHaveBeenCalled();
+  }
+);
+
+it('a known row hash without an attempt stamp cannot become a fresh source claim', async () => {
+  const id = await seed();
+  await Repo.transactions.update(id, { 'extraInputs.evmTxHash': `0x${'1'.repeat(64)}` });
+  expect(await claimBridgeSourceAttempt('operation-1', 'admitted-revision')).toBe('uncertain');
 });
 
 it('leaves untagged native receive rows on legacy dispatch', async () => {

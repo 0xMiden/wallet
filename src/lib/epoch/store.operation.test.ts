@@ -6,12 +6,19 @@ import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
 import { ITransactionStatus, type IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import type { EVMToMidenQuote } from './bridge';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { useEpochStore } from './store';
 
 const hash = `0x${'7'.repeat(64)}`;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: jest.fn(() => 'testnet'),
+  getEffectiveRpcUrl: jest.fn(() => 'https://wallet-rpc.example/private')
+}));
 const mockBuildIntent = jest.fn();
 const mockConnection = jest.fn();
 const mockRegister = jest.fn();
@@ -36,6 +43,7 @@ function operation(): BridgeOperationSnapshot {
     owner: 'wallet',
     operationId: 'epoch-operation',
     revision: 'admitted',
+    walletScope: { network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() },
     review: reviewedErc20Transfer('epoch')
   };
 }
@@ -95,6 +103,8 @@ async function seed(): Promise<BridgeOperationSnapshot> {
 }
 
 beforeEach(async () => {
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.spyOn(console, 'log').mockImplementation(() => undefined);
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -185,6 +195,7 @@ it('preserves a late original known outcome before an unrelated registry or phas
   const running = useEpochStore.getState().executeEVMToMiden('epoch-row');
   await entered;
   useEpochStore.getState().reset();
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example');
   mockUpdatePhase.mockRejectedValue(new Error('phase storage failed'));
   finish({ taskTypeString: 'bridge', intentData: {}, solveResult: { hash, nonce: '42' } });
   await running;
@@ -218,6 +229,23 @@ it.each(['restoredFromBackup', 'recovered'] as const)('never grants %s history a
   await useEpochStore.getState().executeEVMToMiden('epoch-row');
   expect(mockBuildIntent).not.toHaveBeenCalled();
   expect(mockUpdatePhase).not.toHaveBeenCalled();
+});
+
+it('a missing operation wallet scope is history, not a new solve capability', async () => {
+  await seed();
+  await Repo.transactions.update('epoch-row', { 'extraInputs.bridgeOperation.walletScope': undefined });
+  await useEpochStore.getState().executeEVMToMiden('epoch-row');
+  expect(mockBuildIntent).not.toHaveBeenCalled();
+});
+
+it('rechecks wallet RPC scope after asynchronous wallet setup before solving', async () => {
+  await seed();
+  mockConnection.mockImplementation(async () => {
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example');
+    return { address: accounts.evmAddress, isNative: true };
+  });
+  await useEpochStore.getState().executeEVMToMiden('epoch-row');
+  expect(mockBuildIntent).not.toHaveBeenCalled();
 });
 
 it('a changed source wallet after async setup cannot spend the stored review', async () => {
