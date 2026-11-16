@@ -1,3 +1,4 @@
+import type { BridgeOperationInput } from 'lib/bridge/operation';
 import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
@@ -1112,7 +1113,8 @@ export const initiateBridgedSendTransaction = async (
   agglayerExitTxHash?: string,
   usdcxBurn?: IUsdcxBurn,
   agglayerRoute?: AgglayerRecoveryConfig,
-  epochAllocatorUrl?: string
+  epochAllocatorUrl?: string,
+  _operation?: BridgeOperationInput
 ): Promise<string> => {
   if (!requestBytes?.length) throw new Error(BRIDGED_SEND_MISSING_REQUEST_ERROR);
   const dbTransaction = new BridgedSendTransaction(
@@ -1241,6 +1243,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
   sourceSymbol: string;
   outputAmount?: string;
   outputSymbol?: string;
+  operation?: BridgeOperationInput;
 }): Promise<string> => {
   const dbTransaction = new BridgedReceiveTransaction(
     args.accountId,

@@ -1,6 +1,7 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { BridgeOperationSnapshot } from 'lib/bridge/operation';
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type {
   OneClickAsset,
@@ -349,6 +350,7 @@ export interface IAgglayerDelivery {
 }
 
 export interface IBridgedReceiveExtraInputs {
+  bridgeOperation?: BridgeOperationSnapshot;
   agglayerRoute?: AgglayerRecoveryConfig;
   /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
   agglayerDelivery?: IAgglayerDelivery;
@@ -502,6 +504,7 @@ export interface IUsdcxBurn {
 
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
+  bridgeOperation?: BridgeOperationSnapshot;
   agglayerRoute?: AgglayerRecoveryConfig;
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
