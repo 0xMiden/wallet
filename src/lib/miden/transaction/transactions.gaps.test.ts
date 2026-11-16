@@ -561,6 +561,35 @@ describe('apply-after-submit on a public send', () => {
     expect(txStore[0]!.displayMessage).toBe('Sent');
     expect(txStore[0]!.transactionId).toBe('landed-send-hash');
   });
+
+  // The order read runs for every type; only a swap row holds what it decided.
+  it('a landed public send whose facts name an order holds no swap order', async () => {
+    txStore.push({
+      id: 'tx-apply-order-facts',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend(
+      () =>
+        new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {
+          transactionId: 'landed-send-hash',
+          orderId: '42',
+          orderNoteId: `0x${'ab'.repeat(32)}`
+        })
+    );
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.transactionId).toBe('landed-send-hash');
+    expect(txStore[0]!.extraInputs?.landedOrder).toBeUndefined();
+  });
 });
 
 describe('apply-after-submit on an execute', () => {
@@ -659,8 +688,8 @@ describe('a throw after the leaf resolved', () => {
     serialize
   });
 
-  const landedSwapOutput = (asInt: () => bigint = () => 42n) => ({
-    id: () => ({ toString: () => 'swap-output-note' }),
+  const landedSwapOutput = (asInt: () => bigint = () => 42n, noteId = 'swap-output-note') => ({
+    id: () => ({ toString: () => noteId }),
     metadata: () => ({ noteType: () => NoteTypeEnum.Public }),
     assets: () => ({ fungibleAssets: () => [] }),
     intoFull: () => ({
@@ -735,6 +764,174 @@ describe('a throw after the leaf resolved', () => {
     expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
     expect(retire).toHaveBeenCalledWith(trap, id);
     expect(report).toHaveBeenCalledWith(expect.objectContaining({ error: tailFailure }));
+  });
+
+  // A Cancel or the reaper can finalize a swap while its landed tail runs. The landed record is the one write such a
+  // row still takes, so the order its landing decided rides it, held apart from the fields that open an order.
+  const ORDER_NOTE_ID = `0x${'AB'.repeat(32)}`;
+  const queuedSwap = (id: string) =>
+    queuedRow(id, {
+      type: 'swap',
+      faucetId: 'faucet-offer',
+      amount: BigInt(5),
+      extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: BigInt(9), expirySeconds: 100 }
+    });
+  const setStatus = (id: string, status: ITransactionStatus, extraInputs?: Record<string, unknown>) => {
+    const row = txStore.find(stored => stored.id === id);
+    if (!row) return;
+    row.status = status;
+    if (extraInputs) row.extraInputs = { ...row.extraInputs, ...extraInputs };
+  };
+  const swapResultWithId = (toHex: () => string, serialize: () => Uint8Array) => {
+    const note = landedSwapOutput(undefined, ORDER_NOTE_ID);
+    return {
+      executedTransaction: () => ({ id: () => ({ toHex }), outputNotes: () => ({ notes: () => [note] }) }),
+      serialize
+    };
+  };
+  // The landing second the record step reads, so the decided expiry is exact.
+  const runLoopAtFixedTime = async (write: jest.Mock): Promise<number> => {
+    const now = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      await runLoopWithWrite(write);
+    } finally {
+      clock.mockRestore();
+    }
+    return Math.floor(now / 1000);
+  };
+
+  it('a loop swap a Cancel finalized mid-tail keeps Failed, its landed id and the order its landed failure decided, unopened', async () => {
+    const id = 'tx-tail-swap-finalized';
+    _gh.__noteTypeForTest = 'public';
+    queuedSwap(id);
+
+    const landedAt = await runLoopAtFixedTime(
+      jest.fn(async () =>
+        swapResultWithId(
+          () => {
+            setStatus(id, ITransactionStatus.Failed);
+            return 'landed-id';
+          },
+          () => {
+            throw new Error('result serialize');
+          }
+        )
+      )
+    );
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.transactionId).toBe('landed-id');
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.expiresAt).toBeUndefined();
+    expect(row.extraInputs.landedOrder).toEqual({
+      orderId: '42',
+      expiresAt: landedAt + 100,
+      noteId: ORDER_NOTE_ID.toLowerCase()
+    });
+    expect(row.extraInputs).toMatchObject({ requestedFaucetId: 'faucet-req', requestedAmount: 9n });
+  });
+
+  it('a swap finalized mid-tail whose landed id read fails still records its order', async () => {
+    const id = 'tx-tail-swap-no-id';
+    _gh.__noteTypeForTest = 'public';
+    queuedSwap(id);
+    let idReads = 0;
+
+    await runLoopWithWrite(
+      jest.fn(async () =>
+        swapResultWithId(
+          () => {
+            idReads++;
+            if (idReads > 1) throw new Error('id read');
+            setStatus(id, ITransactionStatus.Failed);
+            return 'landed-id';
+          },
+          () => new Uint8Array([])
+        )
+      )
+    );
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.transactionId).toBeUndefined();
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.landedOrder).toMatchObject({ orderId: '42', noteId: ORDER_NOTE_ID.toLowerCase() });
+  });
+
+  it('a swap finalized between the landed record and its Completed write keeps its order', async () => {
+    const id = 'tx-landed-swap-finalized-between';
+    _gh.__noteTypeForTest = 'public';
+    queuedSwap(id);
+    const where = require('lib/miden/repo').transactions.where as jest.Mock;
+    const storeWhere = where.getMockImplementation()!;
+    // A Cancel lands right after the write that records the landed id commits.
+    where.mockImplementation((arg: unknown) => {
+      const query = storeWhere(arg);
+      if (typeof arg === 'string') return query;
+      return {
+        ...query,
+        modify: async (fn: (tx: any) => unknown) => {
+          const row = txStore.find(stored => stored.id === id);
+          const recordedBefore = row?.transactionId;
+          await query.modify(fn);
+          if (row && recordedBefore === undefined && row.transactionId === 'landed-id') {
+            setStatus(id, ITransactionStatus.Failed);
+          }
+        }
+      };
+    });
+    let landedAt: number;
+    try {
+      landedAt = await runLoopAtFixedTime(
+        jest.fn(async () => {
+          throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {
+            transactionId: 'landed-id',
+            orderId: '42',
+            orderNoteId: ORDER_NOTE_ID
+          });
+        })
+      );
+    } finally {
+      where.mockImplementation(storeWhere);
+    }
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.expiresAt).toBeUndefined();
+    expect(row.extraInputs.landedOrder).toEqual({
+      orderId: '42',
+      expiresAt: landedAt + 100,
+      noteId: ORDER_NOTE_ID.toLowerCase()
+    });
+  });
+
+  it.each([
+    ['with its own order', { orderId: 7n, expiresAt: 500 }],
+    ['with no order read', { expiresAt: 500 }]
+  ])('a swap another writer completed mid-tail %s holds no decided order', async (_name, stamped) => {
+    const id = 'tx-tail-swap-completed-elsewhere';
+    _gh.__noteTypeForTest = 'public';
+    queuedSwap(id);
+
+    await runLoopWithWrite(
+      jest.fn(async () =>
+        swapResultWithId(
+          () => {
+            setStatus(id, ITransactionStatus.Completed, stamped);
+            return 'landed-id';
+          },
+          () => new Uint8Array([])
+        )
+      )
+    );
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs).toMatchObject(stamped);
+    expect(row.extraInputs.landedOrder).toBeUndefined();
   });
 
   it('an execute whose completion throws after the leaf resolved is Completed with its landed id and offers no Retry', async () => {

@@ -2732,7 +2732,13 @@ describe('completeSwapTransaction', () => {
       id: 'swap-1',
       type: 'swap',
       status: ITransactionStatus.GeneratingTransaction,
-      extraInputs: { expirySeconds: 100, requestedFaucetId: 'f', requestedAmount: 1n }
+      extraInputs: {
+        expirySeconds: 100,
+        requestedFaucetId: 'f',
+        requestedAmount: 1n,
+        // An earlier attempt's landed failure decided this; the result's own order replaces it.
+        landedOrder: { orderId: '7', expiresAt: 1, noteId: 'earlier-order-note' }
+      }
     });
     const { completeSwapTransaction } = require('./index');
     await completeSwapTransaction(
@@ -2744,6 +2750,7 @@ describe('completeSwapTransaction', () => {
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.extraInputs.orderId).toBe(42n);
     expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.extraInputs.landedOrder).toBeUndefined();
   });
 
   it('defaults expirySeconds to 120 when absent', async () => {
