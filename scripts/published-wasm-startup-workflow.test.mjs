@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 const workflowPath = new URL('../.github/workflows/sentry-published-wasm-probe.yml', import.meta.url);
@@ -18,6 +21,54 @@ test('published-wasm workflow is opt-in on one exact QA branch without secrets o
   assert.match(text, /persist-credentials: false/);
   for (const action of text.matchAll(/uses: (\S+)/g)) {
     assert.match(action[1], /^actions\/(checkout|setup-node|upload-artifact)@[0-9a-f]{40}$/);
+  }
+});
+
+function runArchiveTransfer(text, version) {
+  const step = text.indexOf('      - name: Verify and safely extract fixed published archive\n');
+  const start = text.indexOf('        run: |\n', step) + '        run: |\n'.length;
+  const end = text.indexOf('          cat > "$private/archive-check.py"', start);
+  assert.ok(step >= 0 && end > start, 'archive transfer program must be present');
+  const script = text.slice(start, end).split('\n').map(line => line.slice(10)).join('\n');
+  const root = mkdtempSync(join(tmpdir(), 'published-wasm-transfer-'));
+  try {
+    const bin = join(root, 'bin');
+    const argsPath = join(root, 'curl-arguments');
+    mkdirSync(bin, { mode: 0o700 });
+    writeFileSync(join(bin, 'curl'), '#!/bin/sh\nif [ "$1" = "--version" ]; then\n  printf "%s\\n" "$FIXTURE_CURL_VERSION"\nelse\n  printf "%s\\0" "$@" > "$FIXTURE_CURL_ARGS"\nfi\n', { mode: 0o700 });
+    const result = spawnSync('/bin/bash', ['-euo', 'pipefail', '-c', script], {
+      env: {
+        PATH: `${bin}:/usr/bin:/bin`,
+        LC_ALL: 'C',
+        RUNNER_TEMP: root,
+        GITHUB_ENV: join(root, 'environment'),
+        FIXTURE_CURL_VERSION: version,
+        FIXTURE_CURL_ARGS: argsPath
+      },
+      encoding: 'utf8',
+      timeout: 10000
+    });
+    assert.ifError(result.error);
+    return { status: result.status, args: existsSync(argsPath) ? readFileSync(argsPath, 'utf8').split('\0').filter(Boolean) : null };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('published-wasm transfer emits its byte bound on supported curl versions', () => {
+  for (const version of ['curl 8.4.0 (fixture)', 'curl 8.10.1 (fixture)']) {
+    const result = runArchiveTransfer(workflow(), version);
+    assert.equal(result.status, 0, 'supported archive transfer must run');
+    const cap = result.args?.indexOf('--max-filesize') ?? -1;
+    assert.ok(cap >= 0 && result.args[cap + 1] === '15535119', 'published_archive_byte_cap');
+  }
+});
+
+test('published-wasm transfer refuses old curl before invoking the download', () => {
+  for (const version of ['curl 8.3.0 (fixture)', 'curl 7.88.1 (fixture)']) {
+    const result = runArchiveTransfer(workflow(), version);
+    assert.notEqual(result.status, 0, 'published_archive_byte_cap');
+    assert.equal(result.args, null, 'unsupported curl must not start the download');
   }
 });
 
