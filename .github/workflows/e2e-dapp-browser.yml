@@ -1,0 +1,1678 @@
+name: '2147 O2 private bounded hosted profile'
+# Inert four-file source proposal; publication, privacy and ONE attempt remain parent-owned.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_source:
+        description: Exact separately reviewed orphan source commit
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  o2-private-profile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SOURCE: ${{ inputs.expected_source }}
+    steps:
+      - name: Bind source and create private original job guard
+        id: guard
+        shell: bash
+        run: |
+          python3 - <<'O2_GUARD'
+          import datetime, json, os, pathlib, re, stat, sys, tempfile, time
+          start = time.monotonic_ns()
+          utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          try:
+              os.umask(0o077)
+              assert os.getuid() != 0 and os.getgid() != 0
+              assert os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch"
+              assert os.environ["GITHUB_REF"] == "refs/heads/qa/2147-o2-hosted-runtime-33431-20261116"
+              expected = os.environ["EXPECTED_SOURCE"]
+              assert re.fullmatch("[0-9a-f]{40}", expected) and expected == os.environ["GITHUB_SHA"]
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              st = os.lstat(temp)
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and not st.st_mode & 0o022
+              control_path = temp / "o2-hosted-control.json"
+              assert not os.path.lexists(control_path)
+              root = pathlib.Path(tempfile.mkdtemp(prefix="o2-hosted-", dir=temp))
+              os.chmod(root, 0o700)
+              st = os.lstat(root)
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and stat.S_IMODE(st.st_mode) == 0o700
+              for name in ("runtime", "runtime/capture", "runtime/home", "runtime/tmp", "cargo-home", "rustup-home", "prep-home", "prep-tmp"):
+                  (root / name).mkdir(mode=0o700)
+              for name in ("source.stdout.log", "source.stderr.log"):
+                  fd = os.open(root / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                  os.close(fd)
+              control = dict(schemaVersion=1, stateRoot=str(root), stateDevice=st.st_dev, stateInode=st.st_ino,
+                             uid=os.getuid(), gid=os.getgid(), guardMonotonicNs=start, guardUtc=utc, jobDeadlineNs=start+900000000000)
+              fd = os.open(control_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+              with os.fdopen(fd, "w") as stream:
+                  stream.write(json.dumps(control, separators=(",", ":")))
+          except BaseException:
+              sys.exit(1)
+          O2_GUARD
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.expected_source }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Check public payload bytes before contained source admission
+        shell: bash
+        run: |
+          python3 - <<'O2_SCOPE'
+          import hashlib, json, os, pathlib, stat, sys, time
+          try:
+              os.umask(0o077)
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              path = temp / "o2-hosted-control.json"
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600 and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_size <= 4096
+                  control = json.loads(stream.read(4097))
+              root = pathlib.Path(control["stateRoot"])
+              st = os.lstat(root)
+              assert root.parent == temp and root.name.startswith("o2-hosted-") and root.resolve(strict=True) == root
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o700
+              assert (st.st_dev, st.st_ino) == (control["stateDevice"], control["stateInode"])
+              assert control["uid"] == os.getuid() and control["gid"] == os.getgid()
+              assert control["jobDeadlineNs"] == control["guardMonotonicNs"] + 900000000000
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              for name, expected in {'source-before.sha256': '38a6ccd2b4e1df98e11d6f78d61f0047b33e1b3918057c94c83df47ac6af9d2e', 'source-after.sha256': '4a55e8eefa0661af5ea58ba65595b09d7dd26bf34097734c97fe9786a5ff03f1', 'source-overlay.patch': 'a93896ccfecb7f9e5b331afff253c7f96cd6ef2807c8eebdbeeb620aa4aaf242'}.items():
+                  st = os.lstat(name)
+                  assert stat.S_ISREG(st.st_mode) and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) == 0o644
+                  assert st.st_uid == os.getuid() and st.st_gid == os.getgid()
+                  fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                  with os.fdopen(fd, "rb") as stream:
+                      opened = os.fstat(stream.fileno())
+                      assert (opened.st_dev, opened.st_ino, opened.st_mode, opened.st_uid, opened.st_gid) == (st.st_dev, st.st_ino, st.st_mode, st.st_uid, st.st_gid)
+                      assert hashlib.sha256(stream.read()).hexdigest() == expected
+                  assert time.monotonic_ns() < control["jobDeadlineNs"]
+          except BaseException:
+              sys.exit(1)
+          O2_SCOPE
+      - name: Check out frozen public wallet baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: 0xMiden/wallet
+          ref: 293d668a14aa4226cd666d2f3344de6d65c5d762
+          path: wallet
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Assemble private literal controller chunk 1
+        shell: bash
+        run: |
+          python3 -c 'import hashlib, json, os, pathlib, stat, sys, time
+          try:
+              os.umask(0o077)
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              path = temp / "o2-hosted-control.json"
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600 and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_size <= 4096
+                  control = json.loads(stream.read(4097))
+              root = pathlib.Path(control["stateRoot"])
+              st = os.lstat(root)
+              assert root.parent == temp and root.name.startswith("o2-hosted-") and root.resolve(strict=True) == root
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o700
+              assert (st.st_dev, st.st_ino) == (control["stateDevice"], control["stateInode"])
+              assert control["uid"] == os.getuid() and control["gid"] == os.getgid()
+              assert control["jobDeadlineNs"] == control["guardMonotonicNs"] + 900000000000
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              destination = root / "controller.py"
+              raw = sys.stdin.buffer.read(21001)
+              assert len(raw) <= 21000
+              fd = os.open(destination, os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_CREAT | os.O_EXCL, 0o600)
+              with os.fdopen(fd, "ab") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) == 0o600
+                  assert st.st_size == 0
+                  stream.write(raw)
+          except BaseException:
+              sys.exit(1)
+          ' <<'O2_SOURCE_0'
+          # Inert source: executed only by a separately authorized hosted workflow.
+          # Bounded observation source; export approval remains separate from source review.
+          import datetime
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import platform
+          import re
+          import resource
+          import selectors
+          import shutil
+          import signal
+          import stat
+          import subprocess
+          import sys
+          import time
+          
+          P = 'qualification/o2-real-signing-inputs'
+          BASE = '293d668a14aa4226cd666d2f3344de6d65c5d762'
+          BINDINGS_SHA = '508f8566dc8a2bb3f06bbebadde02038e802e1bdc0eac0111254df970a1f43f3'
+          GNU_INTEGRITY = 'sha512-i1gp3qQAPjdf1AzYZAi/WX4XUZHYPlkhMXtkiYg5FZvuUzxekGiER+sopGv569Fg2LHT3tfkw2LmVMxy0Egv9Q=='
+          # BEGIN FROZEN DATA
+          BEFORE = {'CHANGELOG.md': '09986cb234b7760a225c2654ca956d1d9cfbe452ddd1406abd15a7ab0d3bb8ef', 'playwright/e2e/helpers/bridge.ts': '2fcbfc1657014aff3c8deeea11f530a09afcb9b0cd8660dde490dd3b83b3e3b1', 'playwright/e2e/tests/bridge/bridge-out-agglayer.spec.ts': '2782618fed480e7b04a844e5f4d789490b4ee4cd88a4662461a836f7eaa309bd', 'src/background.test.ts': '2f0c844f97517709ebbb0a20e531f1728abbbe4f945f6648968af45329f034c8', 'src/background.ts': '1e79d920c1e3d8ff370117beca674d098b0d836750326e2ebd2d44b3ff457b8a', 'src/lib/agglayer/allowed-faucets.test.ts': '2c36ebf8f23320c8aa73fe52fa1f38124191afd55d7feb5939038dda433c437a', 'src/lib/agglayer/allowed-faucets.ts': '147853930e5ccf540702ebe7c6e590d817629c58d1a79623546599aaec817e42', 'src/lib/agglayer/b2agg/index.test.ts': '1b49bfbc54a5b40a394348c89e2729e12d268442b9098390b6971c3028efd0c9', 'src/lib/agglayer/b2agg/index.ts': '79dc91cb8cded8b3e604491a0f8eef681c1adf8980f02722d732816f353d6ccd', 'src/lib/intercom/in-process-request-handler.test.ts': 'cbb802dd7292c01b9f85f8347d0e04dfca4365f2fb850ddf0715b5a847f4ac04', 'src/lib/intercom/in-process-request-handler.ts': 'e58806b0b9c58a5a120e8cdc4bb77a410d9ffbe329a925a9e93ac33945194ff9', 'src/lib/intercom/mobile-adapter.ts': 'fdc7fd85507300b11d3117a2ec8067ec7c22b4188e034969ba1909409c7d51ca', 'src/lib/miden/back/actions.test.ts': '6a27a5120d89c2bfe5fdaf3e3813bed73e0f85f98e34e4e36b6af157de6950cf', 'src/lib/miden/back/actions.ts': 'eae772894c4e2aeeb4ced58a88460254ee1dfc435753f8192d38b6967e619ecb', 'src/lib/miden/back/main.test.ts': '489d33962633cd506d11b26bf902ca178f4a056badd991f5dd1b139ce8215eb3', 'src/lib/miden/back/main.ts': '11b80572584d330643e24ab2753b9ca316211ee02d60439637bed23c857ec03f', 'src/lib/miden/back/miden-client-proxy.test.ts': '2ca3378afc06980349f3cf1f772c5e944a6b82d4b4af2a92bc2fdfce58fd58c8', 'src/lib/miden/back/miden-client-proxy.ts': 'f97e1b20d8d428edf36f4f8818f9237e2e24b24f3a4fb0eef36f2fd1949f3c90', 'src/lib/miden/db/types.ts': '28b7f8cd2e32f28017a7b1fbbaca5756387b64d0070095c7d543fc742c1bb5b8', 'src/lib/miden/front/client.ts': '8947bc3276f782c34163cae7b1076ea3e11420dad46a16ea1594f8499fdf2a0c', 'src/lib/miden/sdk/dry-run-request.ts': '5db4c61a37d3a38f11f8de23981853578cdd8773b110b95e79a694281db4f51e', 'src/lib/miden/sdk/miden-client.test.ts': '5712ddda11fdb24e327d820a2b9dbc3472db29cd47de314761aa468350b09c99', 'src/lib/miden/sdk/miden-client.ts': '15fec81228fe92098f220a0fab8a7279418c0fc6242179cf01efa6a35f0d14f2', 'src/lib/miden/spending-limits/queue.ts': 'f6a62aeb425da1cd5f4dd8fb6b9a218588423c915819b1b5930dff0543a90a37', 'src/lib/miden/transaction/complete.ts': '474ad84e8f3dcf0e15f41f67b23c3c92948a91a3a182ad594c15487c2a537ea3', 'src/lib/miden/transaction/effect-checked-signer.test.ts': '37ec615c1b97baee93433fc16f5dde972741715b8a73fc07f0bf0dfbed4f7e39', 'src/lib/miden/transaction/effect-checked-signer.ts': 'e921d515d408f8702829c3eab7d2e69f194ca1562d6fa96ba2eafcbdc98012ea', 'src/lib/miden/transaction/index.ts': 'a89a18e9b3e8addeb0accd50de6d1ce928924c8b8edb611af9a6fb7c9b39a5f9', 'src/lib/miden/transaction/initiate.ts': '5f1c305e009e247449575cd10c130d721aaffdbccf101d1da6f0d12b4f9eafe4', 'src/lib/miden/transaction/proposal-effect-guard.test.ts': 'bf556a26f2e280d574bab677919b9e68cb0e89728898ec5b77fbb379ca7d0aae', 'src/lib/miden/transaction/proposal-effect-guard.ts': '7f64ac14175e72b1a9b20a57d0539f302c93784050b45205f41d52f62be6c638', 'src/lib/miden/transaction/signing-effect-context.integration.test.ts': '2eb50f797a1b5f4cfb7bccd05c5bc8d9a860debf69297e47d9cfe7bab0d9e4c0', 'src/lib/miden/transaction/transactions.guardian.test.ts': '0c843c037a86c3d61fd0425c9dde2d7a236d6ead0f4504a792f7dc2e36164121', 'src/lib/miden/transaction/transactions.test.ts': '2590804910d6b1035c14f10b3967c34e09ce3b387b506f967d952aa21a145332', 'src/lib/shared/types.ts': 'dfcef45a31e499ec0e38f56750d6c482944c24d02fcd6f37acdb81c468ee80a8', 'src/lib/store/index.ts': 'a42d45c4ee31ee606c611f1056ac3c6b34a430d39c88b836ee4e4a11a7f9db8c', 'src/lib/store/simulate-custom-tx.store.test.ts': '7189d220b2c6652170c5fcd0c1b29edd70f9d2b11fd64de1d8905b1729d75cbc', 'src/lib/store/types.ts': '3529d1e6af35b4fd7f41fbca86f319ad699ac4a0a469c67a856febd7fb525294', 'src/lib/usdcx/burn-fee.test.ts': '9078fe30641db853bc23bc0cc646c6653055848aeb4b366e324ac596b34119fd', 'src/lib/usdcx/burn-fee.ts': '591452abb88a09a75adfe17ce4d0b5b401584f09b7483db33e690ed042139fad', 'src/lib/usdcx/burn.test.ts': 'b2ff561f38ad057528bbf547be62eb19df60d37b411648ec979f80008500c2ab', 'src/lib/usdcx/burn.ts': '0bba921b14fb9a47e84aea17f76e0d54d2f289deb089a9ff9855546169e2ff50', 'src/offscreen/main.test.ts': '7467b62bb924ed1381f11b11b1dcbc0696b0915bf09a9cabf658aa9ab5ece985', 'src/offscreen/main.ts': '0421e03231899d4fb39b9cab329cf101f7d26e2aef8c4662c32d74ae3ca7d929', 'src/screens/send-flow/ReviewTransaction.test.tsx': '24d33196f35a1a07e402fea75f66d278e8232b6e90c9b366f7470e4873e94572', 'src/screens/send-flow/ReviewTransaction.tsx': '5b1e93a201b68c11aa6ae50745ce70719a1675c45b0651f89bce198d40649c95'}
+          AFTER = {'CHANGELOG.md': '368e0eb7cc00f378caff5eae4b12e95aeee797b43ab65e6d7cfa4918882ddec9', 'playwright/e2e/helpers/bridge.ts': '1d70d4cd78cbd0452ee789fb6b5b0034e774c7e5e5988608392a5b2b10d2d2a7', 'playwright/e2e/tests/bridge/bridge-out-agglayer.spec.ts': 'c7762fe5176a01cc1b515c7da3c47120087ccd85a08aa9615b5186e66f22d325', 'qualification/o2-real-signing-inputs/rust/Cargo.lock': '1126648360a407d410454c85a251ba994d5d950e7d5017ac4522b18f034b4670', 'qualification/o2-real-signing-inputs/rust/Cargo.toml': 'ff65b976d1b8c249f877a65684844b8b53c81d512b64345adc31eabfd56c2fd4', 'qualification/o2-real-signing-inputs/rust/src/capture.rs': '6cbaecc17276cdc99fc3858bccdd7a2236577beef178fc949707e17932076fec', 'qualification/o2-real-signing-inputs/rust/src/fixture.rs': '650e8485f381258854381795a3fb4ff72e8e0c1b4bab410fc61c8434574d8bd8', 'qualification/o2-real-signing-inputs/rust/src/main.rs': '28889b3d7989a4440cc1d294f39cb78b5b3b799584aec74677bd3221e65e9fed', 'qualification/o2-real-signing-inputs/source-bindings.json': '508f8566dc8a2bb3f06bbebadde02038e802e1bdc0eac0111254df970a1f43f3', 'qualification/o2-real-signing-inputs/wallet/jest.config.mjs': 'ca5efa341ee8bb39c72bb9e50addaf2f8b36c61613ac7a90d56044d6c147adaa', 'qualification/o2-real-signing-inputs/wallet/real-signing-inputs.probe.test.ts': '58e2965bb66d9651d6351a43a4029e4acac33073a284d037573079161776340d', 'src/background.test.ts': '4deefe58bf7abdbe8db35f6c4a254ab1f8cb0dabd65f5451388833f080dfca08', 'src/background.ts': 'cf1f3505412a7f8950a732a7ff9f9dee8d5bf17142c1557ba7fe64cb476b189d', 'src/lib/agglayer/allowed-faucets.test.ts': '4200ecab84de29bad8f9aca68dc7f83871f716ce1708b4ee734e711cfe58589d', 'src/lib/agglayer/allowed-faucets.ts': '39ea209c5038570b333e5a6b3d2e5a295d7ce31b9055bad29373e497caa86b42', 'src/lib/agglayer/b2agg/confirm.ts': '395286f8afd9688e5eadb044abc564ac57abd7937f1d17efe8da38b267f75081', 'src/lib/agglayer/b2agg/index.test.ts': '9d025d5971123fda75754335a9d249621097a7b5702dab80f19425257d5e9b1c', 'src/lib/agglayer/b2agg/index.ts': '1d458ea0e36a9d5deb220e31dc68e1740ccc028f8685dcc6663a68cc239c3ce5', 'src/lib/agglayer/b2agg/note.ts': '06366248370108c5da862f37e5d898f3c05d772d5a21a0b1898cce4d422e4e00', 'src/lib/agglayer/b2agg/request.test.ts': 'd5160ef4cfb5760e23fa32d569013311c99803877b1674526d2d22ebdaa457b9', 'src/lib/agglayer/b2agg/request.ts': '6c4525b669183236ed380636790e0b4f86e0e2b15e449857f83a3e550feb62df', 'src/lib/agglayer/b2agg/review.test.ts': 'd3e78af1713ac7e555091464a7d06e393fc96efbf97379df5d84e3313b174b4a', 'src/lib/agglayer/b2agg/review.ts': 'c49819de4074b1be1da29be928654d0f006587e51f404d3414f97b60a05cae85', 'src/lib/epoch/miden-note.producer.test.ts': 'f63962f0964d911f8414254c8548be87bdb219e29732a3c70651fe7e6c5a20d1', 'src/lib/intercom/in-process-request-handler.test.ts': '4bfe9bebe83dd6d052eb0f0c6c94d633efbdf913aa2f3ae5ff38e422a70785b4', 'src/lib/intercom/in-process-request-handler.ts': '04a7b3e6fccfe285136a344173490f9adc4d9d44a3df0638324c18b7ec9feed2', 'src/lib/intercom/mobile-adapter.ts': 'aa72fc91d743d91df594970922b23d2c891d0662749ad6fff9c4f70f6d442892', 'src/lib/miden/back/actions.test.ts': '428853c1b4bd8c90f991fb1119e7bd9ae3a0be676c3b554103e556c5d512f50d', 'src/lib/miden/back/actions.ts': '3dcd1625147dbd2a475ffab9ed515287275880b469a7b762b42f2e260127fe46', 'src/lib/miden/back/main.test.ts': '55a7082b10ad43a5ee1995015cc6ac0075508649bab21d8f374a1ee517b9fc15', 'src/lib/miden/back/main.ts': '90be09dfe8b5db4a57aff98e560bfcac898741097657526a7e9115737153e510', 'src/lib/miden/back/miden-client-proxy.test.ts': '6ade7bec290bd0c68157343b28122d4ddd8f6eb0d1bd9f3727c0dc8222a56700', 'src/lib/miden/back/miden-client-proxy.ts': '7b9f86811ad29f98cf4361dcc44bf19f2ca6fd90627e213a37c6382c416cf643', 'src/lib/miden/db/types.ts': '560129546746edf12f397db7541a8a2898572b87640da38029d761ef454cd7ed', 'src/lib/miden/front/client.ts': '6ae402f6edbacc1031d60cb2631440148151cedbe8196205f9fda68e917b8cb1', 'src/lib/miden/sdk/dry-run-request.test.ts': '43fcaa458461bcb7f61f09580b853e6bc100a0fbb7339f8a8326718a9db9e0e9', 'src/lib/miden/sdk/dry-run-request.ts': '5c490cc5ac7f79023cf41166c664120bcd1681434b25a5abe1b3a6ba0932fced', 'src/lib/miden/sdk/miden-client.test.ts': '04ef15650f5127639d732aa10cae4ef5e775de60a8ffe6a10f6b0513d29e36ca', 'src/lib/miden/sdk/miden-client.ts': 'b46f487c05befb443fcbd981e6bc0ab2093330b5c680d76b0bc4b8b2d237f77a', 'src/lib/miden/spending-limits/queue.ts': 'a4446564348b3d7c552a346ab38b247f7be9c79c1ae8d29a11db5ec0f59a03d2', 'src/lib/miden/transaction/bridge-effects.test.ts': '5a02bda71c2daff6efc3db884b2697bb11d606c153b21275f03403c1ffda7ac9', 'src/lib/miden/transaction/bridge-effects.ts': 'd525c092524e780b21a8087713f887c3cf76fe072d196cb3b75c296d7ef7939c', 'src/lib/miden/transaction/complete.agglayer.test.ts': '4af8b54c57d74be64678fe9493baf5de15daa11f01d5e6bede521f4b6036c005', 'src/lib/miden/transaction/complete.ts': '02650cc764716f87e7b7b3fd3043d36aa3b73c1eca25bfb27f6bde840f081260', 'src/lib/miden/transaction/effect-checked-signer.test.ts': '34a576b80a006a5df97a529b240d3e400f486cf59427e2130d9e03979d21aa2d', 'src/lib/miden/transaction/effect-checked-signer.ts': '30eae8ed92c5f9d3195e7d4cfd41451cee6b849b8bda0befd3732cd5848da1ed', 'src/lib/miden/transaction/index.ts': '12476ff61b60fca95d0809e11f3d2290043701b7adc6d78960c1477883f621ed', 'src/lib/miden/transaction/initiate.agglayer-review.test.ts': '84e32a0b59594679d77061d23e6c6c335ac2edfe7ebcfaa4a04127b1f1722a6a', 'src/lib/miden/transaction/initiate.bridge-review.test.ts': 'd196b1c52c70e68b3437a3644bd34a269308dbef9661fa26b162ca6af94e5223', 'src/lib/miden/transaction/initiate.ts': '039ab3f31a5b6f5cd5018785ea47e2f6bd59210c2daf0cce7add43d49ec6dff9', 'src/lib/miden/transaction/proposal-effect-guard.test.ts': 'db26d928beeb798eecd647ea810778f51f711987e5d1c87d39d91bd78d79a3fb', 'src/lib/miden/transaction/proposal-effect-guard.ts': 'c3fba0fd209722951c33ba3234aaa79fcf7a15ee239a2d0b21ac903fac080b47', 'src/lib/miden/transaction/signing-effect-context.integration.test.ts': 'b61ceae05152984d5bdd7b5d5df733752b768e4e873a6e5c093bf5dcbc004bab', 'src/lib/miden/transaction/transactions.guardian.test.ts': 'a8dc143ff618973ad2168fbcaa9ba089850bc29db82e0183d97bfbdad112e7f0', 'src/lib/miden/transaction/transactions.test.ts': 'babc5aa384c54811a4faae5c0fe526dc14995358c6f6e67e4cdc30ec88c9ebb6', 'src/lib/shared/types.ts': '41f101ac4f7f5cc5b892f16ce599c4269b2588df77a149e6578262d07090444e', 'src/lib/store/index.ts': 'fd667d133121d4c50edd3b12d353d1fd53db9ef74ff5a268998585e6c3b324de', 'src/lib/store/simulate-custom-tx.store.test.ts': 'f897212b1d3ad81caaabd608cad59170618bd6a3286badc85ef119b7b4f1ed7c', 'src/lib/store/types.ts': '9a0069176e28ed5074f7430932b76df8568bae09f64620e5b9abd62792db0f75', 'src/lib/usdcx/burn-fee.test.ts': 'dcafd45861d80ce2d10723f337f6fbe4dfdab9728ede140f0692148254ea59c1', 'src/lib/usdcx/burn-fee.ts': 'de04c2ed8043c48ab68b1af154a1ccbb0ae16a69b8daac5c2b631085e6f949ca', 'src/lib/usdcx/burn-request.test.ts': 'fca848dcf331d3a21cafafdcae7f14790f1a67070f2526cd045ca11c2a230847', 'src/lib/usdcx/burn-request.ts': 'e2c57794624153fa31976dd36b166473f4d56c7190331821201a5e0394948037', 'src/lib/usdcx/burn-review.test.ts': '8de33d3b70f43b9bba5bb4b5778a5b4b289235a500148a9b0027920c9a495ffa', 'src/lib/usdcx/burn-review.ts': '5b0842660d0236da7f89310a0bce5c7eddb76fb99420d22b6618fa41d51d0618', 'src/lib/usdcx/burn.test.ts': 'f92cfe43b365368d72b03896acd3f3b59d2723380ae4ddd98545ae9db8228a83', 'src/lib/usdcx/burn.ts': '329818b24ee9c9107f20cd27d96cb200af327ced35a07a2b347c808252e03c22', 'src/offscreen/main.test.ts': '08b95bd64b1dd89bbfa2132530b8b748c022152952192a7fa94e764e91a0d467', 'src/offscreen/main.ts': '08f481e5db77db83ff10c0c6ecab5cce63000b1b4710184dff3e57ebf51c51d5', 'src/screens/send-flow/ReviewTransaction.test.tsx': 'd446211af2a0998a4262f2c66c7738fc1d83a104bbd41b0013262014362d6892', 'src/screens/send-flow/ReviewTransaction.tsx': 'bc7729cb66c339dc316851c65e8d9846c309474788e54b2e4231116f3144d103'}
+          O2_SOURCE_0
+      - name: Assemble private literal controller chunk 2
+        shell: bash
+        run: |
+          python3 -c 'import hashlib, json, os, pathlib, stat, sys, time
+          try:
+              os.umask(0o077)
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              path = temp / "o2-hosted-control.json"
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600 and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_size <= 4096
+                  control = json.loads(stream.read(4097))
+              root = pathlib.Path(control["stateRoot"])
+              st = os.lstat(root)
+              assert root.parent == temp and root.name.startswith("o2-hosted-") and root.resolve(strict=True) == root
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o700
+              assert (st.st_dev, st.st_ino) == (control["stateDevice"], control["stateInode"])
+              assert control["uid"] == os.getuid() and control["gid"] == os.getgid()
+              assert control["jobDeadlineNs"] == control["guardMonotonicNs"] + 900000000000
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              destination = root / "controller.py"
+              raw = sys.stdin.buffer.read(21001)
+              assert len(raw) <= 21000
+              fd = os.open(destination, os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_APPEND, 0o600)
+              with os.fdopen(fd, "ab") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) == 0o600
+                  assert st.st_size == 13555
+                  stream.write(raw)
+          except BaseException:
+              sys.exit(1)
+          ' <<'O2_SOURCE_1'
+          ADDITIONS = ['qualification/o2-real-signing-inputs/rust/Cargo.lock', 'qualification/o2-real-signing-inputs/rust/Cargo.toml', 'qualification/o2-real-signing-inputs/rust/src/capture.rs', 'qualification/o2-real-signing-inputs/rust/src/fixture.rs', 'qualification/o2-real-signing-inputs/rust/src/main.rs', 'qualification/o2-real-signing-inputs/source-bindings.json', 'qualification/o2-real-signing-inputs/wallet/jest.config.mjs', 'qualification/o2-real-signing-inputs/wallet/real-signing-inputs.probe.test.ts', 'src/lib/agglayer/b2agg/confirm.ts', 'src/lib/agglayer/b2agg/note.ts', 'src/lib/agglayer/b2agg/request.test.ts', 'src/lib/agglayer/b2agg/request.ts', 'src/lib/agglayer/b2agg/review.test.ts', 'src/lib/agglayer/b2agg/review.ts', 'src/lib/epoch/miden-note.producer.test.ts', 'src/lib/miden/sdk/dry-run-request.test.ts', 'src/lib/miden/transaction/bridge-effects.test.ts', 'src/lib/miden/transaction/bridge-effects.ts', 'src/lib/miden/transaction/complete.agglayer.test.ts', 'src/lib/miden/transaction/initiate.agglayer-review.test.ts', 'src/lib/miden/transaction/initiate.bridge-review.test.ts', 'src/lib/usdcx/burn-request.test.ts', 'src/lib/usdcx/burn-request.ts', 'src/lib/usdcx/burn-review.test.ts', 'src/lib/usdcx/burn-review.ts']
+          BOOTSTRAP = {'package.json': {'sha256': '1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e', 'mode': 420}, 'yarn.lock': {'sha256': 'd179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b', 'mode': 420}, 'tsconfig.json': {'sha256': 'fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe', 'mode': 420}, '.nvmrc': {'sha256': 'cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73', 'mode': 420}, 'packages/hd-key/package.json': {'sha256': '68872467d64e7e95822bf15b578f98f38f94ee15c978bef41248bb28c0e3d74b', 'mode': 420}, 'packages/bread-connect/package.json': {'sha256': '1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e', 'mode': 420}, 'packages/bread-connect-capacitor/package.json': {'sha256': '8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275', 'mode': 420}, 'packages/dapp-browser/package.json': {'sha256': '6e429996887877ba411d6a2262947fe7831532562b6d872f888c83edb37375b1', 'mode': 493}, 'packages/native-prover/package.json': {'sha256': 'dee8323b83b5a584a49e61c5c6a1deb19db572226484fbbff17b50e38fabebeb', 'mode': 420}, 'packages/hd-key/tsconfig.json': {'sha256': '93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2', 'mode': 420}, 'packages/bread-connect/tsconfig.json': {'sha256': '9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9', 'mode': 420}, 'patches/@capacitor+keyboard+8.0.5.patch': {'sha256': 'c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa', 'mode': 420}, 'patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch': {'sha256': '7477ff106d8921519b8b9c7614dd5f27035f4db15d77ea65d39edfc1a49a992c', 'mode': 420}, 'patches/@openzeppelin+guardian-client+0.18.1.patch': {'sha256': '79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1', 'mode': 420}, 'patches/eslint-plugin-import+2.32.0.patch': {'sha256': '1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d', 'mode': 420}, 'patches/eslint-plugin-react+7.27.1.patch': {'sha256': '9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6', 'mode': 420}, 'patches/inspect-cli-cdp-fix.patch': {'sha256': 'b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615', 'mode': 420}, 'patches/react-infinite-scroller+1.2.6.patch': {'sha256': '3efbc553923c5294e3d35904ea8cb82142c99b99e5320e641eaa221d03021819', 'mode': 420}, 'patches/vaul+1.1.2.patch': {'sha256': '4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf', 'mode': 420}, '.eslintrc': {'sha256': '6f6ba5ed5f7a19c442a3758ef91cc11c1754657dec0b2b860f865b6c34f0523e', 'mode': 420}, '.eslintrc.i18n.json': {'sha256': '101bb34834b840158d0b2067e56b485c5b78173a4b71fac73106ba28e73d6526', 'mode': 420}, '.eslintrc.harness.json': {'sha256': '4f2f9e3ed69e9e1d05dc97d054a1b85668bc3d53cda3657bfcb3d467b52607c6', 'mode': 420}, '.prettierrc': {'sha256': '7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf', 'mode': 420}, '.prettierignore': {'sha256': 'f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd', 'mode': 420}, 'scripts/lint-e2e-harness.mjs': {'sha256': '1696e4f93a9c602594d42780b5b325f9de0fe9f1c575444491e850d7e63f4134', 'mode': 420}, 'scripts/check-native-prover-pin.mjs': {'sha256': '5104a79a346824036eeea3b16bc3c1c21a3a2a0174e493a29b5c4f69c28423fa', 'mode': 420}, 'playwright/e2e/eslint-rules/known-violations.json': {'sha256': '70ffbb4372f856383bfa24ba01fb5bac9ceef0c090bdbef3908b9ca8d3c4f2d0', 'mode': 420}, 'playwright/e2e/eslint-rules/no-conditional-expect.js': {'sha256': 'de0c54849474643dd2376c5b191ea6ec5cf934e86d95fc14ebc10cf783f0b031', 'mode': 420}, 'playwright/e2e/eslint-rules/no-long-bare-wait.js': {'sha256': 'c23fdd2ded1a14a6a0633401ed0786e9fe113aa5c8751ae7f9d6424be808cde5', 'mode': 420}, 'playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js': {'sha256': 'c76cc738f3f5beb23cc310d7a2f6471cad077b72fdc61875bae6d9b3d5b79c89', 'mode': 420}, 'packages/native-prover/android/rust-bridge/Cargo.toml': {'sha256': '3a1b514d27e10680b66d1331313f9350431ac88107bfbeb5693102a78a50ad1e', 'mode': 420}, 'packages/native-prover/android/rust-bridge/Cargo.lock': {'sha256': '7855e80634b4fd1e80855807704ed8c774bb96fc66d7472cc753daedaab2a25f', 'mode': 420}, 'packages/native-prover/pin-drift-exemptions.json': {'sha256': '40b461cafe891b15363ddb8cdecde0c7bf02b4633d16450d995115d3c39e5144', 'mode': 420}}
+          WALLET_MOUNTS = ['.agents', '.babelrc', '.browserslistrc', '.claude', '.env.example', '.eslintrc', '.eslintrc.harness.json', '.eslintrc.i18n.json', '.gitattributes', '.github', '.gitignore', '.nvmrc', '.prettierignore', '.prettierrc', '.svgrrc.js', 'AGENTS.md', 'CHANGELOG.md', 'CLAUDE.md', 'LICENSE', 'README.md', 'STORE_LISTING.md', '__mocks__', '_templates', 'android', 'bin', 'capacitor.config.ts', 'components.json', 'confirm.html', 'desktop.html', 'docs', 'fonts', 'format-locales.js', 'fullpage.html', 'ios', 'jest.config.ts', 'jest.setup.js', 'lefthook.yml', 'mobile.html', 'mv3-hot-reload.config.js', 'node_modules', 'offscreen.html', 'options.html', 'package.json', 'packages', 'patches', 'plans', 'playwright', 'playwright.activity.config.ts', 'playwright.android.auth-tab.config.ts', 'playwright.android.config.ts', 'playwright.android.dapp-e2e.config.ts', 'playwright.android.dapp.config.ts', 'playwright.arcade-visual.config.ts', 'playwright.bridge-guardian.config.ts', 'playwright.bridge.config.ts', 'playwright.config.ts', 'playwright.dapp.config.ts', 'playwright.e2e.config.ts', 'playwright.earn.config.ts', 'playwright.guardian.config.ts', 'playwright.ios.bridge-in.config.ts', 'playwright.ios.config.ts', 'playwright.ios.dapp-e2e.config.ts', 'playwright.ios.dapp.config.ts', 'playwright.ios.guardian.config.ts', 'playwright.ios.usdcx-live.config.ts', 'playwright.mainnet.config.ts', 'playwright.mainnet.tsconfig.json', 'playwright.one-click-local.config.ts', 'playwright.one-click-visual.config.ts', 'playwright.resilience.config.ts', 'playwright.store-listing.config.ts', 'playwright.stored-override.config.ts', 'playwright.stress.config.ts', 'playwright.swap.config.ts', 'playwright.telemetry.config.ts', 'playwright.token-display-visual.config.ts', 'playwright.toolbar.config.ts', 'playwright.usdcx.config.ts', 'popup.html', 'postcss.config.js', 'public', 'qualification', 'scripts', 'services', 'sidepanel.html', 'skills', 'skills-lock.json', 'src', 'src-tauri', 'store-listing', 'tailwind.config.ts', 'tasks', 'test', 'tools', 'tsconfig-utility.json', 'tsconfig.json', 'updates', 'utility', 'vite.background.config.ts', 'vite.contentScripts.config.ts', 'vite.desktop.config.ts', 'vite.extension.config.ts', 'vite.mobile.config.ts', 'yarn.lock']
+          SDK_TEXT_PINS = [{'root': 'repository', 'path': 'node_modules/@miden-sdk/miden-sdk/package.json', 'sha256': 'f500c278d389bff2eba9e7863241640691f4b7d6545b44374cec8d701ce69441', 'mode': '100644', 'nativeGitBlob': '9ceb7153f6e92ec5ced020f580469f45e25fc5d3', 'bytes': 4497}, {'root': 'repository', 'path': 'node_modules/@miden-sdk/miden-sdk/js/node-index.js', 'sha256': '7b27f2189161101a69fc09358646306958f4e20dbf8eecf813a74ba2eaff9efe', 'mode': '100644', 'nativeGitBlob': '015a2660983686c52e92d45b91765dd1dae442d2', 'bytes': 16692}, {'root': 'repository', 'path': 'node_modules/@miden-sdk/miden-sdk/js/node/loader.js', 'sha256': '8a8d89e39e91a06ce2b710ec561f8628aa31236775d829c156c87b96b485491b', 'mode': '100644', 'nativeGitBlob': 'be7633c1590e0ed4284024f04f4989657f951bba', 'bytes': 9057}, {'root': 'repository', 'path': 'node_modules/@miden-sdk/miden-sdk/js/node/napi-compat.js', 'sha256': '79c03ee35a82a7bb1e47cfa595c2046ebf1fde50bceb713c530691a68feedab5', 'mode': '100644', 'nativeGitBlob': 'd656ab4bb2bf573385b2b4e7cac6ba1cad6d834a', 'bytes': 13092}, {'root': 'repository', 'path': 'node_modules/@miden-sdk/miden-sdk/js/node/client-factory.js', 'sha256': 'd7a2f6a14ac7307877ccb51aae08058abdad8fb214832f2c0b4bdaa019f009f1', 'mode': '100644', 'nativeGitBlob': '7cb7a6222b2de9f816ff47278ecfbb227d093952', 'bytes': 4294}, {'root': 'repository', 'path': 'node_modules/@miden-sdk/miden-sdk/dist/st/crates/miden_client_web.d.ts', 'sha256': 'f23f9598ad4576c2692cf712ec77998ada239a9d2ebeb653de7799641909cfaa', 'mode': '100644', 'nativeGitBlob': '5c19a5e1d16e351cbe1d4a5ca6fec4758962dd5f', 'bytes': 229702}]
+          JEST_NAMES = ['rejects_non_summary_or_roundtrip_mismatch', 'rejects_core_or_user_output_change', 'control_must_delegate_once', 'equal_fee_is_no_observation', 'fee_difference_is_not_regression', 'incomplete_phase_never_evaluates_semantics', 'export_is_bounded_allowlist', 'export_rejects_non_string_native_identity', 'exact_wire_and_cardinality', 'private_result_create_new_0600', 'private_result_rejects_existing_and_symlink', 'private_result_rejects_invalid_directory', 'private_result_accepts_only_bounded_validated_utf8', 'private_result_retains_setup_failure', 'private_result_call_precedes_qualification_assertions', 'real_codec_guard_replay_requires_qualified_control']
+          RUST_NAMES = ['capture::tests::capture_precedes_refusal', 'capture::tests::public_key_lookup_is_delegated', 'fixture::tests::core_is_length_delimited_and_context_separate', 'fixture::tests::capture_cardinality_is_one', 'fixture::tests::pair_rejects_changed_core_and_nonadjacent_context', 'fixture::tests::metadata_has_only_the_shared_wire_fields']
+          PAYLOAD_HASHES = {'source-after.sha256': '4a55e8eefa0661af5ea58ba65595b09d7dd26bf34097734c97fe9786a5ff03f1', 'source-before.sha256': '38a6ccd2b4e1df98e11d6f78d61f0047b33e1b3918057c94c83df47ac6af9d2e', 'source-overlay.patch': 'a93896ccfecb7f9e5b331afff253c7f96cd6ef2807c8eebdbeeb620aa4aaf242'}
+          # END FROZEN DATA
+          # Current runtime view includes the two additional mandatory Task1 bound references.
+          RUNTIME_MOUNTS = ['src', 'packages', 'node_modules', 'qualification', 'package.json', 'yarn.lock', 'tsconfig.json', 'jest.config.ts', 'playwright/e2e/test-dapp/custom-scripts.ts']
+          PhaseOutcome = dict
+          PreparedExecutable = dict
+          RESULT_KEYS = set('schemaVersion harness semantic causalRegression controlDelegations trialDelegations trialOutcome s1Fee s2Fee accountId inputNoteIds userOutputNoteIds signingInputsSha256 coreSha256 sourceBindingsSha256 native replayMs failureStage evidenceOrigin'.split())
+          root = None
+          root_identity = None
+          control_identity = None
+          all_children_terminated = True
+          qualified_pending = False
+          cleanup_ok = False
+          record_count = 0
+          phase_records: list[dict] = []
+          phase_records_valid = True
+          public_delivery_ready = False
+          retained_result: dict | None = None
+          active_phase = None
+          SUCCESS_PHASES = [('preparation', 'started'), ('source', 'started'), ('source', 'passed'),
+                            ('preparation', 'passed'), ('runtime', 'started'), ('runtime', 'passed'),
+                            ('cleanup', 'started'), ('cleanup', 'passed')]
+          guard_monotonic_ns = 0
+          stage = 'source'
+          active_proc = None
+          active_namespace = None
+          job_deadline = 0
+          prep_deadline = 0
+          runtime_deadline = 0
+          prepared = []
+          dependency_snapshot = {}
+          provider_identity = None
+          reviewed_mounts = []
+          
+          
+          def unique_object(pairs):
+              value = {}
+              for key, item in pairs:
+                  assert key not in value
+                  value[key] = item
+              return value
+          
+          
+          def parse_json(raw):
+              return json.loads(raw.decode('utf-8', errors='strict'), object_pairs_hook=unique_object,
+                                parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+          
+          
+          def same_inode(a, b):
+              return (a.st_dev, a.st_ino, a.st_uid, a.st_gid, a.st_mode) == (b.st_dev, b.st_ino, b.st_uid, b.st_gid, b.st_mode)
+          
+          
+          def owned_directory(path):
+              st = os.lstat(path)
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid()
+              assert stat.S_IMODE(st.st_mode) == 0o700
+              assert pathlib.Path(path).resolve() == pathlib.Path(path)
+              return st
+          
+          
+          def private_file(path, limit):
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+              try:
+                  st = os.fstat(fd)
+                  assert same_inode(before, st) and stat.S_ISREG(st.st_mode) and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_gid == os.getgid()
+                  assert stat.S_IMODE(st.st_mode) == 0o600 and st.st_size <= limit
+                  raw = os.read(fd, limit + 1)
+                  assert len(raw) == st.st_size and len(raw) <= limit
+                  assert same_inode(st, os.lstat(path)) and os.fstat(fd).st_size == len(raw)
+                  return raw
+              finally:
+                  os.close(fd)
+          
+          
+          def create_private(path, raw):
+              fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+              try:
+                  with os.fdopen(fd, 'wb') as stream:
+                      stream.write(raw)
+              except BaseException:
+                  raise
+          
+          
+          def digest(path):
+              h = hashlib.sha256()
+              with open(path, 'rb') as stream:
+                  while True:
+                      if job_deadline:
+                          remaining(runtime_deadline or prep_deadline or job_deadline)
+                      block = stream.read(1048576)
+                      if not block:
+                          break
+                      h.update(block)
+              return h.hexdigest()
+          
+          
+          def serialize_phase(value: dict) -> bytes:
+              assert type(value) is dict and set(value) == {'phase', 'status', 'elapsedMs', 'exitCode', 'treeTerminated'}
+              assert type(value['phase']) is str and value['phase'] in ('source', 'preparation', 'runtime', 'cleanup')
+              assert type(value['status']) is str and value['status'] in ('started', 'passed', 'setup-failure', 'incomplete')
+              assert type(value['elapsedMs']) is int and 0 <= value['elapsedMs'] <= 9007199254740991
+              assert value['exitCode'] is None or (type(value['exitCode']) is int and -2147483648 <= value['exitCode'] <= 2147483647)
+              assert value['treeTerminated'] is None or type(value['treeTerminated']) is bool
+              if value['status'] == 'started':
+                  assert value['exitCode'] is None
+                  assert value['treeTerminated'] is (True if value['phase'] == 'cleanup' else None)
+              if value['status'] == 'passed':
+                  assert value['treeTerminated'] is True
+                  assert value['exitCode'] == (None if value['phase'] == 'cleanup' else 0)
+              if value['status'] == 'setup-failure':
+                  assert value['phase'] in ('source', 'preparation')
+              encoded = json.dumps(value, separators=(',', ':')).encode('utf-8') + b'\n'
+              assert len(encoded) <= 512
+              return encoded
+          
+          O2_SOURCE_1
+      - name: Assemble private literal controller chunk 3
+        shell: bash
+        run: |
+          python3 -c 'import hashlib, json, os, pathlib, stat, sys, time
+          try:
+              os.umask(0o077)
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              path = temp / "o2-hosted-control.json"
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600 and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_size <= 4096
+                  control = json.loads(stream.read(4097))
+              root = pathlib.Path(control["stateRoot"])
+              st = os.lstat(root)
+              assert root.parent == temp and root.name.startswith("o2-hosted-") and root.resolve(strict=True) == root
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o700
+              assert (st.st_dev, st.st_ino) == (control["stateDevice"], control["stateInode"])
+              assert control["uid"] == os.getuid() and control["gid"] == os.getgid()
+              assert control["jobDeadlineNs"] == control["guardMonotonicNs"] + 900000000000
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              destination = root / "controller.py"
+              raw = sys.stdin.buffer.read(21001)
+              assert len(raw) <= 21000
+              fd = os.open(destination, os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_APPEND, 0o600)
+              with os.fdopen(fd, "ab") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) == 0o600
+                  assert st.st_size == 28910
+                  stream.write(raw)
+          except BaseException:
+              sys.exit(1)
+          ' <<'O2_SOURCE_2'
+          
+          def record(phase: str, status: str, exit_code: int | None, terminated: bool | None) -> None:
+              global record_count, phase_records_valid
+              try:
+                  assert phase_records_valid and public_delivery_ready
+                  record_count += 1
+                  assert record_count <= 10
+                  # Offsets use the original guard, including memory-only cleanup terminal facts.
+                  value = dict(phase=phase, status=status, elapsedMs=(time.monotonic_ns() - guard_monotonic_ns) // 1000000,
+                               exitCode=exit_code, treeTerminated=terminated)
+                  encoded = serialize_phase(value)
+                  if phase_records:
+                      assert value['elapsedMs'] >= phase_records[-1]['elapsedMs']
+                  if phase != 'cleanup' or status == 'started':
+                      fd = os.open(root / 'phases.jsonl', os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC)
+                      with os.fdopen(fd, 'ab') as stream:
+                          assert stream.write(encoded) == len(encoded)
+                  phase_records.append(value)
+              except BaseException:
+                  phase_records_valid = False
+                  raise
+          
+          
+          def remaining(deadline):
+              left = (min(deadline, job_deadline) - time.monotonic_ns()) / 1000000000
+              if left <= 0:
+                  raise TimeoutError()
+              return left
+          
+          
+          def limits():
+              resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+          
+          
+          def append_diagnostic(fd: int, used: int, data: bytes, deadline_ns: int) -> int:
+              remaining(deadline_ns)
+              if used + len(data) > 33554432:
+                  raise ValueError('diagnostic capacity exceeded')
+              while data:
+                  remaining(deadline_ns)
+                  written = os.write(fd, data)
+                  if written <= 0:
+                      raise OSError('diagnostic write made no progress')
+                  used += written
+                  data = data[written:]
+              return used
+          
+          
+          def metadata_output(command: list[str], *, view: str = 'git') -> bytes:
+              assert prep_deadline
+              deadline = runtime_deadline or prep_deadline
+              remaining(deadline)
+              output_path = root / (stage + '.stdout.log')
+              offset = len(private_file(output_path, 33554432))
+              phase = 'runtime' if runtime_deadline else 'preparation'
+              require_pass(run_phase(phase, [command], deadline,
+                                     view=view if command[0] == '/usr/bin/git' else 'capability'))
+              remaining(deadline)
+              return private_file(output_path, 33554432)[offset:]
+          
+          
+          def check_git_configuration(*, view: str = 'git') -> None:
+              assert view in ('git', 'transport-git')
+              repository = transport if view == 'transport-git' else wallet
+              raw = metadata_output(['/usr/bin/git', 'config', '--null', '--list', '--show-origin'], view=view)
+              fields = raw.split(b'\0')
+              assert fields.pop() == b'' and len(fields) % 2 == 0
+              allowed = {'core.repositoryformatversion': {'0'}, 'core.filemode': {'true'},
+                         'core.bare': {'false'}, 'core.logallrefupdates': {'true'}, 'gc.auto': {'0'},
+                         'remote.origin.fetch': {'+refs/heads/*:refs/remotes/origin/*'}}
+              for origin, entry in zip(fields[::2], fields[1::2]):
+                  assert origin.decode('utf-8', errors='strict') in ('file:.git/config', 'file:' + str(repository / '.git/config'))
+                  key, value = entry.decode('utf-8', errors='strict').split('\n', 1)
+                  # Admit only inert checkout configuration; includes, hooks and helpers fail closed.
+                  if key == 'remote.origin.url':
+                      assert re.fullmatch(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?', value)
+                  else:
+                      assert key in allowed and value in allowed[key]
+          
+          
+          def check_transport_source() -> None:
+              assert prep_deadline and not runtime_deadline
+              remaining(prep_deadline)
+              # Existing dispatch binding is driver metadata, never a child/producer environment variable.
+              expected_source = os.environ['EXPECTED_SOURCE']
+              assert re.fullmatch('[0-9a-f]{40}', expected_source) and expected_source == os.environ['GITHUB_SHA']
+              check_git_configuration(view='transport-git')
+              assert metadata_output(['/usr/bin/git', 'rev-parse', 'HEAD'], view='transport-git').decode().strip() == expected_source
+              assert metadata_output(['/usr/bin/git', 'show', '-s', '--format=%P', 'HEAD'], view='transport-git').strip() == b''
+              names = ['.github/workflows/e2e-dapp-browser.yml', 'source-after.sha256', 'source-before.sha256', 'source-overlay.patch']
+              raw = metadata_output(['/usr/bin/git', 'ls-tree', '-r', '-z', 'HEAD'], view='transport-git')
+              assert raw.endswith(b'\0')
+              entries = {}
+              for row in raw[:-1].split(b'\0'):
+                  header, name = row.decode('utf-8', errors='strict').split('\t')
+                  mode, kind, blob = header.split(' ')
+                  assert mode == '100644' and kind == 'blob' and re.fullmatch('[0-9a-f]{40}', blob)
+                  assert name not in entries
+                  entries[name] = blob
+              assert list(entries) == names
+              for name in names:
+                  path = transport / name
+                  before = source_mount(path, base=transport)
+                  fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                  with os.fdopen(fd, 'rb') as stream:
+                      st = os.fstat(stream.fileno())
+                      assert same_inode(before, st) and stat.S_ISREG(st.st_mode) and st.st_nlink == 1
+                      assert st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o644
+                      native = hashlib.sha1(b'blob ' + str(st.st_size).encode() + b'\0')
+                      content = hashlib.sha256()
+                      used = 0
+                      while True:
+                          remaining(prep_deadline)
+                          block = stream.read(65536)
+                          if not block:
+                              break
+                          used += len(block)
+                          native.update(block)
+                          content.update(block)
+                      final = os.fstat(stream.fileno())
+                      assert used == st.st_size == final.st_size
+                      assert final.st_mtime_ns == st.st_mtime_ns and final.st_ctime_ns == st.st_ctime_ns
+                      assert same_inode(st, os.lstat(path)) and native.hexdigest() == entries[name]
+                      if name in PAYLOAD_HASHES:
+                          assert content.hexdigest() == PAYLOAD_HASHES[name]
+              remaining(prep_deadline)
+          
+          
+          def check_bootstrap():
+              for path, row in BOOTSTRAP.items():
+                  full = wallet / path
+                  st = os.lstat(full)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == row['mode']
+                  assert digest(full) == row['sha256']
+          
+          
+          def check_hash_rows(rows):
+              for path, expected in rows.items():
+                  full = wallet / path
+                  for parent in full.parents:
+                      if parent == wallet:
+                          break
+                      assert not parent.is_symlink()
+                  st = os.lstat(full)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o644
+                  assert digest(full) == expected
+          
+          
+          def walk_owned_target():
+              owned_directory(target)
+              assert target == wallet / target_relative
+              for current, dirs, files in os.walk(target, followlinks=False):
+                  for name in dirs + files:
+                      path = pathlib.Path(current) / name
+                      st = os.lstat(path)
+                      assert st.st_uid == os.getuid() and st.st_gid == os.getgid()
+                      assert not stat.S_ISLNK(st.st_mode)
+                      assert stat.S_ISDIR(st.st_mode) or (stat.S_ISREG(st.st_mode) and st.st_nlink == 1)
+                      assert not stat.S_IMODE(st.st_mode) & 0o077
+                      assert path.resolve().is_relative_to(target)
+              for parent in target.parents:
+                  if parent == wallet:
+                      break
+                  st = os.lstat(parent)
+                  assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and not parent.is_symlink()
+          
+          
+          def check_untracked(before_build):
+              actual = set(metadata_output(['/usr/bin/git', 'ls-files', '--others', '--exclude-standard', '-z']).decode().strip('\0').split('\0'))
+              actual.discard('')
+              if before_build:
+                  assert actual == set(ADDITIONS)
+              else:
+                  walk_owned_target()
+                  extra = actual - set(ADDITIONS)
+                  assert set(ADDITIONS) <= actual
+                  assert all(path.startswith(target_relative + '/') for path in extra)
+                  assert all(stat.S_ISREG(os.lstat(wallet / path).st_mode) for path in extra)
+              assert not metadata_output(['/usr/bin/git', 'diff', '--cached', '--name-only'])
+          
+          
+          def verify_sources():
+              check_hash_rows(AFTER)
+              check_bootstrap()
+              changed = metadata_output(['/usr/bin/git', 'diff', '--name-only', '--no-renames', 'HEAD', '-z']).decode().strip('\0').split('\0')
+              assert set(changed) == set(BEFORE)
+              check_untracked(before_build=False)
+          
+          
+          def apply_overlay():
+              assert not metadata_output(['/usr/bin/git', 'diff', '--name-only', 'HEAD'])
+              assert not metadata_output(['/usr/bin/git', 'diff', '--cached', '--name-only'])
+              assert not metadata_output(['/usr/bin/git', 'ls-files', '--others', '--exclude-standard'])
+              check_hash_rows(BEFORE)
+              for path in ADDITIONS:
+                  assert not os.path.lexists(wallet / path)
+              for addition in ADDITIONS:
+                  for parent in reversed((wallet / addition).parents):
+                      if parent == wallet or not parent.is_relative_to(wallet):
+                          continue
+                      if not os.path.lexists(parent):
+                          parent.mkdir(mode=0o755)
+                          os.chmod(parent, 0o755, follow_symlinks=False)
+                      source_mount(parent)
+              metadata_output(['/usr/bin/git', 'apply', '--check', str(transport / 'source-overlay.patch')])
+              metadata_output(['/usr/bin/git', 'apply', str(transport / 'source-overlay.patch')])
+              # Public overlay additions are 100644; private diagnostics keep umask077/0600.
+              for path in ADDITIONS:
+                  full = wallet / path
+                  assert stat.S_ISREG(os.lstat(full).st_mode)
+                  assert all(not parent.is_symlink() for parent in full.parents)
+                  os.chmod(full, 0o644, follow_symlinks=False)
+              check_hash_rows(AFTER)
+              check_untracked(before_build=True)
+              assert not os.path.lexists(target)
+              target.mkdir(mode=0o700)
+          
+          
+          def tool_identity(path):
+              resolved = pathlib.Path(path).resolve(strict=True)
+              st = os.lstat(resolved)
+              assert stat.S_ISREG(st.st_mode) and st.st_uid in (0, os.getuid())
+              assert not st.st_mode & (stat.S_ISUID | stat.S_ISGID | 0o022)
+              for parent in resolved.parents:
+                  pst = os.lstat(parent)
+                  assert stat.S_ISDIR(pst.st_mode) and pst.st_uid in (0, os.getuid()) and not pst.st_mode & 0o022
+              return dict(path=str(resolved), sha256=digest(resolved), bytes=st.st_size)
+          
+          
+          def namespace_members(namespace_id):
+              members = []
+              for entry in pathlib.Path('/proc').iterdir():
+                  if not entry.name.isdecimal():
+                      continue
+                  try:
+                      owner = entry.stat().st_uid
+                      if owner != os.getuid():
+                          continue
+                      ns = (entry / 'ns/pid').stat().st_ino
+                      if ns == namespace_id:
+                          members.append(int(entry.name))
+                  except FileNotFoundError:
+                      continue
+                  # Permission/visibility uncertainty must fail, not silently count as disappearance.
+              return members
+          
+          
+          def fence_code(network_isolated):
+              expected = {key: os.stat('/proc/self/ns/' + key).st_ino for key in ('user', 'net', 'pid', 'ipc', 'uts')}
+              # No host /sys/class/net mount; interface/route facts come from this namespace's /proc.
+              code = 'import os,resource,sys\n'
+              code += 'assert os.getuid()==' + str(os.getuid()) + ' and os.getgid()==' + str(os.getgid()) + '\n'
+              for key in ('user', 'pid', 'ipc', 'uts') + (('net',) if network_isolated else ()):
+                  code += 'assert os.stat("/proc/self/ns/' + key + '").st_ino!=' + str(expected[key]) + '\n'
+              code += 'assert os.getpid()>1 and os.getppid()==1\n'
+              code += 'assert resource.getrlimit(resource.RLIMIT_CORE)==(0,0)\n'
+              if network_isolated:
+                  code += 'assert {line.split(":")[0].strip() for line in open("/proc/net/dev") if ":" in line}<={"lo"}\n'
+                  code += 'assert not open("/proc/net/route").read().splitlines()[1:]\n'
+                  code += 'assert all(line.split()[-1]=="lo" for line in open("/proc/net/ipv6_route"))\n'
+              code += 'os.closerange(3,1048576)\nos.execv(sys.argv[1],sys.argv[1:])\n'
+              return code
+          
+          
+          def source_mount(path, *, base=None):
+              base = wallet if base is None else base
+              assert base in (wallet, transport)
+              assert path.resolve(strict=True) == path and path.is_relative_to(base)
+              st = os.lstat(path)
+              assert st.st_uid == os.getuid() and st.st_gid == os.getgid()
+              assert stat.S_ISDIR(st.st_mode) or (stat.S_ISREG(st.st_mode) and st.st_nlink == 1)
+              assert not st.st_mode & (stat.S_ISUID | stat.S_ISGID | 0o022)
+              assert stat.S_IMODE(st.st_mode) in ((0o700, 0o755) if stat.S_ISDIR(st.st_mode) else (0o644, 0o755))
+              for parent in path.parents:
+                  if not parent.is_relative_to(base):
+                      break
+                  pst = os.lstat(parent)
+                  assert stat.S_ISDIR(pst.st_mode) and pst.st_uid == os.getuid() and pst.st_gid == os.getgid()
+                  assert not pst.st_mode & 0o022 and parent.resolve(strict=True) == parent
+              return st
+          
+          O2_SOURCE_2
+      - name: Assemble private literal controller chunk 4
+        shell: bash
+        run: |
+          python3 -c 'import hashlib, json, os, pathlib, stat, sys, time
+          try:
+              os.umask(0o077)
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              path = temp / "o2-hosted-control.json"
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600 and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_size <= 4096
+                  control = json.loads(stream.read(4097))
+              root = pathlib.Path(control["stateRoot"])
+              st = os.lstat(root)
+              assert root.parent == temp and root.name.startswith("o2-hosted-") and root.resolve(strict=True) == root
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o700
+              assert (st.st_dev, st.st_ino) == (control["stateDevice"], control["stateInode"])
+              assert control["uid"] == os.getuid() and control["gid"] == os.getgid()
+              assert control["jobDeadlineNs"] == control["guardMonotonicNs"] + 900000000000
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              destination = root / "controller.py"
+              raw = sys.stdin.buffer.read(21001)
+              assert len(raw) <= 21000
+              fd = os.open(destination, os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_APPEND, 0o600)
+              with os.fdopen(fd, "ab") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) == 0o600
+                  assert st.st_size == 41753
+                  stream.write(raw)
+          except BaseException:
+              sys.exit(1)
+          ' <<'O2_SOURCE_3'
+          
+          def sandbox(command, network_isolated, info_write, block_read, *, view: str = 'workload') -> list[str]:
+              assert view in ('workload', 'capability', 'git', 'transport-git')
+              network_isolated = True if view in ('git', 'transport-git') else network_isolated
+              args = [bwrap['path'], '--unshare-user', '--unshare-pid', '--unshare-ipc', '--unshare-uts',
+                      '--clearenv', '--die-with-parent', '--new-session', '--cap-drop', 'ALL',
+                      '--uid', str(os.getuid()), '--gid', str(os.getgid()), '--info-fd', str(info_write), '--block-fd', str(block_read)]
+              if network_isolated:
+                  args += ['--unshare-net']
+              for mount in reviewed_mounts:
+                  source, destination = mount['source'], mount['target']
+                  assert mount['readOnly'] is True
+                  st = os.lstat(source)
+                  assert stat.S_ISDIR(st.st_mode) and st.st_uid in (0, os.getuid()) and not st.st_mode & 0o022
+                  assert pathlib.Path(source).resolve() == pathlib.Path(source)
+                  args += ['--ro-bind', source, destination]
+              args += ['--symlink', '/usr/bin', '/bin', '--symlink', '/usr/lib', '/lib', '--symlink', '/usr/lib64', '/lib64']
+              args += ['--proc', '/proc', '--dev', '/dev']
+              if view == 'capability':
+                  for path in (pathlib.Path('/var/lib/dpkg'), yarn_root):
+                      st = os.lstat(path)
+                      assert stat.S_ISDIR(st.st_mode) and st.st_uid in (0, os.getuid()) and not st.st_mode & 0o022
+                      assert path.resolve(strict=True) == path
+                  args += ['--ro-bind', '/var/lib/dpkg', '/var/lib/dpkg', '--ro-bind', str(yarn_root), str(yarn_root)]
+                  child_env = {'PATH': '/usr/bin:/bin', 'HOME': '/', 'TMPDIR': '/tmp', 'LANG': 'C.UTF-8'}
+              elif view == 'transport-git':
+                  assert command in (['/usr/bin/git', 'config', '--null', '--list', '--show-origin'],
+                                     ['/usr/bin/git', 'rev-parse', 'HEAD'],
+                                     ['/usr/bin/git', 'show', '-s', '--format=%P', 'HEAD'],
+                                     ['/usr/bin/git', 'ls-tree', '-r', '-z', 'HEAD'])
+                  assert stat.S_ISDIR(source_mount(transport, base=transport).st_mode)
+                  assert stat.S_ISDIR(source_mount(transport / '.git', base=transport).st_mode)
+                  for name in ('config', 'index', 'HEAD', 'objects', 'refs'):
+                      source_mount(transport / '.git' / name, base=transport)
+                  args += ['--dir', str(transport)]
+                  for path in [transport / '.git', transport / '.github/workflows/e2e-dapp-browser.yml',
+                               *(transport / name for name in sorted(PAYLOAD_HASHES))]:
+                      source_mount(path, base=transport)
+                      args += ['--ro-bind', str(path), str(path)]
+                  child_env = {'PATH': '/usr/bin:/bin', 'HOME': '/', 'TMPDIR': '/tmp', 'LANG': 'C.UTF-8'}
+              elif view == 'git':
+                  assert command[0] == '/usr/bin/git'
+                  assert command[1] in ('config', 'rev-parse', 'show', 'status', 'ls-files', 'diff', 'apply')
+                  source_mount(wallet)
+                  assert stat.S_ISDIR(source_mount(wallet / '.git').st_mode)
+                  for name in ('config', 'index', 'HEAD', 'objects', 'refs'):
+                      source_mount(wallet / '.git' / name)
+                  if command[1] == 'apply':
+                      assert command in ([ '/usr/bin/git', 'apply', '--check', str(transport / 'source-overlay.patch')],
+                                         [ '/usr/bin/git', 'apply', str(transport / 'source-overlay.patch')])
+                      writable_parents = {'src', 'playwright', 'qualification'}
+                      args += ['--bind', str(wallet), str(wallet)]
+                      for name in WALLET_MOUNTS:
+                          if name == 'CHANGELOG.md' or name in writable_parents:
+                              continue
+                          path = wallet / name
+                          if os.path.lexists(path):
+                              source_mount(path)
+                              args += ['--ro-bind', str(path), str(path)]
+                      for name in writable_parents:
+                          assert stat.S_ISDIR(source_mount(wallet / name).st_mode)
+                      patch = transport / 'source-overlay.patch'
+                      st = os.lstat(patch)
+                      assert patch.resolve(strict=True) == patch and patch.parent == wallet.parent
+                      assert stat.S_ISREG(st.st_mode) and st.st_nlink == 1
+                      assert st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o644
+                      assert digest(patch) == PAYLOAD_HASHES['source-overlay.patch']
+                      args += ['--ro-bind', str(patch), str(patch)]
+                  else:
+                      args += ['--ro-bind', str(wallet), str(wallet)]
+                  args += ['--ro-bind', str(wallet / '.git'), str(wallet / '.git')]
+                  child_env = {'PATH': '/usr/bin:/bin', 'HOME': '/', 'TMPDIR': '/tmp', 'LANG': 'C.UTF-8'}
+              else:
+                  args += ['--dir', str(wallet)]
+              for name in ((RUNTIME_MOUNTS if network_isolated else WALLET_MOUNTS) if view == 'workload' else []):
+                  path = wallet / name
+                  if not os.path.lexists(path):
+                      continue
+                  assert not path.is_symlink()
+                  args += ['--ro-bind' if network_isolated else '--bind', str(path), str(path)]
+              if view == 'workload' and network_isolated:
+                  args += ['--tmpfs', str(target)]
+                  for row in prepared:
+                      args += ['--ro-bind', row['path'], row['path']]
+                  args += ['--remount-ro', str(target)]
+                  args += ['--bind', str(runtime_root), '/o2-private', '--symlink', '/o2-private/tmp', '/tmp']
+                  child_env = {'PATH': str(node_dir / 'bin') + ':/usr/bin:/bin', 'HOME': '/o2-private/home',
+                               'TMPDIR': '/o2-private/tmp', 'LANG': 'C.UTF-8', 'O2_CAPTURE_DIR': '/o2-private/capture'}
+              elif view == 'workload':
+                  args += ['--ro-bind', str(yarn_root), str(yarn_root), '--ro-bind', rustup['path'], '/o2-tools/rustup',
+                           '--symlink', '/o2-tools/rustup', '/o2-tools/cargo', '--bind', str(root / 'cargo-home'), '/o2-cargo',
+                           '--bind', str(root / 'rustup-home'), '/o2-rustup', '--bind', str(root / 'prep-home'), '/o2-home',
+                           '--bind', str(root / 'prep-tmp'), '/o2-tmp', '--ro-bind', '/etc/ssl/certs', '/etc/ssl/certs',
+                           '--ro-bind', '/etc/resolv.conf', '/etc/resolv.conf', '--ro-bind', '/etc/hosts', '/etc/hosts',
+                           '--ro-bind', '/etc/nsswitch.conf', '/etc/nsswitch.conf', '--ro-bind', '/var/lib/dpkg', '/var/lib/dpkg',
+                           '--symlink', '/o2-tmp', '/tmp']
+                  child_env = {'PATH': '/o2-tools:' + str(node_dir / 'bin') + ':/usr/bin:/bin', 'HOME': '/o2-home',
+                               'TMPDIR': '/o2-tmp', 'LANG': 'C.UTF-8', 'CARGO_HOME': '/o2-cargo', 'RUSTUP_HOME': '/o2-rustup',
+                               'CARGO_TARGET_DIR': str(target), 'YARN_CACHE_FOLDER': '/o2-home/yarn-cache'}
+              assert 'MIDEN_MODULE_PATH' not in child_env
+              assert not set(child_env) & {'NODE_OPTIONS', 'NODE_PATH', 'GITHUB_TOKEN', 'SSH_AUTH_SOCK', 'HTTP_PROXY', 'HTTPS_PROXY'}
+              for key, value in child_env.items():
+                  args += ['--setenv', key, value]
+              args += ['--remount-ro', '/', '--chdir', '/' if view == 'capability' else str(transport if view == 'transport-git' else wallet),
+                       '/usr/bin/python3', '-c', fence_code(network_isolated), *command]
+              return args
+          
+          
+          def run_phase(phase: str, commands: list[list[str]], deadline_ns: int, *, view: str = 'workload') -> PhaseOutcome:
+              global all_children_terminated, active_proc, active_namespace
+              start = time.monotonic_ns()
+              exit_code = None
+              termination_known = True
+              status = 'passed'
+              termination_uncertain = False
+              for command in commands:
+                  exit_code = None
+                  proc = None
+                  namespace_id = None
+                  child_pid = None
+                  info_read, info_write = os.pipe2(os.O_CLOEXEC | os.O_NONBLOCK)
+                  block_read, block_write = os.pipe2(os.O_CLOEXEC)
+                  selector = selectors.DefaultSelector()
+                  sinks = {}
+                  output_open = set()
+                  try:
+                      remaining(deadline_ns)
+                      for name in ('stdout', 'stderr'):
+                          path = root / (stage + '.' + name + '.log')
+                          before = os.lstat(path)
+                          fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC)
+                          sinks[name] = [fd, 0]
+                          st = os.fstat(fd)
+                          assert same_inode(before, st) and stat.S_ISREG(st.st_mode) and st.st_nlink == 1
+                          assert st.st_uid == os.getuid() and st.st_gid == os.getgid()
+                          assert stat.S_IMODE(st.st_mode) == 0o600 and st.st_size <= 33554432
+                          sinks[name][1] = st.st_size
+                      # Only these two private synchronization descriptors cross exec; bwrap closes them.
+                      args = sandbox(command, phase == 'runtime', info_write, block_read, view=view)
+                      remaining(deadline_ns)
+                      termination_known = False
+                      all_children_terminated = False
+                      proc = subprocess.Popen(args, env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'},
+                                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                              close_fds=True, pass_fds=(info_write, block_read),
+                                              start_new_session=True, preexec_fn=limits)
+                      active_proc = proc
+                      os.close(info_write)
+                      info_write = -1
+                      os.close(block_read)
+                      block_read = -1
+                      selector.register(info_read, selectors.EVENT_READ, 'info')
+                      for stream in (proc.stdout, proc.stderr):
+                          os.set_blocking(stream.fileno(), False)
+                          output_open.add(stream.fileno())
+                      selector.register(proc.stdout, selectors.EVENT_READ, 'stdout')
+                      selector.register(proc.stderr, selectors.EVENT_READ, 'stderr')
+                      raw = b''
+          
+                      def service_output():
+                          nonlocal raw
+                          for key, _events in selector.select(min(0.05, remaining(deadline_ns))):
+                              try:
+                                  block = os.read(key.fd, 8193) if key.data == 'info' else os.read(key.fd, 65536)
+                              except BlockingIOError:
+                                  continue
+                              if key.data == 'info':
+                                  if not block:
+                                      raise ValueError('missing bwrap handshake')
+                                  raw += block
+                                  assert len(raw) <= 8192
+                                  if b'\n}' in raw:
+                                      selector.unregister(key.fd)
+                              elif not block:
+                                  selector.unregister(key.fd)
+                                  output_open.remove(key.fd)
+                              else:
+                                  sink = sinks[key.data]
+                                  sink[1] = append_diagnostic(sink[0], sink[1], block, deadline_ns)
+          
+                      while b'\n}' not in raw:
+                          service_output()
+                          if proc.poll() is not None and b'\n}' not in raw:
+                              raise ValueError('bwrap exited before handshake')
+                      info = parse_json(raw)
+                      child_pid = info['child-pid']
+                      namespace_id = info['pid-namespace']
+                      assert type(child_pid) is int and type(namespace_id) is int
+                      assert namespace_id != os.stat('/proc/self/ns/pid').st_ino
+                      active_namespace = namespace_id
+                      assert child_pid in namespace_members(namespace_id)
+                      os.close(block_write)
+                      block_write = -1
+                      while proc.poll() is None or output_open:
+                          service_output()
+                      exit_code = proc.wait(timeout=remaining(deadline_ns))
+                      while namespace_members(namespace_id):
+                          time.sleep(min(0.01, remaining(deadline_ns)))
+                      assert not os.path.exists('/proc/' + str(child_pid))
+                      remaining(deadline_ns)
+                      all_children_terminated = True
+                      termination_known = True
+                      active_proc = None
+                      active_namespace = None
+                      if exit_code != 0:
+                          status = 'setup-failure' if phase == 'preparation' else 'incomplete'
+                          break
+                  except BaseException:
+                      status = 'incomplete'
+                      termination_uncertain = True
+                      termination_known = False
+                      if proc is not None:
+                          try:
+                              if proc.poll() is None:
+                                  os.killpg(proc.pid, signal.SIGKILL)
+                          except ProcessLookupError:
+                              pass
+                          if child_pid is not None and namespace_id is not None:
+                              try:
+                                  if child_pid in namespace_members(namespace_id):
+                                      os.kill(child_pid, signal.SIGKILL)
+                              except (ProcessLookupError, PermissionError):
+                                  pass
+                          try:
+                              # No TERM grace and no deadline extension. Reaping after expiry cannot qualify.
+                              exit_code = proc.wait(timeout=remaining(job_deadline))
+                              if namespace_id is None:
+                                  raise ValueError()
+                              while namespace_members(namespace_id):
+                                  time.sleep(min(0.01, remaining(job_deadline)))
+                              assert not os.path.exists('/proc/' + str(child_pid))
+                              termination_known = True
+                              all_children_terminated = True
+                              active_proc = None
+                              active_namespace = None
+                          except BaseException:
+                              all_children_terminated = False
+                      break
+                  finally:
+                      selector.close()
+                      if proc is not None:
+                          for stream in (proc.stdout, proc.stderr):
+                              if stream is not None:
+                                  stream.close()
+                      for fd, _used in sinks.values():
+                          os.close(fd)
+                      for fd in (info_read, info_write, block_read, block_write):
+                          if fd >= 0:
+                              os.close(fd)
+              elapsed = (time.monotonic_ns() - start) // 1000000
+              if time.monotonic_ns() >= deadline_ns:
+                  status = 'incomplete'
+              if not termination_known:
+                  status = 'incomplete'
+              return dict(status=status, elapsedMs=elapsed, exitCode=exit_code,
+                          treeTerminated=True if termination_known and all_children_terminated and not termination_uncertain else None)
+          
+          
+          class PhaseFailure(Exception):
+              def __init__(self, outcome: PhaseOutcome):
+                  self.outcome = outcome
+                  super().__init__()
+          
+          
+          def require_pass(outcome: PhaseOutcome) -> None:
+              if not (outcome['status'] == 'passed' and outcome['exitCode'] == 0 and outcome['treeTerminated'] is True):
+                  raise PhaseFailure(outcome)
+          
+          
+          def check_os_capability():
+              package = metadata_output(['/usr/bin/dpkg-query', '-S', bwrap['path']]).decode().strip()
+              assert package == 'bubblewrap: /usr/bin/bwrap'
+              package_version = metadata_output(['/usr/bin/dpkg-query', '-W', '-f=${Version}', 'bubblewrap']).decode()
+              assert re.fullmatch(r'0\.9\.0-[0-9A-Za-z.+~]+', package_version)
+              version = metadata_output([bwrap['path'], '--version']).decode().strip()
+              assert version == 'bubblewrap 0.9.0'
+              help_text = metadata_output([bwrap['path'], '--help']).decode()
+              for flag in ('--unshare-user', '--unshare-net', '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--clearenv',
+                           '--die-with-parent', '--new-session', '--cap-drop', '--info-fd', '--block-fd', '--remount-ro'):
+                  assert flag in help_text
+              # Actual mandatory namespace/mount checks, inside this SAME PREP, before any SDK or fixture.
+              require_pass(run_phase('preparation', [['/usr/bin/true']], prep_deadline, view='capability'))
+              require_pass(run_phase('runtime', [['/usr/bin/true']], prep_deadline, view='capability'))
+              return dict(package='bubblewrap', version=package_version, reviewedInterface='0.9.0', **bwrap)
+          
+          
+          def snapshot_dependencies():
+              # Freeze actual installed bytes without loading any SDK; links must stay within dependencies.
+              base = wallet / 'node_modules'
+              snapshot = {}
+              for current, dirs, files in os.walk(base, followlinks=False):
+                  remaining(runtime_deadline or prep_deadline)
+                  for name in dirs + files:
+                      path = pathlib.Path(current) / name
+                      relative = path.relative_to(base).as_posix()
+                      st = os.lstat(path)
+                      assert st.st_uid == os.getuid()
+                      if stat.S_ISLNK(st.st_mode):
+                          resolved = path.resolve(strict=True)
+                          assert resolved.is_relative_to(base) or any(resolved.is_relative_to(wallet / p) for p in ('packages/hd-key', 'packages/bread-connect', 'packages/bread-connect-capacitor', 'packages/dapp-browser', 'packages/native-prover'))
+                          snapshot[relative] = ['link', os.readlink(path)]
+                      elif stat.S_ISREG(st.st_mode):
+                          assert not st.st_mode & 0o022
+                          snapshot[relative] = [stat.S_IMODE(st.st_mode), digest(path), st.st_size]
+                      else:
+                          assert stat.S_ISDIR(st.st_mode)
+                          assert not st.st_mode & 0o022
+                          snapshot[relative] = ['directory', stat.S_IMODE(st.st_mode)]
+              for package in ('hd-key', 'bread-connect'):
+                  built = wallet / 'packages' / package / 'dist'
+                  assert built.is_dir() and not built.is_symlink()
+                  for current, dirs, files in os.walk(built, followlinks=False):
+                      for name in dirs + files:
+                          path = pathlib.Path(current) / name
+                          st = os.lstat(path)
+                          assert not stat.S_ISLNK(st.st_mode) and st.st_uid == os.getuid()
+                          assert stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)
+                          snapshot['@built/' + path.relative_to(wallet).as_posix()] = [stat.S_IMODE(st.st_mode), digest(path) if path.is_file() else 'directory']
+              return snapshot
+          
+          O2_SOURCE_3
+      - name: Assemble private literal controller chunk 5
+        shell: bash
+        run: |
+          python3 -c 'import hashlib, json, os, pathlib, stat, sys, time
+          try:
+              os.umask(0o077)
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              path = temp / "o2-hosted-control.json"
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600 and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_size <= 4096
+                  control = json.loads(stream.read(4097))
+              root = pathlib.Path(control["stateRoot"])
+              st = os.lstat(root)
+              assert root.parent == temp and root.name.startswith("o2-hosted-") and root.resolve(strict=True) == root
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o700
+              assert (st.st_dev, st.st_ino) == (control["stateDevice"], control["stateInode"])
+              assert control["uid"] == os.getuid() and control["gid"] == os.getgid()
+              assert control["jobDeadlineNs"] == control["guardMonotonicNs"] + 900000000000
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              destination = root / "controller.py"
+              raw = sys.stdin.buffer.read(21001)
+              assert len(raw) <= 21000
+              fd = os.open(destination, os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_APPEND, 0o600)
+              with os.fdopen(fd, "ab") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) == 0o600
+                  assert st.st_size == 59497
+                  stream.write(raw)
+          except BaseException:
+              sys.exit(1)
+          ' <<'O2_SOURCE_4'
+          
+          def verify_dependencies():
+              # Identical traversal, bounded by the active phase/job budget, not an SDK import.
+              assert snapshot_dependencies() == dependency_snapshot
+              for row in SDK_TEXT_PINS:
+                  assert digest(wallet / row['path']) == row['sha256']
+              assert digest(provider_path) == provider_identity['sha256']
+              for tool in (node, yarn, rustup, bwrap):
+                  assert tool_identity(tool['path']) == {key: tool[key] for key in ('path', 'sha256', 'bytes')}
+          
+          
+          def discover_prepared():
+              own_tests = []
+              raw = private_file(root / 'preparation.stdout.log', 33554432)
+              artifact_lines = []
+              for line in raw.splitlines():
+                  if not line.startswith(b'{'):
+                      continue
+                  message = parse_json(line)
+                  if message.get('reason') != 'compiler-artifact':
+                      continue
+                  executable = message.get('executable')
+                  if not executable:
+                      continue
+                  assert message['target']['name'] == 'o2-signing-inputs-probe'
+                  assert pathlib.Path(message['manifest_path']) == wallet / P / 'rust/Cargo.toml'
+                  assert 'o2-signing-inputs-probe' in message['package_id']
+                  assert message['profile']['test'] is True
+                  path = pathlib.Path(executable)
+                  assert path.resolve(strict=True) == path and path.is_relative_to(target)
+                  assert stat.S_ISREG(os.lstat(path).st_mode) and not path.is_symlink()
+                  own_tests.append(dict(path=str(path), sha256=digest(path), bytes=path.stat().st_size,
+                                        kind='rust-test', packageId=message['package_id'], testNames=RUST_NAMES))
+                  artifact_lines.append(line)
+              assert len(own_tests) == 1
+              cli = target / 'debug/o2-signing-inputs-probe'
+              assert cli.resolve(strict=True) == cli and cli.is_file()
+              own_tests.append(dict(path=str(cli), sha256=digest(cli), bytes=cli.stat().st_size,
+                                   kind='rust-cli', packageId=own_tests[0]['packageId'], testNames=[]))
+              assert len({row['path'] for row in own_tests}) == 2
+              create_private(root / 'cargo-artifacts.jsonl', b'\n'.join(artifact_lines) + b'\n')
+              create_private(root / 'prepared-executables.json', json.dumps(own_tests, separators=(',', ':')).encode())
+              return own_tests
+          
+          
+          def verify_prepared():
+              assert parse_json(private_file(root / 'prepared-executables.json', 16384)) == prepared
+              for row in prepared:
+                  path = pathlib.Path(row['path'])
+                  st = os.lstat(path)
+                  assert stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_nlink == 1
+                  assert path.resolve(strict=True) == path and path.is_relative_to(target)
+                  assert st.st_size == row['bytes'] and digest(path) == row['sha256']
+          
+          
+          def verify_rust_report():
+              text = private_file(root / 'rust-tests.stdout.log', 1048576).decode('utf-8', errors='strict')
+              listed = re.findall(r'^([A-Za-z0-9_:]+): test$', text, re.M)
+              passed = re.findall(r'^test ([A-Za-z0-9_:]+) \.\.\. ok$', text, re.M)
+              assert sorted(listed) == sorted(RUST_NAMES) and sorted(passed) == sorted(RUST_NAMES)
+              assert re.search(r'^test result: ok\. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;', text, re.M)
+              # Only native test counts/selection are parsed here, never probe semantics from logs.
+              return 6
+          
+          
+          def read_private_result(capture_fd: int, expected_bindings_sha256: str) -> dict:
+              before = os.stat('probe-result.json', dir_fd=capture_fd, follow_symlinks=False)
+              fd = os.open('probe-result.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=capture_fd)
+              try:
+                  st = os.fstat(fd)
+                  assert same_inode(before, st) and stat.S_ISREG(st.st_mode) and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_gid == os.getgid()
+                  assert stat.S_IMODE(st.st_mode) == 0o600 and 0 < st.st_size <= 4096
+                  raw = os.read(fd, 4097)
+                  assert len(raw) == st.st_size and len(raw) <= 4096
+                  assert same_inode(st, os.stat('probe-result.json', dir_fd=capture_fd, follow_symlinks=False))
+                  final = os.fstat(fd)
+                  assert final.st_size == len(raw) and final.st_mtime_ns == st.st_mtime_ns and final.st_ctime_ns == st.st_ctime_ns
+              finally:
+                  os.close(fd)
+              result = parse_json(raw)
+              validate_result(result, expected_bindings_sha256)
+              return result
+          
+          
+          def validate_result(result: dict, expected_bindings_sha256: str) -> None:
+              assert type(result) is dict and set(result) == RESULT_KEYS
+              assert type(result['schemaVersion']) is int and result['schemaVersion'] == 1
+              enums = {'harness': ['Qualified', 'SetupFailure', 'RuntimeIncomplete'],
+                       'semantic': ['NotEvaluated', 'NoSemanticObservation', 'FeeDriftObserved'], 'causalRegression': ['NotAuthorized'],
+                       'trialOutcome': ['NotRun', 'Delegated', 'Refused'],
+                       'evidenceOrigin': ['ProducerAssertedCore_CodecVerifiedExposedFields', 'SyntheticSelfcheck', 'NotEvaluated']}
+              for key, allowed in enums.items():
+                  assert type(result[key]) is str and result[key] in allowed
+              for key in ('controlDelegations', 'trialDelegations', 'replayMs'):
+                  value = result[key]
+                  assert type(value) is int and 0 <= value <= 9007199254740991
+              for key in ('s1Fee', 's2Fee'):
+                  value = result[key]
+                  assert value is None or (type(value) is str and re.fullmatch(r'(0|[1-9][0-9]*)', value))
+              for key, pattern in [('accountId', r'0x[0-9a-f]{30}'), ('coreSha256', r'[0-9a-f]{64}'), ('sourceBindingsSha256', r'[0-9a-f]{64}')]:
+                  value = result[key]
+                  assert value is None or (type(value) is str and re.fullmatch(pattern, value))
+              for key, pattern in [('inputNoteIds', r'0x[0-9a-f]{64}'), ('userOutputNoteIds', r'0x[0-9a-f]{64}'), ('signingInputsSha256', r'[0-9a-f]{64}')]:
+                  assert type(result[key]) is list
+                  assert all(type(value) is str and re.fullmatch(pattern, value) for value in result[key])
+                  if key != 'signingInputsSha256':
+                      assert len(set(result[key])) == len(result[key])
+              assert result['failureStage'] is None or (type(result['failureStage']) is str and result['failureStage'] in
+                  ['directory', 'wire', 'core', 'context', 'bindings', 'native', 'imports', 'codec', 'effects', 'control', 'trial', 'unexpected'])
+              native = result['native']
+              if native is not None:
+                  assert type(native) is dict and set(native) == {'package', 'version', 'integrity', 'addonSha256'}
+                  for key, pattern in [('package', r'@miden-sdk/node-(darwin-(arm64|x64)|linux-x64-(gnu|musl))'),
+                                       ('version', r'[0-9]+\.[0-9]+\.[0-9]+'), ('integrity', r'sha512-[A-Za-z0-9+/]+=*'), ('addonSha256', r'[0-9a-f]{64}')]:
+                      assert type(native[key]) is str and re.fullmatch(pattern, native[key])
+              assert result['sourceBindingsSha256'] in (None, expected_bindings_sha256)
+          
+          
+          def build_public_bundle(phases: list[dict], result: dict | None, qualified: bool) -> bytes:
+              assert type(qualified) is bool
+              assert type(phases) is list
+              assert 0 < len(phases) <= 10
+              lines = []
+              chronology = []
+              started = set()
+              finished = {}
+              previous = 0
+              for value in phases:
+                  encoded = serialize_phase(value)
+                  assert value['elapsedMs'] >= previous
+                  previous = value['elapsedMs']
+                  phase, status = value['phase'], value['status']
+                  assert 'cleanup' not in finished
+                  if status == 'started':
+                      assert phase not in started and phase not in finished
+                      if phase == 'preparation':
+                          assert not chronology
+                      elif phase == 'source':
+                          assert chronology == [('preparation', 'started')]
+                      elif phase == 'runtime':
+                          assert chronology == SUCCESS_PHASES[:4]
+                      else:
+                          assert chronology and 'cleanup' not in started
+                      started.add(phase)
+                  else:
+                      assert phase not in finished
+                      assert phase in started or (phase == 'cleanup' and status == 'incomplete')
+                      if phase == 'preparation' and 'source' in started:
+                          assert 'source' in finished
+                      if status == 'passed' and phase == 'preparation':
+                          assert finished.get('source') == 'passed'
+                      finished[phase] = status
+                  if 'cleanup' in started:
+                      assert phase == 'cleanup'
+                  chronology.append((phase, status))
+                  lines.append(encoded)
+              if qualified:
+                  assert chronology == SUCCESS_PHASES
+                  validate_result(result, BINDINGS_SHA)
+                  # Revalidate stored semantic eligibility, never rerun the time-sensitive predicate.
+                  assert result['harness'] == 'Qualified' and result['controlDelegations'] == 1
+                  assert result['causalRegression'] == 'NotAuthorized' and result['failureStage'] is None
+                  assert result['evidenceOrigin'] == 'ProducerAssertedCore_CodecVerifiedExposedFields'
+                  assert result['sourceBindingsSha256'] == BINDINGS_SHA and result['coreSha256'] is not None
+                  assert len(result['signingInputsSha256']) == 2 and result['accountId'] is not None
+                  assert result['s1Fee'] is not None and result['s2Fee'] is not None
+                  assert result['semantic'] == ('NoSemanticObservation' if result['s1Fee'] == result['s2Fee'] else 'FeeDriftObserved')
+                  assert ((result['trialOutcome'] == 'Delegated' and result['trialDelegations'] == 1)
+                          or (result['trialOutcome'] == 'Refused' and result['trialDelegations'] == 0))
+                  assert result['native'] == {'package': '@miden-sdk/node-linux-x64-gnu', 'version': '0.17.5',
+                                             'integrity': GNU_INTEGRITY, 'addonSha256': provider_identity['sha256']}
+                  encoded_result = json.dumps(result, separators=(',', ':')).encode('utf-8') + b'\n'
+                  assert len(encoded_result) <= 4096
+                  lines.append(encoded_result)
+              else:
+                  assert result is None
+              return b''.join(lines)
+          
+          
+          def emit_public_bundle(bundle: bytes) -> None:
+              remaining(job_deadline)
+              offset = 0
+              while offset < len(bundle):
+                  remaining(job_deadline)
+                  written = os.write(sys.stdout.fileno(), bundle[offset:])
+                  if written <= 0:
+                      raise OSError()
+                  offset += written
+                  remaining(job_deadline)
+              sys.stdout.flush()
+              remaining(job_deadline)
+          
+          
+          def suite_counts():
+              report = parse_json(private_file(runtime_root / 'jest-results.json', 1048576))
+              expected = dict(success=True, numRuntimeErrorTestSuites=0, numTotalTestSuites=1, numPassedTestSuites=1,
+                              numFailedTestSuites=0, numPendingTestSuites=0, numTotalTests=16, numPassedTests=16,
+                              numFailedTests=0, numPendingTests=0, numTodoTests=0)
+              for key, value in expected.items():
+                  assert type(report[key]) is type(value) and report[key] == value
+              assert len(report['testResults']) == 1
+              suite = report['testResults'][0]
+              assert suite['name'] == str(wallet / P / 'wallet/real-signing-inputs.probe.test.ts') and suite['status'] == 'passed'
+              assertions = suite['assertionResults']
+              assert len(assertions) == 16 and all(test['status'] == 'passed' for test in assertions)
+              assert sorted(test['title'] for test in assertions) == sorted(JEST_NAMES)
+              return {'jest': 16, 'rust': verify_rust_report(), 'zeroSkippedOrFailed': True}
+          
+          
+          def qualify_observation(result: dict, rust: PhaseOutcome, cli: PhaseOutcome, jest: PhaseOutcome, counts: dict, native_identity: dict) -> bool:
+              for outcome in (rust, cli, jest):
+                  if outcome['status'] != 'passed' or outcome['exitCode'] != 0 or outcome['treeTerminated'] is not True:
+                      return False
+              # Frozen observeNative returns addonSha256 only AFTER already-loaded cache/export equality.
+              # nativeModuleCacheMatched/nativeExportMatched are fixture preconditions, not invented JSON fields.
+              loadedProviderSha256 = (result['native'] or {}).get('addonSha256')
+              return bool(result_absent_before_jest and sources_verified and privacy_verified and all_children_terminated
+                  and time.monotonic_ns() < runtime_deadline and counts['rust'] == 6 and counts['jest'] == 16
+                  and counts['zeroSkippedOrFailed'] and result['harness'] == 'Qualified' and result['controlDelegations'] == 1
+                  and result['causalRegression'] == 'NotAuthorized' and result['failureStage'] is None
+                  and result['evidenceOrigin'] == 'ProducerAssertedCore_CodecVerifiedExposedFields'
+                  and result['sourceBindingsSha256'] == BINDINGS_SHA and result['coreSha256'] is not None
+                  and len(result['signingInputsSha256']) == 2 and result['accountId'] is not None
+                  and result['s1Fee'] is not None and result['s2Fee'] is not None
+                  and result['semantic'] == ('NoSemanticObservation' if result['s1Fee'] == result['s2Fee'] else 'FeeDriftObserved')
+                  and ((result['trialOutcome'] == 'Delegated' and result['trialDelegations'] == 1)
+                       or (result['trialOutcome'] == 'Refused' and result['trialDelegations'] == 0))
+                  and result['native'] == {'package': '@miden-sdk/node-linux-x64-gnu', 'version': '0.17.5',
+                                           'integrity': GNU_INTEGRITY, 'addonSha256': loadedProviderSha256}
+                  and type(loadedProviderSha256) is str and loadedProviderSha256 == native_identity['sha256'])
+          
+          O2_SOURCE_4
+      - name: Assemble private literal controller chunk 6
+        shell: bash
+        run: |
+          python3 -c 'import hashlib, json, os, pathlib, stat, sys, time
+          try:
+              os.umask(0o077)
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              path = temp / "o2-hosted-control.json"
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600 and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_size <= 4096
+                  control = json.loads(stream.read(4097))
+              root = pathlib.Path(control["stateRoot"])
+              st = os.lstat(root)
+              assert root.parent == temp and root.name.startswith("o2-hosted-") and root.resolve(strict=True) == root
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o700
+              assert (st.st_dev, st.st_ino) == (control["stateDevice"], control["stateInode"])
+              assert control["uid"] == os.getuid() and control["gid"] == os.getgid()
+              assert control["jobDeadlineNs"] == control["guardMonotonicNs"] + 900000000000
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              destination = root / "controller.py"
+              raw = sys.stdin.buffer.read(21001)
+              assert len(raw) <= 21000
+              fd = os.open(destination, os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_APPEND, 0o600)
+              with os.fdopen(fd, "ab") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) == 0o600
+                  assert st.st_size == 72662
+                  stream.write(raw)
+          except BaseException:
+              sys.exit(1)
+          ' <<'O2_SOURCE_5'
+          
+          def clean_state():
+              global cleanup_ok
+              if root is None or root_identity is None or not all_children_terminated:
+                  return
+              remaining(job_deadline)
+              assert same_inode(root_identity, owned_directory(root))
+              assert root.parent == runner_temp and root.name.startswith('o2-hosted-')
+              assert shutil.rmtree.avoids_symlink_attacks
+              # State is newly owned; links (e.g. toolchain contents) are unlinked, never followed.
+              def remove_entries(directory_fd):
+                  for name in os.listdir(directory_fd):
+                      remaining(job_deadline)
+                      st = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                      assert st.st_uid == os.getuid() and st.st_dev == root_identity.st_dev
+                      if stat.S_ISDIR(st.st_mode):
+                          child_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd)
+                          try:
+                              assert same_inode(st, os.fstat(child_fd))
+                              remove_entries(child_fd)
+                          finally:
+                              os.close(child_fd)
+                          os.rmdir(name, dir_fd=directory_fd)
+                      else:
+                          assert stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode)
+                          os.unlink(name, dir_fd=directory_fd)
+              root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+              try:
+                  assert same_inode(root_identity, os.fstat(root_fd))
+                  remove_entries(root_fd)
+              finally:
+                  os.close(root_fd)
+              remaining(job_deadline)
+              os.rmdir(root)
+              assert not os.path.lexists(root)
+              assert same_inode(control_identity, os.lstat(control_path))
+              os.unlink(control_path)
+              assert not os.path.lexists(control_path)
+              remaining(job_deadline)
+              cleanup_ok = True
+          
+          
+          def main():
+              global root, root_identity, control_identity, runner_temp, control_path, wallet, transport, job_deadline, guard_monotonic_ns
+              global runtime_root, target, target_relative, prep_deadline, runtime_deadline, stage, active_phase
+              global node, node_dir, yarn, yarn_root, rustup, bwrap, prepared, dependency_snapshot, provider_path, provider_identity
+              global result_absent_before_jest, sources_verified, privacy_verified, qualified_pending, reviewed_mounts
+              global public_delivery_ready, retained_result
+              os.umask(0o077)
+              limits()
+              assert os.getuid() != 0 and os.getgid() != 0 and platform.system() == 'Linux' and platform.machine() == 'x86_64'
+              runner_temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+              assert runner_temp.resolve(strict=True) == runner_temp and runner_temp.is_dir()
+              control_path = runner_temp / 'o2-hosted-control.json'
+              control_identity = os.lstat(control_path)
+              control = parse_json(private_file(control_path, 4096))
+              assert set(control) == set('schemaVersion stateRoot stateDevice stateInode uid gid guardMonotonicNs guardUtc jobDeadlineNs'.split())
+              assert control['schemaVersion'] == 1 and control['uid'] == os.getuid() and control['gid'] == os.getgid()
+              root = pathlib.Path(control['stateRoot'])
+              root_identity = owned_directory(root)
+              assert root.parent == runner_temp and root.name.startswith('o2-hosted-')
+              assert (root_identity.st_dev, root_identity.st_ino) == (control['stateDevice'], control['stateInode'])
+              assert type(control['guardMonotonicNs']) is int and type(control['jobDeadlineNs']) is int
+              assert control['jobDeadlineNs'] == control['guardMonotonicNs'] + 900000000000
+              datetime.datetime.fromisoformat(control['guardUtc'])
+              guard_monotonic_ns = control['guardMonotonicNs']
+              job_deadline = control['jobDeadlineNs']
+              remaining(job_deadline)
+              transport = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
+              wallet = transport / 'wallet'
+              runtime_root = root / 'runtime'
+              for directory in (runtime_root, runtime_root / 'capture', runtime_root / 'home', runtime_root / 'tmp', root / 'cargo-home', root / 'rustup-home', root / 'prep-home', root / 'prep-tmp'):
+                  owned_directory(directory)
+                  assert not any(directory.iterdir())
+              for name in ('source', 'preparation', 'rust-tests', 'rust-cli', 'jest'):
+                  for suffix in ('.stdout.log', '.stderr.log'):
+                      path = root / (name + suffix)
+                      if not os.path.lexists(path):
+                          create_private(path, b'')
+                      private_file(path, 33554432)
+              create_private(root / 'phases.jsonl', b'')
+              create_private(root / 'controller-active', b'')
+              public_delivery_ready = True
+              prep_deadline = min(job_deadline, time.monotonic_ns() + 360000000000)
+              stage = 'preparation'
+              active_phase = 'preparation'
+              record('preparation', 'started', None, None)
+              target_relative = P + '/rust/target'
+              target = wallet / target_relative
+              candidates = sorted(pathlib.Path('/opt/hostedtoolcache/node').glob('22.*/x64/bin/node'),
+                                  key=lambda p: tuple(int(v) for v in p.parts[-4].split('.')))
+              selected_node = candidates[-1] if candidates else pathlib.Path('/usr/bin/node')
+              node = tool_identity(selected_node)
+              node_dir = pathlib.Path(node['path']).parent.parent
+              reviewed_mounts = [dict(source=path, target=path, readOnly=True) for path in
+                                 ['/usr/bin', '/usr/lib', '/usr/lib64', '/usr/share', str(node_dir)]]
+              yarn = tool_identity(shutil.which('yarn'))
+              yarn_root = pathlib.Path(yarn['path']).parent.parent
+              yarn_package = parse_json((yarn_root / 'package.json').read_bytes())
+              assert yarn_package['name'] == 'yarn' and yarn_package['version'] == '1.22.22'
+              rustup = tool_identity(shutil.which('rustup'))
+              bwrap = tool_identity('/usr/bin/bwrap')
+              os_identity = check_os_capability()
+              stage = 'source'
+              active_phase = 'source'
+              record('source', 'started', None, None)
+              for name, expected in PAYLOAD_HASHES.items():
+                  assert digest(transport / name) == expected
+              check_transport_source()
+              check_git_configuration()
+              assert metadata_output(['/usr/bin/git', 'rev-parse', 'HEAD']).decode().strip() == BASE
+              assert metadata_output(['/usr/bin/git', 'rev-parse', 'HEAD^{tree}']).decode().strip() == '3fe0463e0c0fd443d480bc3eb511c2f9f63af10f'
+              assert metadata_output(['/usr/bin/git', 'show', '-s', '--format=%P', 'HEAD']).decode().strip() == '9f239a3171140260d1c3b1133b49a04eaecc5683'
+              assert not metadata_output(['/usr/bin/git', 'status', '--porcelain', '--untracked-files=all'])
+              check_bootstrap()
+              record('source', 'passed', 0, True)
+              active_phase = 'preparation'
+              stage = 'preparation'
+              node_version = metadata_output([node['path'], '--version']).decode().strip()
+              assert node_version.split('.')[0] == 'v22'
+              yarn_version = metadata_output([node['path'], yarn['path'], '--version']).decode().strip()
+              assert yarn_version == '1.22.22'
+              release = dict(line.split('=', 1) for line in pathlib.Path('/etc/os-release').read_text().splitlines() if '=' in line)
+              assert release['ID'].strip('"') == 'ubuntu' and release['VERSION_ID'].strip('"') == '24.04'
+              assert os.environ.get('ImageOS') == 'ubuntu24' and re.fullmatch(r'[0-9.]+', os.environ.get('ImageVersion', ''))
+              image_observed = dict(schemaVersion=1, os=platform.platform(), architecture=platform.machine(),
+                  imageVersion=os.environ['ImageVersion'], node=dict(version=node_version, **node), yarn=dict(version=yarn_version, **yarn),
+                  bubblewrap=os_identity, rustup=rustup, uid=os.getuid(), gid=os.getgid(), mounts=reviewed_mounts,
+                  namespaceChecks=dict(user=True, net=True, pid=True, ipc=True, uts=True))
+              # Ordinary baseline postinstall is preserved, under the original aggregate PREP timer.
+              assert not os.path.lexists(wallet / 'node_modules')
+              (wallet / 'node_modules').mkdir(mode=0o700)
+              require_pass(run_phase('preparation', [[node['path'], yarn['path'], 'install', '--frozen-lockfile', '--network-timeout', '600000']], prep_deadline))
+              check_bootstrap()
+              for row in SDK_TEXT_PINS:
+                  assert digest(wallet / row['path']) == row['sha256']
+              provider_dir = wallet / 'node_modules/@miden-sdk/node-linux-x64-gnu'
+              provider_package = parse_json((provider_dir / 'package.json').read_bytes())
+              assert provider_package['name'] == '@miden-sdk/node-linux-x64-gnu' and provider_package['version'] == '0.17.5'
+              providers = list(provider_dir.glob('*.node'))
+              assert len(providers) == 1
+              provider_path = providers[0]
+              provider_identity = tool_identity(provider_path)
+              dependency_snapshot = snapshot_dependencies()
+              create_private(root / 'dependency-identities.json', json.dumps(dependency_snapshot, separators=(',', ':')).encode())
+              apply_overlay()
+              commands = [['/o2-tools/rustup', 'toolchain', 'install', 'nightly-2026-08-06', '--profile', 'minimal', '--no-self-update'],
+                          ['/o2-tools/cargo', '+nightly-2026-08-06', 'test', '--locked', '--no-run', '--message-format=json', '--manifest-path', P + '/rust/Cargo.toml'],
+                          ['/o2-tools/cargo', '+nightly-2026-08-06', 'build', '--locked', '--manifest-path', P + '/rust/Cargo.toml']]
+              preparation = run_phase('preparation', commands, prep_deadline)
+              require_pass(preparation)
+              prepared = discover_prepared()
+              image_observed['applicationMounts'] = [dict(source=str(wallet / name), target=str(wallet / name), readOnly=True)
+                                                     for name in RUNTIME_MOUNTS]
+              image_observed['preparedMounts'] = [dict(source=row['path'], target=row['path'], readOnly=True) for row in prepared]
+              image_observed['privateMount'] = dict(source=str(runtime_root), target='/o2-private', readOnly=False)
+              create_private(root / 'image-observed.json', json.dumps(image_observed, separators=(',', ':')).encode())
+              require_pass(run_phase('preparation', [['/o2-tools/rustup', 'run', 'nightly-2026-08-06', 'rustc', '--version', '--verbose']], prep_deadline))
+              compiler = root / 'rustup-home/toolchains/nightly-2026-08-06-x86_64-unknown-linux-gnu/bin/rustc'
+              create_private(root / 'toolchain-observed.json', json.dumps(tool_identity(compiler), separators=(',', ':')).encode())
+              verify_sources()
+              verify_prepared()
+              verify_dependencies()
+              remaining(prep_deadline)
+              record('preparation', 'passed', preparation['exitCode'], preparation['treeTerminated'])
+              remaining(prep_deadline)
+              runtime_deadline = min(job_deadline, time.monotonic_ns() + 300000000000)
+              active_phase = 'runtime'
+              record('runtime', 'started', None, None)
+              stage = 'rust-tests'
+              verify_sources()
+              verify_prepared()
+              verify_dependencies()
+              test_binary = next(row['path'] for row in prepared if row['kind'] == 'rust-test')
+              rust = run_phase('runtime', [[test_binary, '--list'], [test_binary, '--test-threads=1']], runtime_deadline)
+              require_pass(rust)
+              assert verify_rust_report() == 6
+              capture = runtime_root / 'capture'
+              owned_directory(capture)
+              capture_empty = not any(capture.iterdir())
+              assert capture_empty
+              verify_sources()
+              verify_prepared()
+              verify_dependencies()
+              stage = 'rust-cli'
+              cli_path = str(target / 'debug/o2-signing-inputs-probe')
+              cli = run_phase('runtime', [[cli_path, '--out-dir', '/o2-private/capture']], runtime_deadline)
+              require_pass(cli)
+              assert sorted(path.name for path in capture.iterdir()) == ['metadata.json', 's1.bin', 's2.bin']
+              for name in ('metadata.json', 's1.bin', 's2.bin'):
+                  private_file(capture / name, 16777216)
+              # Producer/codec assertions remain in the frozen Rust/JS, not recreated as JS getters.
+              result_absent_before_jest = not os.path.lexists(capture / 'probe-result.json')
+              assert result_absent_before_jest and not os.path.lexists(runtime_root / 'jest-results.json')
+              verify_sources()
+              verify_prepared()
+              verify_dependencies()
+              stage = 'jest'
+              jest = run_phase('runtime', [[node['path'], '--experimental-vm-modules', 'node_modules/jest/bin/jest.js', '--config', P + '/wallet/jest.config.mjs',
+                                          '--runInBand', '--coverage=false', '--no-cache', '--json', '--outputFile=/o2-private/jest-results.json']], runtime_deadline)
+              require_pass(jest)
+              counts = suite_counts()
+              assert sorted(path.name for path in capture.iterdir()) == ['metadata.json', 'probe-result.json', 's1.bin', 's2.bin']
+              capture_identity = owned_directory(capture)
+              capture_fd = os.open(capture, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+              try:
+                  assert same_inode(capture_identity, os.fstat(capture_fd))
+                  result = read_private_result(capture_fd, BINDINGS_SHA)
+                  assert same_inode(capture_identity, owned_directory(capture))
+                  retained_result = result
+              finally:
+                  os.close(capture_fd)
+              verify_sources()
+              verify_prepared()
+              verify_dependencies()
+              remaining(runtime_deadline)
+              sources_verified = True
+              privacy_verified = True
+              qualified_pending = qualify_observation(result, rust, cli, jest, counts, provider_identity)
+              record('runtime', 'passed' if qualified_pending else 'incomplete', jest['exitCode'], jest['treeTerminated'])
+              remaining(runtime_deadline)
+              # Delivery waits for actual cleanup and complete validated memory.
+          
+          
+          def record_failure(failure_outcome: PhaseOutcome | None) -> None:
+              if public_delivery_ready and active_phase is not None:
+                  # A prior successful native outcome says nothing about an unrelated validation failure.
+                  if not any(value['phase'] == active_phase and value['status'] != 'started' for value in phase_records):
+                      exit_code = failure_outcome['exitCode'] if failure_outcome is not None else None
+                      terminated = failure_outcome['treeTerminated'] if failure_outcome is not None else (True if all_children_terminated else None)
+                      status = 'setup-failure' if failure_outcome is not None and failure_outcome['status'] == 'setup-failure' else 'incomplete'
+                      record(active_phase, status, exit_code, terminated)
+          
+          
+          failure_outcome = None
+          try:
+              main()
+          except PhaseFailure as failure:
+              failure_outcome = failure.outcome
+              qualified_pending = False
+              try:
+                  record_failure(failure_outcome)
+              except BaseException:
+                  pass
+          except BaseException:
+              qualified_pending = False
+              try:
+                  record_failure(None)
+              except BaseException:
+                  pass
+          finally:
+              if root is not None and root_identity is not None and job_deadline:
+                  try:
+                      if public_delivery_ready and all_children_terminated:
+                          record('cleanup', 'started', None, True)
+                  except BaseException:
+                      pass
+                  try:
+                      clean_state()
+                  except BaseException:
+                      cleanup_ok = False
+                  try:
+                      if public_delivery_ready:
+                          record('cleanup', 'passed' if cleanup_ok else 'incomplete', None,
+                                 True if all_children_terminated else None)
+                  except BaseException:
+                      cleanup_ok = False
+          qualified = qualified_pending and cleanup_ok
+          # A phase/JSON success cannot override incomplete containment, source, suite or cleanup facts.
+          delivered = False
+          try:
+              assert phase_records_valid and public_delivery_ready
+              bundle = build_public_bundle(phase_records, retained_result if qualified else None, qualified)
+              emit_public_bundle(bundle)
+              delivered = True
+          except BaseException:
+              qualified_pending = False
+              qualified = False
+          sys.exit(0 if qualified and delivered else 1)
+          O2_SOURCE_5
+      - name: Own one bounded PREP plus aggregate runtime and cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          O2_CONTROLLER="$(python3 -c 'import hashlib, json, os, pathlib, stat, sys, time
+          try:
+              os.umask(0o077)
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              path = temp / "o2-hosted-control.json"
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600 and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_size <= 4096
+                  control = json.loads(stream.read(4097))
+              root = pathlib.Path(control["stateRoot"])
+              st = os.lstat(root)
+              assert root.parent == temp and root.name.startswith("o2-hosted-") and root.resolve(strict=True) == root
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o700
+              assert (st.st_dev, st.st_ino) == (control["stateDevice"], control["stateInode"])
+              assert control["uid"] == os.getuid() and control["gid"] == os.getgid()
+              assert control["jobDeadlineNs"] == control["guardMonotonicNs"] + 900000000000
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              path = root / "controller.py"
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) == 0o600
+                  raw = stream.read(100000)
+                  assert len(raw) == 88024 and hashlib.sha256(raw).hexdigest() == "f5708220b493ad6c874f466bad79501a68ba57d25dcb21c33eae7572055726e6"
+              print(str(path))
+          except BaseException:
+              sys.exit(1)
+          ')"
+          python3 "$O2_CONTROLLER" 2>>"${O2_CONTROLLER%/*}/source.stderr.log"
+      - name: Attempt owned-state fallback without inventing termination facts
+        if: ${{ always() && steps.guard.outcome == 'success' }}
+        shell: bash
+        run: |
+          python3 - <<'O2_FALLBACK'
+          import hashlib, json, os, pathlib, stat, sys, time
+          if not os.path.lexists(pathlib.Path(os.environ["RUNNER_TEMP"]) / "o2-hosted-control.json"):
+              sys.exit(0)
+          try:
+              os.umask(0o077)
+              temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+              assert temp.resolve(strict=True) == temp
+              path = temp / "o2-hosted-control.json"
+              before = os.lstat(path)
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+              with os.fdopen(fd, "rb") as stream:
+                  st = os.fstat(stream.fileno())
+                  assert (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino)
+                  assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600 and st.st_nlink == 1
+                  assert st.st_uid == os.getuid() and st.st_size <= 4096
+                  control = json.loads(stream.read(4097))
+              root = pathlib.Path(control["stateRoot"])
+              st = os.lstat(root)
+              assert root.parent == temp and root.name.startswith("o2-hosted-") and root.resolve(strict=True) == root
+              assert stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_gid == os.getgid() and stat.S_IMODE(st.st_mode) == 0o700
+              assert (st.st_dev, st.st_ino) == (control["stateDevice"], control["stateInode"])
+              assert control["uid"] == os.getuid() and control["gid"] == os.getgid()
+              assert control["jobDeadlineNs"] == control["guardMonotonicNs"] + 900000000000
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              assert not os.path.lexists(root / "controller-active")
+              # No controller was launched: no contained children can have been created.
+              # A surviving active sentinel after cancellation deliberately leaves private residuals.
+              assert time.monotonic_ns() < control["jobDeadlineNs"]
+              import shutil
+              assert shutil.rmtree.avoids_symlink_attacks
+              shutil.rmtree(root)
+              assert not os.path.lexists(root)
+              after = os.lstat(path)
+              assert (before.st_dev, before.st_ino) == (after.st_dev, after.st_ino)
+              os.unlink(path)
+          except BaseException:
+              sys.exit(1)
+          O2_FALLBACK
