@@ -24,6 +24,14 @@ function step(name: string): Record<string, unknown> {
 }
 
 describe('funded nightly swap workflow', () => {
+  it('binds known unsigned NEAR reconciliation only to official artifact provenance without relabelling attempted funding', () => {
+    expect(object(step('Recover prior mainnet NEAR').env)).toMatchObject({
+      MAINNET_NEAR_FORWARD_ATTEMPTED: '${{ steps.near-attempts.outputs.forward_attempted }}',
+      MAINNET_NEAR_PREAUTH_UNSPENT: '${{ steps.near-attempts.outputs.forward_pre_authority_unspent }}'
+    });
+    expect(index('Check prior NEAR submission attempts')).toBeLessThan(index('Recover prior mainnet NEAR'));
+    expect(object(object(object(document.on).workflow_dispatch).inputs).MAINNET_NEAR_PREAUTH_UNSPENT).toBeUndefined();
+  });
   it.each(['mainnet-nightly', 'mainnet-agglayer'])(
     'uses the existing dedicated Reown project and scoped origin for both build and counterparty in %s',
     name => {
