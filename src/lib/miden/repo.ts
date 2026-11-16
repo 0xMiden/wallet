@@ -775,11 +775,12 @@ const toSerializable = (value: unknown, key?: string, depth = 0, withinBridgeOpe
       Object.entries(value)
         .filter(
           ([entryKey]) =>
-            !bridgeOperation ||
-            !(
-              (key === 'bridgeOperation' && entryKey === 'walletScope') ||
-              (key === 'nativeAsset' && entryKey === 'scope')
-            )
+            !(key === 'extraInputs' && entryKey === 'epochCollateralRequestBytes') &&
+            (!bridgeOperation ||
+              !(
+                (key === 'bridgeOperation' && entryKey === 'walletScope') ||
+                (key === 'nativeAsset' && entryKey === 'scope')
+              ))
         )
         .map(([entryKey, entry]) => [entryKey, toSerializable(entry, entryKey, depth + 1, bridgeOperation)])
     );

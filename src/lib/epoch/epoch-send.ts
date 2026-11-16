@@ -298,14 +298,6 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     collateralType: CollateralType.Miden,
     midenSourceAccount: args.senderPublicKey,
     createMidenP2IDENote: (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
-      const mismatch = collateralNoteMismatch(
-        { faucetId: faucet, amount, allocatorId },
-        { faucetId: args.faucetId, amount: args.amount, allocatorAccountId: accountId }
-      );
-      if (mismatch !== null) {
-        noteError ??= new EpochCollateralNoteMismatchError(mismatch);
-        return Promise.resolve({ success: false });
-      }
       const key = JSON.stringify([
         normalizeMidenIdToHex(faucet).toLowerCase(),
         amount,
@@ -318,13 +310,19 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
         noteError ??= new Error('Epoch collateral callback terms changed');
         return Promise.resolve({ success: false });
       }
+      noteKey = key;
       try {
+        const mismatch = collateralNoteMismatch(
+          { faucetId: faucet, amount, allocatorId },
+          { faucetId: args.faucetId, amount: args.amount, allocatorAccountId: accountId }
+        );
+        if (mismatch !== null) throw new EpochCollateralNoteMismatchError(mismatch);
         assertCurrent();
       } catch (error) {
         noteError ??= error;
-        return Promise.resolve({ success: false });
+        noteResult = Promise.resolve({ success: false });
+        return noteResult;
       }
-      noteKey = key;
       noteResult = (async () => {
         try {
           const res = await createBridgeP2IDENote({
@@ -340,6 +338,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
             deps: args.deps,
             operation: args.operation,
             reviewedOutput,
+            expectedWalletScope: originalScope,
             onRowCreated: txId => {
               bridgeTxId = txId;
               try {

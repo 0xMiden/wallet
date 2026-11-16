@@ -1,4 +1,4 @@
-import type { BridgeOperationInput } from 'lib/bridge/operation';
+import { captureBridgeWalletScope, type BridgeOperationInput } from 'lib/bridge/operation';
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -121,6 +121,12 @@ export async function createBridgeP2IDENote(
   } = args;
   let ownedTxId: string | undefined;
   try {
+    const expectedWalletScope =
+      args.expectedWalletScope === undefined
+        ? args.operation
+          ? captureBridgeWalletScope()
+          : undefined
+        : { ...args.expectedWalletScope };
     console.log('[epoch] creating bridge note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
     const {
       requestBytes,
@@ -134,6 +140,11 @@ export async function createBridgeP2IDENote(
       recallBlocks,
       bindingAttachmentFelts
     });
+    if (expectedWalletScope) {
+      const current = captureBridgeWalletScope();
+      if (expectedWalletScope.network !== current.network || expectedWalletScope.rpcUrl !== current.rpcUrl)
+        throw new Error('Epoch wallet scope changed');
+    }
     const txId = await initiateBridgedSendTransaction(
       ifHextoBech32(senderAccountId),
       BigInt(amount),
