@@ -214,6 +214,9 @@ it('requires the device replacement marker', () => {
     'replace-hot-key'
   );
   expect(recoveredAction({ proposalType: 'add_signer', description: 'Other signer' })).toBe('execute');
+  // The wallet's own revocation (`createRevokeDeviceProposal`) rides the same row type; another removal does not.
+  expect(recoveredAction({ proposalType: 'remove_signer', description: 'Revoke device' })).toBe('replace-hot-key');
+  expect(recoveredAction({ proposalType: 'remove_signer', description: 'Other removal' })).toBe('execute');
 });
 
 // Only the add description reads as an add: every other rotation, and a proposal with no metadata, is a replace.
@@ -684,6 +687,17 @@ it('labels a recovered device addition', () => {
   expect(row.type).toBe('replace-hot-key');
   expect(row.displayMessage).toBe('Device added');
   expect(row.extraInputs.mode).toBe('add');
+});
+
+// A revocation is not an activation: it keeps this device's key, so it carries no mode, and the
+// removed commitment is not in the retained metadata, so none is invented.
+it('labels a recovered device revocation', () => {
+  const proposal = { proposalType: 'remove_signer', description: 'Revoke device' };
+  const row = recoveredHistoryRecord('account', '0x123', 'testnet', 'one', entry, delta(proposal), summary);
+  expect(row.type).toBe('replace-hot-key');
+  expect(row.displayMessage).toBe('Device revoked');
+  expect(row.extraInputs.mode).toBeUndefined();
+  expect(row.extraInputs.revokedSignerCommitment).toBeUndefined();
 });
 
 it('recovers a Guardian endpoint from matching payload metadata', () => {

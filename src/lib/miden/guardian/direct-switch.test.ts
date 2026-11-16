@@ -685,6 +685,13 @@ describe('createDirectSwitchGuardianRequest', () => {
 
     expect(signWord).toHaveBeenCalledTimes(2);
     expect(mockGetSignerDetails).not.toHaveBeenCalled();
+    // Filed under this device's own commitment, never under the other device's in slot 0.
+    const entries = submittedAdviceEntries();
+    expect([...entries.keys()]).toEqual([
+      expectedAdviceKey('0xhotcommitment', '0xtxcommitment'),
+      expectedAdviceKey('0xcoldcommitment', '0xtxcommitment')
+    ]);
+    expect(entries.has(expectedAdviceKey('0xotherdevicehot', '0xtxcommitment'))).toBe(false);
   });
 
   it('refuses when no on-chain signer holds this device cold key', async () => {

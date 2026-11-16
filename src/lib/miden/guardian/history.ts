@@ -85,6 +85,13 @@ export interface GuardianHistoryCheckpoint {
 const REPLACE_HOT_KEY_DESCRIPTION = 'Replace device (hot) signer';
 /** The proposal description of an add hot-key rotation (`createAddHotKeyProposal`). */
 const ADD_HOT_KEY_DESCRIPTION = 'Add device (hot) signer';
+/** The proposal description of a device revocation (`createRevokeDeviceProposal`). */
+const REVOKE_DEVICE_DESCRIPTION = 'Revoke device';
+
+/** True for the wallet's own revocation of another device, which rides the replace-hot-key row type. */
+function isRecoveredRevocation(proposal?: ProposalMetadata): boolean {
+  return proposal?.proposalType === 'remove_signer' && proposal.description === REVOKE_DEVICE_DESCRIPTION;
+}
 
 /** The activation mode a recovered rotation ran with, read from its proposal description. */
 export function recoveredHotKeyMode(proposal?: ProposalMetadata): HotKeyActivationMode {
@@ -97,6 +104,7 @@ export function recoveredHotKeyMode(proposal?: ProposalMetadata): HotKeyActivati
 }
 
 function recoveredHotKeyMessage(proposal?: ProposalMetadata): string {
+  if (isRecoveredRevocation(proposal)) return 'Device revoked';
   switch (recoveredHotKeyMode(proposal)) {
     case 'add':
       return 'Device added';
@@ -129,6 +137,8 @@ export function recoveredAction(proposal?: ProposalMetadata): ITransactionType {
         default:
           return 'execute';
       }
+    case 'remove_signer':
+      return isRecoveredRevocation(proposal) ? 'replace-hot-key' : 'execute';
     case 'update_procedure_threshold':
       return 'update-procedure-threshold';
     default:
@@ -197,9 +207,12 @@ export function concreteRecoveredTransaction(inputs: RecoveredTransactionInputs)
       if (!proposal?.newGuardianEndpoint) return undefined;
       return new SwitchGuardianTransaction(accountId, proposal.newGuardianEndpoint, undefined, operator);
     case 'replace-hot-key': {
-      // The mode travels on the row so the history title can tell an add from a replace.
+      // The mode travels on the row so the history title can tell an add from a replace. A revocation
+      // activates nothing, so it has none; the commitment it removed is not in the retained metadata.
       const rotation = new ReplaceHotKeyTransaction(accountId);
-      rotation.extraInputs = { ...rotation.extraInputs, mode: recoveredHotKeyMode(proposal) };
+      if (!isRecoveredRevocation(proposal)) {
+        rotation.extraInputs = { ...rotation.extraInputs, mode: recoveredHotKeyMode(proposal) };
+      }
       return rotation;
     }
     case 'update-procedure-threshold':
