@@ -8,8 +8,9 @@ import { TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import { summaryBytesToView } from 'app/confirm/decode';
 import { simulateCustomTransaction } from 'lib/miden/back/simulate-custom-tx';
+import { cacheScope, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 
-import { CustomTransactionEffectsChangedError } from './constants';
+import { CustomTransactionEffectsChangedError, ProposalFeeUnknownError } from './constants';
 import { approveCustomSimulation, assertCustomEffectsApproved, type ApprovedCustomSimulation } from './custom-effects';
 import { requestCustomTransaction } from './initiate';
 import { proposalEffectRefusal } from './proposal-effect-guard';
@@ -156,7 +157,13 @@ const queuedRow = async (approval: ApprovedCustomSimulation): Promise<ITransacti
 };
 
 const generationCheck = (row: ITransaction) => () =>
-  assertCustomEffectsApproved(row.approvedEffects, { summaryBytes: SUMMARY_BYTES }, row.spentAssetTotals, true);
+  assertCustomEffectsApproved(
+    row.approvedEffects,
+    { summaryBytes: SUMMARY_BYTES },
+    row.spentAssetTotals,
+    true,
+    cacheScope()
+  );
 
 const signingCheck = (row: ITransaction) => proposalEffectRefusal(row, summaryBytesToView(SUMMARY_BYTES));
 
@@ -237,9 +244,10 @@ describe('one approval, measured alike by the approval, the generation check and
       transactionRequest: Buffer.from('custom-request').toString('base64'),
       importNotes: ['0xheld']
     });
-    expect(simulated).toEqual({ summaryBytes: SUMMARY_BYTES, introducedNoteIds: [] });
-    const approval = approveCustomSimulation(simulated);
+    expect(simulated).toMatchObject({ summaryBytes: SUMMARY_BYTES, introducedNoteIds: [] });
+    const approval = simulated.approval;
     if (approval === undefined) throw new Error('the dry run gave no approval');
+    expect(approval).toEqual(approveCustomSimulation(simulated));
     const row = await queuedRow(approval);
 
     expect(approval.view.outgoing).toEqual([{ faucetId: 'bech32:fX', amount: 1050n }]);
@@ -271,5 +279,31 @@ describe('one approval, measured alike by the approval, the generation check and
     );
 
     expect(signingCheck(row)).toBe('creates a note that was not approved (0xelsewhere)');
+  });
+
+  it('the generation check of a summary refuses an emptied fee cache as an unknown fee, not as the fee note leaving', async () => {
+    dryRunGives(
+      summary({
+        removed: [fa('fX', 50n), fa('usdcx', 2n)],
+        inputs: [note('0xcarried', [fa('fX', 50n)])],
+        outputs: [note('0xsent', [fa('fX', 100n)]), feeNote(2n)]
+      })
+    );
+    const approval = approveCustomSimulation({ summaryBytes: SUMMARY_BYTES, introducedNoteIds: ['0xcarried'] });
+    if (approval === undefined) throw new Error('the dry run gave no approval');
+    const row = await queuedRow(approval);
+    // The scope of the fee read before the dry run; the cache then empties before the decode.
+    const feeScope = cacheScope();
+    jest.mocked(getVerificationBaseFeeSync).mockReturnValueOnce(null);
+
+    expect(() =>
+      assertCustomEffectsApproved(
+        row.approvedEffects,
+        { summaryBytes: SUMMARY_BYTES },
+        row.spentAssetTotals,
+        true,
+        feeScope
+      )
+    ).toThrow(ProposalFeeUnknownError);
   });
 });

@@ -6,8 +6,8 @@
  * anything the account can. The extension's approval page resolves that by
  * asking the background to dry-run it and rendering the asset movements that
  * come back. The confirmation-store sheets on mobile and desktop have no route
- * to that call, so they used to render `formatCustomTransactionPreview` alone —
- * a fixed "please ensure you know the details" plus a recipient — which is
+ * to that call, so they used to render `formatCustomTransactionPreview` alone -
+ * a fixed "please ensure you know the details" plus a recipient - which is
  * consent to an unnamed transfer of an unnamed amount.
  *
  * These tests drive `dapp.ts` with `isExtension()` forced false, which is the
@@ -102,9 +102,22 @@ jest.mock('lib/miden/back/vault', () => ({
 
 /** The dry run itself is covered by `simulate-custom-tx.test.ts`. */
 const mockSimulate = jest.fn();
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: (...args: unknown[]) => mockSimulate(...args)
-}));
+let mockInDryRun = false;
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return {
+    simulateCustomTransaction: async (input: { feeScope?: string }) => {
+      const dryRun = await mockSimulate(input);
+      mockInDryRun = true;
+      try {
+        return measureApprovalDryRun(dryRun, input.feeScope);
+      } finally {
+        mockInDryRun = false;
+      }
+    }
+  };
+});
 
 /**
  * Decoding a `TransactionSummary` is covered by `app/confirm/decode.test.ts`
@@ -158,10 +171,14 @@ jest.mock('lib/miden/note-quarantine', () => ({
 // The summary decoder reads the chain fee this realm cached, so the approval reads it first and refuses when unknown.
 const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
 const mockFeeKnownAbsent = jest.fn(() => false);
+const mockSyncFee = jest.fn((): number | null => 2);
+const mockCacheScope = jest.fn(() => 'rpc|testnet');
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
-  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent()
+  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent(),
+  getVerificationBaseFeeSync: () => mockSyncFee(),
+  cacheScope: () => mockCacheScope()
 }));
 
 jest.unmock('lib/i18n/numbers');
@@ -235,6 +252,8 @@ const raiseSheet = async (confirmed: boolean, overrides: Record<string, unknown>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCacheScope.mockReset();
+  mockCacheScope.mockImplementation(() => 'rpc|testnet');
   mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'MIDEN' });
   mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64' });
   mockNoteFlowFromBytes.mockReturnValue({ inputCount: 0, inputs: [], outputs: [] });
@@ -243,6 +262,8 @@ beforeEach(() => {
   mockRefreshVerificationBaseFee.mockResolvedValue(2);
   mockFeeKnownAbsent.mockReset();
   mockFeeKnownAbsent.mockReturnValue(false);
+  mockSyncFee.mockReset();
+  mockSyncFee.mockReturnValue(2);
 });
 
 describe('the mobile/desktop custom-transaction sheet states the simulated effects', () => {
@@ -254,13 +275,33 @@ describe('the mobile/desktop custom-transaction sheet states the simulated effec
     });
   });
 
+  it('decodes the approval and the note flow only while the dry run runs, never after it returns', async () => {
+    const outside: string[] = [];
+    mockSummaryBytesToView.mockImplementation(() => {
+      if (!mockInDryRun) outside.push('approval');
+      return emptyView;
+    });
+    mockNoteFlowFromBytes.mockImplementation(() => {
+      if (!mockInDryRun) outside.push('note flow');
+      return { inputCount: 0, inputs: [], outputs: [] };
+    });
+
+    await raiseSheet(false);
+
+    expect(mockSummaryBytesToView).toHaveBeenCalled();
+    expect(mockNoteFlowFromBytes).toHaveBeenCalled();
+    expect(outside).toEqual([]);
+  });
+
   it('dry-runs the request the user is being asked about, on the bound account', async () => {
     await raiseSheet(false);
 
     expect(mockSimulate).toHaveBeenCalledWith({
       address: 'miden-account-1',
       transactionRequest: 'reqB64',
-      importNotes: ['noteB64']
+      importNotes: ['noteB64'],
+      feeScope: 'rpc|testnet',
+      chainFeeRead: expect.any(Promise)
     });
     expect(mockSummaryBytesToView).toHaveBeenCalledWith('sumB64');
   });
@@ -394,6 +435,34 @@ const refusedBeforePrompt = async (): Promise<string> => {
 };
 
 describe('a request that cannot be simulated is refused before any prompt', () => {
+  it('refuses a failed dry run while the fee refresh it started has not settled', async () => {
+    mockRefreshVerificationBaseFee.mockImplementationOnce(() => new Promise<number | null>(() => undefined));
+    mockSimulate.mockResolvedValue({ error: 'note not found' });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let outcome: string;
+    try {
+      outcome = await Promise.race([
+        requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+          () => 'not refused',
+          (error: Error) => error.message
+        ),
+        new Promise<string>(resolve => {
+          timer = setTimeout(() => resolve('still waiting on the fee read'), 1_000);
+        })
+      ]);
+    } finally {
+      clearTimeout(timer);
+      errSpy.mockRestore();
+    }
+
+    expect(outcome).toMatch(new RegExp(`^${MidenDAppErrorType.NotGranted}: The transaction could not be simulated`));
+    expect(outcome).toContain('Reason: note not found');
+    expect(mockRefreshVerificationBaseFee).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+  });
+
   it('refuses with the reason when the simulation errors', async () => {
     mockSimulate.mockResolvedValue({ error: 'note not found' });
 
@@ -764,17 +833,17 @@ describe('the outflow an approval records', () => {
 });
 
 /**
- * A summary's fee note is told apart only by the chain fee this realm just read, so the approval reads it before it
- * decodes one and refuses when that read is unknown. An executed dry run reads the fee of its own block and needs no
- * re-read.
+ * A summary's fee note is told apart only by the chain fee this realm just read, so the approval starts that read before
+ * the dry run, whose hold waits for it before measuring a summary. Only a summary is refused when that read is unknown:
+ * an executed dry run splits on the fee of its own block.
  */
 describe('the chain fee the approval decodes with', () => {
-  it('re-reads the chain fee before decoding a summary, and not for an executed dry run', async () => {
+  it('starts the chain fee read once, before the dry run, for a summary and for an executed dry run', async () => {
     await raiseSheet(false);
 
     expect(mockRefreshVerificationBaseFee).toHaveBeenCalledTimes(1);
     expect(mockRefreshVerificationBaseFee.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockSummaryBytesToView.mock.invocationCallOrder[0]!
+      mockSimulate.mock.invocationCallOrder[0]!
     );
 
     jest.clearAllMocks();
@@ -783,7 +852,10 @@ describe('the chain fee the approval decodes with', () => {
     await raiseSheet(false);
 
     expect(mockExecutedBytesToView).toHaveBeenCalledWith('execB64');
-    expect(mockRefreshVerificationBaseFee).not.toHaveBeenCalled();
+    expect(mockRefreshVerificationBaseFee).toHaveBeenCalledTimes(1);
+    expect(mockRefreshVerificationBaseFee.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockSimulate.mock.invocationCallOrder[0]!
+    );
   });
 
   it('refuses a summary dry run before any prompt when the refresh does not know the fee', async () => {
@@ -806,12 +878,155 @@ describe('the chain fee the approval decodes with', () => {
     expect(message).toContain(sentence);
   });
 
+  it('refuses a summary dry run before any prompt when the fee its decode reads was cleared after the refresh', async () => {
+    mockSyncFee.mockReturnValue(null);
+
+    let message = '';
+    await requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+      () => {
+        throw new Error('the request was not refused');
+      },
+      (error: Error) => {
+        message = error.message;
+      }
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(message).toBe(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+  });
+
   it('still prompts when the refresh finds the fee absent', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
-    mockFeeKnownAbsent.mockReturnValueOnce(true);
+    mockSyncFee.mockReturnValue(null);
+    mockFeeKnownAbsent.mockReturnValue(true);
 
     await raiseSheet(false);
 
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a summary before any prompt when the endpoint scope changes after the fee read', async () => {
+    let scope = 'rpc-new|testnet';
+    mockCacheScope.mockImplementation(() => scope);
+    mockSyncFee.mockReturnValue(2);
+    mockRefreshVerificationBaseFee.mockImplementation(async () => {
+      scope = 'rpc-answered|testnet';
+      return 2;
+    });
+    mockSimulate.mockImplementation(async () => {
+      scope = 'rpc-new|testnet';
+      return { summaryBytes: 'sumB64' };
+    });
+
+    let message = '';
+    await requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+      () => {
+        throw new Error('the request was not refused');
+      },
+      (error: Error) => {
+        message = error.message;
+      }
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(message).toBe(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+  });
+
+  it('refuses a summary before any prompt when the new endpoint has no fee', async () => {
+    let scope = 'rpc-new|testnet';
+    mockCacheScope.mockImplementation(() => scope);
+    mockSyncFee.mockReturnValue(null);
+    mockFeeKnownAbsent.mockReturnValue(true);
+    mockRefreshVerificationBaseFee.mockImplementation(async () => {
+      scope = 'rpc-answered|testnet';
+      return 2;
+    });
+    mockSimulate.mockImplementation(async () => {
+      scope = 'rpc-new|testnet';
+      return { summaryBytes: 'sumB64' };
+    });
+
+    let message = '';
+    await requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+      () => {
+        throw new Error('the request was not refused');
+      },
+      (error: Error) => {
+        message = error.message;
+      }
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(message).toBe(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+  });
+
+  it('still prompts an executed dry run when the endpoint scope changes after the fee read', async () => {
+    let scope = 'rpc-new|testnet';
+    mockCacheScope.mockImplementation(() => scope);
+    mockRefreshVerificationBaseFee.mockImplementation(async () => {
+      scope = 'rpc-answered|testnet';
+      return 2;
+    });
+    mockSimulate.mockImplementation(async () => {
+      scope = 'rpc-new|testnet';
+      return { executedBytes: 'execB64' };
+    });
+    mockExecutedBytesToView.mockReturnValue(emptyView);
+
+    await raiseSheet(false);
+
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('still prompts an executed dry run when the fee read does not know the fee', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
+    mockSyncFee.mockReturnValue(null);
+    mockSimulate.mockResolvedValue({ executedBytes: 'execB64' });
+    mockExecutedBytesToView.mockReturnValue(emptyView);
+
+    await raiseSheet(false);
+
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  describe('a fee read that throws counts as an unknown fee', () => {
+    const readFailure = new Error('storage unavailable');
+    let warnSpy: jest.SpyInstance;
+    beforeEach(() => {
+      mockRefreshVerificationBaseFee.mockRejectedValueOnce(readFailure);
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => warnSpy.mockRestore());
+
+    it('refuses a summary dry run with the unknown-fee reason, after one dry run', async () => {
+      let message = '';
+      await requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1').then(
+        () => {
+          throw new Error('the request was not refused');
+        },
+        (error: Error) => {
+          message = error.message;
+        }
+      );
+
+      expect(message).toBe(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+      expect(mockSimulate).toHaveBeenCalledTimes(1);
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+      expect(warnSpy).toHaveBeenCalledWith(expect.any(String), readFailure);
+    });
+
+    it('still prompts an executed dry run, after one dry run', async () => {
+      mockSimulate.mockResolvedValue({ executedBytes: 'execB64' });
+      mockExecutedBytesToView.mockReturnValue(emptyView);
+
+      await raiseSheet(false);
+
+      expect(mockSimulate).toHaveBeenCalledTimes(1);
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    });
   });
 });

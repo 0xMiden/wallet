@@ -11,7 +11,7 @@
  *     → submit → completeSendTransaction).
  */
 
-import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import { getMessage } from 'lib/i18n/core';
@@ -35,7 +35,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
-import { installLandedTrapRetirement } from 'lib/miden/sdk/landed-trap-retirement';
+import { installLandedTrapRetirement, retireLandedTrap } from 'lib/miden/sdk/landed-trap-retirement';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { ConsumableNote } from 'lib/miden/types';
@@ -176,6 +176,33 @@ jest.mock('lib/miden/repo', () => ({
     }))
   }
 }));
+
+// Fails the first `limit` Completed writes at the repo, probed rather than counted so the other writes of the run
+// (stage stamps, a Failed write) pass through untouched.
+const failCompletedWrites = (limit: number) => {
+  const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+  const realWhere = repo.transactions.where.getMockImplementation()!;
+  const writes = { failures: 0 };
+  repo.transactions.where.mockImplementation((query: { id: string }) => ({
+    ...realWhere(query),
+    modify: async (fn: (row: Record<string, unknown>) => void) => {
+      const probe: Record<string, unknown> = { extraInputs: {} };
+      let targetsCompleted = false;
+      try {
+        fn(probe);
+        targetsCompleted = probe.status === ITransactionStatus.Completed;
+      } catch {
+        targetsCompleted = false;
+      }
+      if (targetsCompleted && writes.failures < limit) {
+        writes.failures++;
+        throw new Error('IndexedDB transaction aborted');
+      }
+      return realWhere(query).modify(fn);
+    }
+  }));
+  return { writes, restore: () => repo.transactions.where.mockImplementation(realWhere) };
+};
 
 // transactions.ts imports putToStorage from '../front' (the barrel), not directly from './storage'.
 jest.mock('../front', () => ({
@@ -337,6 +364,8 @@ const installWasmLockAbortRace = () => {
 };
 const mockWithWasmLockWatchdogPaused = jest.fn(async (fn: () => Promise<unknown>) => fn());
 const mockGetMidenClient = jest.fn();
+const mockRetireWasmClientForUnheldTrap = jest.fn();
+const mockRetireWasmClientForCaughtTrap = jest.fn();
 const mockCreateWasmWebClient = jest.fn();
 // The guardian PSWAP build takes the realm's reader client; mocking the accessor keeps
 // its module-scoped reader out of these tests (the real module is kept for the rest).
@@ -359,6 +388,8 @@ jest.mock('../sdk/miden-client', () => {
       mockWithWasmClientLock(...(a as Parameters<typeof mockWithWasmClientLock>)),
     withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
     getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a),
+    retireWasmClientForUnheldTrap: (...a: unknown[]) => mockRetireWasmClientForUnheldTrap(...a),
+    retireWasmClientForCaughtTrap: (...a: unknown[]) => mockRetireWasmClientForCaughtTrap(...a),
     getCurrentWasmLockHold: () => currentHold,
     // The shared post-await re-check (#788 follow-up). Re-implements the
     // comparison against this mock's current hold - a no-op stub would make it
@@ -391,7 +422,7 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  cacheScope: () => 'fixture-rpc|testnet',
+  cacheScope: jest.fn(() => 'fixture-rpc|testnet'),
   captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
   recordSyncedFeeFaucetId: jest.fn(async () => true),
   getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000'),
@@ -614,6 +645,24 @@ const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(as
       })
     )
   });
+};
+
+// A result whose reads trap once the leaf's apply, its last await, resolved, so the tail's id read is the first to trap.
+const armTailIdReadTrap = () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  const landed = makeResult();
+  let armed = false;
+  const result = {
+    ...landed,
+    executedTransaction: () => {
+      if (armed) throw trap;
+      return landed.executedTransaction();
+    }
+  };
+  const apply = jest.fn(async () => {
+    armed = true;
+  });
+  return { trap, result, apply };
 };
 
 // Tip preparation's chain sync is the one `syncChain` call a guardian leaf makes, so it has to precede the execute.
@@ -983,11 +1032,11 @@ describe('completeSwitchGuardianTransaction', () => {
     const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
     const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
     jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-    // The primary write plus the first TWO retries fail; the third lands. Three
-    // is the number that distinguishes this from the single-retry behaviour it
-    // replaces: the primary write consumes one failure by itself, so a test that
-    // only needed two would pass with a budget of one retry.
+    // The first three helper attempts fail and the fourth lands. Three failures
+    // is what a single retry cannot survive, and the advance below has to reach
+    // that fourth attempt.
     const repo = jest.requireMock('lib/miden/repo') as {
       transactions: { where: jest.Mock };
     };
@@ -1025,8 +1074,9 @@ describe('completeSwitchGuardianTransaction', () => {
         multisigService as never,
         provider as never
       );
-      // The attempts are SPACED - a single immediate retry is what this replaces.
-      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * 4);
+      // The helper sleeps after each of the first three failures (1 + 2 + 3 backoffs)
+      // so the fourth attempt can run.
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * (1 + 2 + 3));
       await completion;
     } finally {
       jest.useRealTimers();
@@ -1036,6 +1086,222 @@ describe('completeSwitchGuardianTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(failures).toBe(3);
+  });
+
+  // The helper re-reads before every attempt and returns when the row has left
+  // the queue. A Completed write that loses that race must not modify the row
+  // again. Its one failed attempt logs once on console.warn, and the attempts
+  // the re-read skips are not logged.
+  it('stops the Completed write once the row has left the queue', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const repo = jest.requireMock('lib/miden/repo') as {
+      transactions: { where: jest.Mock };
+    };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let completedModifies = 0;
+    let readsAfterLeave = 0;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as {
+        modify: (fn: (row: Record<string, unknown>) => void) => Promise<void>;
+        first: () => Promise<Record<string, unknown> | undefined>;
+      };
+      return {
+        ...handle,
+        first: async () => {
+          const row = await handle.first();
+          if (
+            row?.status === ITransactionStatus.Completed ||
+            row?.status === ITransactionStatus.Failed ||
+            row?.status === ITransactionStatus.Unconfirmed
+          ) {
+            readsAfterLeave += 1;
+          }
+          return row;
+        },
+        modify: async (fn: (row: Record<string, unknown>) => void) => {
+          const probe: Record<string, unknown> = { extraInputs: {} };
+          let targetsCompleted = false;
+          try {
+            fn(probe);
+            targetsCompleted = probe.status === ITransactionStatus.Completed;
+          } catch {
+            targetsCompleted = false;
+          }
+          if (targetsCompleted) {
+            completedModifies += 1;
+            if (completedModifies === 1) {
+              const stored = txStore.find(r => r.id === tx.id);
+              if (stored) stored.status = ITransactionStatus.Failed;
+              throw new Error('IndexedDB transaction aborted');
+            }
+          }
+          return handle.modify(fn);
+        }
+      };
+    });
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeSwitchGuardianTransaction(
+        tx,
+        makeResult() as never,
+        multisigService as never,
+        provider as never
+      );
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * (1 + 2 + 3));
+      await completion;
+    } finally {
+      jest.useRealTimers();
+      repo.transactions.where.mockImplementation(realWhere);
+    }
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(completedModifies).toBe(1);
+    expect(readsAfterLeave).toBe(1);
+    const attemptLogs = warnSpy.mock.calls
+      .map(call => call[0])
+      .filter((message): message is string => typeof message === 'string' && message.includes('attempt'));
+    expect(attemptLogs).toHaveLength(1);
+    expect(attemptLogs[0]).toContain('attempt 1/');
+  });
+
+  it('a coordinated switch whose first Completed write aborts still persists the in-memory switch delta', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({
+      id: tx.id,
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    tx.extraInputs = {
+      ...tx.extraInputs,
+      switchDeltaPushed: true,
+      switchProposalId: 'prop-switch',
+      switchProposalNonce: 41
+    };
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const repo = jest.requireMock('lib/miden/repo') as {
+      transactions: { where: jest.Mock };
+    };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let failures = 0;
+    repo.transactions.where.mockImplementation((query: { id: string }) => ({
+      ...realWhere(query),
+      modify: async (fn: (row: Record<string, unknown>) => void) => {
+        const probe: Record<string, unknown> = { extraInputs: {} };
+        let targetsCompleted = false;
+        try {
+          fn(probe);
+          targetsCompleted = probe.status === ITransactionStatus.Completed;
+        } catch {
+          targetsCompleted = false;
+        }
+        if (targetsCompleted && failures < 1) {
+          failures += 1;
+          throw new Error('IndexedDB transaction aborted');
+        }
+        return realWhere(query).modify(fn);
+      }
+    }));
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeSwitchGuardianTransaction(
+        tx,
+        makeResult() as never,
+        multisigService as never,
+        provider as never
+      );
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS);
+      await completion;
+    } finally {
+      jest.useRealTimers();
+      repo.transactions.where.mockImplementation(realWhere);
+    }
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(failures).toBe(1);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs).toMatchObject({
+      switchDeltaPushed: true,
+      switchProposalId: 'prop-switch',
+      switchProposalNonce: 41
+    });
+  });
+
+  // An unexpected throw before the Completed write reaches the catch, whose write is the same helper, so it also
+  // stops once the row has left the queue instead of writing Completed over a finalized row again and again.
+  it('the fallback Completed write after an unexpected throw stops once the row has left the queue', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    // No extraInputs to read the new endpoint from: the first step of the completion throws.
+    tx.extraInputs = undefined as never;
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const repo = jest.requireMock('lib/miden/repo') as {
+      transactions: { where: jest.Mock };
+    };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let completedModifies = 0;
+    repo.transactions.where.mockImplementation((query: { id: string }) => ({
+      ...realWhere(query),
+      modify: async (fn: (row: Record<string, unknown>) => void) => {
+        const probe: Record<string, unknown> = { extraInputs: {} };
+        let targetsCompleted = false;
+        try {
+          fn(probe);
+          targetsCompleted = probe.status === ITransactionStatus.Completed;
+        } catch {
+          targetsCompleted = false;
+        }
+        if (targetsCompleted) {
+          completedModifies += 1;
+          const stored = txStore.find(r => r.id === tx.id);
+          if (stored) stored.status = ITransactionStatus.Failed;
+          throw new Error('IndexedDB transaction aborted');
+        }
+        return realWhere(query).modify(fn);
+      }
+    }));
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeSwitchGuardianTransaction(
+        tx,
+        makeResult() as never,
+        multisigService as never,
+        provider as never
+      );
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * (1 + 2 + 3));
+      await completion;
+    } finally {
+      jest.useRealTimers();
+      repo.transactions.where.mockImplementation(realWhere);
+    }
+
+    expect(completedModifies).toBe(1);
+    expect(txStore.find(r => r.id === tx.id)?.status).toBe(ITransactionStatus.Failed);
+    // One failed attempt, then a re-read that finds the row finalized: no further attempt is made or logged.
+    const attemptLogs = [...errorSpy.mock.calls, ...warnSpy.mock.calls].filter(
+      call => typeof call[0] === 'string' && call[0].includes('attempt')
+    );
+    expect(attemptLogs).toHaveLength(1);
   });
 
   it('records registerFailed=false on a clean switch', async () => {
@@ -1322,33 +1588,9 @@ describe('completeSwitchGuardianTransaction', () => {
       });
     });
 
-    // Fails the first Completed write once, at the repo, so the completion's fallback write lands the
-    // row: the registration and the cache eviction each catch their own errors, so the main write is
-    // the one step past the flags that reaches the fallback.
-    const failFirstCompletedWrite = () => {
-      const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
-      const realWhere = repo.transactions.where.getMockImplementation()!;
-      const writes = { failures: 0 };
-      repo.transactions.where.mockImplementation((query: { id: string }) => ({
-        ...realWhere(query),
-        modify: async (fn: (row: Record<string, unknown>) => void) => {
-          const probe: Record<string, unknown> = { extraInputs: {} };
-          let targetsCompleted = false;
-          try {
-            fn(probe);
-            targetsCompleted = probe.status === ITransactionStatus.Completed;
-          } catch {
-            targetsCompleted = false;
-          }
-          if (targetsCompleted && writes.failures < 1) {
-            writes.failures++;
-            throw new Error('IndexedDB transaction aborted');
-          }
-          return realWhere(query).modify(fn);
-        }
-      }));
-      return { writes, restore: () => repo.transactions.where.mockImplementation(realWhere) };
-    };
+    // A failed first Completed write reaches the completion's fallback write: the registration and the cache
+    // eviction each catch their own errors, so the main write is the one step past the flags that reaches it.
+    const failFirstCompletedWrite = () => failCompletedWrites(1);
 
     it('a direct switch whose first completion write fails still records it unrecoverable', async () => {
       const { tx, provider, row } = landedSwitch();
@@ -1847,6 +2089,78 @@ describe('generateTransaction - Guardian routing', () => {
     );
     return txStore.find(r => r.id === txId)!;
   };
+
+  // Only the structural commit wait uses the tail's transaction id, so a value row's completion runs without that read.
+  const armValueTailIdTrap = () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let armed = false;
+    const readsAfterApply = { inputNotes: 0, outputNotes: 0 };
+    const executed = {
+      id: () => {
+        if (armed) throw trap;
+        return { toHex: () => 'exec-tx-hash' };
+      },
+      outputNotes: () => {
+        if (armed) readsAfterApply.outputNotes++;
+        return { notes: () => [] };
+      },
+      inputNotes: () => {
+        if (armed) readsAfterApply.inputNotes++;
+        return { notes: () => [] };
+      }
+    };
+    const result = { executedTransaction: () => executed, serialize: () => new Uint8Array([9, 9, 9]) };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    return { result, apply, readsAfterApply };
+  };
+
+  it('Guardian send: a tail whose id read would trap still runs the send completion', async () => {
+    const { result, apply, readsAfterApply } = armValueTailIdTrap();
+
+    await runGuardianSend('send-guardian-tail-id-unread', makeClientApi(result, apply));
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(readsAfterApply.outputNotes).toBeGreaterThan(0);
+  });
+
+  it('Guardian consume: a tail whose id read would trap still runs the consume completion', async () => {
+    const txId = 'consume-guardian-tail-id-unread';
+    const { result, apply, readsAfterApply } = armValueTailIdTrap();
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      guardianEndpoint: 'https://old.guardian',
+      priorCandidateState: jest.fn(async (_nonce: number) => 'settled'),
+      createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop-consume' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result, apply)
+    });
+    txStore.push({
+      id: txId,
+      type: 'consume',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      noteId: 'note-xyz'
+    });
+
+    await generateTransaction(
+      { id: txId, type: 'consume', accountId: 'guardian-acc', noteId: 'note-xyz', delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(readsAfterApply.inputNotes).toBeGreaterThan(0);
+  });
 
   // The landed boundary starts after the leaf resolves: one that started inside it would retire this trap as landed.
   it('Guardian send: a trap the leaf throws before its submit retires nothing under the landed rule', async () => {
@@ -2731,7 +3045,12 @@ describe('generateTransaction - Guardian routing', () => {
       const orderNote = {
         id: () => ({ toString: () => 'pswap-note' }),
         metadata: () => ({ noteType: () => NoteType.Public }),
-        intoFull: () => ({ recipient: () => ({ serialNum: () => ({ toFelts: () => [{}, { asInt: () => 7n }] }) }) })
+        intoFull: () => ({
+          recipient: () => ({
+            script: () => ({ root: () => NoteScript.pswap().root() }),
+            serialNum: () => ({ toFelts: () => [{}, { asInt: () => 7n }] })
+          })
+        })
       };
       const base = makeResult();
       const executed = base.executedTransaction();
@@ -12992,7 +13311,7 @@ describe('generateTransaction - Guardian routing', () => {
 
   // #1233: a threshold update whose submit lands and whose local apply then fails. The cold
   // service backs the proposal; the reconcile builds none.
-  const arrangeLandedThreshold = (apply: Parameters<typeof makeClientApi>[1]) => {
+  const arrangeLandedThreshold = (apply: Parameters<typeof makeClientApi>[1], result = makeResult()) => {
     const coldService = {
       guardianEndpoint: 'https://old.guardian',
       createUpdateProcedureThresholdProposal: jest.fn(async (_procedure: string, _threshold: number) => ({
@@ -13010,7 +13329,7 @@ describe('generateTransaction - Guardian routing', () => {
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
-      client: makeClientApi(makeResult(), apply)
+      client: makeClientApi(result, apply)
     });
     const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
     txStore.push({ ...tx });
@@ -13050,6 +13369,242 @@ describe('generateTransaction - Guardian routing', () => {
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     expect(reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
     expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  // The node confirmed the update, so the reconcile's Completed write is retried rather than cancelled.
+  const reconcileLandedThresholdWithFailedWrites = async (limit: number) => {
+    const { tx, row, provider } = arrangeLandedThreshold(
+      jest.fn(async () => {
+        throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+      })
+    );
+    mockDidDirectSwitchLand.mockResolvedValueOnce(true);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { writes, restore } = failCompletedWrites(limit);
+    jest.useFakeTimers();
+    try {
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+      await jest.runAllTimersAsync();
+      await run;
+    } finally {
+      jest.useRealTimers();
+      restore();
+    }
+    const cancelled = error.mock.calls.some(
+      ([message]) => typeof message === 'string' && message.startsWith('Structural-op landed reconcile failed')
+    );
+    return { writes, row: row(), cancelled };
+  };
+
+  it('a landed threshold update whose reconcile Completed write aborts once is retried to Completed, not cancelled', async () => {
+    const { writes, row, cancelled } = await reconcileLandedThresholdWithFailedWrites(1);
+
+    expect(writes.failures).toBe(1);
+    expect(cancelled).toBe(false);
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.displayMessage).toBe('Account secured');
+    expect(row?.transactionId).toBe('exec-tx-hash');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+  });
+
+  it('a landed threshold update whose reconcile Completed write fails every attempt is left in progress, not cancelled', async () => {
+    const { writes, row, cancelled } = await reconcileLandedThresholdWithFailedWrites(Infinity);
+
+    expect(writes.failures).toBe(TERMINAL_STATUS_WRITE_ATTEMPTS);
+    expect(cancelled).toBe(false);
+    expect(row?.status).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(row?.error).toBeUndefined();
+  });
+
+  // A structural tail whose id read traps has no id to ask the node about, so it takes the structural landed reconcile.
+  it('Guardian switch-guardian: a coordinated switch whose tail id read traps completes unconfirmed through the structural landed reconcile', async () => {
+    const txId = 'switch-guardian-tail-id-trap';
+    const { trap, result, apply } = armTailIdReadTrap();
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    const multisigService = {
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: {
+          id: 'prop-switch',
+          nonce: 41,
+          metadata: { proposalType: 'switch_guardian', chainAnchor: 'cHJvcG9zYWwtYW5jaG9y' }
+        },
+        newEndpoint: 'https://new.guardian'
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      finalizeGuardianSwitch: jest.fn(async () => {}),
+      abandonCandidate: jest.fn(async () => {}),
+      pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
+      probeGuardianState: jest.fn(async () => {}),
+      adoptGuardianStateOnce: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    const setGuardianEndpoint = jest.fn(async (_accountId: string, _endpoint: string) => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result, apply)
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, txId]]);
+      // The delta reaches the outgoing guardian before the id read, so the reconcile adopts from it.
+      expect(multisigService.pushSwitchDeltaBounded).toHaveBeenCalledTimes(1);
+      expect(multisigService.pushSwitchDeltaBounded).toHaveBeenCalledWith('prop-switch');
+      expect(mockAdoptPostSwitchState).toHaveBeenCalledTimes(1);
+      expect(mockAdoptPostSwitchState.mock.calls[0]![0]).toEqual({
+        probe: expect.any(Function),
+        adoptOnce: expect.any(Function)
+      });
+      // No id, so nothing asks the node; the reconcile rebuilt the outgoing service and finalized through it.
+      expect(waitForTransactionCommit).not.toHaveBeenCalled();
+      expect(mockDidDirectSwitchLand).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(2);
+      expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
+      expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+      expect(multisigService.abandonCandidate).not.toHaveBeenCalled();
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Guardian switch submitted' });
+      expect(row.error).toBeUndefined();
+      expect(row.transactionId).toBeUndefined();
+      expect(row.extraInputs).toMatchObject({
+        commitUnconfirmed: true,
+        switchDeltaPushed: true,
+        switchProposalId: 'prop-switch',
+        switchProposalNonce: 41
+      });
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it('Guardian replace-hot-key: a tail id read that traps fails on the no-id verdict without swapping the key', async () => {
+    const { trap, result, apply } = armTailIdReadTrap();
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const coldService = {
+      guardianEndpoint: 'https://old.guardian',
+      createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace', nonce: 3 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async (_nonce: number) => {}),
+      reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    const hotService = { getProcedureThreshold: () => 2, abandonCandidate: jest.fn(async (_nonce: number) => {}) };
+    mockGetOrCreateMultisigService.mockResolvedValue(hotService);
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result, apply)
+    });
+    const swapHotKey = jest.fn(async (_accountPublicKey: string, _newHotPubKey: string) => {});
+    const provider = { ...makeGuardianProvider(true), persistNewHotKey: jest.fn(async () => {}), swapHotKey };
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    txStore.push({ ...tx });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, tx.id]]);
+      const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toEqual(expect.stringContaining('its transaction id could not be read'));
+      expect(waitForTransactionCommit).not.toHaveBeenCalled();
+      expect(mockDidDirectSwitchLand).not.toHaveBeenCalled();
+      expect(swapHotKey).not.toHaveBeenCalled();
+      expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+      expect(hotService.abandonCandidate).not.toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it('Guardian update-procedure-threshold: a tail id read that traps evicts the cached service and fails on the no-id verdict', async () => {
+    const { trap, result, apply } = armTailIdReadTrap();
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const { tx, row, coldService, provider } = arrangeLandedThreshold(apply, result);
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    Object.assign(coldService, { reRegisterCurrentStateOnGuardian });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {}),
+      reRegisterCurrentStateOnGuardian
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, tx.id]]);
+      expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(row()?.error).toEqual(expect.stringContaining('its transaction id could not be read'));
+      expect(mockDidDirectSwitchLand).not.toHaveBeenCalled();
+      expect(reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
+      expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
   });
 
   it('Guardian earn-deposit: a raw store failure at apply stays Failed and records the landed wrap (#1233)', async () => {
@@ -15115,6 +15670,98 @@ describe('completeReplaceHotKeyTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.extraInputs).toMatchObject({ reRegisterFailed: false });
   });
+
+  // A rotation whose re-register and hardening succeed, so only the swap and the Completed write decide the row.
+  const arrangeRotation = () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: async () => {},
+      getAccount: async () => ({ id: () => ({ toString: () => 'acc-1' }) })
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      swapHotKey
+    };
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    return { tx, swapHotKey, provider, row: () => txStore.find(r => r.id === tx.id) as Record<string, unknown> };
+  };
+
+  it('retries a Completed write that aborts after the swap and never writes Failed for the installed key', async () => {
+    const { tx, swapHotKey, provider, row } = arrangeRotation();
+    const { writes, restore } = failCompletedWrites(1);
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * TERMINAL_STATUS_WRITE_ATTEMPTS ** 2);
+      await completion;
+    } finally {
+      jest.useRealTimers();
+      restore();
+    }
+
+    expect(writes.failures).toBe(1);
+    expect(swapHotKey).toHaveBeenCalledTimes(1);
+    expect(row().status).toBe(ITransactionStatus.Completed);
+    expect(row().displayMessage).toBe('Everyday key rotated');
+    expect(row().error).toBeUndefined();
+    expect(row().extraInputs).toMatchObject({ newHotPublicKey: 'new-hot-pub', reRegisterFailed: false });
+    expect(row().transactionId).toBe('exec-tx-hash');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    // The hardening still follows the write.
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
+  });
+
+  it('a Completed write that fails every attempt leaves the rotation in progress, never Failed', async () => {
+    const { tx, swapHotKey, provider, row } = arrangeRotation();
+    const { writes, restore } = failCompletedWrites(Infinity);
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * TERMINAL_STATUS_WRITE_ATTEMPTS ** 2);
+      await expect(completion).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+      restore();
+    }
+
+    expect(writes.failures).toBe(TERMINAL_STATUS_WRITE_ATTEMPTS);
+    expect(swapHotKey).toHaveBeenCalledTimes(1);
+    expect(row().status).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(row().error).toBeUndefined();
+  });
+
+  it('completes the rotation when evicting the cached service throws after the swap', async () => {
+    const { tx, provider, row } = arrangeRotation();
+    mockClearGuardianServiceFor.mockImplementationOnce(() => {
+      throw new Error('cache unavailable');
+    });
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(row().status).toBe(ITransactionStatus.Completed);
+    expect(row().displayMessage).toBe('Everyday key rotated');
+    expect(row().error).toBeUndefined();
+  });
+
+  it('still fails the rotation when the swap itself rejects, and evicts nothing', async () => {
+    const { tx, swapHotKey, provider, row } = arrangeRotation();
+    swapHotKey.mockRejectedValueOnce(new Error('Wallet is locked'));
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(row().status).toBe(ITransactionStatus.Failed);
+    expect(row().displayMessage).toBe('Failed to rotate everyday key');
+    expect(row().error).toBe('Wallet is locked');
+    expect(mockClearGuardianServiceFor).not.toHaveBeenCalled();
+  });
 });
 
 describe('completeUpdateProcedureThresholdTransaction', () => {
@@ -15220,6 +15867,58 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  // Fake timers, so the spaced retries of an exhausted write cost no real backoff.
+  const completeThresholdWithFailedWrites = async (limit: number) => {
+    const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { writes, restore } = failCompletedWrites(limit);
+    jest.useFakeTimers();
+    try {
+      const completion = completeUpdateProcedureThresholdTransaction(
+        tx,
+        makeResult() as never,
+        {
+          reRegisterCurrentStateOnGuardian
+        } as never
+      );
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * TERMINAL_STATUS_WRITE_ATTEMPTS ** 2);
+      await expect(completion).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+      restore();
+      warn.mockRestore();
+    }
+    return {
+      writes,
+      reRegisterCurrentStateOnGuardian,
+      row: txStore.find(r => r.id === tx.id) as Record<string, unknown>
+    };
+  };
+
+  it('retries a Completed write that aborts once, then clears the cache and re-registers', async () => {
+    const { writes, reRegisterCurrentStateOnGuardian, row } = await completeThresholdWithFailedWrites(1);
+
+    expect(writes.failures).toBe(1);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Account secured');
+    expect(row.transactionId).toBe('exec-tx-hash');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the row in progress when the Completed write fails every attempt, and still clears and re-registers', async () => {
+    const { writes, reRegisterCurrentStateOnGuardian, row } = await completeThresholdWithFailedWrites(Infinity);
+
+    // Left for the reaper rather than failed here.
+    expect(writes.failures).toBe(TERMINAL_STATUS_WRITE_ATTEMPTS);
+    expect(row.status).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(row.error).toBeUndefined();
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -15440,6 +16139,72 @@ describe('generateTransaction - direct switch, a trap past submit', () => {
       expect(apply).toHaveBeenCalledTimes(1);
       expect(retire.mock.calls).toEqual([[trap, txId]]);
     } finally {
+      restore();
+    }
+  });
+
+  it('a direct switch whose first post-submit read traps completes on no evidence, persisting the endpoint and registering on the new guardian', async () => {
+    const txId = 'switch-guardian-direct-tail-id-trap';
+    const { trap, result, apply } = armTailIdReadTrap();
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    jest.clearAllMocks();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result, apply)
+    });
+    const setGuardianEndpoint = jest.fn(async (_accountId: string, _endpoint: string) => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint
+    };
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, txId]]);
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Guardian switch submitted' });
+      expect(row.error).toBeUndefined();
+      expect(row.transactionId).toBeUndefined();
+      expect(row.extraInputs).toMatchObject({ commitUnconfirmed: true, switchedDirectly: true });
+      expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
+      expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', expect.anything());
+      expect(mockAdoptPostSwitchState).toHaveBeenCalledWith(undefined, 'guardian-acc', 'https://new.guardian');
+      // No id to ask about, and the direct path never rebuilds the outgoing service it fled.
+      expect(mockDidDirectSwitchLand).not.toHaveBeenCalled();
+      expect(waitForTransactionCommit).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+    } finally {
+      errSpy.mockRestore();
       restore();
     }
   });
@@ -16543,9 +17308,14 @@ describe('Guardian proposal effect check', () => {
     return txStore.find(r => r.id === queued.id) as Record<string, unknown>;
   };
 
+  // The refresh before each check fills the cache its decode reads, as the real read does.
   beforeEach(() => {
     txStore.length = 0;
     mockDeserializeSummary.mockReset();
+    jest.requireMock('lib/miden-chain/native-asset').getVerificationBaseFeeSync.mockImplementation(() => 10000);
+  });
+  afterEach(() => {
+    jest.requireMock('lib/miden-chain/native-asset').getVerificationBaseFeeSync.mockImplementation(() => null);
   });
 
   // Filling a stranger's PSWAP order: its offer comes in, and the asset it requested leaves from this vault.
@@ -16662,6 +17432,38 @@ describe('Guardian proposal effect check', () => {
       nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
       nativeAsset.isVerificationBaseFeeKnownAbsent.mockReset();
       nativeAsset.isVerificationBaseFeeKnownAbsent.mockImplementation(() => false);
+    }
+  });
+
+  it('requeues a claim whose endpoint moves while its proposal check waits for the decoding hold, with Retry open', async () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    const lock = mockWithWasmClientLock.getMockImplementation()!;
+    mockWithWasmClientLock.mockImplementation(async (fn, options) => {
+      if (options !== undefined && 'label' in options && options.label === 'proposal effect check') {
+        nativeAsset.cacheScope.mockImplementation(() => 'other-rpc|testnet');
+      }
+      return lock(fn, options);
+    });
+    try {
+      mockDeserializeSummary.mockReturnValue(summary({ added: [fa('fB', 50n)] }));
+      const service = serviceWith({ id: 'prop-moved', nonce: 12, metadata: {}, txSummary: 'bW92ZWQ=' });
+      const claim = await run({
+        id: 'claim-endpoint-moved',
+        type: 'consume',
+        accountId: 'guardian-acc',
+        noteId: 'n-1'
+      });
+
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(12);
+      expect(mockDeserializeSummary).not.toHaveBeenCalled();
+      expect(claim.status).toBe(ITransactionStatus.Queued);
+      expect(claim.nextEligibleAt).toEqual(expect.any(Number));
+      expect(claim.proposalEffectRefused).toBeUndefined();
+    } finally {
+      mockWithWasmClientLock.mockImplementation(lock);
+      nativeAsset.cacheScope.mockReset();
+      nativeAsset.cacheScope.mockImplementation(() => 'fixture-rpc|testnet');
     }
   });
 
@@ -16955,6 +17757,184 @@ describe('Guardian proposal effect check', () => {
       mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
       mockVerifyPreparedCustomRequest.mockReset();
       mockVerifyPreparedCustomRequest.mockImplementation(async () => undefined);
+    }
+  });
+
+  // The fixture of the test above, with the real generation check of the proposal summary: its one note is a kernel
+  // fee of 100 on the native faucet, and the refresh before the dry run fills 10000.
+  describe('an approved custom proposal whose fee cache changes while it is created', () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+
+    const runFeeNoteProposal = async (id: string, whileProposing: () => void) => {
+      const nativeFaucet: string = nativeAsset.getNativeAssetIdSync();
+      const feeAsset = { faucetId: () => ({ __faucet: nativeFaucet }), amount: () => 100n };
+      const feeNote = {
+        id: () => ({ toString: () => 'note:fee' }),
+        metadata: () => ({ tag: () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
+        recipientDigest: () => ({ toHex: () => '0xfeed' }),
+        assets: () => ({ fungibleAssets: () => [feeAsset], nonFungibleAssets: () => [] })
+      };
+      mockDeserializeSummary.mockReturnValue({
+        accountDelta: () => ({
+          id: () => 'guardian-acc',
+          vault: () => ({
+            removedFungibleAssets: () => [feeAsset],
+            addedFungibleAssets: () => [],
+            numAssets: () => 1
+          }),
+          storage: () => ({ isEmpty: () => true })
+        }),
+        inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+        outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote] })
+      });
+      mockAssertCustomEffectsApproved.mockImplementation(
+        jest.requireActual<typeof import('./custom-effects')>('./custom-effects').assertCustomEffectsApproved
+      );
+      nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => {
+        nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => 10000);
+        return 10000;
+      });
+      const proposal = { id: `prop-${id}`, nonce: 5, metadata: {}, txSummary: 'ZmVl' };
+      const service = serviceWith(proposal);
+      service.createCustomProposal.mockImplementation(async () => {
+        whileProposing();
+        return proposal;
+      });
+      const row = await run({
+        id,
+        type: 'execute',
+        accountId: 'guardian-acc',
+        requestBytes: new Uint8Array([4, 4]),
+        spentAssetTotals: [],
+        approvedEffects: {
+          shape: 'summary',
+          outgoing: [],
+          incoming: [],
+          outgoingNfts: [],
+          incomingNfts: [],
+          unlistedAssets: 0,
+          recipients: [],
+          inputNotesConsumed: 0,
+          outputNotesCreated: 0,
+          fee: { faucetId: nativeFaucet, amount: 100n },
+          storageChanged: false,
+          introducedNoteIds: [],
+          approvedOutputNoteIds: []
+        }
+      });
+      return { service, row };
+    };
+
+    afterEach(() => {
+      nativeAsset.getVerificationBaseFeeSync.mockReset();
+      nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => null);
+      nativeAsset.refreshVerificationBaseFee.mockReset();
+      nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
+      nativeAsset.cacheScope.mockReset();
+      nativeAsset.cacheScope.mockImplementation(() => 'fixture-rpc|testnet');
+      mockAssertCustomEffectsApproved.mockReset();
+      mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
+      mockAssertProposalEffect.mockReset();
+      mockAssertProposalEffect.mockImplementation(async () => {});
+    });
+
+    // Not requeued, since an execute never is, and Retry stays open: the fee was unknown, not the effects changed.
+    const expectFailedAsUnknownFee = (service: ReturnType<typeof serviceWith>, row: Record<string, unknown>) => {
+      expect(service.abandonCandidate).toHaveBeenCalledWith(5);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+      expect(row.rawError).toEqual(expect.stringContaining('ProposalFeeUnknownError'));
+      expect(row.nextEligibleAt).toBeUndefined();
+      expect(row.proposalEffectRefused).toBeUndefined();
+    };
+
+    it('fails it as an unknown fee when the fee cache empties while its proposal is created', async () => {
+      const { service, row } = await runFeeNoteProposal('execute-fee-emptied', () => {
+        nativeAsset.getVerificationBaseFeeSync.mockImplementation(() => null);
+      });
+
+      expect(nativeAsset.cacheScope()).toBe('fixture-rpc|testnet');
+      expectFailedAsUnknownFee(service, row);
+    });
+
+    it('fails it as an unknown fee when the endpoint moves while its proposal is created', async () => {
+      const { service, row } = await runFeeNoteProposal('execute-endpoint-moved', () => {
+        nativeAsset.cacheScope.mockImplementation(() => 'other-rpc|testnet');
+      });
+
+      expect(nativeAsset.getVerificationBaseFeeSync()).toBe(10000);
+      expectFailedAsUnknownFee(service, row);
+    });
+  });
+
+  // The summary decode after a custom proposal runs outside any WASM hold, so no lock sees a trap in it.
+  const runTrappedProposalDecode = async (id: string) => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockDeserializeSummary.mockImplementation(() => {
+      throw trap;
+    });
+    mockAssertCustomEffectsApproved.mockImplementationOnce(
+      jest.requireActual<typeof import('./custom-effects')>('./custom-effects').assertCustomEffectsApproved
+    );
+    mockAssertProposalEffect.mockClear();
+    const service = serviceWith({ id: 'prop-decode-trap', nonce: 9, metadata: {}, txSummary: 'dHJhcA==' });
+    const queued = {
+      id,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4]),
+      spentAssetTotals: [],
+      approvedEffects: approvedEffects([])
+    };
+    txStore.push({ ...queued, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    await generateTransaction(
+      { ...queued, delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+    return { trap, service, row: txStore.find(r => r.id === id) as Record<string, unknown> };
+  };
+
+  it('retires the client once for a trap in the custom proposal summary decode and fails the row with that trap', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    mockRetireWasmClientForUnheldTrap.mockClear();
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const { trap, service, row } = await runTrappedProposalDecode('execute-proposal-decode-trap');
+
+      expect(mockRetireWasmClientForUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(mockRetireWasmClientForUnheldTrap).toHaveBeenCalledWith(trap);
+      expect(retire).not.toHaveBeenCalled();
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(mockAssertProposalEffect).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(9);
+      // The trap itself fails the row, not the copy of an effects mismatch.
+      expect(row).toMatchObject({ status: ITransactionStatus.Failed, error: 'RuntimeError: unreachable' });
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it("leaves the row's landed retire open after a trap in its custom proposal summary decode", async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const id = 'execute-proposal-decode-trap-then-landed';
+      await runTrappedProposalDecode(id);
+      // A later attempt of the same row lands, and a landed reader keyed by the row id traps.
+      const landedTrap = new WebAssembly.RuntimeError('unreachable');
+      retireLandedTrap(landedTrap, id, undefined);
+
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls[0]).toEqual([landedTrap, id]);
+    } finally {
+      errSpy.mockRestore();
+      restore();
     }
   });
 

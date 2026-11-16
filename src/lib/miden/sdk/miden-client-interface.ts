@@ -108,7 +108,8 @@ import {
   isApplyAfterSubmitError,
   isPipelineKillLink,
   isSubmitCrossingUnrecorded,
-  markErrorBeforeSubmit
+  markErrorBeforeSubmit,
+  readWasmHandle
 } from './sdk-error-code';
 import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
@@ -1170,14 +1171,13 @@ export class MidenClientInterface {
       import('lib/i18n')
     ]);
 
+    // Outside any hold: a trap leaves as itself, for the caller to retire, and frees nothing.
     const sk = deserializeHotSecretKey(hotSecretKeyHex);
-    const publicKey = sk.publicKey();
-    const hotPublicKey = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
-    const commitmentHandle = publicKey.toCommitment();
     const normalizeCommitment = (hex: string) => hex.replace(/^0x/i, '').toLowerCase();
-    const pastedCommitment = normalizeCommitment(commitmentHandle.toHex());
-    commitmentHandle.free();
-    publicKey.free();
+    const { hotPublicKey, pastedCommitment } = readWasmHandle(sk.publicKey(), publicKey => ({
+      hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
+      pastedCommitment: readWasmHandle(publicKey.toCommitment(), commitment => normalizeCommitment(commitment.toHex()))
+    }));
 
     // Not yet bound to an account: on mobile its origin routes through native HTTP
     // while it is looked up, and for the session only once an account is adopted from it.
@@ -2259,7 +2259,8 @@ export class MidenClientInterface {
       apply: () => submitted.apply(),
       result: executed.result,
       readLocalAccount: accountId => this.client.accounts.get(accountId),
-      holdIsCurrent: () => attempt.holdIsCurrent()
+      holdIsCurrent: () => attempt.holdIsCurrent(),
+      retireTrap: cause => attempt.retireCaughtTrap(cause)
     });
     return executed.result;
   }
@@ -2326,7 +2327,8 @@ export class MidenClientInterface {
       apply: () => submitted.apply(),
       result: executed.result,
       readLocalAccount: accountId => this.client.accounts.get(accountId),
-      holdIsCurrent: () => attempt.holdIsCurrent()
+      holdIsCurrent: () => attempt.holdIsCurrent(),
+      retireTrap: cause => attempt.retireCaughtTrap(cause)
     });
     return executed.result;
   }
@@ -2432,7 +2434,8 @@ export class MidenClientInterface {
           apply: () => inner.applyTransaction(txResult, height),
           result: txResult,
           readLocalAccount: accountId => inner.getAccount(accountId),
-          holdIsCurrent: () => attempt.holdIsCurrent()
+          holdIsCurrent: () => attempt.holdIsCurrent(),
+          retireTrap: cause => attempt.retireCaughtTrap(cause)
         });
         recordProveTiming('proveLocallyViaOffscreen apply returned');
       });
@@ -2639,6 +2642,12 @@ export interface ProveAttempt {
    */
   holdIsCurrent(): boolean;
   /**
+   * Retire this write's client for a trap caught inside its submitting hold. No-op unless
+   * {@link holdIsCurrent} is true: the hold read at entry is a successor's once this write was
+   * evicted, and retiring that hold would poison the successor's healthy client.
+   */
+  retireCaughtTrap(cause: WebAssembly.RuntimeError): void;
+  /**
    * True once recovery took this write's client away: the client is disposed or marked poisoned,
    * or the lock hold the write took is no longer the lock's (#1233). A write that took no hold
    * answers from its client alone, so the lockless unit tests still run. A pre-submit step that sees
@@ -2779,6 +2788,9 @@ export async function proveWithFallback<T>(
         ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
         : proveInWorker(result, hold),
     holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold,
+    retireCaughtTrap: cause => {
+      if (attempt.holdIsCurrent()) retireWasmClientForCaughtTrap(hold!, cause);
+    },
     evicted: () => liveness.disposed || (hold !== null && getCurrentWasmLockHold() !== hold)
   };
 

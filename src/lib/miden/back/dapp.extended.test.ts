@@ -114,8 +114,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFee: async () => mockBaseFee,
   // Not `mockBaseFee`: that value steers the consume preview's MAX fee, and a null there would refuse the summary.
   refreshVerificationBaseFee: async () => 2,
+  getVerificationBaseFeeSync: () => 2,
   getNativeAssetId: async () => 'native-faucet',
-  isVerificationBaseFeeKnownAbsent: () => false
+  isVerificationBaseFeeKnownAbsent: () => false,
+  cacheScope: () => 'rpc|testnet'
 }));
 
 const mockGetTokenMetadata = jest.fn();
@@ -150,9 +152,11 @@ jest.mock('lib/miden/back/defaults', () => ({
  * The approval of a custom transaction needs a dry run that succeeds. The dry run itself is covered by
  * `simulate-custom-tx.test.ts`, so here it gives a result whose decoded view moves nothing.
  */
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
-}));
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return { simulateCustomTransaction: jest.fn(async () => measureApprovalDryRun({ summaryBytes: 'sumB64' })) };
+});
 
 jest.mock('app/confirm/decode', () => ({
   ...jest.requireActual('app/confirm/decode'),
@@ -182,7 +186,7 @@ jest.mock('lib/miden/back/vault', () => ({
   }
 }));
 
-// WASM client mock — use the RELATIVE path so dapp.ts's relative import
+// WASM client mock - use the RELATIVE path so dapp.ts's relative import
 // resolves to this factory. Define the jest.fn stubs on globalThis so the
 // factory closure reaches them even though it runs BEFORE the const
 // declarations at module-eval time (jest.mock is hoisted, import statements
@@ -212,7 +216,7 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // initializes, so the factory-hoisting caveat above doesn't bite them.
 let currentWasmHold: object | null = null;
 // Simulates the watchdog handing the mutex to a successor while the current client
-// call is still parked — call from inside a client-method mock.
+// call is still parked - call from inside a client-method mock.
 const revokeWasmHold = (): void => {
   currentWasmHold = null;
 };
@@ -775,7 +779,7 @@ describe("one mobile request's unlock waits and sheet share one 240 s bound (#14
 
 // ── Non-extension (mobile / desktop) prompts ───────────────────────
 //
-// `requestConfirm` — the extension popup path — throws when `isExtension()` is
+// `requestConfirm` - the extension popup path - throws when `isExtension()` is
 // false, and each `generatePromisify*` runs as an un-awaited async function
 // inside a promise executor. Before these handlers grew a non-extension branch,
 // that throw became an unhandled rejection and the dApp's promise NEVER settled:
@@ -1251,8 +1255,8 @@ describe('requestTransaction', () => {
 
   // The session authorizes ONE account, but the account to debit comes from the
   // request. This entrypoint reaches the same send flow as `requestSendTransaction`
-  // while validating only `sourcePublicKey` — which the attacking page satisfies
-  // with its own connected account — so a sender check on the outer function is
+  // while validating only `sourcePublicKey` - which the attacking page satisfies
+  // with its own connected account - so a sender check on the outer function is
   // not on this path at all. The approval sheet does not show the sender, so
   // nothing on screen would have given it away either.
   it('refuses a Send-typed transaction that names an account the session never authorized', async () => {
@@ -1273,7 +1277,7 @@ describe('requestTransaction', () => {
         }
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
-    // Rejected before anything is queued — not merely reported after the fact.
+    // Rejected before anything is queued - not merely reported after the fact.
     expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
   });
 
@@ -1560,7 +1564,7 @@ describe('requestSendTransaction', () => {
 describe('requestPrivateNotes account scoping', () => {
   // Regression: `getPrivateNoteDetails` read `client.notes.list(query)`, whose
   // NoteQuery has no account field, and every account in the wallet shares one
-  // store — so a dApp connected to account A received the id, nullifier, sender,
+  // store - so a dApp connected to account A received the id, nullifier, sender,
   // state and per-asset amounts of EVERY private note in the wallet, including
   // accounts the user never connected. The approval sheet meanwhile promises
   // "Share all private note data for account <A>", and under the Auto permission
@@ -1657,7 +1661,7 @@ describe('requestConsumeTransaction', () => {
   };
 
   // Regression: the approval sheet rendered the dApp's OWN `faucetId`/`amount`/
-  // `noteType`, none of which can influence execution —
+  // `noteType`, none of which can influence execution -
   // `initiateConsumeTransactionFromId` uses only `noteId` and blanks the declared
   // fields (transaction/initiate.ts). So a page could show "+500 USDC" over a note
   // that carries something else entirely, or nothing.
@@ -1682,7 +1686,7 @@ describe('requestConsumeTransaction', () => {
       transaction: {
         accountAddress: 'miden-account-1',
         noteId: 'note-1',
-        // Declared — and false.
+        // Declared - and false.
         faucetId: 'attacker-declared-faucet',
         noteType: 'Public',
         amount: '500000000'
@@ -1964,7 +1968,7 @@ describe("a non-extension write carries the resolver's delegate flag", () => {
 // These avoid `requestConfirm` (which throws in non-extension) by using
 // the Auto-permission early-return branch.
 
-describe('requestAssets — Auto permission', () => {
+describe('requestAssets - Auto permission', () => {
   beforeEach(() => {
     _g.__dappTestMockGetAccount.mockResolvedValue({
       vault: () => ({
@@ -1996,7 +2000,7 @@ describe('requestAssets — Auto permission', () => {
   });
 });
 
-describe('requestConsumableNotes — Auto permission', () => {
+describe('requestConsumableNotes - Auto permission', () => {
   it('returns ConsumableNotesResponse via the auto branch', async () => {
     (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
       { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }
@@ -2228,8 +2232,8 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
-  // Each test revokes hold ownership from INSIDE the parking client call — the
-  // moment the real watchdog hands the mutex to a successor — and pins that the
+  // Each test revokes hold ownership from INSIDE the parking client call - the
+  // moment the real watchdog hands the mutex to a successor - and pins that the
   // next WASM step never runs (that call would be a second borrow of a client
   // somebody else is inside) and that the caller sees the retryable poison
   // error, not a false permissions/params verdict. A connect shows it to the user
@@ -2255,7 +2259,7 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
     expectAskedAgainWith(new WasmClientPoisonedError('watchdog').message);
     // The commitments (and their serialize()) are borrows of the client the
-    // successor now owns — the abandoned flow must never touch them…
+    // successor now owns - the abandoned flow must never touch them…
     expect(getPublicKeyCommitments).not.toHaveBeenCalled();
     // …and no session may be persisted off the abandoned read.
     expect((storageState[STORAGE_KEY] as any)['https://evicted.xyz']).toBeUndefined();
@@ -2312,8 +2316,8 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
     (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
       { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }
     ];
-    // Sync is THE parking await on this path — network-bound, tens of seconds
-    // on a slow node — so it is where a real eviction lands.
+    // Sync is THE parking await on this path - network-bound, tens of seconds
+    // on a slow node - so it is where a real eviction lands.
     _g.__dappTestMockSyncState.mockImplementationOnce(async () => {
       revokeWasmHold();
     });

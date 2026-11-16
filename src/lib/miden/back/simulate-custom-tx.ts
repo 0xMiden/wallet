@@ -1,4 +1,5 @@
 import { simulatedBytesToView } from 'app/confirm/decode';
+import { noteFlowFromSimulatedBytes, type NoteFlow } from 'app/confirm/note-flow';
 import {
   abandonQuarantineAttempt,
   beginQuarantineAttempt,
@@ -16,6 +17,8 @@ import {
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import { pipelineKillIn, rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
+import { approveCustomSimulation, type ApprovedCustomSimulation } from 'lib/miden/transaction/custom-effects';
+import { cacheScope, getVerificationBaseFeeSync, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { CustomSimulationTimeoutError } from './public-error';
@@ -27,6 +30,14 @@ export interface SimulateCustomTxInput {
   transactionRequest: string;
   /** Base64 serialized notes the request consumes (imported locally to simulate). */
   importNotes?: string[];
+  /** Endpoint scope the caller's fresh fee read answered for. Checked again when a summary is decoded. */
+  feeScope?: string;
+  /**
+   * The caller's fresh fee read, started before the dry run and still pending. A summary's decode waits for it inside
+   * the hold; an executed dry run and a dry run refused before the decode never do. It must resolve, null for an
+   * unknown fee. Omitted, the decode checks the cache alone.
+   */
+  chainFeeRead?: Promise<number | null>;
 }
 
 export interface SimulateCustomTxResult {
@@ -35,7 +46,7 @@ export interface SimulateCustomTxResult {
   /**
    * Base64 serialized TransactionResult when the account was already fully
    * authorized, so execution produced no summary (see `simulateCustomTransaction`).
-   * Carries the same ground truth — it IS the executed transaction.
+   * Carries the same ground truth - it IS the executed transaction.
    */
   executedBytes?: string;
   /** Human-oriented error message when the dry run could not be produced. */
@@ -46,6 +57,18 @@ export interface SimulateCustomTxResult {
    * these consumed notes, so every other one is value the account spends.
    */
   introducedNoteIds?: string[];
+  /** The approval, measured in the dry run's hold. Unset when the dry run failed, gave no result or did not measure. */
+  approval?: ApprovedCustomSimulation;
+  /** Why the approval did not measure, for the caller's refusal. An ordinary failure, never a trap or a kill. */
+  approvalFailure?: unknown;
+  /** The notes the dry run consumes and creates. Unset when `approval` is, or when they do not decode. */
+  noteFlow?: NoteFlow;
+  /**
+   * The cached chain fee was unknown at this summary's decode, or it was read for a different endpoint than the
+   * refresh's scope. The caller refuses before any sheet. Omitted when the fee is known for that scope, so a measured
+   * result keeps its shape.
+   */
+  feeUnknown?: true;
 }
 
 // Every decode of the dApp's note bytes runs inside the dry run's hold, so a trap is rethrown for the lock to retire
@@ -57,7 +80,7 @@ const SIMULATION_TIMEOUT_MS = 20_000;
 
 /**
  * The subset of `ids` the client does NOT already have an input-note record
- * for — i.e. the notes this dry run is about to INTRODUCE, and the only ones
+ * for - i.e. the notes this dry run is about to INTRODUCE, and the only ones
  * it may hide from the claimable UI.
  *
  * An ordinary lookup failure is already held (not quarantined): leaving a
@@ -126,6 +149,43 @@ function consumedNoteIds(dryRun: {
 }
 
 /**
+ * Adds the approval and the note flow to a dry run's result. Runs only inside the dry run's hold: its fee checks
+ * rethrow a trap, and only that hold's lock can retire the client that trapped. An ordinary approval failure is kept as
+ * `approvalFailure`, and a note flow that does not decode is logged and left out. A summary whose cached chain fee is
+ * unknown at this decode returns the dry run with `feeUnknown` and without an approval or a note flow. The refresh's
+ * scope is checked again at the summary decode when the caller passes it, and a mismatch is that same refusal. An
+ * omitted scope keeps the cache check only. Exported so a suite standing in for the dry run measures as it does.
+ */
+export function measureApprovalDryRun(dryRun: SimulateCustomTxResult, feeScope?: string): SimulateCustomTxResult {
+  // The caller's refresh is the fresh read. The refresh's scope is checked again at the summary decode when the
+  // caller passes it, and the cache is checked again here, with no await before the split. An executed dry run has
+  // no summary and still splits on its own header.
+  if (
+    dryRun.summaryBytes &&
+    ((typeof feeScope === 'string' && cacheScope() !== feeScope) ||
+      (getVerificationBaseFeeSync() === null && !isVerificationBaseFeeKnownAbsent()))
+  ) {
+    return { ...dryRun, feeUnknown: true };
+  }
+  let approval: ApprovedCustomSimulation | undefined;
+  try {
+    approval = approveCustomSimulation(dryRun);
+  } catch (error) {
+    rethrowTrapOrKill(error);
+    return { ...dryRun, approvalFailure: error };
+  }
+  if (approval === undefined) return dryRun;
+  let noteFlow: NoteFlow | undefined;
+  try {
+    noteFlow = noteFlowFromSimulatedBytes(dryRun);
+  } catch (error) {
+    rethrowTrapOrKill(error);
+    console.error('Custom transaction note details unavailable:', error);
+  }
+  return { ...dryRun, approval, noteFlow };
+}
+
+/**
  * Locally executes a custom transaction to derive its ground truth WITHOUT
  * proving or submitting: a dry run. Syncs, judges against the synced client
  * which carried notes the request introduced, imports those, and syncs again
@@ -133,11 +193,14 @@ function consumedNoteIds(dryRun: {
  * nothing; notes the request embedded are judged after it returns.
  *
  * Returns `summaryBytes` (a TransactionSummary) when authorization is still
- * pending — a guardian/multisig account below its signing threshold — and
+ * pending - a guardian/multisig account below its signing threshold - and
  * `executedBytes` (the TransactionResult) when the account is already fully
  * authorized, which is every ordinary single-sig account on the 0.16 line. Both
  * describe the same executed transaction; the confirm UI decodes whichever
- * arrives.
+ * arrives. The same hold then measures the approval and the note flow
+ * (`measureApprovalDryRun`). The caller's refresh is the fresh read, which a
+ * summary waits for in the hold, and the refresh's scope and the cache are
+ * checked again at the summary decode.
  * All WASM work runs inside a single `withWasmClientLock` scope (the client is
  * single-threaded). An ordinary failure resolves to `{ error }`, and so does a
  * WebAssembly trap once the lock has retired the client. A killed pipeline
@@ -149,7 +212,7 @@ function consumedNoteIds(dryRun: {
  *
  * The whole locked operation races against `SIMULATION_TIMEOUT_MS` so a slow
  * import/sync/execute can never hang the confirm screen's "verifying…" state
- * forever. The race is done OUTSIDE `withWasmClientLock` — racing inside it
+ * forever. The race is done OUTSIDE `withWasmClientLock` - racing inside it
  * would let a subsequent lock holder start while this abandoned WASM work is
  * still executing, risking the recursive-use/unsafe-aliasing crash the
  * `withWasmClientLock` guardian code warns about. The locked work can reject
@@ -158,7 +221,7 @@ function consumedNoteIds(dryRun: {
  * abandoned work eventually finishes.
  *
  * Residual limitation: a slow `syncState` (or import/execute) still holds the
- * WASM lock until it completes or the #775 watchdog evicts it — the timeout
+ * WASM lock until it completes or the #775 watchdog evicts it - the timeout
  * only bounds how long the UI waits, not how long the lock is held. What an
  * eviction no longer leaves behind is a live hazard: the callback re-checks
  * its hold at every transition below, so the abandoned dry run stops at its
@@ -175,8 +238,8 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // The client build is a parking await (on a cold start it is the long
         // one); an eviction during it hands the mutex to a successor without
         // stopping this callback, so every WASM call below would be a second
-        // borrow of a client somebody else is inside. This is a dry run —
-        // nothing here ever submits — so every transition through the end of
+        // borrow of a client somebody else is inside. This is a dry run -
+        // nothing here ever submits - so every transition through the end of
         // the callback is guardable, and the hold is re-checked at each one.
         assertWasmHoldCurrent(hold, 'after the client build');
 
@@ -191,7 +254,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
 
         // Quarantine BEFORE importing: these notes are about to land in the
         // real client DB purely so `executeForSummaryAtTip` can resolve them for
-        // the dry run — the user hasn't approved anything yet. Quarantining
+        // the dry run - the user hasn't approved anything yet. Quarantining
         // first (rather than after the import loop) means a failure partway
         // through the loop still leaves every already-imported note hidden.
         //
@@ -208,7 +271,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // pending 1000 and send 1050 for a charge of 50. Only this check knows which ids were already
         // held, and its verdict never comes from the request, so a request cannot claim membership.
         await quarantineNoteIds(introducedIds, attempt);
-        // The quarantine write is Dexie, not WASM — but it is still an await,
+        // The quarantine write is Dexie, not WASM - but it is still an await,
         // and the watchdog does not pause for it, so the check has to sit
         // between it and the next WASM call rather than before it (same
         // precedent as the sync-manager's quarantine read).
@@ -222,7 +285,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         const introduced = new Set(introducedIds);
         let imported = false;
         for (const noteB64 of input.importNotes ?? []) {
-          // Per-iteration, and the count is dApp-controlled — one guard before
+          // Per-iteration, and the count is dApp-controlled - one guard before
           // the loop only covers the first import.
           assertWasmHoldCurrent(hold, 'before the note import');
           const [id] = importedNoteIds([noteB64], IN_HOLD);
@@ -266,10 +329,19 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         const carried = new Set(carriedIds.map(id => id.toLowerCase()));
         const embeddedIds = consumed.ids.filter(id => !carried.has(id.toLowerCase()));
         const embeddedIntroduced = await idsNotAlreadyHeld(client, embeddedIds, hold);
-        return {
-          ...dryRun,
-          introducedNoteIds: [...introducedIds, ...embeddedIntroduced].map(id => id.toLowerCase())
-        };
+        // The decode tells a summary's fee note apart by the fee the caller's read caches, so it waits for that read
+        // here and not before the dry run, where a request that fails would wait on the node too. The read uses an
+        // RpcClient of its own under an RPC timeout and takes no WASM lock, so this wait is bounded.
+        if (dryRun.summaryBytes && input.chainFeeRead !== undefined) await input.chainFeeRead;
+        // An evicted hold measures nothing, since a trap in its decode would reach no lock.
+        assertWasmHoldCurrent(hold, 'before the approval decode');
+        return measureApprovalDryRun(
+          {
+            ...dryRun,
+            introducedNoteIds: [...introducedIds, ...embeddedIntroduced].map(id => id.toLowerCase())
+          },
+          input.feeScope
+        );
       });
     } catch (e: any) {
       // An abandonment is reported as an interruption, not as its internal

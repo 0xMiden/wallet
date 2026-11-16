@@ -2827,15 +2827,19 @@ describe('guardian custom proposals preserve the prepared request through signin
       provider as never
     );
 
+    // Both decodes are handed the scope of the fee read before the dry run.
     expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledWith(
       { accountId: 'guardian-acc', preparedBytes: enriched, hold: expect.anything() },
       approvedEffects,
-      spentAssetTotals
+      spentAssetTotals,
+      'fixture-rpc|testnet'
     );
     expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
       approvedEffects,
       { summaryBytes: proposalSummary },
-      spentAssetTotals
+      spentAssetTotals,
+      false,
+      'fixture-rpc|testnet'
     );
     expect(service.createCustomProposal).toHaveBeenCalledWith(enriched);
     expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', enriched);
@@ -2909,7 +2913,9 @@ describe('guardian custom proposals preserve the prepared request through signin
     expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
       approvedEffects,
       { summaryBytes: 'proposal-summary' },
-      undefined
+      undefined,
+      false,
+      'fixture-rpc|testnet'
     );
     expect(service.abandonCandidate).toHaveBeenCalled();
     expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
@@ -3636,6 +3642,28 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
     expect(finalRow.displayMessage).not.toBe('Sent');
+  });
+
+  it('swap: a round-tripped landed failure is Completed with its order id and order note', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    // As the proxy rebuilds the reply: the order id crossed as decimal text.
+    const applyErr = Object.assign(new Error('local apply failed after submit'), {
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      landed: { transactionId: '0xlanded', orderId: '42', orderNoteId }
+    });
+    mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    const swap = valueMovingCases().find(c => c.type === 'swap')!.row;
+    arrange('apply-swap-order', swap);
+
+    await generateTransaction(buildTx('apply-swap-order', swap) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === 'apply-swap-order')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.transactionId).toBe('0xlanded');
+    expect(finalRow.extraInputs).toMatchObject({ orderId: 42n, expiresAt: expect.any(Number) });
+    expect(finalRow.extraInputs).not.toHaveProperty('landedOrder');
+    expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
   });
 
   it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {

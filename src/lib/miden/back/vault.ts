@@ -94,14 +94,16 @@ import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/d
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
+  getCurrentWasmLockHold,
   getMidenClient,
   installRealmKeystore,
   isRealmKeystoreInstalled,
+  retireWasmClientForUnheldTrap,
   uninstallRealmKeystore,
   withWasmClientLock
 } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
-import { isAccountNotFoundOnChainError } from '../sdk/sdk-error-code';
+import { isAccountNotFoundOnChainError, isWasmTrap, readWasmHandle, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // AUTH SCHEME POLICY
@@ -140,12 +142,16 @@ const authSecretKeyFromSeed = (scheme: AuthScheme, seed: Uint8Array): AuthSecret
  * `getEcdsaK256KeccakSecretKeyAsFelts` / `getRpoFalcon512SecretKeyAsFelts`
  * methods throw on type mismatch. Try the cheap ECDSA path first; falling
  * back to Falcon is correct because `AuthScheme` has only these two members.
+ * A `WebAssembly.RuntimeError` and a killed pipeline leave as that same
+ * object. Any other throw, including a missing
+ * `getEcdsaK256KeccakSecretKeyAsFelts`, still returns `'falcon'`.
  */
 const detectAuthScheme = (key: AuthSecretKey): AuthScheme => {
   try {
     key.getEcdsaK256KeccakSecretKeyAsFelts();
     return 'ecdsa';
-  } catch {
+  } catch (error) {
+    rethrowTrapOrKill(error);
     return 'falcon';
   }
 };
@@ -420,21 +426,30 @@ export class Vault {
         framed[0] = 1;
         framed.set(bytes, 1);
         const publicKey = PublicKey.deserialize(framed);
-        const commitment = publicKey.toCommitment();
+        let commitment: Word | undefined;
+        let trapped = false;
         try {
-          keys.push(accAuthSecretKeyStrgKey(Buffer.from(commitment.serialize()).toString('hex')));
-          await client.client.keystore.remove(commitment);
+          const derivedCommitment = publicKey.toCommitment();
+          commitment = derivedCommitment;
+          keys.push(accAuthSecretKeyStrgKey(Buffer.from(derivedCommitment.serialize()).toString('hex')));
+          await client.client.keystore.remove(derivedCommitment);
           assertWasmHoldCurrent(hold, 'in removeSeedPhrase after a keystore removal');
           // A missing secret causes an SDK storage error. Check the public mapping instead.
-          const retainedAccountId = await client.client.keystore.getAccountId(commitment);
+          const retainedAccountId = await client.client.keystore.getAccountId(derivedCommitment);
           assertWasmHoldCurrent(hold, 'in removeSeedPhrase after the mapping lookup');
           if (retainedAccountId) {
             retainedAccountId.free();
             throw new PublicError(getMessage('seedRemovalFailed'));
           }
+        } catch (error) {
+          trapped = isWasmTrap(error);
+          throw error;
         } finally {
-          commitment.free();
-          publicKey.free();
+          // Hold-gated flag: a trap or a hold this flow no longer owns skips the free.
+          if (!trapped && getCurrentWasmLockHold() === hold) {
+            commitment?.free();
+            publicKey.free();
+          }
         }
         keys.push(accColdSecretKeyStrgKey(publicKeyHex), accAuthSecretKeyStrgKey(publicKeyHex));
       }
@@ -502,26 +517,27 @@ export class Vault {
       const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
       assertWasmHoldCurrent(hold, 'in provideRecoverySeed after the account read');
       if (!sdkAccount) throw new PublicError(getMessage('recoveryActionUnavailable'));
-      const { commitment } = await getSignerDetailsFromAccount(sdkAccount, true);
-      const onChainCommitment = normalizeHex(commitment);
+      const { commitment: signerCommitment } = await getSignerDetailsFromAccount(sdkAccount, true);
+      const onChainCommitment = normalizeHex(signerCommitment);
       for (const hdIndex of hdIndices) {
         const seed = deriveColdSeed(hdIndex);
         const key = AuthSecretKey.ecdsaWithRNG(seed);
         seed.fill(0); // zero the seed out
-        const publicKey = key.publicKey();
-        const derivedCommitment = publicKey.toCommitment();
-        try {
-          const publicKeyHex = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
-          const matchesStoredKey = account.coldPublicKey === undefined || publicKeyHex === account.coldPublicKey;
-          if (matchesStoredKey && onChainCommitment === normalizeHex(derivedCommitment.toHex())) {
-            authorizeRecovery(transaction, publicKeyHex, key.serialize());
-            return;
-          }
-        } finally {
-          derivedCommitment.free();
-          publicKey.free();
-          key.free();
-        }
+        // readWasmHandle frees the commitment, then the public key, then the key.
+        const matched = readWasmHandle(key, secretKey =>
+          readWasmHandle(secretKey.publicKey(), pub =>
+            readWasmHandle(pub.toCommitment(), commitment => {
+              const publicKeyHex = Buffer.from(pub.serialize().slice(1)).toString('hex');
+              const matchesStoredKey = account.coldPublicKey === undefined || publicKeyHex === account.coldPublicKey;
+              if (matchesStoredKey && onChainCommitment === normalizeHex(commitment.toHex())) {
+                authorizeRecovery(transaction, publicKeyHex, secretKey.serialize());
+                return true;
+              }
+              return false;
+            })
+          )
+        );
+        if (matched) return;
       }
       throw new PublicError(getMessage('wrongRecoverySeed'));
     });
@@ -758,6 +774,7 @@ export class Vault {
               try {
                 secretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKeyHex!, 'hex')));
               } catch (cause) {
+                rethrowTrapOrKill(cause);
                 fail('secret-deserialize', cause);
               }
               if (
@@ -1254,27 +1271,22 @@ export class Vault {
         let secretKey: AuthSecretKey;
         try {
           secretKey = deserializeHotSecretKey(pair.hotPrivateKey);
-        } catch {
+        } catch (error) {
+          rethrowTrapOrKill(error);
           throw new PublicError(getMessage('importHotKeyInvalid'));
         }
-        try {
+        // readWasmHandle frees the public key, then the secret key.
+        return readWasmHandle(secretKey, key => {
           // Guardian hot keys are always ECDSA under the 3-key model; a Falcon
           // blob that happens to deserialize is some other key pasted by mistake.
-          if (detectAuthScheme(secretKey) !== 'ecdsa') {
+          if (detectAuthScheme(key) !== 'ecdsa') {
             throw new PublicError(getMessage('importHotKeyWrongScheme'));
           }
-          const publicKey = secretKey.publicKey();
-          try {
-            return {
-              hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
-              hotSecretKeyHex: Buffer.from(secretKey.serialize()).toString('hex')
-            };
-          } finally {
-            publicKey.free();
-          }
-        } finally {
-          secretKey.free();
-        }
+          return readWasmHandle(key.publicKey(), pub => ({
+            hotPublicKey: Buffer.from(pub.serialize().slice(1)).toString('hex'),
+            hotSecretKeyHex: Buffer.from(key.serialize()).toString('hex')
+          }));
+        });
       });
 
       // Same wipe as `spawn` (see the comments there).
@@ -1311,11 +1323,13 @@ export class Vault {
       // Runs OUTSIDE the outer WASM lock — the orchestrator locks granularly
       // per op, and its lookup reasons ("no account for this key", "this is the
       // recovery key") are the only actionable strings the user has left after
-      // the wipe above, so promote them to PublicError past `withError`.
+      // the wipe above, so promote them to PublicError past `withError`. Its key decode takes no
+      // hold, so a trap is retired here and reaches `withError` as itself.
       const recovered = await (await liveClient())
         .recoverGuardianAccountByHotKey(hotSecretKeyHex, resolvedGuardianEndpoint)
         .catch((err: unknown) => {
-          if (isWasmClientPoisonedError(err)) throw err;
+          if (isWasmTrap(err)) retireWasmClientForUnheldTrap(err);
+          rethrowTrapOrKill(err);
           if (err instanceof PublicError) throw err;
           throw toPublicError(err);
         });
@@ -1549,6 +1563,7 @@ export class Vault {
                   new Uint8Array(Buffer.from(normalizeBackupHex(restoredBackup.secretKeyHex), 'hex'))
                 );
               } catch (cause) {
+                rethrowTrapOrKill(cause);
                 failMalformedImport('secret-deserialize', cause);
               }
               if (
@@ -1958,7 +1973,8 @@ export class Vault {
           let secretKey: AuthSecretKey;
           try {
             secretKey = AuthSecretKey.deserialize(secretKeyBytes);
-          } catch {
+          } catch (error) {
+            rethrowTrapOrKill(error);
             throw new PublicError('Invalid private key');
           }
 
@@ -2085,33 +2101,42 @@ export class Vault {
         let secretKey: AuthSecretKey;
         try {
           secretKey = deserializeHotSecretKey(pair.hotPrivateKey);
-        } catch {
+        } catch (error) {
+          rethrowTrapOrKill(error);
           throw new PublicError(getMessage('importHotKeyInvalid'));
         }
+        let publicKey: PublicKey | undefined;
+        let commitment: Word | undefined;
+        let trapped = false;
         try {
           if (detectAuthScheme(secretKey) !== 'ecdsa') throw new PublicError(getMessage('importHotKeyWrongScheme'));
-          const publicKey = secretKey.publicKey();
-          const commitment = publicKey.toCommitment();
-          try {
-            const pasted = normalizeHex(commitment.toHex());
-            const { commitment: hotOnChain } = await getSignerDetailsFromAccount(sdkAccount, false);
-            assertWasmHoldCurrent(hold, 'in importHotKeyPair after the everyday signer read');
-            if (normalizeHex(hotOnChain) !== pasted) {
-              const { commitment: coldOnChain } = await getSignerDetailsFromAccount(sdkAccount, true);
-              throw new PublicError(
-                getMessage(normalizeHex(coldOnChain) === pasted ? 'importHotKeyIsRecoveryKey' : 'importHotKeyNotActive')
-              );
-            }
-            return {
-              hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
-              hotSecretKeyHex: Buffer.from(secretKey.serialize()).toString('hex')
-            };
-          } finally {
-            commitment.free();
-            publicKey.free();
+          const derivedPublicKey = secretKey.publicKey();
+          publicKey = derivedPublicKey;
+          const derivedCommitment = derivedPublicKey.toCommitment();
+          commitment = derivedCommitment;
+          const pasted = normalizeHex(derivedCommitment.toHex());
+          const { commitment: hotOnChain } = await getSignerDetailsFromAccount(sdkAccount, false);
+          assertWasmHoldCurrent(hold, 'in importHotKeyPair after the everyday signer read');
+          if (normalizeHex(hotOnChain) !== pasted) {
+            const { commitment: coldOnChain } = await getSignerDetailsFromAccount(sdkAccount, true);
+            throw new PublicError(
+              getMessage(normalizeHex(coldOnChain) === pasted ? 'importHotKeyIsRecoveryKey' : 'importHotKeyNotActive')
+            );
           }
+          return {
+            hotPublicKey: Buffer.from(derivedPublicKey.serialize().slice(1)).toString('hex'),
+            hotSecretKeyHex: Buffer.from(secretKey.serialize()).toString('hex')
+          };
+        } catch (error) {
+          trapped = isWasmTrap(error);
+          throw error;
         } finally {
-          secretKey.free();
+          // Hold-gated flag: a trap or a hold this flow no longer owns skips the free.
+          if (!trapped && getCurrentWasmLockHold() === hold) {
+            commitment?.free();
+            publicKey?.free();
+            secretKey.free();
+          }
         }
       });
       // The plain serialized-hex blob, as the onboarding import stores it: a pasted key cannot be
@@ -2531,19 +2556,11 @@ export class Vault {
    */
   async loginKeyCommitment(accountId: string, domain: string): Promise<string> {
     return withError('Failed to derive the login key', () =>
-      this.withLoginKey(accountId, domain, secretKey => {
-        const publicKey = secretKey.publicKey();
-        try {
-          const commitment = publicKey.toCommitment();
-          try {
-            return u8ToB64(commitment.serialize());
-          } finally {
-            commitment.free();
-          }
-        } finally {
-          publicKey.free();
-        }
-      })
+      this.withLoginKey(accountId, domain, secretKey =>
+        readWasmHandle(secretKey.publicKey(), publicKey =>
+          readWasmHandle(publicKey.toCommitment(), commitment => u8ToB64(commitment.serialize()))
+        )
+      )
     );
   }
 
@@ -2559,33 +2576,23 @@ export class Vault {
         let loginWord: Word;
         try {
           loginWord = Word.deserialize(wordBytes);
-        } catch {
+        } catch (error) {
+          rethrowTrapOrKill(error);
           // Not the SDK's error: `withError` logs it, and it can quote the word.
           throw notAWordToSign();
         }
-        let message: Word;
-        try {
-          message = loginMessage(loginWord);
-        } finally {
-          loginWord.free();
-        }
-        try {
-          const signature = secretKey.sign(message);
-          try {
-            return u8ToB64(signature.serialize());
-          } finally {
-            signature.free();
-          }
-        } finally {
-          message.free();
-        }
+        const message = readWasmHandle(loginWord, loginMessage);
+        return readWasmHandle(message, toSign =>
+          readWasmHandle(secretKey.sign(toSign), signature => u8ToB64(signature.serialize()))
+        );
       });
     });
   }
 
   /**
    * Run `use` on `accountId`'s login key for `domain`, the ECDSA key whose scalar `deriveLoginKeyScalar` derives from
-   * the account's root key. The key is freed, and the root and the scalar zeroed, before this settles.
+   * the account's root key. The key is freed, and the root and the scalar zeroed, before this settles. No WASM hold is
+   * taken, so a trap here is retired before `withError` flattens it, and no handle is freed after it.
    */
   private async withLoginKey<T>(accountId: string, domain: string, use: (secretKey: AuthSecretKey) => T): Promise<T> {
     const root = await this.loginKeyRoot(accountId);
@@ -2594,12 +2601,10 @@ export class Vault {
       const [{ deserializeHotSecretKey }] = await Promise.all([import('../guardian/hot-key-import'), getWasmOrThrow()]);
       const scalar = deriveLoginKeyScalar(root, 'evm', domain);
       try {
-        const secretKey = deserializeHotSecretKey(bytesToHex(scalar));
-        try {
-          return use(secretKey);
-        } finally {
-          secretKey.free();
-        }
+        return readWasmHandle(deserializeHotSecretKey(bytesToHex(scalar)), use);
+      } catch (error) {
+        if (isWasmTrap(error)) retireWasmClientForUnheldTrap(error);
+        throw error;
       } finally {
         scalar.fill(0);
       }
