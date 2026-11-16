@@ -108,7 +108,8 @@ import {
   isApplyAfterSubmitError,
   isPipelineKillLink,
   isSubmitCrossingUnrecorded,
-  markErrorBeforeSubmit
+  markErrorBeforeSubmit,
+  readWasmHandle
 } from './sdk-error-code';
 import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
@@ -1170,14 +1171,13 @@ export class MidenClientInterface {
       import('lib/i18n')
     ]);
 
+    // Outside any hold: a trap leaves as itself, for the caller to retire, and frees nothing.
     const sk = deserializeHotSecretKey(hotSecretKeyHex);
-    const publicKey = sk.publicKey();
-    const hotPublicKey = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
-    const commitmentHandle = publicKey.toCommitment();
     const normalizeCommitment = (hex: string) => hex.replace(/^0x/i, '').toLowerCase();
-    const pastedCommitment = normalizeCommitment(commitmentHandle.toHex());
-    commitmentHandle.free();
-    publicKey.free();
+    const { hotPublicKey, pastedCommitment } = readWasmHandle(sk.publicKey(), publicKey => ({
+      hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
+      pastedCommitment: readWasmHandle(publicKey.toCommitment(), commitment => normalizeCommitment(commitment.toHex()))
+    }));
 
     // Not yet bound to an account: on mobile its origin routes through native HTTP
     // while it is looked up, and for the session only once an account is adopted from it.

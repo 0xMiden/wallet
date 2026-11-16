@@ -98,6 +98,7 @@ import {
   getMidenClient,
   installRealmKeystore,
   isRealmKeystoreInstalled,
+  retireWasmClientForUnheldTrap,
   uninstallRealmKeystore,
   withWasmClientLock
 } from '../sdk/miden-client';
@@ -1322,11 +1323,13 @@ export class Vault {
       // Runs OUTSIDE the outer WASM lock — the orchestrator locks granularly
       // per op, and its lookup reasons ("no account for this key", "this is the
       // recovery key") are the only actionable strings the user has left after
-      // the wipe above, so promote them to PublicError past `withError`.
+      // the wipe above, so promote them to PublicError past `withError`. Its key decode takes no
+      // hold, so a trap is retired here and reaches `withError` as itself.
       const recovered = await (await liveClient())
         .recoverGuardianAccountByHotKey(hotSecretKeyHex, resolvedGuardianEndpoint)
         .catch((err: unknown) => {
-          if (isWasmClientPoisonedError(err)) throw err;
+          if (isWasmTrap(err)) retireWasmClientForUnheldTrap(err);
+          rethrowTrapOrKill(err);
           if (err instanceof PublicError) throw err;
           throw toPublicError(err);
         });
