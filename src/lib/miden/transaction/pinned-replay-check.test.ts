@@ -261,7 +261,9 @@ describe('the notes an execute`s approval recorded', () => {
     await expect(checkPinnedReplayNotes(execute(['not-a-note-id']), { createReads })).resolves.toEqual({
       kind: 'none'
     });
-    await expect(checkPinnedReplayNotes(execute('not-a-list'), { createReads })).resolves.toEqual({ kind: 'none' });
+    await expect(checkPinnedReplayNotes(execute({ noteId: THIRD }), { createReads })).resolves.toEqual({
+      kind: 'none'
+    });
     expect(createReads).not.toHaveBeenCalled();
   });
 
