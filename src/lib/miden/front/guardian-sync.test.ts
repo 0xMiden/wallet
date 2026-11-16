@@ -2180,6 +2180,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'cold' }] as never;
       mockGetSignerCommitments.mockReturnValue(['0xAABB', '0xc01d']);
       mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
 
       await syncGuardianAccounts();
 
@@ -2187,7 +2188,11 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       expect(mockReRegister).not.toHaveBeenCalled();
       expect(storeState.swapHotKey).not.toHaveBeenCalled();
       // Its "hot" key is the recovery key, which no rotation removes: waiting, not rotated out.
-      expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalled();
+      expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalledWith(
+        'acct-activation',
+        expect.anything(),
+        expect.anything()
+      );
     });
 
     // Each clock from its own base at the same offsets, as in a live realm, so a cooldown stamped on
