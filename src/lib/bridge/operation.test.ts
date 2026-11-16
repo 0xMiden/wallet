@@ -1,5 +1,5 @@
 import Dexie from 'dexie';
-import type { Hash } from 'viem';
+import { parseUnits, type Hash } from 'viem';
 
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
@@ -12,6 +12,7 @@ import {
   type BridgeOperationSnapshot
 } from './operation';
 import { accounts, now, testRoute } from './testing/fixtures';
+import { reviewedErc20Transfer } from './testing/operation-fixtures';
 import { createBridgeReceiveReconciler } from '../miden/activity/bridge-receive';
 import { ITransactionStatus, type ITransaction } from '../miden/db/types';
 import * as Repo from '../miden/repo';
@@ -68,7 +69,7 @@ function admit(
   if (reviewed.route.mode === 'send' && reviewed.route.source.kind === 'miden') {
     return initiateBridgedSendTransaction(
       accounts.midenAccount,
-      100000000n,
+      parseUnits(reviewed.amount, reviewed.route.source.decimals),
       reviewed.route.source.faucetId,
       accounts.evmAddress,
       agglayerRoute.evmNetworkId,
@@ -87,7 +88,7 @@ function admit(
   }
   return initiateBridgedReceiveTransaction({
     accountId: accounts.midenAccount,
-    amount: 100000000n,
+    amount: parseUnits(reviewed.quote?.received ?? '', reviewed.route.destination.decimals),
     faucetId: reviewed.route.destination.kind === 'miden' ? reviewed.route.destination.faucetId : '',
     provider: 'agglayer',
     sourceChainId: agglayerRoute.chainId,
@@ -99,14 +100,14 @@ function admit(
     ...changes
   });
 }
-async function seed(): Promise<string> {
-  const id = await admit();
+async function seed(reviewed = review()): Promise<string> {
+  const id = await admit('operation-1', reviewed);
   const operation: BridgeOperationSnapshot = {
     version: 1,
     owner: 'wallet',
     operationId: 'operation-1',
     revision: 'admitted-revision',
-    review: review()
+    review: reviewed
   };
   await Repo.transactions.update(id, { 'extraInputs.bridgeOperation': operation });
   return id;
@@ -256,16 +257,22 @@ it('records known hash/intent before further reads and rejects late callbacks wi
 });
 
 it('keeps actual approvals separate from the source transfer through export/import', async () => {
-  const id = await seed();
+  const reviewed = reviewedErc20Transfer('agglayer');
+  const id = await seed(reviewed);
   const admitted = await snapshot(id);
   await claimBridgeSourceAttempt('operation-1', admitted.revision);
   const claimed = await snapshot(id);
+  const rowBefore = await Repo.transactions.get(id);
+  const token = reviewed.route.source;
+  const spender: unknown = rowBefore?.extraInputs.agglayerRoute?.contractAddress;
+  if (token.kind !== 'erc20' || typeof spender !== 'string' || !/^0x[0-9a-f]{40}$/i.test(spender))
+    throw new Error('Missing reviewed token/spender');
   const approval: BridgeApproval = {
     chainId: 11155111,
     account: accounts.evmAddress,
-    token: `0x${'2'.repeat(40)}`,
-    spender: `0x${'3'.repeat(40)}`,
-    amount: '100',
+    token: `0x${token.address.slice(2)}`,
+    spender: `0x${spender.slice(2)}`,
+    amount: '1000000',
     hash: `0x${'4'.repeat(64)}`
   };
   expect(await recordBridgeApproval('operation-1', claimed.revision, approval)).toBe(true);
