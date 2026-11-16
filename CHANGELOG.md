@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][all] Keep documentation and E2E gallery deployments compatible with SHA-pinned action policies.
 - [CHANGE][ci] A telemetry egress test no longer fails when a random Sentry id happens to contain one of its short hex needles.
 - [FIX][all] A bridged send (Agglayer, USDCx or Epoch) or an Earn deposit is checked against its reviewed token and amount and against the note the wallet built before it is signed, on Guardian and single-key accounts alike (#2147).
 - [FEATURE][chrome] Add optional passkey unlock for eligible password wallets in Chrome 140+, with side-panel setup, confirmation-window unlock, and unchanged password fallback (#846).
