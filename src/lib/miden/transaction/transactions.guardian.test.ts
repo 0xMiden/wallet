@@ -2215,13 +2215,11 @@ describe('generateTransaction - Guardian routing', () => {
       expect(client.transactions.submitProven).not.toHaveBeenCalled();
       expect(client.transactions.apply).not.toHaveBeenCalled();
       expect(rejections).toContain(trap);
-      expect(row).toMatchObject({
-        status: ITransactionStatus.Failed,
-        displayMessage: 'Failed',
-        error: 'RuntimeError: unreachable'
-      });
+      // The message is the proving stage's classification, so only the never-crossed facts are pinned.
+      expect(row).toMatchObject({ status: ITransactionStatus.Failed, displayMessage: 'Failed' });
       expect(row.transactionId).toBeUndefined();
       expect(row.mayHaveSubmitted).toBeUndefined();
+      expect(row.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
     } finally {
       mockWithWasmClientLock.mockImplementation(lock);
       errSpy.mockRestore();
