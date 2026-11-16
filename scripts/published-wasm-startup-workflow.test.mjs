@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 
 const workflowPath = new URL('../.github/workflows/sentry-published-wasm-probe.yml', import.meta.url);
 function workflow() {
@@ -69,6 +71,48 @@ test('published-wasm transfer refuses old curl before invoking the download', ()
     const result = runArchiveTransfer(workflow(), version);
     assert.notEqual(result.status, 0, 'published_archive_byte_cap');
     assert.equal(result.args, null, 'unsupported curl must not start the download');
+  }
+});
+
+test('published-wasm real preflight rejection leaves closed setup evidence', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'published-wasm-preflight-')));
+  try {
+    const output = join(root, 'published-wasm-results');
+    const extension = join(root, 'planted-extension-marker');
+    mkdirSync(output, { mode: 0o700 });
+    mkdirSync(extension, { mode: 0o700 });
+    const cli = fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url));
+    const result = spawnSync(process.execPath, [cli, 'test', 'playwright/tests/published-wasm-startup.spec.ts',
+      '--config=playwright.config.ts', '--workers=1', '--retries=0', '--timeout=10000',
+      '--global-timeout=20000', '--trace=off', '--reporter=line',
+      '--grep=published archive cold startup completes packaged WASM and reaches onboarding$'], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: {
+        PATH: '/usr/bin:/bin',
+        HOME: root,
+        CI: '1',
+        EXTENSION_DIST: extension,
+        PROBE_RESULTS: output,
+        PROBE_ORIGINAL_NETNS: process.platform === 'linux' ? readlinkSync('/proc/self/ns/net') : 'net:[1]',
+        PLAYWRIGHT_BROWSERS_PATH: join(root, 'no-browser-installed')
+      },
+      encoding: 'utf8',
+      timeout: 30000
+    });
+    assert.ifError(result.error);
+    assert.notEqual(result.status, 0, 'identical host namespace must reject preflight');
+    const outputText = stripVTControlCharacters(result.stdout + result.stderr);
+    assert.match(outputText, /Running 1 test using 1 worker/, 'preflight fixture must execute one real case');
+    assert.match(outputText, /expect\(received\).*expected/, 'preflight fixture must reach an isolation assertion');
+    const receiptPath = join(output, 'cold-startup.json');
+    assert.ok(existsSync(receiptPath), 'published_wasm_preflight_receipt');
+    const receipt = readFileSync(receiptPath, 'utf8');
+    const record = JSON.parse(receipt);
+    assert.equal(lstatSync(receiptPath).mode & 0o777, 0o600);
+    assert.deepEqual([record.outcome, record.phase, record.requests], ['setup_failed', 'setup', 0]);
+    assert.ok(!receipt.includes(root) && !receipt.includes('planted-extension-marker'), 'setup receipt must omit private paths');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
