@@ -5,6 +5,7 @@ import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/eff
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
+import { quoteAmounts } from './core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from './core/review';
 import type { BridgeApproval } from './evm/approval';
 import type { SourceTransaction } from './evm/source-transaction';
@@ -122,6 +123,30 @@ async function snapshot(id: string): Promise<BridgeOperationSnapshot> {
   const operation: BridgeOperationSnapshot | undefined = row?.extraInputs?.bridgeOperation;
   if (!operation) throw new Error('Missing admitted operation');
   return operation;
+}
+
+function afterClaimCommit(change: () => Promise<void> | void) {
+  const transaction = Repo.db.transaction.bind(Repo.db);
+  let result: unknown;
+  let transactionActive: boolean | undefined;
+  const storage = jest.spyOn(Repo.db, 'transaction').mockImplementationOnce((...args) => {
+    const committed: unknown = Reflect.apply(transaction, Repo.db, args);
+    return Dexie.Promise.resolve(committed).then(async value => {
+      result = value;
+      transactionActive = Boolean(Dexie.currentTransaction);
+      await change();
+      return value;
+    });
+  });
+  return {
+    storage,
+    get result() {
+      return result;
+    },
+    get transactionActive() {
+      return transactionActive;
+    }
+  };
 }
 
 async function claimedApprovalFixture(amount?: string) {
@@ -370,6 +395,129 @@ it('drives one submission/solve for duplicate clicks and reload, keeping the sam
   }
   expect(submissions).toEqual([ids[0]]);
   expect(await Repo.transactions.count()).toBe(1);
+});
+
+it.each([
+  [
+    'RPC',
+    async () => {
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://changed-rpc.example/private');
+    }
+  ],
+  [
+    'row',
+    async (id: string) => {
+      await Repo.transactions.update(id, { amount: 2n });
+    }
+  ],
+  [
+    'review',
+    async (id: string) => {
+      const operation = await snapshot(id);
+      const changed = structuredClone(operation.review);
+      changed.route.id = 'different-reviewed-route';
+      if (!changed.quote?.request) throw new Error('Missing bound quote fixture');
+      changed.quote.request.routeId = changed.route.id;
+      assertReviewedBridge(changed, structuredClone(changed), now);
+      await Repo.transactions.update(id, { 'extraInputs.bridgeOperation': { ...operation, review: changed } });
+    }
+  ],
+  [
+    'expiry',
+    async () => {
+      jest.mocked(Date.now).mockReturnValue(now + 60001);
+    }
+  ]
+] satisfies Array<[string, (id: string) => Promise<void>]>)(
+  'does not drive after the actual source claim commits and %s changes before settlement',
+  async (_name, change) => {
+    const id = await seed();
+    const admitted = await snapshot(id);
+    const settlement = afterClaimCommit(() => change(id));
+    const runs: Promise<void>[] = [];
+    const observer: BridgeReceiveLockManager = {
+      request: async (_name, _options, callback) => {
+        const run = callback(null);
+        runs.push(run);
+        await run;
+      }
+    };
+    const drive = jest.fn(async () => undefined);
+    await createBridgeReceiveReconciler({ getLocks: () => observer }).startSubmission(async () => id, drive);
+    await Promise.all(runs);
+    expect(settlement.storage).toHaveBeenCalledTimes(1);
+    expect(settlement.result).toBe('claimed');
+    expect(settlement.transactionActive).toBe(false);
+    expect(drive).not.toHaveBeenCalled();
+    const retained = await snapshot(id);
+    expect(retained.sourceAttempt).toEqual({ phase: 'running' });
+    expect(retained.revision).not.toBe(admitted.revision);
+    expect(retained.walletScope).toEqual(admitted.walletScope);
+    expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('submitting');
+    expect(await claimBridgeSourceAttempt(admitted.operationId, admitted.revision)).toBe('already-running');
+  }
+);
+
+it('does not drive Circle after claim settlement changes scope, retaining original known outcomes', async () => {
+  const reviewed = reviewedCircleTransfer();
+  if (!reviewed.quote || reviewed.route.destination.kind !== 'miden') throw new Error('Missing Circle fixture');
+  const id = await initiateBridgedReceiveTransaction({
+    accountId: accounts.midenAccount,
+    amount: parseUnits(reviewed.quote.received, reviewed.route.destination.decimals),
+    faucetId: reviewed.route.destination.faucetId,
+    provider: 'usdcx',
+    sourceAddress: accounts.evmAddress,
+    sourceChainId: 11155111,
+    sourceAmount: quoteAmounts(reviewed.route, reviewed.quote).sourceTotal,
+    sourceSymbol: reviewed.route.source.symbol,
+    operation: { operationId: 'circle-operation', review: reviewed }
+  });
+  const admitted = await snapshot(id);
+  const settlement = afterClaimCommit(() => {
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://changed-circle-rpc.example/private');
+  });
+  const runs: Promise<void>[] = [];
+  const observer: BridgeReceiveLockManager = {
+    request: async (_name, _options, callback) => {
+      const run = callback(null);
+      runs.push(run);
+      await run;
+    }
+  };
+  const drive = jest.fn(async () => undefined);
+  await createBridgeReceiveReconciler({ getLocks: () => observer }).startSubmission(async () => id, drive);
+  await Promise.all(runs);
+  expect(settlement.result).toBe('claimed');
+  expect(settlement.transactionActive).toBe(false);
+  expect(drive).not.toHaveBeenCalled();
+  const retained = await snapshot(id);
+  expect(retained.sourceAttempt).toEqual({ phase: 'running' });
+  expect(retained.walletScope).toEqual(admitted.walletScope);
+  expect(
+    await recordBridgeSourceAttempt(retained.operationId, retained.revision, { hash: `0x${'9'.repeat(64)}` })
+  ).toBe(true);
+  expect((await snapshot(id)).sourceAttempt?.hash).toBe(`0x${'9'.repeat(64)}`);
+});
+
+it('drives exactly once after the actual source claim commits in the original unchanged scope', async () => {
+  const id = await seed();
+  const settlement = afterClaimCommit(() => undefined);
+  const runs: Promise<void>[] = [];
+  const observer: BridgeReceiveLockManager = {
+    request: async (_name, _options, callback) => {
+      const run = callback(null);
+      runs.push(run);
+      await run;
+    }
+  };
+  const drive = jest.fn(async () => undefined);
+  await createBridgeReceiveReconciler({ getLocks: () => observer }).startSubmission(async () => id, drive);
+  await Promise.all(runs);
+  expect(settlement.result).toBe('claimed');
+  expect(settlement.transactionActive).toBe(false);
+  expect(drive).toHaveBeenCalledTimes(1);
+  expect(drive).toHaveBeenCalledWith(id);
+  expect((await snapshot(id)).sourceAttempt).toEqual({ phase: 'running' });
 });
 
 it('records known hash/intent before further reads and rejects late callbacks with the old revision', async () => {
