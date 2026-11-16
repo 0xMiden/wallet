@@ -1,0 +1,1289 @@
+name: '2147 bounded hosted format generation'
+
+# Isolated orphan QA transport; this registered filename runs no native E2E jobs.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_source:
+        description: Exact reviewed QA transport commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  format-generation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SOURCE: ${{ inputs.expected_source }}
+    steps:
+      - name: Bind manual dispatch to the reviewed QA branch and SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REPOSITORY_ID" = 853430876
+          test "$GITHUB_REF" = refs/heads/qa/2147-t-format-five-33431-20261116
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$EXPECTED_SOURCE" = "$GITHUB_SHA"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          ref: ${{ inputs.expected_source }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify orphan scope, modes and payload hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          test -z "$(git show -s --format=%P HEAD)"
+          expected=$(cat <<'FILES'
+          .github/workflows/e2e-dapp-browser.yml
+          source-after.sha256
+          source-before.sha256
+          source-overlay.patch
+          FILES
+          )
+          test "$(git ls-tree -r --name-only HEAD | LC_ALL=C sort)" = "$expected"
+          test "$(git ls-tree -r --format='%(objectmode)' HEAD | LC_ALL=C sort -u)" = 100644
+          sha256sum --check <<'PAYLOAD'
+          0b39b46d55bd3046bcf62e74fc7729c1d11b8e1f844357b59761a75d9b964dd7  source-overlay.patch
+          b0e1bf9ffa8daac50b3d67eabbe601192c6001f76dec1e99da82570c23fcb594  source-before.sha256
+          ea6f337e96a5f8344c3dc7a51a756669c967b0a5dca5abbe76640726e70b8e8b  source-after.sha256
+          PAYLOAD
+
+      - name: Check out approved public wallet baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          repository: 0xMiden/wallet
+          ref: 293d668a14aa4226cd666d2f3344de6d65c5d762
+          fetch-depth: 2
+          path: wallet
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Ordinary frozen install on unchanged public baseline
+        working-directory: wallet
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 293d668a14aa4226cd666d2f3344de6d65c5d762
+          test "$(git rev-parse 'HEAD^{tree}')" = 3fe0463e0c0fd443d480bc3eb511c2f9f63af10f
+          test "$(git show -s --format=%P HEAD)" = 9f239a3171140260d1c3b1133b49a04eaecc5683
+          test -z "$(git status --porcelain --untracked-files=all)"
+          sha256sum --check <<'INPUTS'
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73  .nvmrc
+          68872467d64e7e95822bf15b578f98f38f94ee15c978bef41248bb28c0e3d74b  packages/hd-key/package.json
+          1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e  packages/bread-connect/package.json
+          8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275  packages/bread-connect-capacitor/package.json
+          6e429996887877ba411d6a2262947fe7831532562b6d872f888c83edb37375b1  packages/dapp-browser/package.json
+          dee8323b83b5a584a49e61c5c6a1deb19db572226484fbbff17b50e38fabebeb  packages/native-prover/package.json
+          93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2  packages/hd-key/tsconfig.json
+          9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9  packages/bread-connect/tsconfig.json
+          c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa  patches/@capacitor+keyboard+8.0.5.patch
+          7477ff106d8921519b8b9c7614dd5f27035f4db15d77ea65d39edfc1a49a992c  patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1  patches/@openzeppelin+guardian-client+0.18.1.patch
+          1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d  patches/eslint-plugin-import+2.32.0.patch
+          9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6  patches/eslint-plugin-react+7.27.1.patch
+          b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615  patches/inspect-cli-cdp-fix.patch
+          3efbc553923c5294e3d35904ea8cb82142c99b99e5320e641eaa221d03021819  patches/react-infinite-scroller+1.2.6.patch
+          4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf  patches/vaul+1.1.2.patch
+          INPUTS
+          test "$(stat -c '%a' packages/dapp-browser/package.json)" = 755
+          sha256sum --check <<'STATIC_INPUTS'
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          6f6ba5ed5f7a19c442a3758ef91cc11c1754657dec0b2b860f865b6c34f0523e  .eslintrc
+          101bb34834b840158d0b2067e56b485c5b78173a4b71fac73106ba28e73d6526  .eslintrc.i18n.json
+          4f2f9e3ed69e9e1d05dc97d054a1b85668bc3d53cda3657bfcb3d467b52607c6  .eslintrc.harness.json
+          7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf  .prettierrc
+          f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd  .prettierignore
+          1696e4f93a9c602594d42780b5b325f9de0fe9f1c575444491e850d7e63f4134  scripts/lint-e2e-harness.mjs
+          5104a79a346824036eeea3b16bc3c1c21a3a2a0174e493a29b5c4f69c28423fa  scripts/check-native-prover-pin.mjs
+          70ffbb4372f856383bfa24ba01fb5bac9ceef0c090bdbef3908b9ca8d3c4f2d0  playwright/e2e/eslint-rules/known-violations.json
+          de0c54849474643dd2376c5b191ea6ec5cf934e86d95fc14ebc10cf783f0b031  playwright/e2e/eslint-rules/no-conditional-expect.js
+          c23fdd2ded1a14a6a0633401ed0786e9fe113aa5c8751ae7f9d6424be808cde5  playwright/e2e/eslint-rules/no-long-bare-wait.js
+          c76cc738f3f5beb23cc310d7a2f6471cad077b72fdc61875bae6d9b3d5b79c89  playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          3a1b514d27e10680b66d1331313f9350431ac88107bfbeb5693102a78a50ad1e  packages/native-prover/android/rust-bridge/Cargo.toml
+          7855e80634b4fd1e80855807704ed8c774bb96fc66d7472cc753daedaab2a25f  packages/native-prover/android/rust-bridge/Cargo.lock
+          40b461cafe891b15363ddb8cdecde0c7bf02b4633d16450d995115d3c39e5144  packages/native-prover/pin-drift-exemptions.json
+          STATIC_INPUTS
+          test "$(yarn --version)" = 1.22.22
+          yarn install --frozen-lockfile --network-timeout 600000
+
+      - name: Check and apply only the 68 reviewed source postimages
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code HEAD
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test "$(wc -l < ../source-before.sha256)" -eq 50
+          test "$(wc -l < ../source-after.sha256)" -eq 68
+          sha256sum --check ../source-before.sha256
+          while IFS= read -r file; do
+            test ! -e "$file"
+            test ! -L "$file"
+          done < <(comm -13 <(cut -c67- ../source-before.sha256) <(cut -c67- ../source-after.sha256))
+          git apply --check ../source-overlay.patch
+          git apply ../source-overlay.patch
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = 1f75b685e9c8e904ce56b3a5ac2a1f07c92d0e3a76a3d0cc6f875cf8c6001e57
+          test "$(git ls-files --others --exclude-standard | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = c7ad75ac474a3532966c47820023a16db256bbbf5ff51d78645e5f878b03dfed
+          test "$(node --version | cut -d. -f1)" = v22
+          test "$(yarn --version)" = 1.22.22
+          node --version
+          yarn --version
+
+          test ! -e ../format-state
+          test ! -L ../format-state
+          test ! -e ../format-output
+          test ! -L ../format-output
+          mkdir ../format-state
+          cat > ../format-state/generate.py <<'FORMAT_METADATA_PART_1_END'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path, PurePosixPath
+          import re
+          import stat
+          import subprocess
+          import sys
+          
+          INPUT = json.loads(r'''{
+            "sourceFiles": [
+              {
+                "path": "CHANGELOG.md",
+                "mode": "100644",
+                "sha256": "368e0eb7cc00f378caff5eae4b12e95aeee797b43ab65e6d7cfa4918882ddec9",
+                "gitBlob": "da94e9f551bedcaf986e609a6a5316f90fb9a91f",
+                "baselineSha256": "09986cb234b7760a225c2654ca956d1d9cfbe452ddd1406abd15a7ab0d3bb8ef",
+                "baselineGitBlob": "f90e9c37d6f684fe1ad011b92bf86b5ff3cefa57"
+              },
+              {
+                "path": "playwright/e2e/helpers/bridge.ts",
+                "mode": "100644",
+                "sha256": "1d70d4cd78cbd0452ee789fb6b5b0034e774c7e5e5988608392a5b2b10d2d2a7",
+                "gitBlob": "c33eaf445a1fae77e47f18efe312d145a34a3ce0",
+                "baselineSha256": "2fcbfc1657014aff3c8deeea11f530a09afcb9b0cd8660dde490dd3b83b3e3b1",
+                "baselineGitBlob": "d8f731bedec322588fc410e61e8843a93bdac9ef"
+              },
+              {
+                "path": "playwright/e2e/tests/bridge/bridge-out-agglayer.spec.ts",
+                "mode": "100644",
+                "sha256": "c7762fe5176a01cc1b515c7da3c47120087ccd85a08aa9615b5186e66f22d325",
+                "gitBlob": "6788f85cbdc01161b39ceee6772fd2f901e278ca",
+                "baselineSha256": "2782618fed480e7b04a844e5f4d789490b4ee4cd88a4662461a836f7eaa309bd",
+                "baselineGitBlob": "c313793cbde1a3b16077691f9ae0bb2523cad3ef"
+              },
+              {
+                "path": "src/background.test.ts",
+                "mode": "100644",
+                "sha256": "4deefe58bf7abdbe8db35f6c4a254ab1f8cb0dabd65f5451388833f080dfca08",
+                "gitBlob": "1340885183f4a47d903efde21e8c3e613cb0d3c1",
+                "baselineSha256": "2f0c844f97517709ebbb0a20e531f1728abbbe4f945f6648968af45329f034c8",
+                "baselineGitBlob": "6b8445de65fea7a19ad5d470f7ff7ca2933c903f"
+              },
+              {
+                "path": "src/background.ts",
+                "mode": "100644",
+                "sha256": "cf1f3505412a7f8950a732a7ff9f9dee8d5bf17142c1557ba7fe64cb476b189d",
+                "gitBlob": "17202d64bd29a62eea88bc8c0cbe1d0a973b9ea6",
+                "baselineSha256": "1e79d920c1e3d8ff370117beca674d098b0d836750326e2ebd2d44b3ff457b8a",
+                "baselineGitBlob": "ac4f010b81b8ee5344fb4b9b29a38dc6c3fa9005"
+              },
+              {
+                "path": "src/lib/agglayer/allowed-faucets.test.ts",
+                "mode": "100644",
+                "sha256": "4200ecab84de29bad8f9aca68dc7f83871f716ce1708b4ee734e711cfe58589d",
+                "gitBlob": "508a9c8b304675f064f60f3562001791fc773519",
+                "baselineSha256": "2c36ebf8f23320c8aa73fe52fa1f38124191afd55d7feb5939038dda433c437a",
+                "baselineGitBlob": "4001661d8f9a3b1f5fe0035b9d5b297778dc0bf5"
+              },
+              {
+                "path": "src/lib/agglayer/allowed-faucets.ts",
+                "mode": "100644",
+                "sha256": "39ea209c5038570b333e5a6b3d2e5a295d7ce31b9055bad29373e497caa86b42",
+                "gitBlob": "514f335ee930ca5f67cbdd47f009e51430cb5f7a",
+                "baselineSha256": "147853930e5ccf540702ebe7c6e590d817629c58d1a79623546599aaec817e42",
+                "baselineGitBlob": "810dd3b348a1b88a4f3dbf88f6eb580990b41cc3"
+              },
+              {
+                "path": "src/lib/agglayer/b2agg/confirm.ts",
+                "mode": "100644",
+                "sha256": "395286f8afd9688e5eadb044abc564ac57abd7937f1d17efe8da38b267f75081",
+                "gitBlob": "ed6e50ce660c67ae442ca6dbf965764f5a2e5b78",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/agglayer/b2agg/index.test.ts",
+                "mode": "100644",
+                "sha256": "9d025d5971123fda75754335a9d249621097a7b5702dab80f19425257d5e9b1c",
+                "gitBlob": "667b8095ee5e384f88baf07687a2f3bc3ceb9eea",
+                "baselineSha256": "1b49bfbc54a5b40a394348c89e2729e12d268442b9098390b6971c3028efd0c9",
+                "baselineGitBlob": "21656e0e9a2177b823460506e3710913a65f1dfc"
+              },
+              {
+                "path": "src/lib/agglayer/b2agg/index.ts",
+                "mode": "100644",
+                "sha256": "1d458ea0e36a9d5deb220e31dc68e1740ccc028f8685dcc6663a68cc239c3ce5",
+                "gitBlob": "978b81ad8e9b1c104f396c97362f6ff9f06f0264",
+                "baselineSha256": "79dc91cb8cded8b3e604491a0f8eef681c1adf8980f02722d732816f353d6ccd",
+                "baselineGitBlob": "3dffe271c43e7979eea8eb9ed02e99245f70ba7f"
+              },
+              {
+                "path": "src/lib/agglayer/b2agg/note.ts",
+                "mode": "100644",
+                "sha256": "06366248370108c5da862f37e5d898f3c05d772d5a21a0b1898cce4d422e4e00",
+                "gitBlob": "a9b1dd8a389be6fa7045aa45855299f85e4c887b",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/agglayer/b2agg/request.test.ts",
+                "mode": "100644",
+                "sha256": "d5160ef4cfb5760e23fa32d569013311c99803877b1674526d2d22ebdaa457b9",
+                "gitBlob": "56220b5cb7c6f1ae743c77a73194a55893977c87",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/agglayer/b2agg/request.ts",
+                "mode": "100644",
+                "sha256": "6c4525b669183236ed380636790e0b4f86e0e2b15e449857f83a3e550feb62df",
+                "gitBlob": "d946633f0779fdcbd5453d2b9b17fb3350566867",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/agglayer/b2agg/review.test.ts",
+                "mode": "100644",
+                "sha256": "d3e78af1713ac7e555091464a7d06e393fc96efbf97379df5d84e3313b174b4a",
+                "gitBlob": "5a8408f7b606ef82b6d924ccdbaff6a9c269d916",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/agglayer/b2agg/review.ts",
+                "mode": "100644",
+                "sha256": "c49819de4074b1be1da29be928654d0f006587e51f404d3414f97b60a05cae85",
+                "gitBlob": "b3f8ef02362b3dccf57441efd549c48ab6ca7d52",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/epoch/miden-note.producer.test.ts",
+                "mode": "100644",
+                "sha256": "f63962f0964d911f8414254c8548be87bdb219e29732a3c70651fe7e6c5a20d1",
+                "gitBlob": "ca12aa6f2c92a99a6a6283b76a7150dd676035d5",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/intercom/in-process-request-handler.test.ts",
+                "mode": "100644",
+                "sha256": "4bfe9bebe83dd6d052eb0f0c6c94d633efbdf913aa2f3ae5ff38e422a70785b4",
+                "gitBlob": "f5e948bfcedf25bb74262a35586cbdb4f22ae72b",
+                "baselineSha256": "cbb802dd7292c01b9f85f8347d0e04dfca4365f2fb850ddf0715b5a847f4ac04",
+                "baselineGitBlob": "faa8434a05077179acad686b4e3244b2b118e945"
+              },
+              {
+                "path": "src/lib/intercom/in-process-request-handler.ts",
+                "mode": "100644",
+                "sha256": "04a7b3e6fccfe285136a344173490f9adc4d9d44a3df0638324c18b7ec9feed2",
+                "gitBlob": "2cab36c43c846f9fdfa9267660d909ffa1cea041",
+                "baselineSha256": "e58806b0b9c58a5a120e8cdc4bb77a410d9ffbe329a925a9e93ac33945194ff9",
+                "baselineGitBlob": "ff29be1caa9183c9e185385246521e522a0fb55c"
+              },
+              {
+                "path": "src/lib/intercom/mobile-adapter.ts",
+                "mode": "100644",
+                "sha256": "aa72fc91d743d91df594970922b23d2c891d0662749ad6fff9c4f70f6d442892",
+                "gitBlob": "032d34e7f19aebff8e197d3b287db8c54fd1e739",
+                "baselineSha256": "fdc7fd85507300b11d3117a2ec8067ec7c22b4188e034969ba1909409c7d51ca",
+                "baselineGitBlob": "befccd2a91916847da673f03b74d4fdf01ac2c7e"
+              },
+              {
+                "path": "src/lib/miden/back/actions.test.ts",
+                "mode": "100644",
+                "sha256": "428853c1b4bd8c90f991fb1119e7bd9ae3a0be676c3b554103e556c5d512f50d",
+                "gitBlob": "395c0adc061d9ae31a081ba1516bd68f8863b200",
+                "baselineSha256": "6a27a5120d89c2bfe5fdaf3e3813bed73e0f85f98e34e4e36b6af157de6950cf",
+                "baselineGitBlob": "837268d7b596fb0833dd24480b770460ee800531"
+              },
+              {
+                "path": "src/lib/miden/back/actions.ts",
+                "mode": "100644",
+                "sha256": "3dcd1625147dbd2a475ffab9ed515287275880b469a7b762b42f2e260127fe46",
+                "gitBlob": "ba8c33528fedf47b68d794c8db772b411569db25",
+                "baselineSha256": "eae772894c4e2aeeb4ced58a88460254ee1dfc435753f8192d38b6967e619ecb",
+                "baselineGitBlob": "ea5d844aece983e93209f42c8afeec75d583b0de"
+              },
+              {
+                "path": "src/lib/miden/back/main.test.ts",
+                "mode": "100644",
+                "sha256": "55a7082b10ad43a5ee1995015cc6ac0075508649bab21d8f374a1ee517b9fc15",
+                "gitBlob": "0d71f196bf28ccdc5af145e784bb726f74d062db",
+                "baselineSha256": "489d33962633cd506d11b26bf902ca178f4a056badd991f5dd1b139ce8215eb3",
+                "baselineGitBlob": "75d10b4fc3ffdac2df04efff7fa19931b0ba1c21"
+              },
+              {
+                "path": "src/lib/miden/back/main.ts",
+                "mode": "100644",
+                "sha256": "90be09dfe8b5db4a57aff98e560bfcac898741097657526a7e9115737153e510",
+                "gitBlob": "37b59802a1e87fed0bfc2b2e964923973f284f33",
+                "baselineSha256": "11b80572584d330643e24ab2753b9ca316211ee02d60439637bed23c857ec03f",
+                "baselineGitBlob": "469ebd4c1420d9cda776b34003fdfa89be1164d5"
+              },
+              {
+                "path": "src/lib/miden/back/miden-client-proxy.test.ts",
+                "mode": "100644",
+                "sha256": "6ade7bec290bd0c68157343b28122d4ddd8f6eb0d1bd9f3727c0dc8222a56700",
+                "gitBlob": "b2f9c7a384dc863ba0b7d14e560113e03d391521",
+                "baselineSha256": "2ca3378afc06980349f3cf1f772c5e944a6b82d4b4af2a92bc2fdfce58fd58c8",
+                "baselineGitBlob": "8127e454ee08b61086dd0af754f91f8789fd2029"
+              },
+              {
+                "path": "src/lib/miden/back/miden-client-proxy.ts",
+                "mode": "100644",
+                "sha256": "7b9f86811ad29f98cf4361dcc44bf19f2ca6fd90627e213a37c6382c416cf643",
+                "gitBlob": "59124a42c2baf2acd1e3a71ef300580f88074461",
+                "baselineSha256": "f97e1b20d8d428edf36f4f8818f9237e2e24b24f3a4fb0eef36f2fd1949f3c90",
+                "baselineGitBlob": "6f950869e6d548061a8f602b332eb30ecaf18d89"
+              },
+              {
+                "path": "src/lib/miden/db/types.ts",
+                "mode": "100644",
+                "sha256": "560129546746edf12f397db7541a8a2898572b87640da38029d761ef454cd7ed",
+                "gitBlob": "7eeb32ef127894aa5d5b2e3c9540270b021d827d",
+                "baselineSha256": "28b7f8cd2e32f28017a7b1fbbaca5756387b64d0070095c7d543fc742c1bb5b8",
+                "baselineGitBlob": "4b3d7f48578539c704d4e782dedc9a35bb69b57c"
+              },
+              {
+                "path": "src/lib/miden/front/client.ts",
+                "mode": "100644",
+                "sha256": "6ae402f6edbacc1031d60cb2631440148151cedbe8196205f9fda68e917b8cb1",
+                "gitBlob": "9c678851c856fe7ecb435595519e52758a094afd",
+                "baselineSha256": "8947bc3276f782c34163cae7b1076ea3e11420dad46a16ea1594f8499fdf2a0c",
+                "baselineGitBlob": "04116f4ca55ff23c1c95008bfb2f208f0f27bb85"
+              },
+              {
+                "path": "src/lib/miden/sdk/dry-run-request.test.ts",
+                "mode": "100644",
+                "sha256": "43fcaa458461bcb7f61f09580b853e6bc100a0fbb7339f8a8326718a9db9e0e9",
+                "gitBlob": "4dcf8465ac541e21bd6a3a4c80d6c770d7143636",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/miden/sdk/dry-run-request.ts",
+                "mode": "100644",
+                "sha256": "5c490cc5ac7f79023cf41166c664120bcd1681434b25a5abe1b3a6ba0932fced",
+                "gitBlob": "78a5cdf642e3d850a381e3b1afd87e49ab963d02",
+                "baselineSha256": "5db4c61a37d3a38f11f8de23981853578cdd8773b110b95e79a694281db4f51e",
+                "baselineGitBlob": "d703c855ef768777cf5d375aae908774db072445"
+              },
+              {
+                "path": "src/lib/miden/sdk/miden-client.test.ts",
+                "mode": "100644",
+                "sha256": "04ef15650f5127639d732aa10cae4ef5e775de60a8ffe6a10f6b0513d29e36ca",
+                "gitBlob": "c20e9345d44277256c12548895637ac6c3d9de1b",
+                "baselineSha256": "5712ddda11fdb24e327d820a2b9dbc3472db29cd47de314761aa468350b09c99",
+                "baselineGitBlob": "e644ebe1fa550410e340900a4cbd0ab3dda20c8c"
+              },
+              {
+                "path": "src/lib/miden/sdk/miden-client.ts",
+                "mode": "100644",
+                "sha256": "b46f487c05befb443fcbd981e6bc0ab2093330b5c680d76b0bc4b8b2d237f77a",
+                "gitBlob": "d5016cc86aec9039859451fbdbe1f4422ec41fd8",
+                "baselineSha256": "15fec81228fe92098f220a0fab8a7279418c0fc6242179cf01efa6a35f0d14f2",
+                "baselineGitBlob": "072764e924e3d4a0763aa4d9741d68e54ff38a01"
+              },
+              {
+                "path": "src/lib/miden/spending-limits/queue.ts",
+                "mode": "100644",
+                "sha256": "a4446564348b3d7c552a346ab38b247f7be9c79c1ae8d29a11db5ec0f59a03d2",
+                "gitBlob": "db5a5c4cd7fbc26383819eb59ca1433bf06f67a0",
+                "baselineSha256": "f6a62aeb425da1cd5f4dd8fb6b9a218588423c915819b1b5930dff0543a90a37",
+                "baselineGitBlob": "9f3722a12b5b5cb01fda37d9bbc47b53200f80a6"
+              },
+              {
+                "path": "src/lib/miden/transaction/bridge-effects.test.ts",
+                "mode": "100644",
+                "sha256": "5a02bda71c2daff6efc3db884b2697bb11d606c153b21275f03403c1ffda7ac9",
+                "gitBlob": "09e3e5d734a657709b99bbf4144308519e288288",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/miden/transaction/bridge-effects.ts",
+                "mode": "100644",
+                "sha256": "d525c092524e780b21a8087713f887c3cf76fe072d196cb3b75c296d7ef7939c",
+                "gitBlob": "585239341aee0e14baf442d7e2429047f0e51d2c",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/miden/transaction/complete.agglayer.test.ts",
+                "mode": "100644",
+                "sha256": "4af8b54c57d74be64678fe9493baf5de15daa11f01d5e6bede521f4b6036c005",
+                "gitBlob": "6326eb761218d1f8182ede16f609b647ef15f593",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/miden/transaction/complete.ts",
+                "mode": "100644",
+                "sha256": "02650cc764716f87e7b7b3fd3043d36aa3b73c1eca25bfb27f6bde840f081260",
+                "gitBlob": "58baf3a271b47f4ab4ac8e3d414ba125c5d9d2e8",
+                "baselineSha256": "474ad84e8f3dcf0e15f41f67b23c3c92948a91a3a182ad594c15487c2a537ea3",
+                "baselineGitBlob": "2694d22b86f254118926ac914baa63855ebb8f7a"
+              },
+              {
+                "path": "src/lib/miden/transaction/effect-checked-signer.test.ts",
+                "mode": "100644",
+                "sha256": "34a576b80a006a5df97a529b240d3e400f486cf59427e2130d9e03979d21aa2d",
+                "gitBlob": "f4c987e563af9eeb1946b4b685c7e6f191d42708",
+                "baselineSha256": "37ec615c1b97baee93433fc16f5dde972741715b8a73fc07f0bf0dfbed4f7e39",
+                "baselineGitBlob": "82bed7071b5e889325f38c25d7deadd5e3ee743a"
+              },
+              {
+                "path": "src/lib/miden/transaction/effect-checked-signer.ts",
+                "mode": "100644",
+                "sha256": "30eae8ed92c5f9d3195e7d4cfd41451cee6b849b8bda0befd3732cd5848da1ed",
+                "gitBlob": "f6913d73a5ecbfecb3800c4729e07d4c68e4bced",
+                "baselineSha256": "e921d515d408f8702829c3eab7d2e69f194ca1562d6fa96ba2eafcbdc98012ea",
+                "baselineGitBlob": "2d09fcfac1bf76c4f26778c3bdde3e5aeb9a1474"
+              },
+              {
+                "path": "src/lib/miden/transaction/index.ts",
+                "mode": "100644",
+                "sha256": "12476ff61b60fca95d0809e11f3d2290043701b7adc6d78960c1477883f621ed",
+                "gitBlob": "6a82e6debadacbbad49e94058bd1c1fa5a22b6b7",
+                "baselineSha256": "a89a18e9b3e8addeb0accd50de6d1ce928924c8b8edb611af9a6fb7c9b39a5f9",
+                "baselineGitBlob": "245fec34c6d38c089cf407dc9eda8bb5b623b95d"
+              },
+              {
+                "path": "src/lib/miden/transaction/initiate.agglayer-review.test.ts",
+                "mode": "100644",
+                "sha256": "84e32a0b59594679d77061d23e6c6c335ac2edfe7ebcfaa4a04127b1f1722a6a",
+                "gitBlob": "fc71e01a6211c20687bb647b65bb3b712228a27d",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/miden/transaction/initiate.bridge-review.test.ts",
+                "mode": "100644",
+                "sha256": "d196b1c52c70e68b3437a3644bd34a269308dbef9661fa26b162ca6af94e5223",
+                "gitBlob": "4b0f7be1b9c8c7bba5353823f93223a214e078b8",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/miden/transaction/initiate.ts",
+                "mode": "100644",
+                "sha256": "039ab3f31a5b6f5cd5018785ea47e2f6bd59210c2daf0cce7add43d49ec6dff9",
+                "gitBlob": "e360c269a9426947077c930d4a92279a5370f023",
+                "baselineSha256": "5f1c305e009e247449575cd10c130d721aaffdbccf101d1da6f0d12b4f9eafe4",
+                "baselineGitBlob": "0ddb2434adf7b08aa8d387b7bf135d9cf25dc8ed"
+              },
+              {
+                "path": "src/lib/miden/transaction/proposal-effect-guard.test.ts",
+                "mode": "100644",
+                "sha256": "db26d928beeb798eecd647ea810778f51f711987e5d1c87d39d91bd78d79a3fb",
+                "gitBlob": "d18e1ecca20446fd0b91d8f2ab4aa1985db6e72d",
+                "baselineSha256": "bf556a26f2e280d574bab677919b9e68cb0e89728898ec5b77fbb379ca7d0aae",
+                "baselineGitBlob": "f257c8d2b7b9dcaa593976de7bfe42326678e900"
+              },
+              {
+                "path": "src/lib/miden/transaction/proposal-effect-guard.ts",
+                "mode": "100644",
+                "sha256": "c3fba0fd209722951c33ba3234aaa79fcf7a15ee239a2d0b21ac903fac080b47",
+                "gitBlob": "e17e1531d337475e04cc7bea06e01714d8aa388b",
+                "baselineSha256": "7f64ac14175e72b1a9b20a57d0539f302c93784050b45205f41d52f62be6c638",
+                "baselineGitBlob": "4666048848ab7c135a0ec234473dfc7756e330ff"
+              },
+              {
+                "path": "src/lib/miden/transaction/signing-effect-context.integration.test.ts",
+                "mode": "100644",
+                "sha256": "b61ceae05152984d5bdd7b5d5df733752b768e4e873a6e5c093bf5dcbc004bab",
+                "gitBlob": "72ecc9b9b8616105df9a60549e7b865733ae463c",
+                "baselineSha256": "2eb50f797a1b5f4cfb7bccd05c5bc8d9a860debf69297e47d9cfe7bab0d9e4c0",
+                "baselineGitBlob": "863dd1a8f9e2a1fc6929b11b05b9b86507348f0c"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.branches.test.ts",
+                "mode": "100644",
+                "sha256": "a6060df3ea0d7ba351a0823367c5773133cad95d7d6847f07110a82462fc2352",
+                "gitBlob": "ea4e111186d85226ffccfa51e01b6c8485bc224a",
+                "baselineSha256": "e1e963bb9780af0ee240af95e71e124ab87b5275078c524aab215da3e5462a1c",
+                "baselineGitBlob": "6d093fce7882e69e050af6d4db665fc468b89385"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts",
+                "mode": "100644",
+                "sha256": "ce30d462a21069a1b94bd66af1bdc26de8c592d1523bad6f3cc8e77d3a7d88c6",
+                "gitBlob": "fbcefda99d7fddb62d7d45a529d39cc69204dafb",
+          FORMAT_METADATA_PART_1_END
+
+      - name: Append the second plaintext metadata helper segment
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >> ../format-state/generate.py <<'FORMAT_METADATA_PART_2_END'
+                "baselineSha256": "1dd63063155dc8f946c931a3985f0c5cdf40697a00a5cab3f20a2cf1782ad348",
+                "baselineGitBlob": "8f9398ed06afbcfca8ef54c7704969dadf333c9f"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.guardian-offscreen.test.ts",
+                "mode": "100644",
+                "sha256": "f6dd35e6fcdc7558ebaea980a4fa1c76430ca5e32283134d93064d40e4e4246b",
+                "gitBlob": "c5a1674ecbca32e1e2f3549b6bda7cd3376cec2c",
+                "baselineSha256": "f27c86e2eca5bf420b5c8b07db9a59ce93e585cb310c9a45e0f803313edc4656",
+                "baselineGitBlob": "2d3aa33b4216682d74bd568a349ae3960336a893"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.guardian.test.ts",
+                "mode": "100644",
+                "sha256": "a8dc143ff618973ad2168fbcaa9ba089850bc29db82e0183d97bfbdad112e7f0",
+                "gitBlob": "dff055eaaa269f4edcc0ac55a62256606613a3b7",
+                "baselineSha256": "0c843c037a86c3d61fd0425c9dde2d7a236d6ead0f4504a792f7dc2e36164121",
+                "baselineGitBlob": "fe2718d5618cf2d9131e46619e4c1da565b6cb91"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.send-stage-timings.test.ts",
+                "mode": "100644",
+                "sha256": "2a116b44b63886811cc149f725fb74f56f4da2f0dc3a5e24fcf66b8837e5d45d",
+                "gitBlob": "e2763cd52d5a1db05ee31dac198807e865246a48",
+                "baselineSha256": "5f82d4e85f6af5423bb86fe15529abddaf34c9f3c1ed46880911cfe735620f24",
+                "baselineGitBlob": "91e798ffa6daf468c9b4ccd2cde6705b542e141f"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.test.ts",
+                "mode": "100644",
+                "sha256": "babc5aa384c54811a4faae5c0fe526dc14995358c6f6e67e4cdc30ec88c9ebb6",
+                "gitBlob": "460abcb6f96ce8e2f42ab6861698c30f1350f418",
+                "baselineSha256": "2590804910d6b1035c14f10b3967c34e09ce3b387b506f967d952aa21a145332",
+                "baselineGitBlob": "b40844da76a62adfdc0b019865d5c0d6f6633074"
+              },
+              {
+                "path": "src/lib/shared/types.ts",
+                "mode": "100644",
+                "sha256": "41f101ac4f7f5cc5b892f16ce599c4269b2588df77a149e6578262d07090444e",
+                "gitBlob": "0bb0b4cc060f73062b8fae1e74558da408882602",
+                "baselineSha256": "dfcef45a31e499ec0e38f56750d6c482944c24d02fcd6f37acdb81c468ee80a8",
+                "baselineGitBlob": "050f3cc56a198ec16e494c7dd91ea0166a63daf7"
+              },
+              {
+                "path": "src/lib/store/index.ts",
+                "mode": "100644",
+                "sha256": "fd667d133121d4c50edd3b12d353d1fd53db9ef74ff5a268998585e6c3b324de",
+                "gitBlob": "8f986b69de98fb2556ab8f80239ea764f1b90d29",
+                "baselineSha256": "a42d45c4ee31ee606c611f1056ac3c6b34a430d39c88b836ee4e4a11a7f9db8c",
+                "baselineGitBlob": "79b4bd6a5a5bd4f1d0b68c05b0d94a804b746b79"
+              },
+              {
+                "path": "src/lib/store/simulate-custom-tx.store.test.ts",
+                "mode": "100644",
+                "sha256": "f897212b1d3ad81caaabd608cad59170618bd6a3286badc85ef119b7b4f1ed7c",
+                "gitBlob": "2d58f61db8cb7f27689e3405b9fca41f20f1ab19",
+                "baselineSha256": "7189d220b2c6652170c5fcd0c1b29edd70f9d2b11fd64de1d8905b1729d75cbc",
+                "baselineGitBlob": "66c9b826e414d27932682656bdd62255db302f41"
+              },
+              {
+                "path": "src/lib/store/types.ts",
+                "mode": "100644",
+                "sha256": "9a0069176e28ed5074f7430932b76df8568bae09f64620e5b9abd62792db0f75",
+                "gitBlob": "717540221caf6dc6a0f6adf92315c2c1d2f84b9b",
+                "baselineSha256": "3529d1e6af35b4fd7f41fbca86f319ad699ac4a0a469c67a856febd7fb525294",
+                "baselineGitBlob": "a940af05ff908bee0f44811fe4ef8f62f879aff4"
+              },
+              {
+                "path": "src/lib/usdcx/burn-fee.test.ts",
+                "mode": "100644",
+                "sha256": "dcafd45861d80ce2d10723f337f6fbe4dfdab9728ede140f0692148254ea59c1",
+                "gitBlob": "1f047ac33b5fdb13a99f5642ac3850a7a9e08c19",
+                "baselineSha256": "9078fe30641db853bc23bc0cc646c6653055848aeb4b366e324ac596b34119fd",
+                "baselineGitBlob": "02bab4aa3d455b9c70fe66690fb7b371335fa08f"
+              },
+              {
+                "path": "src/lib/usdcx/burn-fee.ts",
+                "mode": "100644",
+                "sha256": "de04c2ed8043c48ab68b1af154a1ccbb0ae16a69b8daac5c2b631085e6f949ca",
+                "gitBlob": "956c00419b9ccda9d442e0970e7b1cafaa4ea2aa",
+                "baselineSha256": "591452abb88a09a75adfe17ce4d0b5b401584f09b7483db33e690ed042139fad",
+                "baselineGitBlob": "c4a9944a7f9a784b7b56a499f0a596ba0302c7e1"
+              },
+              {
+                "path": "src/lib/usdcx/burn-request.test.ts",
+                "mode": "100644",
+                "sha256": "fca848dcf331d3a21cafafdcae7f14790f1a67070f2526cd045ca11c2a230847",
+                "gitBlob": "2e55065527095007b7cd9355a8ef3962b5712964",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/usdcx/burn-request.ts",
+                "mode": "100644",
+                "sha256": "e2c57794624153fa31976dd36b166473f4d56c7190331821201a5e0394948037",
+                "gitBlob": "327a36e84fc6ae3ed4483a6cb6188333dd90322d",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/usdcx/burn-review.test.ts",
+                "mode": "100644",
+                "sha256": "8de33d3b70f43b9bba5bb4b5778a5b4b289235a500148a9b0027920c9a495ffa",
+                "gitBlob": "efc2d1d85a87f0883f62da78c4a9cda709b61026",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/usdcx/burn-review.ts",
+                "mode": "100644",
+                "sha256": "5b0842660d0236da7f89310a0bce5c7eddb76fb99420d22b6618fa41d51d0618",
+                "gitBlob": "72d7c1943a92916fccc26a8fc15f5fb1a7b71b41",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              },
+              {
+                "path": "src/lib/usdcx/burn.test.ts",
+                "mode": "100644",
+                "sha256": "f92cfe43b365368d72b03896acd3f3b59d2723380ae4ddd98545ae9db8228a83",
+                "gitBlob": "6ab71b01f644f48d0300147e00550548fbf5923c",
+                "baselineSha256": "b2ff561f38ad057528bbf547be62eb19df60d37b411648ec979f80008500c2ab",
+                "baselineGitBlob": "5daf5ba2fed82c53e135e2cc154b4983d59a9312"
+              },
+              {
+                "path": "src/lib/usdcx/burn.ts",
+                "mode": "100644",
+                "sha256": "329818b24ee9c9107f20cd27d96cb200af327ced35a07a2b347c808252e03c22",
+                "gitBlob": "3f663996e2736c4466e92a028f507ab35fb3d7dc",
+                "baselineSha256": "0bba921b14fb9a47e84aea17f76e0d54d2f289deb089a9ff9855546169e2ff50",
+                "baselineGitBlob": "bcb2338614eddb7131892e27ee4c4e99c01dd208"
+              },
+              {
+                "path": "src/offscreen/main.test.ts",
+                "mode": "100644",
+                "sha256": "08b95bd64b1dd89bbfa2132530b8b748c022152952192a7fa94e764e91a0d467",
+                "gitBlob": "00d64eb08cfb8ddff838199ce3ff8314662f05bc",
+                "baselineSha256": "7467b62bb924ed1381f11b11b1dcbc0696b0915bf09a9cabf658aa9ab5ece985",
+                "baselineGitBlob": "620e594d131c3fc59d00078f5ef828b516401e06"
+              },
+              {
+                "path": "src/offscreen/main.ts",
+                "mode": "100644",
+                "sha256": "08f481e5db77db83ff10c0c6ecab5cce63000b1b4710184dff3e57ebf51c51d5",
+                "gitBlob": "14a86902f906a75ce78838dff6be6988cfc2b92f",
+                "baselineSha256": "0421e03231899d4fb39b9cab329cf101f7d26e2aef8c4662c32d74ae3ca7d929",
+                "baselineGitBlob": "5ca8d2b5bd686c13c9aa2d78ef33ed5abb4db6ec"
+              },
+              {
+                "path": "src/screens/send-flow/ReviewTransaction.test.tsx",
+                "mode": "100644",
+                "sha256": "d446211af2a0998a4262f2c66c7738fc1d83a104bbd41b0013262014362d6892",
+                "gitBlob": "f22c46ed7483717949d6bbcf56bc02ec7c9c690b",
+                "baselineSha256": "24d33196f35a1a07e402fea75f66d278e8232b6e90c9b366f7470e4873e94572",
+                "baselineGitBlob": "58944166b991fb6f0a349ed10664aca0d481a309"
+              },
+              {
+                "path": "src/screens/send-flow/ReviewTransaction.tsx",
+                "mode": "100644",
+                "sha256": "bc7729cb66c339dc316851c65e8d9846c309474788e54b2e4231116f3144d103",
+                "gitBlob": "441fab00ef2e182dd73da278ed826ccefa07cc81",
+                "baselineSha256": "5b1e93a201b68c11aa6ae50745ce70719a1675c45b0651f89bce198d40649c95",
+                "baselineGitBlob": "a5d64c26062cc9e6f4e106b05ac25545d1fd9411"
+              },
+              {
+                "path": "test/bridge-signing-fixture.ts",
+                "mode": "100644",
+                "sha256": "ec45f147056f620bf16f32c343de3848bc7c5adfcf466fb91419b8c58a9f9276",
+                "gitBlob": "5fa86ce6e186fa68443efe08ca701ea9db963d77",
+                "baselineSha256": null,
+                "baselineGitBlob": null
+              }
+            ],
+            "fixedInputs": [
+              {
+                "path": "package.json",
+                "sha256": "1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e",
+                "gitBlob": "79daaa4c3943d5fd007f30c932f82287beda927e",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "yarn.lock",
+                "sha256": "d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b",
+                "gitBlob": "6545d145b6078bee17847a0ed81bf3ab5423072f",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "tsconfig.json",
+                "sha256": "fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe",
+                "gitBlob": "0d431024b44e5a2c81cacb32eda3420cda552380",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": ".nvmrc",
+                "sha256": "cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73",
+                "gitBlob": "53d1c14db376eadb7a2a9ac8afa1dfdb7dae8247",
+                "mode": "100644"
+              },
+              {
+                "path": "packages/hd-key/package.json",
+                "sha256": "68872467d64e7e95822bf15b578f98f38f94ee15c978bef41248bb28c0e3d74b",
+                "gitBlob": "dc590e21c5391cfe0e1c44eec556c93bf1eb02e6",
+                "mode": "100644"
+              },
+              {
+                "path": "packages/bread-connect/package.json",
+                "sha256": "1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e",
+                "gitBlob": "57535a44481d962123ac46a5379914bda45b9bb5",
+                "mode": "100644"
+              },
+              {
+                "path": "packages/bread-connect-capacitor/package.json",
+                "sha256": "8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275",
+                "gitBlob": "3ea1ce3c5d073a4fa4075a894212ac15f70a923a",
+                "mode": "100644"
+              },
+              {
+                "path": "packages/dapp-browser/package.json",
+                "sha256": "6e429996887877ba411d6a2262947fe7831532562b6d872f888c83edb37375b1",
+                "gitBlob": "cb89186dee95b9546f05af71a8fc9466bf25ed3c",
+                "mode": "100755"
+              },
+              {
+                "path": "packages/native-prover/package.json",
+                "sha256": "dee8323b83b5a584a49e61c5c6a1deb19db572226484fbbff17b50e38fabebeb",
+                "gitBlob": "b6ba268900b7d8d799c435cba22a2ca07ccb1ea2",
+                "mode": "100644"
+              },
+              {
+                "path": "packages/hd-key/tsconfig.json",
+                "sha256": "93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2",
+                "gitBlob": "855e2a1921abf00822c838b472afd2aebae1c863",
+                "mode": "100644"
+              },
+              {
+                "path": "packages/bread-connect/tsconfig.json",
+                "sha256": "9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9",
+                "gitBlob": "f650e26ade0ad6324211fc63b8ecb785b6f2fd93",
+                "mode": "100644"
+              },
+              {
+                "path": "patches/@capacitor+keyboard+8.0.5.patch",
+                "sha256": "c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa",
+                "gitBlob": "f177ef1e99fcf8c62a0f729fcbd2bbed49fe6f5a",
+                "mode": "100644"
+              },
+              {
+                "path": "patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch",
+                "sha256": "7477ff106d8921519b8b9c7614dd5f27035f4db15d77ea65d39edfc1a49a992c",
+                "gitBlob": "2356b3693c6f0ad66fe7356f3a96d4dd0d6d4c7b",
+                "mode": "100644"
+              },
+              {
+                "path": "patches/@openzeppelin+guardian-client+0.18.1.patch",
+                "sha256": "79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1",
+                "gitBlob": "7e43b5e050958ebc97e57e8e3d4da1edac6335b3",
+                "mode": "100644"
+              },
+              {
+                "path": "patches/eslint-plugin-import+2.32.0.patch",
+                "sha256": "1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d",
+                "gitBlob": "572501be2b9fdf54bb9fefacb73cdb5daee8a9c5",
+                "mode": "100644"
+              },
+              {
+                "path": "patches/eslint-plugin-react+7.27.1.patch",
+                "sha256": "9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6",
+                "gitBlob": "81c8208338acb7e8ffa61f3826fc06c5f6f200e6",
+                "mode": "100644"
+              },
+              {
+                "path": "patches/inspect-cli-cdp-fix.patch",
+                "sha256": "b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615",
+                "gitBlob": "e792768ff73e40a833c732eac78111731794b24d",
+                "mode": "100644"
+              },
+              {
+                "path": "patches/react-infinite-scroller+1.2.6.patch",
+                "sha256": "3efbc553923c5294e3d35904ea8cb82142c99b99e5320e641eaa221d03021819",
+                "gitBlob": "b3a92ec0ba9deb663d4250c54d7a90a7cbf9ab96",
+                "mode": "100644"
+              },
+              {
+                "path": "patches/vaul+1.1.2.patch",
+                "sha256": "4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf",
+                "gitBlob": "4cf3097c71cccbb6e22ae8603a3ccc937a923e8d",
+                "mode": "100644"
+              },
+              {
+                "path": ".eslintrc",
+                "sha256": "6f6ba5ed5f7a19c442a3758ef91cc11c1754657dec0b2b860f865b6c34f0523e",
+                "gitBlob": "c60f856ed45ae58caf9ffad4d49de09deaf8cefa",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": ".eslintrc.i18n.json",
+                "sha256": "101bb34834b840158d0b2067e56b485c5b78173a4b71fac73106ba28e73d6526",
+                "gitBlob": "306328771eb66743e0250226c56033f581b1e042",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": ".eslintrc.harness.json",
+                "sha256": "4f2f9e3ed69e9e1d05dc97d054a1b85668bc3d53cda3657bfcb3d467b52607c6",
+                "gitBlob": "6f1aa15a62d90911df68460a6531fd050108c436",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": ".prettierrc",
+                "sha256": "7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf",
+                "gitBlob": "2fdaf943c0c26787ef61d6240834dffac0cecc7a",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": ".prettierignore",
+                "sha256": "f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd",
+                "gitBlob": "aab5d479eb17d9913d0d4a5337de303567f10ee5",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "scripts/lint-e2e-harness.mjs",
+                "sha256": "1696e4f93a9c602594d42780b5b325f9de0fe9f1c575444491e850d7e63f4134",
+                "gitBlob": "68ed8cc29f0d4cd022909cf1bfe981a02c708a11",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "scripts/check-native-prover-pin.mjs",
+                "sha256": "5104a79a346824036eeea3b16bc3c1c21a3a2a0174e493a29b5c4f69c28423fa",
+                "gitBlob": "e597276dd8747dcb3acab2195f94d7611a7e1352",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "playwright/e2e/eslint-rules/known-violations.json",
+                "sha256": "70ffbb4372f856383bfa24ba01fb5bac9ceef0c090bdbef3908b9ca8d3c4f2d0",
+                "gitBlob": "08e6cf8fae80c7089437eee5949c81e133ae9262",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "playwright/e2e/eslint-rules/no-conditional-expect.js",
+                "sha256": "de0c54849474643dd2376c5b191ea6ec5cf934e86d95fc14ebc10cf783f0b031",
+                "gitBlob": "b3bd061ddfd8d7cc2cbc09402fe46d2585127af9",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "playwright/e2e/eslint-rules/no-long-bare-wait.js",
+                "sha256": "c23fdd2ded1a14a6a0633401ed0786e9fe113aa5c8751ae7f9d6424be808cde5",
+                "gitBlob": "7371bf54786c9468a5e753c93ce54d09602a4306",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js",
+                "sha256": "c76cc738f3f5beb23cc310d7a2f6471cad077b72fdc61875bae6d9b3d5b79c89",
+                "gitBlob": "3ce8877fa536e9defe2a49ee5689dc6d453ef189",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "packages/native-prover/android/rust-bridge/Cargo.toml",
+                "sha256": "3a1b514d27e10680b66d1331313f9350431ac88107bfbeb5693102a78a50ad1e",
+                "gitBlob": "4a48e2cbefc0e7fd3179dbb2c4047a300769d951",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "packages/native-prover/android/rust-bridge/Cargo.lock",
+                "sha256": "7855e80634b4fd1e80855807704ed8c774bb96fc66d7472cc753daedaab2a25f",
+                "gitBlob": "27fe2d73b97344c3a16f438d87b7ba2f17b41bf6",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              },
+              {
+                "path": "packages/native-prover/pin-drift-exemptions.json",
+                "sha256": "40b461cafe891b15363ddb8cdecde0c7bf02b4633d16450d995115d3c39e5144",
+                "gitBlob": "c637eaac26498b3f7e72adadff7ad4f2d4d8ea1b",
+                "mode": "100644",
+                "origin": "Authentic unchanged293 baseline"
+              }
+            ],
+            "aliases": [
+              {
+                "path": ".agents/skills/miden-wallet-frontend",
+                "mode": "120000",
+                "gitBlob": "1628f07639a223a7769fb41f6edfe9868dcaff0b",
+                "target": "../../skills/miden-wallet-frontend"
+              },
+              {
+                "path": ".claude/skills/miden-wallet-frontend",
+                "mode": "120000",
+                "gitBlob": "1628f07639a223a7769fb41f6edfe9868dcaff0b",
+                "target": "../../skills/miden-wallet-frontend"
+              }
+            ],
+            "formatPaths": [
+              "test/bridge-signing-fixture.ts",
+              "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts",
+              "src/lib/miden/transaction/transactions.send-stage-timings.test.ts",
+              "src/lib/miden/transaction/transactions.branches.test.ts",
+              "src/lib/miden/transaction/transactions.guardian-offscreen.test.ts"
+            ],
+            "baseline": "293d668a14aa4226cd666d2f3344de6d65c5d762",
+            "baselineTree": "3fe0463e0c0fd443d480bc3eb511c2f9f63af10f",
+            "baselineParent": "9f239a3171140260d1c3b1133b49a04eaecc5683",
+          FORMAT_METADATA_PART_2_END
+
+      - name: Complete the plaintext helper and capture the admitted source generation
+        id: source
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >> ../format-state/generate.py <<'FORMAT_METADATA_PART_3_END'
+            "manualDeltas": [
+              {
+                "path": "test/bridge-signing-fixture.ts",
+                "beforeSha256": null,
+                "afterSha256": "ec45f147056f620bf16f32c343de3848bc7c5adfcf466fb91419b8c58a9f9276",
+                "beforeGitBlob": null,
+                "afterGitBlob": "5fa86ce6e186fa68443efe08ca701ea9db963d77"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts",
+                "beforeSha256": "1dd63063155dc8f946c931a3985f0c5cdf40697a00a5cab3f20a2cf1782ad348",
+                "afterSha256": "ce30d462a21069a1b94bd66af1bdc26de8c592d1523bad6f3cc8e77d3a7d88c6",
+                "beforeGitBlob": "8f9398ed06afbcfca8ef54c7704969dadf333c9f",
+                "afterGitBlob": "fbcefda99d7fddb62d7d45a529d39cc69204dafb"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.send-stage-timings.test.ts",
+                "beforeSha256": "5f82d4e85f6af5423bb86fe15529abddaf34c9f3c1ed46880911cfe735620f24",
+                "afterSha256": "2a116b44b63886811cc149f725fb74f56f4da2f0dc3a5e24fcf66b8837e5d45d",
+                "beforeGitBlob": "91e798ffa6daf468c9b4ccd2cde6705b542e141f",
+                "afterGitBlob": "e2763cd52d5a1db05ee31dac198807e865246a48"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.branches.test.ts",
+                "beforeSha256": "e1e963bb9780af0ee240af95e71e124ab87b5275078c524aab215da3e5462a1c",
+                "afterSha256": "a6060df3ea0d7ba351a0823367c5773133cad95d7d6847f07110a82462fc2352",
+                "beforeGitBlob": "6d093fce7882e69e050af6d4db665fc468b89385",
+                "afterGitBlob": "ea4e111186d85226ffccfa51e01b6c8485bc224a"
+              },
+              {
+                "path": "src/lib/miden/transaction/transactions.guardian-offscreen.test.ts",
+                "beforeSha256": "f27c86e2eca5bf420b5c8b07db9a59ce93e585cb310c9a45e0f803313edc4656",
+                "afterSha256": "f6dd35e6fcdc7558ebaea980a4fa1c76430ca5e32283134d93064d40e4e4246b",
+                "beforeGitBlob": "2d3aa33b4216682d74bd568a349ae3960336a893",
+                "afterGitBlob": "c5a1674ecbca32e1e2f3549b6bda7cd3376cec2c"
+              }
+            ]
+          }''')
+          PAYLOADS = {'source-overlay.patch': '0b39b46d55bd3046bcf62e74fc7729c1d11b8e1f844357b59761a75d9b964dd7', 'source-before.sha256': 'b0e1bf9ffa8daac50b3d67eabbe601192c6001f76dec1e99da82570c23fcb594', 'source-after.sha256': 'ea6f337e96a5f8344c3dc7a51a756669c967b0a5dca5abbe76640726e70b8e8b'}
+          PATCH_LIMIT = 2 * 1024 * 1024
+          HASH_LIMIT = 32 * 1024
+          METADATA_LIMIT = 128 * 1024
+          OUTPUT_NAMES = {'format.patch', 'source-after.sha256', 'format-metadata.json'}
+          
+          
+          def sha(data):
+              return hashlib.sha256(data).hexdigest()
+          
+          
+          def blob(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          
+          
+          def git(root, *args):
+              return subprocess.check_output(['git', '-C', str(root), *args], env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+          
+          
+          def path(root, name):
+              assert isinstance(name, str) and re.fullmatch(r'[A-Za-z0-9_./@+\[\]\-]+', name), 'Invalid path characters'
+              assert not name.startswith('/') and PurePosixPath(name).as_posix() == name
+              assert all(part not in ('', '.', '..') for part in name.split('/')), 'Unsafe path'
+              result = root
+              assert result.is_dir() and not result.is_symlink()
+              for part in name.split('/')[:-1]:
+                  result /= part
+                  assert result.is_dir() and not result.is_symlink(), 'Unsafe parent'
+              return result / name.split('/')[-1]
+          
+          
+          def binding(root, name, mode='100644'):
+              file = path(root, name)
+              info = file.lstat()
+              if mode == '120000':
+                  aliases = {entry['path']: entry for entry in INPUT['aliases']}
+                  assert name in aliases and stat.S_ISLNK(info.st_mode), 'Unexpected link'
+                  data = os.fsencode(os.readlink(file))
+                  assert data == aliases[name]['target'].encode() and blob(data) == aliases[name]['gitBlob']
+              else:
+                  assert mode in ('100644', '100755') and stat.S_ISREG(info.st_mode), 'Not a regular file'
+                  assert stat.S_IMODE(info.st_mode) == int(mode[3:], 8), 'Changed mode'
+                  data = file.read_bytes()
+              return {'path': name, 'sha256': sha(data), 'gitBlob': blob(data), 'mode': mode}
+          
+          
+          def manifest(data):
+              result = {}
+              for line in data.decode('ascii').splitlines():
+                  match = re.fullmatch(r'([0-9a-f]{64})  ([A-Za-z0-9_./@+\-]+)', line)
+                  assert match, 'Malformed manifest'
+                  digest, name = match.groups()
+                  assert name not in result and not name.startswith('/')
+                  assert all(part not in ('', '.', '..') for part in name.split('/'))
+                  assert PurePosixPath(name).as_posix() == name
+                  result[name] = digest
+              assert list(result) == sorted(result), 'Unsorted manifest'
+              return result
+          
+          
+          def baseline(root):
+              assert git(root, 'rev-parse', 'HEAD').decode().strip() == INPUT['baseline']
+              assert git(root, 'rev-parse', 'HEAD^{tree}').decode().strip() == INPUT['baselineTree']
+              assert git(root, 'show', '-s', '--format=%P', 'HEAD').decode().strip() == INPUT['baselineParent']
+              assert git(root, 'diff', '--cached', '--name-only') == b'', 'Staged files'
+              index = Path(git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'index').decode().strip())
+              return sha(index.read_bytes())
+          
+          
+          def state(root):
+              tracked = {}
+              for row in git(root, 'ls-tree', '-rz', 'HEAD').split(b'\0'):
+                  if not row:
+                      continue
+                  header, raw_name = row.split(b'\t', 1)
+                  mode, kind, oid = header.decode().split()
+                  name = raw_name.decode()
+                  assert kind == 'blob' and mode in ('100644', '100755', '120000')
+                  tracked[name] = binding(root, name, mode)
+              others = [name.decode() for name in git(root, 'ls-files', '--others', '--exclude-standard', '-z').split(b'\0') if name]
+              assert set(others) == {entry['path'] for entry in INPUT['sourceFiles'] if entry['baselineGitBlob'] is None}
+              return {**tracked, **{name: binding(root, name) for name in others}}
+          
+          
+          def fixed(root):
+              for entry in INPUT['fixedInputs']:
+                  assert binding(root, entry['path'], entry['mode']) == {key: entry[key] for key in ('path', 'sha256', 'gitBlob', 'mode')}
+          
+          
+          def capture(root):
+              area = root.parent / 'format-state'
+              assert area.is_dir() and not area.is_symlink()
+              before = area / 'before'
+              assert not os.path.lexists(before) and not os.path.lexists(area / 'state.json')
+              assert len(INPUT['sourceFiles']) == 68 and len(INPUT['formatPaths']) == 5
+              assert len(set(INPUT['formatPaths'])) == 5
+              assert INPUT['formatPaths'] == ['test/bridge-signing-fixture.ts', 'src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts', 'src/lib/miden/transaction/transactions.send-stage-timings.test.ts', 'src/lib/miden/transaction/transactions.branches.test.ts', 'src/lib/miden/transaction/transactions.guardian-offscreen.test.ts']
+              for name, digest in PAYLOADS.items():
+                  assert binding(root.parent, name)['sha256'] == digest
+              hashes = manifest((root.parent / 'source-after.sha256').read_bytes())
+              assert hashes == {entry['path']: entry['sha256'] for entry in INPUT['sourceFiles']}
+              for entry in INPUT['sourceFiles']:
+                  assert binding(root, entry['path']) == {key: entry[key] for key in ('path', 'sha256', 'gitBlob', 'mode')}
+              fixed(root)
+              index = baseline(root)
+              initial = state(root)
+              source = {entry['path']: entry for entry in INPUT['sourceFiles']}
+              for row in git(root, 'ls-tree', '-rz', 'HEAD').split(b'\0'):
+                  if row:
+                      header, raw_name = row.split(b'\t', 1)
+                      mode, kind, oid = header.decode().split()
+                      name = raw_name.decode()
+                      wanted = source[name]['gitBlob'] if name in source else oid
+                      assert initial[name]['gitBlob'] == wanted
+              before.mkdir()
+              for name in INPUT['formatPaths']:
+                  destination = before / name
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  destination.write_bytes(path(root, name).read_bytes())
+                  destination.chmod(0o644)
+                  assert binding(before, name) == initial[name]
+              ignored = sha(git(root, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z'))
+              (area / 'state.json').write_text(json.dumps({'index': index, 'files': initial, 'ignoredScopeSha256': ignored}, sort_keys=True) + '\n')
+              (area / 'state.json').chmod(0o644)
+          
+          
+          def check(root):
+              area = root.parent / 'format-state'
+              binding(area, 'state.json')
+              initial = json.loads((area / 'state.json').read_text())
+              assert baseline(root) == initial['index'], 'Index changed'
+              assert sha(git(root, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z')) == initial['ignoredScopeSha256'], 'Ignored path scope changed'
+              current = state(root)
+              assert set(current) == set(initial['files']), 'Source domain changed'
+              allowed = set(INPUT['formatPaths'])
+              snapshot = area / 'before'
+              entries = list(snapshot.rglob('*'))
+              assert all(not entry.is_symlink() for entry in entries), 'Snapshot link'
+              assert {entry.relative_to(snapshot).as_posix() for entry in entries if not entry.is_dir()} == allowed
+              for name, old in initial['files'].items():
+                  assert current[name]['mode'] == old['mode']
+                  if name not in allowed:
+                      assert current[name] == old, 'Non-format path changed: ' + name
+              for entry in INPUT['sourceFiles']:
+                  name = entry['path']
+                  assert current[name]['mode'] == '100644'
+                  if name in allowed:
+                      assert binding(area / 'before', name) == {key: entry[key] for key in ('path', 'sha256', 'gitBlob', 'mode')}
+              fixed(root)
+              return [current[entry['path']] for entry in INPUT['sourceFiles']]
+          
+          
+          def format_patch(root, before, after):
+              pieces = []
+              total = 0
+              for entry in after:
+                  name = entry['path']
+                  if name not in INPUT['formatPaths']:
+                      continue
+                  old = before[name]
+                  result = subprocess.run(['git', 'diff', '--no-index', '--no-ext-diff', '--no-textconv', '--no-color', '--full-index', '--',
+                                           str(root.parent / 'format-state' / 'before' / name), str(path(root, name))], capture_output=True)
+                  assert result.returncode in (0, 1), 'Native diff failed'
+                  if result.returncode == 0:
+                      assert old == entry
+                      continue
+                  assert old['gitBlob'] != entry['gitBlob']
+                  lines = result.stdout.decode('utf-8').splitlines(keepends=True)
+                  assert lines[0].startswith('diff --git ') and lines[1] == f"index {old['gitBlob']}..{entry['gitBlob']} 100644\n"
+                  assert lines[2].startswith('--- ') and lines[3].startswith('+++ ')
+                  assert any(line.startswith('@@ ') for line in lines[4:]), 'Not a text patch'
+                  assert sum(line.startswith('diff --git ') for line in lines) == 1
+                  lines[0] = f'diff --git a/{name} b/{name}\n'
+                  lines[2] = f'--- a/{name}\n'
+                  lines[3] = f'+++ b/{name}\n'
+                  piece = ''.join(lines).encode()
+                  total += len(piece)
+                  assert total <= PATCH_LIMIT, 'Patch exceeds 2 MiB; no truncation/export'
+                  pieces.append(piece)
+              return b''.join(pieces)
+          
+          
+          def export(root):
+              after = check(root)
+              before = {entry['path']: {key: entry[key] for key in ('path', 'sha256', 'gitBlob', 'mode')} for entry in INPUT['sourceFiles']}
+              patch = format_patch(root, before, after)
+              hashes = ''.join(entry['sha256'] + '  ' + entry['path'] + '\n' for entry in after).encode()
+              assert len(hashes) <= HASH_LIMIT and len(manifest(hashes)) == 68
+              version_file = root.parent / 'format-state' / 'prettier-version.txt'
+              binding(version_file.parent, version_file.name)
+              version = version_file.read_text().strip()
+              assert re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.+\-]+)?', version), 'Invalid installed version'
+              assert version == '3.8.4', 'Installed Prettier version mismatch; HOLD'
+              source_c = os.environ['EXPECTED_SOURCE']
+              assert re.fullmatch(r'[0-9a-f]{40}', source_c) and source_c == os.environ['GITHUB_SHA']
+              run = os.environ['GITHUB_RUN_ID']
+              attempt = os.environ['GITHUB_RUN_ATTEMPT']
+              job_name = os.environ['GITHUB_JOB']
+              assert re.fullmatch(r'[1-9][0-9]*', run) and re.fullmatch(r'[1-9][0-9]*', attempt)
+              assert re.fullmatch(r'[A-Za-z_][A-Za-z0-9_\-]*', job_name)
+              metadata = {
+                  'status': 'FORMAT_GENERATED_ONLY_NOT_STATIC_UNIT_OR_TYPE_PASS',
+                  'sourceC': source_c, 'runId': run, 'runAttempt': attempt, 'jobName': job_name,
+                  'baseline': INPUT['baseline'], 'baselineTree': INPUT['baselineTree'], 'baselineParent': INPUT['baselineParent'],
+                  'manualGenerationSha256': PAYLOADS['source-after.sha256'], 'inputPayloadSha256': PAYLOADS,
+                  'manualDeltas': INPUT['manualDeltas'], 'preFormatSource': list(before.values()), 'postFormatSource': after,
+                  'formatterVersion': version, 'lockConfigInputs': INPUT['fixedInputs'], 'formatPaths': INPUT['formatPaths'],
+                  'patchSha256': sha(patch), 'patchBytes': len(patch), 'sourceAfterManifestSha256': sha(hashes)
+              }
+              body = (json.dumps(metadata, indent=2, sort_keys=True) + '\n').encode()
+              assert len(body) <= METADATA_LIMIT, 'Metadata exceeds 128 KiB'
+              output = root.parent / 'format-output'
+              assert not os.path.lexists(output), 'Output must be absent, never overwrite/clean'
+              output.mkdir()
+              for name, data in [('format.patch', patch), ('source-after.sha256', hashes), ('format-metadata.json', body)]:
+                  (output / name).write_bytes(data)
+                  (output / name).chmod(0o644)
+              assert {file.name for file in output.iterdir()} == OUTPUT_NAMES
+              for name, cap in [('format.patch', PATCH_LIMIT), ('source-after.sha256', HASH_LIMIT), ('format-metadata.json', METADATA_LIMIT)]:
+                  assert binding(output, name)['sha256'] == sha({'format.patch': patch, 'source-after.sha256': hashes, 'format-metadata.json': body}[name])
+                  assert (output / name).stat().st_size <= cap
+              assert check(root) == after
+          
+          
+          if __name__ == '__main__':
+              assert len(sys.argv) == 2 and sys.argv[1] in ('capture', 'check', 'export')
+              {'capture': capture, 'check': check, 'export': export}[sys.argv[1]](Path.cwd())
+              print('FORMAT_METADATA_' + sys.argv[1].upper() + '_OK; NOT A PROJECT GATE RESULT')
+          FORMAT_METADATA_PART_3_END
+          chmod 644 ../format-state/generate.py
+          python3 -I -B ../format-state/generate.py capture
+
+      - name: Generate formatting with the frozen installed house Prettier on exactly 5 paths
+        id: format
+        working-directory: wallet
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          yarn -s prettier --version > ../format-state/prettier-version.txt
+          chmod 644 ../format-state/prettier-version.txt
+          test "$(cat ../format-state/prettier-version.txt)" = 3.8.4 # mismatch: fail/HOLD before formatting
+          yarn prettier --write test/bridge-signing-fixture.ts src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts src/lib/miden/transaction/transactions.send-stage-timings.test.ts src/lib/miden/transaction/transactions.branches.test.ts src/lib/miden/transaction/transactions.guardian-offscreen.test.ts
+
+      - name: Check the format domain after ordinary success or failure without imposing old hashes on formatted code
+        id: domain
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I -B ../format-state/generate.py check
+
+      - name: Generate and validate exactly three bounded public code metadata files
+        id: outputs
+        if: ${{ success() && steps.format.outcome == 'success' && steps.domain.outcome == 'success' }}
+        working-directory: wallet
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I -B ../format-state/generate.py export
+
+      - name: Export only the three validated files for one day
+        if: ${{ success() && steps.outputs.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        timeout-minutes: 1
+        with:
+          name: 2147-format-${{ inputs.expected_source }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            format-output/format.patch
+            format-output/source-after.sha256
+            format-output/format-metadata.json
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: false
+          include-hidden-files: false
