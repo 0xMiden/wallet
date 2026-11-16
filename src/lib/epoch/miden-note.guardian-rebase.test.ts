@@ -42,8 +42,10 @@ jest.mock('./collateral-note', () => ({
     noteId: 'original-note'
   })
 }));
-jest.mock('lib/miden/sdk/helpers', () => ({
-  ...jest.requireActual('lib/miden/sdk/helpers'),
+// Guardian's relative SDK imports must share these same boundary doubles and construction-scope map.
+jest.mock('lib/miden/sdk/helpers', () => jest.requireMock('../miden/sdk/helpers'));
+jest.mock('../miden/sdk/helpers', () => ({
+  ...jest.requireActual('../miden/sdk/helpers'),
   accountRefToSdk: (value: string) => value,
   getBech32AddressFromAccountId: (value: string) => value,
   randomFeeSalt: () => ({}),
@@ -85,7 +87,11 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
   }),
   summaryBoundBlockNum: () => 5150
 }));
-jest.mock('lib/miden/sdk/miden-client', () => ({
+jest.mock('lib/miden/sdk/sync-and-record-fee-faucet', () =>
+  jest.requireActual('../miden/sdk/sync-and-record-fee-faucet')
+);
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../miden/sdk/miden-client'));
+jest.mock('../miden/sdk/miden-client', () => ({
   getMidenClient: async () => ({ client: mockRawClient }),
   getCurrentWasmLockHold: () => mockCurrentHold,
   assertWasmHoldCurrent: (hold: object) => {

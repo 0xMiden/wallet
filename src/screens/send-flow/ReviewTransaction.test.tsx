@@ -9,8 +9,11 @@ import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import type { QuoteValidity } from 'lib/bridge/core/quote';
 import { bridgeEpochSend } from 'lib/epoch';
+import { EpochCollateralNoteMismatchError } from 'lib/epoch/collateral-guard';
 import {
+  TEST_ALLOCATOR_URL,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EVM_USDC,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -366,6 +369,10 @@ jest.mock('lib/agglayer/b2agg', () => ({
 jest.mock('lib/epoch', () => ({
   EPOCH_DESTINATION_CHAIN_ID: 11155111,
   bridgeEpochSend: jest.fn()
+}));
+const mockReviewReadEpochSdk = jest.fn();
+jest.mock('../../lib/epoch/sdk', () => ({
+  getEpochReadOnlySdk: (...args: unknown[]) => mockReviewReadEpochSdk(...args)
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
@@ -2781,6 +2788,72 @@ describe('ReviewTransaction user-visible errors', () => {
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
     mockSearch = `amount=${amount}&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   };
+
+  const setEpochRoute = () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockReviewNetwork = 'testnet';
+    mockPublicKey = '0x387149ae66116cf114eebd60bb7381';
+    mockDetectedChain = 'ethereum';
+    mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
+    mockEpochQuote = {
+      amount: '4.8',
+      loading: false,
+      error: null,
+      symbol: 'USDC',
+      address: TEST_EVM_USDC.address,
+      decimals: TEST_EVM_USDC.decimals,
+      validity: { kind: 'provider' }
+    };
+    mockSearch = `amount=5&to=0x1111111111111111111111111111111111111111&tokenId=${MIDEN_USDC_FAUCET}&network=sepolia`;
+  };
+
+  it('localizes and reports the actual Epoch review refusal after its SDK initialization await', async () => {
+    setEpochRoute();
+    const changed = structuredClone(TEST_BRIDGE_CONFIG_SNAPSHOT);
+    const allocator = changed.config?.['bridge-providers'].epoch;
+    if (!allocator) throw new Error('Missing Epoch allocator fixture');
+    allocator.allocatorUrl = 'https://changed-allocator.example/private';
+    const solve = jest.fn();
+    mockReviewReadEpochSdk.mockImplementation(async () => {
+      mockBridgeSnapshot = changed;
+      return { getTaskData: jest.fn(), getIntentQuote: jest.fn(), solveIntent: solve };
+    });
+    bridgeEpochSendMock.mockImplementation(
+      jest.requireActual<typeof import('lib/epoch/epoch-send')>('lib/epoch/epoch-send').bridgeEpochSend
+    );
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await clickSubmit();
+    expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1);
+    expect(mockReviewReadEpochSdk).toHaveBeenCalledTimes(1);
+    expect(mockReviewReadEpochSdk).toHaveBeenCalledWith(
+      '0x1111111111111111111111111111111111111111',
+      TEST_ALLOCATOR_URL
+    );
+    expect(solve).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect({
+      text: screen.getByTestId('review-error').textContent,
+      reports: jest.mocked(reportUserVisibleError).mock.calls
+    }).toEqual({ text: 'bridgeReviewChanged', reports: [['bridgeReviewChanged', 'review']] });
+  });
+
+  it.each([
+    new Error('Epoch SDK failed at https://sdk.example/private?amount=123.45'),
+    new EpochCollateralNoteMismatchError('amount')
+  ])('preserves the Epoch SDK or localized collateral failure without sending its text (%s)', async reason => {
+    setEpochRoute();
+    bridgeEpochSendMock.mockRejectedValue(reason);
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await clickSubmit();
+    expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('review-error')).toHaveTextContent(reason.message);
+    await expectReport('raw_send_submit_failed');
+  });
 
   it('reports a raw burn submit failure by its site code while retaining its message', async () => {
     setBurnRoute();
