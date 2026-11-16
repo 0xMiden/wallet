@@ -97,7 +97,10 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
       previous.updatedAt = new Date().toISOString();
       saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, previous);
       mkdirSync('test-results', { recursive: true });
-      writeFileSync('test-results/mainnet-near-recovery.json', `${JSON.stringify({ recoveryOnly: true, sourceRunId: previous.sourceRunId })}\n`);
+      writeFileSync(
+        'test-results/mainnet-near-recovery.json',
+        `${JSON.stringify({ recoveryOnly: true, sourceRunId: previous.sourceRunId })}\n`
+      );
       return;
     }
     if (
@@ -966,40 +969,79 @@ export async function verifyUnstartedNearForward(
   const quote = state.forwardQuote;
   const windowEnd = Math.max(Date.parse(state.createdAt), Date.parse(state.pricedAt)) + 600_000;
   if (
-    state.sourceRunId !== '43811169447' || state.authorizationRunId !== state.sourceRunId ||
-    state.phase !== 'forward-authorized' || !quote || state.sendAuthority || state.forwardMidenTxId ||
-    state.forwardEvmTxHash || state.forwardReceived || state.reverseQuote || state.returnAmount ||
-    state.evmNonceBefore !== undefined || state.transactions?.length || state.consumeAuthority ||
-    state.returnProviderTxId || state.returnNoteId || state.returnMidenTxId || state.reverseReceived ||
-    state.refunded || state.returnValuation || state.realizedCostUsdMicros !== undefined ||
-    state.paidMidenFees !== '0' || state.paidEvmFees !== '0' || state.evm.chainId !== 42161 ||
-    !Number.isFinite(windowEnd) || Date.now() <= windowEnd || Date.now() <= Date.parse(quote.deadline) ||
+    state.sourceRunId !== '43811169447' ||
+    state.authorizationRunId !== state.sourceRunId ||
+    state.phase !== 'forward-authorized' ||
+    !quote ||
+    state.sendAuthority ||
+    state.forwardMidenTxId ||
+    state.forwardEvmTxHash ||
+    state.forwardReceived ||
+    state.reverseQuote ||
+    state.returnAmount ||
+    state.evmNonceBefore !== undefined ||
+    state.transactions?.length ||
+    state.consumeAuthority ||
+    state.returnProviderTxId ||
+    state.returnNoteId ||
+    state.returnMidenTxId ||
+    state.reverseReceived ||
+    state.refunded ||
+    state.returnValuation ||
+    state.realizedCostUsdMicros !== undefined ||
+    state.paidMidenFees !== '0' ||
+    state.paidEvmFees !== '0' ||
+    state.evm.chainId !== 42161 ||
+    !Number.isFinite(windowEnd) ||
+    Date.now() <= windowEnd ||
+    Date.now() <= Date.parse(quote.deadline) ||
     (await wallet.getAccountAddress()) !== state.account
-  ) throw new Error('Original NEAR pre-authorization is live or has an unresolved execution fingerprint');
+  )
+    throw new Error('Original NEAR pre-authorization is live or has an unresolved execution fingerprint');
   if ((await vaultBalanceByFaucetId(wallet.page, state.native.faucetId)) !== BigInt(state.native.balance))
     throw new Error('Original NEAR native inventory changed before unspent reconciliation');
-  const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId)) });
+  const client = createPublicClient({
+    chain: mainnetChain(state.evm.chainId),
+    transport: http(mainnetRpc(state.evm.chainId))
+  });
   const account = getAddress(state.evm.account);
   if (
     (await client.getChainId()) !== state.evm.chainId ||
     (await client.getBalance({ address: account })) !== BigInt(state.evm.nativeBalance) ||
-    (await client.readContract({ address: getAddress(state.evm.token), abi: erc20Abi, functionName: 'balanceOf', args: [account] })) !== BigInt(state.evm.tokenBalance) ||
+    (await client.readContract({
+      address: getAddress(state.evm.token),
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [account]
+    })) !== BigInt(state.evm.tokenBalance) ||
     (await client.getTransactionCount({ address: account, blockTag: 'latest' })) !== 84 ||
     (await client.getTransactionCount({ address: account, blockTag: 'pending' })) !== 84
-  ) throw new Error('Original NEAR EVM inventory or unused nonce changed');
+  )
+    throw new Error('Original NEAR EVM inventory or unused nonce changed');
   const status = await fetchOneClickStatus(
-    { serviceUrl: state.serviceUrl, appFees: state.appFees, feePolicy: state.feePolicy,
-      midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.faucetId, decimals: 6 }] },
-    quote.depositAddress, undefined, undefined,
+    {
+      serviceUrl: state.serviceUrl,
+      appFees: state.appFees,
+      feePolicy: state.feePolicy,
+      midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.faucetId, decimals: 6 }]
+    },
+    quote.depositAddress,
+    undefined,
+    undefined,
     createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId)
   );
   if (
-    status.status !== 'PENDING_DEPOSIT' || hashOneClickQuote(status.quoteResponse) !== quote.quoteHash ||
-    status.quoteResponse.correlationId !== quote.correlationId || status.quoteResponse.quote.depositAddress !== quote.depositAddress ||
-    status.swapDetails.intentHashes.length || status.swapDetails.nearTxHashes.length ||
-    status.swapDetails.originChainTxHashes.length || status.swapDetails.destinationChainTxHashes.length ||
+    status.status !== 'PENDING_DEPOSIT' ||
+    hashOneClickQuote(status.quoteResponse) !== quote.quoteHash ||
+    status.quoteResponse.correlationId !== quote.correlationId ||
+    status.quoteResponse.quote.depositAddress !== quote.depositAddress ||
+    status.swapDetails.intentHashes.length ||
+    status.swapDetails.nearTxHashes.length ||
+    status.swapDetails.originChainTxHashes.length ||
+    status.swapDetails.destinationChainTxHashes.length ||
     (status.swapDetails.depositedAmount !== undefined && BigInt(status.swapDetails.depositedAmount) !== 0n)
-  ) throw new Error('Original NEAR quote is funded, different or its unused outcome is unknown');
+  )
+    throw new Error('Original NEAR quote is funded, different or its unused outcome is unknown');
 }
 
 async function originalMainnetNearStatus(
