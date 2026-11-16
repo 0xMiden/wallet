@@ -17,8 +17,8 @@ jobs:
           fetch-depth: 2
       - name: Bind exact regression source and no-secret overlay
         run: |
-          test "$(git rev-parse HEAD^)" = 524913dd234c1a4a21eb7e84e46f8527b0d45861
-          test "$(git diff --name-only HEAD^ HEAD)" = .github/workflows/nightly-swap-proof.yml
+          test "$(git rev-parse HEAD^2)" = 5622269cf459a2c367f9368fad1689962645e65c
+          test "$(git diff --name-only HEAD^2 HEAD)" = .github/workflows/nightly-swap-proof.yml
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
