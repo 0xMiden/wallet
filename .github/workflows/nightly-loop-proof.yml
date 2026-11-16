@@ -1,0 +1,79 @@
+name: Verify current-head NEAR planner and both held UI reviews without grants
+on:
+  push:
+    branches: [wiktor/mainnet-provider-readiness]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  actual-runtime-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+      WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+      E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 3
+      - run: |
+          git merge-base --is-ancestor abfc386498cea115a2bd4f6009a65e99665f557a HEAD
+          test "$(git diff --name-only abfc386498cea115a2bd4f6009a65e99665f557a HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/mainnet-current-near-readonly.spec.ts)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 43698767716
+          github-token: ${{ github.token }}
+          name: mainnet-epoch-final-43698767716
+          path: test-results/final
+      - name: Exact production read-only SDK bootstrap
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import YAML from 'yaml';
+          const doc=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8')),step=doc.jobs['mainnet-nightly'].steps.find(step=>step.name==='Build read-only Epoch SDK');
+          if(!step?.run)throw new Error('Missing production SDK bootstrap');execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
+          NODE
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Start unchanged owned provider snapshot, never public rollout
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/near-planner-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/near-planner-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          exit 1
+      - name: Install exact official SDK only in isolated runner temp
+        run: |
+          npm install --prefix "$RUNNER_TEMP/near-sdk-control" --ignore-scripts --no-audit --no-fund @defuse-protocol/one-click-sdk-typescript@0.1.26 axios@1.16.0
+          echo "NEAR_SDK_CONTROL=$RUNNER_TEMP/near-sdk-control" >> "$GITHUB_ENV"
+      - run: yarn test:e2e:blockchain:build
+      - name: Actual bidirectional planner and both held amount-review bindings
+        run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-planner-readonly" xvfb-run -a yarn playwright test mainnet-current-near-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-planner-readonly.log" 2>&1 || code=$?
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';const value=JSON.parse(readFileSync('test-results/near-planner-paired-readonly.json','utf8'));
+          const keys=['purpose','originalPlannerEligible','grantPersisted','sdkAuthorityIssued','transactionSigned','transactionBroadcast','probeExecuted','errorSha256','stage','extensionId','actualBaseFee','native','nativeUsdMicros','gasUsdMicros','actualRemainingAllowanceUsdMicros','candidateFacts','rows','selected','sampling','pairedFailureControls','failureCaptured','evmChainId','evmLatestNonce','evmPendingNonce','actualForwardReview','prospectiveReturnReview','portfoliosUnchanged','noLivePolicy'];
+          if(Object.keys(value).some(key=>!keys.includes(key))||value.grantPersisted!==false||value.sdkAuthorityIssued!==false||value.transactionSigned!==false||value.transactionBroadcast!==false)throw new Error('Unexpected private probe fields');console.log(JSON.stringify(value));
+          NODE
+          exit "$code"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: near-planner-paired-readonly-approved
+          path: test-results/near-planner-paired-readonly.json
