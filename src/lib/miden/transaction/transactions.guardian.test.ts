@@ -17137,6 +17137,38 @@ describe('Guardian proposal effect check', () => {
     }
   });
 
+  it('requeues a claim whose endpoint moves while its proposal check waits for the decoding hold, with Retry open', async () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    const lock = mockWithWasmClientLock.getMockImplementation()!;
+    mockWithWasmClientLock.mockImplementation(async (fn, options) => {
+      if (options !== undefined && 'label' in options && options.label === 'proposal effect check') {
+        nativeAsset.cacheScope.mockImplementation(() => 'other-rpc|testnet');
+      }
+      return lock(fn, options);
+    });
+    try {
+      mockDeserializeSummary.mockReturnValue(summary({ added: [fa('fB', 50n)] }));
+      const service = serviceWith({ id: 'prop-moved', nonce: 12, metadata: {}, txSummary: 'bW92ZWQ=' });
+      const claim = await run({
+        id: 'claim-endpoint-moved',
+        type: 'consume',
+        accountId: 'guardian-acc',
+        noteId: 'n-1'
+      });
+
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(12);
+      expect(mockDeserializeSummary).not.toHaveBeenCalled();
+      expect(claim.status).toBe(ITransactionStatus.Queued);
+      expect(claim.nextEligibleAt).toEqual(expect.any(Number));
+      expect(claim.proposalEffectRefused).toBeUndefined();
+    } finally {
+      mockWithWasmClientLock.mockImplementation(lock);
+      nativeAsset.cacheScope.mockReset();
+      nativeAsset.cacheScope.mockImplementation(() => 'fixture-rpc|testnet');
+    }
+  });
+
   it('fails a custom transaction whose summary moves more than its approval showed, unsigned', async () => {
     mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('fA', 101n)] }));
     const service = serviceWith({ id: 'prop-drain', nonce: 4, metadata: {}, txSummary: 'ZHJhaW4=' });

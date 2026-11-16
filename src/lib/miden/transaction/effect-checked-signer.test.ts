@@ -2,6 +2,7 @@ import { SigningInputs } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
 import {
+  cacheScope,
   getVerificationBaseFee,
   getVerificationBaseFeeSync,
   isVerificationBaseFeeKnownAbsent,
@@ -31,6 +32,7 @@ jest.mock('lib/miden/sdk/nft-asset', () => ({ toNft: jest.fn(), nftKey: jest.fn(
 jest.mock('lib/shared/helpers', () => ({ b64ToU8: jest.fn() }));
 // The chain charges a fee in its native asset, USDCX here as on testnet, so the fee note is told apart.
 jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: jest.fn(() => 'rpc-a|testnet'),
   getNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
   getVerificationBaseFeeSync: jest.fn(() => 2),
   getVerificationBaseFee: jest.fn(async () => 2),
@@ -158,6 +160,8 @@ beforeEach(() => {
   jest.mocked(getVerificationBaseFeeSync).mockReturnValue(2);
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReset();
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(false);
+  jest.mocked(cacheScope).mockReset();
+  jest.mocked(cacheScope).mockReturnValue('rpc-a|testnet');
 });
 
 afterEach(() => {
@@ -545,6 +549,21 @@ it('rejects from the signer when the cached fee is unknown, without decoding the
   expect(fill.vault).not.toHaveBeenCalled();
   expect(sign).not.toHaveBeenCalled();
   expect(refreshVerificationBaseFee).toHaveBeenCalledTimes(1);
+});
+
+it('rejects from the signer when the endpoint moved after the fee read, without decoding the summary', async () => {
+  const fill = pswapFill('acct-a');
+  givenSigning(summaryInputs(fill));
+  const sign = baseSigner();
+  const refused = await withEffectCheckedSigner(execute, sign, async signer => {
+    // The cache still holds a fee, read for another endpoint.
+    jest.mocked(cacheScope).mockReturnValue('rpc-b|testnet');
+    return signer('pk', 'aa');
+  }).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(ProposalFeeUnknownError);
+  expect(getVerificationBaseFeeSync()).toBe(2);
+  expect(fill.vault).not.toHaveBeenCalled();
+  expect(sign).not.toHaveBeenCalled();
 });
 
 // The signer reads the cache inside the WASM hold, so the write re-reads the chain first rather than trusting a fee

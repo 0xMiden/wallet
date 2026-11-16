@@ -3,6 +3,7 @@ import { TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 import { summaryToView } from 'app/confirm/decode';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
+  cacheScope,
   getVerificationBaseFee,
   getVerificationBaseFeeSync,
   isVerificationBaseFeeKnownAbsent,
@@ -24,6 +25,7 @@ import {
   ITransaction,
   ITransactionStatus
 } from '../db/types';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -46,6 +48,7 @@ jest.mock('lib/shared/helpers', () => ({
 }));
 // The chain charges a fee in its native asset, USDCX here as on testnet, so the fee note is told apart.
 jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: jest.fn(() => 'rpc-a|testnet'),
   getNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
   getVerificationBaseFeeSync: jest.fn(() => 2),
   getVerificationBaseFee: jest.fn(async () => 2),
@@ -224,6 +227,8 @@ beforeEach(() => {
   jest.mocked(getVerificationBaseFeeSync).mockReturnValue(2);
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReset();
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(false);
+  jest.mocked(cacheScope).mockReset();
+  jest.mocked(cacheScope).mockReturnValue('rpc-a|testnet');
 });
 
 describe('consume', () => {
@@ -842,6 +847,39 @@ describe('assertProposalEffectApproved', () => {
       message: 'Refused to sign this consume transaction: 2 of bech32:usdcx leaves (approved 0)'
     });
     expect(TransactionSummary.deserialize).toHaveBeenCalledTimes(2);
+  });
+
+  // A plain claim of 50 fB whose only outflow is its 2 USDCX fee note.
+  const FEE_ONLY_CLAIM = summary({
+    removed: [fa('usdcx', 2n)],
+    added: [fa('fB', 50n)],
+    inputs: [note([fa('fB', 50n)])],
+    outputs: [feeNote(2n)]
+  });
+  /** The decoding hold, entered once `whileWaiting` changed the fee cache its decode reads. */
+  const holdEnteredAfter = (whileWaiting: () => void) =>
+    jest.mocked(withWasmClientLock).mockImplementationOnce(async fn => {
+      whileWaiting();
+      return fn({} as never);
+    });
+
+  it('refuses as an unknown fee, not as moving more, a proposal whose fee cache empties while it waits for the decoding hold', async () => {
+    givenSummary(FEE_ONLY_CLAIM);
+    holdEnteredAfter(() => jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null));
+
+    await expect(assertProposalEffectApproved(claim, 'sum')).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
+  });
+
+  it('refuses as an unknown fee a proposal whose endpoint moves while it waits for the decoding hold', async () => {
+    givenSummary(FEE_ONLY_CLAIM);
+    holdEnteredAfter(() => jest.mocked(cacheScope).mockReturnValue('rpc-b|testnet'));
+
+    const refused = assertProposalEffectApproved(claim, 'sum');
+    await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    await expect(refused).rejects.toMatchObject({ displayMessage: 'copy:chainFeeUnknown' });
+    expect(getVerificationBaseFeeSync()).toBe(2);
+    expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
   });
 
   it('passes a plain claim and a custom transaction within its approval', async () => {
