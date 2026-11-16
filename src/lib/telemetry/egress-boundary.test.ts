@@ -2739,7 +2739,6 @@ describe('WalletConnect relay failure reports', () => {
       cause: new Error(`Subscribing to ${TOPIC} failed, please try again`)
     });
 
-
   /** The failure range of each report on the wire, in the order sent. */
   const relayRanges = (): Array<string | undefined> =>
     captured.map(entry => /"relayFailures":"([^"]+)"/.exec(entry.body)?.[1]);
