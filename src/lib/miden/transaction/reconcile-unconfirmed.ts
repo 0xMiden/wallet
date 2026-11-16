@@ -193,6 +193,47 @@ export const recordLandedDeliveryTarget = (
   return target;
 };
 
+/**
+ * {@link recordLandedDeliveryTarget} as values for a write that assigns them rather than mutating the stored row
+ * (`updateTransactionStatus`), each field it deletes as undefined; undefined when the landing records no target. Every
+ * field that function writes is listed here, so the two record the same delivery.
+ */
+export const landedDeliveryTargetValues = (
+  row: ITransaction,
+  landing: { boundTransactionId?: string; proof?: LandingProof }
+):
+  | Pick<
+      ITransaction,
+      | 'outputNoteIds'
+      | 'completedAt'
+      | 'noteDelivery'
+      | 'displayMessage'
+      | 'relayAttempts'
+      | 'nextRelayAt'
+      | 'relayRetriesStopped'
+      | 'relayVerifyPushes'
+      | 'relayOutageDeferred'
+      | 'relayAckedNoteIds'
+      | 'relayDeadNoteIds'
+    >
+  | undefined => {
+  const recorded = { ...row };
+  if (recordLandedDeliveryTarget(recorded, landing) === undefined) return undefined;
+  return {
+    outputNoteIds: recorded.outputNoteIds,
+    completedAt: recorded.completedAt,
+    noteDelivery: recorded.noteDelivery,
+    displayMessage: recorded.displayMessage,
+    relayAttempts: recorded.relayAttempts,
+    nextRelayAt: recorded.nextRelayAt,
+    relayRetriesStopped: recorded.relayRetriesStopped,
+    relayVerifyPushes: recorded.relayVerifyPushes,
+    relayOutageDeferred: recorded.relayOutageDeferred,
+    relayAckedNoteIds: recorded.relayAckedNoteIds,
+    relayDeadNoteIds: recorded.relayDeadNoteIds
+  };
+};
+
 interface SavedRequestOrder {
   decodedBytes?: Uint8Array;
   savedOrder?: Awaited<ReturnType<typeof orderFromSavedRequest>>;

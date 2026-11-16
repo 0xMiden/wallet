@@ -598,9 +598,10 @@ async function stepBeforeSubmit<T>(step: () => Promise<T>): Promise<T> {
 
 /**
  * The bytes of a result its leaf already submitted and applied. A trap here is the client failing past the submit, so
- * it is retired through the dispatch's own hold and crosses as `ApplyAfterSubmitError` with no facts: the result's
- * handles borrow the trapped client and are not read again, and the service worker settles the row through its landed
- * arm instead of failing a write the node holds. Any other failure keeps its own shape.
+ * it is retired through the dispatch's own hold and crosses as `ApplyAfterSubmitError` that says only `applied`: the
+ * result's handles borrow the trapped client and are not read again, and the service worker settles the row through
+ * its landed arm instead of failing a write the node holds. The store holds the transaction's notes, so a landed
+ * private send owes the ones its submit stamp recorded. Any other failure keeps its own shape.
  */
 function serializeLandedResult(context: DispatchContext, result: { serialize(): Uint8Array }): Uint8Array {
   try {
@@ -613,7 +614,7 @@ function serializeLandedResult(context: DispatchContext, result: { serialize(): 
       // The retire costs only itself: replacing the landed verdict would offer a Retry that submits the write again.
       console.error(`${TAG} retiring a trap past the submit failed; the landed verdict stands`, { error, retireError });
     }
-    throw new ApplyAfterSubmitError(error);
+    throw new ApplyAfterSubmitError(error, { applied: true });
   }
 }
 

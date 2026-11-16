@@ -204,8 +204,8 @@ export interface OffscreenCallRequest {
  * rebuilt error names the mechanism that actually fired rather than guessing.
  * `errorLanded` carries what an `ApplyAfterSubmitError` could read about the executed
  * transaction, its id, private output note count and the swap order it opened (the
- * order id as decimal text), so a landed row the service worker completes still
- * records them (#1233). `errorBeforeSubmit` carries the leaf's tag that the error was raised
+ * order id as decimal text), and whether its local apply completed, so a landed row
+ * the service worker completes still records them (#1233). `errorBeforeSubmit` carries the leaf's tag that the error was raised
  * before its submit call (#1081).
  */
 export type OffscreenCallResponse =

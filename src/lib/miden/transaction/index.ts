@@ -140,6 +140,7 @@ import {
   type AttemptContext,
   claimBridgeSubmit,
   completedSwapFields,
+  countNoteDeliveryWrite,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   landedTransactionIdFields,
@@ -167,7 +168,7 @@ import {
   type QueueAdmissionMember,
   type QueueSighting
 } from './queue-admission-diagnostics';
-import type { CandidateRelease } from './reconcile-unconfirmed';
+import { type CandidateRelease, landedDeliveryTargetValues } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { readRowWithinTerminalBudget, writeCommittedCompleted } from './terminal-write';
 import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
@@ -1335,33 +1336,53 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
 };
 
 /**
+ * The delivery target of a landed row whose local apply completed before its failure (`applied`, a trap serializing
+ * the offscreen result): the store holds the notes, so a private send owes the ones the landing attempt's 'submitting'
+ * stamp recorded, as a reconciler landing bound to that transaction would. `completed` is the row with its landed
+ * fields. None after an apply that failed, which left the notes out of the store.
+ */
+const appliedDeliveryValues = (completed: ITransaction, error: unknown, attemptId: string | undefined) => {
+  if (landedFactsOf(error).applied !== true || attemptId === undefined) return undefined;
+  const boundTransactionId = completed.submitEvidence?.find(entry => entry.attemptId === attemptId)?.transactionId;
+  return boundTransactionId === undefined ? undefined : landedDeliveryTargetValues(completed, { boundTransactionId });
+};
+
+/**
  * Write a landed row's Completed verdict from the row as stored, retried as a committed rotation's terminal write is:
  * an IndexedDB abort under contention recurs at once and then clears, and a row left in progress is reaped into Failed,
  * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
  * recorded and the order the landed record held are kept, and a row another writer finalized is left alone. The
  * failure's own order facts, else the order the landing attempt's stamp recorded, stand in for a landed record that
- * did not commit. Returns the row as read before the write that landed, whose stage is still the one the tail stopped
- * at, or undefined when no write landed.
+ * did not commit, and an applied send's delivery target is recorded in the same write. Returns the row as read before
+ * the write that landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
  */
-const writeLandedCompleted = (
+const writeLandedCompleted = async (
   txId: string,
   error: unknown,
   attemptId: string | undefined
-): Promise<ITransaction | undefined> =>
-  writeCommittedCompleted(
+): Promise<ITransaction | undefined> => {
+  let delivery: ReturnType<typeof appliedDeliveryValues>;
+  const written = await writeCommittedCompleted(
     txId,
     row => {
       const completedAt = Math.floor(Date.now() / 1000); // seconds
+      const landedFields = landedRowFields(row, error);
+      delivery = appliedDeliveryValues({ ...row, ...landedFields }, error, attemptId);
       return {
-        ...landedRowFields(row, error),
+        ...landedFields,
         completedAt,
         ...(row.type === 'swap'
           ? completedSwapFields(row, completedAt, withSubmittedOrder(row, landedFactsOf(error), attemptId))
-          : {})
+          : {}),
+        ...delivery
       };
     },
     'landed'
   );
+  // A recorded target is a delivery write, so an idle sweep looks again.
+  if (written !== undefined && delivery !== undefined) countNoteDeliveryWrite();
+  return written;
+};
 
 /** What a landed arm's log says failed: the leaf's local apply, or a step of the tail after it. */
 const landedFailureText = (error: unknown): string =>
