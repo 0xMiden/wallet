@@ -13,13 +13,17 @@ jest.mock('lib/remote-config/runtime', () => ({
 
 const mockGetAccountProof = jest.fn();
 const mockFree = jest.fn();
+// The own notes the built request reports creating: the one burn note, unless a test says otherwise.
+const mockOwnNotes = jest.fn((): { id: () => { toString: () => string } }[] => [
+  { id: () => ({ toString: () => 'burn-note-id' }) }
+]);
 // Enough of the SDK for `buildUsdcxBurnRequest` to assemble a request out of stand-ins.
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const felts = { toFelts: () => [] };
   const builder = {
     withOwnOutputNotes: () => builder,
     withFeeConversionSalt: () => builder,
-    build: () => ({ serialize: () => new Uint8Array([1]) })
+    build: () => ({ serialize: () => new Uint8Array([1]), expectedOutputOwnNotes: () => mockOwnNotes() })
   };
   return {
     NoteScript: { burn: () => ({ root: () => 'burn-root' }) },
@@ -142,7 +146,7 @@ describe('initiateUsdcxBurn', () => {
       '0x3600000000000000000000000000000000000000'
     );
     expect(readUsdcxDestinationBalance).not.toHaveBeenCalled();
-    expect(jest.mocked(initiateBridgedSendTransaction).mock.calls[0]?.[11]).toEqual({
+    expect(jest.mocked(initiateBridgedSendTransaction).mock.calls[0]?.[12]).toEqual({
       noteId: 'burn-note-id',
       destinationDomain: 26,
       destinationUsdc: '0x3600000000000000000000000000000000000000',
@@ -150,6 +154,30 @@ describe('initiateUsdcxBurn', () => {
       phase: 'pending',
       destinationBalanceBefore: snapshot
     });
+  });
+
+  // Signing may create only this note, so the row records the one note the queued request creates.
+  it('records the burn note the request was built with on the row', async () => {
+    await initiateUsdcxBurn(args);
+
+    const call: unknown[] = jest.mocked(initiateBridgedSendTransaction).mock.calls[0] ?? [];
+    expect(call[6]).toBe('burn-note-id');
+    expect(call[12]).toMatchObject({ noteId: 'burn-note-id' });
+  });
+
+  it.each([
+    ['no note', []],
+    [
+      'two notes',
+      [{ id: () => ({ toString: () => 'burn-note-id' }) }, { id: () => ({ toString: () => 'other-note-id' }) }]
+    ]
+  ])('queues no row when the built request creates %s rather than one', async (_count, notes) => {
+    mockOwnNotes.mockReturnValueOnce(notes);
+
+    await expect(initiateUsdcxBurn(args)).rejects.toThrow(
+      `the request creates ${notes.length} own output notes, not one`
+    );
+    expect(initiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
 
   it('queues no row when every snapshot attempt fails', async () => {

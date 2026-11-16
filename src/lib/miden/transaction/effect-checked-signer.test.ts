@@ -176,7 +176,7 @@ it('passes the base signer through untouched for an unchecked type', async () =>
   expect(SigningInputs.deserialize).not.toHaveBeenCalled();
 });
 
-const guardedTransfers: ITransaction['type'][] = ['send', 'swap', 'earn-deposit'];
+const guardedTransfers: ITransaction['type'][] = ['send', 'swap'];
 
 it.each(guardedTransfers)('refuses %s signing above its persisted approval', async type => {
   const sign = baseSigner();
@@ -194,6 +194,59 @@ it.each(guardedTransfers)('passes %s signing within its persisted approval', asy
   const transfer = row({ type, faucetId: 'bech32:fA', amount: 500n });
   await expect(withEffectCheckedSigner(transfer, sign, signer => signer('pk', 'aa'))).resolves.toBe(SIGNATURE);
   expect(sign).toHaveBeenCalledTimes(1);
+});
+
+// A bridged send or Earn deposit signs its pre-built request, so it may also create only the note that request built.
+const prebuiltTransfers: ITransaction['type'][] = ['bridged-send', 'earn-deposit'];
+const builtNote = (id: string) => ({ approvedOutputNoteIds: [id] });
+/** The row as its build recorded it: reviewed to move 500 fA in the one note `builtNoteId`. */
+const prebuilt = (type: ITransaction['type'], builtNoteId: string, amount = 500n) =>
+  row({ type, faucetId: 'bech32:fA', amount, ...builtNote(builtNoteId) });
+
+it.each(prebuiltTransfers)('passes %s signing that creates only the note it was built with', async type => {
+  const sign = baseSigner();
+  givenSigning(summaryInputs(pswapFill('acct-a')));
+  await expect(withEffectCheckedSigner(prebuilt(type, 'payback'), sign, signer => signer('pk', 'aa'))).resolves.toBe(
+    SIGNATURE
+  );
+  expect(sign).toHaveBeenCalledTimes(1);
+});
+
+it.each(prebuiltTransfers)('refuses %s signing above its persisted approval', async type => {
+  const sign = baseSigner();
+  givenSigning(summaryInputs(pswapFill('acct-a')));
+  await expect(
+    withEffectCheckedSigner(prebuilt(type, 'payback', 499n), sign, signer => signer('pk', 'aa'))
+  ).rejects.toMatchObject({
+    message: `Refused to sign this ${type} transaction: 500 of bech32:fA leaves (approved 499)`
+  });
+  expect(sign).not.toHaveBeenCalled();
+});
+
+it.each(prebuiltTransfers)(
+  'refuses %s signing that creates another note than the one it was built with',
+  async type => {
+    const sign = baseSigner();
+    givenSigning(summaryInputs(pswapFill('acct-a')));
+    const refused = await withEffectCheckedSigner(prebuilt(type, 'built-note'), sign, signer =>
+      signer('pk', 'aa')
+    ).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(refused).toMatchObject({
+      message: `Refused to sign this ${type} transaction: creates a note that was not approved (payback)`
+    });
+    expect(sign).not.toHaveBeenCalled();
+  }
+);
+
+it.each(prebuiltTransfers)('refuses %s signing when its row recorded no built note', async type => {
+  const sign = baseSigner();
+  givenSigning(summaryInputs(pswapFill('acct-a')));
+  const transfer = row({ type, faucetId: 'bech32:fA', amount: 500n });
+  await expect(withEffectCheckedSigner(transfer, sign, signer => signer('pk', 'aa'))).rejects.toBeInstanceOf(
+    ProposalEffectRefusedError
+  );
+  expect(sign).not.toHaveBeenCalled();
 });
 
 it('passes a summary within the approval to the base signer and returns what run returned', async () => {

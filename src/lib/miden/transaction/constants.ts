@@ -162,6 +162,10 @@ export const INVALID_NOTE_ERROR = 'Note is invalid';
 export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
   'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
 
+// Thrown before the row is queued: a bridged send signs only the request persisted for the note it records.
+export const BRIDGED_SEND_MISSING_REQUEST_ERROR =
+  'Bridged send has no persisted request for its recorded note, so it was not queued.';
+
 // A dApp's consume request whose note a dApp transaction holds: answering with that row would hand it another
 // transaction's id, outcome and output notes.
 export const NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR = 'This note is being consumed by another transaction';

@@ -32,6 +32,15 @@ interface Allowance {
   outputNoteIds?: readonly string[] | 'assetless';
 }
 
+/** The refusal the effect check throws for `transaction`, with the localized sentence the row shows. */
+export const effectRefusal = (transaction: ITransaction, detail: string, cause?: unknown): ProposalEffectRefusedError =>
+  new ProposalEffectRefusedError(
+    transaction.type,
+    detail,
+    getMessage('proposalEffectRefused'),
+    cause === undefined ? undefined : { cause }
+  );
+
 const approvedTransfer = ({ faucetId, amount }: ITransaction): Allowance => {
   if (typeof faucetId !== 'string' || faucetId.length === 0 || typeof amount !== 'bigint' || amount < 0n) {
     throw new Error('the transaction has no valid approved asset and amount');
@@ -39,11 +48,22 @@ const approvedTransfer = ({ faucetId, amount }: ITransaction): Allowance => {
   return { outflow: [{ faucetId, amount }], nfts: [] };
 };
 
+// Its request bytes were built before signing, so it may create only the one note their build recorded. A row queued
+// before that was recorded is refused.
+const approvedPrebuiltTransfer = (transaction: ITransaction): Allowance => {
+  const builtNoteIds = transaction.approvedOutputNoteIds;
+  if (builtNoteIds?.length !== 1) {
+    throw effectRefusal(transaction, 'the transaction has no recorded note of its own');
+  }
+  return { ...approvedTransfer(transaction), outputNoteIds: builtNoteIds };
+};
+
 /** The allowance of each checked type. A type with no entry is not checked. */
 const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransaction) => Allowance>> = {
   send: approvedTransfer,
   swap: approvedTransfer,
-  'earn-deposit': approvedTransfer,
+  'earn-deposit': approvedPrebuiltTransfer,
+  'bridged-send': approvedPrebuiltTransfer,
   // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
   consume: transaction => {
     const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;
@@ -155,15 +175,6 @@ export function executeApprovalOf(
   return { view: holdings, signing: executeApprovalFromHoldings(holdings, createdNotes, introducedNoteIds) };
 }
 
-/** The refusal the effect check throws for `transaction`, with the localized sentence the row shows. */
-export const effectRefusal = (transaction: ITransaction, detail: string, cause?: unknown): ProposalEffectRefusedError =>
-  new ProposalEffectRefusedError(
-    transaction.type,
-    detail,
-    getMessage('proposalEffectRefused'),
-    cause === undefined ? undefined : { cause }
-  );
-
 /** Decode `transaction`'s view and refuse it when it moves more than the row was approved to move. */
 async function assertDecodedViewApproved(
   transaction: ITransaction,
@@ -182,6 +193,9 @@ async function assertDecodedViewApproved(
   try {
     detail = proposalEffectRefusal(transaction, view);
   } catch (error) {
+    // The allowance's own refusal (a pre-built row with no recorded note) is already that error. Any other throw,
+    // such as an amount that does not parse, stays the unreadable-amounts refusal.
+    if (error instanceof ProposalEffectRefusedError) throw error;
     throw effectRefusal(transaction, 'its approved amounts could not be read', error);
   }
   if (detail !== undefined) throw effectRefusal(transaction, detail);
