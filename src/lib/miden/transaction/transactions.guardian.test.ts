@@ -643,6 +643,24 @@ const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(as
   });
 };
 
+// A result whose reads trap once the leaf's apply, its last await, resolved, so the tail's id read is the first to trap.
+const armTailIdReadTrap = () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  const landed = makeResult();
+  let armed = false;
+  const result = {
+    ...landed,
+    executedTransaction: () => {
+      if (armed) throw trap;
+      return landed.executedTransaction();
+    }
+  };
+  const apply = jest.fn(async () => {
+    armed = true;
+  });
+  return { trap, result, apply };
+};
+
 // Tip preparation's chain sync is the one `syncChain` call a guardian leaf makes, so it has to precede the execute.
 const expectTipPreparedBeforeExecute = (client: ReturnType<typeof makeClientApi>) => {
   const syncOrder = client.syncChain.mock.invocationCallOrder[0];
@@ -12995,7 +13013,7 @@ describe('generateTransaction - Guardian routing', () => {
 
   // #1233: a threshold update whose submit lands and whose local apply then fails. The cold
   // service backs the proposal; the reconcile builds none.
-  const arrangeLandedThreshold = (apply: Parameters<typeof makeClientApi>[1]) => {
+  const arrangeLandedThreshold = (apply: Parameters<typeof makeClientApi>[1], result = makeResult()) => {
     const coldService = {
       guardianEndpoint: 'https://old.guardian',
       createUpdateProcedureThresholdProposal: jest.fn(async (_procedure: string, _threshold: number) => ({
@@ -13013,7 +13031,7 @@ describe('generateTransaction - Guardian routing', () => {
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
-      client: makeClientApi(makeResult(), apply)
+      client: makeClientApi(result, apply)
     });
     const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
     txStore.push({ ...tx });
@@ -13104,6 +13122,191 @@ describe('generateTransaction - Guardian routing', () => {
     expect(cancelled).toBe(false);
     expect(row?.status).toBe(ITransactionStatus.GeneratingTransaction);
     expect(row?.error).toBeUndefined();
+  });
+
+  // A structural tail whose id read traps has no id to ask the node about, so it takes the structural landed reconcile.
+  it('Guardian switch-guardian: a coordinated switch whose tail id read traps completes unconfirmed through the structural landed reconcile', async () => {
+    const txId = 'switch-guardian-tail-id-trap';
+    const { trap, result, apply } = armTailIdReadTrap();
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    const multisigService = {
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: {
+          id: 'prop-switch',
+          nonce: 41,
+          metadata: { proposalType: 'switch_guardian', chainAnchor: 'cHJvcG9zYWwtYW5jaG9y' }
+        },
+        newEndpoint: 'https://new.guardian'
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      finalizeGuardianSwitch: jest.fn(async () => {}),
+      abandonCandidate: jest.fn(async () => {}),
+      pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
+      probeGuardianState: jest.fn(async () => {}),
+      adoptGuardianStateOnce: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    const setGuardianEndpoint = jest.fn(async (_accountId: string, _endpoint: string) => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result, apply)
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, txId]]);
+      // The delta reaches the outgoing guardian before the id read, so the reconcile adopts from it.
+      expect(multisigService.pushSwitchDeltaBounded).toHaveBeenCalledTimes(1);
+      expect(multisigService.pushSwitchDeltaBounded).toHaveBeenCalledWith('prop-switch');
+      expect(mockAdoptPostSwitchState).toHaveBeenCalledTimes(1);
+      expect(mockAdoptPostSwitchState.mock.calls[0]![0]).toEqual({
+        probe: expect.any(Function),
+        adoptOnce: expect.any(Function)
+      });
+      // No id, so nothing asks the node; the reconcile rebuilt the outgoing service and finalized through it.
+      expect(waitForTransactionCommit).not.toHaveBeenCalled();
+      expect(mockDidDirectSwitchLand).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(2);
+      expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
+      expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+      expect(multisigService.abandonCandidate).not.toHaveBeenCalled();
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Guardian switch submitted' });
+      expect(row.error).toBeUndefined();
+      expect(row.transactionId).toBeUndefined();
+      expect(row.extraInputs).toMatchObject({
+        commitUnconfirmed: true,
+        switchDeltaPushed: true,
+        switchProposalId: 'prop-switch',
+        switchProposalNonce: 41
+      });
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it('Guardian replace-hot-key: a tail id read that traps fails on the no-id verdict without swapping the key', async () => {
+    const { trap, result, apply } = armTailIdReadTrap();
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const coldService = {
+      guardianEndpoint: 'https://old.guardian',
+      createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace', nonce: 3 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async (_nonce: number) => {}),
+      reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    const hotService = { getProcedureThreshold: () => 2, abandonCandidate: jest.fn(async (_nonce: number) => {}) };
+    mockGetOrCreateMultisigService.mockResolvedValue(hotService);
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result, apply)
+    });
+    const swapHotKey = jest.fn(async (_accountPublicKey: string, _newHotPubKey: string) => {});
+    const provider = { ...makeGuardianProvider(true), persistNewHotKey: jest.fn(async () => {}), swapHotKey };
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    txStore.push({ ...tx });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, tx.id]]);
+      const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toEqual(expect.stringContaining('its transaction id could not be read'));
+      expect(waitForTransactionCommit).not.toHaveBeenCalled();
+      expect(mockDidDirectSwitchLand).not.toHaveBeenCalled();
+      expect(swapHotKey).not.toHaveBeenCalled();
+      expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+      expect(hotService.abandonCandidate).not.toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it('Guardian update-procedure-threshold: a tail id read that traps evicts the cached service and fails on the no-id verdict', async () => {
+    const { trap, result, apply } = armTailIdReadTrap();
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const { tx, row, coldService, provider } = arrangeLandedThreshold(apply, result);
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    Object.assign(coldService, { reRegisterCurrentStateOnGuardian });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {}),
+      reRegisterCurrentStateOnGuardian
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, tx.id]]);
+      expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(row()?.error).toEqual(expect.stringContaining('its transaction id could not be read'));
+      expect(mockDidDirectSwitchLand).not.toHaveBeenCalled();
+      expect(reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
+      expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
   });
 
   it('Guardian earn-deposit: a raw store failure at apply stays Failed and records the landed wrap (#1233)', async () => {
@@ -15638,6 +15841,72 @@ describe('generateTransaction - direct switch, a trap past submit', () => {
       expect(apply).toHaveBeenCalledTimes(1);
       expect(retire.mock.calls).toEqual([[trap, txId]]);
     } finally {
+      restore();
+    }
+  });
+
+  it('a direct switch whose first post-submit read traps completes on no evidence, persisting the endpoint and registering on the new guardian', async () => {
+    const txId = 'switch-guardian-direct-tail-id-trap';
+    const { trap, result, apply } = armTailIdReadTrap();
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    jest.clearAllMocks();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result, apply)
+    });
+    const setGuardianEndpoint = jest.fn(async (_accountId: string, _endpoint: string) => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint
+    };
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, txId]]);
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Guardian switch submitted' });
+      expect(row.error).toBeUndefined();
+      expect(row.transactionId).toBeUndefined();
+      expect(row.extraInputs).toMatchObject({ commitUnconfirmed: true, switchedDirectly: true });
+      expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
+      expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', expect.anything());
+      expect(mockAdoptPostSwitchState).toHaveBeenCalledWith(undefined, 'guardian-acc', 'https://new.guardian');
+      // No id to ask about, and the direct path never rebuilds the outgoing service it fled.
+      expect(mockDidDirectSwitchLand).not.toHaveBeenCalled();
+      expect(waitForTransactionCommit).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+    } finally {
+      errSpy.mockRestore();
       restore();
     }
   });
