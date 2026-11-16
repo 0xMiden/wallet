@@ -15,7 +15,7 @@ import { accounts, now, testRoute } from './testing/fixtures';
 import { createBridgeReceiveReconciler } from '../miden/activity/bridge-receive';
 import { ITransactionStatus, type ITransaction } from '../miden/db/types';
 import * as Repo from '../miden/repo';
-import { initiateBridgedReceiveTransaction } from '../miden/transaction/initiate';
+import { initiateBridgedReceiveTransaction, initiateBridgedSendTransaction } from '../miden/transaction/initiate';
 
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: async (fn: () => unknown) => fn() }));
@@ -37,8 +37,8 @@ jest.mock('lib/remote-config/runtime', () =>
     )
 );
 
-function review(): ReviewedTransfer {
-  const route = testRoute();
+function review(mode: 'send' | 'receive' = 'receive'): ReviewedTransfer {
+  const route = testRoute(mode);
   const amount = '1.00000000';
   return {
     route,
@@ -52,7 +52,11 @@ function review(): ReviewedTransfer {
     }
   };
 }
-function admit(operationId = 'operation-1', reviewed = review()) {
+function admit(
+  operationId = 'operation-1',
+  reviewed = review(),
+  changes: Partial<Parameters<typeof initiateBridgedReceiveTransaction>[0]> = {}
+) {
   const recovery = reviewed.route.recovery;
   const chain = Object.values(recovery.config.supportedEvmChains).find(item => item.bridges.agglayer);
   if (!chain?.bridges.agglayer) throw new Error('Missing accepted AggLayer fixture');
@@ -61,16 +65,38 @@ function admit(operationId = 'operation-1', reviewed = review()) {
     chain.chainId
   );
   if (!agglayerRoute) throw new Error('Missing verified AggLayer route');
+  if (reviewed.route.mode === 'send' && reviewed.route.source.kind === 'miden') {
+    return initiateBridgedSendTransaction(
+      accounts.midenAccount,
+      100000000n,
+      reviewed.route.source.faucetId,
+      accounts.evmAddress,
+      agglayerRoute.evmNetworkId,
+      'agglayer',
+      'built-note',
+      new Uint8Array([1]),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      agglayerRoute,
+      undefined,
+      { operationId, review: reviewed }
+    );
+  }
   return initiateBridgedReceiveTransaction({
     accountId: accounts.midenAccount,
     amount: 100000000n,
     faucetId: reviewed.route.destination.kind === 'miden' ? reviewed.route.destination.faucetId : '',
     provider: 'agglayer',
+    sourceChainId: agglayerRoute.chainId,
     sourceAddress: accounts.evmAddress,
     sourceAmount: reviewed.amount,
     sourceSymbol: reviewed.route.source.symbol,
     agglayerRoute,
-    operation: { operationId, review: reviewed }
+    operation: { operationId, review: reviewed },
+    ...changes
   });
 }
 async function seed(): Promise<string> {
@@ -96,8 +122,8 @@ beforeEach(async () => {
   jest.spyOn(Date, 'now').mockReturnValue(now);
   await Repo.transactions.clear();
   const reviewed = review();
-  // The fixture must pass the actual core admission contracts before testing persistence.
-  expect(() => assertReviewedBridge(reviewed, structuredClone(reviewed), now)).not.toThrow();
+  // A fixture that cannot pass core admission fails setup, never the ownership assertion.
+  assertReviewedBridge(reviewed, structuredClone(reviewed), now);
 });
 afterEach(() => jest.restoreAllMocks());
 
@@ -116,6 +142,37 @@ it('atomically coalesces only the same reviewed operation and generates its revi
   expect(independent).not.toBe(ids[0]);
   expect(await Repo.transactions.count()).toBe(2);
 });
+
+it('queues one native outbound row for an operation while preserving its built-note/signing admission', async () => {
+  await Repo.spendingLimits.clear();
+  const reviewed = review('send');
+  expect(() => assertReviewedBridge(reviewed, structuredClone(reviewed), now)).not.toThrow();
+  const ids = await Promise.all([admit('outbound', reviewed), admit('outbound', reviewed)]);
+  expect(ids[0]).toBe(ids[1]);
+  expect(await Repo.transactions.count()).toBe(1);
+  const row = await Repo.transactions.get(ids[0]!);
+  expect(row?.status).toBe(ITransactionStatus.Queued);
+  expect(row?.approvedOutputNoteIds).toEqual(['built-note']);
+  expect(row?.requestBytes).toEqual(new Uint8Array([1]));
+  expect((await snapshot(ids[0]!)).review).toEqual(reviewed);
+  expect(await admit('independent-outbound', reviewed)).not.toBe(ids[0]);
+});
+
+it.each([
+  { accountId: 'other-account' },
+  { sourceAddress: `0x${'9'.repeat(40)}` },
+  { provider: 'epoch' },
+  { sourceChainId: 1 },
+  { faucetId: 'other-faucet' },
+  { sourceAmount: '2' },
+  { amount: 200000000n }
+] satisfies Partial<Parameters<typeof initiateBridgedReceiveTransaction>[0]>[])(
+  'cannot attach a valid review to a different native admission %j',
+  async changes => {
+    await expect(admit('operation-1', review(), changes)).rejects.toThrow();
+    expect(await Repo.transactions.count()).toBe(0);
+  }
+);
 
 it('does not let an existing operation ID substitute a changed review or re-admit after expiry', async () => {
   const id = await admit();
