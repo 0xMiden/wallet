@@ -1189,10 +1189,18 @@ const landedRowFields = (tx: ITransaction, error: unknown) => {
   return { ...landedValueRowFields(tx, landed.privateOutputNotes), ...landedTransactionIdFields(landed) };
 };
 
-/** What a landed failure says about its transaction: the facts an apply-after-submit error carried, or a tail's id. */
+/**
+ * What a landed failure says about its transaction: the facts an apply-after-submit error carried, or a tail's id and
+ * order, in the form `extractLanded` gives the other source's.
+ */
 const landedFactsOf = (error: unknown): LandedWithoutResult => {
   const tail = landedTailErrorIn(error);
-  return tail === undefined ? extractLanded(error) : landedTransactionIdFields(tail);
+  if (tail === undefined) return extractLanded(error);
+  return {
+    ...landedTransactionIdFields({ transactionId: tail.transactionId }),
+    ...(tail.orderId === undefined ? {} : { orderId: tail.orderId.toString() }),
+    ...(tail.orderNoteId === undefined ? {} : { orderNoteId: tail.orderNoteId.toLowerCase() })
+  };
 };
 
 /**

@@ -12,7 +12,7 @@
 import type { OutputNote } from '@miden-sdk/miden-sdk/lazy';
 
 import { ApplyAfterSubmitError, causeChain, type LandedTransaction } from './sdk-error-code';
-import { splitExecutedOutputNotes } from '../activity/fee-notes';
+import { splitExecutedOutputNotes, type UserOutputNote } from '../activity/fee-notes';
 import { toNoteTypeString } from '../helpers';
 import { NoteTypeEnum } from '../types';
 
@@ -90,7 +90,8 @@ function readLanded<Id>(options: ApplyAfterSubmitRetry<Id>): LandedTransaction {
   return {
     transactionId: readTransactionId(options.result),
     privateOutputNotes: countPrivateOutputNotes(options.result),
-    finalAccountCommitment: readFinalAccountCommitment(options.result)
+    finalAccountCommitment: readFinalAccountCommitment(options.result),
+    ...readSwapOrder(options.result)
   };
 }
 
@@ -132,6 +133,35 @@ function countPrivateOutputNotes<Id>(result: SubmittedResult<Id>): number | unde
   }
 }
 
+/**
+ * The swap order the transaction opened, read for every type since only a swap row stamps it. The id is decimal text,
+ * the form the landed facts cross the offscreen reply in.
+ */
+function readSwapOrder<Id>(result: SubmittedResult<Id>): Pick<LandedTransaction, 'orderId' | 'orderNoteId'> {
+  try {
+    const order = swapOrderOf(splitExecutedOutputNotes(result.executedTransaction()));
+    return order === undefined ? {} : { orderId: order.orderId.toString(), orderNoteId: order.orderNoteId };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The PSWAP order a swap's output notes open: the lineage id (felt 1 of the order note's serial) and the order note's
+ * id. Only an unambiguous split names one, since with the fee note not set aside the first of several notes can be
+ * the fee note, and only a public note, so no private note's serial is read.
+ */
+export function swapOrderOf(split: {
+  feeNote: OutputNote | undefined;
+  userNotes: UserOutputNote[];
+}): { orderId: bigint; orderNoteId: string } | undefined {
+  if (split.feeNote === undefined && split.userNotes.length !== 1) return undefined;
+  const note = split.userNotes[0];
+  if (note === undefined || toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Public) return undefined;
+  const orderId = note.intoFull()?.recipient().serialNum().toFelts()[1]?.asInt();
+  return orderId === undefined ? undefined : { orderId, orderNoteId: note.id().toString() };
+}
+
 /** Fails closed: an evicted hold, a missing or unreadable account, or any other commitment refuses. */
 async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>): Promise<boolean> {
   // The wait parked, and an eviction during it hands the client to a successor.
@@ -158,12 +188,18 @@ export class LandedTailError extends Error {
   readonly transactionId?: string;
   /** The swap output's lineage id, read after the failure; undefined when it could not be read. */
   readonly orderId?: bigint;
+  /** The id of the note `orderId` was read off. */
+  readonly orderNoteId?: string;
 
-  constructor(cause: unknown, { transactionId, orderId }: { transactionId?: string; orderId?: bigint } = {}) {
+  constructor(
+    cause: unknown,
+    { transactionId, orderId, orderNoteId }: { transactionId?: string; orderId?: bigint; orderNoteId?: string } = {}
+  ) {
     super('The network accepted this transaction, but a step after its submit failed', { cause });
     this.name = 'LandedTailError';
     this.transactionId = transactionId;
     this.orderId = orderId;
+    this.orderNoteId = orderNoteId;
   }
 }
 

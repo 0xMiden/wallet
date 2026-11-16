@@ -5,9 +5,11 @@ import {
   applyAfterSubmit,
   type ApplyAfterSubmitRetry,
   isLandedTailError,
-  LandedTailError
+  LandedTailError,
+  swapOrderOf
 } from './apply-after-submit';
 import { extractLanded, extractSdkErrorCode, isApplyAfterSubmitError } from './sdk-error-code';
+import type { UserOutputNote } from '../activity/fee-notes';
 
 // A chain whose fee is not known yet, so no output note is set aside as the fee note.
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -22,6 +24,35 @@ const withCommitment = (hex: string) => ({ to_commitment: () => ({ toHex: () => 
 
 const outputNote = (noteType: NoteType) =>
   ({ metadata: () => ({ noteType: () => noteType }) }) as unknown as OutputNote;
+
+const ORDER_NOTE_ID = `0x${'ab'.repeat(32)}`;
+
+const fullNoteWithSerial = () => ({
+  recipient: () => ({ serialNum: () => ({ toFelts: () => [0n, 42n, 0n, 0n].map(value => ({ asInt: () => value })) }) })
+});
+
+/** A note whose serial's felt 1 is 42, the lineage id a PSWAP order is tracked by. */
+const orderNote = (noteType: NoteType, intoFull: () => unknown = fullNoteWithSerial) =>
+  ({
+    id: () => ({ toString: () => ORDER_NOTE_ID }),
+    metadata: () => ({ noteType: () => noteType }),
+    intoFull
+  }) as unknown as OutputNote;
+
+const resultWithNotes = (notes: OutputNote[], executed: Record<string, unknown> = {}) => ({
+  executedTransaction: () => ({
+    id: () => ({ toHex: () => '0xtx' }),
+    accountId: () => 'acc',
+    initialAccountHeader: () => withCommitment(INITIAL),
+    outputNotes: () => ({ notes: () => notes }),
+    ...executed
+  })
+});
+
+const failingApply = () =>
+  jest.fn(async () => {
+    throw new Error('IndexedDB transaction aborted');
+  });
 
 /**
  * A transaction on account 'acc' that started at INITIAL, submitted in a hold that stays current,
@@ -346,6 +377,64 @@ describe('applyAfterSubmit (#1233)', () => {
     expect(extractLanded(error)).toEqual({ transactionId: '0xtx' });
   });
 
+  it('the wrap carries the order a public first user output note opens, read while the hold was current', async () => {
+    const result = resultWithNotes([orderNote(NoteType.Public)]);
+
+    const error = await applyAfterSubmit(arrange({ apply: failingApply(), result }, FINAL)).catch(
+      (caught: unknown) => caught
+    );
+
+    const landed = extractLanded(error);
+    expect(landed).toEqual({ transactionId: '0xtx', privateOutputNotes: 0, orderId: '42', orderNoteId: ORDER_NOTE_ID });
+    // The facts cross a JSON-only reply, which carries no bigint.
+    expect(typeof landed.orderId).toBe('string');
+  });
+
+  it('a private first user output note never has its serial read into the landed facts', async () => {
+    const intoFull = jest.fn(fullNoteWithSerial);
+    const result = resultWithNotes([orderNote(NoteType.Private, intoFull)]);
+
+    const error = await applyAfterSubmit(arrange({ apply: failingApply(), result }, FINAL)).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(extractLanded(error)).toEqual({ transactionId: '0xtx', privateOutputNotes: 1 });
+    expect(intoFull).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an error', new Error('recursive use of an object detected')],
+    ['a trap', new WebAssembly.RuntimeError('unreachable')]
+  ])(
+    'an order read that throws %s leaves it unread and keeps the landed verdict and the other facts',
+    async (_, thrown) => {
+      const result = resultWithNotes([
+        orderNote(NoteType.Public, () => {
+          throw thrown;
+        })
+      ]);
+
+      const error = await applyAfterSubmit(arrange({ apply: failingApply(), result }, FINAL)).catch(
+        (caught: unknown) => caught
+      );
+
+      expect(isApplyAfterSubmitError(error)).toBe(true);
+      expect(extractLanded(error)).toEqual({ transactionId: '0xtx', privateOutputNotes: 0 });
+    }
+  );
+
+  it('two public output notes on a charging chain whose fee note was not set aside name no order', async () => {
+    const result = resultWithNotes([orderNote(NoteType.Public), orderNote(NoteType.Public)], {
+      blockHeader: () => ({ verificationBaseFee: () => 10 })
+    });
+
+    const error = await applyAfterSubmit(arrange({ apply: failingApply(), result }, FINAL)).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(extractLanded(error)).toEqual({ transactionId: '0xtx', privateOutputNotes: 0 });
+  });
+
   it('a hold evicted during the retries leaves the id and the count unread', async () => {
     const id = jest.fn(() => ({ toHex: () => '0xtx' }));
     const outputNotes = jest.fn(() => ({ notes: () => [outputNote(NoteType.Private)] }));
@@ -394,6 +483,13 @@ describe('LandedTailError (PR #2183)', () => {
   });
 
   // Text never classifies it: the wrap is made only after the leaf resolved.
+  it('carries the order read after it and the note it was read off', () => {
+    const error = new LandedTailError(new Error('fee read'), { orderId: 42n, orderNoteId: ORDER_NOTE_ID });
+
+    expect(error.orderId).toBe(42n);
+    expect(error.orderNoteId).toBe(ORDER_NOTE_ID);
+  });
+
   it('is not an apply-after-submit error, and an error that is not one is not landed', () => {
     expect(isApplyAfterSubmitError(new LandedTailError(new Error('fee read')))).toBe(false);
     expect(isLandedTailError(new Error('fee read'))).toBe(false);
@@ -404,5 +500,32 @@ describe('LandedTailError (PR #2183)', () => {
     const wrapped = new Error('pipeline failed', { cause: new LandedTailError(new Error('fee read')) });
 
     expect(isLandedTailError(wrapped)).toBe(true);
+  });
+});
+
+describe('swapOrderOf', () => {
+  const asUserNotes = (notes: OutputNote[]) => notes as unknown as UserOutputNote[];
+
+  it("a split that set the fee note aside names the first user note's order beside another note", () => {
+    const split = {
+      feeNote: outputNote(NoteType.Public),
+      userNotes: asUserNotes([orderNote(NoteType.Public), outputNote(NoteType.Private)])
+    };
+
+    expect(swapOrderOf(split)).toEqual({ orderId: 42n, orderNoteId: ORDER_NOTE_ID });
+  });
+
+  it('a lone note is the order note, and two notes with no fee note set aside name none', () => {
+    expect(swapOrderOf({ feeNote: undefined, userNotes: asUserNotes([orderNote(NoteType.Public)]) })).toEqual({
+      orderId: 42n,
+      orderNoteId: ORDER_NOTE_ID
+    });
+    expect(
+      swapOrderOf({
+        feeNote: undefined,
+        userNotes: asUserNotes([orderNote(NoteType.Public), orderNote(NoteType.Public)])
+      })
+    ).toBeUndefined();
+    expect(swapOrderOf({ feeNote: outputNote(NoteType.Public), userNotes: [] })).toBeUndefined();
   });
 });

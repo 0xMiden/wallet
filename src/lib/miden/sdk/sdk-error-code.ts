@@ -422,15 +422,22 @@ export function isSubmitCrossingUnrecorded(err: unknown): boolean {
 
 /**
  * What a landed write's failure knows about its transaction (#1233): the executed transaction's id, how
- * many private user output notes it produced and its final account commitment, each only when it could
- * be read. One object from the throw to the row, on both realms, so no layer can carry one fact and drop
- * the other.
+ * many private user output notes it produced, its final account commitment and the swap order its public
+ * first user output note opens, each only when it could be read. One object from the throw to the row, on
+ * both realms, so no layer can carry one fact and drop the other.
  */
 export interface LandedTransaction {
   transactionId?: string;
   privateOutputNotes?: number;
   /** The executed transaction's final account commitment, which the node's account commitment equals once it commits. */
   finalAccountCommitment?: string;
+  /**
+   * The PSWAP lineage id, felt 1 of the order note's serial, as a decimal string: the facts cross chrome.runtime
+   * messaging, which is JSON-only and carries no bigint.
+   */
+  orderId?: string;
+  /** The id of the note `orderId` was read off, in lower case. */
+  orderNoteId?: string;
 }
 
 /**
@@ -455,22 +462,31 @@ export class ApplyAfterSubmitError extends Error {
   }
 }
 
+const DECIMAL = /^(0|[1-9][0-9]{0,19})$/;
+/** The Miden field modulus, 2^64 - 2^32 + 1: a felt's integer value is below it. */
+const FIELD_MODULUS = 0xffffffff00000001n;
+const NOTE_ID = /^0x[0-9a-f]{64}$/i;
+
 /**
  * The landed facts off this realm's `ApplyAfterSubmitError` or off the rejection the service worker
- * rebuilds from an offscreen reply, keeping only a string id, a non-negative integer count and a string
- * final commitment.
+ * rebuilds from an offscreen reply, keeping only a string id, a non-negative integer count, a string
+ * final commitment, a canonical decimal felt as the order id and a note-id-shaped order note id.
  */
 export function extractLanded(err: unknown): LandedTransaction {
   const landed = readGuarded(err, 'landed');
   const transactionId = readGuarded(landed, 'transactionId');
   const privateOutputNotes = readGuarded(landed, 'privateOutputNotes');
   const finalAccountCommitment = readGuarded(landed, 'finalAccountCommitment');
+  const orderId = readGuarded(landed, 'orderId');
+  const orderNoteId = readGuarded(landed, 'orderNoteId');
   return {
     ...(typeof transactionId === 'string' ? { transactionId } : {}),
     ...(typeof privateOutputNotes === 'number' && Number.isInteger(privateOutputNotes) && privateOutputNotes >= 0
       ? { privateOutputNotes }
       : {}),
-    ...(typeof finalAccountCommitment === 'string' ? { finalAccountCommitment } : {})
+    ...(typeof finalAccountCommitment === 'string' ? { finalAccountCommitment } : {}),
+    ...(typeof orderId === 'string' && DECIMAL.test(orderId) && BigInt(orderId) < FIELD_MODULUS ? { orderId } : {}),
+    ...(typeof orderNoteId === 'string' && NOTE_ID.test(orderNoteId) ? { orderNoteId: orderNoteId.toLowerCase() } : {})
   };
 }
 
