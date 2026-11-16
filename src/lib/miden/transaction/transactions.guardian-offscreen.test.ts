@@ -3655,9 +3655,8 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     const finalRow = txStore.find(r => r.id === 'apply-swap-order')!;
     expect(finalRow.status).toBe(ITransactionStatus.Completed);
     expect(finalRow.transactionId).toBe('0xlanded');
-    expect(finalRow.extraInputs.orderId).toBe(42n);
-    expect(finalRow.extraInputs.expiresAt).toEqual(expect.any(Number));
-    expect(finalRow.extraInputs.landedOrder).toBeUndefined();
+    expect(finalRow.extraInputs).toMatchObject({ orderId: 42n, expiresAt: expect.any(Number) });
+    expect(finalRow.extraInputs).not.toHaveProperty('landedOrder');
     expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
   });
 
