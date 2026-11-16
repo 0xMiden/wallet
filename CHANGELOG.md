@@ -2,6 +2,8 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][all] Keep documentation and E2E gallery deployments compatible with SHA-pinned action policies.
+- [CHANGE][ci] A telemetry egress test no longer fails when a random Sentry id happens to contain one of its short hex needles.
 - [FIX][all] A bridged send (Agglayer, USDCx or Epoch) or an Earn deposit is checked against its reviewed token and amount and against the note the wallet built before it is signed, on Guardian and single-key accounts alike (#2147).
 - [FEATURE][chrome] Add optional passkey unlock for eligible password wallets in Chrome 140+, with side-panel setup, confirmation-window unlock, and unchanged password fallback (#846).
 
@@ -59,6 +61,7 @@
 - [FIX][all] A dApp custom transaction's approval counts notes the account already held among what leaves it and names them on the sheet, signing allows only the notes that approval showed being created, and the chain fee is read fresh for every check.
 - [FIX][all] A dApp's request to sign a transaction summary shows what leaves the account's holdings, measured once after a fresh chain fee read, and is refused before any sheet when that cannot be measured or the fee is unknown.
 - [FIX][all] Before a transaction is submitted, a WebAssembly trap inside the wallet's WASM lock, while it tells the network fee note apart from its other notes or reads a dApp request's diagnostics or dry run, now retires the broken client instead of answering from it. After a transaction lands, a trap in a fee check is answered there instead of failing the transaction.
+- [FIX][all] A WebAssembly trap while the wallet prepares a dApp custom transaction's approval sheet, builds a Guardian proposal or a device-key replacement, checks a recovered Guardian account, removes the recovery phrase, checks a recovery seed, imports an everyday key, reads the scheme tag of an everyday-key scalar it is importing, or decodes or reads the scheme of a key it is pasting, importing, backing up or restoring now retires the broken client instead of being swallowed; the custom transaction is refused before any sheet. A summary whose chain fee is unknown at its decode, or whose cached fee is for a different endpoint than that fresh read, is refused before the sheet, and a fee read that throws does not fail a signature request that is not a summary.
 - [FIX][all] When a step fails after the network already accepted a transaction, the wallet records it as completed instead of failed, so Retry cannot send it a second time. A WebAssembly trap there, or while answering a dApp waiting for one, also retires the broken client, at most once per transaction.
 - [FIX][all] Retry on a Guardian send or swap, or a bridge send, that may already have gone through now asks you to check your balance first, as it does for other sends.
 

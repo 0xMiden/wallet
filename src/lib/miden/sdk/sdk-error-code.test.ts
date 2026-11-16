@@ -19,6 +19,7 @@ import {
   isTransactionDiscardedError,
   markErrorBeforeSubmit,
   pipelineKillIn,
+  readWasmHandle,
   rethrowTrapOrKill,
   someInCauseChain
 } from './sdk-error-code';
@@ -706,6 +707,54 @@ describe('rethrowTrapOrKill', () => {
 
   it('returns for a terminated client under an apply-after-submit error, which landed', () => {
     expect(thrown(new ApplyAfterSubmitError(new Error('Client terminated')))).toBeUndefined();
+  });
+});
+
+describe('readWasmHandle', () => {
+  const handle = () => ({ free: jest.fn() });
+
+  it('returns what the read returns and frees the handle once', () => {
+    const word = handle();
+    expect(readWasmHandle(word, () => 'abcd')).toBe('abcd');
+    expect(word.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('frees the handle once and rethrows the same object when the read fails with an ordinary error', () => {
+    const word = handle();
+    const error = new Error('bad word');
+    expect(() =>
+      readWasmHandle(word, () => {
+        throw error;
+      })
+    ).toThrow(error);
+    expect(word.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows a trap as that same object and never frees the handle, even when its free would throw', () => {
+    const word = handle();
+    word.free.mockImplementation(() => {
+      throw new Error('freed after the trap');
+    });
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let caught: unknown;
+    try {
+      readWasmHandle(word, () => {
+        throw trap;
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(trap);
+    expect(word.free).not.toHaveBeenCalled();
+  });
+
+  it('lets a free that throws after a read that succeeded propagate', () => {
+    const word = handle();
+    const freeError = new Error('free failed');
+    word.free.mockImplementation(() => {
+      throw freeError;
+    });
+    expect(() => readWasmHandle(word, () => 'abcd')).toThrow(freeError);
   });
 });
 
