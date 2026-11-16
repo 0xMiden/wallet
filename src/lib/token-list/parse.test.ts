@@ -139,13 +139,22 @@ it.each([
   ['itself', ['mtst1bsk']],
   ['an unlisted token', ['mtst1zzz']],
   ['a non-string', [42]],
-  ['more than 12 constituents', Array.from({ length: 13 }, (_, i) => `mtst1b${i}`)],
   ['no array', 'mtst1bbb']
 ])('drops a basket of %s and keeps the token verified and its price asset', (_case, constituents) => {
   const parsed = parseTokenList(list([basket(constituents), coin('mtst1bbb', 'BBB')]), 'testnet');
   expect(parsed?.baskets.size).toBe(0);
   expect(parsed?.priceAssets.get('mtst1bsk')).toBe('BSK');
   expect(parsed?.ids.has('mtst1bsk')).toBe(true);
+});
+
+it('keeps a basket of 12 listed, priced constituents and drops one of 13', () => {
+  const ids = Array.from({ length: 13 }, (_, i) => `mtst1c${i}`);
+  const coins = ids.map((id, i) => coin(id, `C${i}`));
+  const twelve = parseTokenList(list([basket(ids.slice(0, 12)), ...coins]), 'testnet');
+  const thirteen = parseTokenList(list([basket(ids), ...coins]), 'testnet');
+  expect(twelve?.baskets.get('mtst1bsk')).toEqual(ids.slice(0, 12));
+  expect(thirteen?.baskets.size).toBe(0);
+  expect(thirteen?.priceAssets.get('mtst1bsk')).toBe('BSK');
 });
 
 it('drops a basket of a basket', () => {
