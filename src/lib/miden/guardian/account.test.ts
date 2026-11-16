@@ -325,6 +325,30 @@ describe('findOwnSignerCommitment', () => {
     expect(mockCommitmentFromPublicKeyHex).not.toHaveBeenCalled();
   });
 
+  it.each([
+    new WebAssembly.RuntimeError('unreachable'),
+    new WasmClientPoisonedError('watchdog'),
+    new Error('Client terminated')
+  ])('rejects with a trap or pipeline kill from the signer read: %s', async error => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw error;
+    });
+
+    await expect(findOwnSignerCommitment({} as never, 'hot')).rejects.toBe(error);
+    expect(mockCommitmentFromPublicKeyHex).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    new WebAssembly.RuntimeError('unreachable'),
+    new WasmClientPoisonedError('watchdog'),
+    new Error('Client terminated')
+  ])('rejects with a trap or pipeline kill from key derivation: %s', async error => {
+    mockGetSignerCommitments.mockReturnValue(['0xaa11']);
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(error);
+
+    await expect(findOwnSignerCommitment({} as never, 'hot')).rejects.toBe(error);
+  });
+
   it('returns undefined when the device key does not derive', async () => {
     mockGetSignerCommitments.mockReturnValue(['0xaa11']);
     mockCommitmentFromPublicKeyHex.mockRejectedValue(new Error('unexpected public key length'));
@@ -353,6 +377,18 @@ describe('hasSignerCommitment', () => {
       throw new Error('not a guarded multisig');
     });
     expect(hasSignerCommitment({} as never, '0xaa11')).toBe(false);
+  });
+
+  it.each([
+    new WebAssembly.RuntimeError('unreachable'),
+    new WasmClientPoisonedError('watchdog'),
+    new Error('Client terminated')
+  ])('throws a trap or pipeline kill from the signer read: %s', error => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw error;
+    });
+
+    expect(() => hasSignerCommitment({} as never, '0xaa11')).toThrow(error);
   });
 });
 

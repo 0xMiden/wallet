@@ -24,6 +24,7 @@ import { isGuardianKeyCommitment } from './key-commitment';
 import { withGuardianProbe } from './native-http';
 import { guardianRegisterBackoffMs, withGuardianRateLimitRetry } from './serialize';
 import type { AssertLive } from '../sdk/miden-client-interface';
+import { rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export { GUARDIAN_ACCOUNT_SEED_DOMAIN, deriveGuardianAccountSeed } from './account-recipe';
@@ -222,6 +223,15 @@ export function getSignerCommitmentsFromAccount(account: Account): string[] {
   }
 }
 
+function getSignerCommitmentsForMembership(account: Account): string[] {
+  try {
+    return AccountInspector.getSignerPublicKeyCommitments(account).map(String);
+  } catch (error) {
+    rethrowTrapOrKill(error);
+    return [];
+  }
+}
+
 /**
  * The on-chain signer commitment that the given public key commits to, as the
  * account stores it (hex), else undefined.
@@ -232,12 +242,13 @@ export function getSignerCommitmentsFromAccount(account: Account): string[] {
  * does not decode, or an account whose signers cannot be read, gives undefined.
  */
 export async function findOwnSignerCommitment(account: Account, publicKeyHex: string): Promise<string | undefined> {
-  const onChain = getSignerCommitmentsFromAccount(account);
+  const onChain = getSignerCommitmentsForMembership(account);
   if (onChain.length === 0) return undefined;
   let own: string;
   try {
     own = await commitmentFromPublicKeyHex(publicKeyHex);
-  } catch {
+  } catch (error) {
+    rethrowTrapOrKill(error);
     return undefined;
   }
   return onChain.find(commitment => !isEmptyWordHex(stripHexPrefix(commitment)) && sameCommitment(commitment, own));
@@ -245,7 +256,7 @@ export async function findOwnSignerCommitment(account: Account, publicKeyHex: st
 
 /** True when the account's signer set holds the given commitment, in any slot. */
 export function hasSignerCommitment(account: Account, commitmentHex: string): boolean {
-  return getSignerCommitmentsFromAccount(account).some(commitment => sameCommitment(commitment, commitmentHex));
+  return getSignerCommitmentsForMembership(account).some(commitment => sameCommitment(commitment, commitmentHex));
 }
 
 /**

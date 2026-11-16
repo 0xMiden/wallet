@@ -235,6 +235,8 @@ async function ownHotCommitmentOf(vault: Vault, accountId: string): Promise<stri
     if (!account?.hotPublicKey) return undefined;
     return await commitmentFromPublicKeyHex(account.hotPublicKey);
   } catch (error) {
+    // A trap or a kill is not "this key does not decode": it leaves as itself, never as a signer-order fallback.
+    rethrowTrapOrKill(error);
     console.warn('[dapp] Could not derive this device hot-key commitment; falling back to signer order', error);
     return undefined;
   }

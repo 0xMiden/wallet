@@ -2281,6 +2281,16 @@ describe('requestPermission (mobile) picks the signer by membership, never by sl
     }
   });
 
+  // A trap leaves the WASM instance unusable: it is not "this key does not decode", so it reaches the
+  // connect's own failure path instead of quietly choosing a signer by order.
+  it('does not fall back to the signer order on a WebAssembly trap', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(trap);
+
+    await expect(connect('https://multi-device-trap.xyz')).rejects.toBeDefined();
+    expect(storageState[STORAGE_KEY]?.['https://multi-device-trap.xyz' as never]).toBeUndefined();
+  });
+
   it('falls back to the signer order when the wallet accounts cannot be read', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockFetchAccounts.mockRejectedValue(new Error('vault read failed'));
