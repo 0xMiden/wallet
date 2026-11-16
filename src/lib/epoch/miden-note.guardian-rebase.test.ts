@@ -4,6 +4,7 @@ import { parseUnits } from 'viem';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { MultisigService } from 'lib/miden/guardian';
 import { proposeRebased } from 'lib/miden/guardian/rebased-proposal';
@@ -179,6 +180,31 @@ it('hands off a valid original owned note through real admission without a concu
   expect(row?.extraInputs.bridgeOperation?.operationId).toBe('guardian-collateral');
   expect(row?.approvedOutputNoteIds).toEqual(['original-note']);
 });
+
+it.each([new EpochReviewChangedError(), new Error('Completion read interrupted')])(
+  'retains the attributed native owner and original known facts after a late refusal: %s',
+  async error => {
+    const hash = `0x${'a1'.repeat(32)}`;
+    mockWait.mockImplementationOnce(async (id: string) => {
+      await Repo.transactions.update(id, {
+        status: ITransactionStatus.Completed,
+        transactionId: hash,
+        outputNoteIds: ['original-note'],
+        'extraInputs.intentNonce': 'retained-original-nonce'
+      });
+      throw error;
+    });
+    const result = await createBridgeP2IDENote(noteInput());
+    expect(result).toEqual({ success: false, txId: expect.any(String) });
+    const row = await Repo.transactions.get(result.txId!);
+    expect(row?.transactionId).toBe(hash);
+    expect(row?.extraInputs.intentNonce).toBe('retained-original-nonce');
+    expect(row?.extraInputs.epochCollateralRequestBytes).toEqual(ORIGINAL_BYTES);
+    expect(row?.approvedOutputNoteIds).toEqual(['original-note']);
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(await Repo.transactions.count()).toBe(1);
+  }
+);
 
 it('does not invent a fresh handoff fact from an older row current execution bytes', async () => {
   const transaction = Repo.db.transaction.bind(Repo.db);

@@ -7,6 +7,7 @@ import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { quoteEpochSend, runEpochSend } from 'lib/bridge/providers/epoch';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
@@ -252,12 +253,51 @@ it.each(['outer', 'direct'])(
   }
 );
 
-it('uses an explicit pre-build scope only to refuse, never as native capture authority', async () => {
-  const result = await createBridgeP2IDENote({
+it('propagates the exact pre-admission review refusal without initiating or admitting source work', async () => {
+  const initiate = jest.spyOn(
+    jest.requireActual<typeof import('lib/miden/transaction/initiate')>('lib/miden/transaction/initiate'),
+    'initiateBridgedSendTransaction'
+  );
+  const outcome: unknown = await createBridgeP2IDENote({
     ...directNoteInput(),
     expectedWalletScope: { network: 'testnet', rpcUrl: 'https://earlier-reviewed-rpc.example/private' }
+  }).catch((error: unknown) => error);
+  expect(await Repo.transactions.count()).toBe(0);
+  expect(initiate).not.toHaveBeenCalled();
+  expect(buildEpochCollateralRequestBytes).toHaveBeenCalledTimes(1);
+  expect(mockWait).not.toHaveBeenCalled();
+  expect(outcome).toBeInstanceOf(EpochReviewChangedError);
+  expect(outcome).toMatchObject({ translationKey: 'bridgeReviewChanged' });
+});
+
+it('preserves one false SDK result and the same typed pre-owner refusal without another collateral', async () => {
+  const initiate = jest.spyOn(
+    jest.requireActual<typeof import('lib/miden/transaction/initiate')>('lib/miden/transaction/initiate'),
+    'initiateBridgedSendTransaction'
+  );
+  jest.mocked(buildEpochCollateralRequestBytes).mockImplementation(async () => {
+    noteBuilds++;
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://changed-during-build.example/private');
+    return { requestBytes: new Uint8Array([81, 82]), reclaimHeight: 6000, noteId: 'original-built-note' };
   });
-  expect({ success: result.success, rows: await Repo.transactions.count() }).toEqual({ success: false, rows: 0 });
+  mockSolve.mockImplementation(async (params: SolveIntentParams) => {
+    const create = params.createMidenP2IDENote;
+    if (!create) throw new Error('Missing real Epoch collateral callback');
+    const first = create(input.faucetId, input.amount.toString(), accounts.midenAccount, 5000, [1n, 2n]);
+    const second = create(input.faucetId, input.amount.toString(), accounts.midenAccount, 5000, [1n, 2n]);
+    expect(second).toBe(first);
+    expect(await first).toEqual({ success: false });
+    expect(await second).toEqual({ success: false });
+    throw new Error('SDK refused collateral');
+  });
+  const outcome: unknown = await bridgeEpochSend(input).catch((error: unknown) => error);
+  expect(await Repo.transactions.count()).toBe(0);
+  expect(initiate).not.toHaveBeenCalled();
+  expect(mockWait).not.toHaveBeenCalled();
+  expect(noteBuilds).toBe(1);
+  expect(mockSolve).toHaveBeenCalledTimes(1);
+  expect(outcome).toBeInstanceOf(EpochReviewChangedError);
+  expect(outcome).toMatchObject({ translationKey: 'bridgeReviewChanged' });
 });
 
 it('preserves configured native EVM output identity through the Command send adapter', async () => {
