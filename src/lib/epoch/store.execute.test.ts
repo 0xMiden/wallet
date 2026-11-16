@@ -55,7 +55,11 @@ beforeEach(() => {
   mockSwitchWebWalletChain.mockReset().mockResolvedValue(undefined);
   mockRegister.mockReset().mockResolvedValue(undefined);
   mockBuildIntent.mockReset().mockResolvedValue(SOLVED_INTENT);
-  mockGetRow.mockReset();
+  mockGetRow.mockReset().mockResolvedValue({
+    id: 'row-1',
+    type: 'bridged-receive',
+    extraInputs: { provider: 'epoch', phase: 'submitting', sourceAddress: '0xowner' }
+  });
   mockGetEpochSdk.mockClear();
   mockUpdatePhase.mockClear();
   mockDocumentAllocator = 'https://allocator.document';
@@ -95,7 +99,6 @@ it('records the pending bridge-in with the exact amount and the symbol the track
 
 // A USDCx deposit switches the web wallet to Arc or Base; the Fast route switches it back instead of failing.
 it('switches a web wallet left on another chain to Sepolia before executing', async () => {
-  mockGetRow.mockResolvedValue(undefined);
   mockConnection
     .mockResolvedValueOnce({ address: '0xowner', isNative: false, chainId: 5042002 })
     .mockResolvedValue({ address: '0xowner', isNative: false, chainId: 11155111 });
@@ -141,7 +144,6 @@ it('refuses without switching when no wallet is connected, and when the wallet d
 // The Epoch SDK keeps only viem's flattened text, so the solve's failure reaches the row, and its report, as a string.
 it('fails the tracking row at the solve, with what failed it, when the Epoch SDK refuses the intent', async () => {
   const refusal = 'An unknown RPC error occurred.\n\nDetails: User rejected the request.\nVersion: viem@2.55.4';
-  mockGetRow.mockResolvedValue(undefined);
   mockBuildIntent.mockResolvedValue({ taskTypeString: 'bridge', intentData: {}, error: refusal });
   useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
 

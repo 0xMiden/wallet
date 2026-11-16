@@ -1,6 +1,8 @@
+import Dexie from 'dexie';
 import { formatUnits, parseUnits } from 'viem';
 
-import type { BridgeOperationSnapshot } from 'lib/bridge/operation';
+import { assertReviewedBridge } from 'lib/bridge/core/review';
+import { recordBridgeSourceAttempt, type BridgeOperationSnapshot } from 'lib/bridge/operation';
 import { accounts, now } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
@@ -102,6 +104,52 @@ async function seed(): Promise<BridgeOperationSnapshot> {
   return owned;
 }
 
+async function admitEpoch() {
+  const expected = operation();
+  const destination = expected.review.route.destination;
+  if (!expected.review.quote || destination.kind !== 'miden') throw new Error('Missing native Epoch admission fixture');
+  const { initiateBridgedReceiveTransaction } = await import('lib/miden/transaction/initiate');
+  const id = await initiateBridgedReceiveTransaction({
+    accountId: accounts.midenAccount,
+    amount: parseUnits(expected.review.quote.received, destination.decimals),
+    faucetId: destination.faucetId,
+    provider: 'epoch',
+    sourceAddress: accounts.evmAddress,
+    sourceChainId: 11155111,
+    sourceAmount: expected.review.amount,
+    sourceSymbol: expected.review.route.source.symbol,
+    epochAllocatorUrl: expected.review.route.recovery.config['bridge-providers'].epoch.allocatorUrl,
+    operation: { operationId: expected.operationId, review: expected.review }
+  });
+  const owned: BridgeOperationSnapshot | undefined = (await Repo.transactions.get(id))?.extraInputs.bridgeOperation;
+  if (!owned) throw new Error('Protected admission did not persist its operation');
+  useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: quoteOf(owned) });
+  return { id, owned };
+}
+
+function afterEpochClaimCommit(change: () => Promise<void> | void) {
+  const transaction = Repo.db.transaction.bind(Repo.db);
+  let result: unknown;
+  let transactionActive: boolean | undefined;
+  jest.spyOn(Repo.db, 'transaction').mockImplementationOnce((...args) => {
+    const committed: unknown = Reflect.apply(transaction, Repo.db, args);
+    return Dexie.Promise.resolve(committed).then(async value => {
+      result = value;
+      transactionActive = Boolean(Dexie.currentTransaction);
+      await change();
+      return value;
+    });
+  });
+  return {
+    get result() {
+      return result;
+    },
+    get transactionActive() {
+      return transactionActive;
+    }
+  };
+}
+
 beforeEach(async () => {
   jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
@@ -118,6 +166,153 @@ beforeEach(async () => {
   mockUpdatePhase.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => jest.restoreAllMocks());
+
+it.each(['missing-epoch-row', '', '   '])(
+  'a supplied missing or empty Epoch tracking id %j cannot become legacy source permission',
+  async trackingId => {
+    const { id, owned } = await admitEpoch();
+    expect(useEpochStore.getState()).toMatchObject({ status: 'quoted', flow: 'evm-to-miden', quote: quoteOf(owned) });
+    await useEpochStore.getState().executeEVMToMiden(trackingId);
+    expect(mockBuildIntent).not.toHaveBeenCalled();
+    expect(mockUpdatePhase).not.toHaveBeenCalled();
+    expect(await Repo.transactions.count()).toBe(1);
+    expect((await Repo.transactions.get(id))?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+    expect(useEpochStore.getState().status).toBe('quoted');
+  }
+);
+
+it('a row deleted after Epoch wrapper dispatch cannot authorize the store source', async () => {
+  const { id } = await admitEpoch();
+  let finished: () => void = () => undefined;
+  const completed = new Promise<void>(resolve => {
+    finished = resolve;
+  });
+  await createBridgeReceiveReconciler({ getLocks: () => undefined }).startSubmission(
+    async () => id,
+    async trackingId => {
+      try {
+        await Repo.transactions.delete(trackingId);
+        await useEpochStore.getState().executeEVMToMiden(trackingId);
+      } finally {
+        finished();
+      }
+    }
+  );
+  await completed;
+  expect(mockBuildIntent).not.toHaveBeenCalled();
+  expect(mockUpdatePhase).not.toHaveBeenCalled();
+  expect(await Repo.transactions.count()).toBe(0);
+  expect(useEpochStore.getState().status).toBe('quoted');
+});
+
+it.each(['omitted id', 'real untagged row'])('retains deliberate Epoch legacy execution with %s', async legacy => {
+  const { id } = await admitEpoch();
+  await Repo.transactions.update(id, row => {
+    delete row.extraInputs.bridgeOperation;
+  });
+  await useEpochStore.getState().executeEVMToMiden(legacy === 'omitted id' ? undefined : id);
+  expect(mockBuildIntent).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  [
+    'operation identity',
+    async (id: string) => {
+      await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.operationId': 'substituted-operation' });
+    }
+  ],
+  [
+    'self-consistent review',
+    async (id: string) => {
+      const current: BridgeOperationSnapshot | undefined = (await Repo.transactions.get(id))?.extraInputs
+        .bridgeOperation;
+      if (!current?.review.quote?.request) throw new Error('Missing claimed review');
+      const changed = structuredClone(current.review);
+      changed.route.id = 'substituted-epoch-route';
+      if (!changed.quote?.request) throw new Error('Missing bound quote');
+      changed.quote.request.routeId = changed.route.id;
+      assertReviewedBridge(changed, structuredClone(changed), now);
+      await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.review': changed });
+    }
+  ],
+  [
+    'wallet scope',
+    async (id: string) => {
+      const rpcUrl = 'https://substituted-epoch-rpc.example/private';
+      await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.walletScope': { network: 'testnet', rpcUrl } });
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue(rpcUrl);
+    }
+  ]
+] satisfies Array<[string, (id: string) => Promise<void>]>)(
+  'the Epoch owner cannot adopt %s changed after its actual claim commits',
+  async (_name, change) => {
+    const { id, owned } = await admitEpoch();
+    const settlement = afterEpochClaimCommit(() => change(id));
+    await useEpochStore.getState().executeEVMToMiden(id);
+    expect(settlement.result).toBe('claimed');
+    expect(settlement.transactionActive).toBe(false);
+    expect(mockBuildIntent).not.toHaveBeenCalled();
+    const current: BridgeOperationSnapshot | undefined = (await Repo.transactions.get(id))?.extraInputs.bridgeOperation;
+    expect(current?.sourceAttempt).toEqual({ phase: 'running' });
+    expect(current?.revision).not.toBe(owned.revision);
+    expect(mockUpdatePhase).not.toHaveBeenCalled();
+  }
+);
+
+it('a known original source recorded during claim settlement cannot authorize another Epoch solve', async () => {
+  const { id } = await admitEpoch();
+  let recorded = false;
+  const settlement = afterEpochClaimCommit(async () => {
+    const claimed: BridgeOperationSnapshot | undefined = (await Repo.transactions.get(id))?.extraInputs.bridgeOperation;
+    if (!claimed) throw new Error('Missing committed claim');
+    recorded = await recordBridgeSourceAttempt(claimed.operationId, claimed.revision, {
+      hash: `0x${'8'.repeat(64)}`,
+      intentNonce: '41'
+    });
+  });
+  await useEpochStore.getState().executeEVMToMiden(id);
+  expect(settlement.result).toBe('claimed');
+  expect(settlement.transactionActive).toBe(false);
+  expect(recorded).toBe(true);
+  expect(mockBuildIntent).not.toHaveBeenCalled();
+  expect((await Repo.transactions.get(id))?.extraInputs.bridgeOperation?.sourceAttempt).toMatchObject({
+    phase: 'known',
+    hash: `0x${'8'.repeat(64)}`,
+    intentNonce: '41'
+  });
+});
+
+it('a changed claim revision during wallet setup cannot authorize the Epoch final source boundary', async () => {
+  const { id } = await admitEpoch();
+  mockConnection.mockImplementationOnce(async () => {
+    await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.revision': 'newer-claim-revision' });
+    return { address: accounts.evmAddress, isNative: true };
+  });
+  await useEpochStore.getState().executeEVMToMiden(id);
+  expect(mockBuildIntent).not.toHaveBeenCalled();
+  expect((await Repo.transactions.get(id))?.extraInputs.bridgeOperation).toMatchObject({
+    revision: 'newer-claim-revision',
+    sourceAttempt: { phase: 'running' }
+  });
+  expect(mockUpdatePhase).not.toHaveBeenCalled();
+});
+
+it('a real protected Epoch admission retains exactly one first solve and its own rotated claim revision', async () => {
+  const { id, owned } = await admitEpoch();
+  const settlement = afterEpochClaimCommit(() => undefined);
+  await useEpochStore.getState().executeEVMToMiden(id);
+  expect(settlement.result).toBe('claimed');
+  expect(settlement.transactionActive).toBe(false);
+  expect(mockBuildIntent).toHaveBeenCalledTimes(1);
+  const claimed: BridgeOperationSnapshot | undefined = (await Repo.transactions.get(id))?.extraInputs.bridgeOperation;
+  expect(claimed).toMatchObject({
+    operationId: owned.operationId,
+    review: owned.review,
+    walletScope: owned.walletScope,
+    sourceAttempt: { phase: 'known', hash, intentNonce: '42' }
+  });
+  expect(claimed?.revision).not.toBe(owned.revision);
+});
 
 it('the nested native receive controller delegates the first owned Epoch solve exactly once', async () => {
   const owned = await seed();
@@ -177,7 +372,7 @@ it('two independent stores/DB connections and a reload do not solve the same ope
 });
 
 it('preserves a late original known outcome before an unrelated registry or phase write fails', async () => {
-  const owned = await seed();
+  const { id, owned } = await admitEpoch();
   let finish: (value: unknown) => void = () => {
     throw new Error('Solve did not start');
   };
@@ -192,19 +387,26 @@ it('preserves a late original known outcome before an unrelated registry or phas
     started();
     return pending;
   });
-  const running = useEpochStore.getState().executeEVMToMiden('epoch-row');
+  const running = useEpochStore.getState().executeEVMToMiden(id);
   await entered;
+  const originalClaim: BridgeOperationSnapshot | undefined = (await Repo.transactions.get(id))?.extraInputs
+    .bridgeOperation;
+  expect(originalClaim?.sourceAttempt?.phase).toBe('running');
+  expect(originalClaim?.revision).not.toBe(owned.revision);
   useEpochStore.getState().reset();
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example');
   mockUpdatePhase.mockRejectedValue(new Error('phase storage failed'));
   finish({ taskTypeString: 'bridge', intentData: {}, solveResult: { hash, nonce: '42' } });
   await running;
-  const row = await Repo.transactions.get('epoch-row');
+  const row = await Repo.transactions.get(id);
   expect(row?.extraInputs.evmTxHash).toBe(hash);
   expect(row?.extraInputs.intentNonce).toBe('42');
   expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('known');
+  expect(row?.extraInputs.bridgeOperation?.operationId).toBe(owned.operationId);
+  expect(row?.extraInputs.bridgeOperation?.revision).toBe(originalClaim?.revision);
+  expect(row?.extraInputs.bridgeOperation?.walletScope).toEqual(owned.walletScope);
   useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: quoteOf(owned) });
-  await useEpochStore.getState().executeEVMToMiden('epoch-row');
+  await useEpochStore.getState().executeEVMToMiden(id);
   expect(mockBuildIntent).toHaveBeenCalledTimes(1);
 });
 
