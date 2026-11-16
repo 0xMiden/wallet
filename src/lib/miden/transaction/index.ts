@@ -218,6 +218,7 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  retireWasmClientForUnheldTrap,
   type WasmClientLockOptions,
   type WasmLockHold,
   withWasmClientLock,
@@ -4465,9 +4466,11 @@ const generateGuardianTransaction = async (
             feeScope
           );
         } catch (effectsError) {
-          // No hold covers this decode, so no lock retires a trap in it. Keyed by the attempt: a key of the row id
-          // alone would close the retire that the row's own landed readers take on a later attempt.
-          retireLandedTrap(effectsError, `${transaction.id}:proposal-summary:${attemptId ?? ''}`, undefined);
+          // No hold covers this decode, so a trap retires through `retireWasmClientForUnheldTrap` and leaves the row
+          // id open for that row's later landed readers. Any other refusal is rethrown with no retire.
+          if (effectsError instanceof WebAssembly.RuntimeError) {
+            retireWasmClientForUnheldTrap(effectsError);
+          }
           try {
             await withOutgoingGuardianDeadline(
               () => service.abandonCandidate(proposalResult.nonce),

@@ -364,6 +364,8 @@ const installWasmLockAbortRace = () => {
 };
 const mockWithWasmLockWatchdogPaused = jest.fn(async (fn: () => Promise<unknown>) => fn());
 const mockGetMidenClient = jest.fn();
+const mockRetireWasmClientForUnheldTrap = jest.fn();
+const mockRetireWasmClientForCaughtTrap = jest.fn();
 const mockCreateWasmWebClient = jest.fn();
 // The guardian PSWAP build takes the realm's reader client; mocking the accessor keeps
 // its module-scoped reader out of these tests (the real module is kept for the rest).
@@ -386,6 +388,8 @@ jest.mock('../sdk/miden-client', () => {
       mockWithWasmClientLock(...(a as Parameters<typeof mockWithWasmClientLock>)),
     withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
     getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a),
+    retireWasmClientForUnheldTrap: (...a: unknown[]) => mockRetireWasmClientForUnheldTrap(...a),
+    retireWasmClientForCaughtTrap: (...a: unknown[]) => mockRetireWasmClientForCaughtTrap(...a),
     getCurrentWasmLockHold: () => currentHold,
     // The shared post-await re-check (#788 follow-up). Re-implements the
     // comparison against this mock's current hold - a no-op stub would make it
@@ -17679,12 +17683,14 @@ describe('Guardian proposal effect check', () => {
   it('retires the client once for a trap in the custom proposal summary decode and fails the row with that trap', async () => {
     const retire = jest.fn();
     const restore = installLandedTrapRetirement(retire);
+    mockRetireWasmClientForUnheldTrap.mockClear();
     const errSpy = jest.spyOn(console, 'error').mockImplementation();
     try {
       const { trap, service, row } = await runTrappedProposalDecode('execute-proposal-decode-trap');
 
-      expect(retire).toHaveBeenCalledTimes(1);
-      expect(retire.mock.calls[0]![0]).toBe(trap);
+      expect(mockRetireWasmClientForUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(mockRetireWasmClientForUnheldTrap).toHaveBeenCalledWith(trap);
+      expect(retire).not.toHaveBeenCalled();
       expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
       expect(mockAssertProposalEffect).not.toHaveBeenCalled();
       expect(service.abandonCandidate).toHaveBeenCalledWith(9);
@@ -17707,8 +17713,8 @@ describe('Guardian proposal effect check', () => {
       const landedTrap = new WebAssembly.RuntimeError('unreachable');
       retireLandedTrap(landedTrap, id, undefined);
 
-      expect(retire).toHaveBeenCalledTimes(2);
-      expect(retire.mock.calls[1]).toEqual([landedTrap, id]);
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls[0]).toEqual([landedTrap, id]);
     } finally {
       errSpy.mockRestore();
       restore();
