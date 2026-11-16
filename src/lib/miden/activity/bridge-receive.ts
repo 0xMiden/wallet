@@ -499,7 +499,8 @@ export function createBridgeReceiveReconciler({
         resolve(txId);
         try {
           const row = await Repo.transactions.get(txId);
-          if (row && hasBridgeOperation(row)) {
+          if (!row) return;
+          if (hasBridgeOperation(row)) {
             const operation = bridgeOperationOf(row);
             const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
             if (

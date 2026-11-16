@@ -1,4 +1,4 @@
-import { parseUnits } from 'viem';
+import { formatUnits, parseUnits } from 'viem';
 
 import type { BridgeOperationSnapshot } from 'lib/bridge/operation';
 import { accounts, now } from 'lib/bridge/testing/fixtures';
@@ -208,20 +208,41 @@ it('preserves a late original known outcome before an unrelated registry or phas
   expect(mockBuildIntent).toHaveBeenCalledTimes(1);
 });
 
-it('a positive reviewed receipt below one native unit never authorizes an Epoch solve with a zero minimum', async () => {
+it.each(['exact', 'trailing zero'])('keeps a representable one-unit Epoch minimum valid (%s)', async representation => {
   const owned = await seed();
   const destination = owned.review.route.destination;
   if (!owned.review.quote || destination.kind !== 'miden') throw new Error('Missing native minimum fixture');
-  owned.review.quote.received = `0.${'0'.repeat(destination.decimals)}1`;
-  await Repo.transactions.update('epoch-row', { amount: 0n, 'extraInputs.bridgeOperation': owned });
+  let received = formatUnits(1n, destination.decimals);
+  if (representation === 'trailing zero') received += received.includes('.') ? '0' : '.0';
+  owned.review.quote.received = received;
+  await Repo.transactions.update('epoch-row', { amount: 1n, 'extraInputs.bridgeOperation': owned });
   const quote = quoteOf(owned);
-  quote.params.minTokenOut = '0';
-  quote.quoteResult.tokenOut = '0';
+  quote.params.minTokenOut = '1';
+  quote.quoteResult.tokenOut = '1';
   useEpochStore.setState({ quote });
   await useEpochStore.getState().executeEVMToMiden('epoch-row');
-  expect(mockBuildIntent).not.toHaveBeenCalled();
-  expect((await Repo.transactions.get('epoch-row'))?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+  expect(mockBuildIntent).toHaveBeenCalledTimes(1);
+  expect((await Repo.transactions.get('epoch-row'))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('known');
 });
+
+it.each([1n, 14n])(
+  'a positive reviewed receipt of %s tenths of a native unit never authorizes a rounded Epoch minimum',
+  async tenths => {
+    const owned = await seed();
+    const destination = owned.review.route.destination;
+    if (!owned.review.quote || destination.kind !== 'miden') throw new Error('Missing native minimum fixture');
+    owned.review.quote.received = formatUnits(tenths, destination.decimals + 1);
+    const amount = tenths / 10n;
+    await Repo.transactions.update('epoch-row', { amount, 'extraInputs.bridgeOperation': owned });
+    const quote = quoteOf(owned);
+    quote.params.minTokenOut = amount.toString();
+    quote.quoteResult.tokenOut = amount.toString();
+    useEpochStore.setState({ quote });
+    await useEpochStore.getState().executeEVMToMiden('epoch-row');
+    expect(mockBuildIntent).not.toHaveBeenCalled();
+    expect((await Repo.transactions.get('epoch-row'))?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+  }
+);
 
 it('a late known source result cannot replace the state of a reset or newer tab flow', async () => {
   await seed();

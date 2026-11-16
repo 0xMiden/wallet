@@ -21,6 +21,11 @@ import { reconcileBridgedReceives } from './bridge-receive';
 import type { IBridgedReceiveExtraInputs } from '../db/types';
 import * as completion from '../transaction/complete';
 
+jest.mock('../transaction/complete', () => {
+  const actual = jest.requireActual<typeof import('../transaction/complete')>('../transaction/complete');
+  return { ...actual, updateBridgedReceivePhase: jest.fn(actual.updateBridgedReceivePhase) };
+});
+
 const ARC_TESTNET_CHAIN_ID = 5_042_002;
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -111,6 +116,12 @@ const expectArcRow = async (txId: string) => {
 };
 
 beforeEach(async () => {
+  jest
+    .mocked(completion.updateBridgedReceivePhase)
+    .mockReset()
+    .mockImplementation(
+      jest.requireActual<typeof import('../transaction/complete')>('../transaction/complete').updateBridgedReceivePhase
+    );
   _resetBridgeConfigRuntimeForTest();
   mockStorage.clear();
   mockFetch.mockReset().mockImplementation(async () => storeDocument());
@@ -128,10 +139,17 @@ it('does not report completion when tracking creation or the actual delivering w
   const add = jest.spyOn(Repo.transactions, 'add').mockRejectedValueOnce(new Error('tracking storage unavailable'));
   await expect(createArcReceive()).rejects.toThrow('tracking storage unavailable');
   add.mockRestore();
-  jest
-    .spyOn(completion, 'updateBridgedReceivePhase')
-    .mockRejectedValueOnce(new Error('delivering storage unavailable'));
-  await expect(createArcReceive()).rejects.toThrow('delivering storage unavailable');
+  let entered: () => void = () => undefined;
+  const phaseEntered = new Promise<void>(resolve => {
+    entered = resolve;
+  });
+  jest.mocked(completion.updateBridgedReceivePhase).mockImplementationOnce(async () => {
+    entered();
+    throw new Error('delivering storage unavailable');
+  });
+  const outcome = createArcReceive().catch((error: unknown) => error);
+  await phaseEntered;
+  expect(await outcome).toEqual(new Error('delivering storage unavailable'));
   const row = (await Repo.transactions.toArray())[0];
   expect(row?.extraInputs?.phase).toBe('submitting');
   expect(row?.extraInputs?.evmTxHash).toBeUndefined();

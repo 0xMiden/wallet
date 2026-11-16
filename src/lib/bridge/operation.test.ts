@@ -1,5 +1,5 @@
 import Dexie from 'dexie';
-import { encodeFunctionData, erc20Abi, parseUnits, type Hash } from 'viem';
+import { encodeFunctionData, erc20Abi, formatUnits, parseUnits, type Hash } from 'viem';
 
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -227,62 +227,77 @@ it('does not let an existing operation ID substitute a changed review or re-admi
   expect(await Repo.transactions.count()).toBe(1);
 });
 
-it.each(['admission', 'source claim', 'already-funded record'])(
-  'handles a zero native-unit receipt at %s without turning facts into new permission',
-  async boundary => {
-    const reviewed = reviewedErc20Transfer('epoch');
-    const destination = reviewed.route.destination;
-    if (!reviewed.quote || destination.kind !== 'miden') throw new Error('Missing positive Epoch receipt fixture');
-    reviewed.quote.received = `0.${'0'.repeat(destination.decimals)}1`;
-    assertReviewedBridge(reviewed, structuredClone(reviewed), now);
-    const args = {
-      accountId: accounts.midenAccount,
-      amount: 0n,
-      faucetId: destination.faucetId,
-      provider: 'epoch',
-      sourceAddress: accounts.evmAddress,
-      sourceAmount: reviewed.amount,
-      sourceSymbol: reviewed.route.source.symbol,
-      sourceChainId: 11155111,
-      epochAllocatorUrl: reviewed.route.recovery.config['bridge-providers'].epoch.allocatorUrl,
-      operation: { operationId: 'below-native-quantum', review: reviewed }
-    } satisfies Parameters<typeof initiateBridgedReceiveTransaction>[0];
-    if (boundary === 'admission') {
-      await expect(initiateBridgedReceiveTransaction(args)).rejects.toThrow();
-      expect(await Repo.transactions.count()).toBe(0);
-    } else {
-      const row = new BridgedReceiveTransaction(
-        args.accountId,
-        args.amount,
-        args.faucetId,
-        args.provider,
-        args.sourceAddress,
-        args.sourceAmount,
-        args.sourceSymbol
-      );
-      row.extraInputs.sourceChainId = args.sourceChainId;
-      row.extraInputs.epochAllocatorUrl = args.epochAllocatorUrl;
-      row.extraInputs.bridgeOperation = {
-        ...args.operation,
-        version: 1,
-        owner: 'wallet',
-        revision: 'admitted',
-        walletScope: { network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() }
-      };
-      if (boundary === 'already-funded record') row.extraInputs.bridgeOperation.sourceAttempt = { phase: 'running' };
-      await Repo.transactions.add(row);
-      if (boundary === 'source claim') {
-        expect(await claimBridgeSourceAttempt(args.operation.operationId, 'admitted')).toBe('uncertain');
-        expect((await snapshot(row.id)).sourceAttempt).toBeUndefined();
-      } else {
-        const hash: Hash = `0x${'1'.repeat(64)}`;
-        expect(
-          await recordBridgeSourceAttempt(args.operation.operationId, 'admitted', { hash, intentNonce: '42' })
-        ).toBe(true);
-        expect((await snapshot(row.id)).sourceAttempt).toMatchObject({ phase: 'known', hash, intentNonce: '42' });
-        expect(await claimBridgeSourceAttempt(args.operation.operationId, 'admitted')).toBe('already-running');
-      }
-    }
+function nonrepresentableReceiptFixture(tenths: bigint) {
+  const reviewed = reviewedErc20Transfer('epoch');
+  const destination = reviewed.route.destination;
+  if (!reviewed.quote || destination.kind !== 'miden') throw new Error('Missing positive Epoch receipt fixture');
+  reviewed.quote.received = formatUnits(tenths, destination.decimals + 1);
+  assertReviewedBridge(reviewed, structuredClone(reviewed), now);
+  const args = {
+    accountId: accounts.midenAccount,
+    amount: tenths / 10n,
+    faucetId: destination.faucetId,
+    provider: 'epoch',
+    sourceAddress: accounts.evmAddress,
+    sourceAmount: reviewed.amount,
+    sourceSymbol: reviewed.route.source.symbol,
+    sourceChainId: 11155111,
+    epochAllocatorUrl: reviewed.route.recovery.config['bridge-providers'].epoch.allocatorUrl,
+    operation: { operationId: 'below-native-quantum', review: reviewed }
+  } satisfies Parameters<typeof initiateBridgedReceiveTransaction>[0];
+  const row = new BridgedReceiveTransaction(
+    args.accountId,
+    args.amount,
+    args.faucetId,
+    args.provider,
+    args.sourceAddress,
+    args.sourceAmount,
+    args.sourceSymbol
+  );
+  row.extraInputs.sourceChainId = args.sourceChainId;
+  row.extraInputs.epochAllocatorUrl = args.epochAllocatorUrl;
+  const operation: BridgeOperationSnapshot = {
+    ...args.operation,
+    version: 1,
+    owner: 'wallet',
+    revision: 'admitted',
+    walletScope: { network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() }
+  };
+  row.extraInputs.bridgeOperation = operation;
+  return { args, row, operation };
+}
+
+it.each([1n, 14n])(
+  'refuses native admission of a nonrepresentable receipt of %s tenths of a base unit',
+  async tenths => {
+    const { args } = nonrepresentableReceiptFixture(tenths);
+    await expect(initiateBridgedReceiveTransaction(args)).rejects.toThrow();
+    expect(await Repo.transactions.count()).toBe(0);
+  }
+);
+
+it.each([1n, 14n])(
+  'refuses a fresh source claim for a nonrepresentable receipt of %s tenths of a base unit',
+  async tenths => {
+    const { row, operation } = nonrepresentableReceiptFixture(tenths);
+    await Repo.transactions.add(row);
+    expect(await claimBridgeSourceAttempt(operation.operationId, operation.revision)).toBe('uncertain');
+    expect((await snapshot(row.id)).sourceAttempt).toBeUndefined();
+  }
+);
+
+it.each([1n, 14n])(
+  'retains original funded source facts for a now-unacceptable minimum of %s tenths of a base unit',
+  async tenths => {
+    const { row, operation } = nonrepresentableReceiptFixture(tenths);
+    operation.sourceAttempt = { phase: 'running' };
+    await Repo.transactions.add(row);
+    const hash: Hash = `0x${'1'.repeat(64)}`;
+    expect(
+      await recordBridgeSourceAttempt(operation.operationId, operation.revision, { hash, intentNonce: '42' })
+    ).toBe(true);
+    expect((await snapshot(row.id)).sourceAttempt).toMatchObject({ phase: 'known', hash, intentNonce: '42' });
+    expect(await claimBridgeSourceAttempt(operation.operationId, operation.revision)).toBe('already-running');
   }
 );
 
@@ -561,15 +576,27 @@ it.each<'restoredFromBackup' | 'recovered'>(['restoredFromBackup', 'recovered'])
 );
 
 it('does not broadcast after row creation fails or source ownership cannot be persisted', async () => {
-  const reconciler = createBridgeReceiveReconciler({ getLocks: () => undefined });
+  const runs: Promise<void>[] = [];
+  const observer: BridgeReceiveLockManager = {
+    request: async (_name, _options, callback) => {
+      const run = callback(null);
+      runs.push(run);
+      await run;
+    }
+  };
+  const reconciler = createBridgeReceiveReconciler({ getLocks: () => observer });
   const drive = jest.fn(async () => undefined);
   jest.spyOn(Repo.transactions, 'add').mockRejectedValueOnce(new Error('disk full'));
   await expect(reconciler.startSubmission(() => admit(), drive)).rejects.toThrow('disk full');
+  await Promise.all(runs);
   expect(drive).not.toHaveBeenCalled();
   const id = await seed();
-  jest.spyOn(Repo.db, 'transaction').mockImplementationOnce(() => Dexie.Promise.reject(new Error('storage offline')));
+  const storage = jest
+    .spyOn(Repo.db, 'transaction')
+    .mockImplementationOnce(() => Dexie.Promise.reject(new Error('storage offline')));
   await reconciler.startSubmission(async () => id, drive);
-  await new Promise(resolve => setTimeout(resolve, 0));
+  await Promise.all(runs);
+  expect(storage).toHaveBeenCalledTimes(1);
   expect(drive).not.toHaveBeenCalled();
 });
 
@@ -711,9 +738,17 @@ it('leaves untagged native receive rows on legacy dispatch', async () => {
     extraInputs: { provider: 'agglayer', phase: 'submitting' }
   };
   await Repo.transactions.add(row);
+  const runs: Promise<void>[] = [];
+  const observer: BridgeReceiveLockManager = {
+    request: async (_name, _options, callback) => {
+      const run = callback(null);
+      runs.push(run);
+      await run;
+    }
+  };
   const drive = jest.fn(async () => undefined);
-  await createBridgeReceiveReconciler({ getLocks: () => undefined }).startSubmission(async () => row.id, drive);
-  await new Promise(resolve => setTimeout(resolve, 0));
+  await createBridgeReceiveReconciler({ getLocks: () => observer }).startSubmission(async () => row.id, drive);
+  await Promise.all(runs);
   expect(drive).toHaveBeenCalledTimes(1);
   expect(await claimBridgeSourceAttempt('legacy', 'revision')).toBe('uncertain');
 });

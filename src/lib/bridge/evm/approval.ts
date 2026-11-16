@@ -40,14 +40,61 @@ export function assertApprovalTransaction(approval: BridgeApproval, transaction:
     throw new Error('Token approval terms changed');
 }
 
+/** Call identity is not a mined receipt or sufficient allowance; missing identities stay unverified. */
+export function parseBridgeApproval(approval: BridgeApproval): BridgeApproval {
+  if (
+    !Number.isSafeInteger(approval.chainId) ||
+    approval.chainId <= 0 ||
+    !isAddress(approval.account, { strict: false }) ||
+    !isAddress(approval.token, { strict: false }) ||
+    !isAddress(approval.spender, { strict: false }) ||
+    !isHash(approval.hash) ||
+    !/^\d+$/.test(approval.amount) ||
+    (approval.replacementReason !== undefined &&
+      !['repriced', 'cancelled', 'replaced'].includes(approval.replacementReason))
+  )
+    throw new Error('Token approval terms changed');
+  const transaction = approval.transaction === undefined ? undefined : parseSourceTransaction(approval.transaction);
+  const original =
+    approval.originalTransaction === undefined ? undefined : parseSourceTransaction(approval.originalTransaction);
+  if (original) assertApprovalTransaction({ ...approval, hash: original.hash, replacementReason: undefined }, original);
+  if (transaction) {
+    if (
+      transaction.hash.toLowerCase() !== approval.hash.toLowerCase() ||
+      (approval.replacementReason !== undefined && !original)
+    )
+      throw new Error('Token approval identity changed');
+    if (original) {
+      if (
+        (approval.replacementReason === undefined && original.hash.toLowerCase() !== transaction.hash.toLowerCase()) ||
+        replacementReason(original, transaction) !== (approval.replacementReason ?? 'repriced')
+      )
+        throw new Error('Token approval replacement changed');
+    } else assertApprovalTransaction(approval, transaction);
+  }
+  return {
+    chainId: approval.chainId,
+    account: approval.account,
+    token: approval.token,
+    spender: approval.spender,
+    amount: approval.amount,
+    hash: approval.hash,
+    ...(transaction && { transaction }),
+    ...(original && { originalTransaction: original }),
+    ...(approval.replacementReason !== undefined && { replacementReason: approval.replacementReason })
+  };
+}
+
 export function replaceApproval(approval: BridgeApproval, transaction: SourceTransaction): BridgeApproval {
-  if (!approval.transaction) throw new Error('Token approval identity is unknown');
-  assertApprovalTransaction(approval, approval.transaction);
+  const current = parseBridgeApproval(approval);
+  if (!current.transaction) throw new Error('Token approval identity is unknown');
+  const original = current.originalTransaction ?? current.transaction;
   const replacement = parseSourceTransaction(transaction);
   return {
-    ...approval,
+    ...current,
     hash: replacement.hash,
     transaction: replacement,
-    replacementReason: replacementReason(approval.transaction, replacement)
+    originalTransaction: original,
+    replacementReason: replacementReason(original, replacement)
   };
 }

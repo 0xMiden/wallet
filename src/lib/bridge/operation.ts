@@ -12,7 +12,8 @@ import { walletBridgeProvider } from './core/provider';
 import { quoteAmounts } from './core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from './core/review';
 import { configKey } from './core/routes';
-import { assertApprovalTransaction, type BridgeApproval } from './evm/approval';
+import { isValidAmount } from './core/rules';
+import { parseBridgeApproval, type BridgeApproval } from './evm/approval';
 import { parseSourceTransaction, replacementReason, type SourceTransaction } from './evm/source-transaction';
 
 export interface BridgeOperationInput {
@@ -94,6 +95,7 @@ function assertRowBinding(row: ITransaction, review: ReviewedTransfer): void {
   const miden = receiving ? route.destination : route.source;
   const evm = receiving ? route.source : route.destination;
   const chain = route.recovery.config.supportedEvmChains[evm.network];
+  const nativeAmount = receiving ? quote?.received : amount;
   if (
     !localBridgeRow(row) ||
     !quote ||
@@ -105,7 +107,9 @@ function assertRowBinding(row: ITransaction, review: ReviewedTransfer): void {
     !sameWalletAccountId(row.accountId, accounts.midenAccount) ||
     !row.faucetId ||
     !sameWalletAccountId(row.faucetId, miden.faucetId) ||
-    row.amount !== parseUnits(receiving ? quote.received : amount, miden.decimals)
+    typeof nativeAmount !== 'string' ||
+    !isValidAmount(nativeAmount) ||
+    row.amount !== parseUnits(nativeAmount, miden.decimals)
   )
     throw new Error('Bridge operation terms changed');
   if (receiving) {
@@ -146,12 +150,26 @@ function assertRowBinding(row: ITransaction, review: ReviewedTransfer): void {
     throw new Error('Bridge operation route changed');
 }
 
+function assertBridgeMinimum(row: ITransaction, review: ReviewedTransfer): void {
+  const received = review.quote?.received;
+  if (
+    row.amount === undefined ||
+    row.amount <= 0n ||
+    (review.route.mode === 'receive' &&
+      (typeof received !== 'string' ||
+        /[1-9]/.test((received.split('.')[1] ?? '').slice(review.route.destination.decimals))))
+  )
+    throw new Error('Bridge minimum is not representable');
+}
+
 export function assertBridgeOperationCurrent(row: ITransaction, operation: BridgeOperationSnapshot): void {
   assertRowBinding(row, operation.review);
+  assertBridgeMinimum(row, operation.review);
   assertScope(operation.walletScope);
   assertReviewedBridge(operation.review, operation.review, Date.now());
 }
 
+// shortcut: scans every row kind for historical aliases; add an operation-id index if large histories slow admission.
 async function operationRows(operationId: string): Promise<ITransaction[]> {
   return Repo.transactions
     .filter(row => {
@@ -189,6 +207,7 @@ export async function prepareBridgeOperation(
     assertRowBinding(previous, operation.review);
     throw new BridgeOperationAlreadyAdmittedError(previous.id);
   }
+  assertBridgeMinimum(row, input.review);
   assertScope(capturedScope);
   assertReviewedBridge(input.review, input.review, Date.now());
   if (capturedScope.network !== input.review.route.recovery.network) throw new Error('Bridge wallet scope changed');
@@ -268,8 +287,8 @@ export async function recordBridgeSourceAttempt(
       (previous.intentNonce && known.intentNonce && previous.intentNonce !== known.intentNonce)
     )
       return false;
-    if (known.transaction) {
-      const transaction = parseSourceTransaction(known.transaction);
+    const transaction = known.transaction === undefined ? undefined : parseSourceTransaction(known.transaction);
+    if (transaction) {
       const route = operation.review.route;
       const chain = route.recovery.config.supportedEvmChains[route.source.network];
       if (
@@ -291,7 +310,7 @@ export async function recordBridgeSourceAttempt(
       ...known,
       hash: previous.hash ?? known.hash,
       intentNonce: previous.intentNonce ?? known.intentNonce,
-      transaction: previous.transaction ?? known.transaction,
+      transaction: previous.transaction ?? transaction,
       phase: previous.hash || previous.intentNonce || known.hash || known.intentNonce ? 'known' : 'uncertain'
     };
     await Repo.transactions.update(row.id, {
@@ -303,6 +322,7 @@ export async function recordBridgeSourceAttempt(
   });
 }
 
+/** True means a reference was persisted, never consent, sufficient allowance or permission to fund/retry. */
 export async function recordBridgeApproval(
   operationId: string,
   revision: string,
@@ -322,27 +342,43 @@ export async function recordBridgeApproval(
     )
       return false;
     assertRowBinding(row, operation.review);
-    const { route, accounts, quote } = operation.review;
+    const reference = parseBridgeApproval(approval);
+    const { route, accounts } = operation.review;
     const chain = route.recovery.config.supportedEvmChains[route.source.network];
     if (
-      !quote ||
       route.source.kind !== 'erc20' ||
-      approval.chainId !== chain?.chainId ||
-      approval.account.toLowerCase() !== accounts.evmAddress.toLowerCase() ||
-      approval.token.toLowerCase() !== route.source.address.toLowerCase() ||
-      !isHash(approval.hash) ||
-      !/^\d+$/.test(approval.amount) ||
-      (BigInt(approval.amount) !== 0n &&
-        BigInt(approval.amount) !== parseUnits(quoteAmounts(route, quote).sourceTotal, route.source.decimals))
+      reference.chainId !== chain?.chainId ||
+      reference.account.toLowerCase() !== accounts.evmAddress.toLowerCase() ||
+      reference.token.toLowerCase() !== route.source.address.toLowerCase()
     )
       throw new Error('Token approval terms changed');
-    if (approval.transaction && approval.replacementReason !== 'cancelled' && approval.replacementReason !== 'replaced')
-      assertApprovalTransaction(approval, approval.transaction);
     const approvals = operation.approvals ?? [];
-    const previous = approvals.find(item => item.hash.toLowerCase() === approval.hash.toLowerCase());
-    if (previous) return configKey(previous) === configKey(approval);
+    const original = reference.originalTransaction;
+    if (original) {
+      const first = approvals.find(item => {
+        const known = item.originalTransaction ?? (item.replacementReason === undefined ? item.transaction : undefined);
+        return (
+          known &&
+          (known.hash.toLowerCase() === original.hash.toLowerCase() ||
+            (item.chainId === reference.chainId &&
+              item.account.toLowerCase() === reference.account.toLowerCase() &&
+              item.token.toLowerCase() === reference.token.toLowerCase() &&
+              item.spender.toLowerCase() === reference.spender.toLowerCase() &&
+              BigInt(item.amount) === BigInt(reference.amount) &&
+              known.nonce === original.nonce))
+        );
+      });
+      const known = first?.originalTransaction ?? first?.transaction;
+      if (
+        known &&
+        (known.hash.toLowerCase() !== original.hash.toLowerCase() || replacementReason(known, original) !== 'repriced')
+      )
+        throw new Error('Original token approval identity changed');
+    }
+    const previous = approvals.find(item => item.hash.toLowerCase() === reference.hash.toLowerCase());
+    if (previous) return configKey(previous) === configKey(reference);
     await Repo.transactions.update(row.id, {
-      'extraInputs.bridgeOperation': { ...operation, approvals: [...approvals, structuredClone(approval)] }
+      'extraInputs.bridgeOperation': { ...operation, approvals: [...approvals, reference] }
     });
     return true;
   });
