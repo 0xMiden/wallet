@@ -116,7 +116,7 @@ import {
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwapTransaction,
-  landedSwapOrderId,
+  landedSwapOrder,
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction
 } from './complete';
@@ -1243,7 +1243,7 @@ const runLandedTail = async (
   } catch (error) {
     throw new LandedTailError(error, {
       transactionId: readLandedTransactionId(transaction.id, result),
-      ...(transaction.type === 'swap' ? { orderId: landedSwapOrderId(transaction.id, result) } : {})
+      ...(transaction.type === 'swap' ? landedSwapOrder(transaction.id, result) : {})
     });
   }
 };

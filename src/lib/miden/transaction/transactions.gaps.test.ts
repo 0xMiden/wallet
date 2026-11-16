@@ -669,6 +669,8 @@ describe('a throw after the leaf resolved', () => {
   });
 
   it('a loop swap whose tail throws before the Completed write keeps its order stamp and requested inputs', async () => {
+    // A PSWAP order note is public; the landed order read reads no private note.
+    _gh.__noteTypeForTest = 'public';
     queuedRow('tx-tail-swap-order', {
       type: 'swap',
       faucetId: 'faucet-offer',
@@ -696,6 +698,7 @@ describe('a throw after the leaf resolved', () => {
 
   it('a trap reading a landed swap order id leaves the original tail error in place', async () => {
     const id = 'tx-tail-swap-order-trap';
+    _gh.__noteTypeForTest = 'public';
     queuedRow(id, {
       type: 'swap',
       faucetId: 'faucet-offer',

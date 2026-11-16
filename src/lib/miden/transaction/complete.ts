@@ -79,6 +79,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
+import { swapOrderOf } from '../sdk/apply-after-submit';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
@@ -485,16 +486,16 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   });
 };
 
-/** Read the swap order id again when its tail fails, without replacing the original failure if the result traps. */
-export const landedSwapOrderId = (landing: string, result: TransactionResult): bigint | undefined => {
+/** Read the swap order again when its tail fails, without replacing the original failure if the result traps. */
+export const landedSwapOrder = (
+  landing: string,
+  result: TransactionResult
+): { orderId?: bigint; orderNoteId?: string } => {
   try {
-    const { userNotes } = splitLandedOutputNotes(result, landing);
-    const outputNote = userNotes[0];
-    if (!outputNote) return undefined;
-    return outputNote.intoFull()?.recipient().serialNum().toFelts()[1]?.asInt();
+    return swapOrderOf(splitLandedOutputNotes(result, landing)) ?? {};
   } catch (error) {
     retireLandedTrap(error, landing, result);
-    return undefined;
+    return {};
   }
 };
 
