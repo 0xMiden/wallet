@@ -1090,15 +1090,16 @@ describe('completeSwitchGuardianTransaction', () => {
 
   // The helper re-reads before every attempt and returns when the row has left
   // the queue. A Completed write that loses that race must not modify the row
-  // again, and must not log a per-attempt error for attempts it never makes.
+  // again. Its one failed attempt logs once on console.warn, and the attempts
+  // the re-read skips are not logged.
   it('stops the Completed write once the row has left the queue', async () => {
     const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
 
     const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
     const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const repo = jest.requireMock('lib/miden/repo') as {
       transactions: { where: jest.Mock };
@@ -1165,7 +1166,11 @@ describe('completeSwitchGuardianTransaction', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(completedModifies).toBe(1);
     expect(readsAfterLeave).toBe(1);
-    expect(errorSpy.mock.calls.filter(call => typeof call[0] === 'string' && call[0].includes('attempt'))).toEqual([]);
+    const attemptLogs = warnSpy.mock.calls
+      .map(call => call[0])
+      .filter((message): message is string => typeof message === 'string' && message.includes('attempt'));
+    expect(attemptLogs).toHaveLength(1);
+    expect(attemptLogs[0]).toContain('attempt 1/');
   });
 
   it('a coordinated switch whose first Completed write aborts still persists the in-memory switch delta', async () => {
