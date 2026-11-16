@@ -9,7 +9,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { completeSendTransaction } from './complete';
 import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import { NodeReads } from './reconcile-reads';
-import { judgeAndWrite } from './reconcile-unconfirmed';
+import { judgeAndWrite, landedDeliveryTargetValues, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
 import { ISubmitEvidence, ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
@@ -603,5 +603,49 @@ describe('a send landed from its submit evidence owes the sweep its note (#1473)
       displayMessage: 'Sent',
       relayAckedNoteIds: [NOTE]
     });
+  });
+});
+
+// The landed Completed write assigns values instead of mutating the stored row, so it records a target through these.
+describe('landedDeliveryTargetValues records what recordLandedDeliveryTarget records', () => {
+  const recordedBoth = (row: ITransaction, landing: { boundTransactionId: string }) => {
+    jest.spyOn(Date, 'now').mockReturnValue((NOW + 5) * 1000);
+    const before = { ...row };
+    const recorded = { ...row };
+    const target = recordLandedDeliveryTarget(recorded, landing);
+    const values = landedDeliveryTargetValues(row, landing);
+    expect(row).toEqual(before);
+    return { target, values, recorded };
+  };
+
+  it.each<[string, Partial<ITransaction>]>([
+    [
+      'a target that replaces the root, with every delivery mark set',
+      {
+        noteDelivery: 'confirmed',
+        displayMessage: 'Sent',
+        relayAttempts: MAX_RELAY_ATTEMPTS,
+        nextRelayAt: NOW + 30 * 60,
+        relayRetriesStopped: true,
+        relayVerifyPushes: 2,
+        relayOutageDeferred: true,
+        relayAckedNoteIds: [OTHER_NOTE],
+        relayDeadNoteIds: [OTHER_NOTE]
+      }
+    ],
+    ['a target on an empty root', { outputNoteIds: undefined, relayAttempts: 2, nextRelayAt: NOW + 60 }]
+  ])('%s', (_name, overrides) => {
+    const row = retriedSend(overrides);
+    const { target, values, recorded } = recordedBoth(row, { boundTransactionId: hex(3) });
+
+    expect(target).toEqual([NOTE]);
+    expect({ ...row, ...values }).toEqual(recorded);
+  });
+
+  it('no target, no values', () => {
+    const { target, values } = recordedBoth(retriedSend(), { boundTransactionId: hex(9) });
+
+    expect(target).toBeUndefined();
+    expect(values).toBeUndefined();
   });
 });
