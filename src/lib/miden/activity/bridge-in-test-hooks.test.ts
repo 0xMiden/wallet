@@ -4,6 +4,8 @@
 
 // The hooks run in the service worker, which has no document and so no bridge config scheduler; a node environment
 // keeps the real remote-config runtime on that path.
+import Dexie from 'dexie';
+
 import * as Repo from 'lib/miden/repo';
 import { PRESERVED_STORAGE_KEYS } from 'lib/miden/reset';
 import {
@@ -19,12 +21,6 @@ import { getUsdcxRemoteDomain } from 'lib/usdcx/constant';
 import { installBridgeInTestHooks } from './bridge-in-test-hooks';
 import { reconcileBridgedReceives } from './bridge-receive';
 import type { IBridgedReceiveExtraInputs } from '../db/types';
-import * as completion from '../transaction/complete';
-
-jest.mock('../transaction/complete', () => {
-  const actual = jest.requireActual<typeof import('../transaction/complete')>('../transaction/complete');
-  return { ...actual, updateBridgedReceivePhase: jest.fn(actual.updateBridgedReceivePhase) };
-});
 
 const ARC_TESTNET_CHAIN_ID = 5_042_002;
 
@@ -116,12 +112,6 @@ const expectArcRow = async (txId: string) => {
 };
 
 beforeEach(async () => {
-  jest
-    .mocked(completion.updateBridgedReceivePhase)
-    .mockReset()
-    .mockImplementation(
-      jest.requireActual<typeof import('../transaction/complete')>('../transaction/complete').updateBridgedReceivePhase
-    );
   _resetBridgeConfigRuntimeForTest();
   mockStorage.clear();
   mockFetch.mockReset().mockImplementation(async () => storeDocument());
@@ -143,9 +133,9 @@ it('does not report completion when tracking creation or the actual delivering w
   const phaseEntered = new Promise<void>(resolve => {
     entered = resolve;
   });
-  jest.mocked(completion.updateBridgedReceivePhase).mockImplementationOnce(async () => {
+  jest.spyOn(Repo.db.Collection.prototype, 'modify').mockImplementationOnce(() => {
     entered();
-    throw new Error('delivering storage unavailable');
+    return Dexie.Promise.reject(new Error('delivering storage unavailable'));
   });
   const outcome = createArcReceive().catch((error: unknown) => error);
   await phaseEntered;

@@ -501,6 +501,54 @@ describe('newTransaction (site 6)', () => {
     }
   );
 
+  it('an offscreen-proved leaf cannot submit after retirement while the SDK inner lock is acquired', async () => {
+    const harness = buildHarness();
+    const runtime = await loadOffscreenProved(harness);
+    let resume: () => void = () => undefined;
+    const pending = new Promise<void>(resolve => {
+      resume = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const acquiring = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    let visits = 0;
+    harness.fakeClient._withInnerWebClient.mockImplementation(async callback => {
+      visits += 1;
+      if (visits === 2) {
+        entered();
+        await pending;
+      }
+      return callback(harness.inner);
+    });
+    let inner: Promise<unknown> | undefined;
+    const stages: string[] = [];
+    try {
+      const running = runtime
+        .withWasmClientLock(async () => {
+          inner = runtime.client
+            .newTransaction('acct', new Uint8Array([4]), false, async stage => {
+              stages.push(stage);
+            })
+            .catch((error: unknown) => error);
+          return inner;
+        })
+        .catch((error: unknown) => error);
+      await acquiring;
+      expect(harness.inner.executeTransaction).toHaveBeenCalledTimes(1);
+      expect(stages).toContain('submitting');
+      window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+      expect(await running).toBeInstanceOf(runtime.WasmClientPoisonedError);
+      resume();
+      await inner;
+      expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
+      expect(harness.inner.applyTransaction).not.toHaveBeenCalled();
+    } finally {
+      resume();
+      delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
+    }
+  });
+
   it('an awaited successful submit gate retains exactly one source submission', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
