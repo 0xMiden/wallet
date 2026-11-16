@@ -1,72 +1,4 @@
 {
-  "passkeyUnlock": {
-    "message": "Déverrouillage par mot de passe",
-    "englishSource": "Passkey unlock"
-  },
-  "unlockWithPasskey": {
-    "message": "Déverrouiller avec une clé d’accès",
-    "englishSource": "Unlock with passkey"
-  },
-  "passkeyUnlockDescription": {
-    "message": "Utilisez le fournisseur de clés d’accès de votre appareil pour déverrouiller ce portefeuille. Le mot de passe de votre portefeuille restera valable.",
-    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
-  },
-  "passkeyUnlockEnabled": {
-    "message": "Le déverrouillage par mot de passe est activé pour ce portefeuille.",
-    "englishSource": "Passkey unlock is enabled for this wallet."
-  },
-  "passkeyUnlockUnavailable": {
-    "message": "Le déverrouillage par mot de passe n’est pas disponible sur ce navigateur, ce système d’exploitation ou ce portefeuille. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
-    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
-  },
-  "passkeyEnable": {
-    "message": "Activer le déverrouillage par mot de passe",
-    "englishSource": "Enable passkey unlock"
-  },
-  "passkeyReplace": {
-    "message": "Remplacer la clé d’accès",
-    "englishSource": "Replace passkey"
-  },
-  "passkeyRemove": {
-    "message": "Supprimer le déverrouillage par mot de passe",
-    "englishSource": "Remove passkey unlock"
-  },
-  "passkeyProviderRemoval": {
-    "message": "La suppression du déverrouillage par clé d’accès ici ne révoque ni ne supprime la clé d’accès stockée par votre fournisseur. Supprimez-la également dans les paramètres de votre fournisseur si vous n’en avez plus besoin.",
-    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
-  },
-  "passkeySyncCapable": {
-    "message": "Votre fournisseur indique que ce mot de passe peut être sauvegardé ou synchronisé. Sa disponibilité sur d’autres appareils dépend de votre fournisseur.",
-    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
-  },
-  "passkeyDeviceBound": {
-    "message": "Votre fournisseur indique que ce mot de passe ne peut pas être sauvegardé.",
-    "englishSource": "Your provider reports that this passkey cannot be backed up."
-  },
-  "passkeySidePanelOnly": {
-    "message": "Ouvrez le panneau latéral du portefeuille pour activer, remplacer ou désactiver le déverrouillage par mot de passe.",
-    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
-  },
-  "passkeySidePanelFailed": {
-    "message": "Impossible d’ouvrir le panneau latéral. Ouvrez-le depuis la barre d’outils du portefeuille et réessayez.",
-    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
-  },
-  "passkeyCanceled": {
-    "message": "La demande de mot de passe a été annulée ou n’était pas disponible. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
-    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
-  },
-  "passkeySetupFailed": {
-    "message": "Impossible d’activer le déverrouillage par mot de passe. Vérifiez le mot de passe de votre portefeuille et utilisez un fournisseur prenant en charge cette fonctionnalité.",
-    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
-  },
-  "passkeyRemoveFailed": {
-    "message": "Impossible de supprimer le déverrouillage par mot de passe. Veuillez réessayer. Le mot de passe de votre portefeuille fonctionne toujours.",
-    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
-  },
-  "passkeyUnlockFailed": {
-    "message": "Impossible de déverrouiller avec cette clé d’accès. Utilisez le mot de passe de votre portefeuille et vérifiez les paramètres de la clé d’accès.",
-    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
-  },
   "seedBackupRequiredTitle": {
     "message": "Sauvegardez votre phrase de récupération",
     "englishSource": "Back up your recovery phrase"
@@ -891,10 +823,6 @@
     "message": "Cette vérification a été préparée pour un jeton de dépôt différent. Revenez en arrière et saisissez à nouveau le montant.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
-  "epochCollateralNoteMismatch": {
-    "message": "La note de garantie doit utiliser le token validé, le montant validé et l’allocateur configuré. Rien n’a été envoyé. Revenez en arrière et réessayez.",
-    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
-  },
   "earnTotalEarnedRewards": {
     "message": "Total gagné",
     "englishSource": "Total earned"
@@ -927,14 +855,6 @@
   "earnPositionsLoadError": {
     "message": "Impossible de charger vos positions. Vérifiez votre connexion et réessayez.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
-  },
-  "earnPositionsUnavailable": {
-    "message": "Impossible de vérifier votre solde avec Epoch. Veuillez réessayer.",
-    "englishSource": "Couldn't check your balance with Epoch. Try again."
-  },
-  "earnBalanceLoadError": {
-    "message": "Impossible de charger votre solde. Vérifiez votre connexion et réessayez.",
-    "englishSource": "Couldn't load your balance. Check your connection and try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "La fonctionnalité « Earn » n’est pas disponible sur ce réseau",
@@ -1323,32 +1243,6 @@
   "submissionRejectedByNetwork": {
     "message": "Le réseau a rejeté cette soumission. Veuillez réessayer.",
     "englishSource": "The network refused this submission. Try again."
-  },
-  "submissionHeldByGuardian": {
-    "message": "Votre « Guardian » détient toujours cette transaction ; il n’est donc pas encore possible de la relancer.",
-    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
-  },
-  "submissionProvenHeldByGuardian": {
-    "message": "Le réseau a confirmé que cette transaction n’a jamais été exécutée ; rien n’a donc été transféré. Votre « Guardian » détient toujours les jetons ; il n’est donc pas encore possible de réessayer.",
-    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
-  },
-  "guardianHoldRetryRefused": {
-    "message": "Votre Guardian détient toujours cette transaction. Vous pouvez réessayer après $time$.",
-    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
-    "placeholders": {
-      "time": {
-        "content": "$1"
-      }
-    }
-  },
-  "guardianHoldNotice": {
-    "message": "Vous pouvez réessayer dans $time$",
-    "englishSource": "You can retry after $time$",
-    "placeholders": {
-      "time": {
-        "content": "$1"
-      }
-    }
   },
   "submissionUnanswered": {
     "message": "Aucune réponse n’a été reçue suite à cette soumission. Le portefeuille ne peut pas confirmer si elle a bien été transmise. Elle peut encore aboutir, veuillez donc vérifier avant de réessayer.",
@@ -3291,14 +3185,6 @@
     "message": "Sauvegardez votre portefeuille",
     "englishSource": "Back up your wallet"
   },
-  "recoveryPhraseHidden": {
-    "message": "Phrase de récupération masquée",
-    "englishSource": "Recovery phrase hidden"
-  },
-  "privateKeyHidden": {
-    "message": "Clé privée masquée",
-    "englishSource": "Private key hidden"
-  },
   "show": {
     "message": "Afficher",
     "englishSource": "Show"
@@ -4102,10 +3988,6 @@
     "message": "Vous ne pouvez pas envoyer de colis à votre propre adresse",
     "englishSource": "You can't send to your own address"
   },
-  "newRecipient": {
-    "message": "Nouveau destinataire",
-    "englishSource": "New recipient"
-  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4137,14 +4019,6 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
-  },
-  "proposalEffectRefused": {
-    "message": "Le portefeuille a interrompu cette transaction avant de la signer, car il n’a pas pu confirmer que la transaction ne transférait que ce que vous aviez approuvé. Aucun fonds n’a été transféré.",
-    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
-  },
-  "chainFeeUnknown": {
-    "message": "Le portefeuille n’a pas pu lire les frais de réseau et n’a donc pas signé cette transaction. Rien n’a été envoyé. Veuillez réessayer dans quelques instants.",
-    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "Le montant doit être inférieur au solde",
@@ -4591,18 +4465,6 @@
     "message": "Nous n’avons pas trouvé de sauvegarde sur ce Guardian. Vérifiez l’URL ou choisissez un autre Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
-  "guardianRecoveryUnverified": {
-    "message": "Vos comptes n’ont pas pu être restaurés : le guardian a renvoyé des données de compte qui ne correspondent pas à votre phrase de récupération. Rien n’a été restauré.",
-    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
-  },
-  "guardianRecoveryBehindNetwork": {
-    "message": "Vos comptes n’ont pas pu être restaurés : la copie d’un compte détenue par le guardian ne correspond pas encore au réseau Miden. Rien n’a été restauré. Veuillez réessayer dans quelques minutes.",
-    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
-  },
-  "guardianRecoveryNetworkUnreachable": {
-    "message": "Impossible d’accéder au réseau Miden pour vérifier vos comptes. Votre phrase de récupération est correcte. Vérifiez votre connexion et réessayez.",
-    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
-  },
   "guardianOtherNetwork": {
     "message": "Ce « guardian » fonctionne sur un autre réseau Miden ; il ne peut donc pas récupérer un compte ici.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4674,11 +4536,6 @@
   "unknown": {
     "message": "Inconnu",
     "englishSource": "Unknown"
-  },
-  "includesUnclaimedNotes": {
-    "message": "Includes notes you have not claimed yet",
-    "englishSource": "(untranslated)",
-    "rejectedSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Notes d'entrée consommées",
@@ -4953,14 +4810,6 @@
   "unavailable": {
     "message": "Indisponible",
     "englishSource": "Unavailable"
-  },
-  "assetPriceUnsupported": {
-    "message": "Non pris en charge",
-    "englishSource": "Unsupported"
-  },
-  "assetValueUnknownScale": {
-    "message": "Échelle inconnue",
-    "englishSource": "Unknown scale"
   },
   "bridgeFeatureUnavailableTitle": {
     "message": "Temporairement indisponible",
@@ -6074,10 +5923,6 @@
       }
     }
   },
-  "evmWalletSmartTransactionsFailed": {
-    "message": "Les transactions intelligentes de MetaMask n’ont pas pu envoyer cette transaction. Désactivez les transactions intelligentes dans vos paramètres MetaMask et réessayez.",
-    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
-  },
   "connectedWallet": {
     "message": "Portefeuille connecté",
     "englishSource": "Connected wallet"
@@ -6165,10 +6010,6 @@
   "bridgeDepositFailed": {
     "message": "Échec du dépôt via le pont",
     "englishSource": "Bridge deposit failed"
-  },
-  "bridgeDepositNoTokenBalance": {
-    "message": "Votre portefeuille connecté ne contient aucun jeton présentant un solde positif sur ce réseau.",
-    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "Votre portefeuille connecté contient $balance$ $token$ sur $network$, ce qui est inférieur au montant requis pour ce dépôt. Rien n’a été envoyé.",
@@ -6582,10 +6423,6 @@
     "message": "Cette dApp demande une transaction personnalisée. Le portefeuille n'a pas pu décoder ses détails — ne continuez que si vous savez exactement en quoi cela consiste.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
-  "customTransactionNotSimulated": {
-    "message": "Le portefeuille n’a pas pu simuler cette transaction ; il ne peut donc pas afficher ce qu’elle implique. Vous ne pouvez pas l’approuver.",
-    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
-  },
   "rawValue": {
     "message": "Valeur brute",
     "englishSource": "Raw value"
@@ -6593,10 +6430,6 @@
   "opaqueSignatureTitle": {
     "message": "Bread ne peut pas prévisualiser ceci",
     "englishSource": "Bread can't preview this"
-  },
-  "opaqueSignatureNotATransaction": {
-    "message": "Cette signature ne permet pas d’autoriser une transaction depuis votre compte.",
-    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "$domain$ vous a demandé de signer une valeur brute. Bread ne peut pas afficher ce qu’il autorise ; ne continuez donc que si vous faites entièrement confiance à ce site.",
@@ -7691,14 +7524,6 @@
   "tokenHiddenNotice": {
     "message": "Caché depuis la page d’accueil. Il reste dans votre portefeuille et ses transferts peuvent toujours être réclamés.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
-  },
-  "hideDustTokens": {
-    "message": "Masquer les jetons « dust »",
-    "englishSource": "Hide dust tokens"
-  },
-  "hideDustTokensDescription": {
-    "message": "Masque les tokens d’une valeur inférieure à 0,001 $ dans votre liste d’actifs. Le token natif reste toujours visible.",
-    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Actifs cachés",
@@ -8913,34 +8738,41 @@
     "message": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   },
-  "autoLock": {
-    "message": "Verrouillage automatique",
-    "englishSource": "Auto-lock"
-  },
   "autoLockDescription": {
     "message": "Verrouille le portefeuille dès qu’il est resté inactif en arrière-plan pendant cette durée.",
     "englishSource": "Locks the wallet once it has been in the background this long."
   },
-  "autoLockMinutes": {
-    "message": "$minutes$ min",
-    "englishSource": "$minutes$ min",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
+  "evmWalletSmartTransactionsFailed": {
+    "message": "Les transactions intelligentes de MetaMask n’ont pas pu envoyer cette transaction. Désactivez les transactions intelligentes dans vos paramètres MetaMask et réessayez.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
   },
-  "epochAwaitingReturn": {
-    "message": "En attente de retour",
-    "englishSource": "Awaiting Return"
+  "unlockWithPasskey": {
+    "message": "Déverrouiller avec une clé d’accès",
+    "englishSource": "Unlock with passkey"
   },
-  "epochReadyToClaim": {
-    "message": "Prêt à réclamer",
-    "englishSource": "Ready to Claim"
+  "passkeyCanceled": {
+    "message": "La demande de mot de passe a été annulée ou n’était pas disponible. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "chainFeeUnknown": {
+    "message": "Le portefeuille n’a pas pu lire les frais de réseau et n’a donc pas signé cette transaction. Rien n’a été envoyé. Veuillez réessayer dans quelques instants.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Impossible d’accéder au réseau Miden pour vérifier vos comptes. Votre phrase de récupération est correcte. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Cette signature ne permet pas d’autoriser une transaction depuis votre compte.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "epochReturningFunds": {
     "message": "Remboursement des fonds",
     "englishSource": "Returning Funds"
+  },
+  "recoveryPhraseHidden": {
+    "message": "Phrase de récupération masquée",
+    "englishSource": "Recovery phrase hidden"
   },
   "epochFundsReturned": {
     "message": "Fonds restitués",
@@ -8955,28 +8787,196 @@
       }
     }
   },
-  "epochReturnReady": {
-    "message": "Récupérez vos fonds pour les transférer vers votre portefeuille.",
-    "englishSource": "Claim your funds to return them to your wallet."
+  "epochReturnPaid": {
+    "message": "Fonds envoyés à votre destinataire.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReadyToClaim": {
+    "message": "Prêt à réclamer",
+    "englishSource": "Ready to Claim"
   },
   "epochReturnPending": {
     "message": "Vos fonds sont en cours de restitution sur votre portefeuille.",
     "englishSource": "Your funds are being returned to your wallet."
   },
+  "earnPositionsUnavailable": {
+    "message": "Impossible de vérifier votre solde avec Epoch. Veuillez réessayer.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Votre portefeuille connecté ne contient aucun jeton présentant un solde positif sur ce réseau.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
+  "hideDustTokens": {
+    "message": "Masquer les jetons « dust »",
+    "englishSource": "Hide dust tokens"
+  },
+  "newRecipient": {
+    "message": "Nouveau destinataire",
+    "englishSource": "New recipient"
+  },
+  "passkeyDeviceBound": {
+    "message": "Votre fournisseur indique que ce mot de passe ne peut pas être sauvegardé.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Votre « Guardian » détient toujours cette transaction ; il n’est donc pas encore possible de la relancer.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "customTransactionNotSimulated": {
+    "message": "Le portefeuille n’a pas pu simuler cette transaction ; il ne peut donc pas afficher ce qu’elle implique. Vous ne pouvez pas l’approuver.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
+  "assetValueUnknownScale": {
+    "message": "Échelle inconnue",
+    "englishSource": "Unknown scale"
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Le réseau a confirmé que cette transaction n’a jamais été exécutée ; rien n’a donc été transféré. Votre « Guardian » détient toujours les jetons ; il n’est donc pas encore possible de réessayer.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
   "epochReturnDone": {
     "message": "Vos fonds ont été reversés sur votre portefeuille.",
     "englishSource": "Your funds have returned to your wallet."
   },
-  "epochReturnPaid": {
-    "message": "Fonds envoyés à votre destinataire.",
-    "englishSource": "Funds sent to your destination."
+  "includesUnclaimedNotes": {
+    "message": "Includes notes you have not claimed yet",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Includes notes you have not claimed yet"
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Le déverrouillage par mot de passe est activé pour ce portefeuille.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Le déverrouillage par mot de passe n’est pas disponible sur ce navigateur, ce système d’exploitation ou ce portefeuille. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyRemove": {
+    "message": "Supprimer le déverrouillage par mot de passe",
+    "englishSource": "Remove passkey unlock"
+  },
+  "assetPriceUnsupported": {
+    "message": "Non pris en charge",
+    "englishSource": "Unsupported"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Utilisez le fournisseur de clés d’accès de votre appareil pour déverrouiller ce portefeuille. Le mot de passe de votre portefeuille restera valable.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeySetupFailed": {
+    "message": "Impossible d’activer le déverrouillage par mot de passe. Vérifiez le mot de passe de votre portefeuille et utilisez un fournisseur prenant en charge cette fonctionnalité.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "guardianHoldNotice": {
+    "message": "Vous pouvez réessayer dans $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "privateKeyHidden": {
+    "message": "Clé privée masquée",
+    "englishSource": "Private key hidden"
+  },
+  "passkeySidePanelFailed": {
+    "message": "Impossible d’ouvrir le panneau latéral. Ouvrez-le depuis la barre d’outils du portefeuille et réessayez.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeySyncCapable": {
+    "message": "Votre fournisseur indique que ce mot de passe peut être sauvegardé ou synchronisé. Sa disponibilité sur d’autres appareils dépend de votre fournisseur.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Ouvrez le panneau latéral du portefeuille pour activer, remplacer ou désactiver le déverrouillage par mot de passe.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "epochReturnUnavailable": {
+    "message": "Impossible de vérifier l’état des fonds. Veuillez réessayer.",
+    "englishSource": "Unable to check the funds status. Try again."
   },
   "epochReturnSpent": {
     "message": "Cette note a été utilisée, mais le paiement n’est pas confirmé. Vérifiez votre destination et votre solde Miden.",
     "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
   },
-  "epochReturnUnavailable": {
-    "message": "Impossible de vérifier l’état des fonds. Veuillez réessayer.",
-    "englishSource": "Unable to check the funds status. Try again."
+  "guardianHoldRetryRefused": {
+    "message": "Votre Guardian détient toujours cette transaction. Vous pouvez réessayer après $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnBalanceLoadError": {
+    "message": "Impossible de charger votre solde. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Impossible de supprimer le déverrouillage par mot de passe. Veuillez réessayer. Le mot de passe de votre portefeuille fonctionne toujours.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "epochReturnReady": {
+    "message": "Récupérez vos fonds pour les transférer vers votre portefeuille.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "proposalEffectRefused": {
+    "message": "Le portefeuille a interrompu cette transaction avant de la signer, car il n’a pas pu confirmer que la transaction ne transférait que ce que vous aviez approuvé. Aucun fonds n’a été transféré.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "passkeyReplace": {
+    "message": "Remplacer la clé d’accès",
+    "englishSource": "Replace passkey"
+  },
+  "epochCollateralNoteMismatch": {
+    "message": "La note de garantie doit utiliser le token validé, le montant validé et l’allocateur configuré. Rien n’a été envoyé. Revenez en arrière et réessayez.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Vos comptes n’ont pas pu être restaurés : la copie d’un compte détenue par le guardian ne correspond pas encore au réseau Miden. Rien n’a été restauré. Veuillez réessayer dans quelques minutes.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Impossible de déverrouiller avec cette clé d’accès. Utilisez le mot de passe de votre portefeuille et vérifiez les paramètres de la clé d’accès.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
+  "hideDustTokensDescription": {
+    "message": "Masque les tokens d’une valeur inférieure à 0,001 $ dans votre liste d’actifs. Le token natif reste toujours visible.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
+  },
+  "passkeyProviderRemoval": {
+    "message": "La suppression du déverrouillage par clé d’accès ici ne révoque ni ne supprime la clé d’accès stockée par votre fournisseur. Supprimez-la également dans les paramètres de votre fournisseur si vous n’en avez plus besoin.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeyUnlock": {
+    "message": "Déverrouillage par mot de passe",
+    "englishSource": "Passkey unlock"
+  },
+  "guardianRecoveryUnverified": {
+    "message": "Vos comptes n’ont pas pu être restaurés : le guardian a renvoyé des données de compte qui ne correspondent pas à votre phrase de récupération. Rien n’a été restauré.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "autoLock": {
+    "message": "Verrouillage automatique",
+    "englishSource": "Auto-lock"
+  },
+  "passkeyEnable": {
+    "message": "Activer le déverrouillage par mot de passe",
+    "englishSource": "Enable passkey unlock"
+  },
+  "epochAwaitingReturn": {
+    "message": "En attente de retour",
+    "englishSource": "Awaiting Return"
   }
 }
