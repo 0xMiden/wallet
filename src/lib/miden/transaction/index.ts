@@ -3308,8 +3308,8 @@ const generateDirectSwitchGuardianTransaction = async (
       guardianProvider.signWord
     );
   } catch (error) {
-    // The build compared this device's hot key with the chain's signer slot 0 and
-    // found another device's key there. That is a finding about the ACCOUNT, not
+    // The build found this device's hot key in no slot of the chain's signer set: another
+    // device rotated it out. That is a finding about the ACCOUNT, not
     // about this switch, and the row's failure is the only place it would otherwise
     // surface; persist it so the wallet can say that another device holds the
     // account (`isHotKeyRotatedOut`). Best-effort, then the row fails as before.
