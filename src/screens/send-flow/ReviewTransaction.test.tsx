@@ -2800,6 +2800,7 @@ describe('ReviewTransaction user-visible errors', () => {
   };
 
   const setEpochRoute = () => {
+    stringToBigIntMock.mockReturnValue(5_000_000n);
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     mockReviewNetwork = 'testnet';
     mockPublicKey = '0x387149ae66116cf114eebd60bb7381';
@@ -2814,7 +2815,7 @@ describe('ReviewTransaction user-visible errors', () => {
       decimals: TEST_EVM_USDC.decimals,
       validity: { kind: 'provider' }
     };
-    mockSearch = `amount=5&to=0x1111111111111111111111111111111111111111&tokenId=${MIDEN_USDC_FAUCET}&network=sepolia`;
+    mockSearch = `amount=5&to=0x1111111111111111111111111111111111111111&tokenId=${MIDEN_USDC_FAUCET}&network=sepolia&route=epoch`;
   };
 
   it('localizes and reports the actual Epoch review refusal after its SDK initialization await', async () => {
