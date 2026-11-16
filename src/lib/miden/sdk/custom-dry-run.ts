@@ -1,13 +1,13 @@
 import { MidenClient, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
+import { assertWasmHoldCurrent, type WasmLockHold } from 'lib/miden/sdk/miden-client';
+import { rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
 import {
   isAlreadyAuthorizedError,
   isSummaryFeeFaucetMissing,
   isSummarySigningUnavailable
-} from 'lib/miden/sdk/dry-run-request';
-import { assertWasmHoldCurrent, type WasmLockHold } from 'lib/miden/sdk/miden-client';
-import { rethrowTrapOrKill } from 'lib/miden/sdk/sdk-error-code';
+} from 'lib/miden/sdk/summary-fallback';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 /**
@@ -74,13 +74,13 @@ export async function dryRunPreparedCustomRequest(
     throw summaryFailure;
   }
   if (isSummarySigningUnavailable(summaryFailure) || isSummaryFeeFaucetMissing(summaryFailure)) {
-    console.warn('[simulate-custom-tx] the summary client cannot execute; falling back to local execution');
+    console.warn('[dry-run] the summary client cannot execute; falling back to local execution');
   }
   // The rejection still ends the executeForSummaryAtTip parking await, so re-check before the
   // fallback executes anything.
   assertWasmHoldCurrent(hold, 'before the local execution fallback');
   // Ordinary (non-guardian) account: nothing is pending authorization, so
-  // there is no summary — but the dry run itself is still available and is
+  // there is no summary - but the dry run itself is still available and is
   // the same ground truth. `executeRequest` executes locally and submits,
   // proves and persists NOTHING (SDK: "does not submit it to the network
   // nor update the local database"), so it stays a dry run.
@@ -91,7 +91,7 @@ export async function dryRunPreparedCustomRequest(
     accountIdHex,
     TransactionRequest.deserialize(preparedBytes)
   );
-  // `result.serialize()` borrows the same client — same rule as the
+  // `result.serialize()` borrows the same client - same rule as the
   // summary above. Still pre-submit: executeRequest broadcasts nothing.
   assertWasmHoldCurrent(hold, 'before the result serialize');
   return { executedBytes: u8ToB64(executed.result.serialize()) };

@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Odblokowanie kluczem dostępu",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Odblokowanie za pomocą klucza dostępu",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Aby odblokować ten portfel, użyj dostawcy klucza dostępu swojego urządzenia. Hasło do portfela będzie nadal działać.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "W tym portfelu włączono odblokowywanie za pomocą klucza dostępu.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Odblokowanie za pomocą klucza dostępu jest niedostępne w tej przeglądarce, systemie operacyjnym lub portfelu. Nadal możesz używać hasła do portfela.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Włącz odblokowywanie za pomocą klucza dostępu",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Zmień hasło dostępu",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Usuń odblokowanie za pomocą klucza dostępu",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Usunięcie opcji odblokowania za pomocą klucza dostępu w tym miejscu nie powoduje unieważnienia ani usunięcia klucza dostępu przechowywanego przez dostawcę. Jeśli nie jest już potrzebny, należy go również usunąć w ustawieniach dostawcy.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Twój dostawca informuje, że ten klucz dostępu można zarchiwizować lub zsynchronizować. Dostępność na innych urządzeniach zależy od dostawcy.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Twój dostawca informuje, że nie można wykonać kopii zapasowej tego hasła dostępu.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Otwórz panel boczny portfela, aby włączyć, zmienić lub wyłączyć odblokowywanie za pomocą klucza dostępu.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Nie udało się otworzyć panelu bocznego. Otwórz go z paska narzędzi portfela i spróbuj ponownie.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "Żądanie klucza dostępu zostało anulowane lub jest niedostępne. Nadal możesz korzystać z hasła do portfela.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Nie udało się włączyć odblokowania za pomocą klucza dostępu. Sprawdź hasło do portfela i skorzystaj z usług dostawcy obsługującego tę funkcję.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Nie udało się usunąć odblokowania za pomocą klucza dostępu. Spróbuj ponownie. Hasło do portfela nadal działa.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Nie udało się odblokować za pomocą tego klucza dostępu. Użyj hasła do portfela i sprawdź ustawienia klucza dostępu.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Utwórz kopię zapasową frazy seed",
     "englishSource": "Back up your recovery phrase"
