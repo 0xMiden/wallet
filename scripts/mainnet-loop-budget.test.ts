@@ -78,6 +78,14 @@ describe('bridge-only same-run budget and account evidence', () => {
     expect(() => remainingMainnetLoopBudget('100', 'epoch', [evidence('swap', '986')])).toThrow();
   });
   it.each([
+    1,
+    evidence('swap', '0', { sourceRunId: '99', phase: 'forward-submitted' }).checkpoint,
+    evidence('swap', '0', { sourceRunId: undefined }).checkpoint,
+    evidence('swap', '0', { sourceRunId: '99', phase: undefined }).checkpoint
+  ])('does not ignore malformed or unresolved historical swap evidence: %#', checkpoint => {
+    expect(() => remainingMainnetLoopBudget('100', 'epoch', [{ provider: 'swap', checkpoint }])).toThrow();
+  });
+  it.each([
     undefined,
     evidence('epoch', '500', { sourceRunId: '99' }).checkpoint,
     evidence('epoch', '500', { phase: 'forward-submitted' }).checkpoint,

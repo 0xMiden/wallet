@@ -30,7 +30,7 @@ Select the group on the same workflow, preserving its checkpoint history and sha
 
 - **Mainnet nightly:** leave `swaps_only` and `bridges_only` false; both groups run by default, including scheduled runs.
 - **Mainnet swaps:** set `swaps_only=true`; no fresh bridge or legacy send fees.
-- **Mainnet bridges:** set `bridges_only=true`; no fresh solver swap or its SDK create/claim uploads. Original swap recovery still runs before bridge spending.
+- **Mainnet bridges:** set `bridges_only=true`; no fresh solver swap or its SDK create/claim uploads. Original swap recovery still runs before bridge spending. A missing or resolved historical swap checkpoint adds no fresh cost; unexpected same-run swap cost is rejected. NEAR still requires the exact completed same-run/account Epoch cost.
 
 Do not combine `swaps_only` with `bridges_only`. `loops_only=true` still excludes legacy send/USDCx/AggLayer coverage: alone it selects the three added loops; combined with `bridges_only=true` it selects only Epoch and NEAR. It cannot be combined with `swaps_only=true`. Separate manual runs must pass the actual audited remaining allowance through `loss_budget_usd_micros`; the default is not permission to reset a session's shared cap.
 
