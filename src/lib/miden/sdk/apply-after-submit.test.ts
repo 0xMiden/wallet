@@ -1,4 +1,4 @@
-import { NoteScript, NoteType, type OutputNote } from '@miden-sdk/miden-sdk/lazy';
+import { type Note, NoteScript, NoteType, type OutputNote } from '@miden-sdk/miden-sdk/lazy';
 
 import {
   APPLY_RETRY_DELAYS_MS,
@@ -6,9 +6,12 @@ import {
   type ApplyAfterSubmitRetry,
   isLandedTailError,
   LandedTailError,
+  recordedSwapOrder,
+  requestOrderOf,
   swapOrderOf
 } from './apply-after-submit';
 import { extractLanded, extractSdkErrorCode, isApplyAfterSubmitError } from './sdk-error-code';
+import { WasmClientPoisonedError } from './wasm-client-poison';
 import type { UserOutputNote } from '../activity/fee-notes';
 
 // A chain whose fee is not known yet, so no output note is set aside as the fee note.
@@ -784,6 +787,85 @@ describe('the order a swap`s request names, read before its submit', () => {
     );
 
     expect(extractLanded(error)).toMatchObject({ orderId: '42', orderNoteId: ORDER_NOTE_ID });
+  });
+});
+
+describe('requestOrderOf', () => {
+  /** A saved-request note: it carries its recipient itself. */
+  const requestNote = (noteType: NoteType, id = ORDER_NOTE_ID) =>
+    ({
+      id: () => ({ toString: () => id }),
+      metadata: () => ({ noteType: () => noteType }),
+      recipient: () => fullNoteWithSerial().recipient()
+    }) as unknown as Note;
+
+  it('names the request`s one public PSWAP note, its id in lower case', () => {
+    const upper = `0x${'AB'.repeat(32)}`;
+    expect(requestOrderOf(() => [requestNote(NoteType.Public, upper)])).toEqual({
+      orderId: '42',
+      orderNoteId: upper.toLowerCase()
+    });
+  });
+
+  it.each<[string, () => Note[]]>([
+    ['a private note', () => [requestNote(NoteType.Private)]],
+    ['two PSWAP notes', () => [requestNote(NoteType.Public), requestNote(NoteType.Public)]],
+    ['a note id that is not note-id shaped', () => [requestNote(NoteType.Public, 'order-note')]]
+  ])('names no order for %s', (_label, readNotes) => {
+    expect(requestOrderOf(readNotes)).toBeUndefined();
+  });
+
+  it('records no order when the read fails, and says so', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        requestOrderOf(() => {
+          throw new Error('null pointer passed to rust');
+        })
+      ).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('lets a trap leave as itself and a kill as its kill link', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const kill = new WasmClientPoisonedError('watchdog', new Error('evicted'));
+    const thrown = (error: unknown) => {
+      try {
+        requestOrderOf(() => {
+          throw error;
+        });
+      } catch (caught) {
+        return caught;
+      }
+      return undefined;
+    };
+
+    expect(thrown(trap)).toBe(trap);
+    expect(thrown(new Error('read failed', { cause: kill }))).toBe(kill);
+  });
+});
+
+describe('recordedSwapOrder', () => {
+  it('reads a well-formed record as the landed facts` pair', () => {
+    expect(recordedSwapOrder({ requestOrder: { orderId: '42', noteId: ORDER_NOTE_ID } })).toEqual({
+      orderId: '42',
+      orderNoteId: ORDER_NOTE_ID
+    });
+  });
+
+  it.each<[string, unknown]>([
+    ['no extraInputs', undefined],
+    ['no record', { requestedFaucetId: 'f' }],
+    ['a record that is no object', { requestOrder: '42' }],
+    ['a hex order id', { requestOrder: { orderId: '0x2a', noteId: ORDER_NOTE_ID } }],
+    ['an order id at the field modulus', { requestOrder: { orderId: '18446744069414584321', noteId: ORDER_NOTE_ID } }],
+    ['no note id', { requestOrder: { orderId: '42' } }],
+    ['a note id that is not note-id shaped', { requestOrder: { orderId: '42', noteId: 'order-note' } }]
+  ])('reads none from %s', (_label, extraInputs) => {
+    expect(recordedSwapOrder(extraInputs)).toBeUndefined();
   });
 });
 

@@ -983,6 +983,47 @@ describe('the node has the write once submitProven resolves', () => {
     expect(error).toHaveProperty('cause', storeQuota);
   });
 
+  // The worker leg carries the order its own build drew, read off the request before the execute.
+  it('a swap whose apply fails after a worker prove carries the order its built request names', async () => {
+    const harness = buildHarness();
+    harness.applyFailure.error = new Error('store quota');
+    // This file's static import of the apply helper would otherwise keep its SDK, which names another PSWAP root.
+    jest.resetModules();
+    installMocks(harness);
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      ...sdkLazyMock(harness),
+      NoteScript: { pswap: () => ({ root: () => ({ toHex: () => 'pswap-root' }) }) }
+    }));
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    const orderNote = {
+      id: () => ({ toString: () => orderNoteId }),
+      metadata: () => ({ noteType: () => 'Public' }),
+      recipient: () => ({
+        script: () => ({ root: () => ({ toHex: () => 'pswap-root' }) }),
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    };
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { installLocalProveTransport } = await import('./local-prove-transport');
+    const { withWasmClientLock } = await import('./miden-client');
+    const { extractLanded } = await import('./sdk-error-code');
+    jest.requireMock('./helpers').buildPswapCreateRequest.mockReturnValue({
+      pswapRequest: true,
+      expectedOutputOwnNotes: () => [orderNote]
+    });
+    installLocalProveTransport(harness.transport);
+    const client = await MidenClientInterface.create();
+    jest.useFakeTimers();
+
+    const error = await afterApplyRetryWaits(
+      withWasmClientLock(async () => client.swapTransaction(swapTx(false))).catch((caught: unknown) => caught)
+    );
+
+    expect(harness.transport.prove).toHaveBeenCalledTimes(1);
+    expect(harness.submitProven).toHaveBeenCalledTimes(1);
+    expect(extractLanded(error)).toEqual({ orderId: '42', orderNoteId });
+  });
+
   it.each(legs)('a %s whose submitProven rejects reaches the caller unwrapped', async (_leg, write) => {
     const harness = buildHarness();
     const refused = new Error('node refused the transaction');
