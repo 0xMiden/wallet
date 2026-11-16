@@ -10,6 +10,7 @@ import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { type SpendingLimitAuthorization, spendingLimitAssessmentFromError } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
+import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { isExtension } from 'lib/platform';
 
 import { buildEpochCollateralRequestBytes } from './collateral-note';
@@ -79,6 +80,7 @@ export interface CreateBridgeP2IDENoteArgs {
   allocatorUrl?: string;
   operation?: BridgeOperationInput;
   reviewedOutput?: EpochReviewedOutput;
+  expectedWalletScope?: Pick<AccountScope, 'network' | 'rpcUrl'>;
 }
 
 /**

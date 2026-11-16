@@ -1,6 +1,8 @@
 import type { GetTaskDataParams, SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
 import { parseUnits } from 'viem';
 
+import { deriveBridgeRoutes } from 'lib/bridge/catalog';
+import { bindTransferQuote } from 'lib/bridge/core/quote';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { quoteEpochSend, runEpochSend } from 'lib/bridge/providers/epoch';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
@@ -15,6 +17,7 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { buildEpochCollateralRequestBytes } from './collateral-note';
 import { bridgeEpochSend, type EpochSendArgs } from './epoch-send';
+import { createBridgeP2IDENote, type CreateBridgeP2IDENoteArgs } from './miden-note';
 import { deferred } from './testing/earn-locks';
 
 const mockTaskData = jest.fn();
@@ -174,6 +177,110 @@ beforeEach(async () => {
   });
 });
 afterEach(() => jest.restoreAllMocks());
+
+function directNoteInput(): CreateBridgeP2IDENoteArgs {
+  const operation = input.operation;
+  if (!operation) throw new Error('Missing valid original operation');
+  return {
+    senderAccountId: input.senderPublicKey,
+    faucetId: input.faucetId,
+    amount: input.amount.toString(),
+    allocatorId: accounts.midenAccount,
+    recallBlocks: 5000,
+    bindingAttachmentFelts: [1n, 2n],
+    destinationAddress: input.destinationAddress,
+    destinationNetwork: input.destinationChainId!,
+    allocatorUrl: operation.review.route.recovery.config['bridge-providers'].epoch.allocatorUrl,
+    operation,
+    reviewedOutput: {
+      minimumOutputBaseUnits: '1000000000000000000',
+      outputTokenAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      outputTokenDecimals: 18,
+      validity: { kind: 'time', expiresAt: now + 60000 }
+    },
+    deps: input.deps
+  };
+}
+
+it('admits a same-scope direct owned note with native-captured protected RPC and original review', async () => {
+  const result = await createBridgeP2IDENote(directNoteInput());
+  expect(result.success).toBe(true);
+  const row = await Repo.transactions.get(result.txId!);
+  expect(row?.extraInputs.bridgeOperation?.review).toEqual(input.operation?.review);
+  expect(row?.extraInputs.bridgeOperation?.walletScope).toEqual({
+    network: 'testnet',
+    rpcUrl: 'https://wallet-rpc.example/private'
+  });
+  expect(noteBuilds).toBe(1);
+});
+
+it.each(['outer', 'direct'])(
+  'refuses a changed RPC during the WASM note build before real owned native admission: %s',
+  async caller => {
+    jest.mocked(buildEpochCollateralRequestBytes).mockImplementation(async () => {
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://changed-during-build.example/private');
+      return { requestBytes: new Uint8Array([81, 82]), reclaimHeight: 6000, noteId: 'original-built-note' };
+    });
+    const outcome =
+      caller === 'outer'
+        ? await bridgeEpochSend(input).then(
+            () => 'admitted',
+            () => 'refused'
+          )
+        : (await createBridgeP2IDENote(directNoteInput())).success
+          ? 'admitted'
+          : 'refused';
+    const rows = await Repo.transactions.toArray();
+    expect({
+      outcome,
+      admitted: rows.map(row => ({
+        operationId: row.extraInputs.bridgeOperation?.operationId,
+        rpcUrl: row.extraInputs.bridgeOperation?.walletScope?.rpcUrl
+      }))
+    }).toEqual({ outcome: 'refused', admitted: [] });
+  }
+);
+
+it('uses an explicit pre-build scope only to refuse, never as native capture authority', async () => {
+  const result = await createBridgeP2IDENote({
+    ...directNoteInput(),
+    expectedWalletScope: { network: 'testnet', rpcUrl: 'https://earlier-reviewed-rpc.example/private' }
+  });
+  expect({ success: result.success, rows: await Repo.transactions.count() }).toEqual({ success: false, rows: 0 });
+});
+
+it('preserves configured native EVM output identity through the Command send adapter', async () => {
+  mockSnapshot = referenceSnapshot('mainnet');
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+  const route = deriveBridgeRoutes(mockSnapshot).find(
+    candidate => candidate.provider === 'epoch' && candidate.mode === 'send' && candidate.destination.kind === 'native'
+  );
+  if (!route || route.source.kind !== 'miden') throw new Error('Missing accepted native Epoch route');
+  const request = { route, amount: '1', ...accounts };
+  const review = {
+    route,
+    amount: '1',
+    accounts: { ...accounts },
+    quote: bindTransferQuote(request, { kind: 'epoch', received: '1', validity: { kind: 'provider' } })
+  };
+  assertReviewedBridge(review, structuredClone(review), now);
+  input = {
+    ...input,
+    amount: parseUnits('1', route.source.decimals),
+    faucetId: route.source.faucetId,
+    destinationChainId: route.recovery.config.supportedEvmChains[route.destination.network]!.chainId,
+    operation: { operationId: 'native-output-send', review }
+  };
+  const result = await runEpochSend(input.operation!, input.deps);
+  const row = await Repo.transactions.get(result.txId!);
+  expect(row?.extraInputs.epochReviewedOutput).toEqual({
+    minimumOutputBaseUnits: '1000000000000000000',
+    outputTokenDecimals: 18,
+    outputTokenAddress: '0x0000000000000000000000000000000000000000',
+    validity: { kind: 'provider' }
+  });
+  expect(noteBuilds).toBe(1);
+});
 
 it('quotes the supported Command Miden-source direction without invented expiry or signing', async () => {
   const review = input.operation?.review;
