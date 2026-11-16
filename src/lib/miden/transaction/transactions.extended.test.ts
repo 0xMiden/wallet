@@ -13,7 +13,7 @@
  *   - waitForTransactionCompletion
  */
 
-import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
@@ -2802,6 +2802,39 @@ describe('completeSwapTransaction', () => {
     expect(row.extraInputs.expiresAt).toBeUndefined();
     expect(row.extraInputs.landedOrder).toBeUndefined();
     expect(row.outputNoteIds).toBeUndefined();
+  });
+
+  it('a result that names no order takes the one its saved request names', async () => {
+    const savedNote = {
+      id: () => ({ toString: () => 'saved-order-note' }),
+      metadata: () => ({ noteType: () => 'public' }),
+      recipient: () => ({
+        script: pswapScript,
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    };
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    deserialize.mockImplementationOnce(
+      () => ({ expectedOutputOwnNotes: () => [savedNote] }) as unknown as ReturnType<typeof deserialize>
+    );
+    txStore.push({
+      id: 'swap-saved-order',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      requestBytes: new Uint8Array([7, 7, 7]),
+      extraInputs: { expirySeconds: 100 }
+    });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-saved-order'),
+      swapResult([swapNote('fee-note', 7n, otherScript), swapNote('other-note', 9n, otherScript)])
+    );
+
+    const row = txStore.find(t => t.id === 'swap-saved-order')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual(['saved-order-note']);
   });
 
   it('defaults expirySeconds to 120 when absent', async () => {

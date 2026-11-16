@@ -45,6 +45,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
+import { orderFromSavedRequest } from './pinned-replay-check';
 import {
   TERMINAL_STATUS_WRITE_ATTEMPTS,
   TERMINAL_STATUS_WRITE_BACKOFF_MS,
@@ -457,7 +458,12 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   if (split.userNotes.length === 0) {
     throw new Error('Swap Transaction Failed');
   }
-  const order = swapOrderOf(split);
+  const fromResult = swapOrderOf(split);
+  // The result named no order, so the saved request's one public PSWAP note does. Any order an earlier
+  // attempt's landing held is dropped below, so it does not stand in. Decoded before the status write;
+  // this runs past submit, outside any hold.
+  const fromRequest = fromResult === undefined ? await orderFromSavedRequest(tx.requestBytes) : undefined;
+  const order = fromResult ?? fromRequest;
 
   // TODO: track the created PSWAP note + payback note for richer activity
   // display (offered/requested asset breakdown). For now record the tx as
@@ -477,7 +483,8 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
     // "explicit expiry" review change), and an earlier hot-key-rotation commit
     // accidentally reverted this stamp - leaving `expiresAt` undefined so active
     // orders were never reclaimed (swap-partial-fill lineage stuck `active`).
-    // A result that names no single public PSWAP note still completes, without an order.
+    // A result that names no single public PSWAP note still completes. The saved request names the order
+    // when the row holds none; otherwise there is no order.
     ...(order === undefined
       ? { extraInputs }
       : {

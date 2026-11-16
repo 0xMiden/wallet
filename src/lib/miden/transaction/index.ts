@@ -157,6 +157,7 @@ import {
   swapOrderExpiresAt,
   updateTransactionStatus
 } from './helper';
+import { orderFromSavedRequest, sameRequestBytes, swapOpensOrderFromRead } from './pinned-replay-check';
 import { assertProposalEffectApproved } from './proposal-effect-guard';
 import {
   noteQueueSighting,
@@ -1296,22 +1297,34 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
  * an IndexedDB abort under contention recurs at once and then clears, and a row left in progress is reaped into Failed,
  * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
  * recorded and the order the landed record held are kept, and a row another writer finalized is left alone. The
- * failure's own order facts stand in for a landed record that did not commit. Returns the row as read before the
- * write that landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
+ * failure's own order facts stand in for a landed record that did not commit. When those facts name no order, the
+ * order decoded from the saved request before this write is the read, and only while the attempt's row still holds
+ * those bytes. Returns the row as read before the write that landed, whose stage is still the one the tail stopped
+ * at, or undefined when no write landed.
  */
-const writeLandedCompleted = (txId: string, error: unknown): Promise<ITransaction | undefined> =>
-  writeCommittedCompleted(
+const writeLandedCompleted = async (txId: string, error: unknown): Promise<ITransaction | undefined> => {
+  const facts = landedFactsOf(error);
+  const attempt = await Repo.transactions.where({ id: txId }).first();
+  const decodedBytes = attempt?.requestBytes;
+  const savedOrder =
+    attempt !== undefined && attempt.type === 'swap' && facts.orderId === undefined && swapOpensOrderFromRead(attempt)
+      ? await orderFromSavedRequest(decodedBytes)
+      : undefined;
+  return writeCommittedCompleted(
     txId,
     row => {
       const completedAt = Math.floor(Date.now() / 1000); // seconds
+      const read =
+        facts.orderId !== undefined ? facts : sameRequestBytes(row.requestBytes, decodedBytes) ? savedOrder : undefined;
       return {
         ...landedRowFields(row, error),
         completedAt,
-        ...(row.type === 'swap' ? completedSwapFields(row, completedAt, landedFactsOf(error)) : {})
+        ...(row.type === 'swap' ? completedSwapFields(row, completedAt, read) : {})
       };
     },
     'landed'
   );
+};
 
 /** What a landed arm's log says failed: the leaf's local apply, or a step of the tail after it. */
 const landedFailureText = (error: unknown): string =>

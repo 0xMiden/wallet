@@ -36,7 +36,7 @@ jest.mock('../sdk/miden-client', () => ({
 
 import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
 
-import { checkPinnedReplayNotes } from './pinned-replay-check';
+import { checkPinnedReplayNotes, orderFromSavedRequest } from './pinned-replay-check';
 import { NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -206,5 +206,35 @@ describe('the order a pinned swap opens', () => {
 
     expect(check).toMatchObject({ kind: 'committed', noteId: FIRST.toLowerCase() });
     expect(check).not.toHaveProperty('order');
+  });
+});
+
+describe('orderFromSavedRequest', () => {
+  it('names the order of the saved request`s one public PSWAP note', async () => {
+    decodesTo(requestNote(FIRST, { orderId: 42n }));
+
+    await expect(orderFromSavedRequest(BYTES)).resolves.toEqual({ orderId: '42', orderNoteId: FIRST });
+  });
+
+  it('loads the SDK first, and with an SDK that is not ready takes no lock and decodes nothing', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSdkReady.mockRejectedValueOnce(new Error('wasm failed to load'));
+    try {
+      await expect(orderFromSavedRequest(BYTES)).resolves.toBeUndefined();
+    } finally {
+      warn.mockRestore();
+    }
+
+    expect(mockSdkReady).toHaveBeenCalledTimes(1);
+    expect(mockCallbackOutcomes).toEqual([]);
+    expect(mockDeserialize).not.toHaveBeenCalled();
+  });
+
+  it('reads nothing for missing or empty bytes', async () => {
+    await expect(orderFromSavedRequest(undefined)).resolves.toBeUndefined();
+    await expect(orderFromSavedRequest(new Uint8Array())).resolves.toBeUndefined();
+
+    expect(mockSdkReady).not.toHaveBeenCalled();
+    expect(mockDeserialize).not.toHaveBeenCalled();
   });
 });

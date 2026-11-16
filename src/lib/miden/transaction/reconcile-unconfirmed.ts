@@ -25,6 +25,7 @@ import {
   storedNoteIds,
   verifiedLandingRowFields
 } from './helper';
+import { orderFromSavedRequest, sameRequestBytes, swapOpensOrderFromRead } from './pinned-replay-check';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, LandingProof, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { submitApproach } from './submit-approach-diagnostics';
@@ -201,6 +202,14 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
   const landing = judgement.landed;
   const landedEntry = judgement.judgedEntries.find(entry => entry.attemptId === landing?.attemptId);
   if (landing === undefined || landedEntry === undefined) return false;
+  // Decoded before the transaction: the write cannot await the WASM lock. Passed as `read` only while the
+  // fresh row still holds the bytes that were decoded.
+  const preview = await Repo.transactions.where({ id: rowId }).first();
+  const decodedBytes = preview?.requestBytes;
+  const savedOrder =
+    preview !== undefined && preview.type === 'swap' && swapOpensOrderFromRead(preview)
+      ? await orderFromSavedRequest(decodedBytes)
+      : undefined;
   let landed: ITransaction | undefined;
   let addedTarget: string[] | undefined;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
@@ -213,11 +222,15 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     const freshRows = await accountRowsOf(fresh);
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
-    applyVerifiedLanding(fresh, {
-      ...verifiedLandingRowFields(fresh),
-      ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
-      completedAt: fresh.completedAt
-    });
+    applyVerifiedLanding(
+      fresh,
+      {
+        ...verifiedLandingRowFields(fresh),
+        ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
+        completedAt: fresh.completedAt
+      },
+      sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined
+    );
     const target = recordLandedDeliveryTarget(fresh, landing);
     await Repo.transactions.put(fresh);
     landed = fresh;

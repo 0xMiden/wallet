@@ -1,4 +1,6 @@
 // Real Dexie: every write here is a guarded modify or a rw transaction, so stubbing the store would test nothing.
+import { NoteScript, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+
 import * as Repo from 'lib/miden/repo';
 import { NoteTypeEnum } from 'lib/miden/types';
 
@@ -187,6 +189,40 @@ describe('the landed write (#1081)', () => {
       expect(row?.outputNoteIds).toBeUndefined();
     }
   );
+
+  it('the landed write of a swap that holds no order opens the one its saved request names', async () => {
+    const savedNote = {
+      id: () => ({ toString: () => NOTE }),
+      metadata: () => ({ noteType: () => NoteType.Public }),
+      recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    };
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    const decodes = deserialize.mock.calls.length;
+    deserialize.mockImplementation(
+      () => ({ expectedOutputOwnNotes: () => [savedNote] }) as unknown as ReturnType<typeof deserialize>
+    );
+    const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+    await Repo.transactions.put(
+      unconfirmed({ type: 'swap', displayIcon: 'SWAP', extraInputs, requestBytes: new Uint8Array([7, 7, 7]) })
+    );
+
+    try {
+      await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+    } finally {
+      deserialize.mockImplementation(
+        () => ({ expectedOutputOwnNotes: () => [] }) as unknown as ReturnType<typeof deserialize>
+      );
+    }
+    expect(deserialize.mock.calls.length).toBeGreaterThan(decodes);
+
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toEqual({ ...extraInputs, orderId: 42n, expiresAt: NOW - 100 + 100 });
+    expect(row?.outputNoteIds).toEqual([NOTE]);
+  });
 
   it('marks a private send undelivered', async () => {
     await Repo.transactions.put(unconfirmed({ noteType: NoteTypeEnum.Private }));

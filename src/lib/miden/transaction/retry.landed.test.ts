@@ -11,6 +11,8 @@
  * Failed forever. Only `./cancel` is mocked here (to control the node verdict).
  */
 /* eslint-disable import/first */
+import { NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
+
 import * as Repo from 'lib/miden/repo';
 
 const mockVerifySendLanded = jest.fn();
@@ -269,6 +271,43 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
     expect(row?.status).toBe(ITransactionStatus.Completed);
     expect(row?.extraInputs).toEqual(extraInputs);
     expect(row?.outputNoteIds).toBeUndefined();
+  });
+
+  // Verify-by-id passes no order of its own. The saved request's one public note is the order.
+  it('opens the order a saved request names when a landed swap holds none', async () => {
+    const bytes = new Uint8Array([9, 9, 9]);
+    const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+    await Repo.transactions.put(decidedSwap({ extraInputs, requestBytes: bytes }));
+    mockVerifySendLanded.mockResolvedValue('landed');
+    const lazySdk = await import('@miden-sdk/miden-sdk/lazy');
+    const deserialize = jest.mocked(lazySdk.TransactionRequest.deserialize);
+    const previous = deserialize.getMockImplementation();
+    deserialize.mockImplementation(
+      () =>
+        ({
+          expectedOutputOwnNotes: () => [
+            {
+              id: () => ({ toString: () => ORDER_NOTE }),
+              metadata: () => ({ noteType: () => NoteType.Public }),
+              recipient: () => ({
+                script: () => ({ root: () => NoteScript.pswap().root() }),
+                serialNum: () => ({ toFelts: () => [{ asInt: () => 1n }, { asInt: () => 42n }] })
+              })
+            }
+          ]
+        }) as unknown as ReturnType<typeof deserialize>
+    );
+    try {
+      await requeueFailedTransaction('tx-landed-swap');
+    } finally {
+      deserialize.mockImplementation(previous);
+    }
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs.orderId).toBe(42n);
+    expect(row?.extraInputs.expiresAt).toBe((row?.completedAt ?? 0) + 100);
+    expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
   });
 
   it('a proven-dead swap`s requeue drops the order its dead attempt decided', async () => {

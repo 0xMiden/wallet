@@ -31,7 +31,13 @@ import {
   storedNoteIds,
   verifiedLandingRowFields
 } from './helper';
-import { checkPinnedReplayNotes, type PinnedReplayCheck } from './pinned-replay-check';
+import {
+  checkPinnedReplayNotes,
+  orderFromSavedRequest,
+  type PinnedReplayCheck,
+  sameRequestBytes,
+  swapOpensOrderFromRead
+} from './pinned-replay-check';
 import { latestEndMayStillRun, noteClaimedElsewhere } from './reconcile-judge';
 import { accountRowsOf, checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
 import { GuardianHoldRetryError } from './retry-refusal';
@@ -401,13 +407,22 @@ const planRequeue = async (
       const completedAt = Math.floor(Date.now() / 1000);
       const verifiedId = tx.transactionId;
       let target: string[] | undefined;
+      // A swap that holds no order opens the one its saved request names. Decoded before the write, which
+      // cannot await the lock, and passed only while the fresh row still holds those bytes.
+      const decodedBytes = tx.requestBytes;
+      const savedOrder =
+        tx.type === 'swap' && swapOpensOrderFromRead(tx) ? await orderFromSavedRequest(decodedBytes) : undefined;
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than
       // complete and the guard's only success path never once worked.
       await completeVerifiedLandedTransaction(tx.id, fresh => {
         // `fresh` is the row this write stores. The landing is applied to it here, not returned, so the target is
         // recorded on the completed row and nothing assigned after it can overwrite a replaced target's relabel.
-        applyVerifiedLanding(fresh, { ...verifiedLandingRowFields(fresh), completedAt });
+        applyVerifiedLanding(
+          fresh,
+          { ...verifiedLandingRowFields(fresh), completedAt },
+          sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined
+        );
         target =
           verifiedId === undefined ? undefined : recordLandedDeliveryTarget(fresh, { boundTransactionId: verifiedId });
         return {};
@@ -480,12 +495,6 @@ const planRequeue = async (
   return { failedStage: tx.stage, clearFlags, proven, baseline };
 };
 
-const sameBytes = (left: Uint8Array | undefined, right: Uint8Array | undefined): boolean =>
-  left !== undefined &&
-  right !== undefined &&
-  left.length === right.length &&
-  left.every((byte, index) => byte === right[index]);
-
 type PinnedLandingWrite = 'written' | 'declined' | 'claimed';
 
 /**
@@ -511,7 +520,7 @@ const writePinnedLanding = async (
         (fresh.status !== ITransactionStatus.Failed && fresh.status !== ITransactionStatus.Unconfirmed) ||
         fresh.stage !== tx.stage ||
         evidenceKey(fresh.submitEvidence) !== baseline ||
-        !sameBytes(fresh.requestBytes, tx.requestBytes)
+        !sameRequestBytes(fresh.requestBytes, tx.requestBytes)
       ) {
         return { write: 'declined' };
       }

@@ -11,7 +11,7 @@
  *     → submit → completeSendTransaction).
  */
 
-import { NoteScript, NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, NoteType, TransactionProver, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import { getMessage } from 'lib/i18n/core';
@@ -2994,6 +2994,86 @@ describe('generateTransaction - Guardian routing', () => {
     // from a build that predates build-time commitment -- cannot acquire it here and will fail
     // on a fee-charging chain. There is no such persisted row today; if that changes, the row
     // has to be re-queued rather than annotated.
+  });
+
+  it('opens the order a saved request names when a landed swap apply read none', async () => {
+    const txId = 'guardian-swap-saved-order';
+    const ORDER_NOTE = `0x${'ab'.repeat(32)}`;
+    const requestBytes = new Uint8Array([4, 5, 6]);
+    const rebasedBytes = new Uint8Array([14, 15, 16]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'swap',
+      amount: 1000n,
+      faucetId: 'offered-faucet',
+      requestBytes,
+      extraInputs: { requestedFaucetId: 'requested-faucet', requestedAmount: 500n, expirySeconds: 100 },
+      delegateTransaction: false
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'swap-proposal' },
+        requestBytes: rebasedBytes
+      })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {}),
+      abandonCandidate: jest.fn(async () => {})
+    });
+    const apply = jest.fn(async () => {
+      throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+    });
+    const client = Object.assign(makeClientApi(makeResult(), apply), { getSyncHeight: jest.fn(async () => 100) });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => ({ vault: jest.fn() })),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const savedNote = {
+      id: () => ({ toString: () => ORDER_NOTE }),
+      metadata: () => ({ noteType: () => NoteType.Public }),
+      recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 1n }, { asInt: () => 42n }] })
+      })
+    };
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    const previousDeserialize = deserialize.getMockImplementation();
+    const lock = mockWithWasmClientLock.getMockImplementation();
+    deserialize.mockImplementation(
+      () => ({ expectedOutputOwnNotes: () => [savedNote] }) as unknown as ReturnType<typeof deserialize>
+    );
+    mockWithWasmClientLock.mockImplementation(async (fn, options) => {
+      if (lock === undefined) return fn({ mock: 'wasm-lock-hold' });
+      return lock(fn, options);
+    });
+    try {
+      await generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      deserialize.mockImplementation(previousDeserialize);
+      if (lock !== undefined) mockWithWasmClientLock.mockImplementation(lock);
+    }
+
+    const row = txStore.find(stored => stored.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    const extra = row?.extraInputs;
+    const completedAt = row?.completedAt;
+    if (extra === null || typeof extra !== 'object' || typeof completedAt !== 'number') {
+      throw new Error('saved order was not stamped');
+    }
+    expect('orderId' in extra ? extra.orderId : undefined).toBe(42n);
+    expect('expiresAt' in extra ? extra.expiresAt : undefined).toBe(completedAt + 100);
+    expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
   });
 
   describe('diagnostic records of a Guardian swap (#1660)', () => {

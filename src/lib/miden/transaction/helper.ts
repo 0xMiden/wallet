@@ -827,7 +827,8 @@ export const completeVerifiedLandedTransaction = async (
  *
  * A swap opens the order its landed failure held here, with the status flip
  * ({@link completedSwapFields}), so every node-evidence landing tracks it; `read`
- * is the order the landing itself read, taken when the row holds none.
+ * is the order the landing itself read, including the order decoded from the saved
+ * request when the row holds none.
  */
 export const applyVerifiedLanding = (
   tx: ITransaction,

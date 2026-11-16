@@ -11,7 +11,7 @@ import { createNodeReads, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-rea
 import type { ITransaction } from '../db/types';
 import { swapOrderOf } from '../sdk/apply-after-submit';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { type LandedTransaction, rethrowTrapOrKill } from '../sdk/sdk-error-code';
+import { landedOrderFacts, type LandedTransaction, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
 
 export type PinnedReplayCheck =
@@ -44,8 +44,59 @@ interface PinnedNotes {
 class SavedRequestUnreadable extends Error {}
 
 /** `swapOrderOf` on the saved request's notes, with the fee note not set aside. */
-const pinnedOrderOf = (notes: Note[]): Pick<LandedTransaction, 'orderId' | 'orderNoteId'> | undefined =>
+const pinnedOrderOf = (notes: Note[]): ReturnType<typeof swapOrderOf> =>
   swapOrderOf({ feeNote: undefined, userNotes: notes });
+
+/**
+ * True when `completedSwapFields` would still open an order from `read`: a swap row with `extraInputs`,
+ * no `orderId`, and no well-formed held order (`landedOrderFacts` keeps an id and `expiresAt` is a safe integer).
+ */
+export const swapOpensOrderFromRead = (row: Pick<ITransaction, 'type' | 'extraInputs'>): boolean => {
+  if (row.type !== 'swap') return false;
+  const extra: unknown = row.extraInputs;
+  if (extra === null || typeof extra !== 'object') return false;
+  if ('orderId' in extra && extra.orderId != null) return false;
+  const landed = 'landedOrder' in extra ? extra.landedOrder : undefined;
+  if (landed === null || typeof landed !== 'object') return true;
+  const held = landedOrderFacts(
+    'orderId' in landed ? landed.orderId : undefined,
+    'noteId' in landed ? landed.noteId : undefined
+  );
+  const expiresAt = 'expiresAt' in landed ? landed.expiresAt : undefined;
+  return !(held.orderId !== undefined && typeof expiresAt === 'number' && Number.isSafeInteger(expiresAt));
+};
+
+/** The saved request's bytes, compared before a write passes the order they named. */
+export const sameRequestBytes = (left: Uint8Array | undefined, right: Uint8Array | undefined): boolean =>
+  left !== undefined &&
+  right !== undefined &&
+  left.length === right.length &&
+  left.every((byte, index) => byte === right[index]);
+
+/**
+ * The order a saved request names: its one public own note, fee not set aside. Missing or empty bytes return
+ * undefined and take no lock. The lazy SDK loads its WASM first, as `checkPinnedReplayNotes` does, since a static
+ * decode in a realm that has not loaded it would fail. A trap is not caught inside the callback, so the lock retires
+ * it; the caller catches outside and returns undefined. No node read, and the landing still completes.
+ */
+export const orderFromSavedRequest = async (bytes: Uint8Array | undefined): Promise<ReturnType<typeof swapOrderOf>> => {
+  if (bytes === undefined || bytes.length === 0) return undefined;
+  try {
+    await ensureSdkWasmReady();
+  } catch (error) {
+    console.warn('[swap] the SDK is not ready to read the order the saved request names', error);
+    return undefined;
+  }
+  try {
+    return await withWasmClientLock(
+      async () => pinnedOrderOf(TransactionRequest.deserialize(bytes).expectedOutputOwnNotes()),
+      { label: 'saved-request-order' }
+    );
+  } catch (error) {
+    console.warn('[swap] could not read the order the saved request names', error);
+    return undefined;
+  }
+};
 
 /**
  * Ask the node whether a note `row`'s request bytes create is committed. The decode is static but runs in a labelled
