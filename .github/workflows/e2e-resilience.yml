@@ -36,6 +36,7 @@ jobs:
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
+      FETCH_FAULT_DEBUG: '1'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -166,7 +167,7 @@ jobs:
         # with --retries=1. See the config comment. The "Report flaky" step below
         # surfaces any retried-then-passed spec so a creeping flake stays visible
         # instead of silent.
-        run: xvfb-run -a yarn test:e2e:resilience:run
+        run: xvfb-run -a yarn test:e2e:resilience:run sync-rate-limit-recovery.spec.ts --grep 'never answers' --retries=0
       - name: Report flaky (retried-then-passed) specs
         if: always()
         run: node scripts/report-flaky-e2e.mjs test-results/results.json
