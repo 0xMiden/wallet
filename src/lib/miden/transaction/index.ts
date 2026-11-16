@@ -218,6 +218,7 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  retireWasmClientForCaughtTrap,
   retireWasmClientForUnheldTrap,
   type WasmClientLockOptions,
   type WasmLockHold,
@@ -2967,7 +2968,8 @@ const runGuardianPipeline = async (
       apply: () => submittedTx.apply(),
       result: executedTx.result,
       readLocalAccount: accountId => midenClient.client.accounts.get(accountId),
-      holdIsCurrent: () => getCurrentWasmLockHold() === hold
+      holdIsCurrent: () => getCurrentWasmLockHold() === hold,
+      retireTrap: cause => retireWasmClientForCaughtTrap(hold, cause)
     });
     return executedTx.result;
   };

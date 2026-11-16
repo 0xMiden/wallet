@@ -42,6 +42,8 @@ export interface ApplyAfterSubmitRetry<Id> {
   readLocalAccount: (accountId: Id) => Promise<{ to_commitment(): { toHex(): string } } | null | undefined>;
   /** False once the hold that submitted no longer owns the WASM mutex. */
   holdIsCurrent: () => boolean;
+  /** Retire the submitting hold's client for a trap. The landed verdict stays `ApplyAfterSubmitError`. */
+  retireTrap: (cause: WebAssembly.RuntimeError) => void;
   /** Hears each failed attempt. A throw here is ignored. */
   onApplyFailed?: (error: unknown) => void;
   sleep?: (ms: number) => Promise<void>;
@@ -52,29 +54,43 @@ const defaultSleep = (ms: number) => new Promise<void>(resolve => setTimeout(res
 /**
  * Apply a transaction the node already accepted, retrying a failed apply while that is safe. A
  * failure that outlasts the retries rejects as `ApplyAfterSubmitError`, so the row takes its type's
- * landed verdict and is never requeued into a second submit.
+ * landed verdict and is never requeued into a second submit. A trap in the apply or in the initial
+ * account read retires the submitting hold and carries no facts; a trap in a landed-fact reader
+ * retires it and keeps the facts already read.
  */
 export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): Promise<void> {
   const sleep = options.sleep ?? defaultSleep;
   let lastError: unknown;
+  // The rejection itself, not a wrapped cause: a trap on this client is not retried and is not read.
+  const noteApplyFailure = (error: unknown): void => {
+    report(options, error);
+    if (error instanceof WebAssembly.RuntimeError) {
+      options.retireTrap(error);
+      throw new ApplyAfterSubmitError(error, {});
+    }
+    lastError = error;
+  };
   try {
     await options.apply();
     return;
   } catch (error) {
-    lastError = error;
-    report(options, error);
+    noteApplyFailure(error);
   }
   for (const delayMs of APPLY_RETRY_DELAYS_MS) {
     // Wait first: a transient that broke the apply can break an immediate read too, and the compare
     // belongs right before the write it guards.
     await sleep(delayMs);
-    if (!(await storeHoldsInitialAccount(options))) break;
+    try {
+      if (!(await storeHoldsInitialAccount(options))) break;
+    } catch (error) {
+      if (error instanceof WebAssembly.RuntimeError) throw new ApplyAfterSubmitError(error, {});
+      throw error;
+    }
     try {
       await options.apply();
       return;
     } catch (error) {
-      lastError = error;
-      report(options, error);
+      noteApplyFailure(error);
     }
   }
   throw new ApplyAfterSubmitError(lastError, readLanded(options));
@@ -83,16 +99,40 @@ export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): 
 /**
  * Read only once every attempt failed, and only while this hold still owns the client the result is a
  * borrow of: an evicted holder never becomes current again, so a current hold means no eviction
- * happened. An evicted hold reports no facts and touches nothing.
+ * happened. An evicted hold reports no facts and touches nothing. A trap in one reader retires the
+ * submitting hold, keeps the facts already read, and skips the readers after it. Any other failure
+ * leaves that one fact unread and the later readers still run.
  */
 function readLanded<Id>(options: ApplyAfterSubmitRetry<Id>): LandedTransaction {
   if (!options.holdIsCurrent()) return {};
-  return {
-    transactionId: readTransactionId(options.result),
-    privateOutputNotes: countPrivateOutputNotes(options.result),
-    finalAccountCommitment: readFinalAccountCommitment(options.result),
-    ...readSwapOrder(options.result)
-  };
+  const landed: LandedTransaction = {};
+  const readers = [
+    () => {
+      const transactionId = readTransactionId(options.result);
+      if (transactionId !== undefined) landed.transactionId = transactionId;
+    },
+    () => {
+      const privateOutputNotes = countPrivateOutputNotes(options.result);
+      if (privateOutputNotes !== undefined) landed.privateOutputNotes = privateOutputNotes;
+    },
+    () => {
+      const finalAccountCommitment = readFinalAccountCommitment(options.result);
+      if (finalAccountCommitment !== undefined) landed.finalAccountCommitment = finalAccountCommitment;
+    },
+    () => {
+      Object.assign(landed, readSwapOrder(options.result));
+    }
+  ];
+  for (const read of readers) {
+    try {
+      read();
+    } catch (error) {
+      if (!(error instanceof WebAssembly.RuntimeError)) throw error;
+      options.retireTrap(error);
+      return landed;
+    }
+  }
+  return landed;
 }
 
 function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
@@ -106,7 +146,8 @@ function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
 function readTransactionId<Id>(result: SubmittedResult<Id>): string | undefined {
   try {
     return result.executedTransaction().id().toHex();
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return undefined;
   }
 }
@@ -114,7 +155,8 @@ function readTransactionId<Id>(result: SubmittedResult<Id>): string | undefined 
 function readFinalAccountCommitment<Id>(result: SubmittedResult<Id>): string | undefined {
   try {
     return result.executedTransaction().finalAccountHeader?.().to_commitment().toHex();
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return undefined;
   }
 }
@@ -128,7 +170,8 @@ function countPrivateOutputNotes<Id>(result: SubmittedResult<Id>): number | unde
   try {
     const { userNotes } = splitExecutedOutputNotes(result.executedTransaction());
     return userNotes.filter(note => toNoteTypeString(note.metadata().noteType()) === NoteTypeEnum.Private).length;
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return undefined;
   }
 }
@@ -140,7 +183,8 @@ function countPrivateOutputNotes<Id>(result: SubmittedResult<Id>): number | unde
 function readSwapOrder<Id>(result: SubmittedResult<Id>): Pick<LandedTransaction, 'orderId' | 'orderNoteId'> {
   try {
     return swapOrderOf(splitExecutedOutputNotes(result.executedTransaction())) ?? {};
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return {};
   }
 }
@@ -185,7 +229,13 @@ async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>):
     // The read parked, and the account is a borrow of the client this hold owns.
     if (!account || !options.holdIsCurrent()) return false;
     return account.to_commitment().toHex() === initial;
-  } catch {
+  } catch (error) {
+    // A trap retires this hold and leaves, so the caller records no facts. Any other failure
+    // refuses the retry, and the landed read still runs.
+    if (error instanceof WebAssembly.RuntimeError) {
+      options.retireTrap(error);
+      throw error;
+    }
     return false;
   }
 }

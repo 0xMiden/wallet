@@ -83,6 +83,7 @@ const arrange = (overrides: Partial<ApplyAfterSubmitRetry<string>> = {}, local: 
     },
     readLocalAccount: jest.fn(async (_accountId: string) => (local === null ? null : withCommitment(local))),
     holdIsCurrent: () => true,
+    retireTrap: jest.fn(),
     sleep: jest.fn(async (_ms: number) => {}),
     ...overrides
   };
@@ -419,20 +420,133 @@ describe('applyAfterSubmit (#1233)', () => {
   ])(
     'an order read that throws %s leaves it unread and keeps the landed verdict and the other facts',
     async (_, thrown) => {
+      const retireTrap = jest.fn();
       const result = resultWithNotes([
         orderNote(NoteType.Public, () => {
           throw thrown;
         })
       ]);
 
-      const error = await applyAfterSubmit(arrange({ apply: failingApply(), result }, FINAL)).catch(
+      const error = await applyAfterSubmit(arrange({ apply: failingApply(), result, retireTrap }, FINAL)).catch(
         (caught: unknown) => caught
       );
 
       expect(isApplyAfterSubmitError(error)).toBe(true);
       expect(extractLanded(error)).toEqual({ transactionId: '0xtx', privateOutputNotes: 0 });
+      expect(retireTrap.mock.calls.map(([cause]) => cause)).toEqual(
+        thrown instanceof WebAssembly.RuntimeError ? [thrown] : []
+      );
     }
   );
+
+  it('an id() trap with the local commitment at FINAL retires the hold and does not read the output notes', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const outputNotes = jest.fn(() => ({ notes: () => [] }));
+    const id = jest.fn(() => {
+      throw trap;
+    });
+    const retireTrap = jest.fn();
+    const result = {
+      executedTransaction: () => ({
+        id,
+        accountId: () => 'acc',
+        initialAccountHeader: () => withCommitment(INITIAL),
+        finalAccountHeader: () => withCommitment(FINAL),
+        outputNotes
+      })
+    };
+
+    const error = await applyAfterSubmit(arrange({ apply: failingApply(), result, retireTrap }, FINAL)).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(outputNotes).not.toHaveBeenCalled();
+    expect(retireTrap).toHaveBeenCalledTimes(1);
+    expect(retireTrap).toHaveBeenCalledWith(trap);
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({});
+  });
+
+  it('an apply() trap under the initial local commitment is not retried and reads no id', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const apply = jest.fn(async () => {
+      throw trap;
+    });
+    const id = jest.fn(() => ({ toHex: () => '0xtx' }));
+    const retireTrap = jest.fn();
+    const result = {
+      executedTransaction: () => ({
+        id,
+        accountId: () => 'acc',
+        initialAccountHeader: () => withCommitment(INITIAL),
+        outputNotes: () => ({ notes: () => [] })
+      })
+    };
+
+    const error = await applyAfterSubmit(arrange({ apply, result, retireTrap })).catch((caught: unknown) => caught);
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(id).not.toHaveBeenCalled();
+    expect(retireTrap).toHaveBeenCalledTimes(1);
+    expect(retireTrap).toHaveBeenCalledWith(trap);
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({});
+  });
+
+  it('a retried apply() that traps after an ordinary failure is not retried again and reads no id', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const apply = jest
+      .fn<Promise<void>, []>()
+      .mockRejectedValueOnce(new Error('IndexedDB transaction aborted'))
+      .mockRejectedValueOnce(trap);
+    const id = jest.fn(() => ({ toHex: () => '0xtx' }));
+    const retireTrap = jest.fn();
+    const result = {
+      executedTransaction: () => ({
+        id,
+        accountId: () => 'acc',
+        initialAccountHeader: () => withCommitment(INITIAL),
+        outputNotes: () => ({ notes: () => [] })
+      })
+    };
+
+    const error = await applyAfterSubmit(arrange({ apply, result, retireTrap })).catch((caught: unknown) => caught);
+
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(id).not.toHaveBeenCalled();
+    expect(retireTrap).toHaveBeenCalledTimes(1);
+    expect(retireTrap).toHaveBeenCalledWith(trap);
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({});
+  });
+
+  it('an initialAccountHeader() trap after an ordinary apply failure retires the hold and reads no id', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+    const id = jest.fn(() => ({ toHex: () => '0xtx' }));
+    const retireTrap = jest.fn();
+    const result = {
+      executedTransaction: () => ({
+        id,
+        accountId: () => 'acc',
+        initialAccountHeader: () => {
+          throw trap;
+        },
+        outputNotes: () => ({ notes: () => [] })
+      })
+    };
+
+    const error = await applyAfterSubmit(arrange({ apply, result, retireTrap })).catch((caught: unknown) => caught);
+
+    expect(retireTrap).toHaveBeenCalledTimes(1);
+    expect(retireTrap).toHaveBeenCalledWith(trap);
+    expect(id).not.toHaveBeenCalled();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({});
+  });
 
   it('two public output notes on a charging chain whose fee note was not set aside name no order', async () => {
     const result = resultWithNotes([orderNote(NoteType.Public), orderNote(NoteType.Public)], {
