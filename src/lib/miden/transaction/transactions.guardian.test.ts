@@ -1032,11 +1032,11 @@ describe('completeSwitchGuardianTransaction', () => {
     const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
     const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
     jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-    // The primary write plus the first TWO retries fail; the third lands. Three
-    // is the number that distinguishes this from the single-retry behaviour it
-    // replaces: the primary write consumes one failure by itself, so a test that
-    // only needed two would pass with a budget of one retry.
+    // The first three helper attempts fail and the fourth lands. Three failures
+    // is what a single retry cannot survive, and the advance below has to reach
+    // that fourth attempt.
     const repo = jest.requireMock('lib/miden/repo') as {
       transactions: { where: jest.Mock };
     };
@@ -1074,8 +1074,9 @@ describe('completeSwitchGuardianTransaction', () => {
         multisigService as never,
         provider as never
       );
-      // The attempts are SPACED - a single immediate retry is what this replaces.
-      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * 4);
+      // The helper sleeps after each of the first three failures (1 + 2 + 3 backoffs)
+      // so the fourth attempt can run.
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * (1 + 2 + 3));
       await completion;
     } finally {
       jest.useRealTimers();
@@ -1085,6 +1086,217 @@ describe('completeSwitchGuardianTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(failures).toBe(3);
+  });
+
+  // The helper re-reads before every attempt and returns when the row has left
+  // the queue. A Completed write that loses that race must not modify the row
+  // again, and must not log a per-attempt error for attempts it never makes.
+  it('stops the Completed write once the row has left the queue', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const repo = jest.requireMock('lib/miden/repo') as {
+      transactions: { where: jest.Mock };
+    };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let completedModifies = 0;
+    let readsAfterLeave = 0;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as {
+        modify: (fn: (row: Record<string, unknown>) => void) => Promise<void>;
+        first: () => Promise<Record<string, unknown> | undefined>;
+      };
+      return {
+        ...handle,
+        first: async () => {
+          const row = await handle.first();
+          if (
+            row?.status === ITransactionStatus.Completed ||
+            row?.status === ITransactionStatus.Failed ||
+            row?.status === ITransactionStatus.Unconfirmed
+          ) {
+            readsAfterLeave += 1;
+          }
+          return row;
+        },
+        modify: async (fn: (row: Record<string, unknown>) => void) => {
+          const probe: Record<string, unknown> = { extraInputs: {} };
+          let targetsCompleted = false;
+          try {
+            fn(probe);
+            targetsCompleted = probe.status === ITransactionStatus.Completed;
+          } catch {
+            targetsCompleted = false;
+          }
+          if (targetsCompleted) {
+            completedModifies += 1;
+            if (completedModifies === 1) {
+              const stored = txStore.find(r => r.id === tx.id);
+              if (stored) stored.status = ITransactionStatus.Failed;
+              throw new Error('IndexedDB transaction aborted');
+            }
+          }
+          return handle.modify(fn);
+        }
+      };
+    });
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeSwitchGuardianTransaction(
+        tx,
+        makeResult() as never,
+        multisigService as never,
+        provider as never
+      );
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * (1 + 2 + 3));
+      await completion;
+    } finally {
+      jest.useRealTimers();
+      repo.transactions.where.mockImplementation(realWhere);
+    }
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(completedModifies).toBe(1);
+    expect(readsAfterLeave).toBe(1);
+    expect(errorSpy.mock.calls.filter(call => typeof call[0] === 'string' && call[0].includes('attempt'))).toEqual([]);
+  });
+
+  it('a coordinated switch whose first Completed write aborts still persists the in-memory switch delta', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({
+      id: tx.id,
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    tx.extraInputs = {
+      ...tx.extraInputs,
+      switchDeltaPushed: true,
+      switchProposalId: 'prop-switch',
+      switchProposalNonce: 41
+    };
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const repo = jest.requireMock('lib/miden/repo') as {
+      transactions: { where: jest.Mock };
+    };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let failures = 0;
+    repo.transactions.where.mockImplementation((query: { id: string }) => ({
+      ...realWhere(query),
+      modify: async (fn: (row: Record<string, unknown>) => void) => {
+        const probe: Record<string, unknown> = { extraInputs: {} };
+        let targetsCompleted = false;
+        try {
+          fn(probe);
+          targetsCompleted = probe.status === ITransactionStatus.Completed;
+        } catch {
+          targetsCompleted = false;
+        }
+        if (targetsCompleted && failures < 1) {
+          failures += 1;
+          throw new Error('IndexedDB transaction aborted');
+        }
+        return realWhere(query).modify(fn);
+      }
+    }));
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeSwitchGuardianTransaction(
+        tx,
+        makeResult() as never,
+        multisigService as never,
+        provider as never
+      );
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS);
+      await completion;
+    } finally {
+      jest.useRealTimers();
+      repo.transactions.where.mockImplementation(realWhere);
+    }
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(failures).toBe(1);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs).toMatchObject({
+      switchDeltaPushed: true,
+      switchProposalId: 'prop-switch',
+      switchProposalNonce: 41
+    });
+  });
+
+  // An unexpected throw before the Completed write reaches the catch, whose write is the same helper, so it also
+  // stops once the row has left the queue instead of writing Completed over a finalized row again and again.
+  it('the fallback Completed write after an unexpected throw stops once the row has left the queue', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    // No extraInputs to read the new endpoint from: the first step of the completion throws.
+    tx.extraInputs = undefined as never;
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const repo = jest.requireMock('lib/miden/repo') as {
+      transactions: { where: jest.Mock };
+    };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let completedModifies = 0;
+    repo.transactions.where.mockImplementation((query: { id: string }) => ({
+      ...realWhere(query),
+      modify: async (fn: (row: Record<string, unknown>) => void) => {
+        const probe: Record<string, unknown> = { extraInputs: {} };
+        let targetsCompleted = false;
+        try {
+          fn(probe);
+          targetsCompleted = probe.status === ITransactionStatus.Completed;
+        } catch {
+          targetsCompleted = false;
+        }
+        if (targetsCompleted) {
+          completedModifies += 1;
+          const stored = txStore.find(r => r.id === tx.id);
+          if (stored) stored.status = ITransactionStatus.Failed;
+          throw new Error('IndexedDB transaction aborted');
+        }
+        return realWhere(query).modify(fn);
+      }
+    }));
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeSwitchGuardianTransaction(
+        tx,
+        makeResult() as never,
+        multisigService as never,
+        provider as never
+      );
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * (1 + 2 + 3));
+      await completion;
+    } finally {
+      jest.useRealTimers();
+      repo.transactions.where.mockImplementation(realWhere);
+    }
+
+    expect(completedModifies).toBe(1);
+    expect(txStore.find(r => r.id === tx.id)?.status).toBe(ITransactionStatus.Failed);
+    // One failed attempt, then a re-read that finds the row finalized: no further attempt is made or logged.
+    const attemptLogs = [...errorSpy.mock.calls, ...warnSpy.mock.calls].filter(
+      call => typeof call[0] === 'string' && call[0].includes('attempt')
+    );
+    expect(attemptLogs).toHaveLength(1);
   });
 
   it('records registerFailed=false on a clean switch', async () => {

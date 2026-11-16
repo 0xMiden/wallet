@@ -863,6 +863,37 @@ export const completeSwitchGuardianTransaction = async (
   let registerFailed = false;
   let localStateNotSaved = false;
   let localStateUnrecoverable = false;
+  // The helper re-reads the stored row only for `hasLeftQueue`. The patch is this
+  // in-memory row: it alone holds `switchDeltaPushed`, `switchProposalId`,
+  // `switchProposalNonce` and a `switchedDirectly` stamp the direct path could
+  // not persist, which `switch-guardian-residual.ts` then reads off the stored row.
+  const writeGuardianSwitchCompleted = () =>
+    writeCommittedCompleted(
+      tx.id,
+      {
+        ...feeFieldsFromResult(result, tx.id),
+        // The Activity list renders this string as the row title, so it is a
+        // claim about the chain, not a log line. "Guardian switched" is one the
+        // unconfirmed path cannot make - and the receipt's recovery copy used to
+        // send the user to Activity to check, where this asserted the opposite.
+        displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
+        completedAt: Math.floor(Date.now() / 1000), // seconds
+        // Preserve the audit fields (updateTransactionStatus Object.assigns the
+        // whole extraInputs) and record which post-commit steps landed.
+        extraInputs: {
+          ...tx.extraInputs,
+          registerFailed,
+          endpointPersistFailed,
+          commitUnconfirmed,
+          localStateNotSaved,
+          localStateUnrecoverable
+        },
+        // On the landed reconcile path there is no local TransactionResult, so the row takes the id
+        // the failure carried, if any (#1233); the switch is on chain either way.
+        ...(resultFields ?? landedTransactionIdFields(landed))
+      },
+      'guardian switch'
+    );
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
     const storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
@@ -1010,87 +1041,19 @@ export const completeSwitchGuardianTransaction = async (
       console.warn('Could not evict the cached guardian service (non-fatal):', evictError);
     }
 
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...feeFieldsFromResult(result, tx.id),
-      // The Activity list renders this string as the row title, so it is a
-      // claim about the chain, not a log line. "Guardian switched" is one the
-      // unconfirmed path cannot make - and the receipt's recovery copy used to
-      // send the user to Activity to check, where this asserted the opposite.
-      displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
-      completedAt: Math.floor(Date.now() / 1000), // seconds
-      // Preserve the audit fields (updateTransactionStatus Object.assigns the
-      // whole extraInputs) and record which post-commit steps landed.
-      extraInputs: {
-        ...tx.extraInputs,
-        registerFailed,
-        endpointPersistFailed,
-        commitUnconfirmed,
-        localStateNotSaved,
-        localStateUnrecoverable
-      },
-      // On the landed reconcile path there is no local TransactionResult, so the row takes the id
-      // the failure carried, if any (#1233); the switch is on chain either way.
-      ...(resultFields ?? landedTransactionIdFields(landed))
-    });
+    await writeGuardianSwitchCompleted();
   } catch (error) {
     // Past the commit, Failed is not an honest terminal status: the rotation IS
     // on chain. Every step above records its own outcome instead of throwing, so
-    // reaching here means the status write itself failed - and answering that by
-    // writing the OPPOSITE status would tell the user their rotation failed when
-    // it succeeded, with no Retry available (`switch-guardian` is in no requeue
-    // set). Retry the honest status instead, and leave the row alone if even
-    // that fails: the transaction page's own reaper is a better fallback than a
-    // lie.
-    //
-    // The retry carries the SAME payload as the primary write. An earlier
-    // version dropped `resultFields` here "in case those were the problem",
-    // which stopped being possible once the handle reads were hoisted above the
-    // try - `resultFields` is inert plain data by this point, so omitting it
-    // only cost the row its on-chain transaction id and the receipt's explorer
-    // link.
-    //
-    // RETRIED MORE THAN ONCE, and spaced. A single retry made the honest status
-    // depend on two consecutive IndexedDB writes, and the reachable cause of the
-    // first failure - a transaction abort under contention, a storage hiccup - is
-    // exactly the kind that recurs immediately and then clears. What happens if
-    // both fail is not "the row is left alone": it stays at
-    // `GeneratingTransaction`, and `cancelStuckTransactions` reaps an in-progress
-    // row into FAILED, so the fallback IS the lie this block refuses to write,
-    // just delivered later and with a generic reason. Spacing the attempts costs
-    // nothing on the happy path (it is only reached when a write has already
-    // failed) and removes the single-retry coincidence.
+    // reaching here means something unexpected threw before the Completed write.
+    // That write is `writeCommittedCompleted`, which re-reads each attempt,
+    // returns once the row has left the queue, and never rejects, so a failed
+    // attempt stays inside the helper. The fallback carries the same patch.
     //
     // Except the node's discard (#1233): that switch did not happen, so its caller fails the row.
     if (isGuardianSwitchDiscardedError(error)) throw error;
     console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
-    const completedPayload = {
-      displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
-      completedAt: Math.floor(Date.now() / 1000), // seconds
-      extraInputs: {
-        ...tx.extraInputs,
-        registerFailed,
-        endpointPersistFailed,
-        commitUnconfirmed,
-        localStateNotSaved,
-        localStateUnrecoverable
-      },
-      ...(resultFields ?? landedTransactionIdFields(landed))
-    };
-    for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
-      try {
-        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, completedPayload);
-        return;
-      } catch (retryError) {
-        console.error(
-          `Could not record the completed status for the guardian switch row ` +
-            `(attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
-          retryError
-        );
-        if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
-          await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
-        }
-      }
-    }
+    await writeGuardianSwitchCompleted();
   }
 };
 
