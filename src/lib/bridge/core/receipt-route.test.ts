@@ -11,9 +11,11 @@ it('recovers from the original contracts even when current starts are paused or 
   expect(parsed).toEqual(original);
   const current = testRoute();
   current.disabled = true;
-  current.recovery.config.supportedEvmChains.sepolia.bridges.agglayer!.contractAddress = `0x${'2'.repeat(40)}`;
-  expect(activityRoute(row)?.recovery.config.supportedEvmChains.sepolia.bridges.agglayer?.contractAddress).toBe(
-    original.recovery.config.supportedEvmChains.sepolia.bridges.agglayer?.contractAddress
+  const currentBridge = current.recovery.config.supportedEvmChains.sepolia?.bridges.agglayer;
+  if (!currentBridge) throw new Error('Missing AggLayer fixture');
+  currentBridge.contractAddress = `0x${'2'.repeat(40)}`;
+  expect(activityRoute(row)?.recovery.config.supportedEvmChains.sepolia?.bridges.agglayer?.contractAddress).toBe(
+    original.recovery.config.supportedEvmChains.sepolia?.bridges.agglayer?.contractAddress
   );
   expect(activityRoute({ ...row, provider: 'epoch' })).toBeUndefined();
   expect(activityRoute({ ...row, routeSnapshot: undefined })).toBeUndefined();

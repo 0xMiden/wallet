@@ -1,3 +1,4 @@
+import { bridgeFeeCharging, walletBridgeProvider } from './provider';
 import { bindTransferQuote, isQuoteReviewable, quoteAmounts } from './quote';
 import { accounts, now, testRoute } from '../testing/fixtures';
 
@@ -80,4 +81,58 @@ it('rejects missing, expired, invalid or nonpositive quote output without invent
       }
     )
   ).toThrow();
+});
+
+it('derives an additional CCTP fee from its authorization and refuses contradictory display terms', () => {
+  const route = {
+    ...testRoute(),
+    provider: 'xreserve',
+    source: {
+      kind: 'erc20',
+      network: 'sepolia',
+      symbol: 'USDC',
+      decimals: 6,
+      address: `0x${'1'.repeat(40)}`
+    }
+  } satisfies ReturnType<typeof testRoute>;
+  const quote = bindTransferQuote(
+    { route, amount: '1.000001', ...accounts },
+    {
+      kind: 'cctp',
+      received: '1.000001',
+      validity: { kind: 'provider' },
+      authorization: { signedQuote: '0x1234', feeTotalAmount: 250001n }
+    }
+  );
+  expect(quoteAmounts(route, quote)).toEqual({ received: '1.000001', sourceTotal: '1.250002', fee: '0.250001' });
+  expect(() => quoteAmounts(route, { ...quote, fee: '0' })).toThrow();
+});
+
+it('maps portal protocol names only at the wallet boundary and retains direct-deposit fees', () => {
+  expect(walletBridgeProvider('xreserve')).toBe('usdcx');
+  expect(walletBridgeProvider('epoch')).toBe('epoch');
+  expect(walletBridgeProvider('agglayer')).toBe('agglayer');
+  expect(bridgeFeeCharging(testRoute())).toBe('none');
+  const route = {
+    ...testRoute(),
+    provider: 'xreserve',
+    source: {
+      kind: 'erc20',
+      network: 'arc-testnet',
+      symbol: 'USDC',
+      decimals: 6,
+      address: `0x${'1'.repeat(40)}`
+    }
+  } satisfies ReturnType<typeof testRoute>;
+  expect(bridgeFeeCharging(route)).toBe('none');
+  const quote = bindTransferQuote(
+    { route, amount: '1', ...accounts },
+    {
+      kind: 'arc-deposit',
+      received: '1',
+      validity: { kind: 'time', expiresAt: now + 1 }
+    }
+  );
+  expect(quoteAmounts(route, quote)).toEqual({ sourceTotal: '1', received: '1' });
+  expect(() => quoteAmounts(route, { ...quote, fee: '-1' })).toThrow();
 });

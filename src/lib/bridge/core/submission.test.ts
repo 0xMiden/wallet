@@ -118,3 +118,29 @@ it('does not impose the inbound balance cap on withdrawals', async () => {
   ).resolves.toBeUndefined();
   expect(verifyBalanceCap).not.toHaveBeenCalled();
 });
+
+it('does not invalidate equivalent JSON key order or observation timestamps, but does bind quote accounts and provider', () => {
+  const review = setup();
+  const current: BridgeReviewContext = structuredClone(review);
+  current.route.recovery = {
+    derived: current.route.recovery.derived,
+    config: current.route.recovery.config,
+    network: current.route.recovery.network
+  };
+  current.route.recovery.derived.derivedAt++;
+  expect(() => assertReviewedBridge(review, current, now)).not.toThrow();
+  if (!review.quote) throw new Error('Missing quote fixture');
+  review.quote.request.evmAddress = `0x${'2'.repeat(40)}`;
+  expect(() => assertReviewedBridge(review, current, now)).toThrow();
+  review.quote.request.evmAddress = accounts.evmAddress;
+  review.quote.kind = 'epoch';
+  expect(() => assertReviewedBridge(review, current, now)).toThrow();
+});
+
+it('refuses an otherwise matching review when the captured current start direction is off', () => {
+  const review = setup();
+  review.route.recovery.config.features.bridgeIn = false;
+  if (!review.quote) throw new Error('Missing quote fixture');
+  review.quote.request.recovery = structuredClone(review.route.recovery);
+  expect(() => assertReviewedBridge(review, structuredClone(review), now)).toThrow();
+});

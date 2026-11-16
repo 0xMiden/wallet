@@ -1,4 +1,4 @@
-import type { BridgeReviewContext, ReviewedTransfer } from './review';
+import { assertReviewedBridge, type BridgeReviewContext, type ReviewedTransfer } from './review';
 import type { BridgeRoute } from './routes';
 
 export interface SubmissionChecks {
@@ -6,6 +6,14 @@ export interface SubmissionChecks {
   verifyBalanceCap?: (route: BridgeRoute, amount: string, account: string) => Promise<void>;
   now: () => number;
 }
-export async function verifyBridgeSubmission(_review: ReviewedTransfer, _checks: SubmissionChecks): Promise<void> {
-  throw new Error('Unsupported bridge core');
+
+/** Admission only. Existing wallet provider/transaction owners perform any actual submission. */
+export async function verifyBridgeSubmission(review: ReviewedTransfer, checks: SubmissionChecks): Promise<void> {
+  assertReviewedBridge(review, await checks.readCurrent(), checks.now());
+  if (review.route.mode === 'receive') {
+    if (!checks.verifyBalanceCap) throw new Error('Bridge balance-cap verification unavailable');
+    await checks.verifyBalanceCap(review.route, review.amount, review.accounts.midenAccount);
+  }
+  const current = await checks.readCurrent();
+  assertReviewedBridge(review, current, checks.now());
 }

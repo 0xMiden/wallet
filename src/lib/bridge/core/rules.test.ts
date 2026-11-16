@@ -37,9 +37,14 @@ it.each([
   ['92233720347.07292160', true],
   ['92233720347.07292161', false]
 ])('checks source and destination precision without rounding %s', (amount, allowed) => {
-  const validate = () => validateTransferAmount(testRoute(), String(amount));
-  if (allowed) expect(validate).not.toThrow();
-  else expect(validate).toThrow();
+  const route = testRoute();
+  let accepted = true;
+  try {
+    validateTransferAmount(route, String(amount));
+  } catch {
+    accepted = false;
+  }
+  expect(accepted).toBe(allowed);
 });
 it('keeps withdrawal source precision separate from EVM destination precision', () => {
   expect(() => validateTransferAmount(testRoute('send'), '0.12345678')).not.toThrow();

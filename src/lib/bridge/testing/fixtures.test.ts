@@ -7,9 +7,9 @@ it.each(['testnet', 'mainnet'] satisfies Array<'testnet' | 'mainnet'>)(
     expect(snapshot.config?.network).toBe(network);
     expect(snapshot.derived?.version).toBe(snapshot.config?.version);
     expect(
-      snapshot.config?.supportedEvmChains[network === 'testnet' ? 'sepolia' : 'ethereum'].bridges.epoch?.tokens.USDC
+      snapshot.config?.supportedEvmChains[network === 'testnet' ? 'sepolia' : 'ethereum']?.bridges.epoch?.tokens.USDC
     ).toBeDefined();
-    expect(snapshot.derived?.chains[network === 'testnet' ? 11155111 : 1].epoch.tokens.USDC.state).toBe('ok');
+    expect(snapshot.derived?.chains[network === 'testnet' ? 11155111 : 1]?.epoch.tokens.USDC?.state).toBe('ok');
     expect(snapshot.derived?.swap?.pairs.state).toBe('skipped');
   }
 );

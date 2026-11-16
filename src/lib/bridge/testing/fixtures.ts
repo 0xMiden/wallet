@@ -1,14 +1,14 @@
 import { deserialize, serialize } from 'v8';
 
-import type { BridgeRoute } from '../core/routes';
 import type { DerivedBridgeConfig, DerivedChainConfig } from 'lib/remote-config/derive';
 import { parseStoredDerived } from 'lib/remote-config/derived-snapshot';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { parseBridgeConfig, type EvmAddress } from 'lib/remote-config/schema';
+import { parseBridgeConfig, type EvmAddress, type SupportedEvmChainConfig } from 'lib/remote-config/schema';
 
-import connections from './portal-connections.json';
+import connectionData from './portal-connections.json';
 import mainnet from './portal-mainnet.json';
 import testnet from './portal-testnet.json';
+import type { BridgeRoute } from '../core/routes';
 
 // jsdom omits the browser's structured-clone API; preserve its bigint semantics at the platform boundary.
 const cloneDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'structuredClone');
@@ -23,7 +23,14 @@ afterAll(() => {
   else Reflect.deleteProperty(globalThis, 'structuredClone');
 });
 
-export { connections };
+export interface ReferenceConnection {
+  provider: string;
+  evm: { network: string; kind: string; symbol: string; decimals: number; address?: string };
+  miden: { network: string; kind: string; symbol: string; decimals: number; faucetId: string };
+  routes: { receive?: string; send?: string };
+  disabled?: boolean;
+}
+export const connections: { testnet: ReferenceConnection[]; mainnet: ReferenceConnection[] } = connectionData;
 export const now = 1_800_000_000_000;
 export const accounts = {
   midenAccount: '0x387149ae66116cf114eebd60bb7381',
@@ -70,7 +77,8 @@ export function referenceSnapshot(network: 'mainnet' | 'testnet'): BridgeConfigS
       'arbitrum-sepolia': 421614
     };
     const chainId = chainIds[slug];
-    const chain = config.supportedEvmChains[slug] ?? { chainId, bridges: {} };
+    if (chainId === undefined) throw new Error('Unknown reference chain');
+    const chain: SupportedEvmChainConfig = config.supportedEvmChains[slug] ?? { chainId, bridges: {} };
     config.supportedEvmChains[slug] = chain;
     const reads =
       chains[chainId] ??
@@ -93,7 +101,7 @@ export function referenceSnapshot(network: 'mainnet' | 'testnet'): BridgeConfigS
         [connection.miden.symbol]: { faucetId: connection.miden.faucetId }
       };
       epoch.tokens[connection.evm.symbol] = {
-        contractAddress: address('address' in connection.evm ? connection.evm.address : `0x${'0'.repeat(40)}`),
+        contractAddress: address(connection.evm.address ?? `0x${'0'.repeat(40)}`),
         outputs: [connection.miden.symbol]
       };
       reads.epoch.tokens[connection.evm.symbol] = {
@@ -108,7 +116,7 @@ export function referenceSnapshot(network: 'mainnet' | 'testnet'): BridgeConfigS
       };
     }
     if (connection.provider === 'agglayer') {
-      const originToken = address('address' in connection.evm ? connection.evm.address : `0x${'0'.repeat(40)}`);
+      const originToken = address(connection.evm.address ?? `0x${'0'.repeat(40)}`);
       const scale = connection.evm.decimals - connection.miden.decimals;
       if (reads.agglayer.tokens.state === 'ok')
         reads.agglayer.tokens.value.push({
@@ -117,7 +125,7 @@ export function referenceSnapshot(network: 'mainnet' | 'testnet'): BridgeConfigS
           originNetwork: 0,
           scale
         });
-      if ('address' in connection.evm && reads.agglayer.depositTokens.state === 'ok') {
+      if (connection.evm.address !== undefined && reads.agglayer.depositTokens.state === 'ok') {
         const bridge = chain.bridges.agglayer;
         if (!bridge) throw new Error('Missing reference AggLayer deployment');
         bridge.tokens = { ...bridge.tokens, [connection.evm.symbol]: { contractAddress: originToken } };
