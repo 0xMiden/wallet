@@ -542,6 +542,9 @@ export const completeReplaceHotKeyTransaction = async (
   // Set only by the landed reconcile, where `result` is absent (#1233).
   landed?: LandedWithoutResult
 ) => {
+  // Read once, before the swap commits the new key locally: a trap here completes without the fields instead of
+  // taking the catch's Failed write for a rotation already on chain.
+  const resultFields = readTransactionResultFields(result, tx.id);
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
     if (!newHotPublicKey) {
@@ -660,9 +663,7 @@ export const completeReplaceHotKeyTransaction = async (
       extraInputs: { ...tx.extraInputs, reRegisterFailed },
       // `result` is absent on the landed reconcile path: the rotation is already on chain, and all
       // the reconcile has is the id its failure carried (#1233).
-      ...(result
-        ? { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() }
-        : landedTransactionIdFields(landed))
+      ...(result ? (resultFields ?? {}) : landedTransactionIdFields(landed))
     });
 
     // The account now has both signers on-chain, so bring it up to the same
@@ -708,13 +709,13 @@ export const completeUpdateProcedureThresholdTransaction = async (
   // the new state to the guardian (the OZ lib doesn't re-register it).
   service?: MultisigService
 ) => {
-  const executedTx = result.executedTransaction();
+  // The update is on chain, so a trap reading the result completes without its fields rather than escaping.
+  const resultFields = readTransactionResultFields(result, tx.id);
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...feeFieldsFromResult(result, tx.id),
     displayMessage: 'Account secured',
-    transactionId: executedTx.id().toHex(),
     completedAt: Math.floor(Date.now() / 1000),
-    resultBytes: result.serialize()
+    ...(resultFields ?? {})
   });
   // The cached service's procedureThresholds are now stale - drop it. The cache is
   // keyed canonically, so the queued id needs no account-list read first.
@@ -737,7 +738,9 @@ export const completeUpdateProcedureThresholdTransaction = async (
  * Extract the persistable fields of a {@link TransactionResult} without letting
  * a WASM-handle failure propagate. Returns `undefined` when there is no result
  * (the apply-after-submit reconcile path) or when the handle can no longer be
- * read, so callers can spread it into a status payload unconditionally.
+ * read, so callers can spread it into a status payload unconditionally. The three
+ * rotation completions (switch guardian, replace hot key, update procedure
+ * threshold) read their result through it, so a committed rotation never fails on it.
  */
 const readTransactionResultFields = (
   result: TransactionResult | undefined,
@@ -748,7 +751,7 @@ const readTransactionResultFields = (
     return { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() };
   } catch (error) {
     retireLandedTrap(error, landing, result);
-    console.warn('Could not read the transaction result for the guardian switch row (completing without it):', error);
+    console.warn('Could not read the transaction result for the rotation row (completing without it):', error);
     return undefined;
   }
 };

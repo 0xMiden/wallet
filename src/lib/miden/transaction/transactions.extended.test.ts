@@ -1501,48 +1501,62 @@ describe('landed tail catches', () => {
     expect(sendPrivateNote).toHaveBeenCalledTimes(1);
   });
 
-  it('a replace-hot-key trap retires once and the row is Failed', async () => {
-    const tx = new ReplaceHotKeyTransaction('acc-rhk', false);
-    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
-    txStore.push({
-      id: tx.id,
-      type: 'replace-hot-key',
-      status: ITransactionStatus.GeneratingTransaction,
-      initiatedAt: 100,
-      // Skips the failure report, which reads a platform helper this file's mock does not provide.
-      restoredFromBackup: true
-    });
-    const trap = new WebAssembly.RuntimeError('serialize');
-    const result = {
-      executedTransaction: () => ({
-        id: () => ({ toHex: () => 'hex' }),
-        outputNotes: () => ({ notes: () => [] })
-      }),
-      serialize: () => {
-        throw trap;
+  it.each([
+    ['serialize', 'rhk-serialize-trap'],
+    ['the transaction id', 'rhk-id-trap']
+  ])(
+    'a replace-hot-key trap reading %s retires once and the committed rotation is Completed',
+    async (read, account) => {
+      const tx = new ReplaceHotKeyTransaction(account, false);
+      tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+      txStore.push({
+        id: tx.id,
+        type: 'replace-hot-key',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        // Skips the failure report, which reads a platform helper this file's mock does not provide.
+        restoredFromBackup: true
+      });
+      const trap = new WebAssembly.RuntimeError(read);
+      const result = {
+        executedTransaction: () => ({
+          id: () =>
+            read === 'serialize'
+              ? { toHex: () => 'hex' }
+              : (() => {
+                  throw trap;
+                })(),
+          outputNotes: () => ({ notes: () => [] })
+        }),
+        serialize: () => {
+          throw trap;
+        }
+      };
+      const swapHotKey = jest.fn(async () => undefined);
+      const err = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const { completeReplaceHotKeyTransaction } = require('./index');
+        await completeReplaceHotKeyTransaction(
+          tx,
+          result,
+          { getAccounts: async () => [{ publicKey: account }], swapHotKey },
+          {}
+        );
+      } finally {
+        err.mockRestore();
+        warn.mockRestore();
       }
-    };
-    const err = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    try {
-      const { completeReplaceHotKeyTransaction } = require('./index');
-      await completeReplaceHotKeyTransaction(
-        tx,
-        result,
-        { getAccounts: async () => [{ publicKey: 'acc-rhk' }], swapHotKey: async () => undefined },
-        {}
-      );
-    } finally {
-      err.mockRestore();
-    }
 
-    expect(retire).toHaveBeenCalledTimes(1);
-    expect(retire).toHaveBeenCalledWith(trap, tx.id);
-    expect(txStore.find(row => row.id === tx.id)).toMatchObject({
-      status: ITransactionStatus.Failed,
-      displayMessage: 'Failed to rotate everyday key'
-    });
-    expect(txStore.find(row => row.id === tx.id)!.resultBytes).toBeUndefined();
-  });
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledWith(trap, tx.id);
+      expect(swapHotKey).toHaveBeenCalledTimes(1);
+      const row = txStore.find(entry => entry.id === tx.id)!;
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Everyday key rotated' });
+      expect(row.transactionId).toBeUndefined();
+      expect(row.resultBytes).toBeUndefined();
+    }
+  );
 
   it('retires when a guardian switch cannot read its result and still completes without those fields', async () => {
     const tx = new SwitchGuardianTransaction('acc-sw', 'https://new.guardian', false);

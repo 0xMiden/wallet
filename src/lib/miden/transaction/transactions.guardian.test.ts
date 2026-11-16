@@ -15179,6 +15179,43 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
     expect(row.displayMessage).toBe('Account secured');
   });
 
+  it('completes without the result fields when reading them traps, and still clears the cache and re-registers', async () => {
+    const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    const trap = new WebAssembly.RuntimeError('executed-transaction');
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await expect(
+        completeUpdateProcedureThresholdTransaction(
+          tx,
+          {
+            ...makeResult(),
+            executedTransaction: () => {
+              throw trap;
+            }
+          } as never,
+          { reRegisterCurrentStateOnGuardian } as never
+        )
+      ).resolves.toBeUndefined();
+    } finally {
+      warn.mockRestore();
+      restore();
+    }
+
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(retire).toHaveBeenCalledWith(trap, tx.id);
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Account secured');
+    expect(row.transactionId).toBeUndefined();
+    expect(row.resultBytes).toBeUndefined();
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+  });
+
   it('clears the cache and re-registers without waiting on the account list', async () => {
     const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
