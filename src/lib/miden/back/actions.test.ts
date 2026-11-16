@@ -1,3 +1,5 @@
+import type { Runtime } from 'webextension-polyfill';
+
 import { MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -24,6 +26,7 @@ import {
   getFrontState,
   lock,
   unlock,
+  platformUnlock,
   provideRecoverySeed,
   registerNewWallet,
   registerWalletFromHotKey,
@@ -80,6 +83,11 @@ jest.mock('lib/usdcx/burn-fee', () => ({
 }));
 
 const mockedResolve = jest.mocked(resolveSpendsUsd);
+let mockOwnerConnected = true;
+jest.mock('lib/miden/back/defaults', () => ({
+  ...jest.requireActual('lib/miden/back/defaults'),
+  intercom: { isConnected: () => mockOwnerConnected }
+}));
 
 // Create mock vault instance
 const mockRedeemAccess = jest.fn<Promise<'granted' | 'rejected'>, [string, { accountId: string; rpcUrl: string }]>();
@@ -201,6 +209,7 @@ jest.mock('lib/miden/back/vault', () => ({
     spawn: jest.fn(),
     spawnFromHotKey: jest.fn(),
     setup: jest.fn(),
+    setupWithPlatformCredential: jest.fn(),
     revealMnemonic: jest.fn(),
     exportWalletBackupMaterial: jest.fn(),
     revealPrivateKey: jest.fn(),
@@ -313,6 +322,7 @@ describe('actions', () => {
     mockAdmitted.mockReset();
     mockEndpointOverride = null;
     mockInited.mockClear();
+    mockOwnerConnected = true;
     mockLocked.mockClear();
     mockUnlocked.mockClear();
     mockAccountsUpdated.mockClear();
@@ -353,6 +363,27 @@ describe('actions', () => {
   });
 
   describe('init', () => {
+    it('keeps startup admission cleanup in the same account-writer turn as resets', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const order: string[] = [];
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const writer = getAccountsWriteQueue().add(async () => {
+        await gate;
+        order.push('writer');
+      });
+      Vault.isExist.mockImplementationOnce(async () => {
+        order.push('init');
+        return false;
+      });
+      const starting = init();
+      release();
+      await Promise.all([writer, starting]);
+      expect(order).toEqual(['writer', 'init']);
+    });
+
     it('installs the vault signer as the realm signer, before anything can ask the SDK client to sign (#878)', async () => {
       mockInstallRealmKeystore.mockClear();
       await init();
@@ -532,7 +563,33 @@ describe('actions', () => {
     });
   });
 
-  describe('unlock', () => {
+  const passwordUnlock = unlock;
+  describe.each<['password' | 'platform']>([['password'], ['platform']])('unlock (%s)', method => {
+    const port: Runtime.Port = {
+      name: 'intercom',
+      sender: { id: 'wallet', url: 'chrome-extension://wallet/sidepanel.html' },
+      postMessage: jest.fn(),
+      disconnect: jest.fn(),
+      onDisconnect: { addListener: jest.fn(), removeListener: jest.fn(), hasListener: jest.fn(() => false) },
+      onMessage: { addListener: jest.fn(), removeListener: jest.fn(), hasListener: jest.fn(() => false) }
+    };
+    const unlock = (password?: string) =>
+      method === 'password'
+        ? passwordUnlock(password)
+        : platformUnlock(
+            { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'E'.repeat(42) + 'A' },
+            port,
+            true
+          ).then(() => undefined);
+    beforeEach(() => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.setup.mockReset();
+      if (method === 'platform') Vault.setupWithPlatformCredential = Vault.setup;
+    });
+    afterEach(() => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.setup.mockReset();
+    });
     const unlockableVault = () => ({
       fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
       fetchAccounts: jest.fn().mockResolvedValue([]),
@@ -606,6 +663,27 @@ describe('actions', () => {
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
     });
 
+    if (method === 'platform') {
+      it('does not publish an unlock whose page disconnected while hydration was pending', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        const candidate = unlockableVault();
+        candidate.fetchAccounts.mockImplementationOnce(async () => {
+          mockOwnerConnected = false;
+          return [];
+        });
+        Vault.setup.mockResolvedValueOnce(candidate);
+        await expect(unlock()).rejects.toThrow();
+        expect(mockUnlocked).not.toHaveBeenCalled();
+      });
+      it('does not construct a vault for a queued request from a disconnected page', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        Vault.setup.mockResolvedValueOnce(unlockableVault());
+        mockOwnerConnected = false;
+        await expect(unlock()).rejects.toThrow();
+        expect(Vault.setup).not.toHaveBeenCalled();
+      });
+    }
+
     it('uses the unlocked vault for recovery seed input without another password check', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       Vault.setup.mockClear();
@@ -634,7 +712,9 @@ describe('actions', () => {
 
       await unlock('password123');
 
-      expect(Vault.setup).toHaveBeenCalledWith('password123');
+      expect(Vault.setup).toHaveBeenCalledWith(
+        ...(method === 'password' ? ['password123'] : ['AQIDBA', 'E'.repeat(42) + 'A'])
+      );
       expect(mockVaultInstance.removeSeedPhrase).toHaveBeenCalledTimes(Number(status === 'removing'));
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();

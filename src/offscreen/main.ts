@@ -136,6 +136,7 @@ import {
 
 import { ProveWorkerClient } from './prove-worker-client';
 import { proveThreadCount } from './prove-worker-protocol';
+import { assertTestGuardianRequestAuthorization } from '../lib/miden/sdk/test-guardian-authorization';
 
 const TAG = '[offscreen-prover]';
 
@@ -1019,7 +1020,8 @@ const DISPATCH: Record<string, DispatchFn> = {
   guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
     let execution = unobservedTransactionExecution('guardian_signed_request');
     try {
-      const [accountId, trBytes, delegateTransaction, , oneClickDeadline, oneClickRequired] = args;
+      const [accountId, trBytes, delegateTransaction, , oneClickDeadline, oneClickRequired, testAuthorizationKind] =
+        args;
       // This op's own id and lock hold, threaded in by `handleCall` before any
       // await so both are provably ours (issue #775). The hold is what keeps a pause from
       // silencing the watchdog of whichever holder took the lock after an
@@ -1044,6 +1046,8 @@ const DISPATCH: Record<string, DispatchFn> = {
             assertWasmHoldCurrent(hold, 'in the guardian pipeline while preparing tip execution')
           );
           assertWasmHoldCurrent(hold, 'in the guardian pipeline before executing at the tip');
+          await assertTestGuardianRequestAuthorization(accountId, tr, testAuthorizationKind ?? undefined);
+          assertWasmHoldCurrent(hold, 'after exact Guardian authorization verification');
           recordProveTiming('guardianPipeline calling executeRequest at current tip');
           execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
           const executedTx = await client.client.transactions.executeRequest(accountId, tr);

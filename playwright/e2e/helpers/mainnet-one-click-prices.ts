@@ -1,4 +1,20 @@
+import type { OneClickAsset, OneClickMidenAssetConfig } from '../../../src/lib/one-click/types';
 import { usdToMicroDollarsCeil } from './mainnet-one-click-plan';
+
+export function mainnetOneClickPriceId(asset: OneClickAsset, verifiedNative: OneClickMidenAssetConfig): string {
+  if (asset.assetId === verifiedNative.assetId) {
+    if (
+      asset.blockchain !== 'miden' ||
+      asset.faucetId !== verifiedNative.faucetId ||
+      asset.decimals !== verifiedNative.decimals
+    )
+      throw new Error('Conflicting metadata for the verified native price identity');
+    return 'usd-coin';
+  }
+  if (!asset.coingeckoId || !/^[a-z0-9-]{1,64}$/.test(asset.coingeckoId))
+    throw new Error('No source-owned mainnet price identity');
+  return asset.coingeckoId;
+}
 
 const PRICE_URL = 'https://api.coingecko.com/api/v3/simple/price';
 
@@ -37,15 +53,24 @@ export async function fetchMainnetOneClickUsdPrices(
   const now = Date.now();
   for (const id of uniqueIds) {
     const entry = data[id];
-    if (!isRecord(entry) || (typeof entry.usd !== 'string' && typeof entry.usd !== 'number') ||
-        (typeof entry.last_updated_at !== 'string' && typeof entry.last_updated_at !== 'number')) {
+    if (
+      !isRecord(entry) ||
+      (typeof entry.usd !== 'string' && typeof entry.usd !== 'number') ||
+      (typeof entry.last_updated_at !== 'string' && typeof entry.last_updated_at !== 'number')
+    ) {
       throw new Error(`CoinGecko did not return a USD price for ${id}`);
     }
     const updatedAtSeconds = Number(entry.last_updated_at);
     const updatedAt = updatedAtSeconds * 1000;
     const price = usdToMicroDollarsCeil(String(entry.usd));
-    if (!Number.isSafeInteger(updatedAtSeconds) || updatedAtSeconds <= 0 || !Number.isSafeInteger(updatedAt) ||
-        now - updatedAt > MAX_PRICE_AGE_MS || updatedAt - now > MAX_FUTURE_SKEW_MS || price <= 0n) {
+    if (
+      !Number.isSafeInteger(updatedAtSeconds) ||
+      updatedAtSeconds <= 0 ||
+      !Number.isSafeInteger(updatedAt) ||
+      now - updatedAt > MAX_PRICE_AGE_MS ||
+      updatedAt - now > MAX_FUTURE_SKEW_MS ||
+      price <= 0n
+    ) {
       throw new Error(`CoinGecko price for ${id} is stale or invalid`);
     }
     newestUpdate = Math.max(newestUpdate, updatedAt);
