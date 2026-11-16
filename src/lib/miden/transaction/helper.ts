@@ -823,6 +823,10 @@ export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITra
  */
 export const reportVerifiedLanding = (tx: ITransaction): void => {
   reportOperation({ operation: operationOfType(tx.type), result: 'completed' });
+  // Every caller reports after its landing write committed, so this is the one place a row of this
+  // device that reached Completed on node evidence reaches the encrypted backup, as one that reached it
+  // through `updateTransactionStatus` does.
+  if (!tx.restoredFromBackup) signalTransactionCompleted();
 };
 
 /**
