@@ -10,12 +10,13 @@ import mainnet from './portal-mainnet.json';
 import testnet from './portal-testnet.json';
 import type { BridgeRoute } from '../core/routes';
 
-// jsdom omits the browser's structured-clone API; preserve its bigint semantics at the platform boundary.
+// V8's foreign-realm binary becomes a plain object in Dexie.modify; use the installed pure browser clone.
+const browserClone = jest.requireActual<typeof structuredClone>('core-js-pure/actual/structured-clone');
 const cloneDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'structuredClone');
 beforeAll(() =>
   Object.defineProperty(globalThis, 'structuredClone', {
     configurable: true,
-    value: <T>(value: T): T => deserialize(serialize(value))
+    value: browserClone
   })
 );
 afterAll(() => {
