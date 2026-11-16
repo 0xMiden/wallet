@@ -2,14 +2,16 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { CommandDraftProvider, useCommandDrafts } from 'screens/command/command-drafts';
 
 import { CommandEarn } from './CommandEarn';
 import { EARN_DATA } from './data';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+let mockDepositAvailability: FeatureAvailability = { state: 'available' };
 jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useFeatureAvailability: () => ({ state: 'available' })
+  useFeatureAvailability: () => mockDepositAvailability
 }));
 
 const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc.example' };
@@ -48,6 +50,7 @@ function show(props: Partial<React.ComponentProps<typeof CommandEarn>> = {}) {
 beforeEach(() => {
   onDeposit.mockClear();
   onWithdraw.mockClear();
+  mockDepositAvailability = { state: 'available' };
 });
 
 test('selects the exact vault and owned position rather than a fixed market', () => {
@@ -63,6 +66,14 @@ test('selects the exact vault and owned position rather than a fixed market', ()
   fireEvent.click(screen.getByTestId('command-earn-withdraw-second-position'));
   expect(onWithdraw).toHaveBeenCalledWith('second-position');
   expect(screen.getByTestId('earn-draft-selection')).toHaveTextContent('withdraw:second-position:');
+});
+
+test('keeps an owned withdrawal enabled while the Command Earn notice names pending deposit eligibility', () => {
+  mockDepositAvailability = { state: 'unavailable', reason: 'pending', detail: 'pending' };
+  show();
+  expect(screen.getByTestId('earn-unavailable-notice')).toHaveAttribute('data-reason', 'pending');
+  expect(screen.getByTestId(`command-earn-deposit-${EARN_DATA.vaults[0]!.id}`)).toBeDisabled();
+  expect(screen.getByTestId(`command-earn-withdraw-${EARN_DATA.positions[0]!.id}`)).toBeEnabled();
 });
 
 test('keeps owned withdrawals available when deposits are closed and refuses stale positions', () => {

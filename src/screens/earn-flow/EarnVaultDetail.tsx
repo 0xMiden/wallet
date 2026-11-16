@@ -49,6 +49,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
     // pinned under it instead of scrolling away at the end of the page.
     <EarnPageLayout
       data-testid="earn-vault-detail-page"
+      showCommandSubject
       // Named as every earn page names a vault: the protocol over its asset and network, the mark
       // beside them decorative. Until the vault is found the header names the route, never a
       // placeholder vault.

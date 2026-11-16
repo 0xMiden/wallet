@@ -71,7 +71,7 @@ export function CommandEarn({
 
   return (
     <div data-testid="command-earn" className="flex flex-col gap-5">
-      <FeatureUnavailableNotice feature="earnDeposit" availability={deposit} />
+      <FeatureUnavailableNotice feature="earnDeposit" availability={deposit} data-testid="earn-unavailable-notice" />
       {failed && <EarnLoadError isRetrying={isRefreshing} onRetry={onRetry} />}
       {isLoading && positions.length === 0 && vaults.length === 0 && !failed ? <EarnLoading /> : null}
       {!(positions.length === 0 && (isLoading || failed)) && (
