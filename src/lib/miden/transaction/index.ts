@@ -1216,8 +1216,10 @@ const recordLandedTransactionId = async (txId: string, error: unknown): Promise<
 /**
  * Run a landed row's post-submit tail under `retiringLandedTraps`, and reject with `LandedTailError` for whatever leaves
  * it: the leaf resolved, so the catches record the row as landed instead of failing it, and Retry cannot submit it again
- * (PR #2183). A structural row's tail is left as it is. It settles on the node's verdict itself (a discard fails it, a
- * rotation with no verdict never completes, nothing finalizes after an eviction), and its row offers no Retry.
+ * (PR #2183). A structural row's tail is left as it is once it holds its id. It settles on the node's verdict itself (a
+ * discard fails it, a rotation with no verdict never completes, nothing finalizes after an eviction), and its row offers
+ * no Retry. The id read comes before any verdict, so its failure leaves the tail as `LandedTailError`
+ * (`readTailTransactionId`).
  */
 const runLandedTail = async (
   transaction: Pick<ITransaction, 'id' | 'type'>,
@@ -1320,6 +1322,23 @@ const readLandedTransactionId = (landing: string, result: TransactionResult): st
 };
 
 /**
+ * The executed transaction's id at the start of a landed tail. A structural row asks the node about it, so a read that
+ * throws leaves its tail before any node verdict: the trap is retired once under the row and the read rejects as
+ * `LandedTailError` with no id, which the Guardian catch settles through the structural landed reconcile. A value
+ * row's read throws as it is, for `runLandedTail` to wrap.
+ */
+const readTailTransactionId = (transaction: Pick<ITransaction, 'id' | 'type'>, result: TransactionResult): string => {
+  if (!STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) return result.executedTransaction().id().toHex();
+  try {
+    return result.executedTransaction().id().toHex();
+  } catch (error) {
+    // No lock sees this trap: the read runs past submit, outside any hold.
+    retireLandedTrap(error, transaction.id, result);
+    throw new LandedTailError(error);
+  }
+};
+
+/**
  * Run the side effects a structural Guardian op needs after its submit landed on
  * chain but its local apply failed (an apply-after-submit error). Without this the
  * op would be cancelled with the account unreconciled.
@@ -1347,6 +1366,9 @@ const readLandedTransactionId = (landing: string, result: TransactionResult): st
  *   retry instead (#1317), then rethrows that error so the caller fails the row on
  *   the node's verdict. Any other rejection is rethrown without the abandon.
  * `landed` is what the failure said about the write: the id the receipt shows (#1233).
+ * Reached from either landed shape (`settleLandedStructuralRow`). After a tail's failed id read the apply had
+ *   succeeded, but with no id a rotation or threshold update is refused before any completion, and a switch only
+ *   reads the local copy before it completes unconfirmed.
  */
 async function reconcileStructuralApplyFailure(
   tx: ITransaction,
@@ -1645,6 +1667,31 @@ const requireBridgeSubmitClaim = async (transaction: ITransaction): Promise<void
 };
 
 /**
+ * The status verdict for a structural row whose submit already resolved, from either landed shape: its local apply
+ * failed, or its tail's id read did. The reconcile runs the finalization the happy path would; when it rejects, a
+ * rotation or threshold update fails on the reconcile's verdict error, and a switch only on the node's discard, as the
+ * direct path's discard does (#1233).
+ */
+const settleLandedStructuralRow = async (
+  transaction: Transaction,
+  guardianProvider: GuardianAccountProvider,
+  error: unknown
+): Promise<void> => {
+  try {
+    await reconcileStructuralApplyFailure(transaction, guardianProvider, landedFactsOf(error));
+  } catch (reconcileError) {
+    console.error(`Structural-op landed reconcile failed; cancelling (${landedFailureText(error)})`, reconcileError);
+    await cancelTransactionAfterPipelineStopped(
+      transaction,
+      transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
+        ? reconcileError
+        : landedFailureOf(error),
+      transaction.attemptId
+    );
+  }
+};
+
+/**
  * The only status verdict for a non-structural row whose submit already resolved, shared by the Guardian catch and
  * the loop catch: its local apply failed, or its post-submit tail threw. The landed id is stamped before the row is
  * read, and that stamp is not gated on the row still being queued, so a Cancel or the reaper that finalized it during
@@ -1657,8 +1704,8 @@ const settleLandedValueRow = async (txId: string, error: unknown, attemptId: str
   await recordLandedTransactionId(txId, error);
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (tx === undefined) return;
-  // A structural tail is left to the node's verdict, and an apply-after-submit on one is reconciled by the Guardian
-  // catch before it reaches here. A stored structural row has no status write on this path.
+  // The Guardian catch settles both landed shapes of a structural row before they reach here
+  // (`settleLandedStructuralRow`). A stored structural row has no status write on this path.
   if (STRUCTURAL_GUARDIAN_TYPES.includes(tx.type)) return;
   if (isResultAwaitingRow(tx)) {
     console.warn(
@@ -1776,7 +1823,11 @@ const generateTransactionWithProvider = async (
       // and requeue arm below, each of which would requeue or fail a write the node already holds, and never reaches
       // them.
       if (isLandedTailError(error)) {
-        await settleLandedValueRow(transaction.id, error, transaction.attemptId);
+        if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
+          await settleLandedStructuralRow(transaction, guardianProvider, error);
+        } else {
+          await settleLandedValueRow(transaction.id, error, transaction.attemptId);
+        }
         return;
       }
       // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
@@ -1790,24 +1841,10 @@ const generateTransactionWithProvider = async (
       // error, so a canonicalization refusal here was raised before submit and must take the non-landed arms below.
       // A structural op never ran its completion handler, so the vault hot pointer, the guardian registration or the
       // cached threshold map is un-reconciled. Cancelling would strand the account. Run the finalization the happy
-      // path would, minus a threshold update's re-register (the local store still holds the pre-update account). Its
-      // tail never throws `LandedTailError` (`runLandedTail`), so only the apply-after-submit error reaches this arm.
+      // path would, minus a threshold update's re-register (the local store still holds the pre-update account).
       if (isApplyAfterSubmitError(error)) {
         if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
-          try {
-            await reconcileStructuralApplyFailure(transaction, guardianProvider, landedFactsOf(error));
-          } catch (reconcileError) {
-            console.error('Structural-op landed reconcile failed; cancelling (apply-after-submit)', reconcileError);
-            // A rotation or threshold update fails on the reconcile's verdict error; a switch only on the
-            // node's discard, as the direct path's discard does (#1233).
-            await cancelTransactionAfterPipelineStopped(
-              transaction,
-              transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
-                ? reconcileError
-                : error,
-              transaction.attemptId
-            );
-          }
+          await settleLandedStructuralRow(transaction, guardianProvider, error);
           return;
         }
         await settleLandedValueRow(transaction.id, error, transaction.attemptId);
@@ -3066,10 +3103,24 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
  * releases the account and serves the post-switch state, which the landed reconcile and the
  * background self-heal adopt from. Best-effort and deadline-bounded like the other outgoing-guardian
  * cleanups: a guardian that is down, or already holds a pending delta, must not cost the switch.
- * True only when the push landed inside its deadline.
+ * The outcome is recorded in memory, as the direct path marks `switchedDirectly`, and completion
+ * persists it with the row's extraInputs: the reconcile adopts only from a guardian that took the
+ * delta inside its deadline, the self-heal re-pushes one that did not, and a discard abandons the
+ * proposal's nonce.
  */
-const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, proposalId: string): Promise<boolean> =>
-  (await service.pushSwitchDeltaBounded(proposalId)) === 'pushed';
+const pushSwitchDeltaToOutgoingGuardian = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal
+): Promise<void> => {
+  const switchDeltaPushed = (await service.pushSwitchDeltaBounded(proposal.id)) === 'pushed';
+  transaction.extraInputs = {
+    ...transaction.extraInputs,
+    switchDeltaPushed,
+    switchProposalId: proposal.id,
+    switchProposalNonce: proposal.nonce
+  };
+};
 
 /**
  * Abandon the candidate a discarded structural write left on its guardian (#1233), deadline-bounded and
@@ -3389,7 +3440,7 @@ const generateDirectSwitchGuardianTransaction = async (
     // asks about the TRANSACTION, not the account: `apply()` has already written
     // the rotation into the local store, so an account read here would only ever
     // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
-    const id = result.executedTransaction().id().toHex();
+    const id = readTailTransactionId(transaction, result);
     const discardedMessage =
       `Direct guardian switch ${id} did not land: the node discarded it. ` +
       'Leaving the stored guardian endpoint untouched.';
@@ -4801,16 +4852,7 @@ const generateGuardianTransaction = async (
     // local apply then failed (#1233); never after a kill or a pre-submit failure, whose delta the
     // chain may never see.
     if (submitResolved && transaction.type === 'switch-guardian') {
-      const switchDeltaPushed = await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
-      // In memory, as the direct path marks `switchedDirectly`: completion persists them with the row's
-      // extraInputs. The reconcile adopts only from a guardian that took the delta, and the self-heal
-      // re-pushes one that did not.
-      transaction.extraInputs = {
-        ...transaction.extraInputs,
-        switchDeltaPushed,
-        switchProposalId: proposalResult.id,
-        switchProposalNonce: proposalResult.nonce
-      };
+      await pushSwitchDeltaToOutgoingGuardian(transaction, service, proposalResult);
     }
     // In memory too: the landed reconcile runs in this call stack and abandons this nonce's candidate
     // when the node discards the write.
@@ -4919,16 +4961,19 @@ const generateGuardianTransaction = async (
     // routing predicate.
     clearConnectivityIssue('prover');
 
+    // Before the commit wait, so the outgoing guardian can canonicalize the switch as soon as the
+    // block lands (#1233), and before the id read, so a switch whose id cannot be read reconciles on
+    // the same facts as one whose apply failed.
+    if (transaction.type === 'switch-guardian') {
+      await pushSwitchDeltaToOutgoingGuardian(transaction, service, proposalResult);
+    }
+
     // The tx id, re-derived from the (possibly offscreen-round-tripped) result
     // rather than a separate handle: the offscreen pipeline returns only the
     // serialized TransactionResult, and `executedTransaction()` survives that
     // round-trip (slice 5b). Byte-identical to the former
     // `submittedTransaction.id.toHex()`.
-    const id = result.executedTransaction().id().toHex();
-
-    // Before the commit wait, so the outgoing guardian can canonicalize the switch as soon as the
-    // block lands (#1233).
-    if (transaction.type === 'switch-guardian') await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
+    const id = readTailTransactionId(transaction, result);
 
     // For switch-guardian, the new guardian must be seeded with the POST-switch
     // account state. submit() returns after submission, not after inclusion, so
