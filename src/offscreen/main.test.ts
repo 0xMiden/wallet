@@ -4820,7 +4820,9 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       const trappingResult = () => {
         dispatchHold = miden.getCurrentWasmLockHold();
         return {
+          // The Guardian leaf's worker prove serializes the result before its submit too; only the one after is landed.
           serialize: () => {
+            if (method === 'guardianPipeline' && !G.__off.guardianApplied) return new Uint8Array([1]);
             throw trap;
           }
         };
@@ -4860,6 +4862,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(resp.errorLanded).toBeUndefined();
       expect(resp.errorBeforeSubmit).toBeUndefined();
       expect(isApplyAfterSubmitError({ errorCode: resp.errorCode })).toBe(true);
+      if (method === 'guardianPipeline') expect(G.__off.guardianApplied).toBe(true);
       expect(dispatchHold).toBeTruthy();
       expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledTimes(1);
       expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledWith(dispatchHold, trap);
