@@ -1562,8 +1562,10 @@ export class ConsumeTransaction implements ITransaction {
  * `orderId` is strictly output info (the PSWAP lineage id resolved by
  * `completeSwapTransaction`) rather than an input, but it rides here to avoid a
  * Dexie schema change; it is absent until completion, and so are the stamps
- * below. Exported because readers of persisted rows - which predate any of these
- * optional fields - need the same shape without hand-rolling their own copy.
+ * below. A landed failure that did not complete the row holds the order it read
+ * in `landedOrder` instead. Exported because readers of persisted rows - which
+ * predate any of these optional fields - need the same shape without
+ * hand-rolling their own copy.
  */
 export interface ISwapExtraInputs {
   /** Endpoint scope of the vault preflight; absent on legacy orders. */
@@ -1605,6 +1607,22 @@ export interface ISwapExtraInputs {
   recoveredTip?: IRecoveredSwapTip;
   /** The last spent tip a bounded lineage read reached, for the next read to resume from, never for Cancel. */
   recoveredCheckpoint?: IRecoveredSwapCheckpoint;
+  /**
+   * The order a landed failure read, recorded on any row it did not complete, including one a Cancel or the reaper
+   * finalized meanwhile. Only the write that completes the row turns it into `orderId`, `expiresAt` and the row's
+   * output note (`completedSwapFields`); nothing else reads it, so a row carrying it opens no order. A Retry of
+   * attempts proven dead drops it.
+   */
+  landedOrder?: ISwapLandedOrder;
+}
+
+export interface ISwapLandedOrder {
+  /** The PSWAP lineage id, as decimal text. */
+  orderId: string;
+  /** Anchored at landing, when the order note became fillable. */
+  expiresAt: number;
+  /** The order note's id, when the landing read it. */
+  noteId?: string;
 }
 
 export interface IRecoveredSwapCheckpoint {
