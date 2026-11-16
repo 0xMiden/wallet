@@ -1299,17 +1299,34 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
  * recorded and the order the landed record held are kept, and a row another writer finalized is left alone. The
  * failure's own order facts stand in for a landed record that did not commit. When those facts name no order, the
  * order decoded from the saved request before this write is the read, and only while the attempt's row still holds
- * those bytes. Returns the row as read before the write that landed, whose stage is still the one the tail stopped
- * at, or undefined when no write landed.
+ * those bytes; a failed read of that order warns and the Completed write still runs without it. Returns the row as
+ * read before the write that landed, whose stage is still the one the tail stopped at, or undefined when no write
+ * landed.
  */
 const writeLandedCompleted = async (txId: string, error: unknown): Promise<ITransaction | undefined> => {
   const facts = landedFactsOf(error);
-  const attempt = await Repo.transactions.where({ id: txId }).first();
-  const decodedBytes = attempt?.requestBytes;
-  const savedOrder =
-    attempt !== undefined && attempt.type === 'swap' && facts.orderId === undefined && swapOpensOrderFromRead(attempt)
-      ? await orderFromSavedRequest(decodedBytes)
-      : undefined;
+  let decodedBytes: Uint8Array | undefined;
+  let savedOrder: Awaited<ReturnType<typeof orderFromSavedRequest>>;
+  // Best effort: the saved order only enriches the Completed write, which must still run when this read fails.
+  try {
+    const attempt = await Repo.transactions.where({ id: txId }).first();
+    if (
+      attempt !== undefined &&
+      attempt.type === 'swap' &&
+      facts.orderId === undefined &&
+      swapOpensOrderFromRead(attempt)
+    ) {
+      decodedBytes = attempt.requestBytes;
+      savedOrder = await orderFromSavedRequest(decodedBytes);
+    }
+  } catch (readError) {
+    console.warn('Could not read the saved request order for the landed row; completing without it', {
+      txId,
+      readError
+    });
+    decodedBytes = undefined;
+    savedOrder = undefined;
+  }
   return writeCommittedCompleted(
     txId,
     row => {

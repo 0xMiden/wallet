@@ -14743,6 +14743,83 @@ describe('generateTransaction - Guardian routing', () => {
     expect(row.displayMessage).toBe('Sent');
   });
 
+  it('Guardian send: a landed write whose saved-order read fails still writes Completed', async () => {
+    const txId = 'send-landed-order-read-fails';
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-order-read' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    const apply = jest.fn(async () => {
+      revokeHold();
+      throw new Error(STORE_APPLY_ERROR_MESSAGE);
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult(), apply)
+    });
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000'
+    });
+    // The first store read after the arm decides to write Completed is the landed write's own enrichment read.
+    let markingCompleted = false;
+    let failedReads = 0;
+    const warn = jest.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+      if (String(message).includes('marking Completed')) markingCompleted = true;
+    });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { first: () => Promise<unknown> };
+      return {
+        ...handle,
+        first: async () => {
+          if (markingCompleted && failedReads === 0) {
+            failedReads += 1;
+            throw new Error('saved-order read failed');
+          }
+          return handle.first();
+        }
+      };
+    });
+
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      warn.mockRestore();
+    }
+
+    expect(failedReads).toBe(1);
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Sent');
+  });
+
   it('Guardian send: blocked while guardianSyncStatus is out of sync - fails fast without building a proposal', async () => {
     const txId = 'send-out-of-sync';
     txStore.push({
