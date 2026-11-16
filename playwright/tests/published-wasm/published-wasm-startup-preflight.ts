@@ -255,10 +255,14 @@ export async function runPublishedProbe(
       result.phase = 'cleanup';
       result.error_family = 'other';
     } finally {
-      if (profile) rmSync(profile, { recursive: true, force: true });
-      save();
+      finalizePublishedProbeCleanup(profile, result, save);
     }
   }
   // Never hand a Playwright error carrying a generated extension origin to a reporter.
   expectFn(result.outcome, `published_wasm_${caseName}_${result.phase}`).toBe('passed');
+}
+
+export function finalizePublishedProbeCleanup(profile: string | undefined, result: Result, save: () => void): void {
+  if (profile) rmSync(profile, { recursive: true, force: true });
+  save();
 }

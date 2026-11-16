@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -201,6 +201,65 @@ test('published-wasm initial receipt precedes the real preflight assertions', ()
   };
   requiresInitialReceipt(helper);
   assert.throws(() => requiresInitialReceipt(helper.replace('\n  save();', '')), { code: 'ERR_ASSERTION' });
+});
+
+test('published-wasm cleanup removal failure still saves the closed receipt', async () => {
+  const { finalizePublishedProbeCleanup } = await import('../playwright/tests/published-wasm/published-wasm-startup-preflight.ts');
+  const helper = readFileSync(new URL('../playwright/tests/published-wasm/published-wasm-startup-preflight.ts', import.meta.url), 'utf8');
+  const start = helper.indexOf('export async function runPublishedProbe(');
+  const end = helper.indexOf('export function finalizePublishedProbeCleanup(');
+  assert.ok(start >= 0 && end > start, 'published_wasm_cleanup_production_seam');
+  const run = helper.slice(start, end);
+  assert.match(run, /^      finalizePublishedProbeCleanup\(profile, result, save\);$/m, 'published_wasm_cleanup_production_seam');
+  assert.doesNotMatch(run, /\brmSync\(profile/);
+  assert.ok(typeof process.getuid === 'function' && process.getuid() > 0, 'published_wasm_cleanup_nonroot');
+  const initial = {
+    schema: 1, case: 'cold-startup', outcome: 'setup_failed', phase: 'setup', error_family: 'none',
+    resource: 'bundled_wasm', chromium_version: 'unknown', node_version: process.versions.node,
+    requests: 0, completed: 0, failed: 0, fault_hits: 0,
+    reload_observed: false, error_screen: false, ready_surface: false, fresh_binary_completed: false
+  };
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'published-wasm-cleanup-')));
+  const denied = join(root, 'denied');
+  try {
+    const normal = join(root, 'normal');
+    mkdirSync(normal, { mode: 0o700 });
+    writeFileSync(join(normal, 'marker'), 'fixture', { mode: 0o600 });
+    const passed = { ...initial, outcome: 'passed', phase: 'complete', requests: 1, completed: 1, ready_surface: true };
+    let saved;
+    finalizePublishedProbeCleanup(normal, passed, () => { saved = { ...passed }; });
+    assert.equal(existsSync(normal), false, 'published_wasm_cleanup_removed');
+    assert.deepEqual(saved, { ...initial, outcome: 'passed', phase: 'complete', requests: 1, completed: 1, ready_surface: true }, 'published_wasm_cleanup_removed');
+
+    mkdirSync(denied, { mode: 0o700 });
+    const profile = join(denied, 'profile');
+    mkdirSync(profile, { mode: 0o700 });
+    writeFileSync(join(profile, 'marker'), 'fixture', { mode: 0o600 });
+    for (const saveFailure of [undefined, new Error('fixture receipt write failure')]) {
+      const result = { ...initial };
+      saved = undefined;
+      let thrown;
+      chmodSync(denied, 0o555);
+      try {
+        finalizePublishedProbeCleanup(profile, result, () => {
+          saved = { ...result };
+          if (saveFailure) throw saveFailure;
+        });
+      } catch (error) {
+        thrown = error;
+      } finally {
+        chmodSync(denied, 0o700);
+      }
+      assert.equal(thrown?.code, 'EACCES', 'published_wasm_cleanup_removal_failure');
+      assert.notEqual(thrown, saveFailure, 'published_wasm_cleanup_primary_error');
+      assert.deepEqual(saved, { ...initial, outcome: 'failed', phase: 'cleanup', error_family: 'other' }, 'published_wasm_cleanup_receipt');
+    }
+    const saveFailure = new Error('fixture save-only failure');
+    assert.throws(() => finalizePublishedProbeCleanup(undefined, { ...initial }, () => { throw saveFailure; }), error => error === saveFailure, 'published_wasm_cleanup_save_error');
+  } finally {
+    if (existsSync(denied)) chmodSync(denied, 0o700);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('published-wasm actual host fallback preserves probe failure even when receipt writing fails', () => {
@@ -512,6 +571,7 @@ test('published-wasm selection guard rejects extra, aliased, focused or reordere
     `${spec}\ntest(\n  'third case', async () => {});\n`,
     `${spec}\ntest.only('third case', async () => {});\n`,
     `${spec}\nconst start = '/*';\ntest('third case', async () => {});\nconst end = '*/';\n`,
+    `${spec}\nconst selected = { ...test };\nselected.only('third case', async () => {});\n`,
     `${spec}\nimport * as selected from '@playwright/test';\nselected.test('third case', async () => {});\n`,
     `${spec}\nconst unquotedTitle = 'third case';\ntest(unquotedTitle, async () => {});\n`,
     `${spec}\nconst selected = test;\nselected('third case', async () => {});\n`,
