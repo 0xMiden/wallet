@@ -163,6 +163,14 @@ function assertBridgeMinimum(row: ITransaction, review: ReviewedTransfer): void 
 }
 
 export function assertBridgeOperationCurrent(row: ITransaction, operation: BridgeOperationSnapshot): void {
+  const recorded = bridgeOperationOf(row);
+  if (
+    !recorded ||
+    recorded.operationId !== operation.operationId ||
+    reviewKey(recorded.review) !== reviewKey(operation.review) ||
+    configKey(recorded.walletScope) !== configKey(operation.walletScope)
+  )
+    throw new Error('Bridge operation terms changed');
   assertRowBinding(row, operation.review);
   assertBridgeMinimum(row, operation.review);
   assertScope(operation.walletScope);

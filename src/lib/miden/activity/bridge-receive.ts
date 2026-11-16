@@ -1,4 +1,3 @@
-import isEqual from 'fast-deep-equal';
 import { isHash } from 'viem';
 
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
@@ -531,14 +530,12 @@ export function createBridgeReceiveReconciler({
                 claimed.operationId !== operation.operationId ||
                 claimed.revision === operation.revision ||
                 claimed.sourceAttempt?.phase !== 'running' ||
-                !isEqual(claimed.review, operation.review) ||
-                !isEqual(claimed.walletScope, operation.walletScope) ||
                 claimedInputs?.phase !== 'submitting' ||
                 claimedInputs.evmTxHash ||
                 claimedInputs.intentNonce
               )
                 return;
-              assertBridgeOperationCurrent(claimedRow, claimed);
+              assertBridgeOperationCurrent(claimedRow, operation);
             }
           }
           await drive(txId);
