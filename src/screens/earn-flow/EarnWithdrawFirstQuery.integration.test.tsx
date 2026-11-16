@@ -124,17 +124,32 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 jest.mock('components/NetworkModeBanner', () => ({ NetworkModeBanner: () => null }));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
 jest.mock('components/Button', () => ({
-  Button: ({ children, title, onClick, disabled }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" onClick={onClick} disabled={disabled}>
+  Button: ({ children, title, onClick, disabled, type, form }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type={type ?? 'button'} form={form} onClick={onClick} disabled={disabled}>
       {children ?? title}
     </button>
   ),
   ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
 }));
 jest.mock('components/ui/SubPageLayout', () => ({
-  SubPageLayout: ({ children, footer }: React.PropsWithChildren<{ footer?: React.ReactNode }>) => (
+  SubPageLayout: ({
+    children,
+    footer,
+    formId,
+    onSubmit
+  }: React.PropsWithChildren<{
+    footer?: React.ReactNode;
+    formId?: string;
+    onSubmit?: React.FormEventHandler<HTMLFormElement>;
+  }>) => (
     <section>
-      {children}
+      {onSubmit ? (
+        <form id={formId} onSubmit={onSubmit}>
+          {children}
+        </form>
+      ) : (
+        children
+      )}
       {footer}
     </section>
   )
