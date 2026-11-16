@@ -983,10 +983,9 @@ describe('the node has the write once submitProven resolves', () => {
     expect(error).toHaveProperty('cause', storeQuota);
   });
 
-  // The worker leg carries the order its own build drew, read off the request before the execute.
-  it('a swap whose apply fails after a worker prove carries the order its built request names', async () => {
-    const harness = buildHarness();
-    harness.applyFailure.error = new Error('store quota');
+  const BUILT_ORDER_NOTE = `0x${'ab'.repeat(32)}`;
+  /** A client whose swap build names one public PSWAP order, 42, on the worker leg. */
+  const loadWithBuiltOrder = async (harness: Harness) => {
     // This file's static import of the apply helper would otherwise keep its SDK, which names another PSWAP root.
     jest.resetModules();
     installMocks(harness);
@@ -994,9 +993,8 @@ describe('the node has the write once submitProven resolves', () => {
       ...sdkLazyMock(harness),
       NoteScript: { pswap: () => ({ root: () => ({ toHex: () => 'pswap-root' }) }) }
     }));
-    const orderNoteId = `0x${'ab'.repeat(32)}`;
     const orderNote = {
-      id: () => ({ toString: () => orderNoteId }),
+      id: () => ({ toString: () => BUILT_ORDER_NOTE }),
       metadata: () => ({ noteType: () => 'Public' }),
       recipient: () => ({
         script: () => ({ root: () => ({ toHex: () => 'pswap-root' }) }),
@@ -1012,7 +1010,14 @@ describe('the node has the write once submitProven resolves', () => {
       expectedOutputOwnNotes: () => [orderNote]
     });
     installLocalProveTransport(harness.transport);
-    const client = await MidenClientInterface.create();
+    return { client: await MidenClientInterface.create(), withWasmClientLock, extractLanded };
+  };
+
+  // The worker leg carries the order its own build drew, read off the request before the execute.
+  it('a swap whose apply fails after a worker prove carries the order its built request names', async () => {
+    const harness = buildHarness();
+    harness.applyFailure.error = new Error('store quota');
+    const { client, withWasmClientLock, extractLanded } = await loadWithBuiltOrder(harness);
     jest.useFakeTimers();
 
     const error = await afterApplyRetryWaits(
@@ -1021,7 +1026,22 @@ describe('the node has the write once submitProven resolves', () => {
 
     expect(harness.transport.prove).toHaveBeenCalledTimes(1);
     expect(harness.submitProven).toHaveBeenCalledTimes(1);
-    expect(extractLanded(error)).toEqual({ orderId: '42', orderNoteId });
+    expect(extractLanded(error)).toEqual({ orderId: '42', orderNoteId: BUILT_ORDER_NOTE });
+  });
+
+  it('a swap`s worker leg stamps submitting with the order its built request names', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await loadWithBuiltOrder(harness);
+    const onStage = jest.fn(async (stage: string) => {
+      harness.order.push(`stamp:${stage}`);
+    });
+
+    await withWasmClientLock(async () => client.swapTransaction(swapTx(false), onStage));
+
+    expect(onStage).toHaveBeenCalledWith('submitting', {
+      evidence: expect.objectContaining({ orderId: '42', orderNoteId: BUILT_ORDER_NOTE })
+    });
+    expect(harness.order.indexOf('stamp:submitting')).toBeLessThan(harness.order.indexOf('submitProven'));
   });
 
   it.each(legs)('a %s whose submitProven rejects reaches the caller unwrapped', async (_leg, write) => {

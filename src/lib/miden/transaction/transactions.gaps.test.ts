@@ -1090,6 +1090,71 @@ describe('a throw after the leaf resolved', () => {
     expect(txStore.find(stored => stored.id === heldId)!.extraInputs.landedOrder).toEqual(held);
   });
 
+  // A single-key swap saves no request: its leaf named the order on the attempt's submit stamp, so a landing that reads
+  // nothing off the result still opens it. The second shape is the offscreen reply for a result whose serialize trapped.
+  type StageStamp = (
+    stage: string,
+    detail?: { reliable?: boolean; evidence?: Record<string, unknown> }
+  ) => Promise<void>;
+  const STAMPED_ORDER = { orderId: '42', orderNoteId: ORDER_NOTE_ID.toLowerCase() };
+  const trappingOrderRead = (): bigint => {
+    throw new WebAssembly.RuntimeError('order id read');
+  };
+  it.each<[string, (onStage: StageStamp) => Promise<unknown>]>([
+    [
+      'a tail whose order read traps',
+      async onStage => {
+        await onStage('submitting', { evidence: STAMPED_ORDER });
+        const note = landedSwapOutput(trappingOrderRead, ORDER_NOTE_ID);
+        return landedResult({ outputNotes: () => ({ notes: () => [note] }) });
+      }
+    ],
+    [
+      'a landed failure that names no facts',
+      async onStage => {
+        await onStage('submitting', { reliable: false, evidence: STAMPED_ORDER });
+        throw Object.assign(new Error("Offscreen call 'swapTransaction' failed: unreachable"), {
+          errorCode: 'ApplyTransactionAfterSubmitFailed'
+        });
+      }
+    ]
+  ])('a loop swap after %s completes with the order its submit stamp recorded', async (_name, write) => {
+    const id = 'tx-landed-swap-stamped-order';
+    _gh.__noteTypeForTest = 'public';
+    queuedSwap(id);
+    const restore = installLandedTrapRetirement(jest.fn());
+    try {
+      await runLoopWithWrite(jest.fn(async (_tx: unknown, _signer: unknown, onStage: StageStamp) => write(onStage)));
+    } finally {
+      restore();
+    }
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual([ORDER_NOTE_ID.toLowerCase()]);
+  });
+
+  it('a loop swap opens no order an earlier attempt`s stamp recorded', async () => {
+    const id = 'tx-landed-swap-earlier-stamp';
+    queuedSwap(id);
+    txStore.find(stored => stored.id === id)!.submitEvidence = [
+      { attemptId: 'earlier', capturedAt: 1, source: 'stage', ...STAMPED_ORDER }
+    ];
+
+    await runLoopWithWrite(
+      jest.fn(async () => {
+        throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {});
+      })
+    );
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.landedOrder).toBeUndefined();
+  });
+
   it.each([
     ['with its own order', { orderId: 7n, expiresAt: 500 }],
     ['with no order read', { expiresAt: 500 }]

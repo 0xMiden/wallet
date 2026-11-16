@@ -3761,6 +3761,36 @@ describe('MidenClientInterface', () => {
       expect(staged.submit).not.toHaveBeenCalled();
     });
 
+    // A single-key swap saves no request, so the attempt's stamp is where a landing without the result finds its order.
+    it('a swap stamps submitting with the order its built request names, before it submits', async () => {
+      const staged = stagedExecuteRequest();
+      const calls: string[] = [];
+      staged.submit.mockImplementation(async () => {
+        calls.push('submit');
+        return { apply: staged.apply };
+      });
+      const onStage = jest.fn(async (stage: string) => {
+        calls.push(`stamp:${stage}`);
+      });
+      jest.dontMock('./miden-client');
+      const client = await swapClientWithBuiltRequest(
+        staged.executeRequest,
+        jest.fn(() => [builtOrderNote()])
+      );
+      const { withWasmClientLock } = await import('./miden-client');
+
+      await withWasmClientLock(async () => client.swapTransaction(swapTx as any, onStage));
+
+      expect(onStage).toHaveBeenCalledWith('submitting', {
+        evidence: expect.objectContaining({
+          transactionId: 'tx-hex',
+          orderId: '42',
+          orderNoteId: BUILT_ORDER_NOTE.toLowerCase()
+        })
+      });
+      expect(calls.indexOf('stamp:submitting')).toBeLessThan(calls.indexOf('submit'));
+    });
+
     it.each<'consume' | 'swap' | 'newTransaction'>(['consume', 'swap', 'newTransaction'])(
       'the staged %s stamps submitting with the evidence, before it submits (#1081)',
       async write => {

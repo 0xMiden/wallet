@@ -225,6 +225,27 @@ describe('parseSubmitEvidence (#1081)', () => {
     expect(parseSubmitEvidence({ refBlock: 3 })).toEqual({ refBlock: 3 });
   });
 
+  // A single-key swap's leaf names its order on the stamp, the only record of it that crosses before the submit.
+  it('keeps a swap order that crossed as a well-formed pair, its note id lower-cased', () => {
+    const orderNoteId = hex(0xab).toUpperCase().replace('0X', '0x');
+    expect(parseSubmitEvidence({ ...valid, orderId: '42', orderNoteId })).toEqual({
+      ...valid,
+      orderId: '42',
+      orderNoteId: hex(0xab)
+    });
+  });
+
+  // The order is a landed fact, not verdict evidence, so one that is not a whole pair costs only itself.
+  it.each<[string, Record<string, unknown>]>([
+    ['an order with no note', { orderId: '42' }],
+    ['a note with no order', { orderNoteId: hex(0xab) }],
+    ['a hex order id', { orderId: '0x2a', orderNoteId: hex(0xab) }],
+    ['an order id past the field', { orderId: '18446744069414584321', orderNoteId: hex(0xab) }],
+    ['a short note id', { orderId: '42', orderNoteId: '0x12' }]
+  ])('drops %s and keeps the rest of the evidence', (_label, order) => {
+    expect(parseSubmitEvidence({ ...valid, ...order })).toEqual(valid);
+  });
+
   it('normalizeHex lower-cases', () => {
     expect(normalizeHex('0xABcd')).toBe('0xabcd');
   });

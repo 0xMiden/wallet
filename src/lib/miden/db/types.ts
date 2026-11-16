@@ -91,6 +91,11 @@ export interface ISubmitEvidence {
   refBlock?: number;
   refBlockCommitment?: string; // the network identity
   expirationBlock?: number;
+  // A swap attempt's order as its leaf read it off the request before the execute: felt 1 of the PSWAP serial as
+  // decimal text, and the order note's id in lower case. Both or neither. A single-key swap saves no request, so this
+  // is the only record of its order a landed writer can open without the result.
+  orderId?: string;
+  orderNoteId?: string;
   guardianProposalNonce?: number;
   candidateKept?: true; // the guardian still holds this attempt's candidate
   initialSeenAtBlock?: number;
@@ -106,7 +111,10 @@ export interface ISubmitEvidence {
   fromExecute?: true; // the row was an execute when this entry was made
 }
 
-/** What a leaf reads off the executed and proven transaction just before it submits (#1081). */
+/**
+ * What a leaf reads off the executed and proven transaction just before it submits (#1081), and a swap's order, which
+ * its leaf read off the request before the execute.
+ */
 export type SubmitEvidenceFields = Pick<
   ISubmitEvidence,
   | 'transactionId'
@@ -118,6 +126,8 @@ export type SubmitEvidenceFields = Pick<
   | 'refBlock'
   | 'refBlockCommitment'
   | 'expirationBlock'
+  | 'orderId'
+  | 'orderNoteId'
 >;
 
 /**

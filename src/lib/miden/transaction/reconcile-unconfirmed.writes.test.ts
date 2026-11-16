@@ -190,6 +190,55 @@ describe('the landed write (#1081)', () => {
     }
   );
 
+  // A single-key swap saves no request: its leaf named the order on the stamp of the attempt that landed.
+  it('the landed write of a swap with no saved request opens the order its landed attempt recorded', async () => {
+    const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+    await Repo.transactions.put(
+      unconfirmed({
+        type: 'swap',
+        displayIcon: 'SWAP',
+        extraInputs,
+        submitEvidence: [entry({ orderId: '42', orderNoteId: NOTE })]
+      })
+    );
+
+    await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toEqual({ ...extraInputs, orderId: 42n, expiresAt: NOW - 100 + 100 });
+    expect(row?.outputNoteIds).toEqual([NOTE]);
+  });
+
+  it('the landed write of a swap opens no order another attempt recorded', async () => {
+    const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+    const OTHER_NOTE = hex(21);
+    await Repo.transactions.put(
+      unconfirmed({
+        type: 'swap',
+        displayIcon: 'SWAP',
+        extraInputs,
+        submitEvidence: [
+          entry(),
+          entry({
+            attemptId: 'a2',
+            transactionId: hex(3),
+            outputNoteIds: [OTHER_NOTE],
+            orderId: '7',
+            orderNoteId: OTHER_NOTE
+          })
+        ]
+      })
+    );
+
+    await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toEqual(extraInputs);
+    expect(row?.outputNoteIds).toBeUndefined();
+  });
+
   it('the landed write of a swap that holds no order opens the one its saved request names', async () => {
     const savedNote = {
       id: () => ({ toString: () => NOTE }),

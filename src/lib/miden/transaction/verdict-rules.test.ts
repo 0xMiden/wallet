@@ -205,6 +205,27 @@ describe('upsertEvidenceEntry', () => {
     warn.mockRestore();
   });
 
+  // The order rides the stamp of the attempt that submits it, so it is recorded once and whole.
+  it('records a swap order as a pair, once, and never half of one', () => {
+    let entries = upsertEvidenceEntry(undefined, 'a1', { source: 'pin' }, NOW);
+    entries = upsertEvidenceEntry(
+      entries,
+      'a1',
+      { source: 'stage', evidence: { transactionId: hex(1), orderId: '42', orderNoteId: hex(9) } },
+      NOW
+    );
+    expect(entries[0]).toMatchObject({ transactionId: hex(1), orderId: '42', orderNoteId: hex(9) });
+    entries = upsertEvidenceEntry(
+      entries,
+      'a1',
+      { source: 'stage', evidence: { orderId: '7', orderNoteId: hex(8) } },
+      NOW
+    );
+    expect(entries[0]).toMatchObject({ orderId: '42', orderNoteId: hex(9) });
+    const half = upsertEvidenceEntry(undefined, 'a1', { source: 'stage', evidence: { orderId: '42' } }, NOW);
+    expect(half[0]).not.toHaveProperty('orderId');
+  });
+
   it('lets an error-text id fill only an entry without one', () => {
     const filled = upsertEvidenceEntry(
       [{ attemptId: 'a1', capturedAt: NOW, source: 'end' }],

@@ -334,6 +334,43 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
     expect(deserialize).not.toHaveBeenCalled();
   });
 
+  // A single-key swap saves no request: the order is the one the verified transaction's attempt named on its stamp.
+  it('opens the order the verified transaction`s attempt recorded on a swap with no saved request', async () => {
+    const otherNote = `0x${'cd'.repeat(32)}`;
+    await Repo.transactions.put(
+      decidedSwap({
+        extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 },
+        submitEvidence: [
+          {
+            attemptId: 'a0',
+            capturedAt: 1000,
+            source: 'stage',
+            transactionId: '0xother',
+            orderId: '7',
+            orderNoteId: otherNote
+          },
+          {
+            attemptId: 'a1',
+            capturedAt: 1100,
+            source: 'stage',
+            transactionId: '0xlanded',
+            orderId: '42',
+            orderNoteId: ORDER_NOTE
+          }
+        ]
+      })
+    );
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs.orderId).toBe(42n);
+    expect(row?.extraInputs.expiresAt).toBe((row?.completedAt ?? 0) + 100);
+    expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
+  });
+
   // A replay resends the same bytes, so the order they name stays recorded; only the dead attempt's landing goes.
   it('a proven-dead swap`s requeue keeps the order its saved request recorded', async () => {
     const submitEvidence = [{ attemptId: 'a1', capturedAt: 1100, source: 'stage' as const }];
