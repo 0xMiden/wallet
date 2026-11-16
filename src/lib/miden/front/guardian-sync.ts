@@ -42,7 +42,12 @@ import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
-import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
+import {
+  clearGuardianServiceFor,
+  getOrCreateMultisigService,
+  isHotKeySignerMissingError,
+  type GuardianAccountProvider
+} from './guardian-manager';
 import {
   SELF_HEAL_AUTH_FAILURE_THRESHOLD,
   SELF_HEAL_COOLDOWN_MS,
@@ -2588,14 +2593,19 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // canonicalization — so a transient 401 clears on its own. Only after the
       // 401 has PERSISTED (the persistence gate + `selfHealLedger`) do we cold-re-register
       // to repair a genuinely-stale allowlist, and only a bounded number of
-      // times.
-      if (isGuardianAuthRejection(error)) {
-        // A 401 is the server answering — the guardian is up. It also proves the
-        // operator HAS this account (it knows the account and rejects the
-        // signer), so any unknown-account streak is broken.
-        clearGuardianServerFailures(account.publicKey);
+      // times. A build that cannot find this device's hot signer reaches the same
+      // budgeted heal: its chain-verified membership check decides the verdict.
+      const hotSignerMissing = isHotKeySignerMissingError(error);
+      if (hotSignerMissing || isGuardianAuthRejection(error)) {
+        if (!hotSignerMissing) {
+          // A 401 is the server answering — the guardian is up. It also proves the
+          // operator HAS this account (it knows the account and rejects the
+          // signer), so any unknown-account streak is broken. A local build
+          // refusal reached no server and provides neither fact.
+          clearGuardianServerFailures(account.publicKey);
+          consecutiveUnknownAccount.delete(account.publicKey);
+        }
         clearGuardianServiceFor(account.publicKey);
-        consecutiveUnknownAccount.delete(account.publicKey);
         const fails = (consecutiveAuthFailures.get(account.publicKey) ?? 0) + 1;
         consecutiveAuthFailures.set(account.publicKey, fails);
         const healSubject = { accountPublicKey: account.publicKey, endpoint: canonicalGuardianEndpoint(endpoint) };

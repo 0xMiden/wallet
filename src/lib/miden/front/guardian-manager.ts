@@ -99,6 +99,18 @@ function refusedAtSelection(error: Error, proposalGuard: ProposalGuard): Error {
   return error;
 }
 
+/** A service-build refusal; only the sync self-heal decides whether this device was rotated out. */
+export class HotKeySignerMissingError extends Error {
+  constructor(accountPublicKey: string) {
+    super(`Guardian account ${accountPublicKey}: no on-chain signer holds this device's hot key`);
+    this.name = 'HotKeySignerMissingError';
+  }
+}
+
+/** Name-based so the refusal survives intercom serialization. */
+export const isHotKeySignerMissingError = (error: unknown): error is HotKeySignerMissingError =>
+  typeof error === 'object' && error !== null && 'name' in error && error.name === 'HotKeySignerMissingError';
+
 /**
  * Create a MultisigService for the given Guardian account.
  * Returns a cached instance if available.
@@ -260,9 +272,7 @@ export async function getOrCreateMultisigService(
     // path does not mark the account rotated out, which only the sync self-heal and
     // the direct switch decide.
     if (commitment === undefined) {
-      const notSigner = new Error(
-        `Guardian account ${accountPublicKey}: no on-chain signer holds this device's hot key`
-      );
+      const notSigner = new HotKeySignerMissingError(accountPublicKey);
       annotateCrash(notSigner, { proposalStep: 'service_signer_read', proposalGuard: 'hot_key_missing' });
       throw notSigner;
     }

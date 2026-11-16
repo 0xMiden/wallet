@@ -12,7 +12,9 @@ import {
   clearGuardianCache,
   clearGuardianServiceFor,
   getOrCreateMultisigService,
+  HotKeySignerMissingError,
   isGuardianAccount,
+  isHotKeySignerMissingError,
   type GuardianAccountProvider
 } from './guardian-manager';
 import { bumpWasmClientGeneration, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
@@ -370,10 +372,19 @@ describe('guardian-manager', () => {
       mockFindOwnSignerCommitment.mockResolvedValueOnce(undefined);
       const provider = makeProvider([guardianAccount]);
 
-      await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toThrow(
-        "no on-chain signer holds this device's hot key"
+      const build = getOrCreateMultisigService(GUARDIAN_PK, provider);
+      await expect(build).rejects.toBeInstanceOf(HotKeySignerMissingError);
+      await expect(build).rejects.toThrow(
+        `Guardian account ${GUARDIAN_PK}: no on-chain signer holds this device's hot key`
       );
       expect(mockMultisigServiceInit).not.toHaveBeenCalled();
+    });
+
+    it('recognizes a missing hot signer by name after intercom serialization', () => {
+      expect(isHotKeySignerMissingError({ name: 'HotKeySignerMissingError' })).toBe(true);
+      expect(isHotKeySignerMissingError(new Error('missing signer'))).toBe(false);
+      expect(isHotKeySignerMissingError(null)).toBe(false);
+      expect(isHotKeySignerMissingError('HotKeySignerMissingError')).toBe(false);
     });
 
     it('throws when the SDK has no record of the account', async () => {

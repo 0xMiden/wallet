@@ -15,6 +15,7 @@ import {
 } from 'lib/miden/sync-backoff';
 import { WalletType } from 'screens/onboarding/types';
 
+import { HotKeySignerMissingError } from './guardian-manager';
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD, SELF_HEAL_COOLDOWN_MS, SELF_HEAL_MAX_ATTEMPTS } from './guardian-selfheal';
 import {
   __resetGuardianSyncOutageForTest,
@@ -90,6 +91,7 @@ jest.mock('lib/store', () => ({
 const mockGetOrCreateMultisigService = jest.fn();
 const mockClearGuardianServiceFor = jest.fn();
 jest.mock('./guardian-manager', () => ({
+  ...jest.requireActual('./guardian-manager'),
   getOrCreateMultisigService: (...args: unknown[]) => mockGetOrCreateMultisigService(...args),
   clearGuardianServiceFor: (...args: unknown[]) => mockClearGuardianServiceFor(...args)
 }));
@@ -1320,6 +1322,40 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // rotated out without asking. What must not happen is the WRITE.
     expect(mockAdoptGuardianState).toHaveBeenCalled();
     expect(mockReRegister).not.toHaveBeenCalled();
+  });
+
+  it.each(['local', 'intercom'])('marks rotated out after persistent %s build refusals', async mode => {
+    const account = {
+      publicKey: `acct-build-refused-${mode}`,
+      type: WalletType.Guardian,
+      hotPublicKey: 'hot',
+      coldPublicKey: 'cold'
+    };
+    storeState.accounts = [account];
+    storeState.markHotKeyRotatedOut.mockClear();
+    mockGetSignerCommitments.mockReturnValue(['0xotherhot', '0xc01d']);
+    const error = new HotKeySignerMissingError(account.publicKey);
+    mockGetOrCreateMultisigService.mockRejectedValue(
+      mode === 'local' ? error : { name: error.name, message: error.message }
+    );
+    const clock = useFakeClocks(9_000_000);
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalled();
+
+    await syncGuardianAccounts();
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith(account.publicKey);
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+    expect(storeState.markHotKeyRotatedOut).toHaveBeenCalledWith(account.publicKey, 'hot', 'otherhot');
+    expect(mockReRegister).not.toHaveBeenCalled();
+
+    // A permanent refusal closes the same repair budget the 401 path uses.
+    clock.advance(SELF_HEAL_COOLDOWN_MS + 1);
+    await syncGuardianAccounts();
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(storeState.markHotKeyRotatedOut).toHaveBeenCalledTimes(1);
+    clock.restore();
   });
 
   it('does not re-register when the guardian state could not be read at all', async () => {
@@ -2558,6 +2594,20 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
     expect(isGuardianSyncOutage(pk)).toBe(false);
   });
 
+  it('a local missing-signer build refusal leaves an armed outage in place', async () => {
+    const pk = 'outage-local-missing-signer';
+    storeState.accounts = [guardianAccount(pk)];
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn().mockRejectedValue(new Error('Failed to fetch'))
+    });
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
+
+    mockGetOrCreateMultisigService.mockRejectedValue(new HotKeySignerMissingError(pk));
+    await runSyncs(1);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
+  });
+
   // The module's invariant is "the server ANSWERED, so it is alive, so the
   // outage stands down", and it is implemented at three sites. Only the 401 one
   // above was pinned: deleting either of the two below left all 87 tests green,
@@ -3213,6 +3263,18 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     sync.mockRejectedValue(unknownAccountError);
     for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a local missing-signer build refusal preserves the unknown-account streak', async () => {
+    for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+    mockGetOrCreateMultisigService.mockRejectedValueOnce(new HotKeySignerMissingError(account.publicKey));
+    await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
 
     await syncGuardianAccounts();
