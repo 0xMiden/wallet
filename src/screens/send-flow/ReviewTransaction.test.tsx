@@ -1426,6 +1426,28 @@ describe('ReviewTransaction — rendering', () => {
     );
   });
 
+  it.each<QuoteValidity | undefined>([undefined, { kind: 'time', expiresAt: 0 }])(
+    'cannot authorize compact Epoch output without live provider validity case %#',
+    async validity => {
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = {
+        amount: '4.8',
+        decimals: 6,
+        address: '0x2222222222222222222222222222222222222222',
+        validity,
+        loading: false,
+        error: null,
+        symbol: 'USDC'
+      };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+      render(<ReviewTransaction />);
+      await flush();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+    }
+  );
+
   it('cannot authorize an Epoch output whose token precision is unresolved', async () => {
     mockDetectedChain = 'ethereum';
     mockEpochQuote = { amount: '4.8', loading: false, error: null, symbol: 'USDC' };

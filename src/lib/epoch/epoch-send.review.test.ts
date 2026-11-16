@@ -1,4 +1,4 @@
-import type { SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
+import type { GetTaskDataParams, SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
 import { parseUnits } from 'viem';
 
 import { assertReviewedBridge } from 'lib/bridge/core/review';
@@ -8,7 +8,7 @@ import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -35,7 +35,7 @@ jest.mock('./chain', () => ({
   MIDEN_RECLAIM_BUFFER_BLOCKS: 200
 }));
 jest.mock('./collateral-note', () => ({ buildEpochCollateralRequestBytes: jest.fn() }));
-jest.mock('lib/platform', () => ({ isExtension: () => true }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => true }));
 jest.mock('lib/miden/activity', () => ({
   initiateBridgedSendTransaction: (...args: unknown[]) =>
     Reflect.apply(jest.requireActual('lib/miden/transaction/initiate').initiateBridgedSendTransaction, undefined, args),
@@ -109,6 +109,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   await Repo.transactions.clear();
   await Repo.spendingLimits.clear();
   mockSnapshot = referenceSnapshot('testnet');
@@ -137,7 +138,13 @@ beforeEach(async () => {
   };
   mockReadSdk.mockResolvedValue(mockSdk);
   mockBlock.mockResolvedValue(1000);
-  mockTaskData.mockImplementation(async params => ({ taskTypeString: 'bound-task', intentData: params.intentData }));
+  mockTaskData.mockImplementation(async (params: GetTaskDataParams) =>
+    jest
+      .requireActual<
+        typeof import('@epoch-protocol/epoch-intents-sdk/dist/sdk/get-task-data')
+      >('@epoch-protocol/epoch-intents-sdk/dist/sdk/get-task-data')
+      .getTaskData(params)
+  );
   mockQuote.mockImplementation(async () => ({
     success: true,
     resourceLockRequired: true,
@@ -259,9 +266,60 @@ it.each(['entry', 'sdk', 'block', 'quote', 'callback', 'note-build'])(
       });
     await expect(bridgeEpochSend(input)).rejects.toThrow();
     expect(await Repo.transactions.count()).toBe(0);
-    if (boundary === 'entry') expect(mockReadSdk).not.toHaveBeenCalled();
+    expect(mockReadSdk).toHaveBeenCalledTimes(boundary === 'entry' ? 0 : 1);
   }
 );
+
+it.each(['sdk', 'quote', 'callback'])(
+  'refuses original wallet scope departure after the %s await before collateral admission',
+  async boundary => {
+    const leave = () => jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example/private');
+    if (boundary === 'sdk')
+      mockReadSdk.mockImplementation(async () => {
+        leave();
+        return mockSdk;
+      });
+    if (boundary === 'quote')
+      mockQuote.mockImplementation(async () => {
+        leave();
+        return { success: true, resourceLockRequired: true, transactions: [], tokenOut: '1000000000000000000' };
+      });
+    if (boundary === 'callback')
+      mockSolve.mockImplementation(async (params: SolveIntentParams) => {
+        callback = params.createMidenP2IDENote!;
+        leave();
+        await createNote();
+        return { nonce: 'should-not-fund' };
+      });
+    await expect(bridgeEpochSend(input)).rejects.toThrow();
+    expect(await Repo.transactions.count()).toBe(0);
+    expect(noteBuilds).toBe(0);
+  }
+);
+
+it('does not substitute a changed allocator configuration after the quote await', async () => {
+  mockQuote.mockImplementation(async () => {
+    const config = mockSnapshot.config;
+    if (!config) throw new Error('Missing accepted config');
+    mockSnapshot = {
+      ...mockSnapshot,
+      config: {
+        ...config,
+        'bridge-providers': {
+          ...config['bridge-providers'],
+          epoch: {
+            ...config['bridge-providers'].epoch,
+            allocatorUrl: 'https://other-allocator.example'
+          }
+        }
+      }
+    };
+    return { success: true, resourceLockRequired: true, transactions: [], tokenOut: '1000000000000000000' };
+  });
+  await expect(bridgeEpochSend(input)).rejects.toThrow();
+  expect(await Repo.transactions.count()).toBe(0);
+  expect(noteBuilds).toBe(0);
+});
 
 it.each(['amount', 'faucet', 'sender', 'recipient', 'chain', 'floor', 'scope'])(
   'does not fund when the caller changes the original reviewed %s',
@@ -330,9 +388,10 @@ it.each(['recall', 'attachment'])(
   }
 );
 
-it('keeps original funded continuation and nonce when the deadline elapses while the note confirms', async () => {
+it('keeps original funded continuation and nonce after deadline and scope departure while the note confirms', async () => {
   mockWait.mockImplementation(async (id: string) => {
     jest.spyOn(Date, 'now').mockReturnValue(now + 60000);
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example/private');
     await Repo.transactions.update(id, {
       outputNoteIds: ['original-built-note'],
       status: ITransactionStatus.Completed
@@ -358,6 +417,16 @@ it('does not retry a failed callback or create a second collateral row', async (
   await expect(bridgeEpochSend(input)).rejects.toThrow();
   expect(noteBuilds).toBe(1);
   expect(await Repo.transactions.count()).toBe(1);
+});
+
+it('retains the winning row on an interrupted completion read without retrying collateral', async () => {
+  mockWait.mockRejectedValue(new Error('completion read interrupted'));
+  await expect(bridgeEpochSend(input)).rejects.toThrow();
+  const rows = await Repo.transactions.toArray();
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.extraInputs.reclaimNoteId).toBe('original-built-note');
+  expect(rows[0]?.status).toBe(ITransactionStatus.Failed);
+  expect(noteBuilds).toBe(1);
 });
 
 it('preserves the original source result and nonce even if navigation throws at row exposure', async () => {
