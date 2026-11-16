@@ -15,7 +15,7 @@ export type LandedResultFields = {
 // Keyed by the result object, so the structural tail's read is the one its completion writes.
 const kept = new WeakMap<TransactionResult, LandedResultFields>();
 
-const readOnce = <T>(read: () => T, landing: string, result: TransactionResult): LandedRead<T> => {
+export const readOnce = <T>(read: () => T, landing: string, result: TransactionResult): LandedRead<T> => {
   try {
     return { value: read() };
   } catch (error) {

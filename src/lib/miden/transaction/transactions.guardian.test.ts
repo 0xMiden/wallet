@@ -72,6 +72,7 @@ import {
 import { completeVerifiedLandedTransaction, setTransactionStage } from './helper';
 import {
   completeReplaceHotKeyTransaction,
+  completeSendTransaction,
   completeSwitchGuardianTransaction,
   ENDPOINT_PERSIST_TIMEOUT_MS,
   TERMINAL_STATUS_WRITE_ATTEMPTS,
@@ -15952,6 +15953,19 @@ describe('generateTransaction - Guardian routing', () => {
         'stage:guardian-synced',
         'stage:complete'
       ]);
+    });
+
+    // Only the tail keeps a read for its completion, and it drops it when the tail ends.
+    it("a Guardian send's tail forgets its read when it ends, so a later completion of the same result reads it again", async () => {
+      const replaceable = makeReplaceableResult({ output: [fixtureNote('note-forgotten', NoteType.Public)] });
+      const row = sendRow('guardian-send-read-forgotten', 'public');
+      await runGuardianValueRow(row, replaceable, sendProposal());
+      expect(replaceable.lateReads).toEqual([]);
+
+      await expect(completeSendTransaction(row as never, replaceable.result as never)).rejects.toThrow(
+        'null pointer passed to rust'
+      );
+      expect(replaceable.lateReads).toEqual(['executedTransaction']);
     });
 
     it('a Guardian private send relays the note it read before the Guardian sync, and stamps guardian-syncing, guardian-synced, confirming, then delivering', async () => {

@@ -1025,16 +1025,14 @@ describe('a throw after the leaf resolved', () => {
     const id = 'tx-tail-swap-no-id';
     _gh.__noteTypeForTest = 'public';
     queuedSwap(id);
-    let idReads = 0;
 
     await runLoopWithWrite(
       jest.fn(async () =>
         swapResultWithId(
           () => {
-            idReads++;
-            if (idReads > 1) throw new Error('id read');
+            // A Cancel lands as the tail reads the id, which never reads: the tail's own read and the late one both fail.
             setStatus(id, ITransactionStatus.Failed);
-            return 'landed-id';
+            throw new Error('id read');
           },
           () => new Uint8Array([])
         )

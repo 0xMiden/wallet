@@ -158,6 +158,12 @@ import {
   swapOrderExpiresAt,
   updateTransactionStatus
 } from './helper';
+import {
+  forgetLandedCompletion,
+  keptLandingFacts,
+  type LandedCompletion,
+  readLandedCompletion
+} from './landed-completion-reads';
 import { keptLandedTransactionId, readLandedResultFields } from './landed-result-fields';
 import { assertProposalEffectApproved } from './proposal-effect-guard';
 import {
@@ -1293,16 +1299,18 @@ const recordLandedFacts = async (txId: string, error: unknown, attemptId: string
  * (PR #2183). A structural row's tail is left as it is once it holds its id. It settles on the node's verdict itself (a
  * discard fails it, a rotation with no verdict never completes, nothing finalizes after an eviction), and its row offers
  * no Retry. Its id read comes before any verdict, so that read's failure leaves the tail as `LandedTailError`
- * (`readTailTransactionId`). A value row's tail reads no id of its own, and its failure names the id its completion
- * kept, if any, before reading the handle late.
+ * (`readTailTransactionId`).
  *
- * A structural row's completion reads only the id, bytes and fee of its result, so its tail reads them first
- * (`readLandedResultFields`), under the generation the wrapper recorded: the outgoing guardian's delta push and the
- * commit wait can replace the client, and the completion then writes the values read here. The read never throws, so
- * the switch delta is still pushed before an unreadable id leaves the tail.
+ * Each tail first reads, under the generation the wrapper recorded, what its completion reads off the result: the
+ * outgoing guardian's delta push, the commit wait and a Guardian row's sync can replace the client, and the completion
+ * then writes the values read here. A structural row's completion reads only the id, bytes and fee
+ * (`readLandedResultFields`); a value row's reads each field its completion reads, in that completion's own order
+ * (`readLandedCompletion`). Neither read throws, so the switch delta is still pushed, and a Guardian value row still
+ * synced, before a failed read leaves the tail. A value row's failure names the id and swap order its read kept, else
+ * reads the handle late.
  */
 const runLandedTail = async (
-  transaction: Pick<ITransaction, 'id' | 'type'>,
+  transaction: ITransaction,
   result: TransactionResult,
   run: () => Promise<void>
 ): Promise<void> => {
@@ -1313,13 +1321,21 @@ const runLandedTail = async (
     });
     return;
   }
+  let read: LandedCompletion | undefined;
   try {
-    await retiringLandedTraps(transaction.id, result, run);
-  } catch (error) {
-    throw new LandedTailError(error, {
-      transactionId: keptLandedTransactionId(result) ?? readLandedTransactionId(transaction.id, result),
-      ...(transaction.type === 'swap' ? landedSwapOrder(transaction.id, result) : {})
+    await retiringLandedTraps(transaction.id, result, () => {
+      read = readLandedCompletion(transaction, result);
+      return run();
     });
+  } catch (error) {
+    const kept = keptLandingFacts(read);
+    throw new LandedTailError(error, {
+      transactionId:
+        kept.transactionId ?? keptLandedTransactionId(result) ?? readLandedTransactionId(transaction.id, result),
+      ...(transaction.type === 'swap' ? (kept.order ?? landedSwapOrder(transaction.id, result)) : {})
+    });
+  } finally {
+    forgetLandedCompletion(result);
   }
 };
 
@@ -5147,10 +5163,9 @@ const generateGuardianTransaction = async (
     // else touches the local cache or storage", and this runs before the
     // completion switch below.
     //
-    // Post-completion bookkeeping only: the transaction is already marked Completed
-    // and the on-chain submit succeeded, so a sync failure here must NOT propagate
-    // (it would flip a genuinely-successful transaction to Failed). The next sync
-    // tick reconciles.
+    // The landed row's bookkeeping, before its completion writes it Completed: the on-chain submit succeeded, so a sync
+    // failure here must NOT propagate (it would fail a landed transaction). The next sync tick reconciles. The tail
+    // read what the completion reads before this sync, which can replace the client.
     if (
       transaction.type !== 'replace-hot-key' &&
       transaction.type !== 'update-procedure-threshold' &&
