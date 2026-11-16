@@ -1,3 +1,4 @@
+import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import {
   captureNativeAssetSnapshot,
@@ -11,6 +12,19 @@ import { parseReceiptRoute } from './core/receipt-route';
 import type { BridgeRoute } from './core/routes';
 import { connections, native, referenceSnapshot } from './testing/fixtures';
 
+// Known SDK bech32/hex pair also pinned by derive.registry.test.ts; metadata remains a native-owner boundary read.
+const mockNativeBech32 = 'mtst1aq9nwte8xh3nayfpdkv4hu5mjy90arem_qr7qqq9wr6w';
+const mockNativeHex = '0x0b372f2735e33e91216d995bf29b91';
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual<typeof import('@miden-sdk/miden-sdk/lazy')>('@miden-sdk/miden-sdk/lazy'),
+  AccountId: { fromHex: (id: string) => ({ toString: () => id.toLowerCase() }) },
+  Address: {
+    fromBech32: (address: string) => {
+      if (address !== mockNativeBech32.split('_')[0]) throw new Error('Invalid SDK address fixture');
+      return { accountId: () => ({ toString: () => mockNativeHex }) };
+    }
+  }
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: jest.fn(() => 'testnet') }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(() => native.faucetId),
@@ -151,6 +165,36 @@ it('does not mix native identity observations across a scope/revision transition
     .mocked(captureNativeAssetSnapshot)
     .mockReturnValueOnce({ scope: 'old-rpc', revision: 1 })
     .mockReturnValueOnce({ scope: 'new-rpc', revision: 2 });
+  expect(deriveBridgeRoutes(referenceSnapshot('testnet')).some(route => route.provider === 'xreserve')).toBe(false);
+});
+
+it('normalizes the native owner bech32 identifier for Circle routes and original receipt recovery', () => {
+  expect(canonicalWalletAccountId(mockNativeBech32)).toBe(mockNativeHex);
+  jest.mocked(getNativeAssetIdSync).mockReturnValue(mockNativeBech32);
+  const routes = deriveBridgeRoutes(referenceSnapshot('testnet')).filter(route => route.provider === 'xreserve');
+  expect(routes).toHaveLength(8);
+  for (const route of routes) {
+    const miden = route.mode === 'receive' ? route.destination : route.source;
+    expect(miden).toMatchObject({ kind: 'miden', faucetId: mockNativeHex });
+    expect(route.recovery.nativeAsset).toMatchObject({
+      faucetId: mockNativeHex,
+      scope: native.scope,
+      revision: native.revision
+    });
+    expect(parseReceiptRoute(route)).toEqual(route);
+  }
+});
+
+it('refuses malformed bech32 native identity and a scope change around a valid bech32 read', () => {
+  jest.mocked(getNativeAssetIdSync).mockReturnValue(mockNativeBech32.replace('aq9', 'aq8'));
+  expect(deriveBridgeRoutes(referenceSnapshot('testnet')).some(route => route.provider === 'xreserve')).toBe(false);
+  jest.mocked(getNativeAssetIdSync).mockReturnValue(mockNativeBech32);
+  jest
+    .mocked(captureNativeAssetSnapshot)
+    .mockReturnValueOnce({ scope: native.scope, revision: 1 })
+    .mockReturnValueOnce({ scope: 'different-rpc|testnet', revision: 2 });
+  expect(deriveBridgeRoutes(referenceSnapshot('testnet')).some(route => route.provider === 'xreserve')).toBe(false);
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
   expect(deriveBridgeRoutes(referenceSnapshot('testnet')).some(route => route.provider === 'xreserve')).toBe(false);
 });
 

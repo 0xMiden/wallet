@@ -1,5 +1,5 @@
 import { bridgeFeeCharging, walletBridgeProvider } from './provider';
-import { bindTransferQuote, isQuoteReviewable, quoteAmounts } from './quote';
+import { bindTransferQuote, isQuoteReviewable, quoteAmounts, type QuoteResult } from './quote';
 import { accounts, now, testRoute } from '../testing/fixtures';
 
 it('retains exact request terms and provider output, including deducted fees', () => {
@@ -106,6 +106,37 @@ it('derives an additional CCTP fee from its authorization and refuses contradict
   );
   expect(quoteAmounts(route, quote)).toEqual({ received: '1.000001', sourceTotal: '1.250002', fee: '0.250001' });
   expect(() => quoteAmounts(route, { ...quote, fee: '0' })).toThrow();
+});
+
+it.each([
+  { expiresAt: now / 1000 - 1, live: false },
+  { expiresAt: now / 1000, live: false },
+  { expiresAt: now / 1000 + 1, live: true },
+  { expiresAt: undefined, live: true },
+  { expiresAt: NaN, live: false },
+  { expiresAt: Infinity, live: false }
+])('honors a supplied CCTP authorization expiry in seconds ($expiresAt)', ({ expiresAt, live }) => {
+  const quote: QuoteResult = {
+    kind: 'cctp',
+    received: '1',
+    validity: { kind: 'provider' },
+    authorization: { signedQuote: '0x1234', feeTotalAmount: 1n, expiresAt }
+  };
+  expect(isQuoteReviewable(quote, now)).toBe(live);
+  expect(isQuoteReviewable({ ...quote, validity: { kind: 'time', expiresAt: now + 60_000 } }, now)).toBe(live);
+});
+
+it('checks both outer and CCTP authorization deadlines at the millisecond boundary', () => {
+  const quote: QuoteResult = {
+    kind: 'cctp',
+    received: '1',
+    validity: { kind: 'time', expiresAt: now + 60_000 },
+    authorization: { signedQuote: '0x1234', feeTotalAmount: 1n, expiresAt: now / 1000 + 1 }
+  };
+  expect(isQuoteReviewable(quote, now + 999)).toBe(true);
+  expect(isQuoteReviewable(quote, now + 1000)).toBe(false);
+  expect(isQuoteReviewable({ ...quote, validity: { kind: 'time', expiresAt: now } }, now)).toBe(false);
+  expect(isQuoteReviewable({ kind: 'epoch', received: '1', validity: { kind: 'provider' } }, now)).toBe(true);
 });
 
 it('maps portal protocol names only at the wallet boundary and retains direct-deposit fees', () => {

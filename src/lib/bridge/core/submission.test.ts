@@ -1,6 +1,7 @@
+import { bindTransferQuote, type QuoteValidity } from './quote';
 import { assertReviewedBridge, type BridgeReviewContext, type ReviewedTransfer } from './review';
 import { verifyBridgeSubmission } from './submission';
-import { accounts, now, testRoute } from '../testing/fixtures';
+import { accounts, native, now, testRoute } from '../testing/fixtures';
 
 function setup(): ReviewedTransfer {
   const route = testRoute();
@@ -16,6 +17,65 @@ function setup(): ReviewedTransfer {
     }
   };
 }
+function cctpReview(validity: QuoteValidity): ReviewedTransfer {
+  const route = testRoute();
+  const usdc = route.recovery.config.supportedEvmChains.sepolia?.bridges.usdcx?.tokens.USDC;
+  if (!usdc) throw new Error('Missing Circle fixture');
+  route.id = 'test:cctp:receive';
+  route.provider = 'xreserve';
+  route.source = { kind: 'erc20', network: 'sepolia', symbol: 'USDC', decimals: 6, address: usdc.contractAddress };
+  route.destination = {
+    kind: 'miden',
+    network: 'miden-testnet',
+    symbol: 'USDCx',
+    decimals: 6,
+    faucetId: native.faucetId
+  };
+  route.recovery.nativeAsset = { ...native };
+  const amount = '1.000001';
+  return {
+    route,
+    amount,
+    accounts: { ...accounts },
+    quote: bindTransferQuote(
+      { route, amount, ...accounts },
+      {
+        kind: 'cctp',
+        received: amount,
+        validity,
+        authorization: { signedQuote: '0x1234', feeTotalAmount: 1n, expiresAt: now / 1000 + 1 }
+      }
+    )
+  };
+}
+
+it.each([{ kind: 'provider' }, { kind: 'time', expiresAt: now + 60_000 }] satisfies QuoteValidity[])(
+  'requires a new review if CCTP authorization expires during cap verification with $kind outer validity',
+  async validity => {
+    const review = cctpReview(validity);
+    expect(() => assertReviewedBridge(review, structuredClone(review), now)).not.toThrow();
+    let clock = now;
+    let release: () => void = () => {
+      throw new Error('No cap read');
+    };
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const verifyBalanceCap = jest.fn(() => pending);
+    const submission = verifyBridgeSubmission(review, {
+      readCurrent: async () => structuredClone(review),
+      verifyBalanceCap,
+      now: () => clock
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(verifyBalanceCap).toHaveBeenCalledWith(review.route, review.amount, accounts.midenAccount);
+    clock = now + 1000;
+    release();
+    await expect(submission).rejects.toThrow('Bridge quote requires a new review');
+  }
+);
+
 it('accepts an unchanged exact review across JSON transport and key ordering', () => {
   const review = setup();
   const current: BridgeReviewContext = structuredClone(review);
