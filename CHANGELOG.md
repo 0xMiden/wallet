@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][all] Auto-consume measures a claim against its fee floor again after it removes the notes that another claim covers or that wait for a retry, so a small payment is no longer claimed alone at a loss (#2192).
 - [FIX][all] Keep documentation and E2E gallery deployments compatible with SHA-pinned action policies.
 - [CHANGE][ci] A telemetry egress test no longer fails when a random Sentry id happens to contain one of its short hex needles.
 - [FIX][all] A bridged send (Agglayer, USDCx or Epoch) or an Earn deposit is checked against its reviewed token and amount and against the note the wallet built before it is signed, on Guardian and single-key accounts alike (#2147).
@@ -38,6 +39,7 @@
 - [CHANGE][mobile] Mobile dApp browser: answer a verified main-frame availability PING while the session origin trails the document; continue refusing other origin-mismatched messages.
 - [FIX][all] New Guardian accounts derive their account seed separately from the recovery key's seed, so the account's stored seed never carries key material.
 - [FIX][all] Send, swap and Earn deposit signing refuses effects beyond the persisted offered token and amount, including unexpected assets and NFTs (#2147).
+- [FIX][all] Max on Send and every bridge route fills the full spendable balance with all of the token's decimals, so it no longer leaves dust behind; only the Available label is rounded (#2157).
 - [FIX][all] Token logos come only from the verified token list by faucet id, so the Bridge in review shows the token's logo (POL) and the Miden logo on its To row, and a token can no longer borrow another token's logo by its symbol (#2093).
 - [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
 - [FIX][all] Single-key accounts now refuse to sign a claim or dApp transaction that moves more than was approved, the check Guardian accounts already had.
