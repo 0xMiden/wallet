@@ -1,9 +1,26 @@
 /* eslint-disable import/first -- the jest.mock() factories must be registered before the module under test loads. */
 const mockDeserialize = jest.fn();
-jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
-  TransactionRequest: { deserialize: (...args: unknown[]) => mockDeserialize(...args) }
-}));
+/** The SDK's account parse for the bech32 addresses these tests name, each to its account's canonical hex id. */
+const mockBech32Accounts: Record<string, string> = {
+  mtst1acct: `0x${'ab'.repeat(15)}`,
+  mtst1other: `0x${'cd'.repeat(15)}`
+};
+jest.mock('@miden-sdk/miden-sdk/lazy', () => {
+  const actual = jest.requireActual('@miden-sdk/miden-sdk/lazy');
+  return {
+    ...actual,
+    TransactionRequest: { deserialize: (...args: unknown[]) => mockDeserialize(...args) },
+    Address: {
+      ...actual.Address,
+      fromBech32: (address: string) => {
+        const hex = mockBech32Accounts[address];
+        if (hex === undefined) throw new Error(`invalid bech32 address: ${address}`);
+        return { accountId: () => ({ toString: () => hex }) };
+      }
+    },
+    AccountId: { fromHex: (hex: string) => ({ toString: () => hex.toLowerCase() }) }
+  };
+});
 
 const mockSdkReady = jest.fn(async () => undefined);
 jest.mock('lib/miden-chain/constants', () => ({
@@ -44,13 +61,21 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 const FIRST = `0x${'AA'.repeat(32)}`;
 const SECOND = `0x${'BB'.repeat(32)}`;
 const BYTES = new Uint8Array([1, 2, 3]);
+/** The row's account, as `ACCOUNT` parses, and another account. */
+const ACCOUNT_HEX = `0x${'ab'.repeat(15)}`;
+const OTHER_HEX = `0x${'cd'.repeat(15)}`;
 
+/** A note the saved request declares, under `sender`, the account its metadata names as the note's creator. */
 const requestNote = (
   id: string,
-  { noteType = 'Public', orderId = 42n }: { noteType?: string; orderId?: bigint } = {}
+  {
+    noteType = 'Public',
+    orderId = 42n,
+    sender = ACCOUNT_HEX
+  }: { noteType?: string; orderId?: bigint; sender?: string } = {}
 ) => ({
   id: () => ({ toString: () => id }),
-  metadata: () => ({ noteType: () => noteType }),
+  metadata: () => ({ noteType: () => noteType, sender: () => ({ toString: () => sender }) }),
   recipient: () => ({
     script: () => ({ root: () => NoteScript.pswap().root() }),
     serialNum: () => ({ toFelts: () => [{ asInt: () => 7n }, { asInt: () => orderId }] })
@@ -328,6 +353,31 @@ describe('the account that created a pinned note', () => {
     });
     expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase()], RPC_READ_TIMEOUT_MS);
   });
+});
+
+// A run as this account creates its notes in its own name, so a saved request that declares one under another
+// account can never be sent from this account. The wallet queued such a request before it refused one whose
+// approval dry run failed.
+describe('the account an execute`s saved request names as its notes` sender', () => {
+  const execute = { type: 'execute' as const, accountId: ACCOUNT, requestBytes: BYTES };
+
+  it.each<[string, ReturnType<typeof requestNote>[]]>([
+    ['its one note', [requestNote(FIRST, { sender: OTHER_HEX })]],
+    ['one of its notes', [requestNote(FIRST), requestNote(SECOND, { sender: OTHER_HEX })]]
+  ])(
+    'a request declaring %s under another account is one no Retry can send, and asks the node nothing',
+    async (_case, notes) => {
+      decodesTo(...notes);
+
+      await expect(checkPinnedReplayNotes(execute, { createReads })).resolves.toEqual({
+        kind: 'unknown',
+        cause: 'sender'
+      });
+      expect(mockCallbackOutcomes).toEqual([{ rejected: expect.any(Error) }]);
+      expect(createReads).not.toHaveBeenCalled();
+      expect(noteInclusions).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('orderFromSavedRequest', () => {

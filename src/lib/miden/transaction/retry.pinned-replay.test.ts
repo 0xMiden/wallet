@@ -11,10 +11,22 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 const mockDeserialize = jest.fn();
-jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
-  TransactionRequest: { deserialize: (...args: unknown[]) => mockDeserialize(...args) }
-}));
+/** The rows' account parses to this canonical hex id, the form a note's metadata names its sender in. */
+const mockAccountHex = `0x${'ab'.repeat(15)}`;
+jest.mock('@miden-sdk/miden-sdk/lazy', () => {
+  const actual = jest.requireActual('@miden-sdk/miden-sdk/lazy');
+  return {
+    ...actual,
+    TransactionRequest: { deserialize: (...args: unknown[]) => mockDeserialize(...args) },
+    Address: {
+      ...actual.Address,
+      fromBech32: (address: string) =>
+        address === 'mtst1acct'
+          ? { accountId: () => ({ toString: () => mockAccountHex }) }
+          : actual.Address.fromBech32(address)
+    }
+  };
+});
 const mockCreateReads = jest.fn();
 jest.mock('./reconcile-reads', () => ({
   ...jest.requireActual('./reconcile-reads'),
@@ -47,10 +59,13 @@ const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
 const PINNED = hex(0xa1);
 const BYTES = () => new Uint8Array([0xca, 0xfe, 0xba, 0xbe]);
 
-/** A note of the decoded request: its id, a public type, and the serial a PSWAP order is tracked by. */
-const requestNote = (id: string, orderId = 42n) => ({
+/**
+ * A note of the decoded request: its id, a public type, the account its metadata names as its creator (the row's,
+ * unless `sender` names another), and the serial a PSWAP order is tracked by.
+ */
+const requestNote = (id: string, orderId = 42n, sender = mockAccountHex) => ({
   id: () => ({ toString: () => id }),
-  metadata: () => ({ noteType: () => 'Public' }),
+  metadata: () => ({ noteType: () => 'Public', sender: () => ({ toString: () => sender }) }),
   recipient: () => ({
     script: () => ({ root: () => NoteScript.pswap().root() }),
     serialNum: () => ({ toFelts: () => [{ asInt: () => 7n }, { asInt: () => orderId }] })
@@ -639,5 +654,47 @@ describe('the account that created an execute`s pinned note', () => {
 
     expect((await read())?.status).toBe(ITransactionStatus.Completed);
     expect(noteInclusions).toHaveBeenCalledWith([PINNED], RPC_READ_TIMEOUT_MS);
+  });
+});
+
+// The wallet once queued a dApp's request even when its approval dry run failed, so a row saved then can hold bytes
+// that declare a note in another account's name, which no run as this account creates. A cancel while it ran left an
+// entry with no evidence, which keeps it in doubt once the run it ended can no longer be running.
+describe('an execute whose saved request declares a note under another account', () => {
+  const LEGACY: Partial<ITransaction> = {
+    type: 'execute',
+    mayHaveSubmitted: undefined,
+    initiatedAt: NOW - 7_200,
+    processingStartedAt: NOW - 7_190,
+    submitEvidence: [
+      pin({
+        capturedAt: NOW - 7_180,
+        source: 'out-of-band',
+        endedBy: 'out-of-band',
+        endedAt: NOW - 7_180,
+        fromExecute: true
+      })
+    ]
+  };
+
+  it('keeps the acknowledgeable first refusal, then refuses as unsendable with no node read', async () => {
+    await Repo.transactions.put(pinnedRow(LEGACY));
+    decodesTo(requestNote(PINNED, 42n, `0x${'cd'.repeat(15)}`));
+    nodeHoldsFrom('mtst1other', PINNED);
+
+    const first = await refusal();
+    expect(acknowledgementOf(first)).toEqual({ attemptId: 'a1' });
+    expect(mockDeserialize).not.toHaveBeenCalled();
+
+    const error = await refusal('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    expect(error).toHaveProperty('message', TRANSACTION_REPLAY_UNREADABLE_ERROR);
+    expect(acknowledgementOf(error)).toBeNull();
+    expect(snapshotPendingRetry(error)).toBe('replay_request_unreadable');
+    expect(mockCreateReads).not.toHaveBeenCalled();
+    expect(noteInclusions).not.toHaveBeenCalled();
+    const row = await read();
+    expect(row).toMatchObject({ status: ITransactionStatus.Failed, queuedSeq: 7, attemptId: 'a1' });
+    expect(Array.from(row?.requestBytes ?? [])).toEqual(Array.from(BYTES()));
   });
 });
