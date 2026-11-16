@@ -30,6 +30,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
+import { recordedSwapOrder } from '../sdk/apply-after-submit';
 import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 import { errorMessageParts, isPoisonedPipeline, landedOrderFacts, type LandedTransaction } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
@@ -656,10 +657,11 @@ export const swapOrderExpiresAt = (extraInputs: Pick<ISwapExtraInputs, 'expirySe
 
 /**
  * The swap fields a write that completes a landed swap without its result writes, the one rule for every such writer:
- * the order the landed failure held (`landedOrder`), else the one `read` names, as `orderId` and its `expiresAt`, and
- * its note as the row's output note when the row records none, since settlement reclaims an expired order's note only
- * from there. The held order keeps the expiry its landing anchored. A row that holds its own order keeps it, and one
- * with no order gets no expiry, since the receipt reads an expiry as an order the wallet settles. The store can hold
+ * the order the landed failure held (`landedOrder`), else the one `read` names, else the one the row's saved request
+ * recorded (`requestOrder`), as `orderId` and its `expiresAt`, and its note as the row's output note when the row
+ * records none, since settlement reclaims an expired order's note only from there. Each source gives the whole pair or
+ * nothing. The held order keeps the expiry its landing anchored. A row that holds its own order keeps it, and one with
+ * no order gets no expiry, since the receipt reads an expiry as an order the wallet settles. The store can hold
  * anything here (`importDb`), so only well-formed facts open an order, and a row with no `extraInputs` gets no fields.
  * Idempotent.
  */
@@ -673,11 +675,12 @@ export const completedSwapFields = (
   if (extraInputs.orderId != null) return { extraInputs };
   const held = landedOrderFacts(landedOrder?.orderId, landedOrder?.noteId);
   const heldExpiresAt = landedOrder?.expiresAt;
+  const readFacts = landedOrderFacts(read.orderId, read.orderNoteId);
   const order =
     held.orderId !== undefined && heldExpiresAt !== undefined && Number.isSafeInteger(heldExpiresAt)
       ? { ...held, expiresAt: heldExpiresAt }
       : {
-          ...landedOrderFacts(read.orderId, read.orderNoteId),
+          ...(readFacts.orderId !== undefined ? readFacts : recordedSwapOrder(extraInputs)),
           expiresAt: swapOrderExpiresAt(extraInputs, completedAt)
         };
   if (order.orderId === undefined) return { extraInputs };
@@ -828,7 +831,8 @@ export const completeVerifiedLandedTransaction = async (
  * A swap opens the order its landed failure held here, with the status flip
  * ({@link completedSwapFields}), so every node-evidence landing tracks it; `read`
  * is the order the landing itself read, including the order decoded from the saved
- * request when the row holds none.
+ * request when the row holds none, and a row whose saved request recorded its order
+ * (`requestOrder`) opens that one when `read` names none, with no decode.
  */
 export const applyVerifiedLanding = (
   tx: ITransaction,

@@ -81,7 +81,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
-import { swapOrderOf } from '../sdk/apply-after-submit';
+import { recordedSwapOrder, swapOrderOf } from '../sdk/apply-after-submit';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
@@ -464,11 +464,13 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   const feeFields = feeFieldsFromResult(result, tx.id);
   const transactionId = executedTx.id().toHex();
   const resultBytes = result.serialize();
-  // The result named no order, so the saved request's one public PSWAP note does. Any order an earlier
-  // attempt's landing held is dropped below, so it does not stand in. Decoded before the status write;
-  // this runs past submit, outside any hold.
-  const fromRequest = fromResult === undefined ? await orderFromSavedRequest(tx.requestBytes) : undefined;
-  const order = fromResult ?? fromRequest;
+  // The result named no order, so the saved request's one public PSWAP note does: the order recorded beside those
+  // bytes, else, on a row that recorded none, a decode of them. Any order an earlier attempt's landing held is dropped
+  // below, so it does not stand in. Decoded before the status write; this runs past submit, outside any hold.
+  const recorded = fromResult === undefined ? recordedSwapOrder(tx.extraInputs) : undefined;
+  const fromRequest =
+    fromResult === undefined && recorded === undefined ? await orderFromSavedRequest(tx.requestBytes) : undefined;
+  const order = fromResult ?? recorded ?? fromRequest;
 
   // TODO: track the created PSWAP note + payback note for richer activity
   // display (offered/requested asset breakdown). For now record the tx as

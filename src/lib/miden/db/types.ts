@@ -1614,6 +1614,21 @@ export interface ISwapExtraInputs {
    * attempts proven dead drops it.
    */
   landedOrder?: ISwapLandedOrder;
+  /**
+   * The order this row's saved request names, read off the request whose bytes are stored beside it and written in
+   * the same write as `requestBytes` (a Guardian swap's build and each rebuild), so it describes those bytes; a write
+   * that stores bytes it read no order for removes it. Only a writer completing a landed swap reads it, as the order a
+   * landing could not read (`completedSwapFields`), so a row carrying it opens no order. A Retry keeps it, since a
+   * replay resends the same bytes. Absent on single-key rows, which save no request, and on older rows.
+   */
+  requestOrder?: ISwapRequestOrder;
+}
+
+export interface ISwapRequestOrder {
+  /** The PSWAP lineage id, felt 1 of the order note's serial, as decimal text. */
+  orderId: string;
+  /** The order note's id, in lower case. */
+  noteId: string;
 }
 
 export interface ISwapLandedOrder {

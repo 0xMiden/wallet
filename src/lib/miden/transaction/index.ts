@@ -187,6 +187,7 @@ import {
   IConsumeGcPurchaseExtraInputs,
   IRequeueStreak,
   IRequeueStreakArm,
+  type ISwapExtraInputs,
   type ISwapLandedOrder,
   ITransaction,
   ITransactionStage,
@@ -202,7 +203,15 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
-import { applyAfterSubmit, isLandedTailError, LandedTailError, landedTailErrorIn } from '../sdk/apply-after-submit';
+import {
+  applyAfterSubmit,
+  isLandedTailError,
+  LandedTailError,
+  landedTailErrorIn,
+  recordedSwapOrder,
+  requestOrderOf,
+  type RequestOrder
+} from '../sdk/apply-after-submit';
 import {
   accountRefToSdk,
   buildPswapCreateRequest,
@@ -1206,32 +1215,45 @@ const landedFactsOf = (error: unknown): LandedWithoutResult => {
 };
 
 /**
+ * The order a landing holds on `row`, the row as its write finds it: the one the landed facts read, else, on a row
+ * holding no order of a landing yet, the one its saved request recorded beside the bytes stored with it. None for a
+ * row that already holds its own order, which the completion that stamped it read off the result.
+ */
+const landingOrderOf = (
+  row: ITransaction,
+  orderId: string | undefined,
+  orderNoteId: string | undefined
+): { orderId: string; orderNoteId?: string } | undefined => {
+  if (row.type !== 'swap' || row.status === ITransactionStatus.Completed || row.extraInputs?.orderId != null) {
+    return undefined;
+  }
+  if (orderId !== undefined) return { orderId, orderNoteId };
+  return row.extraInputs?.landedOrder == null ? recordedSwapOrder(row.extraInputs) : undefined;
+};
+
+/**
  * Stamp a landed row's transaction id before a result-awaiting arm fails it (#1233), so its receipt
  * still names the transaction, and hold a swap's order beside it. Guard-free like `markMayHaveSubmitted`:
  * the cancel that follows is what makes the row terminal, and a Cancel or the reaper that finalizes the
  * row before its Completed write lands still leaves both. Each fact is recorded without the other, since
- * they are separate reads. A failed write is logged, never thrown: the store that just failed the apply
- * can fail this one too, and the cancel is what releases the awaiting caller.
+ * they are separate reads. An order the facts do not name can be the one the row's saved request recorded
+ * (`landingOrderOf`), anchored at this landing like a read one. A failed write is logged, never thrown: the
+ * store that just failed the apply can fail this one too, and the cancel is what releases the awaiting caller.
  */
 const recordLandedFacts = async (txId: string, error: unknown): Promise<void> => {
   const { transactionId, orderId, orderNoteId } = landedFactsOf(error);
-  if (transactionId === undefined && orderId === undefined) return;
   const landedAt = Math.floor(Date.now() / 1000); // seconds
+  // Facts that name nothing still reach the row: a trap leaves them empty, and the recorded order is on the row.
   try {
     await Repo.transactions.where({ id: txId }).modify(row => {
-      // A row that already holds its own order keeps it: the completion that stamped it read the result.
-      const recordsOrder =
-        orderId !== undefined &&
-        row.type === 'swap' &&
-        row.status !== ITransactionStatus.Completed &&
-        row.extraInputs?.orderId == null;
-      if (transactionId === undefined && !recordsOrder) return false;
+      const order = landingOrderOf(row, orderId, orderNoteId);
+      if (transactionId === undefined && order === undefined) return false;
       if (transactionId !== undefined) row.transactionId = transactionId;
-      if (recordsOrder) {
+      if (order !== undefined) {
         const landedOrder: ISwapLandedOrder = {
-          orderId,
+          orderId: order.orderId,
           expiresAt: swapOrderExpiresAt(row.extraInputs, landedAt),
-          ...(orderNoteId === undefined ? {} : { noteId: orderNoteId })
+          ...(order.orderNoteId === undefined ? {} : { noteId: order.orderNoteId })
         };
         row.extraInputs = { ...row.extraInputs, landedOrder };
       }
@@ -2702,14 +2724,32 @@ const proposeRebased = async (
   approvalExpirationDelta?: number
 ): Promise<Proposal> => {
   const rebased = await service.createRebasedCustomProposal(requestBytes, proposalType, approvalExpirationDelta);
+  const recordsOrder = transaction.type === 'swap';
   transaction.requestBytes = rebased.requestBytes;
+  if (recordsOrder) transaction.extraInputs = withRequestOrder(transaction.extraInputs, rebased.order);
   // The proposal exists by now: a failure here never means none was made.
   await withProposalStep('rebased_request_persist', () =>
     Repo.transactions.where({ id: transaction.id }).modify(t => {
       t.requestBytes = rebased.requestBytes;
+      if (recordsOrder) t.extraInputs = withRequestOrder(t.extraInputs, rebased.order);
     })
   );
   return rebased.proposal;
+};
+
+/**
+ * A swap row's `extraInputs` recording `order` as the order of the request bytes written with them (`requestOrder`),
+ * or without a record when no order was read off those bytes: a record left from other bytes would describe a request
+ * the row no longer holds. Called only in the write that stores the bytes, and on the in-memory row the completion
+ * reads.
+ */
+const withRequestOrder = (
+  extraInputs: ISwapExtraInputs | undefined,
+  order: RequestOrder | undefined
+): ISwapExtraInputs | undefined => {
+  if (extraInputs === undefined) return undefined;
+  const { requestOrder: _replaced, ...rest } = extraInputs;
+  return order === undefined ? rest : { ...rest, requestOrder: { orderId: order.orderId, noteId: order.orderNoteId } };
 };
 
 /**
@@ -4267,7 +4307,7 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
-        const requestBytes = await swapStep('request_build', () =>
+        const built = await swapStep('request_build', () =>
           withProposalStep('swap_request_build', async () => {
             // Resolved BEFORE the lock: the reads drive their own RpcClient through the
             // WASM module and re-entering it under the client lock traps.
@@ -4326,22 +4366,27 @@ const generateGuardianTransaction = async (
               // Built once and rewritten once, in the same scope: each builder call
               // draws a fresh serial number, which IS the order id. See
               // `buildPswapCreateRequest`.
-              return buildPswapCreateRequest(
+              const request = buildPswapCreateRequest(
                 creatorAccount ?? undefined,
                 tr,
                 swapTx.faucetId,
                 BigInt(swapTx.amount),
                 GUARDIAN_EXPIRATION_DELTA_BLOCKS,
                 baseBuilder
-              ).serialize();
+              );
+              // Off the built request, never the reference note, which moved by value into its NoteArray.
+              return { bytes: request.serialize(), order: requestOrderOf(() => request.expectedOutputOwnNotes()) };
             });
           })
         );
+        const { bytes: requestBytes, order } = built;
         transaction.requestBytes = requestBytes;
+        transaction.extraInputs = withRequestOrder(transaction.extraInputs, order);
         await swapStep('request_persist', () =>
           withProposalStep('swap_request_persist', () =>
             Repo.transactions.where({ id: transaction.id }).modify(t => {
               t.requestBytes = requestBytes;
+              t.extraInputs = withRequestOrder(t.extraInputs, order);
             })
           )
         );

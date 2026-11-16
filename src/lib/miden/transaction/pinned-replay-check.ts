@@ -9,7 +9,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { createNodeReads, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import type { ITransaction } from '../db/types';
-import { swapOrderOf } from '../sdk/apply-after-submit';
+import { recordedSwapOrder, swapOrderOf } from '../sdk/apply-after-submit';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { landedOrderFacts, type LandedTransaction, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
@@ -48,14 +48,16 @@ const pinnedOrderOf = (notes: Note[]): ReturnType<typeof swapOrderOf> =>
   swapOrderOf({ feeNote: undefined, userNotes: notes });
 
 /**
- * True when `completedSwapFields` would still open an order from `read`: a swap row with `extraInputs`,
- * no `orderId`, and no well-formed held order (`landedOrderFacts` keeps an id and `expiresAt` is a safe integer).
+ * True when a landed writer still needs its saved request decoded for the order `completedSwapFields` opens: a swap
+ * row with `extraInputs`, no `orderId`, no well-formed held order (`landedOrderFacts` keeps an id and `expiresAt` is a
+ * safe integer), and no well-formed order recorded from those bytes (`requestOrder`), which a decode would only repeat.
  */
 export const swapOpensOrderFromRead = (row: Pick<ITransaction, 'type' | 'extraInputs'>): boolean => {
   if (row.type !== 'swap') return false;
   const extra: unknown = row.extraInputs;
   if (extra === null || typeof extra !== 'object') return false;
   if ('orderId' in extra && extra.orderId != null) return false;
+  if (recordedSwapOrder(extra) !== undefined) return false;
   const landed = 'landedOrder' in extra ? extra.landedOrder : undefined;
   if (landed === null || typeof landed !== 'object') return true;
   const held = landedOrderFacts(
