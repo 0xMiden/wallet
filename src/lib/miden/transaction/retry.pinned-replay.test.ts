@@ -5,6 +5,7 @@
  */
 /* eslint-disable import/first */
 import * as Repo from 'lib/miden/repo';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 const mockDeserialize = jest.fn();
@@ -22,6 +23,10 @@ jest.mock('./cancel', () => ({
   verifySendLanded: async () => 'unknown'
 }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+const mockBlockTimes = jest.fn<Promise<Map<number, number>>, [readonly number[], string]>();
+jest.mock('lib/miden-chain/block-timestamps', () => ({
+  getBlockTimestamps: (blocks: readonly number[], scope: string) => mockBlockTimes(blocks, scope)
+}));
 
 import {
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
@@ -115,6 +120,7 @@ beforeEach(async () => {
   mockCreateReads.mockImplementation(async () => NODE);
   decodesTo(requestNote(PINNED));
   nodeHolds();
+  mockBlockTimes.mockResolvedValue(new Map());
   await Repo.transactions.clear();
 });
 
@@ -159,6 +165,7 @@ describe('a pinned note the node already holds', () => {
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Completed);
     expect(row?.mayHaveSubmitted).toBe(true);
+    expect(mockBlockTimes).not.toHaveBeenCalled();
   });
 
   it('a completed pinned private send owes its note to the delivery sweep', async () => {
@@ -176,7 +183,24 @@ describe('a pinned note the node already holds', () => {
     expect(noteDeliveryWriteCount()).toBe(writes + 1);
   });
 
-  it('a completed pinned swap carries the order id its PSWAP note pins and an expiry no earlier than the order`s', async () => {
+  it('a completed pinned swap carries the order id its PSWAP note pins and expires one window after it landed', async () => {
+    const landedAt = NOW - 2 * 86_400;
+    await Repo.transactions.put(pinnedRow(SWAP));
+    nodeHolds(PINNED);
+    mockBlockTimes.mockResolvedValue(new Map([[140, landedAt]]));
+
+    await requeueFailedTransaction('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toMatchObject({ requestedFaucetId: 'faucet-req', requestedAmount: 9n, orderId: 42n });
+    expect(row?.extraInputs.expiresAt).toBe(landedAt + 120);
+    expect(row?.completedAt).toBe(landedAt);
+    expect(row?.outputNoteIds).toEqual([PINNED]);
+    expect(mockBlockTimes).toHaveBeenCalledWith([140], getEffectiveRpcUrl());
+  });
+
+  it('a pinned swap whose landing block cannot be read expires one window after the Retry, never earlier', async () => {
     const start = Math.floor(Date.now() / 1000);
     await Repo.transactions.put(pinnedRow(SWAP));
     nodeHolds(PINNED);
@@ -184,10 +208,9 @@ describe('a pinned note the node already holds', () => {
     await requeueFailedTransaction('tx-pin', { acknowledged: { attemptId: 'a1' } });
 
     const row = await read();
-    expect(row?.status).toBe(ITransactionStatus.Completed);
-    expect(row?.extraInputs).toMatchObject({ requestedFaucetId: 'faucet-req', requestedAmount: 9n, orderId: 42n });
+    expect(row?.extraInputs).toMatchObject({ orderId: 42n });
     expect(row?.extraInputs.expiresAt).toBeGreaterThanOrEqual(start + 120);
-    expect(row?.outputNoteIds).toEqual([PINNED]);
+    expect(row?.completedAt).toBeGreaterThanOrEqual(start);
   });
 
   it('refuses as unsafe when another row of the account names the pinned note', async () => {

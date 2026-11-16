@@ -11,6 +11,12 @@ jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: () => mockSdkReady()
 }));
 
+let mockRpcUrl = 'https://node-a.example';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveRpcUrl: () => mockRpcUrl
+}));
+
 /** What each hold's callback settled with, so a test can see that a trap left it as itself. */
 const mockCallbackOutcomes: unknown[] = [];
 const mockLockFailure: { current: unknown } = { current: undefined };
@@ -64,6 +70,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCallbackOutcomes.length = 0;
   mockLockFailure.current = undefined;
+  mockRpcUrl = 'https://node-a.example';
   mockSdkReady.mockImplementation(async () => undefined);
   decodesTo(requestNote(FIRST), requestNote(SECOND));
   noteInclusions.mockResolvedValue(new Map());
@@ -76,10 +83,26 @@ describe('checkPinnedReplayNotes', () => {
     await expect(checkPinnedReplayNotes(send, { createReads })).resolves.toEqual({
       kind: 'committed',
       noteId: SECOND.toLowerCase(),
-      noteIds: [FIRST.toLowerCase(), SECOND.toLowerCase()]
+      noteIds: [FIRST.toLowerCase(), SECOND.toLowerCase()],
+      block: 140,
+      scope: 'https://node-a.example'
     });
     expect(mockDeserialize).toHaveBeenCalledWith(BYTES);
     expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase(), SECOND.toLowerCase()], RPC_READ_TIMEOUT_MS);
+  });
+
+  it('names the endpoint it asked, not one the wallet moved to during the read', async () => {
+    noteInclusions.mockImplementation(async () => {
+      mockRpcUrl = 'https://node-b.example';
+      return new Map([[FIRST.toLowerCase(), 77]]);
+    });
+
+    await expect(checkPinnedReplayNotes(send, { createReads })).resolves.toMatchObject({
+      kind: 'committed',
+      noteId: FIRST.toLowerCase(),
+      block: 77,
+      scope: 'https://node-a.example'
+    });
   });
 
   it('reports absent when the node holds none of the pinned notes', async () => {
@@ -149,6 +172,8 @@ describe('the order a pinned swap opens', () => {
       kind: 'committed',
       noteId: FIRST.toLowerCase(),
       noteIds: [FIRST.toLowerCase()],
+      block: 140,
+      scope: 'https://node-a.example',
       order: { orderId: '42', orderNoteId: FIRST }
     });
   });
