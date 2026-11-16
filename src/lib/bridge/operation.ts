@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { isHash, parseUnits, type Hash } from 'viem';
 
+import { reviewedEpochMinimum } from 'lib/epoch/bridge';
 import type { IBridgedReceiveExtraInputs, IBridgedSendExtraInputs, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
@@ -160,6 +161,20 @@ function assertBridgeMinimum(row: ITransaction, review: ReviewedTransfer): void 
         /[1-9]/.test((received.split('.')[1] ?? '').slice(review.route.destination.decimals))))
   )
     throw new Error('Bridge minimum is not representable');
+  if (review.route.provider === 'epoch' && review.route.mode === 'send') {
+    const output: IBridgedSendExtraInputs['epochReviewedOutput'] = row.extraInputs?.epochReviewedOutput;
+    const destination = review.route.destination;
+    const token = destination.kind === 'erc20' ? destination.address : '0x0000000000000000000000000000000000000000';
+    if (
+      !output ||
+      typeof received !== 'string' ||
+      output.minimumOutputBaseUnits !== reviewedEpochMinimum(received, destination.decimals).toString() ||
+      output.outputTokenDecimals !== destination.decimals ||
+      output.outputTokenAddress.toLowerCase() !== token.toLowerCase() ||
+      configKey(output.validity) !== configKey(review.quote?.validity)
+    )
+      throw new Error('Bridge minimum changed');
+  }
 }
 
 export function assertBridgeOperationCurrent(row: ITransaction, operation: BridgeOperationSnapshot): void {
@@ -186,6 +201,26 @@ async function operationRows(operationId: string): Promise<ITransaction[]> {
     })
     .toArray();
 }
+/** Passive recovery only: this lookup never grants new-source permission or refreshes the original review. */
+export async function findAdmittedBridgeOperation(input: BridgeOperationInput): Promise<ITransaction | undefined> {
+  if (!input.operationId.trim()) throw new Error('Missing bridge operation identity');
+  const rows = await operationRows(input.operationId);
+  if (rows.length === 0) return undefined;
+  const row = rows[0];
+  const operation = row && bridgeOperationOf(row);
+  if (
+    rows.length !== 1 ||
+    !row ||
+    !operation ||
+    !localBridgeRow(row) ||
+    reviewKey(operation.review) !== reviewKey(input.review)
+  )
+    throw new Error('Bridge operation identity changed');
+  assertRowBinding(row, input.review);
+  assertBridgeMinimum(row, input.review);
+  return row;
+}
+
 export class BridgeOperationAlreadyAdmittedError extends Error {
   constructor(readonly rowId: string) {
     super('Bridge operation is already admitted');

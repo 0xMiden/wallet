@@ -4,6 +4,7 @@ import {
   prepareBridgeOperation,
   type BridgeOperationInput
 } from 'lib/bridge/operation';
+import { assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import type { EpochReviewedOutput } from 'lib/epoch/types';
 import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
@@ -1160,7 +1161,7 @@ export const initiateBridgedSendTransaction = async (
   agglayerRoute?: AgglayerRecoveryConfig,
   epochAllocatorUrl?: string,
   operation?: BridgeOperationInput,
-  _epochReviewedOutput?: EpochReviewedOutput
+  epochReviewedOutput?: EpochReviewedOutput
 ): Promise<string> => {
   const walletScope = operation ? captureBridgeWalletScope() : undefined;
   if (!requestBytes?.length) throw new Error(BRIDGED_SEND_MISSING_REQUEST_ERROR);
@@ -1180,7 +1181,11 @@ export const initiateBridgedSendTransaction = async (
     if (!agglayerRoute) throw new Error('AggLayer recovery values are required');
     dbTransaction.extraInputs.agglayerRoute = agglayerRoute;
   }
-  if (provider === 'epoch') dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+  if (provider === 'epoch') {
+    dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+    if (epochReviewedOutput !== undefined)
+      dbTransaction.extraInputs.epochReviewedOutput = structuredClone(epochReviewedOutput);
+  }
   if (provider === 'usdcx') {
     if (!requestBytes || !usdcxBurn) throw new Error('USDCx burn requires a persisted request and note id');
     dbTransaction.extraInputs.usdcxBurn = usdcxBurn;
@@ -1188,18 +1193,22 @@ export const initiateBridgedSendTransaction = async (
   }
   dbTransaction.approvedOutputNoteIds = [ownNoteId];
   try {
-    if (operation && walletScope) {
+    if ((operation && walletScope) || epochReviewedOutput !== undefined) {
       await queueOutgoingTransaction(
         dbTransaction,
         spendsOf(dbTransaction),
         spendingLimitAuthorization,
         undefined,
         async () => {
-          dbTransaction.extraInputs.bridgeOperation = await prepareBridgeOperation(
-            dbTransaction,
-            operation,
-            walletScope
-          );
+          if (operation && walletScope) {
+            dbTransaction.extraInputs.bridgeOperation = await prepareBridgeOperation(
+              dbTransaction,
+              operation,
+              walletScope
+            );
+          }
+          if (epochReviewedOutput !== undefined)
+            assertEpochReviewedOutput(dbTransaction.extraInputs.epochReviewedOutput);
         }
       );
     } else {

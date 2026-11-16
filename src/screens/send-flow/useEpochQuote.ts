@@ -98,7 +98,13 @@ export function useEpochQuote({
     })
       .then(res => {
         if (id !== reqId.current) return;
-        setState({ loading: false, amount: res.amount, symbol: res.symbol, requestKey });
+        setState({
+          loading: false,
+          amount: res.amount,
+          symbol: res.symbol,
+          ...(res.validity ? { validity: res.validity } : {}),
+          requestKey
+        });
       })
       .catch((err: unknown) => {
         if (id !== reqId.current) return;

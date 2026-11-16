@@ -32,6 +32,7 @@ import { now } from 'lib/bridge/testing/fixtures';
 import { ownedNativeBridgeRow } from 'lib/bridge/testing/operation-fixtures';
 import { getMessage } from 'lib/i18n/core';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
@@ -413,7 +414,7 @@ describe('reviewed compact Epoch source on the existing single-key pipeline', ()
       'faucet',
       new Uint8Array([0xb1, 0x1d]),
       false,
-      { recipientId: 'mtst1qallocator', noteType: 'public', recallBlocks: 10, reclaimNoteId: 'note:epoch' }
+      { recipientId: 'mtst1qallocator', noteType: NoteTypeEnum.Public, recallBlocks: 10, reclaimNoteId: 'note:epoch' }
     );
     tx.approvedOutputNoteIds = ['note:epoch'];
     tx.extraInputs.epochReviewedOutput = {

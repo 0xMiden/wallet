@@ -69,6 +69,10 @@ const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
+const reviewedEpochBinding: { address: string; validity: QuoteValidity } = {
+  address: '0x2222222222222222222222222222222222222222',
+  validity: { kind: 'provider' }
+};
 let mockEpochQuote: {
   validity?: QuoteValidity;
   amount?: string;
@@ -1382,7 +1386,7 @@ describe('ReviewTransaction — rendering', () => {
     'passes the reviewed output in exact $decimals-decimal base units to Epoch before signing',
     async ({ amount, decimals, minimum }) => {
       mockDetectedChain = 'ethereum';
-      mockEpochQuote = { amount, decimals, loading: false, error: null, symbol: 'USDC' };
+      mockEpochQuote = { ...reviewedEpochBinding, amount, decimals, loading: false, error: null, symbol: 'USDC' };
       mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
       mockBalanceData = [VALID_TOKEN];
       render(<ReviewTransaction />);
@@ -2092,7 +2096,14 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('reopens an Epoch bridge challenge when external preparation outlives authorization', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     const firstAssessment = breachAssessment({
@@ -2142,7 +2153,14 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('cancels a bridge challenge before any external bridge work', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(

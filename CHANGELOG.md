@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
 - [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
 - [FIX][all] Auto-consume measures a claim against its fee floor again after it removes the notes that another claim covers or that wait for a retry, so a small payment is no longer claimed alone at a loss (#2192).
 - [FIX][all] Keep documentation and E2E gallery deployments compatible with SHA-pinned action policies.

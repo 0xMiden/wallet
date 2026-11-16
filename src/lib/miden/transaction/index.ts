@@ -7,7 +7,9 @@ import {
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { v4 as uuid } from 'uuid';
 
+import { configKey } from 'lib/bridge/core/routes';
 import { assertBridgeOperationCurrent, bridgeOperationOf, hasBridgeOperation } from 'lib/bridge/operation';
+import { assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import { getMessage } from 'lib/i18n/core';
 import {
   clearGuardianServiceFor,
@@ -1740,9 +1742,24 @@ const settleLandedValueRow = async (txId: string, error: unknown, attemptId: str
 const isOwnedNativeBridge = (transaction: ITransaction): boolean =>
   transaction.type === 'bridged-send' && hasBridgeOperation(transaction);
 
+const hasEpochReviewedOutput = (transaction: ITransaction): boolean =>
+  transaction.type === 'bridged-send' &&
+  transaction.extraInputs?.provider === 'epoch' &&
+  Object.prototype.hasOwnProperty.call(transaction.extraInputs, 'epochReviewedOutput');
+
+const isReviewedNativeBridge = (transaction: ITransaction): boolean =>
+  isOwnedNativeBridge(transaction) || hasEpochReviewedOutput(transaction);
+
 async function assertOwnedNativeBridgeSource(transaction: ITransaction, stored?: ITransaction): Promise<void> {
-  if (!isOwnedNativeBridge(transaction)) return;
+  if (!isReviewedNativeBridge(transaction)) return;
   const row = stored ?? (await Repo.transactions.where({ id: transaction.id }).first());
+  if (hasEpochReviewedOutput(transaction)) {
+    assertEpochReviewedOutput(transaction.extraInputs.epochReviewedOutput);
+    assertEpochReviewedOutput(row?.extraInputs.epochReviewedOutput);
+    if (configKey(transaction.extraInputs.epochReviewedOutput) !== configKey(row?.extraInputs.epochReviewedOutput))
+      throw new Error('Epoch reviewed output changed');
+  }
+  if (!isOwnedNativeBridge(transaction)) return;
   const expected = bridgeOperationOf(transaction);
   const operation = row && bridgeOperationOf(row);
   if (
@@ -1759,7 +1776,10 @@ async function assertOwnedNativeBridgeSource(transaction: ITransaction, stored?:
 }
 
 async function mayStartOwnedNativeBridge(transaction: ITransaction): Promise<boolean> {
-  if (!isOwnedNativeBridge(transaction)) return true;
+  if (!isOwnedNativeBridge(transaction)) {
+    if (hasEpochReviewedOutput(transaction)) await assertOwnedNativeBridgeSource(transaction);
+    return true;
+  }
   const row = await Repo.transactions.where({ id: transaction.id }).first();
   if (!row) throw new Error('Bridge operation is unavailable');
   // The existing node verdict, not a generated id or a lease, decides whether an earlier source can be retried.
@@ -2383,8 +2403,8 @@ const generateTransactionWithProvider = async (
           // the annotation is idempotent.
           // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
           const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-          if (isOwnedNativeBridge(transaction)) {
-            const stamp = ownedBridgeStageStamp(transaction, attempt && stageStampFor(transaction.id, attempt));
+          if (isReviewedNativeBridge(transaction)) {
+            const stamp = ownedBridgeStageStamp(transaction, stageStampFor(transaction.id, attempt));
             const submitGate = offscreenSubmitGate(stamp);
             try {
               return await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
@@ -4714,7 +4734,7 @@ const generateGuardianTransaction = async (
     transaction.id,
     transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
   );
-  const stampStage = isOwnedNativeBridge(transaction)
+  const stampStage = isReviewedNativeBridge(transaction)
     ? ownedBridgeStageStamp(transaction, baseStampStage)
     : baseStampStage;
   const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {

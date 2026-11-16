@@ -13,7 +13,42 @@ import { formatUnits, parseUnits } from 'viem';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
-import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
+import type { CrossChainIntentParams, EpochReviewedOutput, EVMToMidenIntentParams, IntentResult } from './types';
+
+export function reviewedEpochMinimum(value: string, decimals: number): bigint {
+  if (
+    typeof value !== 'string' ||
+    !Number.isSafeInteger(decimals) ||
+    decimals < 0 ||
+    decimals > 255 ||
+    !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) ||
+    (value.split('.')[1]?.length ?? 0) > decimals
+  )
+    throw new Error('Epoch requires an exact positive reviewed output minimum');
+  const minimum = parseUnits(value, decimals);
+  if (minimum <= 0n || minimum >= 1n << 256n)
+    throw new Error('Epoch requires an exact positive reviewed output minimum');
+  return minimum;
+}
+
+export function assertEpochReviewedOutput(output: EpochReviewedOutput | undefined): void {
+  if (
+    !output ||
+    typeof output.minimumOutputBaseUnits !== 'string' ||
+    !/^[1-9]\d*$/.test(output.minimumOutputBaseUnits) ||
+    BigInt(output.minimumOutputBaseUnits) >= 1n << 256n ||
+    !/^0x[\da-f]{40}$/i.test(output.outputTokenAddress) ||
+    !Number.isSafeInteger(output.outputTokenDecimals) ||
+    output.outputTokenDecimals < 0 ||
+    output.outputTokenDecimals > 255 ||
+    !output.validity ||
+    (output.validity.kind !== 'provider' &&
+      (output.validity.kind !== 'time' ||
+        !Number.isFinite(output.validity.expiresAt) ||
+        output.validity.expiresAt <= Date.now()))
+  )
+    throw new Error('Epoch quote requires a new review');
+}
 
 export interface CrossChainQuote {
   taskTypeString: string;

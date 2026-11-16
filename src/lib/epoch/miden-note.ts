@@ -117,6 +117,7 @@ export async function createBridgeP2IDENote(
     onRowCreated,
     spendingLimitAuthorization
   } = args;
+  let ownedTxId: string | undefined;
   try {
     console.log('[epoch] creating bridge note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
     const {
@@ -154,8 +155,19 @@ export async function createBridgeP2IDENote(
       undefined,
       undefined,
       undefined,
-      args.allocatorUrl
+      args.allocatorUrl,
+      args.operation,
+      args.reviewedOutput
     );
+    const admitted = await Repo.transactions.where({ id: txId }).first();
+    if (
+      admitted?.approvedOutputNoteIds?.length !== 1 ||
+      admitted.approvedOutputNoteIds[0] !== reclaimNoteId ||
+      admitted.requestBytes?.length !== requestBytes.length ||
+      !requestBytes.every((byte, index) => admitted.requestBytes?.[index] === byte)
+    )
+      return { success: false };
+    ownedTxId = txId;
 
     // Row exists now (Queued) - let the caller navigate to the progress screen
     // before we block on proving/submission below.
@@ -184,6 +196,6 @@ export async function createBridgeP2IDENote(
   } catch (err) {
     if (spendingLimitAssessmentFromError(err) !== undefined) throw err;
     console.error('[epoch] createBridgeP2IDENote threw', err);
-    return { success: false };
+    return ownedTxId ? { success: false, txId: ownedTxId } : { success: false };
   }
 }

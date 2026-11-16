@@ -30,7 +30,15 @@ jest.mock('lib/miden/activity', () => ({
   waitForTransactionCompletion: jest.fn(async () => ({ txHash: '0xhash' }))
 }));
 jest.mock('lib/miden/repo', () => ({
-  transactions: { where: () => ({ first: async () => ({ outputNoteIds: ['note-1'] }) }) }
+  transactions: {
+    where: () => ({
+      first: async () => ({
+        outputNoteIds: ['note-1'],
+        approvedOutputNoteIds: ['note-stamped'],
+        requestBytes: new Uint8Array([1, 2, 3])
+      })
+    })
+  }
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
 jest.mock('lib/miden/types', () => ({ NoteTypeEnum: { Public: 'public', Private: 'private' } }));

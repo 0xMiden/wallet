@@ -31,6 +31,7 @@ import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { usePreset } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
+import { assertEpochReviewedOutput, reviewedEpochMinimum } from 'lib/epoch/bridge';
 import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
@@ -240,19 +241,30 @@ export const ReviewTransaction: React.FC = () => {
       epochQuote.error ||
       epochQuote.amount === undefined ||
       epochQuote.decimals === undefined ||
-      !Number.isSafeInteger(epochQuote.decimals) ||
-      epochQuote.decimals < 0 ||
-      epochQuote.decimals > 38 ||
-      amountExceedsTokenDecimals(epochQuote.amount, epochQuote.decimals)
+      epochQuote.address === undefined ||
+      epochQuote.validity === undefined
     )
       return 0n;
     try {
-      const minimum = parseUnits(epochQuote.amount, epochQuote.decimals);
-      return minimum > 0n ? minimum : 0n;
+      const minimum = reviewedEpochMinimum(epochQuote.amount, epochQuote.decimals);
+      assertEpochReviewedOutput({
+        minimumOutputBaseUnits: minimum.toString(),
+        outputTokenAddress: epochQuote.address,
+        outputTokenDecimals: epochQuote.decimals,
+        validity: epochQuote.validity
+      });
+      return minimum;
     } catch {
       return 0n;
     }
-  }, [epochQuote.amount, epochQuote.decimals, epochQuote.loading, epochQuote.error]);
+  }, [
+    epochQuote.amount,
+    epochQuote.decimals,
+    epochQuote.address,
+    epochQuote.validity,
+    epochQuote.loading,
+    epochQuote.error
+  ]);
   const epochQuoteUnavailable = isBridge && route !== 'agglayer' && route !== 'usdcx' && epochMinimumOutput === 0n;
 
   // Private by default. The user changes it under Advanced options (the "Transfer type" row
@@ -589,8 +601,14 @@ export const ReviewTransaction: React.FC = () => {
           if (isExtension()) requestSWTransactionProcessing();
           goToGeneratingTransaction(txId);
         } else {
+          if (!epochQuote.address || epochQuote.decimals === undefined || !epochQuote.validity) return;
           await bridgeEpochSend({
             minimumOutputBaseUnits: epochMinimumOutput,
+            reviewedQuote: {
+              validity: epochQuote.validity,
+              outputTokenAddress: epochQuote.address,
+              outputTokenDecimals: epochQuote.decimals
+            },
             destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
             faucetId: token.id,
@@ -640,6 +658,9 @@ export const ReviewTransaction: React.FC = () => {
       amountBaseUnits,
       bridgeNetworkObj,
       epochMinimumOutput,
+      epochQuote.address,
+      epochQuote.decimals,
+      epochQuote.validity,
       epochQuoteUnavailable,
       goToGeneratingTransaction,
       openUnpricedChallenge,

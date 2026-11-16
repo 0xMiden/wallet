@@ -8,6 +8,7 @@ import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
+import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -85,7 +86,7 @@ async function admitOriginal(noteId = 'original-built-note', bytes = new Uint8Ar
     true,
     {
       recipientId: accounts.midenAccount,
-      noteType: 'public',
+      noteType: NoteTypeEnum.Public,
       recallBlocks: 5000,
       reclaimHeight: 6000,
       reclaimNoteId: noteId
