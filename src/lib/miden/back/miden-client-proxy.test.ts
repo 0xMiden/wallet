@@ -154,6 +154,7 @@ function fireReady() {
 }
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+const ORDER_NOTE_ID = `0x${'ab'.repeat(32)}`;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 let ORIGINAL_FLAG: string | undefined;
@@ -2649,11 +2650,11 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
   });
 
   it.each([
-    ['a current hold', { mock: 'inline-hold' }, 'retireWasmClientForCaughtTrap'],
-    ['no hold', null, 'retireWasmClientForUnheldTrap']
+    ['a current hold', { mock: 'inline-hold' }],
+    ['no hold', null]
   ])(
-    'handleOffscreenSignRequest rethrows a WebAssembly.RuntimeError when there is %s, and the retire helper ran',
-    async (_holdCase, hold, helper) => {
+    'handleOffscreenSignRequest retires a WebAssembly.RuntimeError through the unheld retire when there is %s, and rethrows it',
+    async (_holdCase, hold) => {
       const { handleOffscreenSignRequest, __test } = await loadProxy(true);
       const { bytesToB64 } = await import('./offscreen-codec');
       const trap = new WebAssembly.RuntimeError('unreachable');
@@ -2675,7 +2676,9 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
       );
       await expect(response).rejects.toBe(trap);
       release();
-      expect(G.__px[helper]).toHaveBeenCalledWith(...(hold ? [hold, trap] : [trap]));
+      expect(G.__px.retireWasmClientForUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(G.__px.retireWasmClientForUnheldTrap).toHaveBeenCalledWith(trap);
+      expect(G.__px.retireWasmClientForCaughtTrap).not.toHaveBeenCalled();
     }
   );
 
@@ -3860,7 +3863,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
         op_id: env.op_id,
         error: 'local apply failed after submit',
         errorCode: APPLY,
-        errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2 }
+        errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2, orderId: '42', orderNoteId: ORDER_NOTE_ID }
       }));
 
       const p = invoke(midenClientProxy).catch((e: unknown) => e);
@@ -3874,7 +3877,13 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       // ...AND the stable code rides the rejection in the exact shape the classifier
       // reads → Completed, never Failed → requeue → double-spend.
       expect(extractSdkErrorCode(err)).toBe(APPLY);
-      expect(extractLanded(err)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 2 });
+      // The order id crosses as the decimal string it was sent as.
+      expect(extractLanded(err)).toEqual({
+        transactionId: '0xlanded',
+        privateOutputNotes: 2,
+        orderId: '42',
+        orderNoteId: ORDER_NOTE_ID
+      });
     }
   );
 
@@ -4185,7 +4194,7 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
       op_id: env.op_id,
       error: 'local apply failed after submit',
       errorCode: 'ApplyTransactionAfterSubmitFailed',
-      errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2 }
+      errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2, orderId: '42', orderNoteId: ORDER_NOTE_ID }
     }));
 
     const p = dispatchGuardianPipeline(
@@ -4202,7 +4211,12 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect((err as Error).message).toContain('local apply failed after submit');
     // The stable code rides the rejection in the shape the guardian classifier reads.
     expect(extractSdkErrorCode(err)).toBe('ApplyTransactionAfterSubmitFailed');
-    expect(extractLanded(err)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 2 });
+    expect(extractLanded(err)).toEqual({
+      transactionId: '0xlanded',
+      privateOutputNotes: 2,
+      orderId: '42',
+      orderNoteId: ORDER_NOTE_ID
+    });
   });
 
   it('flag ON → the executeRequest sign reverses through the op-registered callback over the EXISTING OFFSCREEN_SIGN_REQUEST channel', async () => {

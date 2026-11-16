@@ -902,7 +902,15 @@ async function runSync(force: boolean): Promise<void> {
               console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
               for (const note of batch) {
                 try {
-                  await initiateConsumeTransaction(accountPubKey, note, delegate, false, 'auto_consume', canSign);
+                  await initiateConsumeTransaction(
+                    accountPubKey,
+                    note,
+                    delegate,
+                    false,
+                    'auto_consume',
+                    canSign,
+                    nativeAutoConsumeBaseFee
+                  );
                 } catch (noteErr) {
                   if (noteErr instanceof ClaimFeeRefusedError) {
                     console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);

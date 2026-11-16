@@ -1,4 +1,4 @@
-import { NoteType, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import { NoteScript, NoteType, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { type ITransaction, ITransactionStatus, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -8,7 +8,8 @@ import {
   completeConsumeTransaction,
   completeCustomTransaction,
   completeSendTransaction,
-  completeSwapTransaction
+  completeSwapTransaction,
+  landedSwapOrder
 } from './complete';
 import { waitForTransactionCompletion } from './helper';
 import { NoteTypeEnum } from '../types';
@@ -79,8 +80,10 @@ it('completes a landed swap whose fee-rate read traps, recording its order note'
   await Repo.transactions.add(swap);
   const orderNote = {
     id: () => ({ toString: () => 'order-note' }),
+    metadata: () => ({ noteType: () => NoteType.Public }),
     intoFull: () => ({
       recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
         serialNum: () => ({ toFelts: () => [0n, 42n, 0n, 0n].map(value => ({ asInt: () => value })) })
       })
     })
@@ -171,4 +174,42 @@ it('completes a landed consume whose fee-rate read traps', async () => {
   });
   expect(retire.mock.calls).toEqual([[expect.any(WebAssembly.RuntimeError), 'consume-row']]);
   await expectWaitRetiresNothingMore('consume-row');
+});
+
+describe('landedSwapOrder', () => {
+  const pswapNote = (id: string) => ({
+    id: () => ({ toString: () => id }),
+    metadata: () => ({ noteType: () => NoteType.Public }),
+    assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+    intoFull: () => ({
+      recipient: () => ({
+        script: () => ({ root: () => NoteScript.pswap().root() }),
+        serialNum: () => ({ toFelts: () => [0n, 42n, 0n, 0n].map(value => ({ asInt: () => value })) })
+      })
+    })
+  });
+
+  const landedWithNotes = (notes: object[]): TransactionResult => {
+    const result: TransactionResult = Object.create(null);
+    Object.assign(result, {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'chain-tx' }),
+        outputNotes: () => ({ notes: () => notes })
+      })
+    });
+    return result;
+  };
+
+  it('names the order note beside the lineage id it read', () => {
+    expect(landedSwapOrder('swap-row', landedWithNotes([pswapNote('order-note')]))).toEqual({
+      orderId: '42',
+      orderNoteId: 'order-note'
+    });
+  });
+
+  // The chain charges, so with no note taken for the fee the first of two can be the fee note.
+  it('names no order when no note was set aside as the fee and there are two', () => {
+    expect(landedSwapOrder('swap-row', landedWithNotes([pswapNote('order-note'), pswapNote('other')]))).toEqual({});
+    expect(retire).not.toHaveBeenCalled();
+  });
 });

@@ -99,6 +99,7 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   onWasmClientPoisoned,
+  retireWasmClientForCaughtTrap,
   tryWithWasmClientLock,
   withWasmClientLock,
   yieldWasmClientLock
@@ -1195,6 +1196,7 @@ const DISPATCH: Record<string, DispatchFn> = {
         result: attempt.txResult,
         readLocalAccount: accountId => client.client.accounts.get(accountId),
         holdIsCurrent: () => getCurrentWasmLockHold() === hold,
+        retireTrap: cause => retireWasmClientForCaughtTrap(hold, cause),
         onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
       });
       recordProveTiming('guardianPipeline apply returned');

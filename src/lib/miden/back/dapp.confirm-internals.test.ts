@@ -140,7 +140,7 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
-// Spread the real module — see the note in dapp.coverage.test.ts: the send
+// Spread the real module - see the note in dapp.coverage.test.ts: the send
 // flow's authorization gate needs `sameWalletAccountId` to exist.
 jest.mock('lib/miden/sdk/helpers', () => ({
   ...jest.requireActual('lib/miden/sdk/helpers'),
@@ -157,27 +157,39 @@ jest.mock('lib/miden/spending-limits/queue', () => ({
   hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
 }));
 
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
-}));
+const mockDryRun = jest.fn(
+  async (..._args: unknown[]): Promise<Record<string, unknown>> => ({ summaryBytes: 'confirm-sim-sum' })
+);
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return {
+    simulateCustomTransaction: jest.fn(async (...args: unknown[]) => measureApprovalDryRun(await mockDryRun(...args)))
+  };
+});
 
 // A summary's approval, custom or signBytes, reads the chain fee before it decodes and refuses when that read is
 // unknown.
 const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
 const mockFeeKnownAbsent = jest.fn(() => false);
+const mockSyncFee = jest.fn((): number | null => 2);
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
-  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent()
+  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent(),
+  getVerificationBaseFeeSync: () => mockSyncFee()
 }));
 
 // The real note flow unless a case makes it fail.
 const mockNoteFlowFromTransaction = jest.fn((transaction: unknown) =>
   jest.requireActual('app/confirm/note-flow').noteFlowFromTransaction(transaction)
 );
+// The dry run's note flow, which the fixture summary bytes cannot decode: none unless a case gives one.
+const mockNoteFlowFromSimulatedBytes = jest.fn((_result: unknown): unknown => undefined);
 jest.mock('app/confirm/note-flow', () => ({
   ...jest.requireActual('app/confirm/note-flow'),
-  noteFlowFromTransaction: (transaction: unknown) => mockNoteFlowFromTransaction(transaction)
+  noteFlowFromTransaction: (transaction: unknown) => mockNoteFlowFromTransaction(transaction),
+  noteFlowFromSimulatedBytes: (result: unknown) => mockNoteFlowFromSimulatedBytes(result)
 }));
 
 // This suite supplies the dry-run view directly so fixture summary bytes are not decoded.
@@ -274,6 +286,10 @@ beforeEach(() => {
   mockRefreshVerificationBaseFee.mockResolvedValue(2);
   mockFeeKnownAbsent.mockReset();
   mockFeeKnownAbsent.mockReturnValue(false);
+  mockSyncFee.mockReset();
+  mockSyncFee.mockReturnValue(2);
+  mockNoteFlowFromSimulatedBytes.mockReset();
+  mockNoteFlowFromSimulatedBytes.mockReturnValue(undefined);
   jest.useFakeTimers({ legacyFakeTimers: false });
 });
 
@@ -401,6 +417,7 @@ describe('requestSign measures a transaction summary once, before the popup', ()
 
   it('rejects with NotGranted and does not open a window when the fee read does not know the fee', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValue(null);
+    mockSyncFee.mockReturnValue(null);
     summaryConsuming([]);
 
     expect(await refusedBeforePopup()).toEqual(
@@ -530,7 +547,7 @@ describe('requestSign measures a transaction summary once, before the popup', ()
   });
 });
 
-describe('requestConfirm intercom handler — unknown port', () => {
+describe('requestConfirm intercom handler - unknown port', () => {
   it('ignores requests from unknown ports', async () => {
     const p = dapp.requestSign('https://test.xyz', {
       type: MidenDAppMessageType.SignRequest,
@@ -563,7 +580,7 @@ describe('requestConfirm intercom handler — unknown port', () => {
     // First register the known port via GetPayload
     await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, knownPort);
 
-    // Now send a confirmation from a different port — should be ignored
+    // Now send a confirmation from a different port - should be ignored
     const result = await listener(
       { type: MidenMessageType.DAppSignConfirmationRequest, id, confirmed: true },
       unknownPort
@@ -649,9 +666,7 @@ describe('requestConfirm runs an approval once (#1584)', () => {
     introducedNoteIds: string[]
   ) => {
     const note = ([id, amount]: [string, bigint]) => ({ id, amounts: [{ faucetId: 'faucet-x', amount }], nfts: [] });
-    jest
-      .requireMock('./simulate-custom-tx')
-      .simulateCustomTransaction.mockResolvedValueOnce({ summaryBytes: 'confirm-sim-sum', introducedNoteIds });
+    mockDryRun.mockResolvedValueOnce({ summaryBytes: 'confirm-sim-sum', introducedNoteIds });
     mockSimulatedView = {
       ...mockEmptySimulatedView,
       account: 'a1',
@@ -922,7 +937,7 @@ describe('requestConfirm runs an approval once (#1584)', () => {
   });
 });
 
-describe('requestConfirm — window already fullscreen', () => {
+describe('requestConfirm - window already fullscreen', () => {
   it('skips window.update when confirmWin.state is fullscreen', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.create.mockResolvedValueOnce({ id: 777, left: 99, state: 'fullscreen' });
@@ -941,7 +956,7 @@ describe('requestConfirm — window already fullscreen', () => {
   });
 });
 
-describe('requestConfirm — closeWindow error handling', () => {
+describe('requestConfirm - closeWindow error handling', () => {
   it('does not crash when windows.get throws during close', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.get.mockRejectedValueOnce(new Error('window gone'));
@@ -959,7 +974,7 @@ describe('requestConfirm — closeWindow error handling', () => {
   });
 });
 
-describe('requestPermission (extension) — public-key fetch failure', () => {
+describe('requestPermission (extension) - public-key fetch failure', () => {
   it('fails the confirmation, persists no session and leaves the dApp to the auto-decline when the pubkey fetch fails', async () => {
     const origin = 'https://new-dapp.xyz';
     const mc = _g.__dappConfInternals.midenClient;
@@ -1041,7 +1056,7 @@ const simulatedViewFixture = {
   createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'faucet-x', amount: 50n }], nfts: [] }]
 };
 
-describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
+describe('requestConfirm - DAppSimulateTransactionRequest branch', () => {
   afterEach(() => {
     mockSimulatedView = undefined;
   });
@@ -1088,6 +1103,46 @@ describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
     jest.advanceTimersByTime(121_000);
     p.catch(() => {});
   });
+
+  it('answers the simulate request with the note flow the dry run measured, decoding nothing again', async () => {
+    mockSimulatedView = simulatedViewFixture;
+    const flow = (faucetId: string) => ({
+      inputCount: 0,
+      inputs: [],
+      outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId, amount: 500n }] }]
+    });
+    mockNoteFlowFromSimulatedBytes.mockReturnValueOnce(flow('faucet-flow')).mockReturnValue(flow('faucet-other'));
+    const p = dapp.requestTransaction('https://test.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'a1',
+      transaction: {
+        payload: {
+          address: 'a1',
+          recipientAddress: 'bob',
+          transactionRequest: 'b64req'
+        }
+      }
+    } as never);
+    await jest.advanceTimersByTimeAsync(0);
+
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const url = browser.windows.create.mock.calls.at(-1)?.[0]?.url || '';
+    const id = url.match(/id=([^&]+)/)?.[1];
+    expect(id).toBeTruthy();
+
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'sim-flow-port' };
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+    const result = await listener({ type: MidenMessageType.DAppSimulateTransactionRequest, id }, port);
+
+    expect(mockNoteFlowFromSimulatedBytes).toHaveBeenCalledTimes(1);
+    expect(mockNoteFlowFromSimulatedBytes).toHaveBeenCalledWith({ summaryBytes: 'confirm-sim-sum' });
+    expect(fromSimulatedEffectsWire(result.effects).noteFlow).toEqual(flow('faucet-flow'));
+    expect(browser.windows.remove).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(121_000);
+    p.catch(() => {});
+  });
 });
 
 describe('a custom request made while locked (#1414)', () => {
@@ -1131,7 +1186,7 @@ describe('a custom request made while locked (#1414)', () => {
   });
 });
 
-describe('requestConfirm — custom tx quarantine release', () => {
+describe('requestConfirm - custom tx quarantine release', () => {
   it('releases the simulation quarantine after a successful confirm', async () => {
     const p = dapp.requestTransaction('https://test.xyz', {
       type: MidenDAppMessageType.TransactionRequest,
@@ -1308,11 +1363,9 @@ describe('requestConfirm stops its auto-decline on the first payload request and
   });
 
   it('never declines while the build that follows the unlock runs', async () => {
-    jest
-      .requireMock('./simulate-custom-tx')
-      .simulateCustomTransaction.mockImplementationOnce(
-        () => new Promise(resolve => setTimeout(() => resolve({ summaryBytes: 'confirm-sim-sum' }), 15_000))
-      );
+    mockDryRun.mockImplementationOnce(
+      () => new Promise(resolve => setTimeout(() => resolve({ summaryBytes: 'confirm-sim-sum' }), 15_000))
+    );
     const popup = await openLockedCustom();
     await jest.advanceTimersByTimeAsync(110_000);
     unlock();
