@@ -4861,7 +4861,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
       const resp = sendResponse.mock.calls[0][0];
       expect(resp).toMatchObject({ ok: false, errorCode: 'ApplyTransactionAfterSubmitFailed' });
-      expect(resp.errorLanded).toBeUndefined();
+      // The apply completed, so the store holds the notes the attempt's stamp recorded: a landed send owes them.
+      expect(resp.errorLanded).toEqual({ applied: true });
       expect(resp.errorBeforeSubmit).toBeUndefined();
       expect(isApplyAfterSubmitError({ errorCode: resp.errorCode })).toBe(true);
       // Only the Guardian leaf applies through this harness's own apply; the other leaves' clients are stubs.

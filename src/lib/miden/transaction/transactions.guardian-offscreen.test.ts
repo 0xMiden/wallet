@@ -70,6 +70,7 @@ import {
   STALE_PROOF_ERROR,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
+import { noteDeliveryWriteCount } from './helper';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
@@ -3725,6 +3726,110 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.noteDelivery).toBe('undelivered');
     expect(finalRow.displayMessage).toBe('Executed - 2 private notes could not be delivered');
     expect(finalRow.transactionId).toBe('0xlanded');
+  });
+
+  // A trap serializing the result follows the leaf's apply, so the store holds the notes its gate recorded: the landed
+  // send owes exactly those, on the fresh schedule a reconciler landing starts, and the sweep is told to look again.
+  const appliedSendTxId = `0x${'cd'.repeat(32)}`;
+  const appliedSendNote = `0x${'ef'.repeat(32)}`;
+  const privateSend = {
+    type: 'send',
+    secondaryAccountId: 'recipient',
+    faucetId: 'faucet',
+    amount: '1000',
+    noteType: 'private'
+  };
+  const landAfterGate = (evidence: Record<string, unknown> | undefined, landed: Record<string, unknown>) => {
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(await gate(evidence)).toBe(true);
+      // As the proxy rebuilds the reply.
+      throw Object.assign(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: This transaction was accepted into the node's mempool but the " +
+            'local store update failed'
+        ),
+        { errorCode: 'ApplyTransactionAfterSubmitFailed', landed }
+      );
+    });
+  };
+
+  it('send: a landed reply after a serialize trap that followed the apply owes the notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate({ transactionId: appliedSendTxId, outputNoteIds: [appliedSendNote] }, { applied: true });
+    const { service } = arrange('serialize-trap-private-send', privateSend);
+    const writes = noteDeliveryWriteCount();
+    const landing = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      buildTx('serialize-trap-private-send', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'serialize-trap-private-send')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [appliedSendNote],
+      noteDelivery: 'undelivered',
+      secondaryAccountId: 'recipient'
+    });
+    expect(finalRow.relayNoteIds).toBeUndefined();
+    expect(finalRow.relayAttempts).toBeUndefined();
+    expect(finalRow.nextRelayAt).toBeUndefined();
+    expect(finalRow.completedAt).toBeGreaterThanOrEqual(landing);
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  // An apply that failed left the notes out of the store, so nothing can push them: the row stays inert, as before.
+  it('send: a landed reply whose apply failed owes no note, whatever its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate({ transactionId: appliedSendTxId, outputNoteIds: [appliedSendNote] }, {});
+    arrange('apply-failed-private-send', privateSend);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('apply-failed-private-send', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'apply-failed-private-send')!;
+    expect(finalRow).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  it("send: an applied landing owes no note an earlier attempt's stamp recorded", async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate(undefined, { applied: true });
+    arrange('applied-send-earlier-stamp', privateSend);
+    txStore.find(r => r.id === 'applied-send-earlier-stamp')!.submitEvidence = [
+      {
+        attemptId: 'earlier',
+        capturedAt: 1,
+        source: 'stage',
+        transactionId: appliedSendTxId,
+        outputNoteIds: [appliedSendNote]
+      }
+    ];
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('applied-send-earlier-stamp', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'applied-send-earlier-stamp')!;
+    expect(finalRow).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
   });
 
   it('execute: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
