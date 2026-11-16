@@ -377,7 +377,103 @@ test('published-wasm confinement guard rejects the actual CLI moved outside unsh
   assert.throws(() => assertConfinement(commentedOpener), { code: 'ERR_ASSERTION' }, 'published_wasm_namespace_bound_invocation');
 });
 
-function assertSelectedCases(text) {
+function publishedProbeCaseCalls(spec) {
+  const failure = 'published_wasm_exact_two_cases';
+  assert.equal(typeof spec, 'string', failure);
+  const strings = [];
+  let code = '';
+  for (let i = 0; i < spec.length;) {
+    const c = spec[i];
+    const next = spec[i + 1];
+    if (c === '/' && next === '/') {
+      const end = spec.indexOf('\n', i);
+      const stop = end === -1 ? spec.length : end;
+      code += ' '.repeat(stop - i);
+      i = stop;
+      continue;
+    }
+    if (c === '/' && next === '*') {
+      const end = spec.indexOf('*/', i + 2);
+      assert.notEqual(end, -1, failure);
+      code += ' '.repeat(end + 2 - i);
+      i = end + 2;
+      continue;
+    }
+    if (c === '\'' || c === '"') {
+      let j = i + 1;
+      let value = '';
+      while (j < spec.length && spec[j] !== c) {
+        assert.ok(spec[j] !== '\\' && spec[j] !== '\n' && spec[j] !== '\r', failure);
+        value += spec[j];
+        j += 1;
+      }
+      assert.equal(spec[j], c, failure);
+      code += `#${strings.length}#`;
+      strings.push(value);
+      i = j + 1;
+      continue;
+    }
+    assert.ok(c !== '`' && c !== '\\' && c !== '#' && c !== '/', failure);
+    code += c;
+    i += 1;
+  }
+  assert.doesNotMatch(code, /\b(?:require|import)\s*\(/, failure);
+
+  const playwright = [];
+  for (const match of code.matchAll(/import\s+([^;]*?)\s+from\s+#(\d+)#/g)) {
+    const before = match.index === 0 ? '' : code[match.index - 1];
+    if (before !== '' && /[A-Za-z0-9_$]/.test(before)) continue;
+    if (strings[Number(match[2])] !== '@playwright/test') continue;
+    playwright.push(match);
+  }
+  assert.equal(playwright.length, 1, failure);
+  const clause = playwright[0][1].trim();
+  assert.match(clause, /^\{[\s\S]*\}$/, failure);
+  const names = clause.slice(1, -1).split(',').map(name => name.trim()).filter(Boolean);
+  assert.deepEqual(names.filter(name => name === 'test' || /\btest\b/.test(name)), ['test'], failure);
+  const imported = playwright[0][0];
+  const at = code.indexOf(imported);
+  assert.ok(at >= 0 && code.indexOf(imported, at + imported.length) === -1, failure);
+  code = `${code.slice(0, at)}${' '.repeat(imported.length)}${code.slice(at + imported.length)}`;
+
+  const calls = [];
+  const skipWs = index => {
+    let j = index;
+    while (/\s/.test(code[j] ?? '')) j += 1;
+    return j;
+  };
+  const readTitle = paren => {
+    const start = skipWs(paren + 1);
+    const marker = /^#(\d+)#/.exec(code.slice(start));
+    assert.ok(marker && Object.hasOwn(strings, Number(marker[1])), failure);
+    const after = skipWs(start + marker[0].length);
+    assert.ok(code[after] === ',' || code[after] === ')', failure);
+    return strings[Number(marker[1])];
+  };
+  for (let i = 0; i < code.length; i += 1) {
+    if (!code.startsWith('test', i)) continue;
+    const before = i === 0 ? '' : code[i - 1];
+    if (before !== '' && /[A-Za-z0-9_.]/.test(before)) continue;
+    if (/[A-Za-z0-9_$]/.test(code[i + 4] ?? '')) continue;
+    const j = skipWs(i + 4);
+    if (code[j] === '(') {
+      calls.push(['test', readTitle(j)]);
+      continue;
+    }
+    const tail = code.slice(j);
+    const counted = /^\.\s*(only|skip|fixme|fail)\s*\(/.exec(tail);
+    if (counted) {
+      calls.push([`test.${counted[1]}`, readTitle(j + counted[0].length - 1)]);
+      continue;
+    }
+    if (/^\.\s*describe\s*\.\s*configure\s*\(/.test(tail)) continue;
+    if (/^\.\s*(?:use|describe|step|beforeEach|afterEach)\s*\(/.test(tail)) continue;
+    assert.fail(failure);
+  }
+  return calls;
+}
+
+function assertSelectedCases(text, spec) {
   assert.match(text, /published-wasm-startup\.spec\.ts --config=playwright\.config\.ts/);
   assert.match(text, /--workers=1 --retries=0 --timeout=60000 --global-timeout=180000/);
   assert.match(text, /--trace=off --reporter=dot/);
@@ -385,6 +481,16 @@ function assertSelectedCases(text) {
   const uploads = [...text.matchAll(/path: (.+)/g)].map(match => match[1]);
   assert.deepEqual(uploads, ['${{ runner.temp }}/published-wasm-results/*.json']);
   assert.doesNotMatch(text, /playwright-report|upload.*profile|\.har\b/);
+  assert.ok(text.includes(String.raw`
+              "$8" node_modules/@playwright/test/cli.js test \
+              playwright/tests/published-wasm-startup.spec.ts --config=playwright.config.ts \
+              --workers=1 --retries=0 --timeout=60000 --global-timeout=180000 \
+              --trace=off --reporter=dot --output="$9/playwright-private"
+`), 'published_wasm_exact_two_cases');
+  assert.deepEqual(publishedProbeCaseCalls(spec), [
+    ['test', 'published archive cold startup completes packaged WASM and reaches onboarding'],
+    ['test', 'published archive binary fetch failure recovers only after Try Again reloads the document']
+  ], 'published_wasm_exact_two_cases');
 }
 
 const specPath = new URL('../playwright/tests/published-wasm-startup.spec.ts', import.meta.url);
@@ -398,13 +504,15 @@ test('published-wasm selection guard rejects extra, aliased, focused or reordere
   const spec = readFileSync(specPath, 'utf8');
   const first = 'published archive cold startup completes packaged WASM and reaches onboarding';
   const second = 'published archive binary fetch failure recovers only after Try Again reloads the document';
-  for (const comment of ['// test("not selected", async () => {});', '/* test("not selected", async () => {}); */']) {
+  for (const comment of ['// test("not selected", async () => {});', '/* test("not selected", async () => {}); */', `const displayText = 'test("not selected", async () => {});';`, `const commentText = '/* harmless */';`]) {
     assert.doesNotThrow(() => assertSelectedCases(text, `${spec}\n${comment}\n`));
   }
   const mutants = [
     `${spec}\ntest.describe('nested', () => {\n  test('third case', async () => {});\n});\n`,
     `${spec}\ntest(\n  'third case', async () => {});\n`,
     `${spec}\ntest.only('third case', async () => {});\n`,
+    `${spec}\nconst start = '/*';\ntest('third case', async () => {});\nconst end = '*/';\n`,
+    `${spec}\nimport * as selected from '@playwright/test';\nselected.test('third case', async () => {});\n`,
     `${spec}\nconst unquotedTitle = 'third case';\ntest(unquotedTitle, async () => {});\n`,
     `${spec}\nconst selected = test;\nselected('third case', async () => {});\n`,
     `${spec.replace('expect, test }', 'expect, test as selected }').replace(/\btest\./g, 'selected.').replace(/\btest\(/g, 'selected(')}\nselected('third case', async () => {});\n`,
@@ -415,4 +523,15 @@ test('published-wasm selection guard rejects extra, aliased, focused or reordere
     assert.notEqual(mutant, spec, 'case fixture must change selected source');
     assert.throws(() => assertSelectedCases(text, mutant), { code: 'ERR_ASSERTION' }, 'published_wasm_exact_two_cases');
   }
+  const fileArgument = 'playwright/tests/published-wasm-startup.spec.ts --config=playwright.config.ts';
+  for (const filter of ['--grep-invert="published archive cold startup"', '-g "published archive cold startup"', '--grep="published archive cold startup"', '-gcold']) {
+    const filtered = text.replace(fileArgument, `${fileArgument} ${filter}`);
+    assert.notEqual(filtered, text, 'selection filter fixture must change the real invocation');
+    assert.doesNotThrow(() => assertConfinement(filtered));
+    assert.throws(() => assertSelectedCases(filtered, spec), { code: 'ERR_ASSERTION' }, 'published_wasm_exact_two_cases');
+  }
+  const insertedFilter = text.replace(`${fileArgument} \\\n`, `${fileArgument} \\\n              --grep-invert="cold" \\\n`);
+  assert.notEqual(insertedFilter, text, 'inserted filter fixture must change the invocation');
+  assert.doesNotThrow(() => assertConfinement(insertedFilter));
+  assert.throws(() => assertSelectedCases(insertedFilter, spec), { code: 'ERR_ASSERTION' }, 'published_wasm_exact_two_cases');
 });
