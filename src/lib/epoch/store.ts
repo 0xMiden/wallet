@@ -262,6 +262,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
 
   async executeEVMToMiden(bridgeReceiveTxId) {
     const row = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
+    if (bridgeReceiveTxId !== undefined && (!bridgeReceiveTxId.trim() || !row)) return;
     const tagged = row !== undefined && hasBridgeOperation(row);
     const operation = row && bridgeOperationOf(row);
     const { status, flow, quote } = get();
@@ -288,9 +289,21 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         assertOwnedEpochQuote(row, operation, quote);
         if ((await claimBridgeSourceAttempt(operation.operationId, operation.revision)) !== 'claimed') return;
         const claimedRow = await Repo.transactions.get(row.id);
-        claimedOperation = claimedRow && bridgeOperationOf(claimedRow);
-        if (!claimedRow || !claimedOperation) return;
-        assertOwnedEpochQuote(claimedRow, claimedOperation, quote);
+        const claimed = claimedRow && bridgeOperationOf(claimedRow);
+        const claimedInputs: IBridgedReceiveExtraInputs | undefined = claimedRow?.extraInputs;
+        if (
+          !claimedRow ||
+          !claimed ||
+          claimed.operationId !== operation.operationId ||
+          claimed.revision === operation.revision ||
+          claimed.sourceAttempt?.phase !== 'running' ||
+          claimedInputs?.phase !== 'submitting' ||
+          claimedInputs.evmTxHash ||
+          claimedInputs.intentNonce
+        )
+          return;
+        assertOwnedEpochQuote(claimedRow, operation, quote);
+        claimedOperation = { ...operation, revision: claimed.revision };
       }
       if (tagged && request !== latestRequest) throw new Error('Bridge operation terms changed');
       set({ status: 'signing', error: null, bridgeReceiveTxId: bridgeReceiveTxId ?? null, compactWatchClosed: false });
@@ -325,8 +338,16 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (claimedOperation && row) {
         connection = await getEvmConnection();
         const currentRow = await Repo.transactions.get(row.id);
+        const currentOperation = currentRow && bridgeOperationOf(currentRow);
+        const currentInputs: IBridgedReceiveExtraInputs | undefined = currentRow?.extraInputs;
         if (
           !currentRow ||
+          !currentOperation ||
+          currentOperation.revision !== claimedOperation.revision ||
+          currentOperation.sourceAttempt?.phase !== 'running' ||
+          currentInputs?.phase !== 'submitting' ||
+          currentInputs.evmTxHash ||
+          currentInputs.intentNonce ||
           request !== latestRequest ||
           connection.address?.toLowerCase() !== claimedOperation.review.accounts.evmAddress.toLowerCase() ||
           (!connection.isNative && connection.chainId !== sourceChainId)
