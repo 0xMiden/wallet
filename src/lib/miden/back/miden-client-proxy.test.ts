@@ -2649,11 +2649,11 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
   });
 
   it.each([
-    ['a current hold', { mock: 'inline-hold' }, 'retireWasmClientForCaughtTrap'],
-    ['no hold', null, 'retireWasmClientForUnheldTrap']
+    ['a current hold', { mock: 'inline-hold' }],
+    ['no hold', null]
   ])(
-    'handleOffscreenSignRequest rethrows a WebAssembly.RuntimeError when there is %s, and the retire helper ran',
-    async (_holdCase, hold, helper) => {
+    'handleOffscreenSignRequest retires a WebAssembly.RuntimeError through the unheld retire when there is %s, and rethrows it',
+    async (_holdCase, hold) => {
       const { handleOffscreenSignRequest, __test } = await loadProxy(true);
       const { bytesToB64 } = await import('./offscreen-codec');
       const trap = new WebAssembly.RuntimeError('unreachable');
@@ -2675,7 +2675,9 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
       );
       await expect(response).rejects.toBe(trap);
       release();
-      expect(G.__px[helper]).toHaveBeenCalledWith(...(hold ? [hold, trap] : [trap]));
+      expect(G.__px.retireWasmClientForUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(G.__px.retireWasmClientForUnheldTrap).toHaveBeenCalledWith(trap);
+      expect(G.__px.retireWasmClientForCaughtTrap).not.toHaveBeenCalled();
     }
   );
 
