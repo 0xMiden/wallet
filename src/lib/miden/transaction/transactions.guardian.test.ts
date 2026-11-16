@@ -2372,6 +2372,90 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  // Out of the Guardian catch a store error is no landed failure, so the loop's last arm would fail the row on it.
+  it('a landed Guardian send whose settle read rejects once stays Completed, not Failed on the store error', async () => {
+    const txId = 'send-guardian-settle-read-abort';
+    const landed = makeResult();
+    const store = { applied: false, readArmed: false, aborted: 0 };
+    // The landed record has no id to write here, so the settle's own read is the first `first()` after the throw.
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (!store.applied) return landed.executedTransaction();
+        if (store.aborted === 0) store.readArmed = true;
+        throw new Error('result read');
+      }
+    };
+    const apply = jest.fn(async () => {
+      store.applied = true;
+    });
+    const where: jest.Mock = jest.requireMock('lib/miden/repo').transactions.where;
+    const plain = where.getMockImplementation()!;
+    where.mockImplementation((query: { id: string }) => {
+      const plainQuery = plain(query);
+      if (query.id !== txId) return plainQuery;
+      return {
+        ...plainQuery,
+        first: async () => {
+          if (store.readArmed) {
+            store.readArmed = false;
+            store.aborted += 1;
+            throw new Error('IndexedDB transaction aborted');
+          }
+          return plainQuery.first();
+        }
+      };
+    });
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result, apply)
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      const outcome = await generateTransactionsLoop(
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(store.aborted).toBe(1);
+      const row = txStore.find(r => r.id === txId)!;
+      expect(row.error).toBeUndefined();
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Sent' });
+      expect(outcome).toBe(true);
+      expect(warnSpy.mock.calls.map(call => call[0])).toContain(
+        `Could not read the landed row (attempt 1/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`
+      );
+    } finally {
+      where.mockImplementation(plain);
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   // A Cancel during the id read finalizes the row before the landed arm. The id still has to land on that Failed row,
   // and the arm must not write a second status over it.
   const armIdReadThatFailsTheRow = (txId: string) => {

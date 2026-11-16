@@ -28,6 +28,7 @@ import {
   requeueFailedTransaction,
   safeGenerateTransactionsLoop,
   startBackgroundTransactionProcessing,
+  TERMINAL_STATUS_WRITE_ATTEMPTS,
   verifyStuckTransactionsFromNode,
   waitForConsumeTx,
   waitForTransactionCompletion
@@ -1403,6 +1404,146 @@ describe('a throw after the leaf resolved', () => {
 
     const row = txStore.find(stored => stored.id === id)!;
     expect(row.transactionId).toBe('landed-id');
+  });
+
+  // The lap itself, not the safe wrapper, which answers a rejected lap as a failed one too.
+  const runLapAgainst = async (client: Record<string, unknown>) => {
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(),
+      waitForTransactionCommit: mockWaitForCommit,
+      sendPrivateNote: mockSendPrivateNote,
+      ...client
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const outcome = await generateTransactionsLoop(jest.fn(), false, {} as any).catch((rejected: unknown) => ({
+        rejected
+      }));
+      return { outcome, warnings: warnSpy.mock.calls.map(call => call[0]) };
+    } finally {
+      sdk.getMidenClient = origGetClient;
+      warnSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  };
+
+  // One IndexedDB abort under contention, on the first store access of `id` that `rejects` picks once armed. The tail's
+  // throw arms it, so everything the leaf wrote before is untouched.
+  const abortOnceAfterArm = (
+    id: string,
+    rejects: (access: 'first' | 'modify', fn?: (row: any) => unknown) => boolean
+  ) => {
+    const where: jest.Mock = require('lib/miden/repo').transactions.where;
+    const plain = where.getMockImplementation()!;
+    const state = { armed: false, aborted: 0 };
+    const abort = () => {
+      state.armed = false;
+      state.aborted += 1;
+      throw new Error('IndexedDB transaction aborted');
+    };
+    where.mockImplementation((arg: any) => {
+      const query = plain(arg);
+      if (typeof arg === 'string' || arg.id !== id) return query;
+      return {
+        ...query,
+        first: async () => {
+          if (state.armed && rejects('first')) abort();
+          return query.first();
+        },
+        modify: async (fn: (row: any) => unknown) => {
+          if (state.armed && rejects('modify', fn)) abort();
+          return query.modify(fn);
+        }
+      };
+    });
+    return { state, arm: () => (state.armed = true), restore: () => where.mockImplementation(plain) };
+  };
+
+  it('completes a landed row whose settle read rejects once', async () => {
+    const id = 'tx-tail-settle-read-abort';
+    _gh.__noteTypeForTest = 'public';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      displayIcon: 'SEND'
+    });
+    // The landed record writes through `modify`, so the settle's own read is the first `first()` after the throw.
+    const store = abortOnceAfterArm(id, access => access === 'first');
+    let lap: Awaited<ReturnType<typeof runLapAgainst>>;
+    try {
+      lap = await runLapAgainst({
+        sendTransaction: jest.fn(async () =>
+          landedResult({ outputNotes: () => ({ notes: () => [] }) }, () => {
+            store.arm();
+            throw new Error('result serialize');
+          })
+        )
+      });
+    } finally {
+      store.restore();
+    }
+
+    expect(lap.outcome).toBe(false);
+    expect(store.state.aborted).toBe(1);
+    expect(lap.warnings).toContain(`Could not read the landed row (attempt 1/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      displayMessage: 'Sent',
+      transactionId: 'landed-id'
+    });
+    expect(isRequeueableTransaction(row)).toBe(false);
+  });
+
+  it('fails a landed Epoch bridged-send whose landed note record rejects once, so its awaiting caller stops', async () => {
+    const id = 'tx-tail-bridge-note-abort';
+    queuedRow(id, {
+      type: 'bridged-send',
+      requestBytes: new Uint8Array([9]),
+      approvedOutputNoteIds: ['note:recorded'],
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200,
+        reclaimNoteId: 'note-stamped'
+      }
+    });
+    // Only the note record sets the row's output notes; each write is tried on a copy first to find it.
+    const store = abortOnceAfterArm(id, (access, fn) => {
+      if (access !== 'modify' || fn === undefined) return false;
+      const row = txStore.find(stored => stored.id === id)!;
+      const probe = { ...row, extraInputs: { ...row.extraInputs } };
+      fn(probe);
+      return probe.outputNoteIds !== undefined && row.outputNoteIds === undefined;
+    });
+    let lap: Awaited<ReturnType<typeof runLapAgainst>>;
+    try {
+      lap = await runLapAgainst({
+        newTransaction: jest.fn(async () =>
+          landedResult({ outputNotes: () => ({ notes: () => [] }) }, () => {
+            store.arm();
+            throw new Error('result serialize');
+          })
+        )
+      });
+    } finally {
+      store.restore();
+    }
+
+    expect(lap.outcome).toBe(false);
+    expect(store.state.aborted).toBe(1);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({ status: ITransactionStatus.Failed, transactionId: 'landed-id' });
+    expect(isRequeueableTransaction(row)).toBe(false);
   });
 });
 
