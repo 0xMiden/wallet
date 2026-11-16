@@ -516,7 +516,8 @@ const planRequeue = async (
   // notes signing lets it create), already on chain means a run created it: the user's word cannot rule that out. Asked
   // only here, behind the acknowledgement, so the refusal above takes no lock and reads no node, and a request that
   // names no note keeps the user's word (#1081). The dApp built the bytes and knows its notes' serials, so it could
-  // commit the same note from another account: that completes the row without a second run, as a note landing does.
+  // commit the same note from another account: the check counts only a copy this account created, and refuses on one
+  // held only as another account's.
   if (!proven && executeInDoubt && tx.requestBytes !== undefined && (await completedFromPinnedNotes(tx, baseline))) {
     return undefined;
   }

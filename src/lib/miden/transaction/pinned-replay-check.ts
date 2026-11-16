@@ -122,8 +122,9 @@ export const orderFromSavedRequest = async (bytes: Uint8Array | undefined): Prom
 
 /**
  * Ask the node whether a note `row`'s request bytes create is committed, and for an execute a note its approval
- * recorded. The decode is static but runs in a labelled hold that catches nothing, so a trap reaches the lock, which
- * retires the client it trapped on. Every failure answers `unknown`, never `absent`: the caller replays nothing on it.
+ * recorded, counted only as `row.accountId` created it. The decode is static but runs in a labelled hold that catches
+ * nothing, so a trap reaches the lock, which retires the client it trapped on. Every failure answers `unknown`, never
+ * `absent`: the caller replays nothing on it.
  */
 export async function checkPinnedReplayNotes(
   row: Pick<ITransaction, 'type' | 'accountId' | 'requestBytes' | 'approvedEffects'>,
@@ -172,7 +173,13 @@ export async function checkPinnedReplayNotes(
     console.warn('[retry] could not reach the node to check the saved request', error);
     return { kind: 'unknown', cause: 'read' };
   }
-  const held = await node.noteInclusions(noteIds, RPC_READ_TIMEOUT_MS);
+  // A dApp built an execute's bytes and knows its notes' serials, so it can commit the same note from another account:
+  // only a copy this row's account created is the row's, and one held only as another account's answers nothing, never
+  // absent, since absent replays. The wallet drew a send's and a swap's serials itself.
+  const held =
+    row.type === 'execute'
+      ? await node.noteInclusions(noteIds, RPC_READ_TIMEOUT_MS, row.accountId)
+      : await node.noteInclusions(noteIds, RPC_READ_TIMEOUT_MS);
   if (held === undefined) return { kind: 'unknown', cause: 'read' };
   for (const noteId of noteIds) {
     const block = held.get(noteId);
