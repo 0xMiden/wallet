@@ -1155,6 +1155,76 @@ describe('a throw after the leaf resolved', () => {
     expect(row.extraInputs.landedOrder).toBeUndefined();
   });
 
+  it('the order a landed failure read outranks the one its submit stamp recorded', async () => {
+    const id = 'tx-landed-swap-read-over-stamp';
+    const otherNote = `0x${'cd'.repeat(32)}`;
+    queuedSwap(id);
+
+    await runLoopWithWrite(
+      jest.fn(async (_tx: unknown, _signer: unknown, onStage: StageStamp) => {
+        await onStage('submitting', { evidence: STAMPED_ORDER });
+        throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {
+          orderId: '7',
+          orderNoteId: otherNote
+        });
+      })
+    );
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(7n);
+    expect(row.outputNoteIds).toEqual([otherNote]);
+  });
+
+  // The record write can fail like the apply did; the Completed write still opens the order the stamp recorded.
+  it('a loop swap whose landed record write fails is Completed with the order its submit stamp recorded', async () => {
+    const id = 'tx-landed-swap-stamp-record-failed';
+    queuedSwap(id);
+    const where = require('lib/miden/repo').transactions.where as jest.Mock;
+    const storeWhere = where.getMockImplementation()!;
+    // Armed once the apply failed: the write that would hold the landed order aborts.
+    let armed = false;
+    where.mockImplementation((arg: unknown) => {
+      const query = storeWhere(arg);
+      if (typeof arg === 'string') return query;
+      return {
+        ...query,
+        modify: async (fn: (tx: any) => unknown) => {
+          const row = txStore.find(stored => stored.id === id);
+          if (armed && row && row.extraInputs.landedOrder === undefined) {
+            const probe = { ...row, extraInputs: { ...row.extraInputs } };
+            fn(probe);
+            if (probe.extraInputs.landedOrder !== undefined) {
+              armed = false;
+              throw new Error('IndexedDB transaction aborted');
+            }
+          }
+          return query.modify(fn);
+        }
+      };
+    });
+    let landedAt: number;
+    try {
+      landedAt = await runLoopAtFixedTime(
+        jest.fn(async (_tx: unknown, _signer: unknown, onStage: StageStamp) => {
+          await onStage('submitting', { evidence: STAMPED_ORDER });
+          armed = true;
+          throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {});
+        })
+      );
+    } finally {
+      where.mockImplementation(storeWhere);
+    }
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(armed).toBe(false);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(landedAt + 100);
+    expect(row.extraInputs.landedOrder).toBeUndefined();
+    expect(row.outputNoteIds).toEqual([ORDER_NOTE_ID.toLowerCase()]);
+  });
+
   it.each([
     ['with its own order', { orderId: 7n, expiresAt: 500 }],
     ['with no order read', { expiresAt: 500 }]

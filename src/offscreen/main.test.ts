@@ -3789,6 +3789,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       await flush();
       expect(sendResponse.mock.calls[0][0].ok).toBe(false);
       expect(sendResponse.mock.calls[0][0].errorBeforeSubmit).toBeUndefined();
+      // Only a trap there crosses as landed; an ordinary failure keeps its own shape.
+      expect(sendResponse.mock.calls[0][0].errorCode).toBeUndefined();
     }
   );
 
@@ -4862,12 +4864,45 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(resp.errorLanded).toBeUndefined();
       expect(resp.errorBeforeSubmit).toBeUndefined();
       expect(isApplyAfterSubmitError({ errorCode: resp.errorCode })).toBe(true);
-      if (method === 'guardianPipeline') expect(G.__off.guardianApplied).toBe(true);
+      // Only the Guardian leaf applies through this harness's own apply; the other leaves' clients are stubs.
+      expect(G.__off.guardianApplied).toBe(method === 'guardianPipeline');
       expect(dispatchHold).toBeTruthy();
       expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledTimes(1);
       expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledWith(dispatchHold, trap);
     }
   );
+
+  it('swapTransaction: a retire that throws after a trap serializing the applied result still replies landed', async () => {
+    await loadModule();
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    G.__off.retireWasmClientForCaughtTrap = jest.fn(() => {
+      throw new Error('retire failed');
+    });
+    G.__off.clientSwapTransaction = jest.fn(async () => ({
+      serialize: () => {
+        throw trap;
+      }
+    }));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const sendResponse = jest.fn();
+    const dto = {
+      accountId: 'a',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' },
+      swapFeeContext: { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: '7' }
+    };
+
+    try {
+      capturedListener!(callReq({ method: 'swapTransaction', argsB64: [encodeArg(dto)] }), {}, sendResponse);
+      await waitForReply(sendResponse);
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorCode: 'ApplyTransactionAfterSubmitFailed' });
+  });
 
   it('guardianPipeline: a failure before the submit call replies tagged (#1081)', async () => {
     await loadModule();

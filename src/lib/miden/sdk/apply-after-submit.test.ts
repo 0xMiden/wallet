@@ -8,6 +8,7 @@ import {
   LandedTailError,
   recordedSwapOrder,
   requestOrderOf,
+  submittedSwapOrder,
   swapOrderOf
 } from './apply-after-submit';
 import { extractLanded, extractSdkErrorCode, isApplyAfterSubmitError } from './sdk-error-code';
@@ -866,6 +867,52 @@ describe('recordedSwapOrder', () => {
     ['a note id that is not note-id shaped', { requestOrder: { orderId: '42', noteId: 'order-note' } }]
   ])('reads none from %s', (_label, extraInputs) => {
     expect(recordedSwapOrder(extraInputs)).toBeUndefined();
+  });
+});
+
+describe('submittedSwapOrder', () => {
+  const OTHER_NOTE_ID = `0x${'cd'.repeat(32)}`;
+  const stamp = (attemptId: string, order: Record<string, unknown> = {}) => ({
+    attemptId,
+    capturedAt: 1,
+    source: 'stage' as const,
+    ...order
+  });
+  const ofA1 = (entry: { attemptId: string }) => entry.attemptId === 'a1';
+
+  it('reads the order the matching attempts recorded, ignoring the others', () => {
+    const entries = [
+      stamp('a0', { orderId: '7', orderNoteId: OTHER_NOTE_ID }),
+      stamp('a1', { orderId: '42', orderNoteId: ORDER_NOTE_ID }),
+      stamp('a1')
+    ];
+    expect(submittedSwapOrder(entries, ofA1)).toEqual({ orderId: '42', orderNoteId: ORDER_NOTE_ID });
+  });
+
+  it.each<[string, Record<string, unknown>[]]>([
+    ['no entries', []],
+    ['entries that name no order', [{}]],
+    [
+      'matching entries that disagree',
+      [
+        { orderId: '42', orderNoteId: ORDER_NOTE_ID },
+        { orderId: '7', orderNoteId: OTHER_NOTE_ID }
+      ]
+    ],
+    ['an order with no note', [{ orderId: '42' }]],
+    ['a hex order id', [{ orderId: '0x2a', orderNoteId: ORDER_NOTE_ID }]],
+    ['a well-formed order beside a malformed one', [{ orderId: '42', orderNoteId: ORDER_NOTE_ID }, { orderId: '42' }]]
+  ])('reads none from %s', (_label, orders) => {
+    expect(
+      submittedSwapOrder(
+        orders.map(order => stamp('a1', order)),
+        ofA1
+      )
+    ).toBeUndefined();
+  });
+
+  it('reads none from a row with no evidence', () => {
+    expect(submittedSwapOrder(undefined, ofA1)).toBeUndefined();
   });
 });
 
