@@ -19,8 +19,8 @@ jobs:
           fetch-depth: 0
       - name: Bind original qualified application and audit-only overlay
         run: |
-          test "$(git merge-base aa6bc317ef2f17f7771a772e1e88d5f1172c616f HEAD)" = aa6bc317ef2f17f7771a772e1e88d5f1172c616f
-          test "$(git diff --name-only aa6bc317ef2f17f7771a772e1e88d5f1172c616f HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/recovery-zero-private.spec.ts scripts/recovery-zero-public.mjs)"
+          test "$(git merge-base 9b57c6f10eae6b2c84b74ae18d486ce21ca92128 HEAD)" = 9b57c6f10eae6b2c84b74ae18d486ce21ca92128
+          test "$(git diff --name-only 9b57c6f10eae6b2c84b74ae18d486ce21ca92128 HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/recovery-zero-private.spec.ts scripts/recovery-zero-public.mjs)"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22

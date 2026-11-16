@@ -43,7 +43,7 @@ test('read-only diagnosis of the original unsigned NEAR live verification', asyn
   report.privateNativeAfterSync=(await vaultBalanceByFaucetId(walletB.page,original.native.faucetId)).toString();
   report.originalNativeExpected=original.native.balance;
   try {
-    const status=await fetchOneClickStatus({serviceUrl:original.serviceUrl,appFees:original.appFees,feePolicy:original.feePolicy,midenAssets:[{assetId:original.nativeAssetId,faucetId:original.native.faucetId,decimals:6}]},original.forwardQuote.depositAddress,undefined,undefined,createMainnetOneClickOriginFetcher(original.serviceUrl,walletB.extensionId));
+    const status=await fetchOneClickStatus({serviceUrl:original.serviceUrl,appFees:original.appFees,feePolicy:original.feePolicy,midenAssets:[{assetId:original.nativeAssetId,faucetId:original.native.hex,decimals:6}]},original.forwardQuote.depositAddress,undefined,undefined,createMainnetOneClickOriginFetcher(original.serviceUrl,walletB.extensionId));
     report.providerStatus=status.status;report.canonicalQuoteHashMatched=hashOneClickQuote(status.quoteResponse)===original.forwardQuote.quoteHash;
     report.correlationMatched=status.quoteResponse.correlationId===original.forwardQuote.correlationId;
     report.depositReferenceMatched=status.quoteResponse.quote.depositAddress===original.forwardQuote.depositAddress;
