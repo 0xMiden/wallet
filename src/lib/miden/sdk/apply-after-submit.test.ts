@@ -367,25 +367,32 @@ describe('applyAfterSubmit (#1233)', () => {
     expect(extractLanded(error)).toEqual({ transactionId: '0xtx' });
   });
 
-  it('a fee check that traps while the landed facts are read leaves the count unread and keeps the landed verdict', async () => {
+  it('a fee check that traps while the landed facts are read retires the hold once and reads no later fact', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
     const apply = jest.fn(async () => {
       throw new Error('IndexedDB transaction aborted');
     });
+    const finalAccountHeader = jest.fn(() => withCommitment(FINAL));
+    const retireTrap = jest.fn();
     const result = {
       executedTransaction: () => ({
         id: () => ({ toHex: () => '0xtx' }),
         accountId: () => 'acc',
         initialAccountHeader: () => withCommitment(INITIAL),
+        finalAccountHeader,
         blockHeader: (): { verificationBaseFee(): number } => {
-          throw new WebAssembly.RuntimeError('unreachable');
+          throw trap;
         },
         outputNotes: () => ({ notes: () => [outputNote(NoteType.Private), outputNote(NoteType.Public)] })
       })
     };
 
-    const error = await applyAfterSubmit(arrange({ apply, result })).catch((caught: unknown) => caught);
+    const error = await applyAfterSubmit(arrange({ apply, result, retireTrap })).catch((caught: unknown) => caught);
 
     expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(retireTrap).toHaveBeenCalledTimes(1);
+    expect(retireTrap.mock.calls[0]![0]).toBe(trap);
+    expect(finalAccountHeader).not.toHaveBeenCalled();
     expect(extractLanded(error)).toEqual({ transactionId: '0xtx' });
   });
 
@@ -517,6 +524,35 @@ describe('applyAfterSubmit (#1233)', () => {
     expect(retireTrap).toHaveBeenCalledTimes(1);
     expect(retireTrap).toHaveBeenCalledWith(trap);
     expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({});
+  });
+
+  // The async half of the initial-account check: the store read itself rejects with the trap.
+  it('a store read that rejects with a trap retires the hold, is not retried and reads no fact', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const id = jest.fn(() => ({ toHex: () => '0xtx' }));
+    const retireTrap = jest.fn();
+    const readLocalAccount = jest.fn(async (_accountId: string): Promise<{ to_commitment(): { toHex(): string } }> => {
+      throw trap;
+    });
+    const result = {
+      executedTransaction: () => ({
+        id,
+        accountId: () => 'acc',
+        initialAccountHeader: () => withCommitment(INITIAL),
+        outputNotes: () => ({ notes: () => [] })
+      })
+    };
+    const options = arrange({ apply: failingApply(), result, readLocalAccount, retireTrap });
+
+    const error = await applyAfterSubmit(options).catch((caught: unknown) => caught);
+
+    expect(retireTrap).toHaveBeenCalledTimes(1);
+    expect(retireTrap.mock.calls[0]![0]).toBe(trap);
+    expect(options.apply).toHaveBeenCalledTimes(1);
+    expect(id).not.toHaveBeenCalled();
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(error).toHaveProperty('cause', trap);
     expect(extractLanded(error)).toEqual({});
   });
 
