@@ -1398,9 +1398,13 @@ describe('a throw after the leaf resolved', () => {
   // The completion relayed the note and recorded it before a later read threw: the landed label must not undo that.
   it('an execute whose tail relays its note and then throws keeps the note relayed', async () => {
     queuedExecute('tx-tail-relayed', { secondaryAccountId: 'recipient' });
-    require('../activity/helpers').interpretTransactionResult.mockImplementationOnce(() => {
+    // Failing before the relays and again at the terminal write, so the completion throws after it relayed the note.
+    const failedRead = () => {
       throw new Error('input notes read');
-    });
+    };
+    require('../activity/helpers')
+      .interpretTransactionResult.mockImplementationOnce(failedRead)
+      .mockImplementationOnce(failedRead);
     const note = {
       id: () => ({ toString: () => 'relayed-note' }),
       metadata: () => ({ noteType: () => 'private' }),
@@ -1413,9 +1417,16 @@ describe('a throw after the leaf resolved', () => {
     expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
     expect(row).toMatchObject({
       status: ITransactionStatus.Completed,
+      transactionId: 'landed-id',
       noteDelivery: 'relayed',
       displayMessage: 'Executed'
     });
+    // Only the landed arm reports, so the row above is its write, not the completion's own.
+    const reports = jest
+      .mocked(captureCrash)
+      .mock.calls.filter(([report]) => report instanceof Error && report.name === 'WalletTransactionFailure');
+    expect(reports).toHaveLength(1);
+    expect((reports[0]![0] as Error).message).toMatch(/^Transaction landed: tx_dapp;/);
   });
 
   it('an execute whose tail throws before any delivery is recorded still reads undelivered', async () => {
