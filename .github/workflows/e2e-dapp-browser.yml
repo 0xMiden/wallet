@@ -1,0 +1,431 @@
+name: '2147 M two-guard expected assertion RED reference'
+
+# Isolated orphan QA transport; this registered filename runs no native E2E jobs.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_source:
+        description: Exact reviewed QA transport commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  m-guard-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SOURCE: ${{ inputs.expected_source }}
+    steps:
+      - name: Bind manual dispatch to the reviewed QA branch and SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/qa/2147-m-guard-red1-33431-20261116
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$EXPECTED_SOURCE" = "$GITHUB_SHA"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          ref: ${{ inputs.expected_source }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify orphan scope, modes and payload hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          test -z "$(git show -s --format=%P HEAD)"
+          expected=$(cat <<'FILES'
+          .github/workflows/e2e-dapp-browser.yml
+          source-after.sha256
+          source-before.sha256
+          source-overlay.patch
+          FILES
+          )
+          test "$(git ls-tree -r --name-only HEAD | LC_ALL=C sort)" = "$expected"
+          test "$(git ls-tree -r --format='%(objectmode)' HEAD | LC_ALL=C sort -u)" = 100644
+          sha256sum --check <<'PAYLOAD'
+          d1f4cea9fe123d126efff2858225f4c7227a74b8815044f9ff448b25c8a10054  source-overlay.patch
+          bd6361d04817bf2774793ecbd6d8ddc7328c71eef0c1562ed8370e0b51bcdc0c  source-before.sha256
+          00be382ae8cbc54e028bf3cc63dd3faf757a51752735cc82e363aab63ab3df2f  source-after.sha256
+          PAYLOAD
+
+      - name: Check out approved public wallet baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          repository: 0xMiden/wallet
+          ref: 75bbe564302c1b8aff9138dc0b9c1e3a59f72daf
+          fetch-depth: 2
+          path: wallet
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Ordinary frozen install on unchanged public baseline
+        working-directory: wallet
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 75bbe564302c1b8aff9138dc0b9c1e3a59f72daf
+          test "$(git rev-parse 'HEAD^{tree}')" = 582bba55736e65aaa668755abf07676f9ed38a94
+          test "$(git show -s --format=%P HEAD)" = bb7392f1b88823965c956a283c561f494351136a
+          test -z "$(git status --porcelain --untracked-files=all)"
+          sha256sum --check <<'INPUTS'
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73  .nvmrc
+          68872467d64e7e95822bf15b578f98f38f94ee15c978bef41248bb28c0e3d74b  packages/hd-key/package.json
+          1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e  packages/bread-connect/package.json
+          8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275  packages/bread-connect-capacitor/package.json
+          6e429996887877ba411d6a2262947fe7831532562b6d872f888c83edb37375b1  packages/dapp-browser/package.json
+          dee8323b83b5a584a49e61c5c6a1deb19db572226484fbbff17b50e38fabebeb  packages/native-prover/package.json
+          93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2  packages/hd-key/tsconfig.json
+          9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9  packages/bread-connect/tsconfig.json
+          c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa  patches/@capacitor+keyboard+8.0.5.patch
+          7477ff106d8921519b8b9c7614dd5f27035f4db15d77ea65d39edfc1a49a992c  patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1  patches/@openzeppelin+guardian-client+0.18.1.patch
+          1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d  patches/eslint-plugin-import+2.32.0.patch
+          9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6  patches/eslint-plugin-react+7.27.1.patch
+          b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615  patches/inspect-cli-cdp-fix.patch
+          3efbc553923c5294e3d35904ea8cb82142c99b99e5320e641eaa221d03021819  patches/react-infinite-scroller+1.2.6.patch
+          4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf  patches/vaul+1.1.2.patch
+          INPUTS
+          test "$(stat -c '%a' packages/dapp-browser/package.json)" = 755
+          sha256sum --check <<'STATIC'
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          c215faa3ee6c576581f660a7c120dce7fdde156bde2907cc901b3eec8f1e3bb7  .eslintrc
+          101bb34834b840158d0b2067e56b485c5b78173a4b71fac73106ba28e73d6526  .eslintrc.i18n.json
+          4f2f9e3ed69e9e1d05dc97d054a1b85668bc3d53cda3657bfcb3d467b52607c6  .eslintrc.harness.json
+          7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf  .prettierrc
+          f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd  .prettierignore
+          1696e4f93a9c602594d42780b5b325f9de0fe9f1c575444491e850d7e63f4134  scripts/lint-e2e-harness.mjs
+          5104a79a346824036eeea3b16bc3c1c21a3a2a0174e493a29b5c4f69c28423fa  scripts/check-native-prover-pin.mjs
+          70ffbb4372f856383bfa24ba01fb5bac9ceef0c090bdbef3908b9ca8d3c4f2d0  playwright/e2e/eslint-rules/known-violations.json
+          de0c54849474643dd2376c5b191ea6ec5cf934e86d95fc14ebc10cf783f0b031  playwright/e2e/eslint-rules/no-conditional-expect.js
+          c23fdd2ded1a14a6a0633401ed0786e9fe113aa5c8751ae7f9d6424be808cde5  playwright/e2e/eslint-rules/no-long-bare-wait.js
+          c76cc738f3f5beb23cc310d7a2f6471cad077b72fdc61875bae6d9b3d5b79c89  playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          3a1b514d27e10680b66d1331313f9350431ac88107bfbeb5693102a78a50ad1e  packages/native-prover/android/rust-bridge/Cargo.toml
+          7855e80634b4fd1e80855807704ed8c774bb96fc66d7472cc753daedaab2a25f  packages/native-prover/android/rust-bridge/Cargo.lock
+          40b461cafe891b15363ddb8cdecde0c7bf02b4633d16450d995115d3c39e5144  packages/native-prover/pin-drift-exemptions.json
+          5a49edb29629ae236e9d2c5dbfcf82fe1123bae990366e8252137ed6a81f09f9  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          STATIC
+          while read -r mode file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = "$mode"
+          done <<'FIXED_MODES'
+          644 package.json
+          644 yarn.lock
+          644 tsconfig.json
+          644 .nvmrc
+          644 packages/hd-key/package.json
+          644 packages/bread-connect/package.json
+          644 packages/bread-connect-capacitor/package.json
+          755 packages/dapp-browser/package.json
+          644 packages/native-prover/package.json
+          644 packages/hd-key/tsconfig.json
+          644 packages/bread-connect/tsconfig.json
+          644 patches/@capacitor+keyboard+8.0.5.patch
+          644 patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          644 patches/@openzeppelin+guardian-client+0.18.1.patch
+          644 patches/eslint-plugin-import+2.32.0.patch
+          644 patches/eslint-plugin-react+7.27.1.patch
+          644 patches/inspect-cli-cdp-fix.patch
+          644 patches/react-infinite-scroller+1.2.6.patch
+          644 patches/vaul+1.1.2.patch
+          644 .eslintrc
+          644 .eslintrc.i18n.json
+          644 .eslintrc.harness.json
+          644 .prettierrc
+          644 .prettierignore
+          644 scripts/lint-e2e-harness.mjs
+          644 scripts/check-native-prover-pin.mjs
+          644 playwright/e2e/eslint-rules/known-violations.json
+          644 playwright/e2e/eslint-rules/no-conditional-expect.js
+          644 playwright/e2e/eslint-rules/no-long-bare-wait.js
+          644 playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          644 packages/native-prover/android/rust-bridge/Cargo.toml
+          644 packages/native-prover/android/rust-bridge/Cargo.lock
+          644 packages/native-prover/pin-drift-exemptions.json
+          644 jest.config.ts
+          644 jest.setup.js
+          FIXED_MODES
+          while read -r file target; do
+            test -L "$file"
+            test "$(readlink "$file")" = "$target"
+          done <<'ALIAS_TARGETS'
+          .agents/skills/miden-wallet-frontend ../../skills/miden-wallet-frontend
+          .claude/skills/miden-wallet-frontend ../../skills/miden-wallet-frontend
+          ALIAS_TARGETS
+          test "$(yarn --version)" = 1.22.22
+          # Baseline postinstall inside install6: rimraf node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package && yarn build:hd-key && yarn build:bread-connect
+          # tsc --project packages/hd-key/tsconfig.json; tsc --project packages/bread-connect/tsconfig.json
+          yarn install --frozen-lockfile --network-timeout 600000
+
+      - name: Check and apply only the two reviewed M test appends
+        id: source
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code HEAD
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test "$(wc -l < ../source-before.sha256)" -eq 2
+          test "$(wc -l < ../source-after.sha256)" -eq 2
+          test "$(cut -c67- ../source-before.sha256)" = "$(cut -c67- ../source-after.sha256)"
+          sha256sum --check ../source-before.sha256
+          while read -r hash file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-before.sha256
+          git apply --check ../source-overlay.patch
+          git apply ../source-overlay.patch
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = 4d009464ac538a65925a99603410a9ce9a76e526995cc93e8c74c432984a7574
+          test -z "$(git ls-files --others --exclude-standard)"
+          test "$(node --version | cut -d. -f1)" = v22
+          test "$(yarn --version)" = 1.22.22
+          node --version
+          yarn --version
+
+      - name: Root types - full configured root typecheck
+        working-directory: wallet
+        timeout-minutes: 8
+        run: |
+          yarn tsc --noEmit
+
+      - name: Static ESLint - the two reviewed M test files
+        working-directory: wallet
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          yarn eslint --ext .ts,.tsx src/lib/miden/transaction/effect-checked-signer.test.ts src/lib/miden/transaction/proposal-effect-guard.test.ts
+
+      - name: Static harness - root E2E convention lint
+        working-directory: wallet
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          yarn -s lint:e2e
+
+      - name: Static i18n - root i18n lint
+        working-directory: wallet
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          yarn -s lint:i18n
+
+      - name: Static pin - native prover pin consistency check
+        working-directory: wallet
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          pin_output=$(yarn -s check:prover-pin)
+          pin_status=$?
+          set -e
+          printf '%s\n' "$pin_output"
+          if [ "$pin_status" -ne 0 ]; then
+            exit "$pin_status"
+          fi
+          test "$(printf '%s\n' "$pin_output" | grep -Fxc -- '[native-prover-pin] @miden-sdk/miden-sdk 0.17.5 → miden-client 0.17.4; native-prover requires ^0.17.2')" -eq 1
+          test "$(printf '%s\n' "$pin_output" | grep -Fxc -- '✅ prover miden-client requirement ^0.17.2 is satisfied by the SDK'"'"'s miden-client 0.17.4, and all 7 transaction-kernel crates resolve identically in packages/native-prover/android/rust-bridge/Cargo.lock and the web-sdk lockfile.')" -eq 1
+
+      - name: Unit - two whole M files; expected native assertion failure, never remapped
+        id: tests
+        working-directory: wallet
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          yarn jest --runTestsByPath src/lib/miden/transaction/effect-checked-signer.test.ts src/lib/miden/transaction/proposal-effect-guard.test.ts --maxWorkers=2 --json --outputFile=../jest-results.json
+
+      - name: Record complete actual Jest JSON and check the expected two-failure envelope
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          if (!fs.existsSync('jest-results.json')) {
+            console.error('JEST_RESULTS_JSON MISSING: incomplete evidence; skipped prerequisites or Jest are NOT EXECUTED');
+            throw new Error('Missing complete actual Jest JSON');
+          }
+          const report = JSON.parse(fs.readFileSync('jest-results.json', 'utf8'));
+          console.log('JEST_RESULTS_JSON ' + JSON.stringify(report));
+          assert.equal('${{ steps.tests.outcome }}', 'failure');
+          assert.equal(report.success, false);
+          assert.equal(report.numRuntimeErrorTestSuites, 0);
+          assert.equal(report.numTotalTestSuites, 2);
+          assert.equal(report.numPassedTestSuites, 0);
+          assert.equal(report.numFailedTestSuites, 2);
+          assert.equal(report.numPendingTestSuites, 0);
+          assert.equal(report.numFailedTests, 2);
+          assert(Number.isInteger(report.numTotalTests) && report.numTotalTests > 2);
+          assert.equal(report.numPassedTests, report.numTotalTests - 2);
+          assert.equal(report.numPendingTests, 0);
+          assert.equal(report.numTodoTests, 0);
+          const expected = [
+            {"path": "src/lib/miden/transaction/effect-checked-signer.test.ts", "failed": "refuses a second valid authentication for one bridged send before delegation", "passed": "passes one authentication for a bridged send creating its original note"},
+            {"path": "src/lib/miden/transaction/proposal-effect-guard.test.ts", "failed": "refuses a bridged-send view creating no note despite its recorded original note", "passed": "permits a bridged-send view creating its recorded original note"}
+          ];
+          assert.equal(new Set(expected.map(suite => suite.path)).size, 2);
+          assert.equal(report.testResults.length, 2);
+          let actualTests = 0;
+          let actualFailed = 0;
+          for (const { path, failed, passed } of expected) {
+            const matches = report.testResults.filter(suite => suite.name.endsWith('/' + path));
+            assert.equal(matches.length, 1);
+            const suite = matches[0];
+            assert.equal(suite.status, 'failed');
+            assert(suite.assertionResults.length > 0);
+            assert.equal(suite.assertionResults.filter(test => test.title === failed).length, 1);
+            assert.equal(suite.assertionResults.filter(test => test.title === passed).length, 1);
+            for (const test of suite.assertionResults) {
+              assert.equal(test.status, test.title === failed ? 'failed' : 'passed');
+              if (test.status === 'failed') actualFailed += 1;
+            }
+            actualTests += suite.assertionResults.length;
+          }
+          assert.equal(actualTests, report.numTotalTests);
+          assert.equal(actualFailed, report.numFailedTests);
+          console.log(JSON.stringify({ assertionResults: actualTests,
+            observedAssertionCounts: report.testResults.map(suite => ({ path: suite.name,
+              numPassingAsserts: suite.assertionResults.map(test => test.numPassingAsserts ?? null) })),
+            total: report.numTotalTests, passed: report.numPassedTests,
+            failed: report.numFailedTests, suites: report.numTotalTestSuites,
+            controls: report.testResults.map(suite => ({ path: suite.name,
+              tests: suite.assertionResults.length, status: suite.status })) }));
+          JS
+
+      - name: Verify unchanged source and fixed inputs after all gate attempts, including failure
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 75bbe564302c1b8aff9138dc0b9c1e3a59f72daf
+          git diff --cached --exit-code
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = 4d009464ac538a65925a99603410a9ce9a76e526995cc93e8c74c432984a7574
+          test -z "$(git ls-files --others --exclude-standard)"
+          sha256sum --check <<'INPUTS'
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73  .nvmrc
+          68872467d64e7e95822bf15b578f98f38f94ee15c978bef41248bb28c0e3d74b  packages/hd-key/package.json
+          1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e  packages/bread-connect/package.json
+          8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275  packages/bread-connect-capacitor/package.json
+          6e429996887877ba411d6a2262947fe7831532562b6d872f888c83edb37375b1  packages/dapp-browser/package.json
+          dee8323b83b5a584a49e61c5c6a1deb19db572226484fbbff17b50e38fabebeb  packages/native-prover/package.json
+          93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2  packages/hd-key/tsconfig.json
+          9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9  packages/bread-connect/tsconfig.json
+          c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa  patches/@capacitor+keyboard+8.0.5.patch
+          7477ff106d8921519b8b9c7614dd5f27035f4db15d77ea65d39edfc1a49a992c  patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1  patches/@openzeppelin+guardian-client+0.18.1.patch
+          1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d  patches/eslint-plugin-import+2.32.0.patch
+          9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6  patches/eslint-plugin-react+7.27.1.patch
+          b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615  patches/inspect-cli-cdp-fix.patch
+          3efbc553923c5294e3d35904ea8cb82142c99b99e5320e641eaa221d03021819  patches/react-infinite-scroller+1.2.6.patch
+          4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf  patches/vaul+1.1.2.patch
+          INPUTS
+          test "$(stat -c '%a' packages/dapp-browser/package.json)" = 755
+          sha256sum --check <<'STATIC'
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          c215faa3ee6c576581f660a7c120dce7fdde156bde2907cc901b3eec8f1e3bb7  .eslintrc
+          101bb34834b840158d0b2067e56b485c5b78173a4b71fac73106ba28e73d6526  .eslintrc.i18n.json
+          4f2f9e3ed69e9e1d05dc97d054a1b85668bc3d53cda3657bfcb3d467b52607c6  .eslintrc.harness.json
+          7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf  .prettierrc
+          f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd  .prettierignore
+          1696e4f93a9c602594d42780b5b325f9de0fe9f1c575444491e850d7e63f4134  scripts/lint-e2e-harness.mjs
+          5104a79a346824036eeea3b16bc3c1c21a3a2a0174e493a29b5c4f69c28423fa  scripts/check-native-prover-pin.mjs
+          70ffbb4372f856383bfa24ba01fb5bac9ceef0c090bdbef3908b9ca8d3c4f2d0  playwright/e2e/eslint-rules/known-violations.json
+          de0c54849474643dd2376c5b191ea6ec5cf934e86d95fc14ebc10cf783f0b031  playwright/e2e/eslint-rules/no-conditional-expect.js
+          c23fdd2ded1a14a6a0633401ed0786e9fe113aa5c8751ae7f9d6424be808cde5  playwright/e2e/eslint-rules/no-long-bare-wait.js
+          c76cc738f3f5beb23cc310d7a2f6471cad077b72fdc61875bae6d9b3d5b79c89  playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          3a1b514d27e10680b66d1331313f9350431ac88107bfbeb5693102a78a50ad1e  packages/native-prover/android/rust-bridge/Cargo.toml
+          7855e80634b4fd1e80855807704ed8c774bb96fc66d7472cc753daedaab2a25f  packages/native-prover/android/rust-bridge/Cargo.lock
+          40b461cafe891b15363ddb8cdecde0c7bf02b4633d16450d995115d3c39e5144  packages/native-prover/pin-drift-exemptions.json
+          5a49edb29629ae236e9d2c5dbfcf82fe1123bae990366e8252137ed6a81f09f9  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          STATIC
+          while read -r mode file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = "$mode"
+          done <<'FIXED_MODES'
+          644 package.json
+          644 yarn.lock
+          644 tsconfig.json
+          644 .nvmrc
+          644 packages/hd-key/package.json
+          644 packages/bread-connect/package.json
+          644 packages/bread-connect-capacitor/package.json
+          755 packages/dapp-browser/package.json
+          644 packages/native-prover/package.json
+          644 packages/hd-key/tsconfig.json
+          644 packages/bread-connect/tsconfig.json
+          644 patches/@capacitor+keyboard+8.0.5.patch
+          644 patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          644 patches/@openzeppelin+guardian-client+0.18.1.patch
+          644 patches/eslint-plugin-import+2.32.0.patch
+          644 patches/eslint-plugin-react+7.27.1.patch
+          644 patches/inspect-cli-cdp-fix.patch
+          644 patches/react-infinite-scroller+1.2.6.patch
+          644 patches/vaul+1.1.2.patch
+          644 .eslintrc
+          644 .eslintrc.i18n.json
+          644 .eslintrc.harness.json
+          644 .prettierrc
+          644 .prettierignore
+          644 scripts/lint-e2e-harness.mjs
+          644 scripts/check-native-prover-pin.mjs
+          644 playwright/e2e/eslint-rules/known-violations.json
+          644 playwright/e2e/eslint-rules/no-conditional-expect.js
+          644 playwright/e2e/eslint-rules/no-long-bare-wait.js
+          644 playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          644 packages/native-prover/android/rust-bridge/Cargo.toml
+          644 packages/native-prover/android/rust-bridge/Cargo.lock
+          644 packages/native-prover/pin-drift-exemptions.json
+          644 jest.config.ts
+          644 jest.setup.js
+          FIXED_MODES
+          while read -r file target; do
+            test -L "$file"
+            test "$(readlink "$file")" = "$target"
+          done <<'ALIAS_TARGETS'
+          .agents/skills/miden-wallet-frontend ../../skills/miden-wallet-frontend
+          .claude/skills/miden-wallet-frontend ../../skills/miden-wallet-frontend
+          ALIAS_TARGETS
