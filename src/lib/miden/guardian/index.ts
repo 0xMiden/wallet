@@ -30,7 +30,6 @@ import {
   assertGuardianKeyCommitment,
   findOwnSignerCommitment,
   getSignerCommitmentsFromAccount,
-  getSignerDetailsFromAccount,
   hasSignerCommitment,
   insertGuardianAccountMonotonically,
   resolveGuardianEndpoint
@@ -1303,9 +1302,11 @@ export class MultisigService {
 
   /**
    * Build a proposal that replaces this account's hot signer in-place. Constructs an
-   * `update_signers` proposal whose target list is `[newHotCommit, coldCommit]`
-   * (preserving the `[hot, cold]` ordering convention so getSignerDetailsFromAccount
-   * keeps working post-rotation) from the commitment it is given.
+   * `update_signers` proposal whose target list is `[newHotCommit, coldCommit]` from the
+   * commitment it is given. The cold commitment is the on-chain signer of this service's
+   * request signer (the recovery key, `buildColdMultisigService`), found by membership in a
+   * fresh read of the account after the sync: a revoke re-packs the set, so slot 1 can hold
+   * another device's hot key, and a Replace that read it would remove the recovery key.
    *
    * Bypasses the SDK's createAddSignerProposal/createRemoveSignerProposal
    * convenience wrappers (those compute different target lists). At execution
@@ -1322,24 +1323,39 @@ export class MultisigService {
    * Each call first runs `syncBeforeRotationBuild`, so a retry after a
    * pending-delta 409 builds on the settled state.
    */
-  async createReplaceHotKeyProposal(account: Account, newHotCommitmentHex: string): Promise<Proposal> {
+  async createReplaceHotKeyProposal(_account: Account, newHotCommitmentHex: string): Promise<Proposal> {
+    const coldPublicKey = this.requestSigner?.publicKey;
+    if (!coldPublicKey) {
+      throw new Error(
+        `Account ${this.accountId}: a Replace needs the cold-bound service, which holds the recovery key`
+      );
+    }
     await this.syncBeforeRotationBuild();
-    const { commitment: coldCommitRaw } = await getSignerDetailsFromAccount(account, true);
     const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
-    const targetSignerCommitments = [ensure0x(newHotCommitmentHex), ensure0x(coldCommitRaw)];
     // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
-    const { summaryBase64, summaryCommitmentHex, saltHex, boundBlockNum } = await withWasmClientLock(
+    const built = await withWasmClientLock(
       async hold => {
         const webClient = (await getMidenClient()).client;
         // An eviction ABANDONS this callback rather than cancelling it, so every
         // WASM call after a parking await needs the ownership re-check - the build,
-        // the request construction, and the summary execution can each park on the
-        // network, and past an eviction the mutex (and the client) belong to a
-        // successor. All three transitions are pre-sign/pre-submit: stopping costs
+        // the account read, the request construction, and the summary execution can
+        // each park on the network, and past an eviction the mutex (and the client)
+        // belong to a successor. All of them are pre-sign/pre-submit: stopping costs
         // the user a retry and nothing else.
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the client build');
+        const freshAccount = await midenClientProxy.getAccount(this.accountId);
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the account read');
+        if (!freshAccount) {
+          throw new Error(`Account ${this.accountId} is missing from local client`);
+        }
+        const coldCommitment = await findOwnSignerCommitment(freshAccount, coldPublicKey);
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the recovery key read');
+        if (!coldCommitment) {
+          throw new Error(`Account ${this.accountId}: the recovery (cold) key is not an on-chain signer`);
+        }
+        const targetSignerCommitments = [ensure0x(newHotCommitmentHex), ensure0x(coldCommitment)];
         const { request, salt } = await buildUpdateSignersTransactionRequest(
           webClient,
           targetThreshold,
@@ -1369,11 +1385,13 @@ export class MultisigService {
           summaryBase64: u8ToB64(summary.serialize()),
           summaryCommitmentHex,
           saltHex: salt.toHex(),
-          boundBlockNum
+          boundBlockNum,
+          targetSignerCommitments
         };
       },
       { label: 'replace-hot-key-build' }
     );
+    const { summaryBase64, summaryCommitmentHex, saltHex, boundBlockNum, targetSignerCommitments } = built;
     const metadata: ProposalMetadata = {
       proposalType: 'add_signer',
       targetThreshold,

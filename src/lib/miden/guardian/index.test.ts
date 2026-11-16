@@ -432,6 +432,12 @@ describe('isPostPushProposalVerificationFailure', () => {
 });
 
 describe('MultisigService', () => {
+  // The cold-bound service a signer change runs on: its request signer is the recovery key.
+  const coldBound = (service: MultisigService) =>
+    new MultisigService(service.multisig, service.client, service.guardianEndpoint, {
+      publicKey: '0xcoldpk'
+    } as never);
+
   beforeEach(() => {
     jest.clearAllMocks();
     // A leaked hold/eviction flag from a prior test would flip an unrelated
@@ -1021,8 +1027,9 @@ describe('MultisigService', () => {
           path: 'replace-hot-key',
           sdk: 'createProposal',
           create: service => {
-            mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
-            return service.createReplaceHotKeyProposal(
+            mockGetAccount.mockResolvedValueOnce({ kind: 'fresh-account' });
+            mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
+            return coldBound(service).createReplaceHotKeyProposal(
               { id: () => ({ toString: () => 'acc-id' }) } as never,
               '0xnewhotcommit'
             );
@@ -3393,12 +3400,22 @@ describe('MultisigService', () => {
   });
 
   describe('createReplaceHotKeyProposal', () => {
+    // A Replace runs on the cold-bound service, whose request signer is the recovery key.
+    const replaceFreshAccount = { kind: 'fresh-replace-account' };
+    const replaceService = (multisig: unknown) =>
+      new MultisigService(multisig as never, {} as never, 'https://x', { publicKey: '0xcoldpk' } as never);
+    beforeEach(() => {
+      // A test that fails before the recovery key read leaves its queued values behind.
+      mockGetAccount.mockReset().mockResolvedValue(replaceFreshAccount);
+      mockFindOwnSignerCommitment.mockReset().mockResolvedValue('cold-commit-no-prefix');
+    });
+
     it('builds a single-proposal swap with target list [newHot, cold] from the commitment it is given', async () => {
       const multisig = makeMultisig({ threshold: 1 });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = replaceService(multisig);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
 
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommitnoprefix' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommitnoprefix');
       const builtRequest = { kind: 'request' };
       mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
         request: builtRequest,
@@ -3411,7 +3428,7 @@ describe('MultisigService', () => {
 
       expect(mockRequestBoundBlockNum).toHaveBeenCalledTimes(1);
       expect(mockRequestBoundBlockNum.mock.calls[0]?.[0]).toBe(builtRequest);
-      expect(mockGetSignerDetailsFromAccount).toHaveBeenCalledWith(account, true);
+      expect(mockFindOwnSignerCommitment).toHaveBeenCalledWith(replaceFreshAccount, '0xcoldpk');
       // Order preservation: newHot at index 0, cold at index 1.
       expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
         expect.anything(),
@@ -3447,15 +3464,57 @@ describe('MultisigService', () => {
       expect(result).toEqual({ kind: 'custom', id: SUMMARY_COMMITMENT });
     });
 
+    // After a revoke of the slot-0 device, `[hotA, cold, hotB]` re-packs to `[cold, hotB]`:
+    // slot 1 is another device's hot key. The recovery key is found by membership, so the
+    // Replace keeps it and drops the other device.
+    it('keeps the recovery key when a revoke moved it off slot 1', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = replaceService(multisig);
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      mockSignerCommitments = ['0xcold', '0xhotb'];
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '0xhotb' });
+      mockFindOwnSignerCommitment.mockImplementation(async (_account, publicKeyHex) =>
+        publicKeyHex === '0xcoldpk' ? '0xcold' : undefined
+      );
+      mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
+        request: { kind: 'request' },
+        salt: { toHex: () => 'salt-hex' }
+      });
+      mockRequestBoundBlockNum.mockReturnValueOnce(4242);
+
+      await service.createReplaceHotKeyProposal(account, '0xnewhot');
+
+      expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
+        expect.anything(),
+        1,
+        ['0xnewhot', '0xcold'],
+        { accountId: 'acc-id', signatureScheme: 'ecdsa' }
+      );
+      expect(mockFindOwnSignerCommitment).toHaveBeenCalledWith(replaceFreshAccount, '0xcoldpk');
+    });
+
+    it('refuses before any build when the recovery key is in no signer slot', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = replaceService(multisig);
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      mockFindOwnSignerCommitment.mockResolvedValueOnce(undefined);
+
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhot')).rejects.toThrow(
+        'the recovery (cold) key is not an on-chain signer'
+      );
+      expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+    });
+
     it('fails with ProposalIdMismatchError when the id is not the commitment of the summary it sent', async () => {
       const otherId = `0x${'77'.repeat(32)}`;
       const multisig = makeMultisig({
         threshold: 1,
         createProposal: jest.fn(async () => ({ kind: 'custom', id: otherId }))
       });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = replaceService(multisig);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
       mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
         request: { kind: 'request' },
         salt: { toHex: () => 'salt-hex' }
@@ -3484,10 +3543,10 @@ describe('MultisigService', () => {
         createProposal: jest.fn(async () => Promise.reject(error)),
         abandonCandidate
       });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = replaceService(multisig);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       const now = jest.spyOn(Date, 'now').mockReturnValue(123456);
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
       mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
         request: { kind: 'request' },
         salt: { toHex: () => 'salt-hex' }
@@ -3519,8 +3578,8 @@ describe('MultisigService', () => {
           createProposal: jest.fn(async () => Promise.reject(error)),
           abandonCandidate
         });
-        const service = new MultisigService(multisig as never, {} as never, 'https://x');
-        mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+        const service = replaceService(multisig);
+        mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
         mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
           request: { kind: 'request' },
           salt: { toHex: () => 'salt-hex' }
@@ -3537,9 +3596,9 @@ describe('MultisigService', () => {
     it('names a rejected replace-hot-key proposal creation but not its request build', async () => {
       const error = new Error('proposal refused');
       const multisig = makeMultisig({ threshold: 1, createProposal: jest.fn(async () => Promise.reject(error)) });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = replaceService(multisig);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
       mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
         request: { kind: 'request' },
         salt: { toHex: () => 'salt-hex' }
@@ -3553,7 +3612,7 @@ describe('MultisigService', () => {
       });
 
       const buildError = new Error('request build failed');
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
       mockBuildUpdateSignersTransactionRequest.mockRejectedValueOnce(buildError);
       await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(buildError);
       expect(snapshotCrashDiagnostics(buildError)).toEqual({});
@@ -3565,12 +3624,12 @@ describe('MultisigService', () => {
     // somebody else is inside. All three transitions here are pre-sign/pre-submit,
     // so stopping costs a user-visible retry and nothing else.
     const seedReplaceHotKeyCollaborators = () => {
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
     };
 
     it('stops before the request build when the hold is evicted during the client build', async () => {
       const multisig = makeMultisig({ threshold: 1 });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = replaceService(multisig);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       seedReplaceHotKeyCollaborators();
       evictDuringClientBuild = true;
@@ -3591,7 +3650,7 @@ describe('MultisigService', () => {
 
     it('stops before the summary execution when the hold is evicted during the request build', async () => {
       const multisig = makeMultisig({ threshold: 1 });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = replaceService(multisig);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       seedReplaceHotKeyCollaborators();
       mockBuildUpdateSignersTransactionRequest.mockImplementationOnce(async () => {
@@ -3608,7 +3667,7 @@ describe('MultisigService', () => {
 
     it('stops before serializing when the hold is evicted during execution', async () => {
       const multisig = makeMultisig({ threshold: 1 });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = replaceService(multisig);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       seedReplaceHotKeyCollaborators();
       const summarySerialize = jest.fn(() => new Uint8Array([0xab]));
@@ -3633,7 +3692,7 @@ describe('MultisigService', () => {
         throw new Error('freed after the trap');
       });
       const multisig = makeMultisig({ threshold: 1 });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = replaceService(multisig);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       seedReplaceHotKeyCollaborators();
       mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
@@ -3655,10 +3714,10 @@ describe('MultisigService', () => {
     it('adds the 0x prefix to a commitment given without one', async () => {
       // Defensive: not all commitment producers may prefix. We normalize.
       const multisig = makeMultisig({ threshold: 1 });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = replaceService(multisig);
       const account = { id: () => 'acc-id' } as never;
 
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldnoprefix' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldnoprefix');
 
       await service.createReplaceHotKeyProposal(account, 'newhotnoprefix');
 
@@ -3692,7 +3751,7 @@ describe('MultisigService', () => {
         multisig.threshold = 2;
       });
       const { service, account } = await initRotationService(multisig);
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
       wasmLockOptionsSeen.length = 0;
 
       await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
@@ -3729,7 +3788,7 @@ describe('MultisigService', () => {
         )
       );
       const { service, account } = await initRotationService(multisig);
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
 
       await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
 
@@ -3754,7 +3813,7 @@ describe('MultisigService', () => {
     it('refuses a request that carries no multisig auth args before executing it or pushing a proposal', async () => {
       const multisig = makeMultisig({ threshold: 1 });
       const { service, account } = await initRotationService(multisig);
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
       mockRequestBoundBlockNum.mockReturnValueOnce(undefined);
 
       await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toMatchObject({
@@ -3959,9 +4018,12 @@ describe('MultisigService', () => {
         threshold: 1,
         createProposal: jest.fn(async () => Promise.reject(error))
       });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, {} as never, 'https://x', {
+        publicKey: '0xcoldpk'
+      } as never);
       const account = { id: () => ({ toString: () => accountId }) } as never;
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockGetAccount.mockResolvedValueOnce({ kind: 'fresh-account' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('coldcommit');
       mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
         request: { kind: 'request' },
         salt: { toHex: () => 'salt-hex' }
