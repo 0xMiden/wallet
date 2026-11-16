@@ -126,7 +126,7 @@ export const orderFromSavedRequest = async (bytes: Uint8Array | undefined): Prom
  * retires the client it trapped on. Every failure answers `unknown`, never `absent`: the caller replays nothing on it.
  */
 export async function checkPinnedReplayNotes(
-  row: Pick<ITransaction, 'type' | 'requestBytes' | 'approvedEffects'>,
+  row: Pick<ITransaction, 'type' | 'accountId' | 'requestBytes' | 'approvedEffects'>,
   deps: { createReads?: () => Promise<NodeReads> } = {}
 ): Promise<PinnedReplayCheck> {
   const bytes = row.requestBytes;

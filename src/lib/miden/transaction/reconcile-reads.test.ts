@@ -15,9 +15,10 @@ jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: jest.fn(async () => {}),
   getRpcEndpoint: jest.fn(() => 'endpoint')
 }));
+const mockCanonicalAccountId = jest.fn((id: string) => id);
 jest.mock('../sdk/helpers', () => ({
   accountRefToSdk: (id: string) => ({ id }),
-  canonicalWalletAccountId: (id: string) => id
+  canonicalWalletAccountId: (id: string) => mockCanonicalAccountId(id)
 }));
 let mockRpcUrl = 'https://rpc.a';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => mockRpcUrl }));
@@ -26,7 +27,14 @@ const UPPER = `0x${'AB'.repeat(32)}`;
 const LOWER = UPPER.toLowerCase();
 const CD = `0x${'cd'.repeat(32)}`;
 const ACCOUNT_HEX = `0x${'ab'.repeat(15)}`;
+const OTHER_HEX = `0x${'cd'.repeat(15)}`;
 const word = (hex: string) => ({ toHex: () => hex });
+/** A note the node serves, created by `sender`. */
+const fetchedNote = (id: string, block: number, sender: string) => ({
+  noteId: { toString: () => id },
+  metadata: { sender: () => ({ toString: () => sender }) },
+  inclusionProof: { location: () => ({ blockNum: () => block }) }
+});
 const proof = (block: number, commitment: string, nonce?: bigint) => ({
   blockNum: () => block,
   accountCommitment: () => word(commitment),
@@ -124,6 +132,35 @@ describe('createNodeReads (#1081)', () => {
     expect(mockClient.getNotesById).toHaveBeenCalledWith([{ hex: LOWER }, { hex: CD }]);
     mockClient.getNotesById.mockRejectedValueOnce(new Error('x'));
     expect(await reads.noteInclusions([LOWER], 15_000)).toBeUndefined();
+  });
+
+  it('with a sender, dates a note only by a copy that account created, compared in canonical form and any case', async () => {
+    mockCanonicalAccountId.mockImplementationOnce(id => (id === 'mtst1acct' ? ACCOUNT_HEX : id));
+    const reads = await createNodeReads();
+    mockClient.getNotesById.mockResolvedValueOnce([
+      fetchedNote(UPPER, 44, `0x${'AB'.repeat(15)}`),
+      fetchedNote(UPPER, 40, OTHER_HEX)
+    ]);
+
+    expect(await reads.noteInclusions([LOWER], 15_000, 'mtst1acct')).toEqual(new Map([[LOWER, 44]]));
+  });
+
+  it('with a sender, fails the read on a note the node holds only as another account`s, even beside one it created', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const reads = await createNodeReads();
+    mockClient.getNotesById.mockResolvedValueOnce([
+      fetchedNote(UPPER, 44, OTHER_HEX),
+      fetchedNote(CD, 45, ACCOUNT_HEX)
+    ]);
+
+    expect(await reads.noteInclusions([LOWER, CD], 15_000, ACCOUNT_HEX)).toBeUndefined();
+  });
+
+  it('without a sender, dates a note whichever account created it', async () => {
+    const reads = await createNodeReads();
+    mockClient.getNotesById.mockResolvedValueOnce([fetchedNote(UPPER, 44, OTHER_HEX)]);
+
+    expect(await reads.noteInclusions([LOWER], 15_000)).toEqual(new Map([[LOWER, 44]]));
   });
 
   it('reads a nullifier height: a number when spent, null when not, undefined on failure', async () => {

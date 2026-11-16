@@ -35,7 +35,11 @@ export type AccountRead = { ok: true; state: AccountState } | { ok: false; prune
 export interface NodeReads {
   blockCommitment(blockNum: number): Promise<string | undefined>;
   account(accountId: string, atBlock: number | undefined, timeoutMs: number): Promise<AccountRead>;
-  noteInclusions(noteIds: readonly string[], timeoutMs: number): Promise<ReadonlyMap<string, number> | undefined>;
+  noteInclusions(
+    noteIds: readonly string[],
+    timeoutMs: number,
+    sender?: string
+  ): Promise<ReadonlyMap<string, number> | undefined>;
   /** The block that spent `nullifier` at or after `fromBlock`, null when unspent, undefined when the read failed. */
   nullifierHeight(nullifier: string, fromBlock: number, timeoutMs: number): Promise<number | null | undefined>;
 }

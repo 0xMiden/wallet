@@ -59,18 +59,23 @@ const requestNote = (
 const decodesTo = (...notes: ReturnType<typeof requestNote>[]) =>
   mockDeserialize.mockImplementation(() => ({ expectedOutputOwnNotes: () => notes }));
 
-const noteInclusions = jest.fn<Promise<ReadonlyMap<string, number> | undefined>, [readonly string[], number]>();
+/** The node read, called with exactly the arguments the check passed, so a sender it names is seen. */
+const noteInclusions = jest.fn<
+  Promise<ReadonlyMap<string, number> | undefined>,
+  [readonly string[], number, string?]
+>();
 const createReads = jest.fn(
   async (): Promise<NodeReads> => ({
     blockCommitment: async () => undefined,
     account: async () => ({ ok: false, pruned: false, timedOut: false }),
-    noteInclusions: (ids, timeoutMs) => noteInclusions(ids, timeoutMs),
+    noteInclusions: (...args) => noteInclusions(...args),
     nullifierHeight: async () => undefined
   })
 );
 
-const send = { type: 'send' as const, requestBytes: BYTES };
-const swap = { type: 'swap' as const, requestBytes: BYTES };
+const ACCOUNT = 'mtst1acct';
+const send = { type: 'send' as const, accountId: ACCOUNT, requestBytes: BYTES };
+const swap = { type: 'swap' as const, accountId: ACCOUNT, requestBytes: BYTES };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -129,9 +134,11 @@ describe('checkPinnedReplayNotes', () => {
   it('reports none for a request with no own note, or no request, and reads nothing from the node', async () => {
     decodesTo();
     await expect(checkPinnedReplayNotes(send, { createReads })).resolves.toEqual({ kind: 'none' });
-    await expect(checkPinnedReplayNotes({ type: 'send' }, { createReads })).resolves.toEqual({ kind: 'none' });
+    await expect(checkPinnedReplayNotes({ type: 'send', accountId: ACCOUNT }, { createReads })).resolves.toEqual({
+      kind: 'none'
+    });
     await expect(
-      checkPinnedReplayNotes({ type: 'send', requestBytes: new Uint8Array() }, { createReads })
+      checkPinnedReplayNotes({ type: 'send', accountId: ACCOUNT, requestBytes: new Uint8Array() }, { createReads })
     ).resolves.toEqual({ kind: 'none' });
 
     expect(mockDeserialize).toHaveBeenCalledTimes(1);
@@ -228,7 +235,7 @@ describe('the notes an execute`s approval recorded', () => {
     };
     // The store can hold anything here (`importDb` fills it from a user-supplied file).
     Object.assign(approvedEffects, { approvedOutputNoteIds });
-    return { type: 'execute' as const, requestBytes: BYTES, approvedEffects };
+    return { type: 'execute' as const, accountId: ACCOUNT, requestBytes: BYTES, approvedEffects };
   };
 
   it('asks the node for its own notes and the well-formed approved ones, each once', async () => {
@@ -239,7 +246,11 @@ describe('the notes an execute`s approval recorded', () => {
       kind: 'absent',
       noteIds: [FIRST.toLowerCase(), SECOND.toLowerCase()]
     });
-    expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase(), SECOND.toLowerCase()], RPC_READ_TIMEOUT_MS);
+    expect(noteInclusions).toHaveBeenCalledWith(
+      [FIRST.toLowerCase(), SECOND.toLowerCase()],
+      RPC_READ_TIMEOUT_MS,
+      ACCOUNT
+    );
   });
 
   it('reports an approved note the node holds as committed when the request pins no own note', async () => {
@@ -284,6 +295,37 @@ describe('the notes an execute`s approval recorded', () => {
 
     await checkPinnedReplayNotes({ ...execute([THIRD]), type: 'send' }, { createReads });
 
+    expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase()], RPC_READ_TIMEOUT_MS);
+  });
+});
+
+describe('the account that created a pinned note', () => {
+  /** The node holds FIRST as another account's: a read that names this row's account as the sender gets no answer. */
+  const heldOnlyElsewhere = () =>
+    noteInclusions.mockImplementation(async (_ids, _timeoutMs, sender) =>
+      sender === undefined ? new Map([[FIRST.toLowerCase(), 140]]) : undefined
+    );
+  const execute = { type: 'execute' as const, accountId: ACCOUNT, requestBytes: BYTES };
+
+  it('an execute`s check counts only a copy its own account created, and one held only elsewhere is unknown', async () => {
+    decodesTo(requestNote(FIRST));
+    heldOnlyElsewhere();
+
+    await expect(checkPinnedReplayNotes(execute, { createReads })).resolves.toEqual({ kind: 'unknown', cause: 'read' });
+    expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase()], RPC_READ_TIMEOUT_MS, ACCOUNT);
+  });
+
+  it.each<[string, typeof send | typeof swap]>([
+    ['send', send],
+    ['swap', swap]
+  ])('a %s`s check names no sender, so a note whichever account created it is committed', async (_type, row) => {
+    decodesTo(requestNote(FIRST));
+    heldOnlyElsewhere();
+
+    await expect(checkPinnedReplayNotes(row, { createReads })).resolves.toMatchObject({
+      kind: 'committed',
+      noteId: FIRST.toLowerCase()
+    });
     expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase()], RPC_READ_TIMEOUT_MS);
   });
 });

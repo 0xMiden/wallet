@@ -59,15 +59,23 @@ const requestNote = (id: string, orderId = 42n) => ({
 const decodesTo = (...notes: ReturnType<typeof requestNote>[]) =>
   mockDeserialize.mockImplementation(() => ({ expectedOutputOwnNotes: () => notes }));
 
-/** The node: which notes it holds, or undefined for a read that failed. */
-const noteInclusions = jest.fn<Promise<ReadonlyMap<string, number> | undefined>, [readonly string[], number]>();
+/** The node: which notes it holds, or undefined for a read that failed. Called with the check's exact arguments. */
+const noteInclusions = jest.fn<
+  Promise<ReadonlyMap<string, number> | undefined>,
+  [readonly string[], number, string?]
+>();
 const NODE: NodeReads = {
   blockCommitment: async () => undefined,
   account: async () => ({ ok: false, pruned: false, timedOut: false }),
-  noteInclusions: (ids, timeoutMs) => noteInclusions(ids, timeoutMs),
+  noteInclusions: (...args) => noteInclusions(...args),
   nullifierHeight: async () => undefined
 };
 const nodeHolds = (...ids: string[]) => noteInclusions.mockResolvedValue(new Map(ids.map(id => [id, 140])));
+/** The node holds `ids` as `creator` created them: a read naming another sender gets no answer, as the real read's. */
+const nodeHoldsFrom = (creator: string, ...ids: string[]) =>
+  noteInclusions.mockImplementation(async (_ids, _timeoutMs, sender) =>
+    sender === undefined || sender === creator ? new Map(ids.map(id => [id, 140])) : undefined
+  );
 
 const pin = (overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence => ({
   attemptId: 'a1',
@@ -420,7 +428,7 @@ describe('an execute in doubt asks the node only once the user acknowledged it',
     expect(row?.error).toBeUndefined();
     expect(Array.from(row?.requestBytes ?? [])).toEqual(Array.from(BYTES()));
     expect(mockDeserialize).toHaveBeenCalledTimes(1);
-    expect(noteInclusions).toHaveBeenCalledWith([PINNED], RPC_READ_TIMEOUT_MS);
+    expect(noteInclusions).toHaveBeenCalledWith([PINNED], RPC_READ_TIMEOUT_MS, 'mtst1acct');
   });
 
   it('a completed pinned execute naming a recipient records no root output note, so the delivery sweep leaves it inert', async () => {
@@ -448,7 +456,7 @@ describe('an execute in doubt asks the node only once the user acknowledged it',
     const row = await read();
     expect(row).toMatchObject({ status: ITransactionStatus.Completed, queuedSeq: 7, attemptId: 'a1' });
     expect(row?.outputNoteIds).toBeUndefined();
-    expect(noteInclusions).toHaveBeenCalledWith([APPROVED], RPC_READ_TIMEOUT_MS);
+    expect(noteInclusions).toHaveBeenCalledWith([APPROVED], RPC_READ_TIMEOUT_MS, 'mtst1acct');
   });
 
   it.each<[string, () => void, string, string, number]>([
@@ -518,7 +526,7 @@ describe('an execute in doubt asks the node only once the user acknowledged it',
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Queued);
     expect(Array.from(row?.requestBytes ?? [])).toEqual(Array.from(BYTES()));
-    expect(noteInclusions).toHaveBeenCalledWith([PINNED], RPC_READ_TIMEOUT_MS);
+    expect(noteInclusions).toHaveBeenCalledWith([PINNED], RPC_READ_TIMEOUT_MS, 'mtst1acct');
   });
 
   // The #1081 exit for what the node cannot answer: a request that pins no note is not refused.
@@ -566,5 +574,70 @@ describe('an execute in doubt asks the node only once the user acknowledged it',
 
     expect(mockDeserialize).not.toHaveBeenCalled();
     expect(mockCreateReads).not.toHaveBeenCalled();
+  });
+});
+
+// The dApp built an execute's bytes and knows its notes' serials, so the same note can be committed from another
+// account: only a copy the row's account created completes it.
+describe('the account that created an execute`s pinned note', () => {
+  const OWN_NOTE: [string, Partial<ITransaction>, () => void, string] = [
+    'its own note',
+    EXECUTE,
+    () => decodesTo(requestNote(PINNED)),
+    PINNED
+  ];
+  const APPROVED_NOTE: [string, Partial<ITransaction>, () => void, string] = [
+    'a note its approval recorded',
+    { ...EXECUTE, approvedEffects: approvedEffects([APPROVED]) },
+    () => decodesTo(),
+    APPROVED
+  ];
+
+  it.each([OWN_NOTE, APPROVED_NOTE])(
+    'an acknowledged Retry of an execute refuses with no acknowledgeable exit when the node holds %s only as another account`s',
+    async (_t, overrides, decodes, noteId) => {
+      await Repo.transactions.put(pinnedRow(overrides));
+      decodes();
+      nodeHoldsFrom('mtst1other', noteId);
+
+      const error = await refusal('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+      expect(error).toHaveProperty('message', TRANSACTION_REPLAY_CHECK_FAILED_ERROR);
+      expect(acknowledgementOf(error)).toBeNull();
+      expect(snapshotPendingRetry(error)).toBe('replay_check_failed');
+      const row = await read();
+      expect(row).toMatchObject({ status: ITransactionStatus.Failed, queuedSeq: 7, attemptId: 'a1' });
+      expect(Array.from(row?.requestBytes ?? [])).toEqual(Array.from(BYTES()));
+      expect(noteInclusions).toHaveBeenCalledWith([noteId], RPC_READ_TIMEOUT_MS, 'mtst1acct');
+    }
+  );
+
+  it.each([OWN_NOTE, APPROVED_NOTE])(
+    'an acknowledged Retry of an execute completes it from %s the node holds as its own account`s',
+    async (_t, overrides, decodes, noteId) => {
+      await Repo.transactions.put(pinnedRow(overrides));
+      decodes();
+      nodeHoldsFrom('mtst1acct', noteId);
+
+      await requeueFailedTransaction('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+      const row = await read();
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, stage: 'complete', queuedSeq: 7 });
+      expect(noteInclusions).toHaveBeenCalledWith([noteId], RPC_READ_TIMEOUT_MS, 'mtst1acct');
+    }
+  );
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['send', {}],
+    ['swap', SWAP],
+    ['bridged-send', BRIDGED]
+  ])('a pinned %s still completes from a note the node holds whichever account created it', async (_t, o) => {
+    await Repo.transactions.put(pinnedRow(o));
+    nodeHoldsFrom('mtst1other', PINNED);
+
+    await requeueFailedTransaction('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    expect((await read())?.status).toBe(ITransactionStatus.Completed);
+    expect(noteInclusions).toHaveBeenCalledWith([PINNED], RPC_READ_TIMEOUT_MS);
   });
 });
