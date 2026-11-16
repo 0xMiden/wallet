@@ -18,11 +18,11 @@
 // realm- and cycle-safe.
 
 import { isWasmClientPoisonedError } from './wasm-client-poison';
-import { isWasmTrap } from './wasm-handle';
+import { isWasmTrap, readWasmHandle } from './wasm-handle';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 
 // Re-exported for existing callers; the import-free module lets the account recipe's node harness load them alone.
-export { isWasmTrap, readWasmHandle } from './wasm-handle';
+export { isWasmTrap, readWasmHandle };
 
 /**
  * Pulls a stable SDK error code off a thrown value, if present.
