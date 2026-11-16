@@ -1182,6 +1182,7 @@ export const initiateBridgedSendTransaction = async (
     dbTransaction.extraInputs.agglayerRoute = agglayerRoute;
   }
   if (provider === 'epoch') {
+    dbTransaction.extraInputs.epochCollateralRequestBytes = new Uint8Array(requestBytes);
     dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
     if (epochReviewedOutput !== undefined)
       dbTransaction.extraInputs.epochReviewedOutput = structuredClone(epochReviewedOutput);

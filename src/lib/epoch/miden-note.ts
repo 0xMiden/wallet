@@ -173,11 +173,13 @@ export async function createBridgeP2IDENote(
       args.reviewedOutput
     );
     const admitted = await Repo.transactions.where({ id: txId }).first();
+    const originalRequestBytes = admitted?.extraInputs?.epochCollateralRequestBytes;
     if (
       admitted?.approvedOutputNoteIds?.length !== 1 ||
       admitted.approvedOutputNoteIds[0] !== reclaimNoteId ||
-      admitted.requestBytes?.length !== requestBytes.length ||
-      !requestBytes.every((byte, index) => admitted.requestBytes?.[index] === byte)
+      !(originalRequestBytes instanceof Uint8Array) ||
+      originalRequestBytes.length !== requestBytes.length ||
+      !requestBytes.every((byte, index) => originalRequestBytes[index] === byte)
     )
       return { success: false };
     ownedTxId = txId;

@@ -587,23 +587,33 @@ it('preserves the original source result and nonce even if navigation throws at 
   expect(noteBuilds).toBe(1);
 });
 
-it('passively resumes the original admitted row after expiry and scope departure without another solve or note', async () => {
-  const id = await admitOriginal();
-  await Repo.transactions.update(id, {
-    status: ITransactionStatus.Completed,
-    outputNoteIds: ['original-built-note'],
-    'extraInputs.intentNonce': 'retained-original-nonce'
-  });
-  jest.spyOn(Date, 'now').mockReturnValue(now + 60000);
-  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
-  const result = await bridgeEpochSend(input);
-  expect(result).toEqual({ txId: id });
-  expect(mockReadSdk).not.toHaveBeenCalled();
-  expect(mockSolve).not.toHaveBeenCalled();
-  expect(noteBuilds).toBe(0);
-  expect((await Repo.transactions.get(id))?.extraInputs.intentNonce).toBe('retained-original-nonce');
-  expect(await Repo.transactions.count()).toBe(1);
-});
+it.each([false, true])(
+  'passively resumes the original admitted row after departure with missing original bytes=%s',
+  async missingOriginal => {
+    const id = await admitOriginal();
+    if (missingOriginal)
+      await Repo.transactions.where({ id }).modify(row => {
+        delete row.extraInputs.epochCollateralRequestBytes;
+      });
+    await Repo.transactions.update(id, {
+      status: ITransactionStatus.Completed,
+      outputNoteIds: ['original-built-note'],
+      'extraInputs.intentNonce': 'retained-original-nonce'
+    });
+    jest.spyOn(Date, 'now').mockReturnValue(now + 60000);
+    jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+    const result = await bridgeEpochSend(input);
+    expect(result).toEqual({ txId: id });
+    expect(mockReadSdk).not.toHaveBeenCalled();
+    expect(mockSolve).not.toHaveBeenCalled();
+    expect(noteBuilds).toBe(0);
+    expect((await Repo.transactions.get(id))?.extraInputs.intentNonce).toBe('retained-original-nonce');
+    expect((await Repo.transactions.get(id))?.extraInputs.epochCollateralRequestBytes).toEqual(
+      missingOriginal ? undefined : new Uint8Array([81, 82])
+    );
+    expect(await Repo.transactions.count()).toBe(1);
+  }
+);
 
 it.each(['review', 'alias', 'restored', 'malformed'])(
   'refuses %s recovery identity without changing the original receipt or starting source work',
@@ -622,21 +632,25 @@ it.each(['review', 'alias', 'restored', 'malformed'])(
   }
 );
 
-it('does not hand a racing different note to the SDK or demote the actual native admission winner', async () => {
-  let originalId = '';
-  jest.mocked(buildEpochCollateralRequestBytes).mockImplementation(async () => {
-    originalId = await admitOriginal('winning-note', new Uint8Array([91, 92]));
-    return { requestBytes: new Uint8Array([81, 82]), reclaimHeight: 6000, noteId: 'losing-note' };
-  });
-  await expect(bridgeEpochSend(input)).rejects.toThrow();
-  const row = await Repo.transactions.get(originalId);
-  expect(await Repo.transactions.count()).toBe(1);
-  expect(row?.status).toBe(ITransactionStatus.Queued);
-  expect(row?.approvedOutputNoteIds).toEqual(['winning-note']);
-  expect(row?.requestBytes).toEqual(new Uint8Array([91, 92]));
-  expect(row?.extraInputs.claimStatus).toBe('not-applicable');
-  expect(mockWait).not.toHaveBeenCalled();
-});
+it.each(['losing-note', 'winning-note'])(
+  'refuses a racing collateral build %s without attributing or demoting the native winner',
+  async builtNoteId => {
+    let originalId = '';
+    jest.mocked(buildEpochCollateralRequestBytes).mockImplementation(async () => {
+      originalId = await admitOriginal('winning-note', new Uint8Array([91, 92]));
+      return { requestBytes: new Uint8Array([81, 82]), reclaimHeight: 6000, noteId: builtNoteId };
+    });
+    await expect(bridgeEpochSend(input)).rejects.toThrow();
+    const row = await Repo.transactions.get(originalId);
+    expect(await Repo.transactions.count()).toBe(1);
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    expect(row?.approvedOutputNoteIds).toEqual(['winning-note']);
+    expect(row?.requestBytes).toEqual(new Uint8Array([91, 92]));
+    expect(row?.extraInputs.epochCollateralRequestBytes).toEqual(new Uint8Array([91, 92]));
+    expect(row?.extraInputs.claimStatus).toBe('not-applicable');
+    expect(mockWait).not.toHaveBeenCalled();
+  }
+);
 
 it('rechecks compact reviewed validity inside the real native admission after waiting for storage', async () => {
   delete input.operation;

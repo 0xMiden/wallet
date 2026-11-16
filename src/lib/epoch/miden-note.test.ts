@@ -35,7 +35,8 @@ jest.mock('lib/miden/repo', () => ({
       first: async () => ({
         outputNoteIds: ['note-1'],
         approvedOutputNoteIds: ['note-stamped'],
-        requestBytes: new Uint8Array([1, 2, 3])
+        requestBytes: new Uint8Array([1, 2, 3]),
+        extraInputs: { epochCollateralRequestBytes: new Uint8Array([1, 2, 3]) }
       })
     })
   }

@@ -180,6 +180,25 @@ it('hands off a valid original owned note through real admission without a concu
   expect(row?.approvedOutputNoteIds).toEqual(['original-note']);
 });
 
+it('does not invent a fresh handoff fact from an older row current execution bytes', async () => {
+  const transaction = Repo.db.transaction.bind(Repo.db);
+  jest.spyOn(Repo.db, 'transaction').mockImplementationOnce((...args) => {
+    const committed: unknown = Reflect.apply(transaction, Repo.db, args);
+    return Dexie.Promise.resolve(committed).then(async value => {
+      await Repo.transactions.toCollection().modify(row => {
+        delete row.extraInputs.epochCollateralRequestBytes;
+      });
+      return value;
+    });
+  });
+  expect(await createBridgeP2IDENote(noteInput())).toEqual({ success: false });
+  const [row] = await Repo.transactions.toArray();
+  expect(row?.requestBytes).toEqual(ORIGINAL_BYTES);
+  expect(row?.extraInputs).not.toHaveProperty('epochCollateralRequestBytes');
+  expect(await Repo.transactions.count()).toBe(1);
+  expect(mockWait).not.toHaveBeenCalled();
+});
+
 it('keeps the winning collateral handoff after the real Guardian owner legitimately rebases its request', async () => {
   const multisig = {
     accountId: accounts.midenAccount,
@@ -199,6 +218,7 @@ it('keeps the winning collateral handoff after the real Guardian owner legitimat
       const [row] = await Repo.transactions.toArray();
       if (!row?.requestBytes) throw new Error('Missing real committed native admission');
       expect(row.extraInputs.bridgeOperation?.operationId).toBe('guardian-collateral');
+      expect(row.extraInputs.epochCollateralRequestBytes).toEqual(ORIGINAL_BYTES);
       rebasedId = row.id;
       await proposeRebased(service, row, row.requestBytes, 'bridged_send', 180);
       return value;
@@ -217,6 +237,7 @@ it('keeps the winning collateral handoff after the real Guardian owner legitimat
     })
   );
   expect(row?.requestBytes).toEqual(new Uint8Array([91, 92]));
+  expect(row?.extraInputs.epochCollateralRequestBytes).toEqual(ORIGINAL_BYTES);
   expect(row?.approvedOutputNoteIds).toEqual(['original-note']);
   expect(row?.extraInputs.bridgeOperation?.operationId).toBe('guardian-collateral');
   expect(await Repo.transactions.count()).toBe(1);
