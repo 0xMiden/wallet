@@ -259,8 +259,7 @@ test('published-wasm real preflight rejection leaves closed setup evidence', () 
   }
 });
 
-test('published-wasm workflow binds the fixed release and validates ZIP members before extraction', () => {
-  const text = workflow();
+function assertFixedRelease(text) {
   assert.match(text, /https:\/\/github.com\/0xMiden\/wallet\/releases\/download\/v1\.17\.8\/MidenWallet\.1\.17\.8\.Testnet\.zip/);
   assert.match(text, /57cba7cbacfdfbda16243117e9baab99860c21c02d4b481ea39d9be5f1ea6bf4/);
   assert.match(text, /966161cc54ee2d27b4c2a3163c4ceed66762b4d1/);
@@ -273,6 +272,23 @@ test('published-wasm workflow binds the fixed release and validates ZIP members 
   assert.match(text, /current == expected/);
   assert.match(text, /archive_unchanged/);
   assert.doesNotMatch(text, /extractall\(/);
+}
+
+test('published-wasm workflow binds the fixed release and validates ZIP members before extraction', () => {
+  assertFixedRelease(workflow());
+});
+
+test('published-wasm release guard rejects a disabled digest check or prepare invocation', () => {
+  const text = workflow();
+  const comparison = '          assert sha(private / "archive.zip") == digest, "archive digest mismatch"';
+  const mutants = [
+    text.replace(comparison, `          # ${comparison.trim()}`),
+    text.replace('python3 "$private/archive-check.py" prepare', 'python3 "$private/archive-check.py" verify')
+  ];
+  for (const mutant of mutants) {
+    assert.notEqual(mutant, text, 'digest/prepare fixture must change active source');
+    assert.throws(() => assertFixedRelease(mutant), { code: 'ERR_ASSERTION' }, 'published_wasm_active_digest_enforcement');
+  }
 });
 
 test('published-wasm workflow disables install scripts and never builds the wallet', () => {
@@ -283,8 +299,7 @@ test('published-wasm workflow disables install scripts and never builds the wall
   assert.doesNotMatch(text, /yarn (build|postinstall)|npm (install|run)|inject-linked|run-local-node|docker|guardian|funding/);
 });
 
-test('published-wasm workflow confines the entire probe to a loopback-only namespace as a non-root user', () => {
-  const text = workflow();
+function assertConfinement(text) {
   assert.match(text, /sudo unshare --net --/);
   assert.match(text, /ip link set lo up/);
   assert.match(text, /\[ "\$\(ip -o link show \| wc -l\)" -eq 1 \]/);
@@ -296,10 +311,25 @@ test('published-wasm workflow confines the entire probe to a loopback-only names
   assert.match(text, /timeout --signal=TERM --kill-after=10s 300s/);
   assert.ok(text.indexOf('playwright install') < text.indexOf('sudo unshare'));
   assert.doesNotMatch(text, /--no-sandbox|continue-on-error|\|\| true/);
+}
+
+test('published-wasm workflow confines the entire probe to a loopback-only namespace as a non-root user', () => {
+  assertConfinement(workflow());
 });
 
-test('published-wasm workflow selects only two bounded cases and never uploads raw browser artifacts', () => {
+test('published-wasm confinement guard rejects the actual CLI moved outside unshare', () => {
   const text = workflow();
+  const start = text.indexOf('              "$8" node_modules/@playwright/test/cli.js test');
+  const closer = text.indexOf("          ' probe", start);
+  const after = text.indexOf('\n          if [ "$status" -ne 0 ]; then', closer);
+  assert.ok(start >= 0 && closer > start && after > closer, 'namespace move fixture must find the real invocation');
+  const command = text.slice(start, closer).replace('"$8"', 'node').replace('$9/playwright-private', '$PROBE_PRIVATE/playwright-private');
+  const mutant = text.slice(0, start) + '              "$8" -e ""\n' + text.slice(closer, after) + '\n' + command + text.slice(after);
+  assert.equal([...mutant.matchAll(/node_modules\/@playwright\/test\/cli\.js/g)].length, 1);
+  assert.throws(() => assertConfinement(mutant), { code: 'ERR_ASSERTION' }, 'published_wasm_namespace_bound_invocation');
+});
+
+function assertSelectedCases(text) {
   assert.match(text, /published-wasm-startup\.spec\.ts --config=playwright\.config\.ts/);
   assert.match(text, /--workers=1 --retries=0 --timeout=60000 --global-timeout=180000/);
   assert.match(text, /--trace=off --reporter=dot/);
@@ -307,4 +337,34 @@ test('published-wasm workflow selects only two bounded cases and never uploads r
   const uploads = [...text.matchAll(/path: (.+)/g)].map(match => match[1]);
   assert.deepEqual(uploads, ['${{ runner.temp }}/published-wasm-results/*.json']);
   assert.doesNotMatch(text, /playwright-report|upload.*profile|\.har\b/);
+}
+
+const specPath = new URL('../playwright/tests/published-wasm-startup.spec.ts', import.meta.url);
+
+test('published-wasm workflow selects only two bounded cases and never uploads raw browser artifacts', () => {
+  assertSelectedCases(workflow(), readFileSync(specPath, 'utf8'));
+});
+
+test('published-wasm selection guard rejects extra, aliased, focused or reordered cases', () => {
+  const text = workflow();
+  const spec = readFileSync(specPath, 'utf8');
+  const first = 'published archive cold startup completes packaged WASM and reaches onboarding';
+  const second = 'published archive binary fetch failure recovers only after Try Again reloads the document';
+  for (const comment of ['// test("not selected", async () => {});', '/* test("not selected", async () => {}); */']) {
+    assert.doesNotThrow(() => assertSelectedCases(text, `${spec}\n${comment}\n`));
+  }
+  const mutants = [
+    `${spec}\ntest.describe('nested', () => {\n  test('third case', async () => {});\n});\n`,
+    `${spec}\ntest(\n  'third case', async () => {});\n`,
+    `${spec}\ntest.only('third case', async () => {});\n`,
+    `${spec}\nconst unquotedTitle = 'third case';\ntest(unquotedTitle, async () => {});\n`,
+    `${spec}\nconst selected = test;\nselected('third case', async () => {});\n`,
+    `${spec.replace('expect, test }', 'expect, test as selected }').replace(/\btest\./g, 'selected.').replace(/\btest\(/g, 'selected(')}\nselected('third case', async () => {});\n`,
+    spec.replace(`test('${first}'`, `test.skip('${first}'`),
+    spec.replace(first, '__first_case__').replace(second, first).replace('__first_case__', second)
+  ];
+  for (const mutant of mutants) {
+    assert.notEqual(mutant, spec, 'case fixture must change selected source');
+    assert.throws(() => assertSelectedCases(text, mutant), { code: 'ERR_ASSERTION' }, 'published_wasm_exact_two_cases');
+  }
 });
