@@ -14,6 +14,7 @@ const globals = new Map(
   ['window', 'document', 'fetch'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)])
 );
 let api;
+let pageCommon;
 
 before(async () => {
   const imports = new Map([
@@ -98,6 +99,7 @@ before(async () => {
   };
   // A data: module resolves no relative specifier, so the page's own modules load through the same map, leaves first.
   imports.set('./page-common.js', await pageModule('page-common.ts'));
+  pageCommon = await import(imports.get('./page-common.js'));
   imports.set('./custom-scripts.js', await pageModule('custom-scripts.ts'));
   imports.set('./script-request.js', await pageModule('script-request.ts'));
   globalThis.window = { midenWallet: { on: () => undefined }, location: { host: 'fixture-unit' } };
@@ -115,6 +117,30 @@ after(() => {
     if (descriptor === undefined) delete globalThis[name];
     else Object.defineProperty(globalThis, name, descriptor);
   }
+});
+
+// The harness copy of the signBytes scheme must equal the wallet's numbers (test/sign-bytes-domain.node.test.mjs).
+[
+  [
+    'word',
+    'AQAAAAAAAAACAAAAAAAAAAMAAAAAAAAABAAAAAAAAAA=',
+    '0x110a1b1c3b8cc8a4e0ed9acebb00996abdb93e7228280e2547edbdf9c268bee9'
+  ],
+  [
+    'signingInputs',
+    'AgEAAAAAAAAAAgAAAAAAAAADAAAAAAAAAAQAAAAAAAAA',
+    '0x110a1b1c3b8cc8a4e0ed9acebb00996abdb93e7228280e2547edbdf9c268bee9'
+  ],
+  [
+    'signingInputs',
+    'AQcFAAAAAAAAAAYAAAAAAAAABwAAAAAAAAA=',
+    '0x8d7fafd3929b6cb5b0375bf0a5ab4f17b1a1948baefea1bb8067807021571d57'
+  ]
+].forEach(([kind, data, expected]) => {
+  test(`signBytesCommitment matches the pinned ${kind} vector ${expected.slice(0, 10)}`, () => {
+    const payload = new Uint8Array(Buffer.from(data, 'base64'));
+    assert.equal(pageCommon.signBytesCommitment(payload, kind).toHex(), expected);
+  });
 });
 
 [false, true].forEach(feeSalt => {

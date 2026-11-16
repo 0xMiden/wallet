@@ -3,6 +3,7 @@ import { Buffer } from 'buffer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
+import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
@@ -453,6 +454,12 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.UnlockResponse);
     },
 
+    platformUnlock: async command => {
+      const res = await request({ type: WalletMessageType.PlatformUnlockRequest, command });
+      assertResponse(res.type === WalletMessageType.PlatformUnlockResponse);
+      return res.result;
+    },
+
     // Account actions
     createAccount: async (walletType, name) => {
       const res = await request({
@@ -682,16 +689,6 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Signing actions
-    signData: async (publicKey, signingInputs) => {
-      const res = await request({
-        type: WalletMessageType.SignDataRequest,
-        publicKey,
-        signingInputs
-      });
-      assertResponse(res.type === WalletMessageType.SignDataResponse);
-      return res.signature;
-    },
-
     signTransaction: async (publicKey, signingInputs) => {
       const res = await request({
         type: WalletMessageType.SignTransactionRequest,
@@ -883,7 +880,7 @@ export const useWalletStore = create<WalletStore>()(
         id
       });
       assertResponse(res.type === MidenMessageType.DAppSimulateTransactionResponse);
-      return { summaryBytes: res.summaryBytes, executedBytes: res.executedBytes, error: res.error };
+      return { ...(res.effects && fromSimulatedEffectsWire(res.effects)), error: res.error };
     },
 
     estimateUsdcxBurnFee: async (accountPublicKey, destinationChainId) => {

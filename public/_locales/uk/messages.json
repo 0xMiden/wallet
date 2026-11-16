@@ -72,6 +72,74 @@
     "message": "Транзакція скасування",
     "englishSource": "Revocation transaction"
   },
+  "passkeyUnlock": {
+    "message": "Розблокування за допомогою пароля",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Розблокування за допомогою пароля",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Використовуйте постачальника паролів вашого пристрою, щоб розблокувати цей гаманець. Пароль вашого гаманця й надалі працюватиме.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Для цього гаманця увімкнено розблокування за допомогою пароля.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Розблокування за допомогою пароля недоступне в цьому браузері, операційній системі або гаманці. Ви все одно можете використовувати пароль до гаманця.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Увімкнути розблокування за допомогою пароля",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Замінити пароль",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Видалити розблокування за допомогою пароля",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Видалення розблокування за допомогою пароля в цьому випадку не скасовує та не видаляє пароль, збережений вашим провайдером. Якщо він вам більше не потрібен, видаліть його також у налаштуваннях вашого провайдера.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Ваш провайдер повідомляє, що цей пароль можна зберегти у резервній копії або синхронізувати. Доступність на інших пристроях залежить від вашого провайдера.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Ваш провайдер повідомляє, що цей пароль не можна зберегти в резервній копії.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Відкрийте бічну панель гаманця, щоб увімкнути, замінити або вимкнути розблокування за допомогою пароля.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Не вдалося відкрити бічну панель. Відкрийте її з панелі інструментів гаманця та спробуйте ще раз.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "Запит на пароль був скасований або недоступний. Ви все ще можете використовувати пароль свого гаманця.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Не вдалося увімкнути розблокування за допомогою пароля. Перевірте пароль свого гаманця та скористайтеся послугами провайдера, який підтримує цю функцію.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Не вдалося видалити розблокування за допомогою пароля. Спробуйте ще раз. Пароль вашого гаманця все ще діє.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Не вдалося розблокувати за допомогою цього пароля. Використовуйте пароль гаманця та перевірте налаштування пароля.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Створіть резервну копію вашої фрази-насіння",
     "englishSource": "Back up your recovery phrase"
@@ -3300,6 +3368,14 @@
     "message": "Створіть резервну копію вашого гаманця",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Прихована фраза відновлення",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "Прихований приватний ключ",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Показати",
     "englishSource": "Show"
@@ -3441,12 +3517,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 символів, 1 цифра",
-    "englishSource": "8 characters, 1 number"
+    "message": "Щонайменше 12 символів",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Щонайменше 8 символів, серед яких має бути принаймні 1 цифра",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Використовуйте щонайменше 12 символів. Цифри, символи та поєднання великих і малих літер роблять пароль надійнішим.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Збережіть ці 12 слів і покладіть їх у надійне місце.",
@@ -4200,6 +4276,10 @@
     "message": "Гаманець зупинив цю транзакцію перед її підписанням, оскільки не зміг підтвердити, що транзакція переміщує лише те, що ви затвердили. Кошти не були переміщені.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
+  "chainFeeUnknown": {
+    "message": "Гаманець не зміг зчитати комісію мережі, тому не підписав цю транзакцію. Нічого не було надіслано. Спробуйте ще раз через деякий час.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Сума повинна бути меншою за залишок на рахунку",
     "englishSource": "Amount must be less than balance"
@@ -4523,6 +4603,18 @@
     "message": "Ми не змогли знайти резервну копію на цьому Guardian. Перевірте URL-адресу або виберіть інший Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Ваші рахунки не можна було відновити: guardian повернув дані рахунку, які не збігаються з вашою фразою відновлення. Нічого не було відновлено.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Ваші рахунки не вдалося відновити: копія рахунку, що зберігається у guardian, ще не збігається з даними мережі Miden. Нічого не було відновлено. Спробуйте ще раз через кілька хвилин.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Не вдалося підключитися до мережі Miden для перевірки ваших рахунків. Ваша фраза відновлення правильна. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "Цей «guardian» працює в іншій мережі Miden, тому він не може відновити обліковий запис тут.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4594,6 +4686,10 @@
   "unknown": {
     "message": "Невідомо",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Включає notes, які ви ще не отримали",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Використано вхідні дані notes",
@@ -5984,6 +6080,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "Функція «Розумні транзакції» MetaMask не змогла відправити цю транзакцію. Вимкніть «Розумні транзакції» у налаштуваннях MetaMask і спробуйте ще раз.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "Підключений гаманець",
     "englishSource": "Connected wallet"
@@ -6499,6 +6599,10 @@
   "opaqueSignatureTitle": {
     "message": "Запит на підпис із прихованим вмістом",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Цей підпис не може авторизувати транзакцію з вашого рахунку.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Цей сайт попросив вас підписати необроблене значення. Гаманець не може показати, що саме він авторизує. Продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
@@ -7588,6 +7692,14 @@
   "tokenHiddenNotice": {
     "message": "Приховано від Home. Воно залишається у вашому гаманці, і його перекази все ще можна отримати.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "Приховати токени «dust»",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Приховує токени вартістю менше ніж 0,001 долара зі списку ваших активів. Нативний токен завжди залишається видимим.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Приховані активи",
@@ -8801,5 +8913,71 @@
   "arcadePostingPolicy": {
     "message": "Кожна гра встановлює власні ставки, виплати та повернення коштів. Ознайомтеся з її правилами перед підтвердженням транзакції.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Автоматичне блокування",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Блокує гаманець, якщо він перебував у фоновому режимі протягом такого тривалого часу.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ хв",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "Очікування повернення",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Готові до отримання",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Повернення коштів",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Повернення коштів",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Ваші кошти залишаються на Miden. Ви можете отримати їх після блоку $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Отримайте свої кошти, щоб повернути їх у свій гаманець.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Ваші кошти повертаються на ваш гаманець.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Ваші кошти повернулися до вашого гаманця.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Кошти, надіслані на ваш рахунок.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Ця note була використана, але виплата не підтверджена. Перевірте пункт призначення та свій баланс у Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Не вдалося перевірити стан коштів. Спробуйте ще раз.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

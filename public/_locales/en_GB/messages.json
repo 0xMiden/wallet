@@ -72,6 +72,74 @@
     "message": "Revocation transaction",
     "englishSource": "Revocation transaction"
   },
+  "passkeyUnlock": {
+    "message": "Passkey unlock",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Unlock with passkey",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Passkey unlock is enabled for this wallet.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Enable passkey unlock",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Replace passkey",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Remove passkey unlock",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Your provider reports that this passkey cannot be backed up.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Open the wallet side panel to enable, replace, or remove passkey unlock.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Could not open the side panel. Open it from the wallet toolbar and try again.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "The passkey request was canceled or unavailable. You can still use your wallet password.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Could not remove passkey unlock. Please try again. Your wallet password still works.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Could not unlock with this passkey. Use your wallet password and check passkey settings.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Back up your recovery phrase",
     "englishSource": "Back up your recovery phrase"
@@ -3300,6 +3368,14 @@
     "message": "Back up your wallet",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Recovery phrase hidden",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "Private key hidden",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Show",
     "englishSource": "Show"
@@ -3441,12 +3517,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 characters, 1 number",
-    "englishSource": "8 characters, 1 number"
+    "message": "At least 12 characters",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Minimum 8 characters with at least 1 number",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Save these 12 words and store in a secure place.",
@@ -4200,6 +4276,10 @@
     "message": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
+  "chainFeeUnknown": {
+    "message": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Amount must be less than balance",
     "englishSource": "Amount must be less than balance"
@@ -4523,6 +4603,18 @@
     "message": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "This guardian runs on another Miden network, so it cannot recover an account here.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4594,6 +4686,10 @@
   "unknown": {
     "message": "Unknown",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Includes notes you have not claimed yet",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Input notes consumed",
@@ -5982,6 +6078,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "Connected wallet",
     "englishSource": "Connected wallet"
@@ -6497,6 +6597,10 @@
   "opaqueSignatureTitle": {
     "message": "Opaque signature request",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "This signature cannot authorize a transaction from your account.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site.",
@@ -7586,6 +7690,14 @@
   "tokenHiddenNotice": {
     "message": "Hidden from Home. It stays in your wallet and its transfers can still be claimed.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "Hide dust tokens",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Hidden assets",
@@ -8799,5 +8911,71 @@
   "arcadePostingPolicy": {
     "message": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Auto-lock",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Locks the wallet once it has been in the background this long.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "Awaiting Return",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Ready to Claim",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Returning Funds",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Funds Returned",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Your funds remain on Miden. You can claim them after block $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Claim your funds to return them to your wallet.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Your funds are being returned to your wallet.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Your funds have returned to your wallet.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Funds sent to your destination.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Unable to check the funds status. Try again.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

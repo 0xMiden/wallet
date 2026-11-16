@@ -18,7 +18,11 @@
 // realm- and cycle-safe.
 
 import { isWasmClientPoisonedError } from './wasm-client-poison';
+import { isWasmTrap, readWasmHandle } from './wasm-handle';
 import { isOperationAbortedError } from '../back/offscreen-codec';
+
+// Re-exported for existing callers; the import-free module lets the account recipe's node harness load them alone.
+export { isWasmTrap, readWasmHandle };
 
 /**
  * Pulls a stable SDK error code off a thrown value, if present.
@@ -209,6 +213,18 @@ export function pipelineKillIn(err: unknown): unknown {
     }
   }
   return undefined;
+}
+
+/**
+ * The first line of a catch inside a WASM hold that falls back on an ordinary failure. The lock retires a poisoned
+ * client only when a `WebAssembly.RuntimeError` reaches it, so a trap is thrown as that same object. A caught kill must
+ * not read as the catch's verdict on the request, so it is thrown as the link {@link pipelineKillIn} finds. Returns
+ * for anything else, a terminated client under an apply-after-submit error included: that write landed.
+ */
+export function rethrowTrapOrKill(error: unknown): void {
+  if (isWasmTrap(error)) throw error;
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) throw kill;
 }
 
 /**

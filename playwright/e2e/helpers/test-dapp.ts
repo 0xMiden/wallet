@@ -24,7 +24,9 @@ import type {
   DappOutput,
   Outcome,
   RawArg,
-  SessionView
+  SessionView,
+  SignatureView,
+  VerifyInput
 } from '../test-dapp/protocol';
 
 /**
@@ -159,6 +161,24 @@ export function unwrap<T>(outcome: Outcome<T>, what: string, ctx: CellContext): 
   if (outcome.ok) return outcome.value;
   ctx.evidence.dappError = outcome.error;
   throw new Error(`${what} was refused: ${outcome.error.name}: ${outcome.error.message}`);
+}
+
+/**
+ * The checks for a `signBytes` answer: the signature verifies for the connect key against the domain commitment, does
+ * not verify against the raw value (a raw Blind or Arbitrary signature could authorize a transaction), and the wallet's
+ * `signedCommitment` equals the commitment the page computed itself (`messageB64`).
+ */
+export async function expectDomainSignature(
+  verify: (input: VerifyInput) => Promise<{ verifies: boolean; commitmentHex: string }>,
+  signed: SignatureView,
+  kind: VerifyInput['kind'],
+  publicKeyB64: string
+): Promise<{ verifies: boolean; commitmentHex: string }> {
+  const input = { kind, payloadB64: signed.payloadB64, signatureB64: signed.signatureB64, publicKeyB64 };
+  expect((await verify(input)).verifies, 'the raw value must not verify').toBe(false);
+  // An older wallet sends no commitment; the cells run against the wallet under test, which does.
+  expect(signed.signedCommitmentB64, 'the wallet returns signedCommitment').toBe(signed.messageB64);
+  return verify({ ...input, domain: 'signBytes' });
 }
 
 export type PromptDecision = 'approve' | 'decline' | 'close' | 'auto-after-unlock';

@@ -65,7 +65,9 @@ import {
   HarnessCheckError,
   noteTypeName,
   outcome,
-  outputNoteView
+  outputNoteView,
+  signBytesCommitment,
+  withProviderSignedCommitment
 } from './page-common.js';
 import type {
   ConnectedView,
@@ -676,16 +678,20 @@ const handlers: Partial<DappHandlers> = {
       };
     }),
 
-  // The scheme tag is the serialized signature's first byte (ECDSA is 0x01); for a word the signed message is the word.
+  // The scheme tag is the serialized signature's first byte (ECDSA is 0x01); the signed message is the word under the
+  // signBytes domain, not the word.
   signWord: ({ wordHex }) =>
     outcome(async () => {
       const payload = Word.fromHex(wordHex).serialize();
-      const signature = await state.adapter.signBytes(payload, 'word');
+      const { value: signature, signedCommitment } = await withProviderSignedCommitment(() =>
+        state.adapter.signBytes(payload, 'word')
+      );
       return {
         signatureB64: u8ToB64(signature),
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
-        messageB64: u8ToB64(payload)
+        messageB64: u8ToB64(signBytesCommitment(payload, 'word').serialize()),
+        ...(signedCommitment === undefined ? {} : { signedCommitmentB64: u8ToB64(signedCommitment) })
       };
     }),
 
@@ -708,15 +714,20 @@ const handlers: Partial<DappHandlers> = {
                   amount: BigInt(input.amount ?? '0')
                 })
               );
-      // The key signs the SigningInputs commitment, so that is the message the driver recovers the key from.
+      // The key signs the SigningInputs commitment, or the domain commitment for Blind and Arbitrary, so that is the
+      // message the driver recovers the key from.
       const payload = inputs.serialize();
-      const message = inputs.toCommitment().serialize();
-      const signature = await state.adapter.signBytes(payload, 'signingInputs');
+      const message =
+        input.variant === 'summary' ? inputs.toCommitment() : signBytesCommitment(payload, 'signingInputs');
+      const { value: signature, signedCommitment } = await withProviderSignedCommitment(() =>
+        state.adapter.signBytes(payload, 'signingInputs')
+      );
       return {
         signatureB64: u8ToB64(signature),
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
-        messageB64: u8ToB64(message)
+        messageB64: u8ToB64(message.serialize()),
+        ...(signedCommitment === undefined ? {} : { signedCommitmentB64: u8ToB64(signedCommitment) })
       };
     }),
 
@@ -746,10 +757,13 @@ const handlers: Partial<DappHandlers> = {
   verifySignature: async input => {
     const publicKey = PublicKey.deserialize(b64ToU8(input.publicKeyB64));
     const signature = Signature.deserialize(b64ToU8(input.signatureB64));
+    const payload = b64ToU8(input.payloadB64);
     const verifies =
-      input.kind === 'word'
-        ? publicKey.verify(Word.deserialize(b64ToU8(input.payloadB64)), signature)
-        : publicKey.verifyData(SigningInputs.deserialize(b64ToU8(input.payloadB64)), signature);
+      input.domain === 'signBytes'
+        ? publicKey.verify(signBytesCommitment(payload, input.kind), signature)
+        : input.kind === 'word'
+          ? publicKey.verify(Word.deserialize(payload), signature)
+          : publicKey.verifyData(SigningInputs.deserialize(payload), signature);
     return { verifies, commitmentHex: publicKey.toCommitment().toHex() };
   },
 

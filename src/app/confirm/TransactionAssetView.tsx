@@ -7,8 +7,8 @@ import { Button, ButtonVariant } from 'components/Button';
 import type { StoryHop } from 'components/tx-stage/tx-story';
 import { TxStory } from 'components/tx-stage/TxStory';
 import { Card } from 'components/ui/Card';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
 import { AssetAmount, NftAsset, TxAssetView } from './decode';
@@ -80,7 +80,7 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
  * asset, this slot is a number, and it sits inline with a +/- sign.
  */
 const quantityOf = (asset: ResolvedAsset): string =>
-  asset.scaleIsKnown ? formatAmount(asset.amount, asset.decimals) : '?';
+  asset.scaleIsKnown ? formatAmountDisplay(asset.amount, { decimals: asset.decimals, formatting: 'exact' }) : '?';
 
 /**
  * One NFT, named by what the wallet can read: a label, its short asset id and its faucet.
@@ -248,6 +248,13 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
       )}
 
       <div className="tx-stage-list flex flex-col w-full border-b border-gray-100 pb-4">
+        {/* Notes the account already held are value it spends, counted in what leaves above. */}
+        {isVerified && (view.heldNotesSpent ?? 0) > 0 && (
+          <div className="flex flex-row w-full items-center justify-between pb-1">
+            <span className="text-text-muted">{t('includesUnclaimedNotes')}</span>
+            <span data-testid="tx-held-notes-spent">{view.heldNotesSpent}</span>
+          </div>
+        )}
         <div className="flex flex-row w-full items-center justify-between pb-1">
           <span className="text-text-muted">{t('inputNotesConsumed')}</span>
           <span>{view.inputNotesConsumed}</span>

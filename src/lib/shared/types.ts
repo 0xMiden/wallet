@@ -6,6 +6,7 @@ import type {
 } from 'lib/miden/spending-limits/types';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import { TelemetryEvent } from 'lib/telemetry/types';
 import type { BurnFeeFailure } from 'lib/usdcx/burn-fee-failure';
 import { WalletType } from 'screens/onboarding/types';
@@ -28,6 +29,10 @@ export enum WalletMessageType {
   ImportFromClientResponse = 'IMPORT_FROM_CLIENT_RESPONSE',
   UnlockRequest = 'UNLOCK_REQUEST',
   UnlockResponse = 'UNLOCK_RESPONSE',
+  PlatformUnlockRequest = 'PLATFORM_UNLOCK_REQUEST',
+  PlatformUnlockResponse = 'PLATFORM_UNLOCK_RESPONSE',
+  PlatformResetRequest = 'PLATFORM_RESET_REQUEST',
+  PlatformResetResponse = 'PLATFORM_RESET_RESPONSE',
   LockRequest = 'LOCK_REQUEST',
   LockResponse = 'LOCK_RESPONSE',
   CreateAccountRequest = 'CREATE_ACCOUNT_REQUEST',
@@ -78,8 +83,6 @@ export enum WalletMessageType {
   GetStrictAuthenticationProtectorsResponse = 'GET_STRICT_AUTHENTICATION_PROTECTORS_RESPONSE',
   VerifyStrictActionAuthenticationRequest = 'VERIFY_STRICT_ACTION_AUTHENTICATION_REQUEST',
   VerifyStrictActionAuthenticationResponse = 'VERIFY_STRICT_ACTION_AUTHENTICATION_RESPONSE',
-  SignDataRequest = 'SIGN_DATA_REQUEST',
-  SignDataResponse = 'SIGN_DATA_RESPONSE',
   SignTransactionRequest = 'SIGN_TRANSACTION_REQUEST',
   SignTransactionResponse = 'SIGN_TRANSACTION_RESPONSE',
   SignWordRequest = 'SIGN_WORD_REQUEST',
@@ -668,6 +671,25 @@ export interface UnlockResponse extends WalletMessageBase {
   type: WalletMessageType.UnlockResponse;
 }
 
+export interface PlatformUnlockRequest extends WalletMessageBase {
+  type: WalletMessageType.PlatformUnlockRequest;
+  command: PlatformUnlockCommand;
+}
+
+export interface PlatformUnlockResponse extends WalletMessageBase {
+  type: WalletMessageType.PlatformUnlockResponse;
+  result: PlatformUnlockResult;
+}
+
+export interface PlatformResetRequest extends WalletMessageBase {
+  type: WalletMessageType.PlatformResetRequest;
+  nonce: string;
+}
+
+export interface PlatformResetResponse extends WalletMessageBase {
+  type: WalletMessageType.PlatformResetResponse;
+}
+
 export interface LockRequest extends WalletMessageBase {
   type: WalletMessageType.LockRequest;
 }
@@ -944,17 +966,6 @@ export interface VerifyStrictActionAuthenticationRequest extends WalletMessageBa
 
 export interface VerifyStrictActionAuthenticationResponse extends WalletMessageBase {
   type: WalletMessageType.VerifyStrictActionAuthenticationResponse;
-}
-
-export interface SignDataRequest extends WalletMessageBase {
-  type: WalletMessageType.SignDataRequest;
-  publicKey: string;
-  signingInputs: string;
-}
-
-export interface SignDataResponse extends WalletMessageBase {
-  type: WalletMessageType.SignDataResponse;
-  signature: string;
 }
 
 export interface SignTransactionRequest extends WalletMessageBase {
@@ -1396,6 +1407,8 @@ export type WalletRequest =
   | NewWalletRequest
   | NewWalletFromHotKeyRequest
   | UnlockRequest
+  | PlatformUnlockRequest
+  | PlatformResetRequest
   | LockRequest
   | CreateAccountRequest
   | UpdateCurrentAccountRequest
@@ -1422,7 +1435,6 @@ export type WalletRequest =
   | AssessSpendingLimitRequest
   | GetStrictAuthenticationProtectorsRequest
   | VerifyStrictActionAuthenticationRequest
-  | SignDataRequest
   | SignTransactionRequest
   | SignWordRequest
   | SignEvmRequest
@@ -1476,6 +1488,8 @@ export type WalletResponse =
   | NewWalletResponse
   | NewWalletFromHotKeyResponse
   | UnlockResponse
+  | PlatformUnlockResponse
+  | PlatformResetResponse
   | LockResponse
   | CreateAccountResponse
   | UpdateCurrentAccountResponse
@@ -1502,7 +1516,6 @@ export type WalletResponse =
   | AssessSpendingLimitResponse
   | GetStrictAuthenticationProtectorsResponse
   | VerifyStrictActionAuthenticationResponse
-  | SignDataResponse
   | SignTransactionResponse
   | SignWordResponse
   | SignEvmResponse

@@ -62,7 +62,11 @@ import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 import { EcdsaSigner } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
-import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
+import {
+  guardianNativeProbeSettlement,
+  probeGuardianOrigin,
+  registerGuardianProbeRequestBudget
+} from 'lib/miden/guardian/native-http';
 import { normalizeHex } from 'lib/miden/sdk/submit-evidence';
 import { ensureSdkWasmReady, getGuardianOptionsForNetwork, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
@@ -136,6 +140,8 @@ export interface GuardianDiscoveryOptions {
 export const GUARDIAN_PROBE_MAX_HD_INDEX = 1;
 /** Per-request deadline. The guardian client exposes no abort, so late responses are simply ignored. */
 export const GUARDIAN_PROBE_TIMEOUT_MS = 8_000;
+const GUARDIAN_SETTLING_DEADLINE_MS = 20_000;
+const GUARDIAN_SETTLING_POLL_INTERVAL_MS = 2_000;
 /** Max in-flight probe requests, so a wider endpoint × index grid doesn't open every socket at once. */
 export const GUARDIAN_PROBE_CONCURRENCY = 6;
 /**
@@ -222,7 +228,7 @@ export const isGuardianAccountAlreadyRegistered = (err: unknown): boolean =>
  * endpoint becomes a failure) or merely a lost refinement (getState → unknown nonce).
  */
 async function attemptWithRetries<T>(
-  makeRequest: () => Promise<T>,
+  makeRequest: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
   label: string,
   signal?: AbortSignal
@@ -230,7 +236,7 @@ async function attemptWithRetries<T>(
   let lastError: unknown;
   for (let attempt = 0; attempt < GUARDIAN_PROBE_REQUEST_ATTEMPTS; attempt++) {
     try {
-      return await withTimeout(makeRequest(), timeoutMs, label);
+      return await withProbeRequestTimeout(makeRequest, timeoutMs, label, signal);
     } catch (error) {
       lastError = error;
       const lastAttempt = attempt === GUARDIAN_PROBE_REQUEST_ATTEMPTS - 1 || Boolean(signal?.aborted);
@@ -244,6 +250,181 @@ async function attemptWithRetries<T>(
   }
   // Unreachable: the loop always returns a value or throws. Satisfies the type checker.
   throw lastError;
+}
+
+/** A permit bounds in-flight Guardian transports across probe generations. */
+let guardianProbePermitsInUse = 0;
+type GuardianProbePermitWaiter = {
+  grant: () => void;
+  cancel: (error: Error) => void;
+};
+const guardianProbePermitWaiters: GuardianProbePermitWaiter[] = [];
+
+function probeAbortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('The guardian probe was aborted');
+}
+
+function acquireGuardianProbePermit(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(probeAbortError(signal));
+  if (guardianProbePermitsInUse < GUARDIAN_PROBE_CONCURRENCY) {
+    guardianProbePermitsInUse += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    let queued = true;
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const waiter: GuardianProbePermitWaiter = {
+      grant: () => {
+        if (!queued) return;
+        queued = false;
+        cleanup();
+        resolve();
+      },
+      cancel: error => {
+        if (!queued) return;
+        queued = false;
+        const index = guardianProbePermitWaiters.indexOf(waiter);
+        if (index >= 0) guardianProbePermitWaiters.splice(index, 1);
+        cleanup();
+        reject(error);
+      }
+    };
+    const abort = () => {
+      const error = probeAbortError(signal!);
+      // The attempt's own deadline fired while this read was still behind the six in-flight permits.
+      if (queued && error instanceof GuardianProbeTimeoutError) {
+        console.warn('[guardian/discover] probe attempt timed out while waiting for a permit');
+      }
+      waiter.cancel(error);
+    };
+    guardianProbePermitWaiters.push(waiter);
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
+
+function releaseGuardianProbePermit(): void {
+  const next = guardianProbePermitWaiters.shift();
+  if (next) {
+    next.grant();
+    return;
+  }
+  guardianProbePermitsInUse -= 1;
+}
+
+async function withGuardianProbePermit<T>(signal: AbortSignal | undefined, call: () => Promise<T>): Promise<T> {
+  await acquireGuardianProbePermit(signal);
+  try {
+    if (signal?.aborted) {
+      throw new Error('The guardian probe was aborted');
+    }
+    return await call();
+  } finally {
+    releaseGuardianProbePermit();
+  }
+}
+
+type GuardianClientFetch = {
+  (path: string, init?: RequestInit): Promise<Response>;
+  call(receiver: unknown, path: string, init?: RequestInit): Promise<Response>;
+};
+
+function isGuardianClientFetch(value: unknown): value is GuardianClientFetch {
+  return typeof value === 'function';
+}
+
+function guardianClientFetch(client: unknown): GuardianClientFetch | undefined {
+  if (typeof client !== 'object' || client === null || !('fetch' in client)) return undefined;
+  const fetch: unknown = Reflect.get(client, 'fetch');
+  return isGuardianClientFetch(fetch) ? fetch : undefined;
+}
+
+class GuardianProbeFetchUnavailableError extends Error {
+  constructor() {
+    super('Guardian client fetch is unavailable for a bounded probe read');
+    this.name = 'GuardianProbeFetchUnavailableError';
+  }
+}
+
+async function withGuardianProbeRequest<T>(
+  endpoint: string,
+  signer: EcdsaSigner,
+  signal: AbortSignal,
+  timeoutMs: number,
+  call: (client: GuardianHttpClient) => Promise<T>
+): Promise<T> {
+  const client = new GuardianHttpClient(endpoint);
+  client.setSigner(signer);
+  const originalFetch = guardianClientFetch(client);
+  if (!originalFetch) throw new GuardianProbeFetchUnavailableError();
+
+  const hadOwnFetch = Object.prototype.hasOwnProperty.call(client, 'fetch');
+  const wrappedFetch: GuardianClientFetch = function (path, init) {
+    if (signal.aborted) return Promise.reject(probeAbortError(signal));
+    return withGuardianProbePermit(signal, async () => {
+      if (signal.aborted) throw probeAbortError(signal);
+      const response = originalFetch.call(client, path, { ...init, signal });
+      // The ceiling rejects the fetch promise, and the permit follows nativeRequest.
+      const nativeSettlement = guardianNativeProbeSettlement(signal);
+      try {
+        return await response;
+      } finally {
+        await nativeSettlement;
+      }
+    });
+  };
+  if (!Reflect.set(client, 'fetch', wrappedFetch)) throw new GuardianProbeFetchUnavailableError();
+
+  try {
+    const unregisterBudget = registerGuardianProbeRequestBudget(signal, timeoutMs);
+    try {
+      return await call(client);
+    } finally {
+      unregisterBudget();
+    }
+  } finally {
+    if (hadOwnFetch) Reflect.set(client, 'fetch', originalFetch);
+    else Reflect.deleteProperty(client, 'fetch');
+  }
+}
+
+async function withProbeRequestTimeout<T>(
+  makeRequest: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string,
+  parentSignal?: AbortSignal
+): Promise<T> {
+  const controller = new AbortController();
+  if (parentSignal?.aborted) {
+    controller.abort(parentSignal.reason);
+    throw parentSignal.reason;
+  }
+
+  let parentAbortListener: (() => void) | undefined;
+  const parentAbort = parentSignal
+    ? new Promise<never>((_resolve, reject) => {
+        parentAbortListener = () => {
+          controller.abort(parentSignal.reason);
+          reject(parentSignal.reason);
+        };
+        parentSignal.addEventListener('abort', parentAbortListener);
+        if (parentSignal.aborted) parentAbortListener();
+      })
+    : undefined;
+
+  try {
+    if (controller.signal.aborted) throw controller.signal.reason;
+    const request = makeRequest(controller.signal);
+    const boundedRequest = parentAbort ? Promise.race([request, parentAbort]) : request;
+    return await withTimeout(boundedRequest, timeoutMs, label);
+  } catch (error) {
+    if (!controller.signal.aborted) controller.abort(error);
+    throw error;
+  } finally {
+    if (parentSignal && parentAbortListener) {
+      parentSignal.removeEventListener('abort', parentAbortListener);
+    }
+  }
 }
 
 function readNumericStatus(error: unknown): number | undefined {
@@ -489,6 +670,104 @@ interface ProbeHit {
   state?: StateObject;
 }
 
+async function waitForSettlementPoll(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted || delayMs <= 0) return;
+  await new Promise<void>(resolve => {
+    let cancelTimer: (() => void) | undefined;
+    const finish = () => {
+      cancelTimer?.();
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+    cancelTimer = setRunningTimeout(finish, delayMs);
+    signal?.addEventListener('abort', finish, { once: true });
+    if (signal?.aborted) finish();
+  });
+}
+
+async function refreshSettlingHit(
+  hit: ProbeHit,
+  nonce: bigint,
+  chainCommitment: string,
+  makeKey: (hdIndex: number) => AuthSecretKey,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<{ waited: boolean; state?: StateObject; decoded?: DecodedStates }> {
+  const nextNonce = nonce + 1n;
+  if (nextNonce > BigInt(Number.MAX_SAFE_INTEGER) || nextNonce < 0n || signal?.aborted) return { waited: false };
+
+  const deadlineController = new AbortController();
+  const parentAbort = () => deadlineController.abort(signal?.reason);
+  signal?.addEventListener('abort', parentAbort, { once: true });
+  if (signal?.aborted) parentAbort();
+  const cancelDeadline = setRunningTimeout(
+    () => deadlineController.abort(new GuardianProbeTimeoutError(`guardian settling at ${hit.endpoint} timed out`)),
+    GUARDIAN_SETTLING_DEADLINE_MS
+  );
+
+  let secretKey: AuthSecretKey | undefined;
+  let waited = false;
+  try {
+    if (deadlineController.signal.aborted) return { waited: false };
+    secretKey = makeKey(hit.hdIndex);
+    const signer = new EcdsaSigner(secretKey);
+    const delta = await withProbeRequestTimeout(
+      attemptSignal =>
+        withGuardianProbeRequest(hit.endpoint, signer, attemptSignal, timeoutMs, client =>
+          client.getDelta(hit.accountId, Number(nextNonce))
+        ),
+      timeoutMs,
+      `guardian delta at ${hit.endpoint}`,
+      deadlineController.signal
+    );
+    if (
+      deadlineController.signal.aborted ||
+      !delta.newCommitment ||
+      normalizeHex(delta.newCommitment) !== normalizeHex(chainCommitment)
+    ) {
+      return { waited };
+    }
+
+    while (!deadlineController.signal.aborted) {
+      waited = true;
+      let state: StateObject | undefined;
+      try {
+        state = await withProbeRequestTimeout(
+          attemptSignal =>
+            withGuardianProbeRequest(hit.endpoint, signer, attemptSignal, timeoutMs, client =>
+              client.getState(hit.accountId)
+            ),
+          timeoutMs,
+          `guardian settling state at ${hit.endpoint}`,
+          deadlineController.signal
+        );
+      } catch {
+        state = undefined;
+      }
+      if (deadlineController.signal.aborted) return { waited };
+
+      if (state) {
+        const decoded = decodeStates([state]);
+        if (decoded.commitments.get(normalizeHex(hit.accountId)) === normalizeHex(chainCommitment)) {
+          return { waited, state, decoded };
+        }
+      }
+
+      await waitForSettlementPoll(GUARDIAN_SETTLING_POLL_INTERVAL_MS, deadlineController.signal);
+    }
+  } catch {
+    // A settling check is only a refinement; keep the original state on failure.
+  } finally {
+    cancelDeadline();
+    signal?.removeEventListener('abort', parentAbort);
+    try {
+      secretKey?.free();
+    } catch {
+      // Already freed / stubbed handle — nothing to release.
+    }
+  }
+  return { waited };
+}
 /** Run `worker` over `items` with at most `limit` concurrently; never rejects. */
 async function runPooled<TItem, TResult>(
   items: readonly TItem[],
@@ -615,8 +894,6 @@ async function probeTargets(
     const secretKey = makeKey(hdIndex);
     try {
       const signer = new EcdsaSigner(secretKey);
-      const client = new GuardianHttpClient(target.endpoint);
-      client.setSigner(signer);
       // The commitment is the public key digest the operator indexes accounts
       // by, so it is safe to print and is what to compare against the operator.
       console.info(`[guardian/discover] Lookup at ${target.endpoint} for hd index ${hdIndex}`, {
@@ -627,7 +904,10 @@ async function probeTargets(
       // the CURRENT operator drops it from `matches` entirely, leaving a stale
       // operator as a lone match that `selectBest` would auto-pick.
       const lookup: LookupResponse = await attemptWithRetries(
-        () => client.lookupAccountByKeyCommitment(signer.commitment),
+        attemptSignal =>
+          withGuardianProbeRequest(target.endpoint, signer, attemptSignal, timeoutMs, client =>
+            client.lookupAccountByKeyCommitment(signer.commitment)
+          ),
         timeoutMs,
         `guardian lookup at ${target.endpoint}`,
         signal
@@ -650,7 +930,10 @@ async function probeTargets(
         let state: StateObject | undefined;
         try {
           state = await attemptWithRetries(
-            () => client.getState(account.accountId),
+            attemptSignal =>
+              withGuardianProbeRequest(target.endpoint, signer, attemptSignal, timeoutMs, client =>
+                client.getState(account.accountId)
+              ),
             timeoutMs,
             `guardian state at ${target.endpoint}`,
             signal
@@ -671,6 +954,10 @@ async function probeTargets(
   });
 
   const failures: GuardianProbeFailure[] = [];
+  if (signal?.aborted) {
+    return { matches: [], probedEndpoints, failures };
+  }
+
   const hitsByEndpoint = new Map<string, ProbeHit[]>();
   settled.forEach((result, index) => {
     const { endpoint } = tasks[index]!.target;
@@ -697,30 +984,22 @@ async function probeTargets(
 
   // State decoding runs sequentially, AFTER the parallel section: it touches
   // WASM (`Account.deserialize`) and must not overlap with anything else.
-  const decoded: { match: GuardianProbeMatch; commitments: Map<string, string> }[] = [];
+  const decodedHits = new Map<ProbeHit, DecodedStates>();
+  const accountIds = new Set<string>();
   for (const target of targets) {
-    const hits = hitsByEndpoint.get(target.endpoint);
-    if (!hits || hits.length === 0) continue;
-    const states = hits.flatMap(hit => (hit.state ? [hit.state] : []));
-    const { nonce, commitments } = decodeStates(states);
-    decoded.push({
-      match: {
-        endpoint: target.endpoint,
-        option: target.option,
-        accountIds: Array.from(new Set(hits.map(hit => hit.accountId))),
-        hdIndices: Array.from(new Set(hits.map(hit => hit.hdIndex))).sort((a, b) => a - b),
-        nonce,
-        updatedAt: newestUpdatedAt(states)
-      },
-      commitments
-    });
+    for (const hit of hitsByEndpoint.get(target.endpoint) ?? []) {
+      if (!hit.state) continue;
+      const decoded = decodeStates([hit.state]);
+      decodedHits.set(hit, decoded);
+      decoded.commitments.forEach((_commitment, accountId) => accountIds.add(accountId));
+    }
   }
 
   // The chain decides whether a state is current (#1648): an operator the account
   // left still serves the state it had, and with the current operator absent from
   // the list that stale state would otherwise be the lone match and get picked.
   const chainCommitments = await readChainCommitments(
-    Array.from(new Set(decoded.flatMap(entry => Array.from(entry.commitments.keys())))),
+    Array.from(accountIds),
     options.network ?? getEffectiveNetworkName(),
     timeoutMs,
     signal
@@ -728,10 +1007,75 @@ async function probeTargets(
   if (signal?.aborted) {
     return { matches: [], probedEndpoints, failures };
   }
-  const matches: GuardianProbeMatch[] = decoded.map(({ match, commitments }) => ({
-    ...match,
-    holdsCurrentState: holdsCurrentState(commitments, chainCommitments)
-  }));
+
+  let waitedForSettlement = false;
+  const settledHits = new Map<ProbeHit, { state: StateObject; decoded: DecodedStates }>();
+  for (const target of targets) {
+    for (const hit of hitsByEndpoint.get(target.endpoint) ?? []) {
+      if (!hit.state || signal?.aborted) continue;
+      const decoded = decodedHits.get(hit);
+      const accountId = normalizeHex(hit.accountId);
+      const servedCommitment = decoded?.commitments.get(accountId);
+      const chainCommitment = chainCommitments.get(accountId);
+      if (decoded?.nonce === undefined || servedCommitment === undefined || chainCommitment === undefined) continue;
+      if (servedCommitment === chainCommitment) continue;
+
+      const refreshed = await refreshSettlingHit(hit, decoded.nonce, chainCommitment, makeKey, timeoutMs, signal);
+      if (refreshed.waited) waitedForSettlement = true;
+      if (refreshed.state && refreshed.decoded) {
+        settledHits.set(hit, { state: refreshed.state, decoded: refreshed.decoded });
+      }
+    }
+  }
+  if (signal?.aborted) {
+    return { matches: [], probedEndpoints, failures };
+  }
+  const unconfirmedSettledHits = new Set<ProbeHit>();
+  if (waitedForSettlement) {
+    const confirmedCommitments = await readChainCommitments(
+      Array.from(accountIds),
+      options.network ?? getEffectiveNetworkName(),
+      timeoutMs,
+      signal
+    );
+    if (signal?.aborted) {
+      return { matches: [], probedEndpoints, failures };
+    }
+    confirmedCommitments.forEach((commitment, accountId) => chainCommitments.set(accountId, commitment));
+    settledHits.forEach((settled, hit) => {
+      const accountId = normalizeHex(hit.accountId);
+      hit.state = settled.state;
+      decodedHits.set(hit, settled.decoded);
+      if (!confirmedCommitments.has(accountId)) unconfirmedSettledHits.add(hit);
+    });
+  }
+
+  const matches: GuardianProbeMatch[] = [];
+  for (const target of targets) {
+    const hits = hitsByEndpoint.get(target.endpoint);
+    if (!hits || hits.length === 0) continue;
+    const states = hits.flatMap(hit => (hit.state ? [hit.state] : []));
+    let nonce: bigint | undefined;
+    const commitments = new Map<string, string>();
+    for (const hit of hits) {
+      if (!hit.state) continue;
+      const decoded = decodedHits.get(hit);
+      if (!decoded) continue;
+      if (decoded.nonce !== undefined && (nonce === undefined || decoded.nonce > nonce)) nonce = decoded.nonce;
+      if (!unconfirmedSettledHits.has(hit)) {
+        decoded.commitments.forEach((commitment, accountId) => commitments.set(accountId, commitment));
+      }
+    }
+    matches.push({
+      endpoint: target.endpoint,
+      option: target.option,
+      accountIds: Array.from(new Set(hits.map(hit => hit.accountId))),
+      hdIndices: Array.from(new Set(hits.map(hit => hit.hdIndex))).sort((a, b) => a - b),
+      nonce,
+      updatedAt: newestUpdatedAt(states),
+      holdsCurrentState: holdsCurrentState(commitments, chainCommitments)
+    });
+  }
 
   matches.sort((a, b) => compareMatches(a, b, probedEndpoints));
   const best = selectBest(matches);

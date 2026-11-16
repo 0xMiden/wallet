@@ -37,8 +37,9 @@ import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
-import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
+import { TxAssetView } from './confirm/decode';
+import { NoteFlow } from './confirm/note-flow';
+import { fromSimulatedEffectsWire, SimulatedEffectsWire } from './confirm/simulated-wire';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
@@ -126,14 +127,21 @@ const SignatureRawValue: FC<{ value: string; errorId?: UserErrorId | null }> = (
   return <>{value}</>;
 };
 
-const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId | null }> = ({
-  rawValue,
-  errorId
-}) => {
+const OpaqueSignatureWarning: React.FC<{
+  rawValue: string;
+  errorId?: UserErrorId | null;
+  /** A measured transaction summary is one; this sentence is for every other signature. */
+  showNotATransaction?: boolean;
+}> = ({ rawValue, errorId, showNotATransaction = true }) => {
   const { t } = useTranslation();
   return (
     <>
       <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
+      {showNotATransaction && (
+        <p className="text-sm text-left text-ink mb-2" data-testid="opaque-signature-not-a-transaction">
+          {t('opaqueSignatureNotATransaction')}
+        </p>
+      )}
       <AdvancedDetails label={t('rawValue')}>
         <SignatureRawValue value={rawValue} errorId={errorId} />
       </AdvancedDetails>
@@ -205,7 +213,11 @@ const PayloadContent: React.FC<PayloadContentProps> = ({
 
         case 'signingInputs': {
           console.log('Signing inputs payload', bytes);
-          content = <SigningInputsPayloadContent bytes={bytes} />;
+          content = payload.signingEffects ? (
+            <SigningEffectsContent effects={payload.signingEffects} bytes={bytes} />
+          ) : (
+            <SigningInputsPayloadContent bytes={bytes} />
+          );
           break;
         }
       }
@@ -370,6 +382,29 @@ const PayloadContent: React.FC<PayloadContentProps> = ({
   );
 };
 
+/** A transaction summary's holdings as the background measured them, the same measure the mobile sheet prints. */
+const SigningEffectsContent: React.FC<{ effects: SimulatedEffectsWire; bytes: Uint8Array }> = ({ effects, bytes }) => {
+  const { t } = useTranslation();
+  const measured = useMemo(() => {
+    try {
+      return fromSimulatedEffectsWire(effects);
+    } catch (e) {
+      console.error('Signing summary holdings unavailable:', e);
+      return null;
+    }
+  }, [effects]);
+
+  if (!measured) return <OpaqueSignatureWarning rawValue={t('noPreview')} showNotATransaction={false} />;
+  return (
+    <TransactionAssetView
+      view={measured.view}
+      noteFlow={measured.noteFlow}
+      mode="verified"
+      onDownload={() => downloadBytes('transaction_summary.bin', bytes)}
+    />
+  );
+};
+
 const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes }) => {
   const { t } = useTranslation();
 
@@ -389,23 +424,10 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
   }
 
   switch (signingInputs.variantType) {
-    case SigningInputsType.TransactionSummary: {
-      const summary = signingInputs.transactionSummaryPayload();
-      let noteFlow: NoteFlow | undefined;
-      try {
-        noteFlow = noteFlowFromTransaction(summary);
-      } catch (noteError) {
-        console.error('Signing summary note details unavailable:', noteError);
-      }
-      return (
-        <TransactionAssetView
-          view={summaryToView(summary)}
-          noteFlow={noteFlow}
-          mode="verified"
-          onDownload={() => downloadBytes('transaction_summary.bin', bytes)}
-        />
-      );
-    }
+    // The background measures every summary it lets through and sends that measure, so a summary arriving without
+    // one is shown as unmeasured. It is still a transaction, so the not-a-transaction line stays off.
+    case SigningInputsType.TransactionSummary:
+      return <OpaqueSignatureWarning rawValue={t('noPreview')} showNotATransaction={false} />;
     case SigningInputsType.Arbitrary:
     case SigningInputsType.Blind:
       return (
@@ -447,21 +469,11 @@ const CustomTransactionContent: React.FC<{
     let cancelled = false;
     (async () => {
       try {
-        const { summaryBytes, executedBytes } = await simulateCustomTransaction(id);
+        const { view, noteFlow } = await simulateCustomTransaction(id);
         if (cancelled) return;
-        // Summary when authorization is still pending, executed transaction for every ordinary
-        // single-sig account on web-sdk 0.16 - same ground truth either way. The choice lives in
-        // `simulatedBytesToView` so the backend's spending-limit gate decodes it identically;
-        // a second copy of this ladder there once treated every ordinary account as unsimulatable.
-        const view = simulatedBytesToView({ summaryBytes, executedBytes });
         if (view) {
           setVerifiedView(view);
-          try {
-            setVerifiedNoteFlow(noteFlowFromSimulatedBytes({ summaryBytes, executedBytes }));
-          } catch (noteError) {
-            console.error('Custom transaction note details unavailable:', noteError);
-            setVerifiedNoteFlow(undefined);
-          }
+          setVerifiedNoteFlow(noteFlow);
           return;
         }
         setSimError(true);

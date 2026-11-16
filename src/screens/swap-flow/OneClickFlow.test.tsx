@@ -1063,6 +1063,8 @@ describe('OneClickFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
 
     expect(await screen.findByTestId('one-click-deposit-instructions')).toBeInTheDocument();
+    // The amount to send by hand is the quote's exact input, read from its base units.
+    expect(screen.getByText('1 SOL')).toBeInTheDocument();
     expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
   });
 

@@ -45,7 +45,7 @@ jobs:
       pct: ${{ steps.data.outputs.pct }}
       count: ${{ steps.data.outputs.count }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - name: Find the pull request's coverage run
@@ -94,7 +94,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Compose shields.io endpoint JSON
         env:
           PCT: ${{ needs.badge-data.outputs.pct }}

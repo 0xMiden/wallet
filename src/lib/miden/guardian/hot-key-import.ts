@@ -14,6 +14,8 @@
 import { AuthSecretKey } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
+import { isWasmTrap, rethrowTrapOrKill } from '../sdk/sdk-error-code';
+
 /** Raw scalar form — what `Vault.revealHotKey` shows the user. */
 export const HOT_KEY_SCALAR_HEX_LEN = 64;
 /** Full `AuthSecretKey.serialize()` form — scheme tag byte + scalar. */
@@ -40,17 +42,30 @@ export function normalizeHotSecretKeyHex(input: string): string | null {
 let cachedEcdsaKeyTagHex: string | undefined;
 export function ecdsaSecretKeyTagHex(): string {
   if (cachedEcdsaKeyTagHex !== undefined) return cachedEcdsaKeyTagHex;
-  const probe = AuthSecretKey.ecdsaWithRNG(new Uint8Array(32).fill(1));
+  const tag = readEcdsaKeyTag(AuthSecretKey.ecdsaWithRNG(new Uint8Array(32).fill(1)));
+  cachedEcdsaKeyTagHex = tag;
+  return tag;
+}
+
+// The vault's hot-key imports decode inside a WASM hold, so a trap or kill leaves as itself: no free after a trapped
+// serialize, and none swallowed from the free. Not readWasmHandle, whose ordinary free failure would fail the paste.
+function readEcdsaKeyTag(probe: AuthSecretKey): string {
+  let trapped = false;
   try {
-    cachedEcdsaKeyTagHex = Buffer.from(probe.serialize().slice(0, 1)).toString('hex');
+    return Buffer.from(probe.serialize().slice(0, 1)).toString('hex');
+  } catch (error) {
+    trapped = isWasmTrap(error);
+    throw error;
   } finally {
-    try {
-      probe.free();
-    } catch {
-      // Already freed / stubbed handle — nothing to release.
+    if (!trapped) {
+      try {
+        probe.free();
+      } catch (error) {
+        rethrowTrapOrKill(error);
+        // Already freed / stubbed handle - nothing to release.
+      }
     }
   }
-  return cachedEcdsaKeyTagHex;
 }
 
 /**

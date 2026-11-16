@@ -134,12 +134,14 @@ export function chunkNotesForClaim<T extends { id: string }>(notes: readonly T[]
  * The caller measured the whole batch against the claim floor, which only a single chunk inherits: over the cap each
  * chunk pays its own fee, so one not worth that fee is left out and waits for more notes, as the whole pile did below
  * the floor. Shared by every unattended native claimer (the service worker, Home, the mobile/desktop manager and the
- * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644).
+ * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644). An unknown
+ * fee refuses every chunk, a single one included, whatever the caller measured.
  */
 export function chunkAutoConsumeBatch<T extends { id: string; amount: string }>(
   notes: readonly T[],
   verificationBaseFee: number | null
 ): T[][] {
+  if (verificationBaseFee === null) return [];
   const chunks = chunkNotesForClaim(notes);
   if (chunks.length <= 1) return chunks;
   return chunks.filter(chunk =>
@@ -159,6 +161,10 @@ export const INVALID_NOTE_ERROR = 'Note is invalid';
 // without it is one the allocator refuses to bind.
 export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
   'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
+
+// Thrown before the row is queued: a bridged send signs only the request persisted for the note it records.
+export const BRIDGED_SEND_MISSING_REQUEST_ERROR =
+  'Bridged send has no persisted request for its recorded note, so it was not queued.';
 
 // A dApp's consume request whose note a dApp transaction holds: answering with that row would hand it another
 // transaction's id, outcome and output notes.
@@ -632,11 +638,12 @@ export class ProposalEffectRefusedError extends Error {
  * The signing-time guard stopped before reading the summary: this realm does not know the chain's verification fee
  * yet. Discovery failed, or the probe cooldown has not elapsed. A returned fee, 0 included, and a null the probe
  * found absent, are not this. The message avoids the words the transport reading matches on, so only this class
- * marks the failure an outage.
+ * marks the failure an outage. `displayMessage` is the localized sentence a row failed outside a Guardian proposal
+ * stage shows.
  */
 export class ProposalFeeUnknownError extends Error {
-  constructor() {
-    super('The chain fee is not known yet, so this proposal was not signed.');
+  constructor(readonly displayMessage: string) {
+    super('The chain fee is not known yet, so this transaction was not signed.');
     this.name = 'ProposalFeeUnknownError';
   }
 }
@@ -770,6 +777,12 @@ function classifyTransactionError(
     return CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR;
   }
   if (error instanceof ProposalEffectRefusedError) {
+    return error.displayMessage;
+  }
+  // A single-key write's signer refused before anything was signed. A Guardian row meets this only at its proposal
+  // stages, which keep the outage copy below. Read before the stage: a delegated attempt's local fallback can be
+  // refused while the row still reads the 'proving' its failed prove left.
+  if (error instanceof ProposalFeeUnknownError && stage !== 'creating-proposal' && stage !== 'signing-proposal') {
     return error.displayMessage;
   }
   // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.

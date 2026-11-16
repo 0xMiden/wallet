@@ -83,11 +83,11 @@ const MINT_BASE_UNITS = 100_000_000_000n;
 /**
  * The suite-wide test password. `CreatePassword.tsx` enables Continue only when
  * more than one of {8+ chars, mixed case, letters+digits, special char, 12+ chars}
- * holds AND the two fields match; `Test1234!` satisfies four of the five.
+ * holds AND the two fields match; `Test1234!Wallet` satisfies all five.
  */
-const PASSWORD = 'Test1234!';
+const PASSWORD = 'Test1234!Wallet';
 /** Longer than PASSWORD and different from it, so the mismatch branch is unambiguous. */
-const MISTYPED_PASSWORD = 'Test1234!typo';
+const MISTYPED_PASSWORD = 'Test1234!Wallettypo';
 
 test.describe('Onboarding — create', () => {
   test('I create a wallet from scratch and it works', async ({ walletA, midenCli, envConfig, steps, timeline }) => {

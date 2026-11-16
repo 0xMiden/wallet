@@ -7,6 +7,7 @@ export enum SettingsSelectors {
   RevealPrivateKeyButton = 'Settings/RevealPrivateKeyButton',
   RevealHotKeyButton = 'Settings/RevealHotKeyButton',
   KeysButton = 'Settings/KeysButton',
+  PasskeyUnlockButton = 'Settings/PasskeyUnlockButton',
   SpendingLimitsButton = 'Settings/SpendingLimitsButton',
   DevicesButton = 'Settings/DevicesButton',
   GuardianSettingsButton = 'Settings/GuardianSettingsButton',

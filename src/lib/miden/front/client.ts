@@ -54,6 +54,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeRegisterWalletFromHotKey = useWalletStore(s => s.registerWalletFromHotKey);
   const storeImportWalletFromClient = useWalletStore(s => s.importWalletFromClient);
   const storeUnlock = useWalletStore(s => s.unlock);
+  const platformUnlock = useWalletStore(s => s.platformUnlock);
   const storeCreateAccount = useWalletStore(s => s.createAccount);
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
@@ -74,7 +75,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeStartGuardianRecovery = useWalletStore(s => s.startGuardianRecovery);
   const storeImportAccount = useWalletStore(s => s.importAccount);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
-  const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeSignEvm = useWalletStore(s => s.signEvm);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
@@ -259,13 +259,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeUpdateSettings]
   );
 
-  const signData = useCallback(
-    async (publicKey: string, signingInputs: string) => {
-      return storeSignData(publicKey, signingInputs);
-    },
-    [storeSignData]
-  );
-
   const signTransaction = useCallback(
     async (publicKey: string, signingInputs: string) => {
       return storeSignTransaction(publicKey, signingInputs);
@@ -421,6 +414,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     registerWallet,
     registerWalletFromHotKey,
     unlock,
+    platformUnlock,
 
     createAccount,
     updateCurrentAccount,
@@ -445,7 +439,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     importWatchOnlyAccount,
     importMnemonicAccount,
     updateSettings,
-    signData,
     signTransaction,
     signEvm,
     getAuthSecretKey,
