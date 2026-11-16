@@ -35,6 +35,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import { installLandedTrapRetirement } from 'lib/miden/sdk/landed-trap-retirement';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { ConsumableNote } from 'lib/miden/types';
@@ -1801,6 +1802,350 @@ describe('generateTransaction - Guardian routing', () => {
     expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n, 'Public');
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
+  });
+
+  // The Guardian send above, with the client handed in, so a test can make its leaf or its result trap.
+  const runGuardianSend = async (txId: string, client: ReturnType<typeof makeClientApi>) => {
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+    return txStore.find(r => r.id === txId)!;
+  };
+
+  // The landed boundary starts after the leaf resolves: one that started inside it would retire this trap as landed.
+  it('Guardian send: a trap the leaf throws before its submit retires nothing under the landed rule', async () => {
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const client = makeClientApi(makeResult());
+    client.transactions.executeRequest.mockRejectedValueOnce(trap);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const row = await runGuardianSend('send-guardian-presubmit-trap', client);
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(retire).not.toHaveBeenCalled();
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Failed,
+        displayMessage: 'Failed',
+        error: 'RuntimeError: unreachable'
+      });
+      expect(row.transactionId).toBeUndefined();
+      expect(row.mayHaveSubmitted).toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it("Guardian send: a trap in the tail's tx-id read retires once under the row, with the trap itself, and records it landed", async () => {
+    const txId = 'send-guardian-landing-id-trap';
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const landed = makeResult();
+    let armed = false;
+    // Armed by the leaf's apply, its last await, so the tail's tx-id read is the first read that traps.
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw trap;
+        return landed.executedTransaction();
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const row = await runGuardianSend(txId, makeClientApi(result, apply));
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls[0]![0]).toBe(trap);
+      expect(retire.mock.calls[0]![1]).toBe(txId);
+      // The Guardian catch ends the rejection through its landed arm: the trap left no id to read.
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Sent' });
+      expect(row.error).toBeUndefined();
+      expect(row.transactionId).toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+      restore();
+    }
+  });
+
+  // A Failed Guardian send offers a Retry that builds a fresh proposal, a second payment (PR #2183).
+  it('a Guardian send whose tail throws after the leaf resolved is Completed through the Guardian landed arm', async () => {
+    const landed = makeResult();
+    let armed = false;
+    // Armed by the leaf's apply, its last await, so every read past the leaf fails.
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw new Error('result read');
+        return landed.executedTransaction();
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      const row = await runGuardianSend('send-guardian-tail-throw', makeClientApi(result, apply));
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Sent' });
+      expect(row.error).toBeUndefined();
+      const status = row.status;
+      const type = row.type;
+      if (status !== ITransactionStatus.Completed || type !== 'send') throw new Error('expected a completed send');
+      expect(isRequeueableTransaction({ status, type })).toBe(false);
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('a Guardian send whose tail throws and whose first Completed write aborts is retried and ends Completed', async () => {
+    const landed = makeResult();
+    let armed = false;
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw new Error('result read');
+        return landed.executedTransaction();
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    const where: jest.Mock = jest.requireMock('lib/miden/repo').transactions.where;
+    const plain = where.getMockImplementation()!;
+    let aborted = false;
+    where.mockImplementation((query: { id: string }) => {
+      const plainQuery = plain(query);
+      return {
+        ...plainQuery,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const row = txStore.find(r => r.id === query.id);
+          const probe: Record<string, unknown> | undefined = row && {
+            ...row,
+            stageTimestamps: { ...(row.stageTimestamps ?? {}) }
+          };
+          if (probe && !aborted && (fn(probe), probe.status === ITransactionStatus.Completed)) {
+            aborted = true;
+            throw Object.assign(new Error('Transaction aborted'), { name: 'AbortError' });
+          }
+          return plainQuery.modify(fn);
+        }
+      };
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      const row = await runGuardianSend('send-guardian-tail-write-abort', makeClientApi(result, apply));
+      expect(aborted).toBe(true);
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      const status = row.status;
+      const type = row.type;
+      if (status !== ITransactionStatus.Completed || type !== 'send') throw new Error('expected a completed send');
+      expect(isRequeueableTransaction({ status, type })).toBe(false);
+    } finally {
+      where.mockImplementation(plain);
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  // A Cancel during the id read finalizes the row before the landed arm. The id still has to land on that Failed row,
+  // and the arm must not write a second status over it.
+  const armIdReadThatFailsTheRow = (txId: string) => {
+    const landed = makeResult();
+    let armed = false;
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        const executed = landed.executedTransaction();
+        if (!armed) return executed;
+        return {
+          ...executed,
+          id: () => ({
+            toHex: () => {
+              const row = txStore.find(r => r.id === txId);
+              if (row) {
+                row.status = ITransactionStatus.Failed;
+                row.cancelledInFlightAt = 1;
+              }
+              return 'exec-tx-hash';
+            }
+          })
+        };
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    return { result, apply };
+  };
+
+  it('a Guardian send whose tail throws after the row is already Failed keeps Failed and records the landed id', async () => {
+    const txId = 'send-guardian-tail-already-failed';
+    const { result, apply } = armIdReadThatFailsTheRow(txId);
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      noteType: 'private',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result, apply)
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          noteType: 'private',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      const row = txStore.find(r => r.id === txId)!;
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.transactionId).toBe('exec-tx-hash');
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('a Guardian Epoch bridged-send whose tail throws after the row is already Failed records the landed id and does not cancel again', async () => {
+    const txId = 'bridge-guardian-tail-already-failed';
+    const { result, apply } = armIdReadThatFailsTheRow(txId);
+    const transaction = {
+      id: txId,
+      type: 'bridged-send',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: new Uint8Array([54, 55, 56]),
+      approvedOutputNoteIds: ['note:recorded'],
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200,
+        reclaimNoteId: 'note-stamped'
+      },
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => new Uint8Array([54, 55, 56]) });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-already-failed-proposal', nonce: 11 },
+        requestBytes: new Uint8Array([141, 142, 143])
+      })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: Object.assign(makeClientApi(result, apply), {
+        sync: jest.fn(async () => ({ blockNum: () => 100 }))
+      })
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await generateTransaction(
+        transaction as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      const row = txStore.find(r => r.id === txId)!;
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.transactionId).toBe('exec-tx-hash');
+      // The id read already failed the row. A second cancel is the one `clearCancelledInFlight` runs on the way in.
+      expect(row.cancelledInFlightAt).toBe(1);
+      expect(warnSpy.mock.calls.filter(call => String(call[0]).includes('[cancelTransaction] ignored'))).toEqual([]);
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
   });
 
   const arrangeTipSend = (blockNumbers = [42], syncHeight = 100) => {
@@ -13577,6 +13922,127 @@ describe('generateTransaction - Guardian routing', () => {
     expect(row.transactionId).toBe('exec-tx-hash');
   });
 
+  // The completion relayed the note and recorded it before a later read threw, so the landed arm must read the stored
+  // row: the in-memory one predates the relay and would label the delivered note undelivered (PR #2183).
+  it('a Guardian execute whose tail relays its note and then throws keeps the note relayed', async () => {
+    const txId = 'execute-tail-relayed';
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createCustomProposal: jest.fn(async () => ({ id: 'prop-execute' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    // No `assets()`, so the result's own interpretation throws after the relay.
+    const relayedNote = {
+      id: () => ({ toString: () => 'relayed-note' }),
+      metadata: () => ({ noteType: () => NoteType.Private }),
+      intoFull: () => ({ __note: 'relayed-note' })
+    };
+    const result = Object.assign(makeResult(), {
+      executedTransaction: () => ({
+        ...makeResult().executedTransaction(),
+        outputNotes: () => ({ notes: () => [relayedNote] })
+      })
+    });
+    const sendPrivateNote = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      sendPrivateNote,
+      client: makeClientApi(result)
+    });
+    const queued = {
+      id: txId,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4]),
+      secondaryAccountId: 'recipient'
+    };
+    txStore.push({ ...queued, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await generateTransaction(
+        { ...queued, delegateTransaction: false } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(sendPrivateNote).toHaveBeenCalledTimes(1);
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Completed,
+        noteDelivery: 'relayed',
+        displayMessage: 'Executed'
+      });
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  // No Guardian landed verdict names this type, and the arms below the landed check would requeue or fail a write the
+  // node already holds, so a landed tail of any value type is recorded Completed (PR #2183).
+  it('a Guardian row of a type with no named landed verdict whose tail throws is Completed, never falling through', async () => {
+    const txId = 'bridged-receive-tail-throw';
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createCustomProposal: jest.fn(async () => ({ id: 'prop-execute' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    const landed = makeResult();
+    let armed = false;
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw new Error('result read');
+        return landed.executedTransaction();
+      }
+    };
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result, apply)
+    });
+    const queued = {
+      id: txId,
+      type: 'bridged-receive',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4])
+    };
+    txStore.push({ ...queued, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await generateTransaction(
+        { ...queued, delegateTransaction: false } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.error).toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   // #1233: the retry asks the pipeline's own hold before it touches the client again. The store
   // still holds the initial account, so only the hold check can stop the second apply.
   it('Guardian send: an apply whose hold is lost after the first failure is not applied again (#1233)', async () => {
@@ -14679,6 +15145,43 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
     expect(row.displayMessage).toBe('Account secured');
   });
 
+  it('completes without the result fields when reading them traps, and still clears the cache and re-registers', async () => {
+    const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    const trap = new WebAssembly.RuntimeError('executed-transaction');
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await expect(
+        completeUpdateProcedureThresholdTransaction(
+          tx,
+          {
+            ...makeResult(),
+            executedTransaction: () => {
+              throw trap;
+            }
+          } as never,
+          { reRegisterCurrentStateOnGuardian } as never
+        )
+      ).resolves.toBeUndefined();
+    } finally {
+      warn.mockRestore();
+      restore();
+    }
+
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(retire).toHaveBeenCalledWith(trap, tx.id);
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Account secured');
+    expect(row.transactionId).toBeUndefined();
+    expect(row.resultBytes).toBeUndefined();
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+  });
+
   it('clears the cache and re-registers without waiting on the account list', async () => {
     const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
@@ -14874,6 +15377,71 @@ describe('generateTransaction - direct switch, discarded transaction', () => {
     expect(row.mayHaveSubmitted).toBe(true);
     expect(row.extraInputs).toMatchObject({ nodeDiscarded: true });
     expect(isUnconfirmedFailure(row as never)).toBe(false);
+  });
+});
+
+describe('generateTransaction - direct switch, a trap past submit', () => {
+  it("a trap in the direct switch's first post-submit read retires once under the row", async () => {
+    const txId = 'switch-guardian-direct-post-submit-trap';
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const landed = makeResult();
+    let armed = false;
+    // Armed by the leaf's last await, so the first read past the leaf traps.
+    const result = {
+      ...landed,
+      executedTransaction: () => {
+        if (armed) throw trap;
+        return landed.executedTransaction();
+      }
+    };
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const apply = jest.fn(async () => {
+      armed = true;
+    });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(result, apply)
+    });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(retire.mock.calls).toEqual([[trap, txId]]);
+    } finally {
+      restore();
+    }
   });
 });
 
