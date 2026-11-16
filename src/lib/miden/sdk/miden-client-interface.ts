@@ -392,7 +392,10 @@ type LeafStage = (stage: ITransactionStage, detail?: StageDetail) => Promise<voi
 interface StagedSubmit {
   /** Runs just before the submit; a throw stops the write before it. */
   beforeSubmit?: () => void;
-  /** A swap's order, read off its request before the execute, for the landed facts (`applyAfterSubmit`). */
+  /**
+   * A swap's order, read off its request before the execute, for the 'submitting' stamp's evidence and the landed facts
+   * (`applyAfterSubmit`).
+   */
   requestOrder?: RequestOrder;
 }
 
@@ -2257,7 +2260,7 @@ export class MidenClientInterface {
     // Read under the hold that executed and proved it, before the stamp, so the evidence rides the stamp (#1081).
     if (onStage) {
       await onStage('submitting', {
-        evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
+        evidence: { ...readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent()), ...requestOrder }
       });
     }
     if (beforeSubmit && attempt.evicted()) {
@@ -2319,9 +2322,14 @@ export class MidenClientInterface {
         : executed.prove({ prover })
     );
     recordProveTiming(`${write} staged: prove returned; submitting`);
+    // A swap's order rides the stamp too, a plain value read before the execute: the only record of it a landing that
+    // cannot read the result has, since a single-key swap saves no request.
     if (onStage) {
       await onStage('submitting', {
-        evidence: readSubmitEvidence(executed.result, proven.proof, () => attempt.holdIsCurrent())
+        evidence: {
+          ...readSubmitEvidence(executed.result, proven.proof, () => attempt.holdIsCurrent()),
+          ...requestOrder
+        }
       });
     }
     // The prove and the stage stamp both park, and an eviction during either hands the client to a

@@ -210,7 +210,8 @@ import {
   landedTailErrorIn,
   recordedSwapOrder,
   requestOrderOf,
-  type RequestOrder
+  type RequestOrder,
+  submittedSwapOrder
 } from '../sdk/apply-after-submit';
 import {
   accountRefToSdk,
@@ -1215,9 +1216,26 @@ const landedFactsOf = (error: unknown): LandedWithoutResult => {
 };
 
 /**
- * The order a landing holds on `row`, the row as its write finds it: the one the landed facts read, else, on a row
- * holding no order of a landing yet, the one its saved request recorded beside the bytes stored with it. None for a
- * row that already holds its own order, which the completion that stamped it read off the result.
+ * `facts` as the landing of `attemptId` knows them on `row`, the row as its write finds it: when they name no order, the
+ * one that attempt's 'submitting' stamp recorded, which a single-key swap's leaf read off its request before the
+ * submit. A single-key swap saves no request, so a landing that read nothing off the result (a trap, an offscreen
+ * result that did not serialize) has no other record of its order.
+ */
+const withSubmittedOrder = (
+  row: ITransaction,
+  facts: LandedWithoutResult,
+  attemptId: string | undefined
+): LandedWithoutResult => {
+  if (row.type !== 'swap' || facts.orderId !== undefined || attemptId === undefined) return facts;
+  const order = submittedSwapOrder(row.submitEvidence, entry => entry.attemptId === attemptId);
+  return order === undefined ? facts : { ...facts, ...order };
+};
+
+/**
+ * The order a landing holds on `row`, the row as its write finds it: the one the landed facts read or the landing
+ * attempt's stamp recorded, else, on a row holding no order of a landing yet, the one its saved request recorded beside
+ * the bytes stored with it. None for a row that already holds its own order, which the completion that stamped it read
+ * off the result.
  */
 const landingOrderOf = (
   row: ITransaction,
@@ -1236,16 +1254,19 @@ const landingOrderOf = (
  * still names the transaction, and hold a swap's order beside it. Guard-free like `markMayHaveSubmitted`:
  * the cancel that follows is what makes the row terminal, and a Cancel or the reaper that finalizes the
  * row before its Completed write lands still leaves both. Each fact is recorded without the other, since
- * they are separate reads. An order the facts do not name can be the one the row's saved request recorded
- * (`landingOrderOf`), anchored at this landing like a read one. A failed write is logged, never thrown: the
- * store that just failed the apply can fail this one too, and the cancel is what releases the awaiting caller.
+ * they are separate reads. An order the facts do not name can be the one the landing attempt's stamp
+ * recorded (`withSubmittedOrder`) or the row's saved request recorded (`landingOrderOf`), anchored at this
+ * landing like a read one. A failed write is logged, never thrown: the store that just failed the apply can
+ * fail this one too, and the cancel is what releases the awaiting caller.
  */
-const recordLandedFacts = async (txId: string, error: unknown): Promise<void> => {
-  const { transactionId, orderId, orderNoteId } = landedFactsOf(error);
+const recordLandedFacts = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
+  const facts = landedFactsOf(error);
+  const { transactionId } = facts;
   const landedAt = Math.floor(Date.now() / 1000); // seconds
   // Facts that name nothing still reach the row: a trap leaves them empty, and the recorded order is on the row.
   try {
     await Repo.transactions.where({ id: txId }).modify(row => {
+      const { orderId, orderNoteId } = withSubmittedOrder(row, facts, attemptId);
       const order = landingOrderOf(row, orderId, orderNoteId);
       if (transactionId === undefined && order === undefined) return false;
       if (transactionId !== undefined) row.transactionId = transactionId;
@@ -1318,10 +1339,15 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
  * an IndexedDB abort under contention recurs at once and then clears, and a row left in progress is reaped into Failed,
  * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
  * recorded and the order the landed record held are kept, and a row another writer finalized is left alone. The
- * failure's own order facts stand in for a landed record that did not commit. Returns the row as read before the
- * write that landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
+ * failure's own order facts, else the order the landing attempt's stamp recorded, stand in for a landed record that
+ * did not commit. Returns the row as read before the write that landed, whose stage is still the one the tail stopped
+ * at, or undefined when no write landed.
  */
-const writeLandedCompleted = (txId: string, error: unknown): Promise<ITransaction | undefined> =>
+const writeLandedCompleted = (
+  txId: string,
+  error: unknown,
+  attemptId: string | undefined
+): Promise<ITransaction | undefined> =>
   writeCommittedCompleted(
     txId,
     row => {
@@ -1329,7 +1355,9 @@ const writeLandedCompleted = (txId: string, error: unknown): Promise<ITransactio
       return {
         ...landedRowFields(row, error),
         completedAt,
-        ...(row.type === 'swap' ? completedSwapFields(row, completedAt, landedFactsOf(error)) : {})
+        ...(row.type === 'swap'
+          ? completedSwapFields(row, completedAt, withSubmittedOrder(row, landedFactsOf(error), attemptId))
+          : {})
       };
     },
     'landed'
@@ -1734,7 +1762,7 @@ const settleLandedStructuralRow = async (
  * budget, and a row it cannot read stops as a missing one does.
  */
 const settleLandedValueRow = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
-  await recordLandedFacts(txId, error);
+  await recordLandedFacts(txId, error, attemptId);
   const tx = await readRowWithinTerminalBudget(txId, 'landed');
   if (tx === undefined) return;
   // The Guardian catch settles both landed shapes of a structural row before they reach here
@@ -1759,7 +1787,7 @@ const settleLandedValueRow = async (txId: string, error: unknown, attemptId: str
   console.warn(`A submit landed but ${landedFailureText(error)} - marking Completed; sync will reconcile:`, error);
   // From the stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there. A row that
   // has left the queue is left as it is, including the id stamped above.
-  const written = await writeLandedCompleted(txId, error);
+  const written = await writeLandedCompleted(txId, error, attemptId);
   if (written) reportLandedTail(written, error);
   if (tx.type === 'consume') await adoptLandedConsume(tx.id);
 };

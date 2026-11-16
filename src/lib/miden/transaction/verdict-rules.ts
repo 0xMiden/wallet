@@ -232,11 +232,12 @@ export interface EvidencePatch {
 }
 
 /**
- * Upsert the entry of `attemptId` (#1081). Evidence fills what the entry lacks; an id never changes once set, because
- * an attempt submits at most one transaction and its stamp precedes any error text about it, so evidence naming
- * another id is a contradiction: logged, not recorded. The first end wins, and `fromExecute` and `preSubmitEnd` are
- * sticky. `raisedFlag` is honoured only when the pin creates the entry. A pre-submit end drops a kept mark an outside
- * end left, since the leaf that proves it abandons that candidate itself; a keep that follows records it again.
+ * Upsert the entry of `attemptId` (#1081). Evidence fills what the entry lacks, a swap's order as a pair; an id never
+ * changes once set, because an attempt submits at most one transaction and its stamp precedes any error text about it,
+ * so evidence naming another id is a contradiction: logged, not recorded. The first end wins, and `fromExecute` and
+ * `preSubmitEnd` are sticky. `raisedFlag` is honoured only when the pin creates the entry. A pre-submit end drops a
+ * kept mark an outside end left, since the leaf that proves it abandons that candidate itself; a keep that follows
+ * records it again.
  */
 export function upsertEvidenceEntry(
   entries: readonly ISubmitEvidence[] | undefined,
@@ -280,6 +281,16 @@ export function upsertEvidenceEntry(
   }
   if (next.expirationBlock === undefined && evidence.expirationBlock !== undefined) {
     next.expirationBlock = evidence.expirationBlock;
+  }
+  // Both or neither, so an order and a note never come from two stamps.
+  if (
+    next.orderId === undefined &&
+    next.orderNoteId === undefined &&
+    evidence.orderId !== undefined &&
+    evidence.orderNoteId !== undefined
+  ) {
+    next.orderId = evidence.orderId;
+    next.orderNoteId = evidence.orderNoteId;
   }
   if (next.guardianProposalNonce === undefined && patch.guardianProposalNonce !== undefined) {
     next.guardianProposalNonce = patch.guardianProposalNonce;

@@ -19,6 +19,7 @@ import {
   rethrowTrapOrKill
 } from './sdk-error-code';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
+import type { ISubmitEvidence } from '../db/types';
 import { toNoteTypeString } from '../helpers';
 import { NoteTypeEnum } from '../types';
 
@@ -290,6 +291,28 @@ export function recordedSwapOrder(extraInputs: unknown): RequestOrder | undefine
   return wholeOrder(
     landedOrderFacts('orderId' in record ? record.orderId : undefined, 'noteId' in record ? record.noteId : undefined)
   );
+}
+
+/**
+ * The order the submit evidence of the `matches` attempts recorded (`orderId`, `orderNoteId`), which a single-key
+ * swap's leaf read off its request before the submit. Undefined unless one well-formed pair is named and every matching
+ * entry that names an order names that one.
+ */
+export function submittedSwapOrder(
+  entries: readonly ISubmitEvidence[] | undefined,
+  matches: (entry: ISubmitEvidence) => boolean
+): RequestOrder | undefined {
+  let named: RequestOrder | undefined;
+  for (const entry of entries ?? []) {
+    if (!matches(entry) || (entry.orderId === undefined && entry.orderNoteId === undefined)) continue;
+    const order = wholeOrder(landedOrderFacts(entry.orderId, entry.orderNoteId));
+    if (order === undefined) return undefined;
+    if (named !== undefined && (named.orderId !== order.orderId || named.orderNoteId !== order.orderNoteId)) {
+      return undefined;
+    }
+    named = order;
+  }
+  return named;
 }
 
 /** Fails closed: an evicted hold, a missing or unreadable account, or any other commitment refuses. */

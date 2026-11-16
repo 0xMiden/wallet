@@ -32,6 +32,7 @@ import { submitApproach } from './submit-approach-diagnostics';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+import { submittedSwapOrder } from '../sdk/apply-after-submit';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { normalizeHex } from '../sdk/submit-evidence';
 
@@ -236,6 +237,7 @@ async function writeLanding(
     const freshRows = await accountRowsOf(fresh);
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
+    // A single-key swap saves no request, so its order is the one the landed attempt's stamp recorded.
     applyVerifiedLanding(
       fresh,
       {
@@ -243,7 +245,8 @@ async function writeLanding(
         ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
         completedAt: fresh.completedAt
       },
-      sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined
+      (sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined) ??
+        submittedSwapOrder(fresh.submitEvidence, entry => entry.attemptId === landing.attemptId)
     );
     const target = recordLandedDeliveryTarget(fresh, landing);
     await Repo.transactions.put(fresh);

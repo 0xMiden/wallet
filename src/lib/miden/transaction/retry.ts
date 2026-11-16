@@ -53,6 +53,8 @@ import {
   nextQueuedSeq,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
+import { submittedSwapOrder } from '../sdk/apply-after-submit';
+import { normalizeHex } from '../sdk/submit-evidence';
 
 /**
  * Types whose failed row can simply be re-queued through the FIFO loop.
@@ -408,7 +410,8 @@ const planRequeue = async (
       const verifiedId = tx.transactionId;
       let target: string[] | undefined;
       // A swap that holds no order opens the one its saved request names. Decoded before the write, which
-      // cannot await the lock, and passed only while the fresh row still holds those bytes.
+      // cannot await the lock, and passed only while the fresh row still holds those bytes. A single-key swap saves no
+      // request, so its order is the one the verified transaction's attempt recorded on its stamp.
       const decodedBytes = tx.requestBytes;
       const savedOrder =
         tx.type === 'swap' && swapOpensOrderFromRead(tx) ? await orderFromSavedRequest(decodedBytes) : undefined;
@@ -421,7 +424,14 @@ const planRequeue = async (
         applyVerifiedLanding(
           fresh,
           { ...verifiedLandingRowFields(fresh), completedAt },
-          sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined
+          (sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined) ??
+            submittedSwapOrder(
+              fresh.submitEvidence,
+              entry =>
+                verifiedId !== undefined &&
+                entry.transactionId !== undefined &&
+                normalizeHex(entry.transactionId) === normalizeHex(verifiedId)
+            )
         );
         target =
           verifiedId === undefined ? undefined : recordLandedDeliveryTarget(fresh, { boundTransactionId: verifiedId });

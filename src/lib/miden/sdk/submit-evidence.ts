@@ -1,6 +1,7 @@
 // What an attempt's leaf reads off its executed and proven transaction immediately before it submits (#1081), and
 // the service worker's parser for the copy that crosses the offscreen bus. Synchronous and total but for a trap: each
 // field is read in its own try, and an unreadable field is left out, which only keeps the entry from being provable.
+import { landedOrderFacts } from './sdk-error-code';
 import { isWasmTrap } from './wasm-handle';
 import type { SubmitEvidenceFields } from '../db/types';
 
@@ -118,7 +119,8 @@ const readWords = (value: unknown): string[] | undefined | null => {
 
 /**
  * Evidence as it crossed the offscreen bus, or undefined when there is none or any field is malformed. The caller
- * still records the crossing then, as an evidence-less entry that can only hold a row back from "safe".
+ * still records the crossing then, as an evidence-less entry that can only hold a row back from "safe". A swap's order
+ * is a landed fact, not verdict evidence: it is kept only as a well-formed pair, and one that is not costs only itself.
  */
 export function parseSubmitEvidence(value: unknown): SubmitEvidenceFields | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
@@ -157,6 +159,11 @@ export function parseSubmitEvidence(value: unknown): SubmitEvidenceFields | unde
     if (refBlock !== undefined) evidence.refBlock = refBlock;
     if (refBlockCommitment !== undefined) evidence.refBlockCommitment = refBlockCommitment;
     if (expirationBlock !== undefined) evidence.expirationBlock = expirationBlock;
+    const order = landedOrderFacts(Reflect.get(value, 'orderId'), Reflect.get(value, 'orderNoteId'));
+    if (order.orderId !== undefined && order.orderNoteId !== undefined) {
+      evidence.orderId = order.orderId;
+      evidence.orderNoteId = order.orderNoteId;
+    }
     return evidence;
   } catch {
     return undefined;
