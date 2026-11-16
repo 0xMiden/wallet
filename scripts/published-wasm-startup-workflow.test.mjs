@@ -512,9 +512,9 @@ function publishedProbeCaseCalls(spec) {
   for (let i = 0; i < code.length; i += 1) {
     if (!code.startsWith('test', i)) continue;
     const before = i === 0 ? '' : code[i - 1];
+    if (/[A-Za-z0-9_$]/.test(code[i + 4] ?? '')) continue;
     assert.ok(i < 3 || code.slice(i - 3, i) !== '...', failure);
     if (before !== '' && /[A-Za-z0-9_.]/.test(before)) continue;
-    if (/[A-Za-z0-9_$]/.test(code[i + 4] ?? '')) continue;
     const j = skipWs(i + 4);
     if (code[j] === '(') {
       calls.push(['test', readTitle(j)]);
@@ -564,7 +564,7 @@ test('published-wasm selection guard rejects extra, aliased, focused or reordere
   const spec = readFileSync(specPath, 'utf8');
   const first = 'published archive cold startup completes packaged WASM and reaches onboarding';
   const second = 'published archive binary fetch failure recovers only after Try Again reloads the document';
-  for (const comment of ['// test("not selected", async () => {});', '/* test("not selected", async () => {}); */', `const displayText = 'test("not selected", async () => {});';`, `const commentText = '/* harmless */';`]) {
+  for (const comment of ['// test("not selected", async () => {});', '/* test("not selected", async () => {}); */', `const displayText = 'test("not selected", async () => {});';`, `const commentText = '/* harmless */';`, 'const testOptions = {}; const copied = { ...testOptions };']) {
     assert.doesNotThrow(() => assertSelectedCases(text, `${spec}\n${comment}\n`));
   }
   const mutants = [
