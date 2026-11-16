@@ -16,11 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Bind original qualified application and audit-only overlay
         run: |
-          test "$(git rev-parse HEAD^)" = aa6bc317ef2f17f7771a772e1e88d5f1172c616f
-          test "$(git diff --name-only HEAD^ HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/recovery-zero-private.spec.ts scripts/recovery-zero-public.mjs)"
+          test "$(git merge-base aa6bc317ef2f17f7771a772e1e88d5f1172c616f HEAD)" = aa6bc317ef2f17f7771a772e1e88d5f1172c616f
+          test "$(git diff --name-only aa6bc317ef2f17f7771a772e1e88d5f1172c616f HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/recovery-zero-private.spec.ts scripts/recovery-zero-public.mjs)"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -99,7 +99,7 @@ jobs:
           E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/recovery-zero-private" xvfb-run -a yarn playwright test recovery-zero-private.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/recovery-zero-private.log" 2>&1 || code=$?
           node --input-type=module <<'NODE'
           import {existsSync,readFileSync} from 'node:fs';
-          for(const file of ['test-results/recovery-zero-private-status.json','test-results/recovery-zero-private-audit.json'])if(existsSync(file))console.log(JSON.stringify(JSON.parse(readFileSync(file,'utf8'))));
+          for(const file of ['test-results/recovery-zero-private-status.json','test-results/recovery-zero-private-audit.json','test-results/recovery-readonly-diagnostic.json'])if(existsSync(file))console.log(JSON.stringify(JSON.parse(readFileSync(file,'utf8'))));
           NODE
           exit "$code"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -109,3 +109,4 @@ jobs:
           path: |
             test-results/recovery-zero-private-status.json
             test-results/recovery-zero-private-audit.json
+            test-results/recovery-readonly-diagnostic.json

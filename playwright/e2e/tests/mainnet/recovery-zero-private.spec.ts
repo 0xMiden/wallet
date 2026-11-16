@@ -8,6 +8,10 @@ import { vaultBalanceByFaucetId } from '../../helpers/balance-truth';
 import { loadMainnetEpochCheckpoint } from '../../helpers/mainnet-epoch-checkpoint';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { loadMainnetNearCheckpoint } from '../../helpers/mainnet-near-checkpoint';
+import { verifyUnstartedNearForward } from '../../helpers/mainnet-near-runtime';
+import { fetchOneClickStatus } from '../../../../src/lib/one-click/client';
+import { hashOneClickQuote } from '../../../../src/lib/one-click/signature';
+import { createMainnetOneClickOriginFetcher } from '../../helpers/mainnet-one-click-origin';
 import { loadMainnetSwapCheckpoint } from '../../helpers/mainnet-swap-checkpoint';
 
 const paths = ['test-results/fresh/roundtrip.json', 'test-results/final/roundtrip.json', 'test-results/near/roundtrip.json', 'test-results/original-near/roundtrip.json'];
@@ -19,6 +23,35 @@ test.afterEach(async ({}, info) => {
     errorSha256: info.error ? createHash('sha256').update(info.error.message ?? 'unknown').digest('hex') : undefined,
     errorSite: info.error?.stack?.match(/recovery-zero-private\.spec\.ts:\d+:\d+/)?.[0]
   }));
+});
+
+test('read-only diagnosis of the original unsigned NEAR live verification', async ({walletB}) => {
+  test.setTimeout(600_000);
+  const before=hashes();
+  assert.equal(before[3],'d2283bdd2372696ebe109c6b31ce5190ac7b29be07901e2ede142ba8c1f18524');
+  const original=loadMainnetNearCheckpoint(paths[3]!); assert.ok(original?.forwardQuote);
+  await restoreMainnetLoopGuardian(walletB,process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR ?? '');
+  const report: Record<string,unknown>={purpose:'read-only original source verification diagnosis, no new grant/sign/broadcast/checkpoint mutation',sameGuardian:(await walletB.getAccountAddress())===original.account};
+  try {await verifyUnstartedNearForward(walletB,original);report.originalVerifierPassed=true;}
+  catch(error) {
+    report.originalVerifierPassed=false;
+    if(error instanceof Error) {report.errorClass=error.name;report.errorSha256=createHash('sha256').update(error.message).digest('hex');report.errorSite=error.stack?.match(/(?:mainnet-near-runtime|client|mainnet-one-click-origin)\.ts:\d+:\d+/)?.[0];}
+  }
+  writeFileSync('test-results/recovery-readonly-diagnostic.json',JSON.stringify(report));
+  report.privateNativeBeforeSync=(await vaultBalanceByFaucetId(walletB.page,original.native.faucetId)).toString();
+  await walletB.triggerSync(true);await walletB.refreshBalancesLanded(90_000);
+  report.privateNativeAfterSync=(await vaultBalanceByFaucetId(walletB.page,original.native.faucetId)).toString();
+  report.originalNativeExpected=original.native.balance;
+  try {
+    const status=await fetchOneClickStatus({serviceUrl:original.serviceUrl,appFees:original.appFees,feePolicy:original.feePolicy,midenAssets:[{assetId:original.nativeAssetId,faucetId:original.native.faucetId,decimals:6}]},original.forwardQuote.depositAddress,undefined,undefined,createMainnetOneClickOriginFetcher(original.serviceUrl,walletB.extensionId));
+    report.providerStatus=status.status;report.canonicalQuoteHashMatched=hashOneClickQuote(status.quoteResponse)===original.forwardQuote.quoteHash;
+    report.correlationMatched=status.quoteResponse.correlationId===original.forwardQuote.correlationId;
+    report.depositReferenceMatched=status.quoteResponse.quote.depositAddress===original.forwardQuote.depositAddress;
+    report.depositMemoPresent=status.quoteResponse.quote.depositMemo!==undefined;
+    report.intentCount=status.swapDetails.intentHashes.length;report.originTxCount=status.swapDetails.originChainTxHashes.length;report.destinationTxCount=status.swapDetails.destinationChainTxHashes.length;report.nearTxCount=status.swapDetails.nearTxHashes.length;report.depositedAmount=status.swapDetails.depositedAmount;
+  } catch(error) {if(error instanceof Error){report.providerErrorClass=error.name;report.providerErrorSha256=createHash('sha256').update(error.message).digest('hex');report.providerErrorSite=error.stack?.match(/(?:mainnet-near-runtime|client|mainnet-one-click-origin)\.ts:\d+:\d+/)?.[0];}}
+  assert.deepEqual(hashes(),before);report.checkpointsUnchanged=true;
+  writeFileSync('test-results/recovery-readonly-diagnostic.json',JSON.stringify(report));
 });
 
 test('independently reconcile original private holdings after unsigned NEAR recovery', async ({ walletB }) => {
