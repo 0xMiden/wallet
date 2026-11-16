@@ -1,9 +1,15 @@
+import isEqual from 'fast-deep-equal';
 import { isHash } from 'viem';
 
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
 import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { walletBridgeProvider } from 'lib/bridge/core/provider';
-import { bridgeOperationOf, claimBridgeSourceAttempt, hasBridgeOperation } from 'lib/bridge/operation';
+import {
+  assertBridgeOperationCurrent,
+  bridgeOperationOf,
+  claimBridgeSourceAttempt,
+  hasBridgeOperation
+} from 'lib/bridge/operation';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
@@ -514,11 +520,26 @@ export function createBridgeReceiveReconciler({
             )
               return;
             // Epoch's existing store is its irreversible source owner; claiming here as well would suppress its first solve.
-            if (
-              inputs.provider !== 'epoch' &&
-              (await claimBridgeSourceAttempt(operation.operationId, operation.revision)) !== 'claimed'
-            )
-              return;
+            if (inputs.provider !== 'epoch') {
+              if ((await claimBridgeSourceAttempt(operation.operationId, operation.revision)) !== 'claimed') return;
+              const claimedRow = await Repo.transactions.get(txId);
+              const claimed = claimedRow && bridgeOperationOf(claimedRow);
+              const claimedInputs: IBridgedReceiveExtraInputs | undefined = claimedRow?.extraInputs;
+              if (
+                !claimedRow ||
+                !claimed ||
+                claimed.operationId !== operation.operationId ||
+                claimed.revision === operation.revision ||
+                claimed.sourceAttempt?.phase !== 'running' ||
+                !isEqual(claimed.review, operation.review) ||
+                !isEqual(claimed.walletScope, operation.walletScope) ||
+                claimedInputs?.phase !== 'submitting' ||
+                claimedInputs.evmTxHash ||
+                claimedInputs.intentNonce
+              )
+                return;
+              assertBridgeOperationCurrent(claimedRow, claimed);
+            }
           }
           await drive(txId);
         } catch (error) {
