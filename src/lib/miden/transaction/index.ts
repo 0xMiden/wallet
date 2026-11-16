@@ -123,6 +123,7 @@ import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   isGuardianOutage,
   isNodeOutage,
+  ProposalEffectRefusedError,
   ProposalFeeUnknownError,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
@@ -1464,13 +1465,44 @@ const assertEarnDepositIntentLive = async (transaction: ITransaction): Promise<v
 };
 
 /**
- * An Earn deposit's precondition for both leaves: its intent is still live and the row carries the collateral request
- * built at initiate, which is returned. Nothing on the row can rebuild that request's mandate-binding attachment, so a
- * row without it fails here. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ * An Earn deposit's precondition for both leaves: its intent is still live, the collateral request built at initiate,
+ * and the one note recorded with those bytes, which are returned. Nothing on the row can rebuild that request's
+ * mandate-binding attachment, so a row without the bytes or without that one note fails here. A failure is before fee
+ * discovery and before the guardian service load, so an unknown chain fee or a guardian outage cannot requeue it.
  */
 const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promise<Uint8Array> => {
   await assertEarnDepositIntentLive(transaction);
   if (!transaction.requestBytes) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
+  if (transaction.approvedOutputNoteIds?.length !== 1) {
+    throw new ProposalEffectRefusedError(
+      transaction.type,
+      'the transaction has no recorded note of its own',
+      getMessage('proposalEffectRefused')
+    );
+  }
+  return transaction.requestBytes;
+};
+
+/**
+ * A bridged send's precondition for both leaves: the non-empty request stored on the row, and the one note recorded
+ * when those bytes were built. Signing may use only that pair. Bytes are judged first, so a row missing both names
+ * the bytes. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ */
+const requireBridgedSendRecordedRequest = (transaction: ITransaction): Uint8Array => {
+  if (!transaction.requestBytes?.length) {
+    throw new ProposalEffectRefusedError(
+      transaction.type,
+      'the transaction has no request bytes of its own',
+      getMessage('proposalEffectRefused')
+    );
+  }
+  if (transaction.approvedOutputNoteIds?.length !== 1) {
+    throw new ProposalEffectRefusedError(
+      transaction.type,
+      'the transaction has no recorded note of its own',
+      getMessage('proposalEffectRefused')
+    );
+  }
   return transaction.requestBytes;
 };
 
@@ -2038,9 +2070,8 @@ const generateTransactionWithProvider = async (
   // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op —
   // that would stall SW sync and block the reverse-IPC sign handler).
   //
-  // `bridged-send`/`earn-deposit` only wrap the SAME leaf writes (`newTransaction`
-  // for the pre-built request an Earn deposit and every current bridge row carry,
-  // send-style only for a legacy Epoch bridged-send row without one) with extra
+  // `bridged-send`/`earn-deposit` only wrap the SAME leaf write (`newTransaction`
+  // for the request an Earn deposit and every bridged send carry) with extra
   // pre/post orchestration; the pre-build (guardian
   // requestBytes freeze) and the completion handlers are untouched — only the LEAF
   // write moves offscreen. Funds-safety mirrors the moved send/execute exactly: a
@@ -2059,6 +2090,7 @@ const generateTransactionWithProvider = async (
   try {
     // Validate before fee discovery; keep the pre-write read because the intent can change during that await.
     if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
+    if (transaction.type === 'bridged-send') requireBridgedSendRecordedRequest(transaction);
     result = await withEffectCheckedSigner(transaction, signCallback, async signer => {
       switch (transaction.type) {
         case 'consume': {
@@ -2124,45 +2156,40 @@ const generateTransactionWithProvider = async (
           );
         }
         case 'bridged-send':
-        case 'earn-deposit':
-          // Agglayer bridged-send carries a pre-built B2AGG request; Epoch bridged-send
-          // + earn-deposit now ALSO carry pre-built request bytes - the P2IDE collateral
-          // note with the mandate-binding attachment (smallocator PR #38), built at
-          // initiate time by `buildEpochCollateralRequestBytes`. Route the leaf through
-          // the proxy so it runs offscreen flag-on, inline flag-off. The bare
-          // `sendTransaction` fallback is bridged-send only, for legacy rows queued
-          // before the binding migration: an Earn deposit without its bytes fails
-          // instead, since that fallback mints a note with no binding.
+        case 'earn-deposit': {
+          // Both carry the request built at initiate. A bridged send without its own bytes, or without the one note
+          // those bytes recorded, was refused before this signer. So was an Earn deposit without its bytes or without
+          // that one note, since nothing can rebuild its mandate binding.
           //
           // The abandoned-intent guard the Guardian leaf has must apply here too: this
           // shared block had none, so a non-Guardian account still minted the orphan
           // collateral note. An Epoch `bridged-send` is stopped by `requireBridgeSubmitClaim`
           // instead: its abandonment writes `status = Failed`, and a Failed row is never claimed.
-          if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
+          const requestBytes =
+            transaction.type === 'earn-deposit'
+              ? await requireEarnDepositRequestBytes(transaction)
+              : requireBridgedSendRecordedRequest(transaction);
           await requireBridgeSubmitClaim(transaction);
-          if (transaction.requestBytes) {
-            // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
-            // returned at the top of `generateTransaction`), and for a basic wallet miden-client
-            // injects `one_to_one` conversion info itself when the request's auth arg is unset - so
-            // these bytes were never actually failing for want of it. The annotation is kept so both
-            // leaves take one code path, and it is safe because the client returns early rather than
-            // colliding when an auth arg is already present, and the commitment built here is the
-            // same shape it would have built. Persisted because the commitment carries a fresh salt;
-            // the annotation is idempotent.
-            // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
-            const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-            const requestBytes = transaction.requestBytes;
-            return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-              midenClientProxy.newTransaction(
-                transaction.accountId,
-                requestBytes,
-                transaction.delegateTransaction,
-                signer,
-                attempt && stageStampFor(transaction.id, attempt)
-              )
-            );
-          }
-          return midenClientProxy.sendTransaction(transaction as SendTransaction, signer);
+          // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
+          // returned at the top of `generateTransaction`), and for a basic wallet miden-client
+          // injects `one_to_one` conversion info itself when the request's auth arg is unset - so
+          // these bytes were never actually failing for want of it. The annotation is kept so both
+          // leaves take one code path, and it is safe because the client returns early rather than
+          // colliding when an auth arg is already present, and the commitment built here is the
+          // same shape it would have built. Persisted because the commitment carries a fresh salt;
+          // the annotation is idempotent.
+          // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
+          const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+            midenClientProxy.newTransaction(
+              transaction.accountId,
+              requestBytes,
+              transaction.delegateTransaction,
+              signer,
+              attempt && stageStampFor(transaction.id, attempt)
+            )
+          );
+        }
         case 'execute':
         default: {
           // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
@@ -2380,8 +2407,7 @@ const consumeServiceFor = async (
 /**
  * Build (and persist for retry) the serialized P2IDE send-request bytes for a
  * Guardian recallable send. `createP2idProposal` can only mint a plain P2ID, so
- * any note that needs a reclaim height — a user "recall by" send, or an Epoch
- * bridge/allocator collateral note the solver validates on-chain — is built here
+ * a note that needs a reclaim height - a user "recall by" send - is built here
  * as a P2IDE send request and driven through `createCustomProposal` instead.
  *
  * The P2IDE note's serial number is random, so the request must be built ONCE and
@@ -2401,12 +2427,10 @@ const ensureGuardianRecallableSendRequestBytes = async (
   amount: bigint,
   noteType: NoteType,
   recallBlocks: number,
-  expirationDelta: number,
-  opts: { freshSync?: boolean } = {}
+  expirationDelta: number
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) {
-    // Pre-built bytes still need the fee auth. The Epoch (Fast) bridge route builds its request
-    // at INITIATE time (see initiate.ts), so this early return used to hand back a request with
+    // Pre-built bytes still need the fee auth. This early return used to hand back a request with
     // no conversion info and the proposal aborted with ERR_FEE_CONVERSION_INFO_MISSING -- the
     // fee auth attached below never ran for it.
     //
@@ -2422,40 +2446,14 @@ const ensureGuardianRecallableSendRequestBytes = async (
   // summary reproduces. Rebuilt only when nothing was broadcast; see PRE_SUBMIT_STAGES.
   const feeSalt = randomFeeSalt();
   const requestBytes = await withWasmClientLock(async hold => {
-    // `freshSync` (Epoch bridge collateral): the solver's allocator
-    // validates the note's REMAINING reclaim window against its own (later) chain
-    // head, so the absolute reclaim height must be measured against a CURRENT head
-    // — a stale cached height on a cold-started wallet could understate it below the
-    // allocator's minimum and get the note rejected. A network sync can fail, and
-    // that must NOT fail an otherwise-submittable request, so fall back to the
-    // last-synced height (the recall buffer absorbs mild lag). A plain recallable
-    // user send has no such validator, so it reads the cached height directly.
-    //
     // Routed through `midenClientProxy` (issue #260, slice 7a) so flag-ON the height
     // is read from the OFFSCREEN client that owns the canonical sync state; flag-OFF
-    // is byte-identical to the inline `getMidenClient().client.sync().blockNum()` /
-    // `.getSyncHeight()` this used to run (the proxy reads run under this caller lock).
-    let syncHeight: number;
-    if (opts.freshSync) {
-      try {
-        syncHeight = await midenClientProxy.getSyncHeight({ fresh: true });
-      } catch (syncError) {
-        // The failed fresh sync was itself a parking await (it runs a network
-        // sync), and the fallback below is another WASM read — if the watchdog
-        // evicted this hold while the sync parked, taking the fallback would be
-        // an unmutexed call into a client a successor now owns. The eviction
-        // outranks the sync failure as the reason to stop, so check it first.
-        assertWasmHoldCurrent(hold, 'guardian P2IDE build: before the fallback height read');
-        console.warn('[Guardian] fresh sync before P2IDE note build failed; using last-synced height', syncError);
-        syncHeight = await midenClientProxy.getSyncHeight();
-      }
-    } else {
-      syncHeight = await midenClientProxy.getSyncHeight();
-    }
-    // Every await above can park (the fresh sync by design, the plain read on the
-    // inline path), and an eviction ABANDONS this callback rather than stopping
-    // it — re-check ownership before the next WASM call. Strictly pre-submit
-    // (the bytes haven't even been built), so failing here costs one retry.
+    // is byte-identical to the inline `getMidenClient().client.getSyncHeight()` this
+    // used to run (the proxy reads run under this caller lock).
+    // The plain read can park on the inline path, and an eviction ABANDONS this callback
+    // rather than stopping it - re-check ownership before the next WASM call. Strictly
+    // pre-submit (the bytes haven't even been built), so failing here costs one retry.
+    const syncHeight = await midenClientProxy.getSyncHeight();
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the height read');
     // The sender's local account supplies the outgoing asset's vault key
     // (callback flag included) — see `buildSendTransactionRequest`.
@@ -4019,54 +4017,18 @@ const generateGuardianTransaction = async (
     }
     case 'bridged-send': {
       const bridgeTx = transaction as BridgedSendTransaction;
+      // The recorded request and its one note, before the service load, which can reach the guardian. The note id
+      // recorded at initiate stays the one signing is bound to after `proposeRebased` overwrites `requestBytes`.
+      const requestBytes = requireBridgedSendRecordedRequest(transaction);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
-      // Discriminate on the provider, NOT on `requestBytes` presence: the Epoch
-      // branch persists the P2IDE bytes it builds, so a retry would otherwise be
-      // mistaken for the Agglayer (pre-built request) path.
       if (bridgeTx.extraInputs?.provider === 'epoch') {
-        // The solver's allocator requires a recallable, PUBLIC P2IDE collateral
-        // note — it reads the note on-chain (a private note is "not found on-chain"),
-        // validates its recall window (a plain P2ID has none and is rejected,
-        // "P2IDE reclaim window too small"), AND requires the mandate-binding
-        // attachment (smallocator PR #38 — "Miden note is not bound to the intent
-        // mandate"). Rows queued by `createBridgeP2IDENote` carry the pre-built
-        // request (own output note with the attachment) in `requestBytes`, which
-        // `ensureGuardianRecallableSendRequestBytes` returns verbatim; its build
-        // path below is only a fallback for legacy attachment-less rows.
-        const recallBlocks = bridgeTx.extraInputs?.recallBlocks;
-        if (!recallBlocks) {
-          throw new Error(
-            'Epoch bridged-send is missing recallBlocks; cannot build the recallable P2IDE collateral note the allocator requires.'
-          );
-        }
-        const requestBytes = await ensureGuardianRecallableSendRequestBytes(
-          transaction,
-          bridgeTx.secondaryAccountId!,
-          bridgeTx.faucetId,
-          BigInt(bridgeTx.amount),
-          NoteType.Public,
-          recallBlocks,
-          GUARDIAN_EXPIRATION_DELTA_BLOCKS,
-          // Allocator-validated collateral: measure the reclaim height against a
-          // fresh chain head.
-          { freshSync: true }
-        );
         proposalResult = await withGuardianConflictRetry(() =>
           proposeRebased(service, transaction, requestBytes, 'bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       } else {
-        // Agglayer: preview the pre-built request into a custom multisig proposal.
-        // AggLayer route: also pre-built at initiate time, so it needs the same annotation.
-        const aggBytes = bridgeTx.requestBytes!;
-        if (aggBytes !== bridgeTx.requestBytes) {
-          transaction.requestBytes = aggBytes;
-          await Repo.transactions.where({ id: transaction.id }).modify(t => {
-            t.requestBytes = aggBytes;
-          });
-        }
         proposalResult = await withGuardianConflictRetry(() =>
-          proposeRebased(service, transaction, aggBytes, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
+          proposeRebased(service, transaction, requestBytes, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       }
       break;
@@ -4091,7 +4053,8 @@ const generateGuardianTransaction = async (
       // the pre-built P2IDE collateral request (own output note with the
       // mandate-binding attachment, smallocator PR #38) in `requestBytes`, and they
       // are proposed as they are, with the fee conversion salt declared when they
-      // were built. Checked before the service load, which can reach the guardian.
+      // were built. An Earn deposit without its bytes or without that one note is refused here, before
+      // `getOrCreateMultisigService`, which can reach the guardian.
       const requestBytes = await requireEarnDepositRequestBytes(transaction);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);

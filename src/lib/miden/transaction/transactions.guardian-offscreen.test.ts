@@ -583,6 +583,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '3',
       requestBytes: new Uint8Array([6, 6]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } }
     },
     complete: mockComplete.bridged
@@ -595,6 +596,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '3',
       requestBytes: new Uint8Array([3, 3]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'agglayer' }
     },
     complete: mockComplete.bridged
@@ -607,6 +609,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '5',
       requestBytes: new Uint8Array([4, 4]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 10 }
     },
     complete: mockComplete.earn
@@ -2272,6 +2275,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       faucetId: 'f',
       amount: '5',
       requestBytes: new Uint8Array([4, 4]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 10 }
     };
     arrange('on-earn-unauthorized', row);

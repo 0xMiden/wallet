@@ -9,7 +9,7 @@
  * in a store keyed by the bech32 ids `fetchBalances` produces (a miss silently
  * yields "Unknown" + the 6-decimal fallback, it never triggers a fetch), and
  * `matchesTokenId` compares `tx.faucetId === tokenId` verbatim against the bech32
- * id of the open token — so a hex id also drops the row out of that token's
+ * id of the open token - so a hex id also drops the row out of that token's
  * history entirely.
  */
 // Every `withExpirationDelta` the B2AGG build makes, in order (#1081).
@@ -42,11 +42,18 @@ let currentWasmHold: object | null = null;
 // The builder `feeAwareTransactionRequestBuilder` hands back. Since protocol 0.17 it carries the
 // three words of fee auth args a guarded (multisig) sender resolves, so the bridge note has to
 // land on THIS object; a fresh `TransactionRequestBuilder` would drop them.
+// A built request and the own notes it reports creating. The id is upper case to show the row records it as the
+// summary decode spells it.
+const mockOwnNote = (id = '0xB2A6') => ({ id: () => ({ toString: () => id }) });
+const mockBuiltRequest = (notes = [mockOwnNote()]) => ({
+  serialize: () => new Uint8Array([1, 2, 3]),
+  expectedOutputOwnNotes: () => notes
+});
 const mockFeeAwareBuilder = {
   withOwnOutputNotes: jest.fn(),
   withExpirationDelta: jest.fn(),
   withFeeConversionSalt: jest.fn(),
-  build: jest.fn(() => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
+  build: jest.fn(() => mockBuiltRequest())
 };
 const mockFeeAwareTransactionRequestBuilder = jest.fn(
   async (_account: string, _options: { feeConversionSalt: unknown }) => mockFeeAwareBuilder
@@ -57,7 +64,7 @@ const revokeWasmHold = () => {
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => currentWasmHold,
-  // Re-implements the real comparison against the mock's current hold — a no-op
+  // Re-implements the real comparison against the mock's current hold - a no-op
   // here would make the eviction test below vacuously green.
   assertWasmHoldCurrent: (hold: object | null, where: string) => {
     if (hold !== null && hold === currentWasmHold) return;
@@ -230,8 +237,9 @@ describe('initiateB2AggBridge', () => {
     expect(call[1]).toBe(250n);
     expect(call[2]).toBe(`mlcl1${MIDEN_AGGLAYER_FAUCET_ID.slice(2)}`);
     expect(call[5]).toBe('agglayer');
-    expect(call[6]).toEqual(new Uint8Array([1, 2, 3]));
-    expect(call[7]).toBe(true);
+    expect(call[6]).toBe('0xb2a6');
+    expect(call[7]).toEqual(new Uint8Array([1, 2, 3]));
+    expect(call[8]).toBe(true);
   });
 
   it('threads the exact spending-limit authorization to atomic row insertion', async () => {
@@ -255,7 +263,7 @@ describe('initiateB2AggBridge', () => {
       spendingLimitAuthorization
     });
 
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![9]).toBe(spendingLimitAuthorization);
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![10]).toBe(spendingLimitAuthorization);
   });
 
   // Since protocol 0.17 a guarded (multisig) sender needs three words of fee auth args, and
@@ -281,7 +289,7 @@ describe('initiateB2AggBridge', () => {
     expect(mockFeeAwareBuilder.build).toHaveBeenCalledTimes(1);
     expect(mockFeeAwareBuilder.withFeeConversionSalt).not.toHaveBeenCalled();
     expect(TransactionRequestBuilder).not.toHaveBeenCalled();
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![6]).toEqual(new Uint8Array([1, 2, 3]));
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![7]).toEqual(new Uint8Array([1, 2, 3]));
   });
 
   it('abandons the initiation when the WASM lock hold is evicted while the fee-aware builder resolves', async () => {
@@ -306,8 +314,8 @@ describe('initiateB2AggBridge', () => {
 
   // #788 follow-up: the awaited note build parks (the lazy SDK load), and an
   // eviction during it hands the mutex to a successor without stopping this
-  // callback. Everything in the hold is write PREP — the request is only built
-  // and serialized, submission happens later in the pipeline — so aborting is
+  // callback. Everything in the hold is write PREP - the request is only built
+  // and serialized, submission happens later in the pipeline - so aborting is
   // always safe, and it must abort BEFORE a row is queued: a queued row would
   // hand the abandoned request to the processor as a fresh write.
   it('abandons the initiation when the WASM lock hold is evicted during the note build', async () => {
@@ -362,7 +370,38 @@ describe('initiateB2AggBridge', () => {
     });
 
     expect(mockAgglayerExitTxHash).toHaveBeenCalledWith({ note: true });
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![10]).toBe('0xexit');
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![11]).toBe('0xexit');
+  });
+
+  // Signing may create only this note, so the row records the one note the request it queues creates.
+  it('records the id of the note the built request creates on the row', async () => {
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender',
+      guardianProvider
+    });
+
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![6]).toBe('0xb2a6');
+  });
+
+  it.each([
+    ['no note', []],
+    ['two notes', [mockOwnNote('0xB2A6'), mockOwnNote('0xOTHER')]]
+  ])('queues no row when the built request creates %s rather than one', async (_count, notes) => {
+    mockFeeAwareBuilder.build.mockReturnValueOnce(mockBuiltRequest(notes));
+
+    await expect(
+      initiateB2AggBridge({
+        amount: 250n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender',
+        guardianProvider
+      })
+    ).rejects.toThrow(`the request creates ${notes.length} own output notes, not one`);
+    expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
 
   it('queues no row when the exit hash cannot be computed, since that row could never settle', async () => {
