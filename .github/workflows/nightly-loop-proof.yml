@@ -26,9 +26,9 @@ jobs:
           node-version: 22
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          run-id: 43947551561
+          run-id: 43959431069
           github-token: ${{ github.token }}
-          pattern: mainnet-*-43947551561
+          pattern: mainnet-*-43959431069
           path: test-results/evidence
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -40,7 +40,7 @@ jobs:
         run: |
           node <<'NODE'
           const fs=require('node:fs');
-          for(const [name,role] of Object.entries({'mainnet-swap-final':'fresh','mainnet-epoch-final':'final','mainnet-1click-final':'near','mainnet-nightly':'public'}))fs.cpSync(`test-results/evidence/${name}-43947551561`,`test-results/${role}`,{recursive:true});
+          for(const [name,role] of Object.entries({'mainnet-swap-final':'fresh','mainnet-epoch-final':'final','mainnet-1click-final':'near','mainnet-nightly':'public'}))fs.cpSync(`test-results/evidence/${name}-43959431069`,`test-results/${role}`,{recursive:true});
           NODE
       - name: Independently verify original raw fields, fresh phases skipped, public holdings and cost zero
         env:
@@ -71,9 +71,9 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          run-id: 43947551561
+          run-id: 43959431069
           github-token: ${{ github.token }}
-          pattern: mainnet-*-43947551561
+          pattern: mainnet-*-43959431069
           path: test-results/evidence
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -85,7 +85,7 @@ jobs:
         run: |
           node <<'NODE'
           const fs=require('node:fs');
-          for(const [name,role] of Object.entries({'mainnet-swap-final':'fresh','mainnet-epoch-final':'final','mainnet-1click-final':'near','mainnet-nightly':'public'}))fs.cpSync(`test-results/evidence/${name}-43947551561`,`test-results/${role}`,{recursive:true});
+          for(const [name,role] of Object.entries({'mainnet-swap-final':'fresh','mainnet-epoch-final':'final','mainnet-1click-final':'near','mainnet-nightly':'public'}))fs.cpSync(`test-results/evidence/${name}-43959431069`,`test-results/${role}`,{recursive:true});
           NODE
       - uses: ./.github/actions/install-miden-client-cli
       - uses: ./.github/actions/apt-drop-unused-repos
