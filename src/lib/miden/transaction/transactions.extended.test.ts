@@ -2837,6 +2837,60 @@ describe('completeSwapTransaction', () => {
     expect(row.outputNoteIds).toEqual(['saved-order-note']);
   });
 
+  it('reads the result fields it writes before the saved-request decode can retire the client', async () => {
+    const savedNote = {
+      id: () => ({ toString: () => 'saved-order-note' }),
+      metadata: () => ({ noteType: () => 'public' }),
+      recipient: () => ({
+        script: pswapScript,
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    };
+    // The decode is where the client can be retired: after it, the result's handles no longer answer.
+    let decoded = false;
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    deserialize.mockImplementationOnce(() => {
+      decoded = true;
+      return { expectedOutputOwnNotes: () => [savedNote] } as unknown as ReturnType<typeof deserialize>;
+    });
+    const notes = [swapNote('fee-note', 7n, otherScript), swapNote('other-note', 9n, otherScript)];
+    const result = {
+      executedTransaction: () => ({
+        id: () => ({
+          toHex: () => {
+            if (decoded) throw new Error('null pointer passed to rust');
+            return 'swap-hash';
+          }
+        }),
+        outputNotes: () => ({ notes: () => notes })
+      }),
+      serialize: () => {
+        if (decoded) throw new Error('null pointer passed to rust');
+        return Uint8Array.of(9);
+      }
+    } as any;
+    txStore.push({
+      id: 'swap-read-first',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      requestBytes: new Uint8Array([7, 7, 7]),
+      extraInputs: { expirySeconds: 100 }
+    });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-read-first'),
+      result
+    );
+
+    const row = txStore.find(t => t.id === 'swap-read-first')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.transactionId).toBe('swap-hash');
+    expect(row.resultBytes).toEqual(Uint8Array.of(9));
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual(['saved-order-note']);
+  });
+
   it('defaults expirySeconds to 120 when absent', async () => {
     txStore.push({ id: 'swap-2', type: 'swap', status: ITransactionStatus.GeneratingTransaction, extraInputs: {} });
     const { completeSwapTransaction } = require('./index');

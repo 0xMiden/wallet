@@ -459,6 +459,11 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
     throw new Error('Swap Transaction Failed');
   }
   const fromResult = swapOrderOf(split);
+  // Read before the decode below: it waits on the WASM lock and can retire the client, so the write stores
+  // the values read here, not reads of a result whose handles may no longer answer.
+  const feeFields = feeFieldsFromResult(result, tx.id);
+  const transactionId = executedTx.id().toHex();
+  const resultBytes = result.serialize();
   // The result named no order, so the saved request's one public PSWAP note does. Any order an earlier
   // attempt's landing held is dropped below, so it does not stand in. Decoded before the status write;
   // this runs past submit, outside any hold.
@@ -472,11 +477,11 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // An order an earlier attempt's landed failure held is not this attempt's; the result names the row's own.
   const { landedOrder: _earlierLanding, ...extraInputs } = tx.extraInputs;
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
+    ...feeFields,
     displayMessage: 'Swapped',
-    transactionId: executedTx.id().toHex(),
+    transactionId,
     completedAt,
-    resultBytes: result.serialize(),
+    resultBytes,
     // Stamp the absolute expiry so `reconcileSwapOrderNotes` can expiry-reclaim
     // the unfilled remainder of a partial fill. This is load-bearing: the
     // reconcile gate requires an explicit `expiresAt` (no fallback since the
