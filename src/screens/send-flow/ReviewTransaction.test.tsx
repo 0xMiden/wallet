@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 import { userEvent } from '@storybook/test';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { deserialize, serialize } from 'v8';
 
 import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
@@ -2761,7 +2762,14 @@ describe('ReviewTransaction — send telemetry', () => {
 });
 
 describe('ReviewTransaction user-visible errors', () => {
+  let cloneDescriptor: PropertyDescriptor | undefined;
   beforeEach(() => {
+    // jsdom lacks this browser primitive; use Node's lossless data clone for the real Epoch owner.
+    cloneDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'structuredClone');
+    Object.defineProperty(globalThis, 'structuredClone', {
+      configurable: true,
+      value: (value: unknown): unknown => deserialize(serialize(value))
+    });
     jest.useFakeTimers();
     mockUseRealBurnMinimum = true;
     jest.mocked(readUsdcxMinimumBurn).mockResolvedValue(5_000_000n);
@@ -2769,6 +2777,8 @@ describe('ReviewTransaction user-visible errors', () => {
   });
 
   afterEach(() => {
+    if (cloneDescriptor) Object.defineProperty(globalThis, 'structuredClone', cloneDescriptor);
+    else Reflect.deleteProperty(globalThis, 'structuredClone');
     mockUseRealBurnMinimum = false;
     jest.restoreAllMocks();
     jest.useRealTimers();
