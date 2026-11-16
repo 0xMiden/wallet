@@ -5,7 +5,7 @@
  */
 import type { ViewNote } from 'app/confirm/decode';
 
-import { CustomTransactionEffectsChangedError } from './constants';
+import { CustomTransactionEffectsChangedError, ProposalFeeUnknownError } from './constants';
 import {
   approveCustomSimulation,
   assertCustomEffectsApproved,
@@ -36,6 +36,7 @@ const mockViews = new Map<string, TestView>();
 const mockRecipients = new Map<string, string[]>();
 const mockToHoldingsView = jest.fn();
 const mockExecuteApprovalOf = jest.fn();
+const mockDecodedBytes: string[] = [];
 const bytesOf = (result: { summaryBytes?: string; executedBytes?: string }) =>
   result.summaryBytes ?? result.executedBytes ?? '';
 
@@ -43,7 +44,10 @@ jest.mock('app/confirm/decode', () => {
   const actual = jest.requireActual('app/confirm/decode');
   return {
     ...actual,
-    simulatedBytesToView: (result: { summaryBytes?: string; executedBytes?: string }) => mockViews.get(bytesOf(result)),
+    simulatedBytesToView: (result: { summaryBytes?: string; executedBytes?: string }) => {
+      mockDecodedBytes.push(bytesOf(result));
+      return mockViews.get(bytesOf(result));
+    },
     simulatedOutputRecipients: (result: { summaryBytes?: string; executedBytes?: string }) =>
       mockRecipients.get(bytesOf(result)),
     toHoldingsView: (view: TestView, introducedNoteIds: readonly string[]) => {
@@ -78,6 +82,19 @@ jest.mock('lib/miden/spending-limits/identity', () => ({
 // The check reaches the client only through its access (see `checkAccess` below), so these modules are never called.
 jest.mock('lib/miden/sdk/custom-dry-run', () => ({ dryRunPreparedCustomRequest: jest.fn() }));
 jest.mock('lib/miden/sdk/miden-client', () => ({ assertWasmHoldCurrent: jest.fn() }));
+
+// The fee cache a summary decode reads, and the endpoint scope it is cached for.
+const mockFeeCache: { scope: string; fee: number | null; absent: boolean } = {
+  scope: 'rpc-a|testnet',
+  fee: 2,
+  absent: false
+};
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => mockFeeCache.scope,
+  getVerificationBaseFeeSync: () => mockFeeCache.fee,
+  isVerificationBaseFeeKnownAbsent: () => mockFeeCache.absent
+}));
 
 const mockHasSpendingLimits = jest.fn(async (..._args: unknown[]) => false);
 jest.mock('lib/miden/spending-limits/queue', () => ({
@@ -151,6 +168,8 @@ const generate = (generatedView: TestView, recipients: string[] = ['0xr1']) => {
 beforeEach(() => {
   mockViews.clear();
   mockRecipients.clear();
+  mockDecodedBytes.length = 0;
+  Object.assign(mockFeeCache, { scope: 'rpc-a|testnet', fee: 2, absent: false });
   mockToHoldingsView.mockClear();
   mockExecuteApprovalOf.mockClear();
   mockHasSpendingLimits.mockReset();
@@ -442,6 +461,90 @@ describe('assertCustomEffectsApproved', () => {
   });
 
   // A row queued before approvals recorded note ids keeps the charge it was admitted with.
+  describe('at the decode of a summary, given the scope of the fee read', () => {
+    it('refuses a summary as an unknown fee, not as changed effects, when the cached fee is unknown at its decode', () => {
+      const approval = approve(view());
+      const dryRun = generate(view());
+      mockDecodedBytes.length = 0;
+      mockFeeCache.fee = null;
+
+      expect(() =>
+        assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, false, 'rpc-a|testnet')
+      ).toThrow(ProposalFeeUnknownError);
+      expect(mockDecodedBytes).toEqual([]);
+    });
+
+    it('refuses a summary decoded on another endpoint scope than its fee read', () => {
+      const approval = approve(view());
+      const dryRun = generate(view());
+      mockDecodedBytes.length = 0;
+      mockFeeCache.scope = 'rpc-b|testnet';
+
+      expect(() =>
+        assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, false, 'rpc-a|testnet')
+      ).toThrow(ProposalFeeUnknownError);
+      expect(mockDecodedBytes).toEqual([]);
+    });
+
+    it('decodes a summary when the probe found the fee absent', () => {
+      const approval = approve(view());
+      const dryRun = generate(view());
+      Object.assign(mockFeeCache, { fee: null, absent: true });
+
+      expect(() =>
+        assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, false, 'rpc-a|testnet')
+      ).not.toThrow();
+    });
+
+    it('still compares an executed dry run when the cached fee is unknown', () => {
+      const approval = approve(view(), ['0xr1'], ['0xcarried'], 'executed');
+      mockViews.set('generated', view());
+      mockViews.set('changed', view({ outgoing: [{ faucetId: 'faucet-a', amount: 11n }] }));
+      mockRecipients.set('generated', ['0xr1']);
+      mockRecipients.set('changed', ['0xr1']);
+      mockFeeCache.fee = null;
+
+      expect(() =>
+        assertCustomEffectsApproved(
+          approval.effects,
+          { executedBytes: 'generated' },
+          approval.spends,
+          false,
+          'rpc-a|testnet'
+        )
+      ).not.toThrow();
+      expect(() =>
+        assertCustomEffectsApproved(
+          approval.effects,
+          { executedBytes: 'changed' },
+          approval.spends,
+          false,
+          'rpc-a|testnet'
+        )
+      ).toThrow(new CustomTransactionEffectsChangedError('outgoing'));
+    });
+
+    it('reports a row without approved effects as changed effects before any fee check', () => {
+      const dryRun = generate(view());
+      mockFeeCache.fee = null;
+
+      expect(() => assertCustomEffectsApproved(undefined, dryRun, [], false, 'rpc-a|testnet')).toThrow(
+        new CustomTransactionEffectsChangedError('the row has no approved effects')
+      );
+    });
+
+    it('compares a summary as before when no fee read gave a scope, whatever the cache holds', () => {
+      const approval = approve(view());
+      const dryRun = generate(view());
+      mockFeeCache.fee = null;
+
+      expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).not.toThrow();
+      expect(() =>
+        assertCustomEffectsApproved(approval.effects, generate(view({ storageChanged: true })), approval.spends)
+      ).toThrow(new CustomTransactionEffectsChangedError('storageChanged'));
+    });
+  });
+
   describe('for a row queued before approvals recorded note ids', () => {
     it('charges a summary its net outflow, without crediting the carried note again', () => {
       const effects = legacyEffects(view(), {
@@ -611,5 +714,31 @@ describe('verifyPreparedCustomRequest', () => {
     await expect(verifyPreparedCustomRequest(access, effects, charged)).rejects.toThrow(
       'operation abandoned after the custom request spending-limit read'
     );
+  });
+
+  it.each([
+    ['the dry run', 'dryRun'],
+    ['the spending-limit read', 'spendingLimitRead']
+  ])('refuses as an unknown fee when the cache empties during %s', async (_label, emptiedDuring) => {
+    const effects = approvedEffects();
+    const { access, checked } = checkAccess(async () => {
+      if (emptiedDuring === 'dryRun') mockFeeCache.fee = null;
+      return generate(view());
+    });
+    mockHasSpendingLimits.mockImplementationOnce(async () => {
+      if (emptiedDuring === 'spendingLimitRead') mockFeeCache.fee = null;
+      return false;
+    });
+    mockDecodedBytes.length = 0;
+
+    await expect(verifyPreparedCustomRequest(access, effects, charged, 'rpc-a|testnet')).rejects.toThrow(
+      ProposalFeeUnknownError
+    );
+    expect(checked).toEqual([
+      'before the custom request effects check',
+      'after the custom request effects dry run',
+      'after the custom request spending-limit read'
+    ]);
+    expect(mockDecodedBytes).toEqual([]);
   });
 });

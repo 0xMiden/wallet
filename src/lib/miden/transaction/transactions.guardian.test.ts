@@ -17010,9 +17010,14 @@ describe('Guardian proposal effect check', () => {
     return txStore.find(r => r.id === queued.id) as Record<string, unknown>;
   };
 
+  // The refresh before each check fills the cache its decode reads, as the real read does.
   beforeEach(() => {
     txStore.length = 0;
     mockDeserializeSummary.mockReset();
+    jest.requireMock('lib/miden-chain/native-asset').getVerificationBaseFeeSync.mockImplementation(() => 10000);
+  });
+  afterEach(() => {
+    jest.requireMock('lib/miden-chain/native-asset').getVerificationBaseFeeSync.mockImplementation(() => null);
   });
 
   // Filling a stranger's PSWAP order: its offer comes in, and the asset it requested leaves from this vault.

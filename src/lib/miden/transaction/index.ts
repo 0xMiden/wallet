@@ -64,6 +64,7 @@ import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import {
+  cacheScope,
   getNativeAssetId,
   isVerificationBaseFeeKnownAbsent,
   refreshVerificationBaseFee
@@ -4390,10 +4391,13 @@ const generateGuardianTransaction = async (
       // fee, so a note within FEE_RESERVE_MULTIPLE of that fee is the fee. Read it before the dry run, and so before
       // a proposal takes a nonce. A null while the read failed is not an answer: refuse here, outside the
       // post-proposal try, so nothing is proposed and no nonce is abandoned. A number, 0 included, and a null the
-      // probe found absent, both continue; both checks then read the cache this filled. The signing check still
-      // refreshes after the candidate exists, and a fresh read returns this same cache.
+      // probe found absent, both continue; both decodes refuse as an unknown fee if the cache empties or the
+      // endpoint moves after this read. The signing check still refreshes after the candidate exists, and a fresh
+      // read returns this same cache.
+      let feeScope: string | undefined;
       if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
         const chainFee = await refreshVerificationBaseFee();
+        feeScope = cacheScope();
         if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) {
           throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
         }
@@ -4423,7 +4427,8 @@ const generateGuardianTransaction = async (
           await verifyPreparedCustomRequest(
             customEffectsCheckAccess(client.client, transaction.accountId, prepared, hold),
             transaction.approvedEffects,
-            transaction.spentAssetTotals
+            transaction.spentAssetTotals,
+            feeScope
           );
           assertWasmHoldCurrent(hold, 'after the custom request effects check');
           return prepared;
@@ -4457,7 +4462,9 @@ const generateGuardianTransaction = async (
           assertCustomEffectsApproved(
             transaction.approvedEffects,
             { summaryBytes: proposalResult.txSummary },
-            transaction.spentAssetTotals
+            transaction.spentAssetTotals,
+            false,
+            feeScope
           );
         } catch (effectsError) {
           // No hold covers this decode, so no lock retires a trap in it. Keyed by the attempt: a key of the row id
