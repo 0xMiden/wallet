@@ -2825,7 +2825,9 @@ describe('ReviewTransaction user-visible errors', () => {
     await flush();
     expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-review-submit')).toBeEnabled();
-    await clickSubmit();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
     expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1);
     expect(mockReviewReadEpochSdk).toHaveBeenCalledTimes(1);
     expect(mockReviewReadEpochSdk).toHaveBeenCalledWith(
@@ -2849,7 +2851,9 @@ describe('ReviewTransaction user-visible errors', () => {
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByTestId('send-review-submit')).toBeEnabled();
-    await clickSubmit();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
     expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('review-error')).toHaveTextContent(reason.message);
     await expectReport('raw_send_submit_failed');
