@@ -1,0 +1,1022 @@
+name: '2147 FULL coverage source-only qualifier'
+
+# Private inert proposal; future parent ROOT C/tree CAS, privacy/output and
+# four-job budget approval required before separate ONE-attempt authority.
+# Workflow ID 338266805. No retries. Fit/FULL/native/95% UNMEASURED.
+# Does not replace ordinary PR Test/oneclick-service qualification.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_source:
+        description: Exact future reviewed orphan ROOT profile commit
+        required: true
+        type: string
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SOURCE: ${{ inputs.expected_source }}
+    steps:
+      - name: Bind manual dispatch to the reviewed QA branch and SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/qa/2147-full-coverage-33431-20261116
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$EXPECTED_SOURCE" = "$GITHUB_SHA"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          ref: ${{ inputs.expected_source }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify orphan scope, modes and payload hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          printf 'source=%s source_tree=%s run=%s job=%s attempt=%s\n' "$EXPECTED_SOURCE" "$(git rev-parse 'HEAD^{tree}')" "$GITHUB_RUN_ID" "$GITHUB_JOB" "$GITHUB_RUN_ATTEMPT"
+          test -z "$(git show -s --format=%P HEAD)"
+          expected=$(cat <<'FILES'
+          .github/workflows/e2e-dapp-browser.yml
+          source-after.sha256
+          source-before.sha256
+          source-overlay.patch
+          FILES
+          )
+          test "$(git ls-tree -r --name-only HEAD | LC_ALL=C sort)" = "$expected"
+          test "$(git ls-tree -r --format='%(objectmode)' HEAD | LC_ALL=C sort -u)" = 100644
+          sha256sum --check <<'PAYLOAD'
+          9c9348090a252e7d74fc8e8e53d550fae17372140f862c36b56ebaec5b2a3489  source-overlay.patch
+          38a6ccd2b4e1df98e11d6f78d61f0047b33e1b3918057c94c83df47ac6af9d2e  source-before.sha256
+          58bdcccee9c7bb98a691a7d2b5993b03fc6c766b024c8caddddfc0899540511f  source-after.sha256
+          PAYLOAD
+
+      - name: Check out approved public wallet baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          repository: 0xMiden/wallet
+          ref: 293d668a14aa4226cd666d2f3344de6d65c5d762
+          fetch-depth: 2
+          path: wallet
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Ordinary frozen install on unchanged public baseline
+        working-directory: wallet
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 293d668a14aa4226cd666d2f3344de6d65c5d762
+          test "$(git rev-parse 'HEAD^{tree}')" = 3fe0463e0c0fd443d480bc3eb511c2f9f63af10f
+          test "$(git show -s --format=%P HEAD)" = 9f239a3171140260d1c3b1133b49a04eaecc5683
+          test -z "$(git status --porcelain --untracked-files=all)"
+          sha256sum --check <<'FIXED'
+          6f6ba5ed5f7a19c442a3758ef91cc11c1754657dec0b2b860f865b6c34f0523e  .eslintrc
+          4f2f9e3ed69e9e1d05dc97d054a1b85668bc3d53cda3657bfcb3d467b52607c6  .eslintrc.harness.json
+          101bb34834b840158d0b2067e56b485c5b78173a4b71fac73106ba28e73d6526  .eslintrc.i18n.json
+          2272dd316fc91504ff6859ce1c611bb3ff79741d4f027d2b9d7a0eeb20731714  .github/actions/yarn-install/action.yml
+          dfecf1258b39dcb7d0381f9a2d953c084a667c1883a2acd98f9408ce028d23c4  .github/workflows/ci.yml
+          b3deb861b8c4b69fee1efc9a86f57d3a55ba16d77a9ef8540fc5f5e5c64c9e6d  .github/workflows/pr.yml
+          12f1fc3e79645912be5b065400174e6ce1d8d300473bd31064f057c26ad16003  .gitignore
+          cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73  .nvmrc
+          f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd  .prettierignore
+          7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf  .prettierrc
+          13f8321d96455c4af329747699be11f130c91c80b53197ea09336a6b1270f5a2  __mocks__/lib/miden/back/dapp.ts
+          ec4612339b136d75aa40e01299385c546f3406a3901ee2d50fd2be2eacbd6eb5  __mocks__/lib/miden/back/vault.ts
+          eb2027f2de1d487c5e78ccd9e6733a0b2da67203bc686b56ae9b4d173125c600  __mocks__/lib/miden/sdk/miden-client-interface.ts
+          74d0ab9b63cf40c8c78fabfb6eb7d6cfed7b0813801f50e14e49ee4a22eed64b  __mocks__/lib/miden/sdk/miden-client.ts
+          57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66  __mocks__/wasmMock.js
+          5a49edb29629ae236e9d2c5dbfcf82fe1123bae990366e8252137ed6a81f09f9  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275  packages/bread-connect-capacitor/package.json
+          1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e  packages/bread-connect/package.json
+          9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9  packages/bread-connect/tsconfig.json
+          6e429996887877ba411d6a2262947fe7831532562b6d872f888c83edb37375b1  packages/dapp-browser/package.json
+          68872467d64e7e95822bf15b578f98f38f94ee15c978bef41248bb28c0e3d74b  packages/hd-key/package.json
+          5eaa632b3f338fa23beec025c4f8a5b4e359d4fec42a034efda3991d950724c8  packages/hd-key/src/index.ts
+          4d501ac03ab9d56d584fec468bf94a07f729c98674d8e8f7a7095f4817f82880  packages/hd-key/src/miden.ts
+          fcb346e09523667b517b25ef0d743ab3e89885a8aaaf134eafa6fe8edd4f7cd5  packages/hd-key/src/mnemonic.ts
+          fada9158d046066f7f61eb537892caffcada7ea3919c431a182b6cfc850d605f  packages/hd-key/src/slip10.ts
+          93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2  packages/hd-key/tsconfig.json
+          7855e80634b4fd1e80855807704ed8c774bb96fc66d7472cc753daedaab2a25f  packages/native-prover/android/rust-bridge/Cargo.lock
+          3a1b514d27e10680b66d1331313f9350431ac88107bfbeb5693102a78a50ad1e  packages/native-prover/android/rust-bridge/Cargo.toml
+          dee8323b83b5a584a49e61c5c6a1deb19db572226484fbbff17b50e38fabebeb  packages/native-prover/package.json
+          40b461cafe891b15363ddb8cdecde0c7bf02b4633d16450d995115d3c39e5144  packages/native-prover/pin-drift-exemptions.json
+          c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa  patches/@capacitor+keyboard+8.0.5.patch
+          7477ff106d8921519b8b9c7614dd5f27035f4db15d77ea65d39edfc1a49a992c  patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1  patches/@openzeppelin+guardian-client+0.18.1.patch
+          1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d  patches/eslint-plugin-import+2.32.0.patch
+          9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6  patches/eslint-plugin-react+7.27.1.patch
+          b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615  patches/inspect-cli-cdp-fix.patch
+          3efbc553923c5294e3d35904ea8cb82142c99b99e5320e641eaa221d03021819  patches/react-infinite-scroller+1.2.6.patch
+          4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf  patches/vaul+1.1.2.patch
+          70ffbb4372f856383bfa24ba01fb5bac9ceef0c090bdbef3908b9ca8d3c4f2d0  playwright/e2e/eslint-rules/known-violations.json
+          de0c54849474643dd2376c5b191ea6ec5cf934e86d95fc14ebc10cf783f0b031  playwright/e2e/eslint-rules/no-conditional-expect.js
+          c23fdd2ded1a14a6a0633401ed0786e9fe113aa5c8751ae7f9d6424be808cde5  playwright/e2e/eslint-rules/no-long-bare-wait.js
+          c76cc738f3f5beb23cc310d7a2f6471cad077b72fdc61875bae6d9b3d5b79c89  playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          9fd54fa6f27922dd31fc9271d33b70c9fe3fbc9ac472965ce6a218b9c6e10e7b  scripts/badge-data.mjs
+          5104a79a346824036eeea3b16bc3c1c21a3a2a0174e493a29b5c4f69c28423fa  scripts/check-native-prover-pin.mjs
+          1a3fbdffcc0a33c172b752d6c1a08543e62422dd4d9b5b38faf5095c99acad52  scripts/ci/coverage-resource-sampler.mjs
+          1696e4f93a9c602594d42780b5b325f9de0fe9f1c575444491e850d7e63f4134  scripts/lint-e2e-harness.mjs
+          462dc0873b58b5ab9346c20671071f5b7e69f2e3ab3ab3c5252f198c2e6b5573  scripts/merge-jest-coverage.mjs
+          e8b63857df211cd53ba8a4302eccdb33ea9b6e1e95271b8c85343525a6d1ab88  src-tauri/scripts/dapp-injection.js
+          d38e0f0cdc044ea14c80a00ba9940af497830d8051a27efe48e6f6b2847aa5f7  src/lib/adapter/conformance.test.ts
+          a3a34052fff90cd8343b96710e18ca4a600cde02173edf17e1ad87826ff918ef  src/lib/dapp-browser/injection-script.ts
+          0d2c8424a84f1c689d64f6d1fb330338ab43e924c57e6e05f91d8fb155cdb0df  src/lib/miden/sdk/derive-seed.keys.test.ts
+          cfe3eb0b6c2c1ba46335e96b13f4a4648e3a009a67fbda4a2c02a580dab28480  src/lib/miden/sdk/derive-seed.ts
+          6e02e25d32b45424ef459b1d290b13199183672677dca74be6310ffd3e69795a  src/lib/miden/smoke.integration.test.ts
+          16df887a8549416f5457142ce5c9580a4082dea65fd4dc55c2987e12112dc131  src/lib/telemetry/protocol-assertions.json
+          be5107b2fcfbf1bdcb21fafabb5c6af4bcb6f6d7e0c992c252078fdcafcfb594  src/lib/telemetry/protocol-assertions.sources.json
+          15c5737b0fbe1f2ae59f4fef36e27d1aff1022e12ffca30ba3db9b4892030dba  src/lib/telemetry/protocol-assertions.test.ts
+          ce7bbf3195aa61f812ead29dd19ba3bdfd4c9e7ec159e0f9fc38b42ef0cda226  test/jest-mocks.ts
+          74e5d7f90cafc52a2f25dc9efa9012014fa09001f40a1e7ad90f55c079153a8e  test/state-helpers.ts
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          FIXED
+          while read -r mode file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = "$mode"
+          done <<'FIXED_MODES'
+          644 .eslintrc
+          644 .eslintrc.harness.json
+          644 .eslintrc.i18n.json
+          644 .github/actions/yarn-install/action.yml
+          644 .github/workflows/ci.yml
+          644 .github/workflows/pr.yml
+          644 .gitignore
+          644 .nvmrc
+          644 .prettierignore
+          644 .prettierrc
+          644 __mocks__/lib/miden/back/dapp.ts
+          644 __mocks__/lib/miden/back/vault.ts
+          644 __mocks__/lib/miden/sdk/miden-client-interface.ts
+          644 __mocks__/lib/miden/sdk/miden-client.ts
+          644 __mocks__/wasmMock.js
+          644 jest.config.ts
+          644 jest.setup.js
+          644 package.json
+          644 packages/bread-connect-capacitor/package.json
+          644 packages/bread-connect/package.json
+          644 packages/bread-connect/tsconfig.json
+          755 packages/dapp-browser/package.json
+          644 packages/hd-key/package.json
+          644 packages/hd-key/src/index.ts
+          644 packages/hd-key/src/miden.ts
+          644 packages/hd-key/src/mnemonic.ts
+          644 packages/hd-key/src/slip10.ts
+          644 packages/hd-key/tsconfig.json
+          644 packages/native-prover/android/rust-bridge/Cargo.lock
+          644 packages/native-prover/android/rust-bridge/Cargo.toml
+          644 packages/native-prover/package.json
+          644 packages/native-prover/pin-drift-exemptions.json
+          644 patches/@capacitor+keyboard+8.0.5.patch
+          644 patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          644 patches/@openzeppelin+guardian-client+0.18.1.patch
+          644 patches/eslint-plugin-import+2.32.0.patch
+          644 patches/eslint-plugin-react+7.27.1.patch
+          644 patches/inspect-cli-cdp-fix.patch
+          644 patches/react-infinite-scroller+1.2.6.patch
+          644 patches/vaul+1.1.2.patch
+          644 playwright/e2e/eslint-rules/known-violations.json
+          644 playwright/e2e/eslint-rules/no-conditional-expect.js
+          644 playwright/e2e/eslint-rules/no-long-bare-wait.js
+          644 playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          644 scripts/badge-data.mjs
+          644 scripts/check-native-prover-pin.mjs
+          644 scripts/ci/coverage-resource-sampler.mjs
+          644 scripts/lint-e2e-harness.mjs
+          644 scripts/merge-jest-coverage.mjs
+          644 src-tauri/scripts/dapp-injection.js
+          644 src/lib/adapter/conformance.test.ts
+          644 src/lib/dapp-browser/injection-script.ts
+          644 src/lib/miden/sdk/derive-seed.keys.test.ts
+          644 src/lib/miden/sdk/derive-seed.ts
+          644 src/lib/miden/smoke.integration.test.ts
+          644 src/lib/telemetry/protocol-assertions.json
+          644 src/lib/telemetry/protocol-assertions.sources.json
+          644 src/lib/telemetry/protocol-assertions.test.ts
+          644 test/jest-mocks.ts
+          644 test/state-helpers.ts
+          644 tsconfig.json
+          644 yarn.lock
+          FIXED_MODES
+          test "$(yarn --version)" = 1.22.22
+          test ! -e .env
+          test ! -L .env
+          yarn install --frozen-lockfile --network-timeout 600000
+
+      - name: Check and apply only the 63 reviewed source postimages
+        id: source
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code HEAD
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test "$(wc -l < ../source-before.sha256)" -eq 46
+          test "$(wc -l < ../source-after.sha256)" -eq 63
+          sha256sum --check ../source-before.sha256
+          while IFS= read -r file; do
+            test ! -e "$file"
+            test ! -L "$file"
+          done < <(comm -13 <(cut -c67- ../source-before.sha256) <(cut -c67- ../source-after.sha256))
+          git apply --check ../source-overlay.patch
+          git apply ../source-overlay.patch
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = a5b3ea65a6423f43f9e3db9340778719cc225f670e905d6c81d5f751b0517ffe
+          test "$(git ls-files --others --exclude-standard | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = 3f6916d6ece02fd13e172afb4019009b45447ff70e5d40c7ca5bf1e7a450c536
+          test "$(node --version | cut -d. -f1)" = v22
+          test "$(yarn --version)" = 1.22.22
+          node --version
+          yarn --version
+
+      - name: Check locked and installed reporter versions
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset NODE_PATH
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const lock = fs.readFileSync('yarn.lock', 'utf8');
+          const expected = { 'istanbul-lib-coverage': '3.2.2', 'istanbul-lib-report': '3.0.1', 'istanbul-reports': '3.2.0' };
+          for (const [name, version] of Object.entries(expected)) {
+            const entry = lock.split('\n\n').find(entry => entry.startsWith(name + '@'));
+            assert(entry, 'missing lock header: ' + name);
+            assert(entry.includes('version "' + version + '"'));
+            assert.equal(require(name + '/package.json').version, version);
+            console.log(name + '=' + version);
+          }
+          assert.equal(require('./package.json').dependencies['@miden-sdk/miden-sdk'], '0.17.5');
+          JS
+
+      - name: FULL Jest coverage shard with house sampler
+        id: tests
+        working-directory: wallet
+        timeout-minutes: 5
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: '3'
+        run: |
+          set -euo pipefail
+          unset NODE_PATH
+          test ! -e .env
+          test ! -L .env
+          printf 'source=%s baseline=293d668a14aa4226cd666d2f3344de6d65c5d762 run=%s job=%s attempt=%s shard=%s/%s\n' "$EXPECTED_SOURCE" "$GITHUB_RUN_ID" "$GITHUB_JOB" "$GITHUB_RUN_ATTEMPT" "$SHARD" "$SHARDS"
+          node scripts/ci/coverage-resource-sampler.mjs "$SHARD" &
+          SAMPLER_PID=$!
+          stop_sampler() {
+            kill "$SAMPLER_PID" 2>/dev/null || true
+            wait "$SAMPLER_PID" 2>/dev/null || true
+            return 0
+          }
+          trap stop_sampler EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          set +e
+          JEST_COVERAGE_SHARD=1 yarn test:coverage --maxWorkers=2 --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+          test_exit=$?
+          set -e
+          echo "jest_exit=$test_exit"
+          exit "$test_exit"
+
+      - name: Bounded local counts and conditional skips
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          for (const file of ['coverage/coverage-final.json', 'coverage/test-count.json', 'coverage/jest-results.json']) {
+            assert(fs.lstatSync(file).isFile());
+            assert(fs.statSync(file).size > 0);
+          }
+          const report = JSON.parse(fs.readFileSync('coverage/jest-results.json', 'utf8'));
+          const map = JSON.parse(fs.readFileSync('coverage/coverage-final.json', 'utf8'));
+          assert(Object.keys(map).length > 0);
+          assert(Number.isSafeInteger(report.numTotalTests));
+          assert(report.numTotalTests > 0);
+          assert(report.numTotalTestSuites > 0);
+          assert(report.numPassedTests > 0);
+          assert(report.numPassedTestSuites > 0);
+          const adapterNames = [
+            'MidenWallet conformance imported the real suite, not a mock',
+            'MidenWallet conformance the extension provider implements every method',
+            'MidenWallet conformance mobile (dApp browser injection script) is missing exactly its known gaps, no more and no fewer',
+            'MidenWallet conformance desktop (Tauri injection script) is missing exactly its known gaps, no more and no fewer'
+          ];
+          const adapterPending = [], otherPending = [];
+          let assertions = 0;
+          assert.equal(report.testResults.length, report.numTotalTestSuites);
+          for (const suite of report.testResults) {
+            const path = suite.name.replace(process.cwd() + '/', '');
+            assert(suite.assertionResults.length > 0);
+            const counts = {};
+            for (const test of suite.assertionResults) {
+              assertions++;
+              counts[test.status] = (counts[test.status] || 0) + 1;
+              if (test.status === 'pending') {
+                (path === 'src/lib/adapter/conformance.test.ts' ? adapterPending : otherPending).push(test.fullName);
+              } else {
+                assert(['passed', 'failed'].includes(test.status), 'todo/disabled/incomplete');
+              }
+              if (test.status === 'failed') console.log(JSON.stringify({ failure: test.fullName, path }));
+            }
+            console.log(JSON.stringify({ suite: path, status: suite.status, counts }));
+            assert(['passed', 'pending'].includes(suite.status), 'failed/incomplete suite');
+          }
+          if (adapterPending.length) {
+            assert.equal(adapterPending.length, 4);
+            assert.deepEqual([...adapterPending].sort(), [...adapterNames].sort());
+            console.log(JSON.stringify({ skips: adapterPending, reason: 'adapter conditional: load failure or missing getSurfaceCases' }));
+          }
+          assert.equal(otherPending.length, 0);
+          assert.equal(report.numPendingTests, adapterPending.length);
+          assert.equal(report.numPendingTestSuites, adapterPending.length ? 1 : 0);
+          assert.equal(report.numPassedTestSuites + report.numPendingTestSuites, report.numTotalTestSuites);
+          assert.equal(assertions, report.numTotalTests);
+          assert.equal(report.numPassedTests + adapterPending.length, report.numTotalTests);
+          console.log(JSON.stringify({ total: report.numTotalTests, passed: report.numPassedTests, failed: report.numFailedTests, pending: report.numPendingTests, suites: report.numTotalTestSuites }));
+          assert.equal(report.success, true);
+          assert.equal(report.numRuntimeErrorTestSuites, 0);
+          assert.equal(report.numFailedTestSuites, 0);
+          assert.equal(report.numFailedTests, 0);
+          assert.equal(report.numTodoTests, 0);
+          JS
+
+      - name: Verify source and expanded fixed inputs after every attempt
+        id: postchecks
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 293d668a14aa4226cd666d2f3344de6d65c5d762
+          test ! -e .env
+          test ! -L .env
+          git diff --cached --exit-code
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = a5b3ea65a6423f43f9e3db9340778719cc225f670e905d6c81d5f751b0517ffe
+          test "$(git ls-files --others --exclude-standard | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = 3f6916d6ece02fd13e172afb4019009b45447ff70e5d40c7ca5bf1e7a450c536
+          sha256sum --check <<'FIXED'
+          6f6ba5ed5f7a19c442a3758ef91cc11c1754657dec0b2b860f865b6c34f0523e  .eslintrc
+          4f2f9e3ed69e9e1d05dc97d054a1b85668bc3d53cda3657bfcb3d467b52607c6  .eslintrc.harness.json
+          101bb34834b840158d0b2067e56b485c5b78173a4b71fac73106ba28e73d6526  .eslintrc.i18n.json
+          2272dd316fc91504ff6859ce1c611bb3ff79741d4f027d2b9d7a0eeb20731714  .github/actions/yarn-install/action.yml
+          dfecf1258b39dcb7d0381f9a2d953c084a667c1883a2acd98f9408ce028d23c4  .github/workflows/ci.yml
+          b3deb861b8c4b69fee1efc9a86f57d3a55ba16d77a9ef8540fc5f5e5c64c9e6d  .github/workflows/pr.yml
+          12f1fc3e79645912be5b065400174e6ce1d8d300473bd31064f057c26ad16003  .gitignore
+          cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73  .nvmrc
+          f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd  .prettierignore
+          7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf  .prettierrc
+          13f8321d96455c4af329747699be11f130c91c80b53197ea09336a6b1270f5a2  __mocks__/lib/miden/back/dapp.ts
+          ec4612339b136d75aa40e01299385c546f3406a3901ee2d50fd2be2eacbd6eb5  __mocks__/lib/miden/back/vault.ts
+          eb2027f2de1d487c5e78ccd9e6733a0b2da67203bc686b56ae9b4d173125c600  __mocks__/lib/miden/sdk/miden-client-interface.ts
+          74d0ab9b63cf40c8c78fabfb6eb7d6cfed7b0813801f50e14e49ee4a22eed64b  __mocks__/lib/miden/sdk/miden-client.ts
+          57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66  __mocks__/wasmMock.js
+          5a49edb29629ae236e9d2c5dbfcf82fe1123bae990366e8252137ed6a81f09f9  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275  packages/bread-connect-capacitor/package.json
+          1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e  packages/bread-connect/package.json
+          9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9  packages/bread-connect/tsconfig.json
+          6e429996887877ba411d6a2262947fe7831532562b6d872f888c83edb37375b1  packages/dapp-browser/package.json
+          68872467d64e7e95822bf15b578f98f38f94ee15c978bef41248bb28c0e3d74b  packages/hd-key/package.json
+          5eaa632b3f338fa23beec025c4f8a5b4e359d4fec42a034efda3991d950724c8  packages/hd-key/src/index.ts
+          4d501ac03ab9d56d584fec468bf94a07f729c98674d8e8f7a7095f4817f82880  packages/hd-key/src/miden.ts
+          fcb346e09523667b517b25ef0d743ab3e89885a8aaaf134eafa6fe8edd4f7cd5  packages/hd-key/src/mnemonic.ts
+          fada9158d046066f7f61eb537892caffcada7ea3919c431a182b6cfc850d605f  packages/hd-key/src/slip10.ts
+          93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2  packages/hd-key/tsconfig.json
+          7855e80634b4fd1e80855807704ed8c774bb96fc66d7472cc753daedaab2a25f  packages/native-prover/android/rust-bridge/Cargo.lock
+          3a1b514d27e10680b66d1331313f9350431ac88107bfbeb5693102a78a50ad1e  packages/native-prover/android/rust-bridge/Cargo.toml
+          dee8323b83b5a584a49e61c5c6a1deb19db572226484fbbff17b50e38fabebeb  packages/native-prover/package.json
+          40b461cafe891b15363ddb8cdecde0c7bf02b4633d16450d995115d3c39e5144  packages/native-prover/pin-drift-exemptions.json
+          c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa  patches/@capacitor+keyboard+8.0.5.patch
+          7477ff106d8921519b8b9c7614dd5f27035f4db15d77ea65d39edfc1a49a992c  patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1  patches/@openzeppelin+guardian-client+0.18.1.patch
+          1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d  patches/eslint-plugin-import+2.32.0.patch
+          9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6  patches/eslint-plugin-react+7.27.1.patch
+          b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615  patches/inspect-cli-cdp-fix.patch
+          3efbc553923c5294e3d35904ea8cb82142c99b99e5320e641eaa221d03021819  patches/react-infinite-scroller+1.2.6.patch
+          4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf  patches/vaul+1.1.2.patch
+          70ffbb4372f856383bfa24ba01fb5bac9ceef0c090bdbef3908b9ca8d3c4f2d0  playwright/e2e/eslint-rules/known-violations.json
+          de0c54849474643dd2376c5b191ea6ec5cf934e86d95fc14ebc10cf783f0b031  playwright/e2e/eslint-rules/no-conditional-expect.js
+          c23fdd2ded1a14a6a0633401ed0786e9fe113aa5c8751ae7f9d6424be808cde5  playwright/e2e/eslint-rules/no-long-bare-wait.js
+          c76cc738f3f5beb23cc310d7a2f6471cad077b72fdc61875bae6d9b3d5b79c89  playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          9fd54fa6f27922dd31fc9271d33b70c9fe3fbc9ac472965ce6a218b9c6e10e7b  scripts/badge-data.mjs
+          5104a79a346824036eeea3b16bc3c1c21a3a2a0174e493a29b5c4f69c28423fa  scripts/check-native-prover-pin.mjs
+          1a3fbdffcc0a33c172b752d6c1a08543e62422dd4d9b5b38faf5095c99acad52  scripts/ci/coverage-resource-sampler.mjs
+          1696e4f93a9c602594d42780b5b325f9de0fe9f1c575444491e850d7e63f4134  scripts/lint-e2e-harness.mjs
+          462dc0873b58b5ab9346c20671071f5b7e69f2e3ab3ab3c5252f198c2e6b5573  scripts/merge-jest-coverage.mjs
+          e8b63857df211cd53ba8a4302eccdb33ea9b6e1e95271b8c85343525a6d1ab88  src-tauri/scripts/dapp-injection.js
+          d38e0f0cdc044ea14c80a00ba9940af497830d8051a27efe48e6f6b2847aa5f7  src/lib/adapter/conformance.test.ts
+          a3a34052fff90cd8343b96710e18ca4a600cde02173edf17e1ad87826ff918ef  src/lib/dapp-browser/injection-script.ts
+          0d2c8424a84f1c689d64f6d1fb330338ab43e924c57e6e05f91d8fb155cdb0df  src/lib/miden/sdk/derive-seed.keys.test.ts
+          cfe3eb0b6c2c1ba46335e96b13f4a4648e3a009a67fbda4a2c02a580dab28480  src/lib/miden/sdk/derive-seed.ts
+          6e02e25d32b45424ef459b1d290b13199183672677dca74be6310ffd3e69795a  src/lib/miden/smoke.integration.test.ts
+          16df887a8549416f5457142ce5c9580a4082dea65fd4dc55c2987e12112dc131  src/lib/telemetry/protocol-assertions.json
+          be5107b2fcfbf1bdcb21fafabb5c6af4bcb6f6d7e0c992c252078fdcafcfb594  src/lib/telemetry/protocol-assertions.sources.json
+          15c5737b0fbe1f2ae59f4fef36e27d1aff1022e12ffca30ba3db9b4892030dba  src/lib/telemetry/protocol-assertions.test.ts
+          ce7bbf3195aa61f812ead29dd19ba3bdfd4c9e7ec159e0f9fc38b42ef0cda226  test/jest-mocks.ts
+          74e5d7f90cafc52a2f25dc9efa9012014fa09001f40a1e7ad90f55c079153a8e  test/state-helpers.ts
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          FIXED
+          while read -r mode file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = "$mode"
+          done <<'FIXED_MODES'
+          644 .eslintrc
+          644 .eslintrc.harness.json
+          644 .eslintrc.i18n.json
+          644 .github/actions/yarn-install/action.yml
+          644 .github/workflows/ci.yml
+          644 .github/workflows/pr.yml
+          644 .gitignore
+          644 .nvmrc
+          644 .prettierignore
+          644 .prettierrc
+          644 __mocks__/lib/miden/back/dapp.ts
+          644 __mocks__/lib/miden/back/vault.ts
+          644 __mocks__/lib/miden/sdk/miden-client-interface.ts
+          644 __mocks__/lib/miden/sdk/miden-client.ts
+          644 __mocks__/wasmMock.js
+          644 jest.config.ts
+          644 jest.setup.js
+          644 package.json
+          644 packages/bread-connect-capacitor/package.json
+          644 packages/bread-connect/package.json
+          644 packages/bread-connect/tsconfig.json
+          755 packages/dapp-browser/package.json
+          644 packages/hd-key/package.json
+          644 packages/hd-key/src/index.ts
+          644 packages/hd-key/src/miden.ts
+          644 packages/hd-key/src/mnemonic.ts
+          644 packages/hd-key/src/slip10.ts
+          644 packages/hd-key/tsconfig.json
+          644 packages/native-prover/android/rust-bridge/Cargo.lock
+          644 packages/native-prover/android/rust-bridge/Cargo.toml
+          644 packages/native-prover/package.json
+          644 packages/native-prover/pin-drift-exemptions.json
+          644 patches/@capacitor+keyboard+8.0.5.patch
+          644 patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          644 patches/@openzeppelin+guardian-client+0.18.1.patch
+          644 patches/eslint-plugin-import+2.32.0.patch
+          644 patches/eslint-plugin-react+7.27.1.patch
+          644 patches/inspect-cli-cdp-fix.patch
+          644 patches/react-infinite-scroller+1.2.6.patch
+          644 patches/vaul+1.1.2.patch
+          644 playwright/e2e/eslint-rules/known-violations.json
+          644 playwright/e2e/eslint-rules/no-conditional-expect.js
+          644 playwright/e2e/eslint-rules/no-long-bare-wait.js
+          644 playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          644 scripts/badge-data.mjs
+          644 scripts/check-native-prover-pin.mjs
+          644 scripts/ci/coverage-resource-sampler.mjs
+          644 scripts/lint-e2e-harness.mjs
+          644 scripts/merge-jest-coverage.mjs
+          644 src-tauri/scripts/dapp-injection.js
+          644 src/lib/adapter/conformance.test.ts
+          644 src/lib/dapp-browser/injection-script.ts
+          644 src/lib/miden/sdk/derive-seed.keys.test.ts
+          644 src/lib/miden/sdk/derive-seed.ts
+          644 src/lib/miden/smoke.integration.test.ts
+          644 src/lib/telemetry/protocol-assertions.json
+          644 src/lib/telemetry/protocol-assertions.sources.json
+          644 src/lib/telemetry/protocol-assertions.test.ts
+          644 test/jest-mocks.ts
+          644 test/state-helpers.ts
+          644 tsconfig.json
+          644 yarn.lock
+          FIXED_MODES
+
+      - name: Upload only two reviewed regular public synthetic outputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # public v4, parent metadata
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: |
+            wallet/coverage/coverage-final.json
+            wallet/coverage/test-count.json
+          retention-days: 1
+          if-no-files-found: error
+          include-hidden-files: false
+
+  coverage-gate:
+    needs: coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SOURCE: ${{ inputs.expected_source }}
+    steps:
+      - name: Require all three successful shards
+        shell: bash
+        env:
+          SHARDS_RESULT: ${{ needs.coverage.result }}
+        run: |
+          set -euo pipefail
+          test "$SHARDS_RESULT" = success
+      - name: Bind manual dispatch to the reviewed QA branch and SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/qa/2147-full-coverage-33431-20261116
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$EXPECTED_SOURCE" = "$GITHUB_SHA"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          ref: ${{ inputs.expected_source }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify orphan scope, modes and payload hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          printf 'source=%s source_tree=%s run=%s job=%s attempt=%s\n' "$EXPECTED_SOURCE" "$(git rev-parse 'HEAD^{tree}')" "$GITHUB_RUN_ID" "$GITHUB_JOB" "$GITHUB_RUN_ATTEMPT"
+          test -z "$(git show -s --format=%P HEAD)"
+          expected=$(cat <<'FILES'
+          .github/workflows/e2e-dapp-browser.yml
+          source-after.sha256
+          source-before.sha256
+          source-overlay.patch
+          FILES
+          )
+          test "$(git ls-tree -r --name-only HEAD | LC_ALL=C sort)" = "$expected"
+          test "$(git ls-tree -r --format='%(objectmode)' HEAD | LC_ALL=C sort -u)" = 100644
+          sha256sum --check <<'PAYLOAD'
+          9c9348090a252e7d74fc8e8e53d550fae17372140f862c36b56ebaec5b2a3489  source-overlay.patch
+          38a6ccd2b4e1df98e11d6f78d61f0047b33e1b3918057c94c83df47ac6af9d2e  source-before.sha256
+          58bdcccee9c7bb98a691a7d2b5993b03fc6c766b024c8caddddfc0899540511f  source-after.sha256
+          PAYLOAD
+
+      - name: Check out approved public wallet baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # wallet main pin
+        with:
+          repository: 0xMiden/wallet
+          ref: 293d668a14aa4226cd666d2f3344de6d65c5d762
+          fetch-depth: 2
+          path: wallet
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Ordinary frozen install on unchanged public baseline
+        working-directory: wallet
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 293d668a14aa4226cd666d2f3344de6d65c5d762
+          test "$(git rev-parse 'HEAD^{tree}')" = 3fe0463e0c0fd443d480bc3eb511c2f9f63af10f
+          test "$(git show -s --format=%P HEAD)" = 9f239a3171140260d1c3b1133b49a04eaecc5683
+          test -z "$(git status --porcelain --untracked-files=all)"
+          sha256sum --check <<'FIXED'
+          6f6ba5ed5f7a19c442a3758ef91cc11c1754657dec0b2b860f865b6c34f0523e  .eslintrc
+          4f2f9e3ed69e9e1d05dc97d054a1b85668bc3d53cda3657bfcb3d467b52607c6  .eslintrc.harness.json
+          101bb34834b840158d0b2067e56b485c5b78173a4b71fac73106ba28e73d6526  .eslintrc.i18n.json
+          2272dd316fc91504ff6859ce1c611bb3ff79741d4f027d2b9d7a0eeb20731714  .github/actions/yarn-install/action.yml
+          dfecf1258b39dcb7d0381f9a2d953c084a667c1883a2acd98f9408ce028d23c4  .github/workflows/ci.yml
+          b3deb861b8c4b69fee1efc9a86f57d3a55ba16d77a9ef8540fc5f5e5c64c9e6d  .github/workflows/pr.yml
+          12f1fc3e79645912be5b065400174e6ce1d8d300473bd31064f057c26ad16003  .gitignore
+          cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73  .nvmrc
+          f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd  .prettierignore
+          7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf  .prettierrc
+          13f8321d96455c4af329747699be11f130c91c80b53197ea09336a6b1270f5a2  __mocks__/lib/miden/back/dapp.ts
+          ec4612339b136d75aa40e01299385c546f3406a3901ee2d50fd2be2eacbd6eb5  __mocks__/lib/miden/back/vault.ts
+          eb2027f2de1d487c5e78ccd9e6733a0b2da67203bc686b56ae9b4d173125c600  __mocks__/lib/miden/sdk/miden-client-interface.ts
+          74d0ab9b63cf40c8c78fabfb6eb7d6cfed7b0813801f50e14e49ee4a22eed64b  __mocks__/lib/miden/sdk/miden-client.ts
+          57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66  __mocks__/wasmMock.js
+          5a49edb29629ae236e9d2c5dbfcf82fe1123bae990366e8252137ed6a81f09f9  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275  packages/bread-connect-capacitor/package.json
+          1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e  packages/bread-connect/package.json
+          9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9  packages/bread-connect/tsconfig.json
+          6e429996887877ba411d6a2262947fe7831532562b6d872f888c83edb37375b1  packages/dapp-browser/package.json
+          68872467d64e7e95822bf15b578f98f38f94ee15c978bef41248bb28c0e3d74b  packages/hd-key/package.json
+          5eaa632b3f338fa23beec025c4f8a5b4e359d4fec42a034efda3991d950724c8  packages/hd-key/src/index.ts
+          4d501ac03ab9d56d584fec468bf94a07f729c98674d8e8f7a7095f4817f82880  packages/hd-key/src/miden.ts
+          fcb346e09523667b517b25ef0d743ab3e89885a8aaaf134eafa6fe8edd4f7cd5  packages/hd-key/src/mnemonic.ts
+          fada9158d046066f7f61eb537892caffcada7ea3919c431a182b6cfc850d605f  packages/hd-key/src/slip10.ts
+          93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2  packages/hd-key/tsconfig.json
+          7855e80634b4fd1e80855807704ed8c774bb96fc66d7472cc753daedaab2a25f  packages/native-prover/android/rust-bridge/Cargo.lock
+          3a1b514d27e10680b66d1331313f9350431ac88107bfbeb5693102a78a50ad1e  packages/native-prover/android/rust-bridge/Cargo.toml
+          dee8323b83b5a584a49e61c5c6a1deb19db572226484fbbff17b50e38fabebeb  packages/native-prover/package.json
+          40b461cafe891b15363ddb8cdecde0c7bf02b4633d16450d995115d3c39e5144  packages/native-prover/pin-drift-exemptions.json
+          c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa  patches/@capacitor+keyboard+8.0.5.patch
+          7477ff106d8921519b8b9c7614dd5f27035f4db15d77ea65d39edfc1a49a992c  patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1  patches/@openzeppelin+guardian-client+0.18.1.patch
+          1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d  patches/eslint-plugin-import+2.32.0.patch
+          9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6  patches/eslint-plugin-react+7.27.1.patch
+          b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615  patches/inspect-cli-cdp-fix.patch
+          3efbc553923c5294e3d35904ea8cb82142c99b99e5320e641eaa221d03021819  patches/react-infinite-scroller+1.2.6.patch
+          4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf  patches/vaul+1.1.2.patch
+          70ffbb4372f856383bfa24ba01fb5bac9ceef0c090bdbef3908b9ca8d3c4f2d0  playwright/e2e/eslint-rules/known-violations.json
+          de0c54849474643dd2376c5b191ea6ec5cf934e86d95fc14ebc10cf783f0b031  playwright/e2e/eslint-rules/no-conditional-expect.js
+          c23fdd2ded1a14a6a0633401ed0786e9fe113aa5c8751ae7f9d6424be808cde5  playwright/e2e/eslint-rules/no-long-bare-wait.js
+          c76cc738f3f5beb23cc310d7a2f6471cad077b72fdc61875bae6d9b3d5b79c89  playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          9fd54fa6f27922dd31fc9271d33b70c9fe3fbc9ac472965ce6a218b9c6e10e7b  scripts/badge-data.mjs
+          5104a79a346824036eeea3b16bc3c1c21a3a2a0174e493a29b5c4f69c28423fa  scripts/check-native-prover-pin.mjs
+          1a3fbdffcc0a33c172b752d6c1a08543e62422dd4d9b5b38faf5095c99acad52  scripts/ci/coverage-resource-sampler.mjs
+          1696e4f93a9c602594d42780b5b325f9de0fe9f1c575444491e850d7e63f4134  scripts/lint-e2e-harness.mjs
+          462dc0873b58b5ab9346c20671071f5b7e69f2e3ab3ab3c5252f198c2e6b5573  scripts/merge-jest-coverage.mjs
+          e8b63857df211cd53ba8a4302eccdb33ea9b6e1e95271b8c85343525a6d1ab88  src-tauri/scripts/dapp-injection.js
+          d38e0f0cdc044ea14c80a00ba9940af497830d8051a27efe48e6f6b2847aa5f7  src/lib/adapter/conformance.test.ts
+          a3a34052fff90cd8343b96710e18ca4a600cde02173edf17e1ad87826ff918ef  src/lib/dapp-browser/injection-script.ts
+          0d2c8424a84f1c689d64f6d1fb330338ab43e924c57e6e05f91d8fb155cdb0df  src/lib/miden/sdk/derive-seed.keys.test.ts
+          cfe3eb0b6c2c1ba46335e96b13f4a4648e3a009a67fbda4a2c02a580dab28480  src/lib/miden/sdk/derive-seed.ts
+          6e02e25d32b45424ef459b1d290b13199183672677dca74be6310ffd3e69795a  src/lib/miden/smoke.integration.test.ts
+          16df887a8549416f5457142ce5c9580a4082dea65fd4dc55c2987e12112dc131  src/lib/telemetry/protocol-assertions.json
+          be5107b2fcfbf1bdcb21fafabb5c6af4bcb6f6d7e0c992c252078fdcafcfb594  src/lib/telemetry/protocol-assertions.sources.json
+          15c5737b0fbe1f2ae59f4fef36e27d1aff1022e12ffca30ba3db9b4892030dba  src/lib/telemetry/protocol-assertions.test.ts
+          ce7bbf3195aa61f812ead29dd19ba3bdfd4c9e7ec159e0f9fc38b42ef0cda226  test/jest-mocks.ts
+          74e5d7f90cafc52a2f25dc9efa9012014fa09001f40a1e7ad90f55c079153a8e  test/state-helpers.ts
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          FIXED
+          while read -r mode file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = "$mode"
+          done <<'FIXED_MODES'
+          644 .eslintrc
+          644 .eslintrc.harness.json
+          644 .eslintrc.i18n.json
+          644 .github/actions/yarn-install/action.yml
+          644 .github/workflows/ci.yml
+          644 .github/workflows/pr.yml
+          644 .gitignore
+          644 .nvmrc
+          644 .prettierignore
+          644 .prettierrc
+          644 __mocks__/lib/miden/back/dapp.ts
+          644 __mocks__/lib/miden/back/vault.ts
+          644 __mocks__/lib/miden/sdk/miden-client-interface.ts
+          644 __mocks__/lib/miden/sdk/miden-client.ts
+          644 __mocks__/wasmMock.js
+          644 jest.config.ts
+          644 jest.setup.js
+          644 package.json
+          644 packages/bread-connect-capacitor/package.json
+          644 packages/bread-connect/package.json
+          644 packages/bread-connect/tsconfig.json
+          755 packages/dapp-browser/package.json
+          644 packages/hd-key/package.json
+          644 packages/hd-key/src/index.ts
+          644 packages/hd-key/src/miden.ts
+          644 packages/hd-key/src/mnemonic.ts
+          644 packages/hd-key/src/slip10.ts
+          644 packages/hd-key/tsconfig.json
+          644 packages/native-prover/android/rust-bridge/Cargo.lock
+          644 packages/native-prover/android/rust-bridge/Cargo.toml
+          644 packages/native-prover/package.json
+          644 packages/native-prover/pin-drift-exemptions.json
+          644 patches/@capacitor+keyboard+8.0.5.patch
+          644 patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          644 patches/@openzeppelin+guardian-client+0.18.1.patch
+          644 patches/eslint-plugin-import+2.32.0.patch
+          644 patches/eslint-plugin-react+7.27.1.patch
+          644 patches/inspect-cli-cdp-fix.patch
+          644 patches/react-infinite-scroller+1.2.6.patch
+          644 patches/vaul+1.1.2.patch
+          644 playwright/e2e/eslint-rules/known-violations.json
+          644 playwright/e2e/eslint-rules/no-conditional-expect.js
+          644 playwright/e2e/eslint-rules/no-long-bare-wait.js
+          644 playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          644 scripts/badge-data.mjs
+          644 scripts/check-native-prover-pin.mjs
+          644 scripts/ci/coverage-resource-sampler.mjs
+          644 scripts/lint-e2e-harness.mjs
+          644 scripts/merge-jest-coverage.mjs
+          644 src-tauri/scripts/dapp-injection.js
+          644 src/lib/adapter/conformance.test.ts
+          644 src/lib/dapp-browser/injection-script.ts
+          644 src/lib/miden/sdk/derive-seed.keys.test.ts
+          644 src/lib/miden/sdk/derive-seed.ts
+          644 src/lib/miden/smoke.integration.test.ts
+          644 src/lib/telemetry/protocol-assertions.json
+          644 src/lib/telemetry/protocol-assertions.sources.json
+          644 src/lib/telemetry/protocol-assertions.test.ts
+          644 test/jest-mocks.ts
+          644 test/state-helpers.ts
+          644 tsconfig.json
+          644 yarn.lock
+          FIXED_MODES
+          test "$(yarn --version)" = 1.22.22
+          test ! -e .env
+          test ! -L .env
+          yarn install --frozen-lockfile --network-timeout 600000
+
+      - name: Check and apply only the 63 reviewed source postimages
+        id: source
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code HEAD
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test "$(wc -l < ../source-before.sha256)" -eq 46
+          test "$(wc -l < ../source-after.sha256)" -eq 63
+          sha256sum --check ../source-before.sha256
+          while IFS= read -r file; do
+            test ! -e "$file"
+            test ! -L "$file"
+          done < <(comm -13 <(cut -c67- ../source-before.sha256) <(cut -c67- ../source-after.sha256))
+          git apply --check ../source-overlay.patch
+          git apply ../source-overlay.patch
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = a5b3ea65a6423f43f9e3db9340778719cc225f670e905d6c81d5f751b0517ffe
+          test "$(git ls-files --others --exclude-standard | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = 3f6916d6ece02fd13e172afb4019009b45447ff70e5d40c7ca5bf1e7a450c536
+          test "$(node --version | cut -d. -f1)" = v22
+          test "$(yarn --version)" = 1.22.22
+          node --version
+          yarn --version
+
+      - name: Check locked and installed reporter versions
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset NODE_PATH
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const lock = fs.readFileSync('yarn.lock', 'utf8');
+          const expected = { 'istanbul-lib-coverage': '3.2.2', 'istanbul-lib-report': '3.0.1', 'istanbul-reports': '3.2.0' };
+          for (const [name, version] of Object.entries(expected)) {
+            const entry = lock.split('\n\n').find(entry => entry.startsWith(name + '@'));
+            assert(entry, 'missing lock header: ' + name);
+            assert(entry.includes('version "' + version + '"'));
+            assert.equal(require(name + '/package.json').version, version);
+            console.log(name + '=' + version);
+          }
+          assert.equal(require('./package.json').dependencies['@miden-sdk/miden-sdk'], '0.17.5');
+          JS
+
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # public v4, same run
+        with:
+          name: coverage-shard-1
+          path: ${{ runner.temp }}/full-coverage/coverage-shards/coverage-shard-1
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # public v4, same run
+        with:
+          name: coverage-shard-2
+          path: ${{ runner.temp }}/full-coverage/coverage-shards/coverage-shard-2
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # public v4, same run
+        with:
+          name: coverage-shard-3
+          path: ${{ runner.temp }}/full-coverage/coverage-shards/coverage-shard-3
+
+      - name: Merge all three nonempty maps and counts and enforce global 95
+        working-directory: wallet
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset NODE_PATH
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = path.join(process.env.RUNNER_TEMP, 'full-coverage/coverage-shards');
+          assert.deepEqual(fs.readdirSync(root).sort(), ['coverage-shard-1', 'coverage-shard-2', 'coverage-shard-3']);
+          let total = 0;
+          for (let shard = 1; shard <= 3; shard++) {
+            const dir = path.join(root, 'coverage-shard-' + shard);
+            assert(fs.lstatSync(dir).isDirectory());
+            assert.deepEqual(fs.readdirSync(dir).sort(), ['coverage-final.json', 'test-count.json']);
+            for (const name of ['coverage-final.json', 'test-count.json']) {
+              assert(fs.lstatSync(path.join(dir, name)).isFile());
+              assert(fs.statSync(path.join(dir, name)).size > 0);
+            }
+            const map = JSON.parse(fs.readFileSync(path.join(dir, 'coverage-final.json'), 'utf8'));
+            assert(Object.keys(map).length > 0);
+            const count = JSON.parse(fs.readFileSync(path.join(dir, 'test-count.json'), 'utf8'));
+            assert.deepEqual(Object.keys(count), ['numTotalTests']);
+            assert(Number.isSafeInteger(count.numTotalTests) && count.numTotalTests > 0);
+            console.log(JSON.stringify({ shard, tests: count.numTotalTests }));
+            total += count.numTotalTests;
+          }
+          assert(Number.isSafeInteger(total) && total > 0);
+          console.log(JSON.stringify({ fullTests: total, shards: 3 }));
+          JS
+          # Maps stay outside baseline source; retain exact untracked17 guard.
+          ln -s "$GITHUB_WORKSPACE/wallet/scripts" "$RUNNER_TEMP/full-coverage/scripts"
+          node scripts/ci/coverage-resource-sampler.mjs merge &
+          SAMPLER_PID=$!
+          stop_sampler() {
+            kill "$SAMPLER_PID" 2>/dev/null || true
+            wait "$SAMPLER_PID" 2>/dev/null || true
+            return 0
+          }
+          trap stop_sampler EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          cd "$RUNNER_TEMP/full-coverage"
+          set +e
+          node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
+          merge_exit=$?
+          set -e
+          echo "merge_exit=$merge_exit"
+          exit "$merge_exit"
+
+      - name: Verify source and expanded fixed inputs after every attempt
+        id: postchecks
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        working-directory: wallet
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 293d668a14aa4226cd666d2f3344de6d65c5d762
+          test ! -e .env
+          test ! -L .env
+          git diff --cached --exit-code
+          sha256sum --check ../source-after.sha256
+          while read -r hash file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = 644
+          done < ../source-after.sha256
+          test "$(git diff --name-only --no-renames HEAD | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = a5b3ea65a6423f43f9e3db9340778719cc225f670e905d6c81d5f751b0517ffe
+          test "$(git ls-files --others --exclude-standard | LC_ALL=C sort | sha256sum | cut -d' ' -f1)" = 3f6916d6ece02fd13e172afb4019009b45447ff70e5d40c7ca5bf1e7a450c536
+          sha256sum --check <<'FIXED'
+          6f6ba5ed5f7a19c442a3758ef91cc11c1754657dec0b2b860f865b6c34f0523e  .eslintrc
+          4f2f9e3ed69e9e1d05dc97d054a1b85668bc3d53cda3657bfcb3d467b52607c6  .eslintrc.harness.json
+          101bb34834b840158d0b2067e56b485c5b78173a4b71fac73106ba28e73d6526  .eslintrc.i18n.json
+          2272dd316fc91504ff6859ce1c611bb3ff79741d4f027d2b9d7a0eeb20731714  .github/actions/yarn-install/action.yml
+          dfecf1258b39dcb7d0381f9a2d953c084a667c1883a2acd98f9408ce028d23c4  .github/workflows/ci.yml
+          b3deb861b8c4b69fee1efc9a86f57d3a55ba16d77a9ef8540fc5f5e5c64c9e6d  .github/workflows/pr.yml
+          12f1fc3e79645912be5b065400174e6ce1d8d300473bd31064f057c26ad16003  .gitignore
+          cd953bc2e5668e8155089a6aba3225a6170cc743ba547d148de507b26827ea73  .nvmrc
+          f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd  .prettierignore
+          7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf  .prettierrc
+          13f8321d96455c4af329747699be11f130c91c80b53197ea09336a6b1270f5a2  __mocks__/lib/miden/back/dapp.ts
+          ec4612339b136d75aa40e01299385c546f3406a3901ee2d50fd2be2eacbd6eb5  __mocks__/lib/miden/back/vault.ts
+          eb2027f2de1d487c5e78ccd9e6733a0b2da67203bc686b56ae9b4d173125c600  __mocks__/lib/miden/sdk/miden-client-interface.ts
+          74d0ab9b63cf40c8c78fabfb6eb7d6cfed7b0813801f50e14e49ee4a22eed64b  __mocks__/lib/miden/sdk/miden-client.ts
+          57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66  __mocks__/wasmMock.js
+          5a49edb29629ae236e9d2c5dbfcf82fe1123bae990366e8252137ed6a81f09f9  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          1023476b177f3c1c8dca8cb1451b59709044c0d8ec290c2a530f02905028008e  package.json
+          8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275  packages/bread-connect-capacitor/package.json
+          1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e  packages/bread-connect/package.json
+          9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9  packages/bread-connect/tsconfig.json
+          6e429996887877ba411d6a2262947fe7831532562b6d872f888c83edb37375b1  packages/dapp-browser/package.json
+          68872467d64e7e95822bf15b578f98f38f94ee15c978bef41248bb28c0e3d74b  packages/hd-key/package.json
+          5eaa632b3f338fa23beec025c4f8a5b4e359d4fec42a034efda3991d950724c8  packages/hd-key/src/index.ts
+          4d501ac03ab9d56d584fec468bf94a07f729c98674d8e8f7a7095f4817f82880  packages/hd-key/src/miden.ts
+          fcb346e09523667b517b25ef0d743ab3e89885a8aaaf134eafa6fe8edd4f7cd5  packages/hd-key/src/mnemonic.ts
+          fada9158d046066f7f61eb537892caffcada7ea3919c431a182b6cfc850d605f  packages/hd-key/src/slip10.ts
+          93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2  packages/hd-key/tsconfig.json
+          7855e80634b4fd1e80855807704ed8c774bb96fc66d7472cc753daedaab2a25f  packages/native-prover/android/rust-bridge/Cargo.lock
+          3a1b514d27e10680b66d1331313f9350431ac88107bfbeb5693102a78a50ad1e  packages/native-prover/android/rust-bridge/Cargo.toml
+          dee8323b83b5a584a49e61c5c6a1deb19db572226484fbbff17b50e38fabebeb  packages/native-prover/package.json
+          40b461cafe891b15363ddb8cdecde0c7bf02b4633d16450d995115d3c39e5144  packages/native-prover/pin-drift-exemptions.json
+          c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa  patches/@capacitor+keyboard+8.0.5.patch
+          7477ff106d8921519b8b9c7614dd5f27035f4db15d77ea65d39edfc1a49a992c  patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1  patches/@openzeppelin+guardian-client+0.18.1.patch
+          1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d  patches/eslint-plugin-import+2.32.0.patch
+          9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6  patches/eslint-plugin-react+7.27.1.patch
+          b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615  patches/inspect-cli-cdp-fix.patch
+          3efbc553923c5294e3d35904ea8cb82142c99b99e5320e641eaa221d03021819  patches/react-infinite-scroller+1.2.6.patch
+          4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf  patches/vaul+1.1.2.patch
+          70ffbb4372f856383bfa24ba01fb5bac9ceef0c090bdbef3908b9ca8d3c4f2d0  playwright/e2e/eslint-rules/known-violations.json
+          de0c54849474643dd2376c5b191ea6ec5cf934e86d95fc14ebc10cf783f0b031  playwright/e2e/eslint-rules/no-conditional-expect.js
+          c23fdd2ded1a14a6a0633401ed0786e9fe113aa5c8751ae7f9d6424be808cde5  playwright/e2e/eslint-rules/no-long-bare-wait.js
+          c76cc738f3f5beb23cc310d7a2f6471cad077b72fdc61875bae6d9b3d5b79c89  playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          9fd54fa6f27922dd31fc9271d33b70c9fe3fbc9ac472965ce6a218b9c6e10e7b  scripts/badge-data.mjs
+          5104a79a346824036eeea3b16bc3c1c21a3a2a0174e493a29b5c4f69c28423fa  scripts/check-native-prover-pin.mjs
+          1a3fbdffcc0a33c172b752d6c1a08543e62422dd4d9b5b38faf5095c99acad52  scripts/ci/coverage-resource-sampler.mjs
+          1696e4f93a9c602594d42780b5b325f9de0fe9f1c575444491e850d7e63f4134  scripts/lint-e2e-harness.mjs
+          462dc0873b58b5ab9346c20671071f5b7e69f2e3ab3ab3c5252f198c2e6b5573  scripts/merge-jest-coverage.mjs
+          e8b63857df211cd53ba8a4302eccdb33ea9b6e1e95271b8c85343525a6d1ab88  src-tauri/scripts/dapp-injection.js
+          d38e0f0cdc044ea14c80a00ba9940af497830d8051a27efe48e6f6b2847aa5f7  src/lib/adapter/conformance.test.ts
+          a3a34052fff90cd8343b96710e18ca4a600cde02173edf17e1ad87826ff918ef  src/lib/dapp-browser/injection-script.ts
+          0d2c8424a84f1c689d64f6d1fb330338ab43e924c57e6e05f91d8fb155cdb0df  src/lib/miden/sdk/derive-seed.keys.test.ts
+          cfe3eb0b6c2c1ba46335e96b13f4a4648e3a009a67fbda4a2c02a580dab28480  src/lib/miden/sdk/derive-seed.ts
+          6e02e25d32b45424ef459b1d290b13199183672677dca74be6310ffd3e69795a  src/lib/miden/smoke.integration.test.ts
+          16df887a8549416f5457142ce5c9580a4082dea65fd4dc55c2987e12112dc131  src/lib/telemetry/protocol-assertions.json
+          be5107b2fcfbf1bdcb21fafabb5c6af4bcb6f6d7e0c992c252078fdcafcfb594  src/lib/telemetry/protocol-assertions.sources.json
+          15c5737b0fbe1f2ae59f4fef36e27d1aff1022e12ffca30ba3db9b4892030dba  src/lib/telemetry/protocol-assertions.test.ts
+          ce7bbf3195aa61f812ead29dd19ba3bdfd4c9e7ec159e0f9fc38b42ef0cda226  test/jest-mocks.ts
+          74e5d7f90cafc52a2f25dc9efa9012014fa09001f40a1e7ad90f55c079153a8e  test/state-helpers.ts
+          fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe  tsconfig.json
+          d179f23b11f83eaac87ec445039d80fb4b563cf28b4c6fb0d0a2069936af7f6b  yarn.lock
+          FIXED
+          while read -r mode file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(stat -c '%a' "$file")" = "$mode"
+          done <<'FIXED_MODES'
+          644 .eslintrc
+          644 .eslintrc.harness.json
+          644 .eslintrc.i18n.json
+          644 .github/actions/yarn-install/action.yml
+          644 .github/workflows/ci.yml
+          644 .github/workflows/pr.yml
+          644 .gitignore
+          644 .nvmrc
+          644 .prettierignore
+          644 .prettierrc
+          644 __mocks__/lib/miden/back/dapp.ts
+          644 __mocks__/lib/miden/back/vault.ts
+          644 __mocks__/lib/miden/sdk/miden-client-interface.ts
+          644 __mocks__/lib/miden/sdk/miden-client.ts
+          644 __mocks__/wasmMock.js
+          644 jest.config.ts
+          644 jest.setup.js
+          644 package.json
+          644 packages/bread-connect-capacitor/package.json
+          644 packages/bread-connect/package.json
+          644 packages/bread-connect/tsconfig.json
+          755 packages/dapp-browser/package.json
+          644 packages/hd-key/package.json
+          644 packages/hd-key/src/index.ts
+          644 packages/hd-key/src/miden.ts
+          644 packages/hd-key/src/mnemonic.ts
+          644 packages/hd-key/src/slip10.ts
+          644 packages/hd-key/tsconfig.json
+          644 packages/native-prover/android/rust-bridge/Cargo.lock
+          644 packages/native-prover/android/rust-bridge/Cargo.toml
+          644 packages/native-prover/package.json
+          644 packages/native-prover/pin-drift-exemptions.json
+          644 patches/@capacitor+keyboard+8.0.5.patch
+          644 patches/@epoch-protocol+epoch-intents-sdk+2.0.1.patch
+          644 patches/@openzeppelin+guardian-client+0.18.1.patch
+          644 patches/eslint-plugin-import+2.32.0.patch
+          644 patches/eslint-plugin-react+7.27.1.patch
+          644 patches/inspect-cli-cdp-fix.patch
+          644 patches/react-infinite-scroller+1.2.6.patch
+          644 patches/vaul+1.1.2.patch
+          644 playwright/e2e/eslint-rules/known-violations.json
+          644 playwright/e2e/eslint-rules/no-conditional-expect.js
+          644 playwright/e2e/eslint-rules/no-long-bare-wait.js
+          644 playwright/e2e/eslint-rules/no-unfalsifiable-balance-assertion.js
+          644 scripts/badge-data.mjs
+          644 scripts/check-native-prover-pin.mjs
+          644 scripts/ci/coverage-resource-sampler.mjs
+          644 scripts/lint-e2e-harness.mjs
+          644 scripts/merge-jest-coverage.mjs
+          644 src-tauri/scripts/dapp-injection.js
+          644 src/lib/adapter/conformance.test.ts
+          644 src/lib/dapp-browser/injection-script.ts
+          644 src/lib/miden/sdk/derive-seed.keys.test.ts
+          644 src/lib/miden/sdk/derive-seed.ts
+          644 src/lib/miden/smoke.integration.test.ts
+          644 src/lib/telemetry/protocol-assertions.json
+          644 src/lib/telemetry/protocol-assertions.sources.json
+          644 src/lib/telemetry/protocol-assertions.test.ts
+          644 test/jest-mocks.ts
+          644 test/state-helpers.ts
+          644 tsconfig.json
+          644 yarn.lock
+          FIXED_MODES
