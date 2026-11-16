@@ -5297,6 +5297,27 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(reply).not.toHaveProperty('errorPrivateOutputNotes');
   });
 
+  it('guardianPipeline: a landed failure replies with its order id as a JSON-safe string', async () => {
+    await loadModule();
+    const { ApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    G.__off.guardianExecuteRequest = jest.fn(async () => {
+      throw new ApplyAfterSubmitError(new Error('QuotaExceededError'), {
+        transactionId: '0xlanded',
+        orderId: '42',
+        orderNoteId
+      });
+    });
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    const reply = sendResponse.mock.calls[0][0];
+    expect(reply.errorLanded).toEqual({ transactionId: '0xlanded', orderId: '42', orderNoteId });
+    expect(() => JSON.stringify(reply)).not.toThrow();
+  });
+
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {
     await loadModule();
     let signatureSeen: Uint8Array | null = null;

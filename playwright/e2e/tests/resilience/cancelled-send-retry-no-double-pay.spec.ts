@@ -2,6 +2,7 @@ import { expect, test } from '../../fixtures/two-wallets';
 import {
   maxPendingNoteTotal,
   toBaseUnits,
+  vaultBalance,
   waitForPendingNoteTotal,
   waitForVaultBalance
 } from '../../helpers/balance-truth';
@@ -16,7 +17,7 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
 import { armRecallBlocks } from '../../helpers/recall';
 
 /**
- * Retrying a send that was cancelled mid-flight must not pay the recipient twice.
+ * Retrying a send that was cancelled mid-flight must not pay anybody twice.
  *
  * ── The bug this exists to keep dead ────────────────────────────────────────
  *
@@ -33,28 +34,28 @@ import { armRecallBlocks } from '../../helpers/recall';
  * fresh note serial, and the chain has no reason to reject it. The recipient is
  * paid a second time.
  *
- * Retry asks before it replays a send that may have submitted, and the cached
- * bytes pin the note serial, whose note id is what lets the node reject a
- * duplicate submit while the first copy is in flight.
- * `markMayHaveSubmitted` is what preserves them - a sticky flag the leaf stamps
- * before broadcasting, deliberately exempt from the terminal-row guard that
- * suppresses the stage write.
+ * Retry keeps the cached bytes of a send that may have submitted, because they
+ * pin the note serial. `markMayHaveSubmitted` is what preserves them - a sticky
+ * flag the leaf stamps before broadcasting, deliberately exempt from the
+ * terminal-row guard that suppresses the stage write. A replay of those bytes
+ * re-creates the same note id, which the node rejects only while the first copy
+ * is in its mempool, so before replaying them Retry asks the node whether that
+ * note is already on chain, and completes the row when it is.
  *
  * ── Why this is an E2E and not a unit test ──────────────────────────────────
  *
  * Unit and integration coverage can prove the bytes survive
  * (`double-send.integration.test.ts` runs the real writers against the real
  * Dexie schema). Only a chain can prove what the bytes BUY: they pin the note
- * serial, so the replay, a new transaction carrying the same note, re-creates
- * the same note id and the recipient holds one payment. The assertions here are
- * that the first Retry asks, that the replay re-creates the note id, and the
- * recipient's balance.
+ * id, so the node can say whether the note they create is already on chain. The
+ * assertions here are that the first Retry completes the row from the node
+ * without asking or requeueing it, that the row records the landed note, and
+ * both balances.
  *
- * The sender's balance is deliberately not asserted. The node rejects the
- * duplicate note id only while the first copy is in flight, and this Retry
- * comes long after that, so the replay is accepted and debits A again. That
- * second debit is the cost the user accepts with Retry anyway, and asserting it
- * either way would test the block timing rather than the wallet.
+ * The sender's balance is asserted too. This Retry comes long after the first
+ * copy left the node's mempool, so a replay would be accepted and debit A a
+ * second time for a note that can never be spent; only the node check keeps A
+ * at one debit.
  *
  * ── Why it is deterministic ─────────────────────────────────────────────────
  *
@@ -82,16 +83,14 @@ import { armRecallBlocks } from '../../helpers/recall';
  *     exists at all (see the next section);
  *   - the stage, because 'proving' is in `PRE_SUBMIT_STAGES` and 'sending' is
  *     deliberately not. At 'sending' the `!failedPreSubmit` disjunct makes
- *     `submitPossible` true on its own, the cached bytes survive with or
- *     without the crossing stamp, and the first falsifiability claim below
- *     would quietly stop holding - removing the stamp would no longer produce a
- *     double payment.
+ *     `submitPossible` true on its own, so the cached bytes would survive with
+ *     or without the crossing stamp, and the row would not be the one the
+ *     stamp exists for.
  *
  * `verifySendLanded` returns `'unknown'` precisely when the row carries no
- * `transactionId` (transaction/cancel.ts), so clearing it is also what forces
- * Retry down the requeue path being tested rather than letting the node-verify
- * shortcut complete the row. That makes the interesting branch reachable every
- * run instead of most runs.
+ * `transactionId` (transaction/cancel.ts), so clearing it is also what takes
+ * Retry past that check to the pinned-note check being tested. That makes the
+ * interesting branch reachable every run instead of most runs.
  *
  * ── Which of the two cancel routes is reproduced, and why ───────────────────
  *
@@ -113,12 +112,12 @@ import { armRecallBlocks } from '../../helpers/recall';
  * defend. That is what is planted below.
  *
  * Falsifiability, in both directions:
- *   - Remove the leaf's crossing stamp and the flag is absent, Retry anyway
- *     drops the bytes, a fresh serial is drawn and B is credited TWICE - the
- *     note id and balance assertions go red.
- *   - If Retry silently did nothing at all, B would trivially stay at one
- *     payment and this spec would be a false green, so it also asserts the row
- *     actually left Failed.
+ *   - Remove the pinned-note check and the first tap asks instead; Retry anyway
+ *     replays the bytes and debits A a second time - the no-refusal, Completed
+ *     and A balance assertions go red.
+ *   - If Retry silently did nothing at all, both balances would trivially stay
+ *     at one payment and this spec would be a false green, so it also asserts
+ *     the row reaches Completed with the landed note.
  */
 
 // The faucet the harness deploys (miden-cli.ts createFaucet defaults).
@@ -277,7 +276,7 @@ async function plantCancelledMidFlightShape(page: import('@playwright/test').Pag
 test.describe('infra resilience - a cancelled send is not paid twice on retry', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('retrying a send that was cancelled after it broadcast credits the recipient exactly once', async ({
+  test('retrying a send that was cancelled after it landed completes it from the node and pays nobody twice', async ({
     walletA,
     walletB,
     midenCli,
@@ -400,73 +399,56 @@ test.describe('infra resilience - a cancelled send is not paid twice on retry', 
         await retryButton.waitFor({ state: 'visible', timeout: 60_000 });
         await retryButton.click({ timeout: 30_000 });
 
-        // The row left the queue and recorded its crossing, so the first tap asks and replays nothing: the
-        // acknowledgeable refusal, with Retry anyway beside it, on a row that is still Failed.
+        // The note the cached bytes create is on chain, so the first tap completes the row from the node: no
+        // refusal, no Retry anyway, and no requeue. Every sample is terminal, so the row never went back to the queue.
+        const seen = new Set<number | undefined>();
+        await waitForTransactionRow(
+          walletA.page,
+          sendRowId,
+          row => {
+            seen.add(row?.status);
+            return row?.status === TxStatus.Completed;
+          },
+          { what: 'the first Retry to complete the row from the node', timeoutMs: 60_000 }
+        );
+        expect(
+          [...seen].every(status => status === TxStatus.Failed || status === TxStatus.Completed),
+          `Retry requeued a send whose note was already on chain (statuses seen: ${[...seen].join(', ')})`
+        ).toBe(true);
         await expect(
           walletA.page.getByTestId('history-retry-error'),
-          'the first Retry must ask before replaying a send that may already have gone through'
-        ).toContainText('may already have reached the network', { timeout: 30_000 });
-        const retryAnywayButton = walletA.page.getByTestId('history-retry-anyway-button');
-        await retryAnywayButton.waitFor({ state: 'visible', timeout: 30_000 });
-        await waitForTransactionRow(walletA.page, sendRowId, row => row?.status === TxStatus.Failed, {
-          what: 'the row to stay Failed after the first Retry tap, which must requeue nothing',
-          timeoutMs: 5_000
-        });
-        await retryAnywayButton.click({ timeout: 30_000 });
-
-        // Falsifiability: a Retry that threw or no-opped would leave B at one
-        // payment for reasons that have nothing to do with the guard. The row
-        // must actually be picked back up. (`requeueFailedTransaction` used to
-        // throw here for a DIFFERENT reason - its landed-verdict branch called
-        // `updateTransactionStatus` on the Failed row it is defined over - which
-        // is why the error surface is asserted too.)
-        await expect(
-          walletA.page.getByTestId('history-retry-error'),
-          'Retry reported an error instead of requeueing the row'
+          'the first Retry must complete a send whose note is on chain, not refuse it'
         ).toHaveCount(0, { timeout: 15_000 });
+        await expect(walletA.page.getByTestId('history-retry-anyway-button')).toHaveCount(0);
 
-        // Either Queued or GeneratingTransaction - which one is caught depends on
-        // how fast the loop picks it up, and the point is only that it left the
-        // terminal state the plant put it in.
-        await waitForTransactionRow(walletA.page, sendRowId, row => row !== null && row.status !== TxStatus.Failed, {
-          what: 'the retried row to leave Failed - if it never does, this spec proves nothing about the guard',
-          timeoutMs: 60_000
-        });
+        const completed = await readGuardFields(walletA.page, sendRowId);
+        expect(completed.hasRequestBytes, 'the completion keeps the bytes that pin the note').toBe(true);
+        expect(completed.mayHaveSubmitted).toBe(true);
+        expect(completed.noteIds, 'the completed row must record the note the first attempt created').toEqual(
+          landed?.noteIds
+        );
 
-        // THE ASSERTION. The resubmit is a new transaction carrying the cached
-        // note, so it re-creates the note id already on chain and B holds one
-        // payment; a rebuild would draw a fresh serial and pay B twice. Sampled
-        // across the window rather than read once at the end, so a second note
-        // that lands and is then reclaimed still trips it. A is not asserted: the
-        // node rejects the duplicate note id only while the first copy is in
-        // flight, which is long past, so A's second debit is the cost the user
-        // accepted with Retry anyway (see the header).
+        // THE ASSERTIONS. Sampled across the window rather than read once at the end, so a second note that lands
+        // and is then reclaimed still trips B's. A's is read after the window, long enough for a replay to have
+        // proved, submitted and committed a second debit.
         const peak = await maxPendingNoteTotal(walletB.page, TOKEN, { forMs: DOUBLE_PAY_WATCH_MS });
         expect(
           peak,
-          `B must be credited exactly ${SEND_AMOUNT} ${TOKEN} once. A higher peak means the retry rebuilt the ` +
-            `request with a fresh note serial and paid the recipient again.`
+          `B must be credited exactly ${SEND_AMOUNT} ${TOKEN} once. A higher peak means the retry sent the ` +
+            `recipient a second note.`
         ).toBe(SEND_BASE_UNITS);
-
-        // The plant removed every note id the row recorded, so any id it holds now is the replay's.
-        await expect
-          .poll(async () => (await readGuardFields(walletA.page, sendRowId)).noteIds, {
-            message: 'the replay never recorded the note it created',
-            timeout: 180_000,
-            intervals: [2_000]
-          })
-          .not.toEqual([]);
-        const replayed = await readGuardFields(walletA.page, sendRowId);
-        expect(replayed.noteIds, 'the replay must re-create the note id the first attempt created').toEqual(
-          landed?.noteIds
-        );
+        expect(
+          await vaultBalance(walletA.page, TOKEN),
+          `A must be debited exactly ${SEND_AMOUNT} ${TOKEN} once. A lower balance means the retry replayed a ` +
+            `note that was already on chain.`
+        ).toBe(MINT_BASE_UNITS - SEND_BASE_UNITS);
 
         timeline.emit({
           category: 'blockchain_state',
           severity: 'info',
           message:
-            `Retry of a cancelled-mid-flight send asked first, then replayed its cached note: the replay ` +
-            `re-created note ${replayed.noteIds[0]} and B peaked at ${peak} base units (one payment)`,
+            `Retry of a cancelled-mid-flight send completed it from the node: note ${completed.noteIds[0]} ` +
+            `was already on chain, B peaked at ${peak} base units and A was debited once`,
           data: { peakBaseUnits: peak.toString(), sentBaseUnits: SEND_BASE_UNITS.toString() }
         });
       },

@@ -60,6 +60,8 @@ export const PENDING_RETRY_REASONS = [
   'landing_pending',
   'verdict_busy',
   'unsafe_retry',
+  'replay_check_failed',
+  'replay_request_unreadable',
   'unexpected'
 ] as const;
 export const EARN_POSITIONS_LOAD_STAGES = [
