@@ -896,6 +896,10 @@
     "englishSource": "(untranslated)",
     "rejectedSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "Die Bridge-Begriffe haben sich geändert. Überprüfen Sie die Aktivität, bevor Sie fortfahren.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
   "earnTotalEarnedRewards": {
     "message": "Gesamtverdienst",
     "englishSource": "Total earned"

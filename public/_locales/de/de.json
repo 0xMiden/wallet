@@ -165,6 +165,7 @@
   "earnCollateralLoading": "Die Details des Einzahlungstokens werden geladen. Sie können fortfahren, sobald diese vorliegen.",
   "earnCollateralUnavailable": "Das Einzahlungstoken ist derzeit nicht verfügbar, daher sind Einzahlungen vorübergehend ausgesetzt. Bitte versuchen Sie es später erneut.",
   "earnCollateralMismatch": "Diese Überprüfung wurde für einen anderen Einzahlungstoken erstellt. Gehen Sie zurück und geben Sie den Betrag erneut ein.",
+  "bridgeReviewChanged": "Die Bridge-Begriffe haben sich geändert. Überprüfen Sie die Aktivität, bevor Sie fortfahren.",
   "earnTotalEarnedRewards": "Gesamtverdienst",
   "earnEarningBlendedApy": "$apy$-gemischter APY erzielen",
   "earnTotalDeposited": "Gesamteinlage",

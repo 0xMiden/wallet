@@ -166,6 +166,7 @@
   "earnCollateralUnavailable": "Para yatırma jetonu şu anda kullanılamıyor, bu nedenle para yatırma işlemleri askıya alınmıştır. Daha sonra tekrar deneyin.",
   "earnCollateralMismatch": "Bu inceleme, farklı bir mevduat token'ı için hazırlanmıştır. Geri dönün ve tutarı tekrar girin.",
   "epochCollateralNoteMismatch": "Teminat note'unda incelenen token, incelenen tutar ve yapılandırılmış tahsis edici kullanılmalıdır. Hiçbir şey gönderilmedi. Geri dönün ve tekrar deneyin.",
+  "bridgeReviewChanged": "Köprü terimleri değişti. Devam etmeden önce Etkinlik bölümünü kontrol edin.",
   "earnTotalEarnedRewards": "Toplam kazanç",
   "earnEarningBlendedApy": "$apy$'lık karma APY elde etmek",
   "earnTotalDeposited": "Toplam Yatırılan Tutar",

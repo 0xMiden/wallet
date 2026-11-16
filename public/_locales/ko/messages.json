@@ -895,6 +895,10 @@
     "message": "담보 note에는 검토된 토큰, 검토된 금액 및 구성된 할당기를 사용해야 합니다. 아무것도 전송되지 않았습니다. 돌아가서 다시 시도하십시오.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "브리지 용어가 변경되었습니다. 계속하기 전에 활동 내역을 확인하십시오.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
   "earnTotalEarnedRewards": {
     "message": "총 수익",
     "englishSource": "Total earned"

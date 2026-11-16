@@ -166,6 +166,7 @@
   "earnCollateralUnavailable": "O token de depósito não está disponível no momento, portanto, os depósitos estão suspensos. Tente novamente mais tarde.",
   "earnCollateralMismatch": "Esta revisão foi preparada para um token de depósito diferente. Volte e insira o valor novamente.",
   "epochCollateralNoteMismatch": "A note de garantia deve usar o token revisado, o valor revisado e o alocador configurado. Nada foi enviado. Volte e tente novamente.",
+  "bridgeReviewChanged": "Os termos da ponte foram alterados. Verifique a Atividade antes de continuar.",
   "earnTotalEarnedRewards": "Total ganho",
   "earnEarningBlendedApy": "Obter uma taxa de rendimento anual (APY) combinad$apy$",
   "earnTotalDeposited": "Total depositado",
