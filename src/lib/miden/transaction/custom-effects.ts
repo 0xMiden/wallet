@@ -245,8 +245,9 @@ export function customEffectsDifference(
  * refuses. The argument defaults to no limit, so a comparison that does not know the policy still matches an
  * uncharged row, whether the stored charge is unset or an empty list.
  *
- * `feeScope` is the scope of the fee read the caller made before the dry run. Given it, a summary whose fee note cannot
- * be told apart at this decode is refused as an unknown fee, `ProposalFeeUnknownError`, not as changed effects.
+ * `feeScope` is the scope of the fee read the caller made before the dry run. A summary decoded without it, or one
+ * whose fee note cannot be told apart at this decode, is refused as an unknown fee, `ProposalFeeUnknownError`, not as
+ * changed effects. An executed dry run splits on its own header and takes no scope.
  */
 export function assertCustomEffectsApproved(
   approved: IApprovedCustomEffects | undefined,
@@ -258,7 +259,7 @@ export function assertCustomEffectsApproved(
   if (approved === undefined) {
     throw new CustomTransactionEffectsChangedError('the row has no approved effects');
   }
-  if (dryRun.summaryBytes && feeScope !== undefined && isSummaryFeeUnknownAtDecode(feeScope)) {
+  if (dryRun.summaryBytes && (feeScope === undefined || isSummaryFeeUnknownAtDecode(feeScope))) {
     throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
   }
   const decoded = decodeCustomEffects(dryRun);
@@ -318,7 +319,8 @@ export function customEffectsCheckAccess(
  * The caller holds the WASM client lock (see `customEffectsCheckAccess`). The hold is re-checked after the dry run and
  * after the spending-limit read, before the decode, so a trap in the decode reaches the lock. The account closed over
  * by that access is the one whose spending limit decides whether an unattributable generation spend can match an
- * uncharged row. `feeScope` is passed to `assertCustomEffectsApproved`, whose fee check follows both awaits.
+ * uncharged row. `feeScope` is passed to `assertCustomEffectsApproved`, whose fee check follows both awaits and
+ * refuses a summary that arrives with no scope.
  */
 export async function verifyPreparedCustomRequest(
   access: CustomEffectsCheckAccess,

@@ -316,9 +316,9 @@ describe('assertCustomEffectsApproved', () => {
     const approval = approve(view());
     const dryRun = generate(view({ fee: { faucetId: 'faucet-native', amount: 9n } }));
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).toThrow(
-      new CustomTransactionEffectsChangedError('fee')
-    );
+    expect(() =>
+      assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, false, 'rpc-a|testnet')
+    ).toThrow(new CustomTransactionEffectsChangedError('fee'));
   });
 
   it.each([
@@ -330,9 +330,9 @@ describe('assertCustomEffectsApproved', () => {
     const approval = approve(view({ fee: approvedFee }));
     const dryRun = generate(view({ fee: generatedFee }));
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).toThrow(
-      new CustomTransactionEffectsChangedError('fee')
-    );
+    expect(() =>
+      assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, false, 'rpc-a|testnet')
+    ).toThrow(new CustomTransactionEffectsChangedError('fee'));
   });
 
   it('accepts the same movement in another faucet spelling and another order', () => {
@@ -355,7 +355,9 @@ describe('assertCustomEffectsApproved', () => {
       ['0xr1', '0xr2']
     );
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).not.toThrow();
+    expect(() =>
+      assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, false, 'rpc-a|testnet')
+    ).not.toThrow();
   });
 
   it.each<[string, Partial<TestView>, string[], string]>([
@@ -372,9 +374,9 @@ describe('assertCustomEffectsApproved', () => {
     const approval = approve(view());
     const dryRun = generate(view(change), recipients);
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).toThrow(
-      new CustomTransactionEffectsChangedError(field)
-    );
+    expect(() =>
+      assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, false, 'rpc-a|testnet')
+    ).toThrow(new CustomTransactionEffectsChangedError(field));
   });
 
   it('refuses a change of dry-run shape', () => {
@@ -383,20 +385,28 @@ describe('assertCustomEffectsApproved', () => {
     mockRecipients.set('generated', ['0xr1']);
 
     expect(() =>
-      assertCustomEffectsApproved(approval.effects, { executedBytes: 'generated' }, approval.spends)
+      assertCustomEffectsApproved(
+        approval.effects,
+        { executedBytes: 'generated' },
+        approval.spends,
+        false,
+        'rpc-a|testnet'
+      )
     ).toThrow(new CustomTransactionEffectsChangedError('shape'));
   });
 
   it('refuses a row that has no approved effects', () => {
     const dryRun = generate(view());
 
-    expect(() => assertCustomEffectsApproved(undefined, dryRun, [])).toThrow(CustomTransactionEffectsChangedError);
+    expect(() => assertCustomEffectsApproved(undefined, dryRun, [], false, 'rpc-a|testnet')).toThrow(
+      CustomTransactionEffectsChangedError
+    );
   });
 
   it('refuses a generation dry run that gives no result', () => {
     const approval = approve(view());
 
-    expect(() => assertCustomEffectsApproved(approval.effects, {}, approval.spends)).toThrow(
+    expect(() => assertCustomEffectsApproved(approval.effects, {}, approval.spends, false, 'rpc-a|testnet')).toThrow(
       CustomTransactionEffectsChangedError
     );
   });
@@ -405,9 +415,15 @@ describe('assertCustomEffectsApproved', () => {
     const approval = approve(view());
     const dryRun = generate(view());
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-a', amount: 1n }])).toThrow(
-      new CustomTransactionEffectsChangedError('spentAssetTotals')
-    );
+    expect(() =>
+      assertCustomEffectsApproved(
+        approval.effects,
+        dryRun,
+        [{ faucetId: 'faucet-a', amount: 1n }],
+        false,
+        'rpc-a|testnet'
+      )
+    ).toThrow(new CustomTransactionEffectsChangedError('spentAssetTotals'));
   });
 
   it('charges with the note ids the approval recorded, which the generation dry run cannot identify again', () => {
@@ -421,10 +437,22 @@ describe('assertCustomEffectsApproved', () => {
     const dryRun = { executedBytes: 'generated' };
 
     expect(() =>
-      assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-a', amount: 6n }])
+      assertCustomEffectsApproved(
+        approval.effects,
+        dryRun,
+        [{ faucetId: 'faucet-a', amount: 6n }],
+        false,
+        'rpc-a|testnet'
+      )
     ).not.toThrow();
     expect(() =>
-      assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-a', amount: 10n }])
+      assertCustomEffectsApproved(
+        approval.effects,
+        dryRun,
+        [{ faucetId: 'faucet-a', amount: 10n }],
+        false,
+        'rpc-a|testnet'
+      )
     ).toThrow(new CustomTransactionEffectsChangedError('spentAssetTotals'));
   });
 
@@ -437,9 +465,17 @@ describe('assertCustomEffectsApproved', () => {
     const approval = approve(spendsHeld, ['0xr1'], []);
     const dryRun = generate(spendsHeld);
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, true)).not.toThrow();
     expect(() =>
-      assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-x', amount: 50n }], true)
+      assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, true, 'rpc-a|testnet')
+    ).not.toThrow();
+    expect(() =>
+      assertCustomEffectsApproved(
+        approval.effects,
+        dryRun,
+        [{ faucetId: 'faucet-x', amount: 50n }],
+        true,
+        'rpc-a|testnet'
+      )
     ).toThrow(new CustomTransactionEffectsChangedError('spentAssetTotals'));
   });
 
@@ -447,9 +483,9 @@ describe('assertCustomEffectsApproved', () => {
     const approval = approve(view(), ['0xr1'], []);
     const dryRun = generate(view({ viewConsumedNotes: [{ id: '0xcarried', amounts: [], nfts: [], opaque: true }] }));
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).toThrow(
-      new CustomTransactionEffectsChangedError('spentAssetTotals')
-    );
+    expect(() =>
+      assertCustomEffectsApproved(approval.effects, dryRun, approval.spends, false, 'rpc-a|testnet')
+    ).toThrow(new CustomTransactionEffectsChangedError('spentAssetTotals'));
   });
 
   it('does not treat a measured empty spend as unattributable when a spending limit is configured', () => {
@@ -457,7 +493,7 @@ describe('assertCustomEffectsApproved', () => {
     const dryRun = generate(view({ outgoing: [], inputNotesConsumed: 0, viewConsumedNotes: [], createdNotes: [] }));
 
     expect(approval.spends).toEqual([]);
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [], true)).not.toThrow();
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [], true, 'rpc-a|testnet')).not.toThrow();
   });
 
   // A row queued before approvals recorded note ids keeps the charge it was admitted with.
@@ -533,14 +569,23 @@ describe('assertCustomEffectsApproved', () => {
       );
     });
 
-    it('compares a summary as before when no fee read gave a scope, whatever the cache holds', () => {
+    it('refuses a summary decoded with no fee read scope as an unknown fee, before any decode', () => {
       const approval = approve(view());
       const dryRun = generate(view());
-      mockFeeCache.fee = null;
+      mockDecodedBytes.length = 0;
 
-      expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).not.toThrow();
+      expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).toThrow(
+        ProposalFeeUnknownError
+      );
+      expect(mockDecodedBytes).toEqual([]);
       expect(() =>
-        assertCustomEffectsApproved(approval.effects, generate(view({ storageChanged: true })), approval.spends)
+        assertCustomEffectsApproved(
+          approval.effects,
+          generate(view({ storageChanged: true })),
+          approval.spends,
+          false,
+          'rpc-a|testnet'
+        )
       ).toThrow(new CustomTransactionEffectsChangedError('storageChanged'));
     });
   });
@@ -553,7 +598,9 @@ describe('assertCustomEffectsApproved', () => {
       });
       const dryRun = generate(view());
 
-      expect(() => assertCustomEffectsApproved(effects, dryRun, [{ faucetId: 'faucet-a', amount: 10n }])).not.toThrow();
+      expect(() =>
+        assertCustomEffectsApproved(effects, dryRun, [{ faucetId: 'faucet-a', amount: 10n }], false, 'rpc-a|testnet')
+      ).not.toThrow();
     });
 
     it('charges an executed result its gross outflow less the recorded credit', () => {
@@ -566,7 +613,13 @@ describe('assertCustomEffectsApproved', () => {
       mockRecipients.set('generated', ['0xr1']);
 
       expect(() =>
-        assertCustomEffectsApproved(effects, { executedBytes: 'generated' }, [{ faucetId: 'faucet-a', amount: 6n }])
+        assertCustomEffectsApproved(
+          effects,
+          { executedBytes: 'generated' },
+          [{ faucetId: 'faucet-a', amount: 6n }],
+          false,
+          'rpc-a|testnet'
+        )
       ).not.toThrow();
     });
 
@@ -574,10 +627,10 @@ describe('assertCustomEffectsApproved', () => {
       const effects = legacyEffects(view({ inputNotesConsumed: 2 }), { introducedCount: 0 });
       const dryRun = generate(view({ inputNotesConsumed: 2 }));
 
-      expect(() => assertCustomEffectsApproved(effects, dryRun, [], true)).toThrow(
+      expect(() => assertCustomEffectsApproved(effects, dryRun, [], true, 'rpc-a|testnet')).toThrow(
         new CustomTransactionEffectsChangedError('spentAssetTotals')
       );
-      expect(() => assertCustomEffectsApproved(effects, dryRun, undefined, true)).toThrow(
+      expect(() => assertCustomEffectsApproved(effects, dryRun, undefined, true, 'rpc-a|testnet')).toThrow(
         new CustomTransactionEffectsChangedError('spentAssetTotals')
       );
     });
@@ -586,8 +639,8 @@ describe('assertCustomEffectsApproved', () => {
       const effects = legacyEffects(view({ inputNotesConsumed: 2 }), { introducedCount: 0 });
       const dryRun = generate(view({ inputNotesConsumed: 2 }));
 
-      expect(() => assertCustomEffectsApproved(effects, dryRun, undefined)).not.toThrow();
-      expect(() => assertCustomEffectsApproved(effects, dryRun, [])).not.toThrow();
+      expect(() => assertCustomEffectsApproved(effects, dryRun, undefined, false, 'rpc-a|testnet')).not.toThrow();
+      expect(() => assertCustomEffectsApproved(effects, dryRun, [], false, 'rpc-a|testnet')).not.toThrow();
     });
   });
 });
@@ -648,7 +701,7 @@ describe('verifyPreparedCustomRequest', () => {
     const effects = approvedEffects();
     const { access, checked } = checkAccess(async () => generate(view()));
 
-    await verifyPreparedCustomRequest(access, effects, charged);
+    await verifyPreparedCustomRequest(access, effects, charged, 'rpc-a|testnet');
 
     expect(mockHasSpendingLimits).toHaveBeenCalledWith('account-a');
     expect(checked).toEqual([
@@ -663,10 +716,10 @@ describe('verifyPreparedCustomRequest', () => {
     const { access } = checkAccess(async () => generate(view()));
     mockHasSpendingLimits.mockResolvedValue(true);
 
-    await expect(verifyPreparedCustomRequest(access, effects, [])).rejects.toThrow(
+    await expect(verifyPreparedCustomRequest(access, effects, [], 'rpc-a|testnet')).rejects.toThrow(
       new CustomTransactionEffectsChangedError('spentAssetTotals')
     );
-    await expect(verifyPreparedCustomRequest(access, effects, undefined)).rejects.toThrow(
+    await expect(verifyPreparedCustomRequest(access, effects, undefined, 'rpc-a|testnet')).rejects.toThrow(
       new CustomTransactionEffectsChangedError('spentAssetTotals')
     );
   });
@@ -675,15 +728,15 @@ describe('verifyPreparedCustomRequest', () => {
     const effects = unattributable();
     const { access } = checkAccess(async () => generate(view()));
 
-    await expect(verifyPreparedCustomRequest(access, effects, undefined)).resolves.toBeUndefined();
-    await expect(verifyPreparedCustomRequest(access, effects, [])).resolves.toBeUndefined();
+    await expect(verifyPreparedCustomRequest(access, effects, undefined, 'rpc-a|testnet')).resolves.toBeUndefined();
+    await expect(verifyPreparedCustomRequest(access, effects, [], 'rpc-a|testnet')).resolves.toBeUndefined();
   });
 
   it('refuses effects that are not the approved ones', async () => {
     const effects = approvedEffects();
     const { access } = checkAccess(async () => generate(view({ outgoing: [{ faucetId: 'faucet-a', amount: 99n }] })));
 
-    await expect(verifyPreparedCustomRequest(access, effects, charged)).rejects.toThrow(
+    await expect(verifyPreparedCustomRequest(access, effects, charged, 'rpc-a|testnet')).rejects.toThrow(
       new CustomTransactionEffectsChangedError('outgoing')
     );
   });
@@ -695,7 +748,7 @@ describe('verifyPreparedCustomRequest', () => {
       return generate(view());
     });
 
-    await expect(verifyPreparedCustomRequest(access, effects, charged)).rejects.toThrow(
+    await expect(verifyPreparedCustomRequest(access, effects, charged, 'rpc-a|testnet')).rejects.toThrow(
       'operation abandoned after the custom request effects dry run'
     );
   });
@@ -711,7 +764,7 @@ describe('verifyPreparedCustomRequest', () => {
       return false;
     });
 
-    await expect(verifyPreparedCustomRequest(access, effects, charged)).rejects.toThrow(
+    await expect(verifyPreparedCustomRequest(access, effects, charged, 'rpc-a|testnet')).rejects.toThrow(
       'operation abandoned after the custom request spending-limit read'
     );
   });

@@ -157,7 +157,13 @@ const queuedRow = async (approval: ApprovedCustomSimulation): Promise<ITransacti
 };
 
 const generationCheck = (row: ITransaction) => () =>
-  assertCustomEffectsApproved(row.approvedEffects, { summaryBytes: SUMMARY_BYTES }, row.spentAssetTotals, true);
+  assertCustomEffectsApproved(
+    row.approvedEffects,
+    { summaryBytes: SUMMARY_BYTES },
+    row.spentAssetTotals,
+    true,
+    cacheScope()
+  );
 
 const signingCheck = (row: ITransaction) => proposalEffectRefusal(row, summaryBytesToView(SUMMARY_BYTES));
 
