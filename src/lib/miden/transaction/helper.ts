@@ -659,8 +659,9 @@ export const swapOrderExpiresAt = (extraInputs: Pick<ISwapExtraInputs, 'expirySe
  * the order the landed failure held (`landedOrder`), else the one `read` names, as `orderId` and its `expiresAt`, and
  * its note as the row's output note when the row records none, since settlement reclaims an expired order's note only
  * from there. The held order keeps the expiry its landing anchored. A row that holds its own order keeps it, and one
- * with no order still gets an expiry at the user's window from `completedAt`. The store can hold anything here
- * (`importDb`), so only well-formed facts open an order, and a row with no `extraInputs` gets no fields. Idempotent.
+ * with no order gets no expiry, since the receipt reads an expiry as an order the wallet settles. The store can hold
+ * anything here (`importDb`), so only well-formed facts open an order, and a row with no `extraInputs` gets no fields.
+ * Idempotent.
  */
 export const completedSwapFields = (
   row: { extraInputs?: ISwapExtraInputs } & Pick<ITransaction, 'outputNoteIds'>,
@@ -679,9 +680,7 @@ export const completedSwapFields = (
           ...landedOrderFacts(read.orderId, read.orderNoteId),
           expiresAt: swapOrderExpiresAt(extraInputs, completedAt)
         };
-  if (order.orderId === undefined) {
-    return { extraInputs: { ...extraInputs, expiresAt: extraInputs.expiresAt ?? order.expiresAt } };
-  }
+  if (order.orderId === undefined) return { extraInputs };
   return {
     extraInputs: { ...extraInputs, orderId: BigInt(order.orderId), expiresAt: order.expiresAt },
     ...(order.orderNoteId !== undefined && storedNoteIds(row.outputNoteIds).length === 0
