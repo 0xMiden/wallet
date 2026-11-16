@@ -61,6 +61,9 @@ jest.mock('./basket-nav', () => ({
 }));
 jest.mock('./usd', () => ({ writeUsdPriceCache: jest.fn(async () => undefined) }));
 
+// The list key while no list has loaded (`peekPriceListKey` with every peek null).
+const NO_LIST_KEY = JSON.stringify([null, null, null]);
+
 const mockUseRetryableSWR = jest.fn();
 jest.mock('lib/swr', () => ({
   useRetryableSWR: (...args: any[]) => mockUseRetryableSWR(...args)
@@ -94,6 +97,7 @@ beforeEach(() => {
   mockUseRetryableSWR.mockReturnValue({
     data: {
       network: 'testnet',
+      listKey: NO_LIST_KEY,
       assetKey: JSON.stringify([
         ['bridge', 'ETH'],
         ['verified', 'ARB']
@@ -138,9 +142,16 @@ describe('PriceProvider', () => {
       JSON.stringify([
         ['bridge', 'ETH'],
         ['verified', 'ARB']
-      ])
+      ]),
+      JSON.stringify([null, null, null])
     ]);
-    await expect(fetcher()).resolves.toEqual({ network: 'testnet', assetKey: key[2], prices: {}, basketPrices: {} });
+    await expect(fetcher()).resolves.toEqual({
+      network: 'testnet',
+      assetKey: key[2],
+      listKey: key[3],
+      prices: {},
+      basketPrices: {}
+    });
     expect(fetchTokenPrices).toHaveBeenLastCalledWith(['ARB', 'ETH']);
   });
 
@@ -166,10 +177,43 @@ describe('PriceProvider', () => {
     expect(mockUseRetryableSWR.mock.lastCall?.[0]).toEqual([
       'token-prices',
       'testnet',
-      JSON.stringify([['new', 'DOGE']])
+      JSON.stringify([['new', 'DOGE']]),
+      JSON.stringify([[['new', 'DOGE']], null, null])
     ]);
     await mockUseRetryableSWR.mock.lastCall?.[1]();
     expect(fetchTokenPrices).toHaveBeenLastCalledWith(['DOGE']);
+  });
+
+  it('fetches again when a list refresh changes only a basket or its decimals', async () => {
+    // Prices for the first loaded list key stay the answer after the list changes, as a stale cache would give them.
+    let published: string | undefined;
+    const nav = { ARB: { price: 1.5, change24h: 0, percentageChange24h: 0, source: 'basket' as const } };
+    mockUseRetryableSWR.mockImplementation((key: string[] | null) => {
+      if (key && key[3] !== NO_LIST_KEY) published ??= key[3];
+      const data = { network: key?.[1], assetKey: key?.[2], listKey: published, prices: {}, basketPrices: nav };
+      return { data: key && published !== undefined ? data : undefined };
+    });
+    render(<PriceProvider />);
+    await act(async () => {
+      mockLoadedAssets = mockAssets;
+      mockBaskets = new Map([['verified', ['bridge']]]);
+      mockDecimals = new Map([['bridge', 8]]);
+      mockResolveList?.(mockAssets);
+    });
+    const before = mockUseRetryableSWR.mock.lastCall?.[0];
+    expect(setTokenPrices).toHaveBeenLastCalledWith(nav);
+
+    await act(async () => {
+      mockDecimals = new Map([['bridge', 18]]);
+      mockListListeners.forEach(listener => listener('testnet'));
+      mockResolveList?.(mockAssets);
+    });
+    const after = mockUseRetryableSWR.mock.lastCall?.[0];
+    expect(after?.[2]).toBe(before?.[2]);
+    expect(after?.[3]).not.toBe(before?.[3]);
+    expect(after?.[3]).toBe(JSON.stringify([Array.from(mockAssets), [['verified', ['bridge']]], [['bridge', 18]]]));
+    // The old value is cleared, and prices fetched for the old list are not applied to the new one.
+    expect(setTokenPrices).toHaveBeenLastCalledWith({});
   });
 
   it('requests new assets after bridge config arrives', async () => {
@@ -182,7 +226,8 @@ describe('PriceProvider', () => {
     expect(mockUseRetryableSWR.mock.lastCall?.[0]).toEqual([
       'token-prices',
       'testnet',
-      JSON.stringify([['bridge', 'BTC']])
+      JSON.stringify([['bridge', 'BTC']]),
+      JSON.stringify([null, null, null])
     ]);
     await mockUseRetryableSWR.mock.lastCall?.[1]();
     expect(fetchTokenPrices).toHaveBeenLastCalledWith(['BTC']);
@@ -193,6 +238,7 @@ describe('PriceProvider', () => {
     mockUseRetryableSWR.mockReturnValue({
       data: {
         network: 'testnet',
+        listKey: NO_LIST_KEY,
         assetKey: JSON.stringify([
           ['bridge', 'ETH'],
           ['duplicate', 'ARB'],
@@ -224,6 +270,7 @@ describe('PriceProvider', () => {
     mockUseRetryableSWR.mockReturnValue({
       data: {
         network: 'testnet',
+        listKey: NO_LIST_KEY,
         assetKey: JSON.stringify([
           ['bridge', 'ETH'],
           ['verified', 'ARB']
@@ -274,6 +321,7 @@ describe('PriceProvider', () => {
     mockUseRetryableSWR.mockReturnValue({
       data: {
         network: 'testnet',
+        listKey: NO_LIST_KEY,
         assetKey: JSON.stringify([
           ['bridge', 'ETH'],
           ['verified', 'ARB']
