@@ -155,6 +155,7 @@ let wasmLockDepth = 0;
 const revokeWasmHold = () => {
   currentWasmHold = null;
 };
+const mockRetireUnheldTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => {
   // Real poison error class so the code under test's classification helpers
   // (isWasmClientPoisonedError, from the unmocked wasm-client-poison module)
@@ -199,7 +200,8 @@ jest.mock('../sdk/miden-client', () => {
       }
     },
     resetMidenClient: jest.fn(async () => {}),
-    runWhenClientIdle: () => {}
+    runWhenClientIdle: () => {},
+    retireWasmClientForUnheldTrap: (cause: unknown) => mockRetireUnheldTrap(cause)
   };
 });
 
@@ -5512,6 +5514,21 @@ describe('Vault.spawnFromHotKey', () => {
 
     await expect(promise).rejects.toMatchObject({ message: 'RPC "recoverGuardianByKey" timed out after 30000ms' });
     await expect(promise).rejects.not.toHaveProperty('code');
+  });
+
+  it('retires a trap from the guardian lookup once and fails the import with it, not with its message', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(trap);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('Failed to import wallet from key');
+      expect(mockRetireUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(mockRetireUnheldTrap).toHaveBeenCalledWith(trap);
+      expect(errorSpy).toHaveBeenCalledWith(expect.any(String), trap);
+      expect(await getPlain(keys.vaultKeyPassword)).toBeUndefined();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('requires a password when hardware protection is unavailable', async () => {

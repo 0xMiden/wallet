@@ -258,6 +258,40 @@ describe('ApplyAfterSubmitError', () => {
     expect(extractLanded(hostileFields)).toEqual({});
   });
 
+  it('extractLanded keeps a decimal order id below the field modulus and drops any other shape', () => {
+    expect(extractLanded({ landed: { orderId: '42' } })).toEqual({ orderId: '42' });
+    expect(extractLanded({ landed: { orderId: '18446744069414584320' } })).toEqual({
+      orderId: '18446744069414584320'
+    });
+    for (const orderId of [
+      42n,
+      42,
+      '0x2a',
+      '',
+      '1e3',
+      '-1',
+      '042',
+      ' 42',
+      '18446744069414584321',
+      '1'.repeat(21),
+      null
+    ]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', orderId } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
+  });
+
+  it('extractLanded keeps a note-id-shaped order note id in lower case and drops any other', () => {
+    const noteId = `0x${'AB'.repeat(32)}`;
+    expect(extractLanded({ landed: { orderNoteId: noteId } })).toEqual({ orderNoteId: noteId.toLowerCase() });
+    for (const orderNoteId of ['ab'.repeat(32), `0x${'ab'.repeat(31)}`, `0x${'zz'.repeat(32)}`, 5, null]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', orderNoteId } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
+  });
+
   it('extractLanded keeps a string final account commitment and drops any other (#1233)', () => {
     expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment: '0xfinal' } })).toEqual({
       transactionId: '0xlanded',

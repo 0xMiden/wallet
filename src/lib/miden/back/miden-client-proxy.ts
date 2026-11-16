@@ -32,7 +32,6 @@ import {
   assertWasmHoldCurrent,
   withHoldSigner,
   withWasmClientLock,
-  retireWasmClientForCaughtTrap,
   retireWasmClientForUnheldTrap,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
@@ -847,12 +846,11 @@ export async function handleOffscreenSignRequest(
       const signature = await cb(publicKeyHex, signingInputsHex);
       return { ok: true, sign_id, signatureB64: bytesToB64(signature) };
     } catch (rawErr) {
-      // The service worker does not hold the client lock around this decode. A trap
-      // is retired here and rethrown; classifying it would hide the RuntimeError.
+      // The service worker holds no client lock around this decode, so a current hold is
+      // another flow's (or a signing dry run waiting on this op) and the retire waits for
+      // it to stop holding. Rethrown unclassified; classifying it would hide the RuntimeError.
       if (rawErr instanceof WebAssembly.RuntimeError) {
-        const hold = getCurrentWasmLockHold();
-        if (hold) retireWasmClientForCaughtTrap(hold, rawErr);
-        else retireWasmClientForUnheldTrap(rawErr);
+        retireWasmClientForUnheldTrap(rawErr);
         throw rawErr;
       }
       // Classify identically to the inline path so a locked vault DEFERS. Record

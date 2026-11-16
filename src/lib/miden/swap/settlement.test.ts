@@ -1,6 +1,7 @@
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { applyVerifiedLanding } from 'lib/miden/transaction/helper';
 import { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction } from 'lib/miden/transaction/initiate';
 import { NoteTypeEnum } from 'lib/miden/types';
 
@@ -820,6 +821,49 @@ describe('swap order note settlement', () => {
     expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
       (initiatePswapReclaimTransaction as jest.Mock).mock.invocationCallOrder[0]!
     );
+  });
+
+  it('reclaims the order note of an expired swap a verified landing completed from the order its landing decided', async () => {
+    const orderNote = `0x${'ab'.repeat(32)}`;
+    const landed: ITransaction = {
+      id: 'swap-1',
+      type: 'swap',
+      status: ITransactionStatus.Failed,
+      accountId: 'account-1',
+      faucetId: 'offer',
+      amount: 50n,
+      initiatedAt: 10,
+      completedAt: 100,
+      displayIcon: 'FAILED',
+      extraInputs: {
+        requestedFaucetId: 'requested',
+        requestedAmount: 50n,
+        landedOrder: { orderId: '77', expiresAt: 220, noteId: orderNote }
+      }
+    };
+    applyVerifiedLanding(landed);
+    toArray.mockResolvedValue([landed]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: orderNote,
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+
+    await settleSwapOrders('account-1', true);
+
+    expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
+      'account-1',
+      orderNote,
+      expect.any(Function),
+      { allowNodeNote: false }
+    );
+    expect(initiatePswapReclaimTransaction).toHaveBeenCalledTimes(1);
   });
 
   it('a zero-fill reclaim of a non-native token meets the fee gate as a known single asset', async () => {

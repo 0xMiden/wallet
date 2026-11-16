@@ -11,6 +11,11 @@ export interface TokenPriceInfo {
   price: number;
   change24h: number;
   percentageChange24h: number;
+  /**
+   * `basket`: a basket token priced at its net asset value from its vault on chain (`./basket-nav`), so there is no
+   * market move or history behind it.
+   */
+  source?: 'basket';
 }
 
 export type TokenPrices = Record<string, TokenPriceInfo>;

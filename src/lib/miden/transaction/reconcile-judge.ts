@@ -133,6 +133,13 @@ const noteBlockers = (noteId: string, others: readonly ITransaction[]): ITransac
     )
   );
 
+/** Whether another row of `row`'s account could have produced `noteId`, by the rule a note landing is attributed by. */
+export const noteClaimedElsewhere = (
+  row: ITransaction,
+  noteId: string,
+  accountRows: readonly ITransaction[]
+): boolean => noteBlockers(noteId, accountOthers(row, accountRows)).length > 0;
+
 /**
  * Another recorded attempt that is not proven dead and reaches the same final commitment, whatever its pre-state: the
  * commitment does not cover the notes a transaction consumed, so its landing would look exactly like E's.

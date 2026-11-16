@@ -1401,6 +1401,32 @@ describe('ProveAttempt worker members', () => {
 
     expect(seen).toEqual([false]);
   });
+
+  it('a disposed write does not retire a trap onto the client another flow holds', async () => {
+    const harness = buildHarness();
+    const { proveWithFallback, withWasmClientLock } = await load(harness);
+    const { getMidenClient, onWasmClientPoisoned } = await import('./miden-client');
+    const holder = await getMidenClient();
+    const listener = jest.fn();
+    const unsubscribe = onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+
+    await withWasmClientLock(async () => {
+      await proveWithFallback(
+        async (_prover, attempt) => {
+          attempt.retireCaughtTrap(trap);
+          return null;
+        },
+        false,
+        { disposed: true }
+      );
+    });
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(holder.isDisposed).toBe(false);
+    expect(await getMidenClient()).toBe(holder);
+    unsubscribe();
+  });
 });
 
 describe('local-prove window markers without a transport', () => {
