@@ -268,6 +268,26 @@ describe('a pinned note the node already holds', () => {
     expect(row?.status).toBe(ITransactionStatus.Failed);
     expect(row?.queuedSeq).toBe(7);
   });
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['its stage', { stage: 'sending' }],
+    ['its status', { status: ITransactionStatus.Completed, displayMessage: 'Sent', displayIcon: 'SEND' }]
+  ])('a pinned landing whose row changed %s during the check writes nothing over it', async (_t, moved) => {
+    await Repo.transactions.put(pinnedRow());
+    noteInclusions.mockImplementation(async () => {
+      await Repo.transactions.where({ id: 'tx-pin' }).modify(row => {
+        Object.assign(row, moved);
+      });
+      return new Map([[PINNED, 140]]);
+    });
+
+    const error = await refusal('tx-pin', { acknowledged: { attemptId: 'a1' } });
+
+    expect(error).toHaveProperty('message', TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+    const row = await read();
+    expect(row).toMatchObject({ ...moved, queuedSeq: 7 });
+    expect(row?.outputNoteIds).toBeUndefined();
+  });
 });
 
 describe('a check that cannot answer replays nothing', () => {
