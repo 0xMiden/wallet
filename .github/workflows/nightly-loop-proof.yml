@@ -1,0 +1,119 @@
+name: Audit scheduled swap and Epoch before new nightlies
+on:
+  push:
+    branches: [wiktor/mainnet-438111-audit]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  public-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Bind exact scheduled application source and audit-only overlay
+        run: |
+          test "$(git rev-parse HEAD^)" = 7fccdbfc371cdefc542b45af51de192032a8d415
+          test "$(git diff --name-only HEAD^ HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/mainnet-scheduled-inventory-audit.spec.ts scripts/scheduled-epoch-audit.mjs scripts/scheduled-swap-audit.mjs)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 43811169447
+          github-token: ${{ github.token }}
+          pattern: mainnet-*-43811169447
+          path: test-results/evidence
+      - name: Bind immutable artifacts and distinguish task cap from scheduled allowance
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const roles={'mainnet-swap-final':'fresh','mainnet-swap-forward-sdk-authorized':'forward-create','mainnet-swap-reverse-sdk-authorized':'reverse-create','mainnet-swap-forward-claim-sdk-authorized':'forward-claim','mainnet-swap-reverse-claim-sdk-authorized':'reverse-claim','mainnet-nightly':'fresh-public','mainnet-epoch-final':'final','mainnet-epoch-forward-authorized':'original','mainnet-epoch-forward-sdk-authorized':'forward-sdk','mainnet-epoch-reverse-authorized':'authority','mainnet-epoch-reverse-signed-1':'evm1','mainnet-epoch-reverse-signed-2':'evm2','mainnet-epoch-return-authorized':'claim','mainnet-1click-final':'near'};
+          for(const [name,role] of Object.entries(roles))fs.cpSync(`test-results/evidence/${name}-43811169447`,`test-results/${role}`,{recursive:true});
+          fs.writeFileSync('test-results/audit-context.json',JSON.stringify({runId:'43811169447',priorSpent:'46081',startCap:'1953919',scheduledRunBudget:'2000000',startNative:'19900782'}));
+          NODE
+      - name: Exact production read-only SDK bootstrap
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import YAML from 'yaml';
+          const doc=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8')),step=doc.jobs['mainnet-nightly'].steps.find(step=>step.name==='Build read-only Epoch SDK');
+          if(!step?.run)throw new Error('Missing production SDK bootstrap');execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
+          NODE
+      - name: Verify SDK bytes, public receipts, frozen deadlines and exact task costs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-epoch-evm.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-evm.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-epoch-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-request.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-miden-read.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-miden-read.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-budget.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-loop-budget.mjs
+          node scripts/scheduled-swap-audit.mjs
+          node scripts/scheduled-epoch-audit.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: scheduled-public-audit
+          path: test-results/scheduled-public-audit.json
+  private-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+      WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 43811169447
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-43811169447
+          path: test-results/fresh
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 43811169447
+          github-token: ${{ github.token }}
+          name: mainnet-epoch-final-43811169447
+          path: test-results/final
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 43811169447
+          github-token: ${{ github.token }}
+          name: mainnet-1click-final-43811169447
+          path: test-results/near
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - run: yarn test:e2e:blockchain:build
+      - name: Restore original private holdings without any spending policy
+        run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/scheduled-private" xvfb-run -a yarn playwright test mainnet-scheduled-inventory-audit.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/scheduled-private.log" 2>&1 || code=$?
+          node --input-type=module <<'NODE'
+          import {existsSync,readFileSync} from 'node:fs';
+          for(const file of ['test-results/scheduled-private-status.json','test-results/scheduled-private-audit.json'])if(existsSync(file))console.log(JSON.stringify(JSON.parse(readFileSync(file,'utf8'))));
+          NODE
+          exit "$code"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: scheduled-private-audit
+          path: |
+            test-results/scheduled-private-status.json
+            test-results/scheduled-private-audit.json
