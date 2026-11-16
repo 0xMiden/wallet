@@ -157,6 +157,14 @@ it('passes the canonical hex faucet required by the real 1Click client configura
     expect.any(Function)
   );
 });
+it('binds original signed terms rather than unsigned per-request correlation metadata', async () => {
+  const status = await mockStatus();
+  status.quoteResponse.correlationId = 'new-status-request-trace';
+  mockStatus.mockClear();
+  await expect(recover()).resolves.toBeUndefined();
+  expect(mockSave).toHaveBeenCalledTimes(1);
+  noFunding();
+});
 it.each(['false', '', undefined])(
   'does not infer an unspent state without exact official provenance: %s',
   async verified => {
@@ -176,7 +184,7 @@ it.each([
   'guardian',
   'provider',
   'quote',
-  'correlation',
+  'deposit-reference',
   'deposited',
   'live-quote',
   'live-price',
@@ -197,7 +205,7 @@ it.each([
   if (changed === 'guardian') jest.mocked(wallet.getAccountAddress).mockResolvedValue('different');
   if (changed === 'provider') status.status = 'PROCESSING';
   if (changed === 'quote') status.quoteResponse.quote.amountOut = '999999';
-  if (changed === 'correlation') status.quoteResponse.correlationId = 'different';
+  if (changed === 'deposit-reference') status.quoteResponse.quote.depositAddress = 'different';
   if (changed === 'deposited') status.swapDetails.depositedAmount = '1';
   if (changed === 'live-quote') state.forwardQuote!.deadline = '2026-11-16T18:31:00Z';
   if (changed === 'live-price') state.pricedAt = new Date().toISOString();
