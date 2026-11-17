@@ -39,10 +39,18 @@ it('accepts the exact amount and token and binds the forwarded hook in the actua
   const [url, init] = fetchMock.mock.calls[0];
   expect(url).toBe('https://iris.example/v2/quote/burn/usdc/3/26');
   expect(JSON.parse(init.body)).toEqual({
-    amount: '4000000', feeToken: token,
-    requests: [{ type: 'PRE_FINALITY' }, { type: 'FORWARD', params: {
-      destinationCaller: options.destinationCaller, hookData: '0x1234'
-    } }]
+    amount: '4000000',
+    feeToken: token,
+    requests: [
+      { type: 'PRE_FINALITY' },
+      {
+        type: 'FORWARD',
+        params: {
+          destinationCaller: options.destinationCaller,
+          hookData: '0x1234'
+        }
+      }
+    ]
   });
 });
 
@@ -63,9 +71,16 @@ it.each([
 });
 
 it('does not turn a block estimate into timestamp consent', async () => {
-  fetchMock.mockResolvedValue(response({ ...quote(), expiry: {
-    mode: 'BLOCK_NUMBER', expiresAtBlock: 400, blockEstimatedAt: 1800000120
-  } }));
+  fetchMock.mockResolvedValue(
+    response({
+      ...quote(),
+      expiry: {
+        mode: 'BLOCK_NUMBER',
+        expiresAtBlock: 400,
+        blockEstimatedAt: 1800000120
+      }
+    })
+  );
   const result = await fetchCctpBurnQuote(3, 26, options);
   expect(result.expiresAt).toBeUndefined();
   expect(result).toMatchObject({ expiry: { mode: 'BLOCK_NUMBER', expiresAtBlock: 400 } });

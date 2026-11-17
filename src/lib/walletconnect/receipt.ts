@@ -31,7 +31,9 @@ export async function waitForEvmReceipt(hash: Hash, chain: Chain): Promise<void>
 
 /** A sent transaction's outcome as the chain reports it now: `pending` until it has a receipt. RPC failures throw. */
 export async function readEvmReceiptOutcome(
-  hash: Hash, chain: Chain, verifyReceipt?: (receipt: TransactionReceipt) => void
+  hash: Hash,
+  chain: Chain,
+  verifyReceipt?: (receipt: TransactionReceipt) => void
 ): Promise<'success' | 'reverted' | 'pending'> {
   const rpcUrl = getChain(chain.id)?.rpcUrl;
   if (!rpcUrl) throw new Error(`${chain.name} RPC is not configured`);

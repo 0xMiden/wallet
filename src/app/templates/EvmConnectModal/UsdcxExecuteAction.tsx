@@ -96,8 +96,14 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
           operation,
           busy: true,
           error: {
-            text: cause instanceof UsdcxBurnError ? t(cause.translationKey, cause.values) : nativeSigningErrorMessage(cause, t),
-            id: cause instanceof UsdcxBurnError && isUserErrorId(cause.translationKey) ? cause.translationKey : nativeSigningErrorId(cause) ?? 'raw_usdcx_execute_failed'
+            text:
+              cause instanceof UsdcxBurnError
+                ? t(cause.translationKey, cause.values)
+                : nativeSigningErrorMessage(cause, t),
+            id:
+              cause instanceof UsdcxBurnError && isUserErrorId(cause.translationKey)
+                ? cause.translationKey
+                : (nativeSigningErrorId(cause) ?? 'raw_usdcx_execute_failed')
           }
         });
       }

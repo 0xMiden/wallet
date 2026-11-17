@@ -201,9 +201,16 @@ describe('fetchCctpBurnQuote', () => {
   });
 
   it('asks for the forward fee only when fast is off', async () => {
-    fetchMock.mockResolvedValue(okResponse({ signedQuote: '0x0102', feeTotalAmount: '31388',
-      burnAmount: '4000000', feeToken: options.feeToken, issuedAt: 1791583910,
-      expiry: { mode: 'TIMESTAMP', expiresAt: 1791584030 } }));
+    fetchMock.mockResolvedValue(
+      okResponse({
+        signedQuote: '0x0102',
+        feeTotalAmount: '31388',
+        burnAmount: '4000000',
+        feeToken: options.feeToken,
+        issuedAt: 1791583910,
+        expiry: { mode: 'TIMESTAMP', expiresAt: 1791584030 }
+      })
+    );
 
     await fetchCctpBurnQuote(3, 26, { ...options, fast: false });
 

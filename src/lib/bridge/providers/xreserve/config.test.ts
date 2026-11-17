@@ -5,7 +5,8 @@ it('retains a published underlying messenger separately from the fee entrypoint 
   const input = circleSnapshot().config;
   const parsed = parseBridgeConfig(input, 'testnet');
   expect(parsed?.supportedEvmChains.sepolia?.bridges.usdcx?.deposit).toMatchObject({
-    route: 'executor', tokenMessenger: TEST_CCTP_MESSENGER.toLowerCase(),
+    route: 'executor',
+    tokenMessenger: TEST_CCTP_MESSENGER.toLowerCase(),
     tokenMessengerWithFees: '0x8745d906d67c346e5eb1aeeed38eb87f34df0c0a'
   });
 });

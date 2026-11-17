@@ -51,8 +51,7 @@ async function approvalReceipt(
             value: replacement.transaction.value.toString()
           };
           approval = replaceApproval(approval, transaction);
-          if (approval.replacementReason !== replacement.reason)
-            throw new Error('Bridge approval replacement changed');
+          if (approval.replacementReason !== replacement.reason) throw new Error('Bridge approval replacement changed');
           writes.push(
             save(approval).catch(error => {
               replacementError = error;

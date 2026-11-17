@@ -1,6 +1,10 @@
 import { Address, Hash, Hex, getAbiItem, isHash, isHex, toFunctionSignature } from 'viem';
 
-import { parseCircleQuote, parseCircleValidation, type CctpQuoteExpiry } from 'lib/bridge/providers/xreserve/cctp-schema';
+import {
+  parseCircleQuote,
+  parseCircleValidation,
+  type CctpQuoteExpiry
+} from 'lib/bridge/providers/xreserve/cctp-schema';
 import { CircleStatusUnavailableError, getCircleJson, postCircleJson } from 'lib/bridge/providers/xreserve/circle-http';
 import type { IUsdcxCctpLeg } from 'lib/miden/db/types';
 
@@ -73,11 +77,13 @@ export async function fetchCctpMessages(
   txHash: Hash,
   { baseUrl, timeoutMs = IRIS_FETCH_TIMEOUT_MS }: FetchCctpMessagesOptions
 ): Promise<CctpMessage[]> {
-  const body = await getCircleJson(`${baseUrl}/v2/messages/${sourceDomain}?transactionHash=${encodeURIComponent(txHash)}`, timeoutMs)
-    .catch(error => {
-      if (error instanceof CircleStatusUnavailableError && error.status === 404) return undefined;
-      throw error;
-    });
+  const body = await getCircleJson(
+    `${baseUrl}/v2/messages/${sourceDomain}?transactionHash=${encodeURIComponent(txHash)}`,
+    timeoutMs
+  ).catch(error => {
+    if (error instanceof CircleStatusUnavailableError && error.status === 404) return undefined;
+    throw error;
+  });
   const list = body && typeof body === 'object' ? Reflect.get(body, 'messages') : undefined;
   if (!Array.isArray(list)) return [];
   return list.map(parseMessage).filter((entry): entry is CctpMessage => entry !== undefined);
@@ -199,14 +205,24 @@ export async function fetchCctpBurnQuote(
 
 /** The source-chain tip, not a device clock or block estimate, grants a bounded signing window. */
 export async function validateCctpBurnQuote(
-  sourceDomain: number, baseUrl: string, args: DepositForBurnWithHookAndFeesArgs, quote: CctpBurnQuote
+  sourceDomain: number,
+  baseUrl: string,
+  args: DepositForBurnWithHookAndFeesArgs,
+  quote: CctpBurnQuote
 ): Promise<number> {
   const started = performance.now();
   const method = getAbiItem({ abi: TOKEN_MESSENGER_WITH_FEES_ABI, name: 'depositForBurnWithHookAndFees' });
   const body = await postCircleJson(`${baseUrl}/v2/quote/validate/usdc/${sourceDomain}`, {
     abiSignature: toFunctionSignature(method),
-    args: [args[0].toString(), String(args[1]), args[2], args[3], args[4], args[5],
-      [args[6].signedQuote, args[6].refundAddress]]
+    args: [
+      args[0].toString(),
+      String(args[1]),
+      args[2],
+      args[3],
+      args[4],
+      args[5],
+      [args[6].signedQuote, args[6].refundAddress]
+    ]
   });
   const seconds = parseCircleValidation(body, quote, args[3]);
   // Circle Bridge Kit requires more than 30 seconds against the source-chain tip.

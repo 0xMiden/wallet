@@ -12,11 +12,19 @@ afterAll(() => {
 beforeEach(() => jest.resetAllMocks());
 const readers = [
   { name: 'CCTP', read: () => fetchCctpMessages(0, hash, { baseUrl: 'https://circle.example', timeoutMs: 1000 }) },
-  { name: 'xReserve', read: () => fetchXReserveAttestations(hash, { baseUrl: 'https://circle.example', timeoutMs: 1000 }) }
+  {
+    name: 'xReserve',
+    read: () => fetchXReserveAttestations(hash, { baseUrl: 'https://circle.example', timeoutMs: 1000 })
+  }
 ];
 it.each(readers)('bounds the entire $name status response rather than only parsed entries', async ({ read }) => {
   const body = { padding: 'x'.repeat(262145), messages: [], attestations: [] };
-  fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body });
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify(body),
+    json: async () => body
+  });
   await expect(read()).rejects.toThrow();
 });
 it.each(readers)('never follows $name redirects or exposes upstream URL/account exception data', async ({ read }) => {
@@ -29,11 +37,19 @@ it.each(readers)('never follows $name redirects or exposes upstream URL/account 
 it.each(readers)('keeps the original $name body timeout active until the read ends', async ({ read }) => {
   jest.useFakeTimers();
   try {
-    fetchMock.mockImplementation(async (_url: string, init: { signal: AbortSignal }) => ({ ok: true, status: 200,
-      json: () => new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new Error('private raw body error')))) }));
+    fetchMock.mockImplementation(async (_url: string, init: { signal: AbortSignal }) => ({
+      ok: true,
+      status: 200,
+      json: () =>
+        new Promise((_resolve, reject) =>
+          init.signal.addEventListener('abort', () => reject(new Error('private raw body error')))
+        )
+    }));
     const result = read().catch(error => error);
     await jest.advanceTimersByTimeAsync(1000);
     expect(String(await result)).not.toContain('private raw body error');
     expect(jest.getTimerCount()).toBe(0);
-  } finally { jest.useRealTimers(); }
+  } finally {
+    jest.useRealTimers();
+  }
 });

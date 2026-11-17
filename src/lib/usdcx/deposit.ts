@@ -91,8 +91,10 @@ export async function runUsdcxDeposit(
   }: UsdcxDepositDeps
 ): Promise<Hash> {
   const original = owned && { ...owned, operation: structuredClone(owned.operation) };
-  const ownership = original && await import('lib/bridge/providers/xreserve/ownership');
-  const assertCurrent = async () => { if (original && ownership) await ownership.assertUsdcxDepositCurrent(original); };
+  const ownership = original && (await import('lib/bridge/providers/xreserve/ownership'));
+  const assertCurrent = async () => {
+    if (original && ownership) await ownership.assertUsdcxDepositCurrent(original);
+  };
   if (original && ownership) ownership.assertUsdcxDepositTerms(original, trackingTxId, amount, remoteRecipient, source);
   await assertCurrent();
   const args = buildDepositToRemoteArgs(amount, remoteRecipient, sourceChainId, source);

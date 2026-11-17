@@ -11,11 +11,15 @@ export class CircleStatusUnavailableError extends Error {
 export async function getCircleJson(url: string, timeoutMs: number): Promise<unknown> {
   let status: number | undefined;
   try {
-    return await fetchBoundedJson(async (endpoint, init) => {
-      const response = await fetch(endpoint, { ...init, redirect: 'error' });
-      if (!response.ok) status = response.status;
-      return response;
-    }, url, { maxBytes: 262144, timeoutMs });
+    return await fetchBoundedJson(
+      async (endpoint, init) => {
+        const response = await fetch(endpoint, { ...init, redirect: 'error' });
+        if (!response.ok) status = response.status;
+        return response;
+      },
+      url,
+      { maxBytes: 262144, timeoutMs }
+    );
   } catch {
     throw new CircleStatusUnavailableError(status);
   }
@@ -25,13 +29,14 @@ export async function getCircleJson(url: string, timeoutMs: number): Promise<unk
 export async function postCircleJson(url: string, body: unknown, timeoutMs = 15000): Promise<unknown> {
   try {
     return await fetchBoundedJson(
-      (endpoint, init) => fetch(endpoint, {
-        ...init,
-        method: 'POST',
-        redirect: 'error',
-        headers: { ...init.headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      }),
+      (endpoint, init) =>
+        fetch(endpoint, {
+          ...init,
+          method: 'POST',
+          redirect: 'error',
+          headers: { ...init.headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        }),
       url,
       { maxBytes: 262144, timeoutMs }
     );

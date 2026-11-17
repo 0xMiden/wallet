@@ -142,7 +142,9 @@ function sourceChain(entry: SupportedEvmChainConfig): UsdcxSourceChain | undefin
         ...base,
         route: 'cctp-executor',
         tokenMessengerWithFees: getAddress(route.deposit.tokenMessengerWithFees),
-        ...(route.deposit.tokenMessenger === undefined ? {} : { tokenMessenger: getAddress(route.deposit.tokenMessenger) }),
+        ...(route.deposit.tokenMessenger === undefined
+          ? {}
+          : { tokenMessenger: getAddress(route.deposit.tokenMessenger) }),
         irisApi: provider.irisUrl,
         target: {
           midenDomain: provider.midenDomain,

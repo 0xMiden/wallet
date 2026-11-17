@@ -54,11 +54,23 @@ beforeEach(async () => {
   jest.clearAllMocks();
   mockNativeAvailable = false;
   await Repo.transactions.clear();
-  const row = new BridgedReceiveTransaction('0x387149ae66116cf114eebd60bb7381', 1500000n,
-    '0x4cbdcaffe75f0a317482224dae6436', 'usdcx', '0x1111111111111111111111111111111111111111', '1.5', 'USDC');
+  const row = new BridgedReceiveTransaction(
+    '0x387149ae66116cf114eebd60bb7381',
+    1500000n,
+    '0x4cbdcaffe75f0a317482224dae6436',
+    'usdcx',
+    '0x1111111111111111111111111111111111111111',
+    '1.5',
+    'USDC'
+  );
   row.id = 'row';
-  row.extraInputs = { ...row.extraInputs, phase: 'delivering', sourceChainId: 84532,
-    usdcxSource: getUsdcxExecutorSource(84532), cctp: structuredClone(leg) };
+  row.extraInputs = {
+    ...row.extraInputs,
+    phase: 'delivering',
+    sourceChainId: 84532,
+    usdcxSource: getUsdcxExecutorSource(84532),
+    cctp: structuredClone(leg)
+  };
   await Repo.transactions.add(row);
 });
 

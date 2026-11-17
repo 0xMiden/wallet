@@ -24,10 +24,15 @@ export async function quoteXReserve(request: QuoteRequest, signal: AbortSignal):
     signal.throwIfAborted();
     validateTransferAmount(route, amount);
     const current = getBridgeConfigSnapshot();
-    if (route.provider !== 'xreserve' || !isBridgeRouteAvailable(route) || !routeMatchesRecovery(route) ||
-        current.status !== 'ready' || configKey(originalScope) !== configKey(captureBridgeWalletScope()) ||
-        configKey([current.network, current.config, current.derived]) !==
-          configKey([route.recovery.network, route.recovery.config, route.recovery.derived]))
+    if (
+      route.provider !== 'xreserve' ||
+      !isBridgeRouteAvailable(route) ||
+      !routeMatchesRecovery(route) ||
+      current.status !== 'ready' ||
+      configKey(originalScope) !== configKey(captureBridgeWalletScope()) ||
+      configKey([current.network, current.config, current.derived]) !==
+        configKey([route.recovery.network, route.recovery.config, route.recovery.derived])
+    )
       throw new Error('Circle quote terms changed');
   };
   assertCurrent();
@@ -44,12 +49,24 @@ export async function quoteXReserve(request: QuoteRequest, signal: AbortSignal):
     await assertXReserveRouteAvailable(xreserveReadClient(target.chain.id), source, route.destination.faucetId);
     assertCurrent();
     if (source.route === 'xreserve')
-      result = { kind: 'arc-deposit', received: amount.trim(), validity: { kind: 'time', expiresAt: Date.now() + 60000 } };
+      result = {
+        kind: 'arc-deposit',
+        received: amount.trim(),
+        validity: { kind: 'time', expiresAt: Date.now() + 60000 }
+      };
     else {
       if (!source.tokenMessenger) throw new Error('Circle source messenger unavailable');
-      const authorization = await quoteExecutorBurn(source, buildExecutorBurnIntent(amount, source, recipient, `0x${evmAddress.slice(2)}`));
-      result = { kind: 'cctp', received: amount.trim(), fee: formatUnits(authorization.feeTotalAmount, 6),
-        validity: { kind: 'provider' }, authorization };
+      const authorization = await quoteExecutorBurn(
+        source,
+        buildExecutorBurnIntent(amount, source, recipient, `0x${evmAddress.slice(2)}`)
+      );
+      result = {
+        kind: 'cctp',
+        received: amount.trim(),
+        fee: formatUnits(authorization.feeTotalAmount, 6),
+        validity: { kind: 'provider' },
+        authorization
+      };
     }
   }
   assertCurrent();

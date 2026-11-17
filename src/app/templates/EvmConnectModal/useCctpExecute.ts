@@ -4,12 +4,17 @@ import { encodeFunctionData, Hash, isHash, isHex, toHex } from 'viem';
 import { useSwitchChain, useWriteContract } from 'wagmi';
 
 import { captureBridgeWalletScope } from 'lib/bridge/operation';
-import { captureCctpExecution, recordCctpExecutionHash, reserveCctpExecution } from 'lib/bridge/providers/xreserve/manual-execute';
+import {
+  captureCctpExecution,
+  recordCctpExecutionHash,
+  reserveCctpExecution
+} from 'lib/bridge/providers/xreserve/manual-execute';
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 import { IBridgedReceiveExtraInputs, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { revertedExecuteLeg } from 'lib/usdcx/cctp';
 import { GENERIC_EXECUTOR_ABI, getUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
 import {
   isNativeReownAvailable,
@@ -18,6 +23,7 @@ import {
   unwrapNativeResult
 } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
+import { nativeSigningErrorId } from 'lib/walletconnect/signing-error';
 
 /** The Arc leg of an executor-route deposit: `GenericExecutor.execute` with the attested CCTP message. */
 export type CctpExecute = (txId: string, sourceChainId: number, leg: IUsdcxCctpLeg) => Promise<Hash>;
@@ -58,49 +64,62 @@ export function useCctpExecute(): CctpExecute {
 
       let hash: Hash;
       let attemptId: string | undefined;
-      if (nativeReownAvailable) {
-        // A session that did not approve the target chain fails here, before the wallet prompt.
-        await prepareNativeSessionChain(target.chain.id);
-        const feeFields = await readNativeFeeFields(target.chain.id);
-        if (owned) attemptId = await reserveCctpExecution(owned);
-        const result = await NativeReown.sendTransaction({
-          chainId: target.chain.id,
-          to: target.executor,
-          value: toHex(0n),
-          data,
-          ...feeFields
-        });
-        const unwrapped = unwrapNativeResult(result.hash);
-        if (!isHash(unwrapped)) throw new Error('The wallet returned no transaction hash.');
-        hash = unwrapped;
-      } else {
-        await switchChainAsync({ chainId: target.chain.id });
-        if (owned) attemptId = await reserveCctpExecution(owned);
-        hash = await writeContract.mutateAsync({
-          chainId: target.chain.id,
-          abi: GENERIC_EXECUTOR_ABI,
-          address: target.executor,
-          functionName: 'execute',
-          args: [message, attestation]
-        });
-      }
+      try {
+        if (nativeReownAvailable) {
+          // A session that did not approve the target chain fails here, before the wallet prompt.
+          await prepareNativeSessionChain(target.chain.id);
+          const feeFields = await readNativeFeeFields(target.chain.id);
+          if (owned) attemptId = await reserveCctpExecution(owned);
+          const result = await NativeReown.sendTransaction({
+            chainId: target.chain.id,
+            to: target.executor,
+            value: toHex(0n),
+            data,
+            ...feeFields
+          });
+          const unwrapped = unwrapNativeResult(result.hash);
+          if (!isHash(unwrapped)) throw new Error('The wallet returned no transaction hash.');
+          hash = unwrapped;
+        } else {
+          await switchChainAsync({ chainId: target.chain.id });
+          if (owned) attemptId = await reserveCctpExecution(owned);
+          hash = await writeContract.mutateAsync({
+            chainId: target.chain.id,
+            abi: GENERIC_EXECUTOR_ABI,
+            address: target.executor,
+            functionName: 'execute',
+            args: [message, attestation]
+          });
+        }
 
-      if (!isHash(hash)) throw new Error('The wallet returned no transaction hash.');
-      if (owned) {
-        if (!attemptId) throw new Error('Circle execute attempt unavailable');
-        await recordCctpExecutionHash(owned, attemptId, hash);
-      } else await updateBridgedReceivePhase(txId, 'delivering', {
-        cctp: { sourceDomain: originalLeg.sourceDomain, executeTxHash: hash }
-      });
+        if (!isHash(hash)) throw new Error('The wallet returned no transaction hash.');
+        if (owned) {
+          if (!attemptId) throw new Error('Circle execute attempt unavailable');
+          await recordCctpExecutionHash(owned, attemptId, hash);
+        } else
+          await updateBridgedReceivePhase(txId, 'delivering', {
+            cctp: { sourceDomain: originalLeg.sourceDomain, executeTxHash: hash }
+          });
+      } catch (cause) {
+        if (!owned) throw cause;
+        const id = nativeSigningErrorId(cause);
+        throw new UsdcxBurnError(
+          id ?? 'bridgeReviewChanged',
+          id === 'evmChainNotApproved' ? { network: target.chain.name } : undefined
+        );
+      }
       try {
         await waitForEvmReceipt(hash, target.chain);
       } catch (error) {
         if (error instanceof EvmTransactionRevertedError) {
-          await updateBridgedReceivePhase(txId, 'delivering', { cctp: revertedExecuteLeg(originalLeg.sourceDomain, hash) });
+          await updateBridgedReceivePhase(txId, 'delivering', {
+            cctp: revertedExecuteLeg(originalLeg.sourceDomain, hash)
+          });
           throw error;
         }
         // Keep the saved hash if the receipt cannot be read. Circle can still confirm execution.
-        console.warn('[useCctpExecute] execute receipt could not be read', hash, error);
+        if (owned) console.warn('[useCctpExecute] owned execute receipt could not be read');
+        else console.warn('[useCctpExecute] execute receipt could not be read', hash, error);
       }
       return hash;
     },

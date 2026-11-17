@@ -17,21 +17,25 @@ import {
   TransactionRequestBuilder,
   Word
 } from '@miden-sdk/miden-sdk/lazy';
+import { parseUnits } from 'viem';
 
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
 import type { SubmissionChecks } from 'lib/bridge/core/submission';
-import { quoteXReserveWithdrawal } from 'lib/bridge/providers/xreserve/withdrawal-quote';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
-import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { parseUnits } from 'viem';
-
-import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { quoteXReserveWithdrawal } from 'lib/bridge/providers/xreserve/withdrawal-quote';
+import {
+  accountRefToSdk,
+  getBech32AddressFromAccountId,
+  randomFeeSalt,
+  sameWalletAccountId
+} from 'lib/miden/sdk/helpers';
 import { soleOwnOutputNoteId } from 'lib/miden/sdk/own-output-request';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import {
   getUsdcxDestination,
@@ -117,14 +121,20 @@ export async function initiateUsdcxBurn(args: {
     const { route } = operation.review;
     const current = getBridgeConfigSnapshot();
     const chain = route.recovery.config.supportedEvmChains[route.destination.network];
-    if (route.provider !== 'xreserve' || route.mode !== 'send' || route.source.kind !== 'miden' ||
-        chain?.chainId !== destinationChainId || parseUnits(operation.review.amount, route.source.decimals) !== amount ||
-        !sameWalletAccountId(route.source.faucetId, faucetId) ||
-        !sameWalletAccountId(operation.review.accounts.midenAccount, senderPublicKey) ||
-        operation.review.accounts.evmAddress.toLowerCase() !== destinationAddress.toLowerCase() ||
-        configKey(originalScope) !== configKey(captureBridgeWalletScope()) || current.status !== 'ready' ||
-        configKey([current.network, current.config, current.derived]) !==
-          configKey([route.recovery.network, route.recovery.config, route.recovery.derived]))
+    if (
+      route.provider !== 'xreserve' ||
+      route.mode !== 'send' ||
+      route.source.kind !== 'miden' ||
+      chain?.chainId !== destinationChainId ||
+      parseUnits(operation.review.amount, route.source.decimals) !== amount ||
+      !sameWalletAccountId(route.source.faucetId, faucetId) ||
+      !sameWalletAccountId(operation.review.accounts.midenAccount, senderPublicKey) ||
+      operation.review.accounts.evmAddress.toLowerCase() !== destinationAddress.toLowerCase() ||
+      configKey(originalScope) !== configKey(captureBridgeWalletScope()) ||
+      current.status !== 'ready' ||
+      configKey([current.network, current.config, current.derived]) !==
+        configKey([route.recovery.network, route.recovery.config, route.recovery.derived])
+    )
       throw new Error('Circle burn review changed');
     assertReviewedBridge(operation.review, live, args.checks.now());
   };

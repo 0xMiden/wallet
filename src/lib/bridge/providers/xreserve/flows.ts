@@ -23,19 +23,33 @@ export async function runXReserveReceive(
   const { review } = operation;
   const { route, quote, accounts } = review;
   const chain = route.recovery.config.supportedEvmChains[route.source.network];
-  if (route.provider !== 'xreserve' || route.mode !== 'receive' || route.destination.kind !== 'miden' || !chain || !quote)
+  if (
+    route.provider !== 'xreserve' ||
+    route.mode !== 'receive' ||
+    route.destination.kind !== 'miden' ||
+    !chain ||
+    !quote
+  )
     throw new Error('Circle receive terms changed');
   const source = getUsdcxSourceChain(chain.chainId);
   const faucetId = route.destination.faucetId;
   await verifyBridgeSubmission(review, deps.checks);
-  if (configKey(originalScope) !== configKey(captureBridgeWalletScope())) throw new Error('Circle wallet scope changed');
+  if (configKey(originalScope) !== configKey(captureBridgeWalletScope()))
+    throw new Error('Circle wallet scope changed');
   return startBridgeReceiveSubmission(
     () => {
-      if (configKey(originalScope) !== configKey(captureBridgeWalletScope())) throw new Error('Circle wallet scope changed');
+      if (configKey(originalScope) !== configKey(captureBridgeWalletScope()))
+        throw new Error('Circle wallet scope changed');
       return initiateBridgedReceiveTransaction({
-        accountId: accounts.midenAccount, amount: parseUnits(quote.received, route.destination.decimals), faucetId,
-        provider: 'usdcx', sourceChainId: chain.chainId, sourceAddress: accounts.evmAddress,
-        sourceAmount: quoteAmounts(route, quote).sourceTotal, sourceSymbol: route.source.symbol, usdcxSource: source,
+        accountId: accounts.midenAccount,
+        amount: parseUnits(quote.received, route.destination.decimals),
+        faucetId,
+        provider: 'usdcx',
+        sourceChainId: chain.chainId,
+        sourceAddress: accounts.evmAddress,
+        sourceAmount: quoteAmounts(route, quote).sourceTotal,
+        sourceSymbol: route.source.symbol,
+        usdcxSource: source,
         operation
       });
     },
@@ -46,14 +60,23 @@ export async function runXReserveReceive(
   );
 }
 
-export async function runXReserveSend(operation: BridgeOperationInput, checks: Pick<SubmissionChecks, 'readCurrent' | 'now'>): Promise<string> {
+export async function runXReserveSend(
+  operation: BridgeOperationInput,
+  checks: Pick<SubmissionChecks, 'readCurrent' | 'now'>
+): Promise<string> {
   operation = structuredClone(operation);
   const { review } = operation;
   const { route, amount, accounts } = review;
   const chain = route.recovery.config.supportedEvmChains[route.destination.network];
   if (route.provider !== 'xreserve' || route.mode !== 'send' || route.source.kind !== 'miden' || !chain)
     throw new Error('Circle send terms changed');
-  return initiateUsdcxBurn({ senderPublicKey: accounts.midenAccount, faucetId: route.source.faucetId,
-    amount: parseUnits(amount, route.source.decimals), destinationAddress: accounts.evmAddress,
-    destinationChainId: chain.chainId, operation, checks });
+  return initiateUsdcxBurn({
+    senderPublicKey: accounts.midenAccount,
+    faucetId: route.source.faucetId,
+    amount: parseUnits(amount, route.source.decimals),
+    destinationAddress: accounts.evmAddress,
+    destinationChainId: chain.chainId,
+    operation,
+    checks
+  });
 }

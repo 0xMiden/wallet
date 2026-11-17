@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][all] Bind Circle bridge quotes, approvals, burn receipts and manual executions to the original wallet operation, preserving exact payout proof and conservative recovery without duplicate funding or gas prompts.
+
 - [CHANGE][all] Port bridge route, quote-review and recovery contracts from the bridge portal, using accepted wallet configuration and verified token identities without changing transaction execution.
 - [FEATURE][extension] Command Swap restores unsigned offers and settings across minimize, shows a read-only receive estimate, and keeps the separately gated 1Click route in the same workbench with fresh quote and funding checks.
 - [FEATURE][extension] Fullscreen Earn lets you select live vaults and owned positions, keeps unsigned deposit and withdrawal amounts across Back and minimize, and uses the existing risk, quote and transaction reviews.
