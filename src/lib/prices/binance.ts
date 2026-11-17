@@ -12,8 +12,8 @@ export interface TokenPriceInfo {
   change24h: number;
   percentageChange24h: number;
   /**
-   * `basket`: a basket token priced at its net asset value from its vault on chain (`./basket-nav`), so there is no
-   * market move or history behind it.
+   * `basket`: a basket token priced at its net asset value from its vault on chain (`./basket-nav`). Its move and
+   * history, when shown, come from its constituents, not from a market of its own.
    */
   source?: 'basket';
   /** What one unit of a basket token holds, read from its vault (`./basket-nav`). */

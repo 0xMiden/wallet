@@ -222,8 +222,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {/* The nominal rate and a basket's net asset value are dollar figures with no market behind them: no price, move or
-              line to chart. */}
+          {/* Only the nominal rate has no price, no move and no line. A basket's value is a dollar figure from its vault.
+              Its move and line follow its tokens. */}
           <SectionDivider />
 
           {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && !isBasketQuote(quote) && priceSymbol && (
