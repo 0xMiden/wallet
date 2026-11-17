@@ -149,6 +149,18 @@ describe('fetchBasketPrices', () => {
     expect(read).toHaveBeenCalledWith(SOURCE);
   });
 
+  it('carries the move its tokens give it, so every price surface reads the same move', async () => {
+    const moving = {
+      BTC: quote(100_000, { percentageChange24h: 10 }),
+      ETH: quote(4_000, { percentageChange24h: -20 })
+    };
+    const quotes = await fetchBasketPrices([SOURCE], moving, async () => VAULT);
+    // ETH is 2/3 of the vault's value and BTC 1/3: 24h ago it was worth 2/3 / 0.8 + 1/3 / 1.1 of today.
+    const move = (1 / (2 / 3 / 0.8 + 1 / 3 / 1.1) - 1) * 100;
+    expect(quotes.BSK?.percentageChange24h).toBeCloseTo(move, 10);
+    expect(quotes.BSK?.change24h).toBeCloseTo(1.5 - 1.5 / (1 + move / 100), 10);
+  });
+
   it('leaves out a basket whose vault holds nothing', async () => {
     const empty = { ...VAULT, balances: [0n, 0n] };
     const quotes = await fetchBasketPrices([SOURCE], PRICES, async () => empty);

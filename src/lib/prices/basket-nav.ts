@@ -8,6 +8,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { readWithOwnRpcClient } from 'lib/usdcx/rpc-client';
 
+import { basketChange24h } from './basket';
 import { isNominalQuote, quotedPrice, type BasketComponent, type TokenPriceInfo, type TokenPrices } from './binance';
 
 /** One token a basket holds, as the token list names it. */
@@ -197,7 +198,8 @@ export function basketComposition(source: BasketSource, values: readonly number[
 
 /**
  * One quote per basket whose vault was read and whose constituents are all priced, keyed by price asset. A quote
- * carries no 24h move of its own, and the basket's composition. A basket that fails is left out, so its token stays unpriced as before.
+ * carries the basket's composition and the 24h move its constituents give it (`basketChange24h`), or no move while
+ * any constituent has no market quote. A basket that fails is left out, so its token stays unpriced as before.
  */
 export async function fetchBasketPrices(
   sources: readonly BasketSource[],
@@ -214,10 +216,12 @@ export async function fetchBasketPrices(
         const values = basketHoldingValues(source, vault, prices);
         const composition = values && basketComposition(source, values);
         if (price !== undefined) {
+          const move = composition ? basketChange24h(composition, prices) : undefined;
+          const percentageChange24h = move ?? 0;
           quotes[source.priceSymbol] = {
             price,
-            change24h: 0,
-            percentageChange24h: 0,
+            change24h: price - price / (1 + percentageChange24h / 100),
+            percentageChange24h,
             observedAt: now(),
             source: 'basket',
             ...(composition ? { composition } : {})
