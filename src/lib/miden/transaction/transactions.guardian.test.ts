@@ -570,6 +570,13 @@ jest.mock('../back/miden-client-proxy', () => ({
   ...jest.requireActual('../back/miden-client-proxy'),
   dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a)
 }));
+// Retry's tap-time check builds its own node reads; a test that drives it hands them in here, and every other test
+// keeps the real ones.
+const mockCreateNodeReads = jest.fn<Promise<NodeReads> | undefined, []>();
+jest.mock('./reconcile-reads', () => {
+  const actual = jest.requireActual<typeof import('./reconcile-reads')>('./reconcile-reads');
+  return { ...actual, createNodeReads: () => mockCreateNodeReads() ?? actual.createNodeReads() };
+});
 jest.mock('../back/offscreen-prover', () => ({
   ...jest.requireActual('../back/offscreen-prover'),
   isOffscreenAvailable: () => process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true'
@@ -16416,7 +16423,7 @@ describe('generateTransaction - Guardian routing', () => {
         notes: object[];
         stamped?: string[];
         privateStamped?: string[];
-        trapping: 'id' | 'executedTransaction';
+        trapping: 'id' | 'executedTransaction' | 'outputNotes';
       }) => {
         const trap = new WebAssembly.RuntimeError('unreachable');
         let armed = false;
@@ -16426,7 +16433,10 @@ describe('generateTransaction - Guardian routing', () => {
             if (armed && trapping === 'id') throw trap;
             return { toHex: () => 'exec-tx-hash' };
           },
-          outputNotes: () => ({ notes: () => notes }),
+          outputNotes: () => {
+            if (armed && trapping === 'outputNotes') throw trap;
+            return { notes: () => notes };
+          },
           inputNotes: () => ({ notes: () => [] }),
           ...(stamped === undefined
             ? {}
@@ -17496,6 +17506,115 @@ describe('generateTransaction - Guardian routing', () => {
             expect(isRequeueableTransaction(row as never)).toBe(false);
           } finally {
             quiet();
+            endOutage();
+          }
+        });
+
+        // The tail's read trapped on the output notes and its failure read the id late, so the landed record names the
+        // transaction before the Completed write spends its budget. Retry's tap-time check reads nothing this tap, the
+        // client names that transaction committed, and Retry lands the row on it from the stored row alone.
+        it("owes its landing stamp's private notes once Retry lands it on the transaction the client names committed", async () => {
+          const txId = 'guardian-execute-reaped-then-retried';
+          const restore = installLandedTrapRetirement(jest.fn());
+          const { result, apply } = provable(
+            armedResult({
+              notes: [fixtureNote(PUBLIC_NOTE, NoteType.Public), fixtureNote(OWED_NOTE, NoteType.Private)],
+              stamped: [PUBLIC_NOTE, OWED_NOTE],
+              privateStamped: [OWED_NOTE],
+              trapping: 'outputNotes'
+            })
+          );
+          const client = Object.assign(provenClient(result, apply), {
+            getTransactionCommitState: jest.fn(async (_txId: string) => 'committed')
+          });
+          const blockCommitment = jest.fn(async (_block: number): Promise<string | undefined> => undefined);
+          const unanswering: NodeReads = {
+            ...nodeHolding,
+            blockCommitment,
+            account: async () => ({ ok: false, pruned: false, timedOut: false })
+          };
+          const repo = jest.requireMock('lib/miden/repo').transactions as Record<string, unknown>;
+          const reapedAt = Math.floor(Date.now() / 1000) + MAX_WAIT_BEFORE_CANCEL + 60;
+          const retriedAt = reapedAt + 60;
+          const endOutage = failCompletedWritesOf(txId);
+          const writes = noteDeliveryWriteCount();
+          const quiet = silence();
+
+          try {
+            const { row: settled } = await runGuardianValueRow(
+              executeRow(txId),
+              { result, replace: () => {}, log: [] },
+              executeProposal(),
+              client
+            );
+            expect(
+              warned(
+                `Could not record the completed status for the landed row (attempt ${TERMINAL_STATUS_WRITE_ATTEMPTS}/${TERMINAL_STATUS_WRITE_ATTEMPTS})`
+              )
+            ).toBe(true);
+            expect(settled).toMatchObject({
+              status: ITransactionStatus.GeneratingTransaction,
+              transactionId: 'exec-tx-hash'
+            });
+            endOutage();
+
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(reapedAt * 1000);
+            repo.put = async (row: Row) => {
+              txStore.splice(
+                txStore.findIndex(r => r.id === row.id),
+                1,
+                row
+              );
+            };
+            mockCreateNodeReads.mockImplementation(async () => unanswering);
+            try {
+              await cancelStuckTransactions();
+              const reaped = { ...txStore.find(r => r.id === txId)! };
+              expect(reaped).toMatchObject({
+                status: ITransactionStatus.Failed,
+                error: TRANSACTION_STUCK_ERROR,
+                transactionId: 'exec-tx-hash'
+              });
+              expect(reaped.relayNoteIds).toBeUndefined();
+              expect(reaped.noteDelivery).toBeUndefined();
+              expect(noteDeliveryWriteCount()).toBe(writes);
+              clock.mockReturnValue(retriedAt * 1000);
+              await requeueFailedTransaction(txId);
+            } finally {
+              mockCreateNodeReads.mockReset();
+              delete repo.put;
+              clock.mockRestore();
+            }
+
+            expect(apply).toHaveBeenCalledTimes(1);
+            expect(blockCommitment).toHaveBeenCalledTimes(1);
+            expect(client.getTransactionCommitState.mock.calls).toEqual([['exec-tx-hash']]);
+            // The sweep reads only the stored row, as after a restart.
+            const row = txStore.find(r => r.id === txId)!;
+            expect(row).toMatchObject({
+              status: ITransactionStatus.Completed,
+              transactionId: 'exec-tx-hash',
+              relayNoteIds: [OWED_NOTE],
+              relayRecipientId: 'recipient',
+              noteDelivery: 'undelivered',
+              displayMessage: 'Executed - a private note could not be delivered',
+              completedAt: retriedAt
+            });
+            expect(row.error).toBeUndefined();
+            expect(row.outputNoteIds).toBeUndefined();
+            expect(noteDeliveryWriteCount()).toBe(writes + 1);
+
+            await sweepAt(retriedAt);
+            expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+            await sweepAt(retriedAt + 10 * 60);
+            expect(client.relayPrivateNoteById.mock.calls).toEqual([[OWED_NOTE, 'recipient']]);
+            expect(row).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [OWED_NOTE] });
+            // No second payment: one submit, and the landed row offers no Retry.
+            expect(client.client.transactions.submitProven).toHaveBeenCalledTimes(1);
+            expect(isRequeueableTransaction(row as never)).toBe(false);
+          } finally {
+            quiet();
+            restore();
             endOutage();
           }
         });
