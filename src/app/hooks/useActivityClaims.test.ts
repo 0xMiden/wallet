@@ -13,6 +13,7 @@ import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes'
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { GuardianHoldRetryError } from 'lib/miden/transaction/retry-refusal';
 import { GUARDIAN_PENDING_HOLD_SEC } from 'lib/miden/transaction/verdict-rules';
+import { isExtension } from 'lib/platform';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { annotatePendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
@@ -58,7 +59,6 @@ const mockSubscriptions: Array<{
   observer: { next: (rows: MockRow[]) => void; error: (error: unknown) => void };
   unsubscribe: jest.Mock;
 }> = [];
-const mockFlags = { extension: false };
 const mockEndpoint = { rpc: 'rpc', network: 'testnet' };
 let mockFeeCopy = 'worker-fee-copy';
 jest.mock('lib/i18n', () => ({
@@ -208,7 +208,10 @@ jest.mock('lib/miden/fees/spendable', () => {
   return { ...actual, claimFeeShortfalls: jest.fn(actual.claimFeeShortfalls) };
 });
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
-jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isExtension: jest.fn(() => false)
+}));
 // This registry has only the native ETH faucet. The SDK mock returns each ID unchanged.
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => ({}),
@@ -273,7 +276,7 @@ beforeEach(() => {
   mockBridgeRows.length = 0;
   mockSubscriptions.length = 0;
   mockReported.length = 0;
-  mockFlags.extension = false;
+  jest.mocked(isExtension).mockReturnValue(false);
   __resetActivityClaimsForTest();
   mockEndpoint.rpc = 'rpc';
   mockEndpoint.network = 'testnet';
@@ -417,7 +420,7 @@ it('drops a failed attempt once its note leaves the live list, so neither Retry 
 
 it('allows retry after queue failure and uses the worker on extension', async () => {
   const log = jest.spyOn(console, 'error').mockImplementation(() => {});
-  mockFlags.extension = true;
+  jest.mocked(isExtension).mockReturnValue(true);
   mockQueue.mockRejectedValueOnce(new Error('Queue failed'));
   const { result } = renderHook(() => useActivityClaims());
   await act(async () => {
@@ -649,7 +652,7 @@ it('marks every note in a failed batch retryable and does not wake a worker', as
 });
 
 it('filters cached and busy notes from a batch and wakes the extension worker', async () => {
-  mockFlags.extension = true;
+  jest.mocked(isExtension).mockReturnValue(true);
   const cached = { ...note, id: 'cached', fromCache: true };
   const accepted = { ...note, id: 'accepted' };
   mockClaim.safeClaimableNotes = [cached, accepted];
