@@ -20,6 +20,7 @@ import {
   MultisigService,
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
   ProposalChainSyncError,
+  type AbandonTicket,
   type ProposalSyncPhase
 } from 'lib/miden/guardian';
 import {
@@ -1625,10 +1626,18 @@ async function reconcileStructuralApplyFailure(
     // The outgoing guardian may hold the executed delta for a nonce the chain will never see, and a
     // later switch meets that candidate as a 409. Not gated on `switchDeltaPushed`: a silent push can
     // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
-    const nonce = (tx as SwitchGuardianTransaction).extraInputs?.switchProposalNonce;
+    const switchInputs = (tx as SwitchGuardianTransaction).extraInputs;
+    const nonce = switchInputs?.switchProposalNonce;
+    const proposalId = switchInputs?.switchProposalId;
     if (isGuardianSwitchDiscardedError(error) && typeof nonce === 'number') {
-      if (service) await abandonDiscardedCandidate(tx.accountId, service, nonce);
-      else flagCandidateForAbandon(tx.accountId, nonce);
+      if (service) {
+        await abandonDiscardedCandidate(
+          tx.accountId,
+          service,
+          nonce,
+          typeof proposalId === 'string' ? proposalId : undefined
+        );
+      } else flagCandidateForAbandon(tx.accountId, nonce);
     }
     throw error;
   }
@@ -3335,10 +3344,15 @@ const pushSwitchDeltaToOutgoingGuardian = async (
  * The record is there to flag: every caller reaches this after the submit resolved, and `recordLeftCandidate`
  * wrote it, with its proposal's stamps, earlier in the same call stack.
  */
-const abandonDiscardedCandidate = async (accountId: string, service: MultisigService, nonce: number): Promise<void> => {
+const abandonDiscardedCandidate = async (
+  accountId: string,
+  service: MultisigService,
+  nonce: number,
+  proposalId: string | undefined
+): Promise<void> => {
   try {
     await withOutgoingGuardianDeadline(
-      () => service.abandonCandidate(nonce),
+      () => service.abandonCandidate(nonce, proposalId),
       'abandoning the discarded candidate on its guardian'
     );
   } catch (abandonError) {
@@ -3390,13 +3404,19 @@ const requireLandedCommit = async (
     throw new Error(`Guardian ${tx.type} ${id} was submitted, but the node has not confirmed it; not completing it.`);
   }
   const nonce = tx.extraInputs?.proposalNonce;
+  const proposalId = tx.extraInputs?.proposalId;
   if (typeof nonce === 'number') {
     try {
       const service = await withOutgoingGuardianDeadline(
         () => buildColdServiceForAccount(tx.accountId, guardianProvider),
         'loading the cold service to abandon a discarded candidate'
       );
-      await abandonDiscardedCandidate(tx.accountId, service, nonce);
+      await abandonDiscardedCandidate(
+        tx.accountId,
+        service,
+        nonce,
+        typeof proposalId === 'string' ? proposalId : undefined
+      );
     } catch (buildError) {
       console.warn(
         `[Guardian] could not build the cold service to abandon the discarded candidate at nonce ${nonce}:`,
@@ -3431,7 +3451,7 @@ const pollLandedCommit = async (
 
 /**
  * The commit wait of a coordinated structural write, settled on the node's verdict (#1233). `service`'s
- * guardian holds a candidate for `nonce` by now: the switch's pushed delta, or the co-sign's for a
+ * guardian holds a candidate for `proposal` by now: the switch's pushed delta, or the co-sign's for a
  * rotation or a threshold update.
  *
  * A wait that fails without the node's own discard asks the node once. Committed: return, and the
@@ -3444,7 +3464,7 @@ const pollLandedCommit = async (
 const waitForStructuralCommit = async (
   id: string,
   service: MultisigService,
-  nonce: number,
+  proposal: Pick<Proposal, 'id' | 'nonce'>,
   type: ITransactionType,
   accountId: string
 ): Promise<void> => {
@@ -3462,7 +3482,7 @@ const waitForStructuralCommit = async (
       return;
     }
     if (landed === undefined) throw waitError;
-    await abandonDiscardedCandidate(accountId, service, nonce);
+    await abandonDiscardedCandidate(accountId, service, proposal.nonce, proposal.id);
     throw new GuardianWriteDiscardedError(`Guardian ${type} ${id} did not land: the node discarded it.`, {
       cause: waitError
     });
@@ -3810,6 +3830,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
   const plain: GuardianCandidate = {
     endpoint: prior.endpoint,
     nonce: prior.nonce,
+    ...(prior.proposalId === undefined ? {} : { proposalId: prior.proposalId }),
     proposedAt: prior.proposedAt,
     proposedAtMono: prior.proposedAtMono
   };
@@ -3820,7 +3841,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
   }
   try {
     await withTimeout(
-      service.abandonCandidate(prior.nonce),
+      service.abandonCandidate(prior.nonce, prior.proposalId),
       PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
       'retrying the abandon of a failed write on its guardian'
     );
@@ -3870,6 +3891,7 @@ const recordLeftCandidate = (
   recordGuardianCandidate(canonicalWalletAccountId(transaction.accountId), {
     endpoint: service.guardianEndpoint,
     nonce: proposal.nonce,
+    proposalId: proposal.id,
     ...proposalStamps,
     ...(attemptId === undefined ? {} : { attemptId })
   });
@@ -3890,6 +3912,7 @@ const persistGuardianCandidate = async (
   const candidate = {
     endpoint: service.guardianEndpoint,
     nonce: proposal.nonce,
+    proposalId: proposal.id,
     proposedAt: proposalStamps.proposedAt,
     attemptId
   };
@@ -3927,12 +3950,13 @@ const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number
 const recordUnabandonedCandidate = (
   accountId: string,
   service: MultisigService,
-  nonce: number,
+  proposal: Pick<Proposal, 'id' | 'nonce'>,
   proposalStamps: ProposalStamps
 ): void =>
   recordGuardianCandidate(canonicalWalletAccountId(accountId), {
     endpoint: service.guardianEndpoint,
-    nonce,
+    nonce: proposal.nonce,
+    proposalId: proposal.id,
     ...proposalStamps,
     abandon: true
   });
@@ -3958,12 +3982,12 @@ const assertProposalEffectBeforeSigning = async (
       // later process's startup sweep must not send it again.
       await forgetPersistedCandidate(transaction, proposal.nonce);
       await withOutgoingGuardianDeadline(
-        () => service.abandonCandidate(proposal.nonce),
+        () => service.abandonCandidate(proposal.nonce, proposal.id),
         'abandoning a guardian candidate whose effect was refused'
       );
     } catch (abandonError) {
       console.error('Failed to abandon a refused Guardian candidate', { nonce: proposal.nonce, error: abandonError });
-      recordUnabandonedCandidate(transaction.accountId, service, proposal.nonce, proposalStamps);
+      recordUnabandonedCandidate(transaction.accountId, service, proposal, proposalStamps);
     }
     throw error;
   }
@@ -4034,9 +4058,10 @@ export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvid
       // keep leaves the candidate on another Guardian than the one this service reaches.
       const record = releasable(accountId, nonce, attemptId);
       if (record === undefined || !sameGuardianEndpoint(record.endpoint, service.guardianEndpoint)) return undefined;
+      let ticket: AbandonTicket;
       try {
-        await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(nonce),
+        ticket = await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(nonce, record.proposalId),
           'abandoning a kept candidate on its guardian'
         );
       } catch (abandonError) {
@@ -4051,7 +4076,7 @@ export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvid
       return {
         status: timeoutMs =>
           withTimeout(
-            service.abandonStatus(nonce),
+            service.abandonStatus(nonce, ticket),
             Math.min(timeoutMs, OUTGOING_GUARDIAN_DEADLINE_MS),
             'reading the release of a kept candidate'
           )
@@ -4675,7 +4700,7 @@ const generateGuardianTransaction = async (
           }
           try {
             await withOutgoingGuardianDeadline(
-              () => service.abandonCandidate(proposalResult.nonce),
+              () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
               'abandoning a custom proposal whose summary differs from the approved effects'
             );
           } catch (abandonError) {
@@ -4683,7 +4708,7 @@ const generateGuardianTransaction = async (
               nonce: proposalResult.nonce,
               error: abandonError
             });
-            recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+            recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
           }
           throw effectsError;
         }
@@ -4782,7 +4807,7 @@ const generateGuardianTransaction = async (
       try {
         await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(proposalResult.nonce),
+          () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
           'abandoning the pending delta on the outgoing guardian'
         );
       } catch (abandonError) {
@@ -4790,7 +4815,7 @@ const generateGuardianTransaction = async (
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+        recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
       }
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
@@ -5081,7 +5106,11 @@ const generateGuardianTransaction = async (
       submitResolved &&
       (transaction.type === 'replace-hot-key' || transaction.type === 'update-procedure-threshold')
     ) {
-      transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
+      transaction.extraInputs = {
+        ...transaction.extraInputs,
+        proposalNonce: proposalResult.nonce,
+        proposalId: proposalResult.id
+      };
     }
     // A Guardian `commitment_mismatch` refused the push before it wrote a candidate, so there is nothing to abandon.
     if (!submitResolved && !keptForVerdict && !isGuardianCommitmentMismatch(error)) {
@@ -5096,7 +5125,7 @@ const generateGuardianTransaction = async (
         // the same loop) down with it, so the row is not even reaped.
         await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(proposalResult.nonce),
+          () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
           'abandoning the guardian candidate after a failed submission'
         );
       } catch (abandonError) {
@@ -5120,7 +5149,7 @@ const generateGuardianTransaction = async (
           inlineSubmitNotReached ||
           (!offscreenDispatched && !isKilledPipeline(error) && !submitStageRecorded)
         ) {
-          recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+          recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
         }
       }
     }
@@ -5219,7 +5248,7 @@ const generateGuardianTransaction = async (
       // structural completion below (e.g. leaving replace-hot-key's chain rotation done
       // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
       // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
-      await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type, transaction.accountId);
+      await waitForStructuralCommit(id, service, proposalResult, transaction.type, transaction.accountId);
     }
 
     // Sync the cached hot service so the next consumer sees post-tx state.
