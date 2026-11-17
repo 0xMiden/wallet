@@ -174,9 +174,23 @@ try {
     immutableAckAndQualifiedOneShotRequiredBeforeAnySigning: true,
     notFundedGreen: true
   });
+  site = 'prior-held-grant-outcome';
+  const priorHeldHash = '0x80d725e68e6d14509bcac442a4d80da7afd2e6d6c5bce09a8c8f9350c9d31a4a';
+  assert.ok(live.blockTimestamp * 1000n >= 1794906404239n);
+  const priorOutcome = await Promise.all([
+    client.request({ method: 'eth_getTransactionByHash', params: [priorHeldHash] }),
+    client.request({ method: 'eth_getTransactionReceipt', params: [priorHeldHash] })
+  ]);
+  assert.deepEqual(priorOutcome, [null, null]);
+  Object.assign(report, {
+    priorHeldGrantHash: priorHeldHash,
+    priorHeldGrantExpiredAndNeverAckReleased: true,
+    priorHeldHashAndReceiptAbsent: true,
+    priorEnableMarkerPermanentlyConsumed: true
+  });
   if (execute) {
     site = 'original-owner-signing';
-    assert.equal(process.env.GITHUB_REF, 'refs/heads/wiktor/green02-compact-enable-once');
+    assert.equal(process.env.GITHUB_REF, 'refs/heads/wiktor/green02-compact-enable-replacement-01');
     assert.equal(process.env.GITHUB_EVENT_NAME, 'push');
     const frontier = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/producer-frontier.json`, 'utf8'));
     assert.equal(String(frontier.workflow_runs?.[0]?.id), c.sourceRunId);

@@ -1,7 +1,7 @@
 name: Original Compact owner-only recovery readiness
 on:
   push:
-    branches: [wiktor/green02-compact-owner-recovery, wiktor/green02-compact-enable-once]
+    branches: [wiktor/green02-compact-owner-recovery, wiktor/green02-compact-enable-replacement-01]
 permissions:
   contents: read
   actions: read
@@ -43,6 +43,7 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           artifact-ids: ${{ steps.layout-canary.outputs.artifact-id }}
+          merge-multiple: true
           path: test-results/compact-layout-downloaded
       - name: Assert actual immutable-ID download recovers exact bytes at flat ACK path
         run: |
@@ -101,14 +102,14 @@ jobs:
           yarn esbuild playwright/e2e/helpers/mainnet-one-click-prices.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-compact-prices.mjs
           node scripts/mainnet-compact-owner-recovery.mjs
       - name: Refresh original financial frontier before any original-key access
-        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-once'
+        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-replacement-01'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api 'repos/0xMiden/wallet/actions/workflows/e2e-mainnet-nightly.yml/runs?per_page=5' > "$RUNNER_TEMP/producer-frontier.json"
           node -e 'const d=JSON.parse(require("node:fs").readFileSync(process.env.RUNNER_TEMP+"/producer-frontier.json"));require("node:assert/strict").equal(d.workflow_runs[0].id,44034323631)'
       - name: Hold exactly one original owner enable transaction in memory pending immutable journal ACK
-        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-once'
+        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-replacement-01'
         env:
           COMPACT_OWNER_RECOVERY_EXECUTE: 'true'
           E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
@@ -123,19 +124,20 @@ jobs:
           done
           test -f test-results/compact-recovery-enable-authority.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-once'
+        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-replacement-01'
         id: enable-authority
         with:
           name: original-compact-enable-authority-${{ github.run_id }}
           path: test-results/compact-recovery-enable-authority.json
           if-no-files-found: error
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-once'
+        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-replacement-01'
         with:
           artifact-ids: ${{ steps.enable-authority.outputs.artifact-id }}
+          merge-multiple: true
           path: test-results/compact-ack
       - name: ACK only fully downloaded immutable original journal, then observe one-shot outcome
-        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-once'
+        if: github.ref == 'refs/heads/wiktor/green02-compact-enable-replacement-01'
         run: |
           test -f test-results/compact-ack/compact-recovery-enable-authority.json
           cmp test-results/compact-recovery-enable-authority.json test-results/compact-ack/compact-recovery-enable-authority.json
@@ -148,7 +150,7 @@ jobs:
           test -f test-results/compact-recovery-enable.exit.json
           node -e 'const d=JSON.parse(require("node:fs").readFileSync("test-results/compact-recovery-enable.exit.json"));process.exit(d.exitCode)'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always() && github.ref == 'refs/heads/wiktor/green02-compact-enable-once'
+        if: always() && github.ref == 'refs/heads/wiktor/green02-compact-enable-replacement-01'
         with:
           name: original-compact-enable-outcome-${{ github.run_id }}
           path: |
