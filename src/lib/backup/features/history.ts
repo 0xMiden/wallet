@@ -330,6 +330,8 @@ export function parseHistoryRow(value: unknown): HistoryRow | null {
   ) {
     return null;
   }
+  // The restore reads a swap's requested amount with BigInt, so it must be what the projection writes.
+  if (t === 'swap' && x?.ra !== undefined && optionalDecimal(x.ra) === null) return null;
   return { v: 1, id, t, s, ic, a, sa, f, am, fa, tx, n, ia, ca, m, x };
 }
 
@@ -342,7 +344,11 @@ export function parseHistoryChunk(plaintext: string): HistoryRow[] {
     return [];
   }
   if (!Array.isArray(value)) return [];
-  return value.map(parseHistoryRow).filter(row => row !== null);
+  const rows = value.map(parseHistoryRow).filter(row => row !== null);
+  // Counted, never printed: the rows are decrypted history.
+  if (rows.length < value.length)
+    console.warn(`[backup] dropped ${value.length - rows.length} history row(s) of another shape`);
+  return rows;
 }
 
 function extraString(extra: HistoryRowExtra | undefined, key: string): string | undefined {

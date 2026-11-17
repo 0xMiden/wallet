@@ -249,6 +249,36 @@ describe('applyHistoryRows', () => {
   });
 });
 
+describe('a malformed peer swap amount', () => {
+  const swap = (id: string, ra: unknown) => ({
+    ...projectTransaction(row(id, { type: 'swap' })),
+    x: { rf: 'faucet', ra }
+  });
+
+  // The restore reads x.ra with BigInt inside the apply transaction, so a value the projection never writes
+  // would roll back the whole read on every attempt.
+  it('drops only that row, and the rest of its chunk restores', async () => {
+    const chunk = JSON.stringify([
+      projectTransaction(row('before')),
+      swap('bad', 'abc'),
+      projectTransaction(row('after'))
+    ]);
+    await expect(applyHistoryRows(parseHistoryChunk(chunk))).resolves.toBe(2);
+    expect(await Repo.transactions.get('before')).toBeDefined();
+    expect(await Repo.transactions.get('after')).toBeDefined();
+    expect(await Repo.transactions.get('bad')).toBeUndefined();
+  });
+
+  it.each(['abc', '1.5', '0x10', '', 7])('refuses x.ra %p', ra => {
+    expect(parseHistoryRow(swap('s', ra))).toBeNull();
+  });
+
+  it('keeps a decimal x.ra and a swap without one', () => {
+    expect(parseHistoryRow(swap('s', '42'))?.x).toEqual({ rf: 'faucet', ra: '42' });
+    expect(parseHistoryRow({ ...projectTransaction(row('t', { type: 'swap' })), x: { rf: 'faucet' } })).not.toBeNull();
+  });
+});
+
 describe('spillOverfullChunks', () => {
   const big = (id: string) => JSON.stringify({ id, pad: 'p'.repeat(10_000) });
   const rowsOf = (ids: readonly string[]) => ids.map(big);
