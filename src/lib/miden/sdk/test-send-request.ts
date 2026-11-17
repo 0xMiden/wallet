@@ -34,15 +34,19 @@ export function withTestGuardianAuthentication(
   request: TransactionRequest
 ): TransactionRequestBuilder {
   const auth = request.authArg();
+  const advice = request.adviceMap();
+  const preimage = auth ? advice.get(auth) : undefined;
   const blocks = request.blockNumbers();
   if (
-    !auth ||
+    !preimage ||
+    preimage.length === 0 ||
+    preimage.length % 4 !== 0 ||
     request.feeConversionSalt() ||
     blocks.length > 8 ||
     blocks.some(block => !Number.isSafeInteger(block) || block < 0)
   )
     throw new Error('Invalid final Guardian authentication metadata');
-  return builder.withAuthArg(auth).withBlockNumbers(blocks).extendAdviceMap(request.adviceMap());
+  return builder.withAuthArgs(new FeltArray(preimage)).withBlockNumbers(blocks).extendAdviceMap(advice);
 }
 
 export function inspectTestMainnetSendRequest(
