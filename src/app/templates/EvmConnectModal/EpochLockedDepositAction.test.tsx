@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { IEpochLockedDeposit } from 'lib/miden/db/types';
 
@@ -76,5 +76,36 @@ describe('EpochLockedDepositAction', () => {
 
     expect(screen.getByTestId('epoch-deposit-retry')).toBeInTheDocument();
     expect(screen.getByTestId('epoch-deposit-withdraw')).toBeInTheDocument();
+  });
+
+  it('keeps the countdown moving when a render lands between the deadline and the next tick', () => {
+    jest.useFakeTimers();
+    try {
+      const startMs = 1_700_000_000_000;
+      jest.setSystemTime(startMs);
+      mockConnection.address = SPONSOR.toLowerCase();
+      mockConnection.connected = true;
+      const lock: IEpochLockedDeposit = {
+        ...LOCK,
+        withdrawEnabledAt: startMs / 1000 - 10,
+        withdrawableAt: startMs / 1000 + 2
+      };
+      // A new element for each render: React skips a render of the same element.
+      const row = () => <EpochLockedDepositAction txId="row-1" lock={lock} state="locked" amountLabel="1 USDC" />;
+      const view = render(row());
+      expect(screen.getByTestId('epoch-deposit-withdraw')).toBeDisabled();
+
+      // The deadline passes, and a render occurs before the interval fires.
+      jest.setSystemTime(startMs + 5_000);
+      view.rerender(row());
+      act(() => {
+        jest.advanceTimersByTime(1_000);
+      });
+
+      expect(screen.getByTestId('epoch-deposit-withdraw')).toBeEnabled();
+      expect(screen.getByTestId('epoch-deposit-withdraw-status')).toHaveTextContent('epochDepositWithdrawReady');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
