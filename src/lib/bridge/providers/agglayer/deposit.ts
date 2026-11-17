@@ -18,6 +18,7 @@ import { AGGLAYER_BRIDGE_ABI } from 'lib/agglayer/constant';
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
 import { configKey } from 'lib/bridge/core/routes';
 import { validateTransferAmount } from 'lib/bridge/core/rules';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import type { SourceTransactionClient } from 'lib/bridge/evm/source-transaction';
 import {
   assertBridgeOperationCurrent,
@@ -42,6 +43,7 @@ export interface AgglayerDepositRequest {
   operation: BridgeOperationSnapshot;
   provider: EIP1193Provider;
   client: AgglayerClient;
+  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }
 
 /** Consumes the receive wrapper's winning snapshot; it never claims or resumes an idle-looking row. */
