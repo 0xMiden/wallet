@@ -135,11 +135,29 @@ function sameContacts(a: readonly WalletContact[], b: readonly WalletContact[]):
 /** How many times a merge reads the local list again when a user write changed it under the merge. */
 const MERGE_ATTEMPTS = 3;
 
+let contactsChain: Promise<unknown> = Promise.resolve();
+
 /**
  * Read the contacts entry (unless `read` is false), merge it with the local
  * list, save the result locally and upload it when the server copy differs.
+ *
+ * One sync at a time: each merges against the base the one before it left, so
+ * two refreshes that overlap (unlock and the address book) cannot both merge
+ * against an older base, which would bring back a contact a peer removed or
+ * drop one a peer added.
  */
-export async function syncContacts(session: BackupSession, read: boolean): Promise<boolean> {
+export function syncContacts(session: BackupSession, read: boolean): Promise<boolean> {
+  const run = contactsChain.then(
+    () => syncContactsNow(session, read),
+    () => syncContactsNow(session, read)
+  );
+  contactsChain = run.catch(() => undefined);
+  return run;
+}
+
+async function syncContactsNow(session: BackupSession, read: boolean): Promise<boolean> {
+  // The task waited in the lane: a lock may have landed, and the base is read only now.
+  assertSessionLive(session);
   const code = networkCodeOf(getEffectiveNetworkName());
   const base = session.merge.contactsBase === null ? [] : (parseContacts(session.merge.contactsBase) ?? []);
   let changed = false;

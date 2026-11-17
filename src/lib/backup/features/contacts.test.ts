@@ -3,7 +3,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { WalletContact } from 'lib/shared/types';
 
-import { DEFAULT_BLOB_CAP, decryptEntry, plaintextDigest } from '../crypto';
+import { DEFAULT_BLOB_CAP, decryptEntry, encryptEntry, plaintextDigest } from '../crypto';
 import { hashedKeyOf } from '../entries';
 import { type BackupSession, clearBackupSession, getBackupSession } from '../session';
 import { onBackupStorageCleared } from '../state';
@@ -270,6 +270,52 @@ describe('syncContacts', () => {
     expect(session.state.features.contacts.entries[hashedKeyOf(session, CONTACTS_ENTRY_KEY)]?.digest).toBe(
       plaintextDigest(plaintext)
     );
+  });
+
+  /** A peer writes this list as the contacts entry, under the session's key. */
+  async function peerWrites(session: BackupSession, list: ContactTriple[]): Promise<void> {
+    const entry = await encryptEntry(session.encKey, JSON.stringify(list), session.kdfParams);
+    server.insertEntry(session.publicKey, 'contacts', hashedKeyOf(session, CONTACTS_ENTRY_KEY), entry);
+  }
+
+  async function serverList(session: BackupSession): Promise<string> {
+    const stored = server.storedEntryOf(session.publicKey, 'contacts', hashedKeyOf(session, CONTACTS_ENTRY_KEY));
+    if (stored === undefined) throw new Error('No contacts entry on the server');
+    return decryptEntry(session.encKey, stored, DEFAULT_BLOB_CAP);
+  }
+
+  // Two refreshes overlap (unlock and the address book): the second must merge against the base the first left.
+  it('does not bring back a contact a peer deleted between two overlapping syncs', async () => {
+    const a = device(contact('Alice', 'mtst1alice'));
+    const session = await use(a);
+    await syncContacts(session, true);
+    await peerWrites(session, [ALICE, BOB]);
+    const deletion = await encryptEntry(session.encKey, JSON.stringify([ALICE]), session.kdfParams);
+    let reads = 0;
+    server.onRequest = request => {
+      if (request.method !== 'GET' || request.path !== '/v1/storage/contacts') return;
+      reads += 1;
+      // The peer deletes Bob after the first sync adopted him, before the second sync reads.
+      if (reads === 2) {
+        server.insertEntry(session.publicKey, 'contacts', hashedKeyOf(session, CONTACTS_ENTRY_KEY), deletion);
+      }
+    };
+    await Promise.all([syncContacts(session, true), syncContacts(session, true)]);
+    server.onRequest = null;
+
+    expect(a.vault.contactPairs()).toEqual([['Alice', 'mtst1alice']]);
+    expect(await serverList(session)).not.toContain('mtst1bob');
+  });
+
+  it("keeps a peer's other-network contact when the second of two overlapping syncs reads a 304", async () => {
+    const a = device(contact('Alice', 'mtst1alice'));
+    const session = await use(a);
+    await syncContacts(session, true);
+    await peerWrites(session, [ALICE, MAIN_DAVE]);
+    await Promise.all([syncContacts(session, true), syncContacts(session, true)]);
+
+    expect(await serverList(session)).toContain('mm1dave');
+    expect(session.merge.contactsBase).toBe(JSON.stringify([ALICE, MAIN_DAVE]));
   });
 
   it('keeps the contacts of other networks that a peer stored', async () => {
