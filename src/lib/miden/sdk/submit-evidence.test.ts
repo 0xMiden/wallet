@@ -3,12 +3,15 @@ import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 import {
   normalizeHex,
   parseSubmitEvidence,
+  privateOutputNoteIdsOf,
   readSubmitEvidence,
   type EvidenceProof,
   type EvidenceResult
 } from './submit-evidence';
 
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+/** `count` distinct well-formed ids, none of them a fixture's. */
+const ids = (count: number, from = 0x10000) => Array.from({ length: count }, (_, i) => hex(from + i));
 const word = (value: string) => ({ toHex: () => value });
 const note = (id: string, noteType: NoteType = NoteType.Public) => ({
   id: () => ({ toString: () => id }),
@@ -281,9 +284,22 @@ describe('parseSubmitEvidence (#1081)', () => {
     ['a hex nonce', { initialNonce: '0x4' }],
     ['a list that is not an array', { nullifiers: hex(7) }],
     ['a list with a bad member', { outputNoteIds: [hex(9), 'nope'] }],
-    ['a list over 256 entries', { nullifiers: Array.from({ length: 257 }, (_, i) => hex(i)) }]
+    ['a note list over 1024 distinct entries', { outputNoteIds: ids(1025), privateOutputNoteIds: ids(1) }],
+    ['a nullifier list over 1024 distinct entries', { nullifiers: ids(1025) }]
   ])('rejects %s', (_label, bad) => {
     expect(parseSubmitEvidence({ ...valid, ...bad })).toBeUndefined();
+  });
+
+  // A transaction creates up to 1024 notes and consumes up to 1024, so a list that long is evidence, not a malformed one.
+  it.each([300, 1024])('keeps %i distinct note ids and nullifiers, with a private subset', count => {
+    const outputNoteIds = ids(count);
+    const evidence = {
+      ...valid,
+      outputNoteIds,
+      privateOutputNoteIds: [outputNoteIds[0], outputNoteIds[count - 1]],
+      nullifiers: ids(count, 0x20000)
+    };
+    expect(parseSubmitEvidence(evidence)).toEqual(evidence);
   });
 
   it('answers undefined for anything that is not an object, and never throws', () => {
@@ -345,7 +361,8 @@ describe('parseSubmitEvidence (#1081)', () => {
     ['a list that repeats a note', { privateOutputNoteIds: [hex(9), hex(9)] }],
     ['a note outputNoteIds does not name', { privateOutputNoteIds: [hex(9), hex(0xab)] }],
     ['a list that crossed without outputNoteIds', { outputNoteIds: undefined, privateOutputNoteIds: [hex(9)] }],
-    ['a list over 256 entries', { privateOutputNoteIds: Array.from({ length: 257 }, () => hex(9)) }]
+    // A private list this long is part of no root the parser keeps, so the root's own row above isolates the cap.
+    ['a list over 1024 distinct entries', { privateOutputNoteIds: ids(1025) }]
   ])('drops only the private notes for %s', (_label, bad) => {
     // `toEqual` reads an undefined field as an absent one.
     expect(parseSubmitEvidence({ ...valid, ...bad })).toEqual({ ...valid, ...bad, privateOutputNoteIds: undefined });
@@ -353,5 +370,18 @@ describe('parseSubmitEvidence (#1081)', () => {
 
   it('normalizeHex lower-cases', () => {
     expect(normalizeHex('0xABcd')).toBe('0xabcd');
+  });
+});
+
+describe('privateOutputNoteIdsOf', () => {
+  it.each([300, 1024])('answers a private subset of a root of %i distinct notes', count => {
+    const root = ids(count);
+    expect(privateOutputNoteIdsOf(root, [root[count - 1]])).toEqual([root[count - 1]]);
+  });
+
+  // A whole list or none: a root no transaction can have is not one read, and its first 1024 ids would owe a part.
+  it('answers nothing for a root over 1024 distinct notes, its private note first', () => {
+    const root = ids(1025);
+    expect(privateOutputNoteIdsOf(root, [root[0]])).toBeUndefined();
   });
 });

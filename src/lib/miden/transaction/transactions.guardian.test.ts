@@ -16539,6 +16539,47 @@ describe('generateTransaction - Guardian routing', () => {
         }
       });
 
+      // A transaction can create up to 1024 notes, so a stamp naming 300 is one whole read of them.
+      it('a Guardian execute whose result traps at its first read owes the one private note out of 300 its landing stamp named, which a due sweep pushes', async () => {
+        const restore = installLandedTrapRetirement(jest.fn());
+        const stamped = Array.from({ length: 300 }, (_, i) => `0x${(0xe0000 + i).toString(16).padStart(64, '0')}`);
+        stamped[150] = OWED_NOTE;
+        const { result, apply } = armedResult({
+          notes: stamped.map(id => fixtureNote(id, id === OWED_NOTE ? NoteType.Private : NoteType.Public)),
+          stamped,
+          privateStamped: [OWED_NOTE],
+          trapping: 'executedTransaction'
+        });
+        const client = sweepClient(result, apply);
+        const writes = noteDeliveryWriteCount();
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            executeRow('guardian-execute-first-read-300'),
+            { result, replace: () => {}, log: [] },
+            executeProposal(),
+            client
+          );
+
+          expect(row).toMatchObject({
+            status: ITransactionStatus.Completed,
+            relayNoteIds: [OWED_NOTE],
+            relayRecipientId: 'recipient',
+            noteDelivery: 'undelivered'
+          });
+          expect(row.outputNoteIds).toBeUndefined();
+          expect(noteDeliveryWriteCount()).toBe(writes + 1);
+          const landing = Math.floor(Date.now() / 1000);
+          await sweepAt(landing);
+          await sweepAt(landing + 10 * 60);
+          expect(client.relayPrivateNoteById.mock.calls).toEqual([[OWED_NOTE, 'recipient']]);
+        } finally {
+          quiet();
+          restore();
+        }
+      });
+
       it('a Guardian execute whose result traps at its first read owes nothing when its landing stamp proves only public notes, and reads Executed', async () => {
         const restore = installLandedTrapRetirement(jest.fn());
         const { result, apply } = armedResult({

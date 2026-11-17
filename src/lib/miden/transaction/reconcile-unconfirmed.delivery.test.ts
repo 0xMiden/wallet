@@ -658,6 +658,8 @@ describe('landedDeliveryTargetValues records what recordLandedDeliveryTarget rec
 // An applied execute's landing owes the private notes its own stamp read off the executed transaction, to the recipient
 // its row names: nothing else on the row, and nothing when the row names no recipient or the tail recorded its own.
 describe('landedExecuteDeliveryValues', () => {
+  /** `count` distinct note ids, none of them a fixture's. */
+  const distinctNotes = (count: number) => Array.from({ length: count }, (_, i) => hex(0xd0000 + i));
   const stamp = (overrides: Partial<ISubmitEvidence> = {}) =>
     entry({
       fromExecute: true,
@@ -715,9 +717,22 @@ describe('landedExecuteDeliveryValues', () => {
     ['a private list that is not part of the stamp notes', {}, { privateOutputNoteIds: [SIBLING_NOTE] }],
     ['a private list that repeats a note', {}, { privateOutputNoteIds: [NOTE, NOTE] }],
     ['a private list with a malformed id', {}, { privateOutputNoteIds: [NOTE, 'note'] }],
-    ['an empty list on a row that recorded a delivery', { noteDelivery: 'pending' }, { privateOutputNoteIds: [] }]
+    ['an empty list on a row that recorded a delivery', { noteDelivery: 'pending' }, { privateOutputNoteIds: [] }],
+    // Its owed note first, so a reader that kept the first 1024 would owe it.
+    ['a stamp naming more notes than a transaction can create', {}, { outputNoteIds: [NOTE, ...distinctNotes(1024)] }]
   ])('owes nothing for %s', (_name, rowOverrides, stampOverrides) => {
     expect(landedExecuteDeliveryValues(landedExecute(rowOverrides), stamp(stampOverrides))).toBeUndefined();
+  });
+
+  // A transaction can create up to 1024 notes, so a stamp naming 300 read them all.
+  it("owes the stamp's private note out of 300 distinct notes", () => {
+    const outputNoteIds = distinctNotes(300);
+    outputNoteIds[150] = NOTE;
+    expect(landedExecuteDeliveryValues(landedExecute(), stamp({ outputNoteIds }))).toMatchObject({
+      relayNoteIds: [NOTE],
+      relayRecipientId: RECIPIENT,
+      noteDelivery: 'undelivered'
+    });
   });
 
   it('reads Executed and owes nothing when the stamp proves no private note', () => {

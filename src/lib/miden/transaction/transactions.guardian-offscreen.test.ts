@@ -76,6 +76,7 @@ import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
+import { parseSubmitEvidence } from '../sdk/submit-evidence';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
@@ -3871,6 +3872,37 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.completedAt).toBeGreaterThanOrEqual(landing);
     expect(noteDeliveryWriteCount()).toBe(writes + 1);
     expect(service.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  // A transaction can create up to 1024 notes, so a gate naming 300 crosses the bus whole, as the service worker
+  // parses it.
+  it('execute: a landed reply after a serialize trap owes the one private note out of 300 its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const outputNoteIds = Array.from({ length: 300 }, (_, i) => `0x${(0xe0000 + i).toString(16).padStart(64, '0')}`);
+    outputNoteIds[150] = appliedSendNote;
+    landAfterGate(
+      parseSubmitEvidence({ transactionId: appliedSendTxId, outputNoteIds, privateOutputNoteIds: [appliedSendNote] }),
+      { applied: true }
+    );
+    arrange('serialize-trap-execute-300', privateExecute);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('serialize-trap-execute-300', privateExecute) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'serialize-trap-execute-300')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [appliedSendNote],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
   });
 
   // A failure before the submit never reaches the landed write, so the notes its gate recorded are owed to nobody.
