@@ -448,7 +448,8 @@ export async function takeAgglayerBridgeInInfo(args: {
         const operation = bridgeOperationOf(tx);
         const route = operation?.review.route;
         const source = operation?.sourceAttempt;
-        if (!operation || !route || route.mode !== 'receive' || route.provider !== 'agglayer' || route.destination.kind !== 'miden' || !routeMatchesRecovery(route) ||
+        const quote = operation?.review.quote;
+        if (!operation || !route || quote?.kind !== 'agglayer' || quote.request.amount !== operation.review.amount || route.mode !== 'receive' || route.provider !== 'agglayer' || route.destination.kind !== 'miden' || !routeMatchesRecovery(route) ||
           source?.phase !== 'known' || typeof source.hash !== 'string' || !isHash(source.hash) ||
           !inputs.evmTxHash || noteIdKey(inputs.evmTxHash) !== noteIdKey(source.hash)) continue;
         const original = await findAdmittedBridgeOperation(operation);
@@ -467,6 +468,7 @@ export async function takeAgglayerBridgeInInfo(args: {
     }
     if (delivery && amount === args.amount && sentBy(delivery.faucet)) matches.push(tx);
   }
+  if (matches.length > 1 && matches.some(hasBridgeOperation)) return undefined;
   matches.sort((a, b) => a.initiatedAt - b.initiatedAt);
   const match = matches[0];
   if (!match) return undefined;
