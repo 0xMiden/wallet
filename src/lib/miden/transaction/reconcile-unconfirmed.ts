@@ -34,7 +34,7 @@ import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { submittedSwapOrder } from '../sdk/apply-after-submit';
 import { sameWalletAccountId } from '../sdk/helpers';
-import { normalizeHex } from '../sdk/submit-evidence';
+import { normalizeHex, privateOutputNoteIdsOf } from '../sdk/submit-evidence';
 
 export { judgeSubmitEvidence } from './reconcile-judge';
 
@@ -138,11 +138,12 @@ const notesOfTransaction = (row: Pick<ITransaction, 'submitEvidence'>, transacti
 /**
  * The note a landed send owes, at the root where `completeSendTransaction` records it and the delivery sweep reads it
  * (#1473): every note of the attempt the landing binds, else the note a note landing was proven by (attempts replaying
- * one request share it), else none. Never an execute's: its evidence names neither its private notes nor their owner.
- * A root holding only those notes is the landed attempt's own record and stays as written; one another attempt
- * recorded is replaced. A row whose relay recorded the notes it owes in `relayNoteIds`, which the sweep reads before
- * the root, gets none. Undefined when the landing records no target. Retry's landing on the transaction the node
- * verified binds that id and has no proof.
+ * one request share it), else none. Never an execute's: its attempt notes mix public and private ones, and an applied
+ * execute owes only the private ones, apart from the root ({@link landedExecuteDeliveryValues}). A root holding only
+ * those notes is the landed attempt's own record and stays as written; one another attempt recorded is replaced. A row
+ * whose relay recorded the notes it owes in `relayNoteIds`, which the sweep reads before the root, gets none. Undefined
+ * when the landing records no target. Retry's landing on the transaction the node verified binds that id and has no
+ * proof.
  */
 const landedDeliveryTarget = (
   row: ITransaction,
@@ -231,6 +232,51 @@ export const landedDeliveryTargetValues = (
     relayOutageDeferred: recorded.relayOutageDeferred,
     relayAckedNoteIds: recorded.relayAckedNoteIds,
     relayDeadNoteIds: recorded.relayDeadNoteIds
+  };
+};
+
+/**
+ * The delivery an applied execute's landing owes when its tail recorded none, from `entry`, the landing attempt's own
+ * stamp: the private notes it read off the executed transaction its leaf then submitted and applied, so the store holds
+ * them, owed to the recipient the row names, as `completeCustomTransaction` relays them. `row` is the row as the write
+ * finds it. A stamp that proves no private note leaves the clean label on a row that recorded no delivery. Undefined
+ * when the tail recorded which notes it owes, the row names no recipient, so nobody is owed, or the stamp did not read
+ * its notes' types. Never the root `outputNoteIds`, which the sweep would read as owed, public notes and all. The
+ * caller binds `entry` to an applied landing: an apply that failed left the notes out of the store.
+ */
+export const landedExecuteDeliveryValues = (
+  row: ITransaction,
+  entry: ISubmitEvidence
+):
+  | Pick<
+      ITransaction,
+      | 'relayNoteIds'
+      | 'relayRecipientId'
+      | 'displayMessage'
+      | 'noteDelivery'
+      | 'relayAttempts'
+      | 'nextRelayAt'
+      | 'relayRetriesStopped'
+    >
+  | undefined => {
+  if (row.type !== 'execute' || entry.fromExecute !== true || entry.transactionId === undefined) return undefined;
+  if (row.relayNoteIds != null || !row.secondaryAccountId) return undefined;
+  const owed = privateOutputNoteIdsOf(entry.outputNoteIds, entry.privateOutputNoteIds);
+  if (owed === undefined) return undefined;
+  const fields = landedValueRowFields(row, owed.length);
+  if (owed.length === 0) {
+    return row.noteDelivery === undefined
+      ? { displayMessage: fields.displayMessage, noteDelivery: undefined }
+      : undefined;
+  }
+  // Nothing pushed these notes yet, so their delivery window opens with the landed write's completedAt.
+  return {
+    relayNoteIds: owed,
+    relayRecipientId: row.secondaryAccountId,
+    ...fields,
+    relayAttempts: undefined,
+    nextRelayAt: undefined,
+    relayRetriesStopped: undefined
   };
 };
 

@@ -6,6 +6,8 @@ import type { NoteType } from '@miden-sdk/miden-sdk/lazy';
 import { landedOrderFacts } from './sdk-error-code';
 import { isWasmTrap } from './wasm-handle';
 import type { SubmitEvidenceFields } from '../db/types';
+import { toNoteTypeString } from '../helpers';
+import { NoteTypeEnum } from '../types';
 
 /** A delta can move the expiration at most this far past the reference block. */
 export const EXPIRATION_DELTA_RANGE = 65535;
@@ -75,8 +77,19 @@ export function readSubmitEvidence(
     if (finalCommitment !== undefined) evidence.finalCommitment = finalCommitment;
     const initialNonce = attempt(() => executed.initialAccountHeader().nonce().asInt().toString());
     if (initialNonce !== undefined) evidence.initialNonce = initialNonce;
-    const outputNoteIds = attempt(() => executed.userOutputNotes().map(note => normalizeHex(note.id().toString())));
-    if (outputNoteIds !== undefined) evidence.outputNoteIds = outputNoteIds;
+    const notes = attempt(() => executed.userOutputNotes());
+    const outputNoteIds = notes && attempt(() => notes.map(note => normalizeHex(note.id().toString())));
+    if (notes !== undefined && outputNoteIds !== undefined) {
+      evidence.outputNoteIds = outputNoteIds;
+      // The predicate `completeCustomTransaction` relays by, over the same notes, so a type that does not read leaves
+      // the whole list out, never a shorter one.
+      const privateOutputNoteIds = attempt(() =>
+        notes
+          .filter(note => toNoteTypeString(note.metadata().noteType()) === NoteTypeEnum.Private)
+          .map(note => normalizeHex(note.id().toString()))
+      );
+      if (privateOutputNoteIds !== undefined) evidence.privateOutputNoteIds = privateOutputNoteIds;
+    }
   }
   const nullifiers = attempt(() => proof.nullifiers().map(nullifier => normalizeHex(nullifier.toHex())));
   if (nullifiers !== undefined) evidence.nullifiers = nullifiers;
@@ -120,9 +133,21 @@ const readWords = (value: unknown): string[] | undefined | null => {
 };
 
 /**
+ * `privateIds` as note ids when it is a list of distinct well-formed ids all of which `outputNoteIds` names, else
+ * undefined: the private notes are read with that list off the same notes, so a list not part of it is not that read.
+ */
+export const privateOutputNoteIdsOf = (outputNoteIds: unknown, privateIds: unknown): string[] | undefined => {
+  const named = readWords(outputNoteIds);
+  const owed = readWords(privateIds);
+  if (!Array.isArray(named) || !Array.isArray(owed) || new Set(owed).size !== owed.length) return undefined;
+  return owed.every(noteId => named.includes(noteId)) ? owed : undefined;
+};
+
+/**
  * Evidence as it crossed the offscreen bus, or undefined when there is none or any field is malformed. The caller
  * still records the crossing then, as an evidence-less entry that can only hold a row back from "safe". A swap's order
  * is a landed fact, not verdict evidence: it is kept only as a well-formed pair, and one that is not costs only itself.
+ * The private notes are a delivery fact and cost only themselves the same way.
  */
 export function parseSubmitEvidence(value: unknown): SubmitEvidenceFields | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
@@ -157,6 +182,8 @@ export function parseSubmitEvidence(value: unknown): SubmitEvidenceFields | unde
     if (finalCommitment !== undefined) evidence.finalCommitment = finalCommitment;
     if (initialNonce !== undefined) evidence.initialNonce = initialNonce;
     if (outputNoteIds !== undefined) evidence.outputNoteIds = outputNoteIds;
+    const privateOutputNoteIds = privateOutputNoteIdsOf(outputNoteIds, Reflect.get(value, 'privateOutputNoteIds'));
+    if (privateOutputNoteIds !== undefined) evidence.privateOutputNoteIds = privateOutputNoteIds;
     if (nullifiers !== undefined) evidence.nullifiers = nullifiers;
     if (refBlock !== undefined) evidence.refBlock = refBlock;
     if (refBlockCommitment !== undefined) evidence.refBlockCommitment = refBlockCommitment;

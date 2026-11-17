@@ -232,12 +232,12 @@ export interface EvidencePatch {
 }
 
 /**
- * Upsert the entry of `attemptId` (#1081). Evidence fills what the entry lacks, a swap's order as a pair; an id never
- * changes once set, because an attempt submits at most one transaction and its stamp precedes any error text about it,
- * so evidence naming another id is a contradiction: logged, not recorded. The first end wins, and `fromExecute` and
- * `preSubmitEnd` are sticky. `raisedFlag` is honoured only when the pin creates the entry. A pre-submit end drops a
- * kept mark an outside end left, since the leaf that proves it abandons that candidate itself; a keep that follows
- * records it again.
+ * Upsert the entry of `attemptId` (#1081). Evidence fills what the entry lacks, a swap's order as a pair, and the
+ * private notes only with the note list they narrow; an id never changes once set, because an attempt submits at most
+ * one transaction and its stamp precedes any error text about it, so evidence naming another id is a contradiction:
+ * logged, not recorded. The first end wins, and `fromExecute` and `preSubmitEnd` are sticky. `raisedFlag` is honoured
+ * only when the pin creates the entry. A pre-submit end drops a kept mark an outside end left, since the leaf that
+ * proves it abandons that candidate itself; a keep that follows records it again.
  */
 export function upsertEvidenceEntry(
   entries: readonly ISubmitEvidence[] | undefined,
@@ -273,6 +273,8 @@ export function upsertEvidenceEntry(
   if (next.initialNonce === undefined && evidence.initialNonce !== undefined) next.initialNonce = evidence.initialNonce;
   if (next.outputNoteIds === undefined && evidence.outputNoteIds !== undefined) {
     next.outputNoteIds = evidence.outputNoteIds;
+    // Only with the list it narrows, so both come from one stamp's read.
+    if (evidence.privateOutputNoteIds !== undefined) next.privateOutputNoteIds = evidence.privateOutputNoteIds;
   }
   if (next.nullifiers === undefined && evidence.nullifiers !== undefined) next.nullifiers = evidence.nullifiers;
   if (next.refBlock === undefined && evidence.refBlock !== undefined) next.refBlock = evidence.refBlock;

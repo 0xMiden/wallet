@@ -712,7 +712,8 @@ export const completedSwapFields = (
  * A row whose apply failed is never re-pushed: the output notes never reached the store, so
  * `sendPrivateOutput` has nothing to resend, and the row carries no note id to resend by. A row whose apply
  * completed (its tail failed, or the offscreen result did not serialize) keeps the notes its tail recorded,
- * and a send also owes those its landing stamp named (`writeLandedCompleted`), which the sweep re-pushes by id.
+ * and a send also owes those its landing stamp named, an execute the private ones among them
+ * (`writeLandedCompleted`), which the sweep re-pushes by id.
  */
 export const landedValueRowFields = (
   tx: Pick<

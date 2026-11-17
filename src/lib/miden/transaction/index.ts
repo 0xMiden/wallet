@@ -175,7 +175,11 @@ import {
   type QueueAdmissionMember,
   type QueueSighting
 } from './queue-admission-diagnostics';
-import { type CandidateRelease, landedDeliveryTargetValues } from './reconcile-unconfirmed';
+import {
+  type CandidateRelease,
+  landedDeliveryTargetValues,
+  landedExecuteDeliveryValues
+} from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { readRowWithinTerminalBudget, writeCommittedCompleted } from './terminal-write';
 import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
@@ -1366,13 +1370,23 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
 /**
  * The delivery target of a landed row whose local apply completed before its failure (`applied`: a tail that failed,
  * or a trap serializing the offscreen result): the store holds the notes, so a private send owes the ones the landing
- * attempt's 'submitting' stamp recorded, as a reconciler landing bound to that transaction would. `completed` is the row
- * with its landed fields. None after an apply that failed, which left the notes out of the store.
+ * attempt's 'submitting' stamp recorded, as a reconciler landing bound to that transaction would, and an execute the
+ * private ones among them, to its row's recipient. `row` is the row as the write found it and `completed` the row with
+ * its landed fields. None after an apply that failed, which left the notes out of the store.
  */
-const appliedDeliveryValues = (completed: ITransaction, error: unknown, attemptId: string | undefined) => {
+const appliedDeliveryValues = (
+  row: ITransaction,
+  completed: ITransaction,
+  error: unknown,
+  attemptId: string | undefined
+) => {
   if (landedFactsOf(error).applied !== true || attemptId === undefined) return undefined;
-  const boundTransactionId = completed.submitEvidence?.find(entry => entry.attemptId === attemptId)?.transactionId;
-  return boundTransactionId === undefined ? undefined : landedDeliveryTargetValues(completed, { boundTransactionId });
+  const entry = completed.submitEvidence?.find(candidate => candidate.attemptId === attemptId);
+  if (entry?.transactionId === undefined) return undefined;
+  return (
+    landedDeliveryTargetValues(completed, { boundTransactionId: entry.transactionId }) ??
+    landedExecuteDeliveryValues(row, entry)
+  );
 };
 
 /**
@@ -1381,8 +1395,9 @@ const appliedDeliveryValues = (completed: ITransaction, error: unknown, attemptI
  * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
  * recorded and the order the landed record held are kept, and a row another writer finalized is left alone. The
  * failure's own order facts, else the order the landing attempt's stamp recorded, stand in for a landed record that
- * did not commit, and an applied send's delivery target is recorded in the same write. Returns the row as read before
- * the write that landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
+ * did not commit, and an applied send's or execute's delivery target is recorded in the same write. Returns the row as
+ * read before the write that landed, whose stage is still the one the tail stopped at, or undefined when no write
+ * landed.
  */
 const writeLandedCompleted = async (
   txId: string,
@@ -1395,7 +1410,7 @@ const writeLandedCompleted = async (
     row => {
       const completedAt = Math.floor(Date.now() / 1000); // seconds
       const landedFields = landedRowFields(row, error);
-      delivery = appliedDeliveryValues({ ...row, ...landedFields }, error, attemptId);
+      delivery = appliedDeliveryValues(row, { ...row, ...landedFields }, error, attemptId);
       return {
         ...landedFields,
         completedAt,
@@ -1407,8 +1422,10 @@ const writeLandedCompleted = async (
     },
     'landed'
   );
-  // A recorded target is a delivery write, so an idle sweep looks again.
-  if (written !== undefined && delivery !== undefined) countNoteDeliveryWrite();
+  // A recorded target is a delivery write, so an idle sweep looks again; an execute that owes no note records none.
+  if (written !== undefined && delivery !== undefined && ('outputNoteIds' in delivery || 'relayNoteIds' in delivery)) {
+    countNoteDeliveryWrite();
+  }
   return written;
 };
 
