@@ -468,7 +468,12 @@ describe("Retry's pinned landing takes the private notes of the attempts that ca
   it.each<[string, Partial<ISubmitEvidence>, Partial<ISubmitEvidence>]>([
     ['the earlier one', A1, A2],
     ['the later one', { attemptId: 'a1' }, { ...A1, attemptId: 'a2', transactionId: hex(3) }],
-    ['the earlier one, which read no private list', { ...A1, privateOutputNoteIds: undefined }, A2]
+    ['the earlier one, which read no private list', { ...A1, privateOutputNoteIds: undefined }, A2],
+    [
+      'the later one, which read no private list',
+      { attemptId: 'a1' },
+      { ...A1, attemptId: 'a2', transactionId: hex(3), privateOutputNoteIds: undefined }
+    ]
   ])(
     'two attempts that may have created P with different private notes install neither, P alone stamped by %s',
     async (_t, first, second) => {
