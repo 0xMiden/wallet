@@ -71,12 +71,15 @@ export function inspectTestMainnetSendRequest(
     new NoteAttachment()
   );
   // The SDK chose the live serial; every other field must match the exact authorized route.
-  const expectedNote = Note.withAttachments(
-    template.assets(),
-    template.metadata(),
-    new NoteRecipient(note.recipient().serialNum(), template.script(), template.recipient().storage()),
-    template.attachments()
+  const expectedRecipient = new NoteRecipient(
+    note.recipient().serialNum(),
+    template.script(),
+    template.recipient().storage()
   );
+  // Guardian SDK P2ID notes have no attachments; standalone SDK sends carry one empty attachment.
+  const expectedNote = guardian
+    ? new Note(template.assets(), template.metadata(), expectedRecipient)
+    : Note.withAttachments(template.assets(), template.metadata(), expectedRecipient, template.attachments());
   let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([expectedNote]));
   // Guardian rebasing keeps the note and binds expiration in auth args, not a tip-relative request delta.
   builder = guardian ? withTestGuardianAuthentication(builder, request) : builder.withExpirationDelta(600);
