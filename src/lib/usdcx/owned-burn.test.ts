@@ -1,3 +1,5 @@
+import { padHex } from 'viem';
+
 import { bindTransferQuote } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
 import { bridgeOperationOf } from 'lib/bridge/operation';
@@ -47,7 +49,24 @@ jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () =>
   jest.requireActual('lib/bridge/testing/fixtures').referenceSnapshot('testnet') }));
 jest.mock('lib/usdcx/destination-status', () => ({ readUsdcxDestinationSnapshot: jest.fn() }));
 
+const fetchMock = jest.fn();
+const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+beforeAll(() => Object.defineProperty(globalThis, 'fetch', { configurable: true, value: fetchMock }));
+afterAll(() => {
+  if (descriptor) Object.defineProperty(globalThis, 'fetch', descriptor);
+  else Reflect.deleteProperty(globalThis, 'fetch');
+});
 let live: ReviewedTransfer;
+let changeIntent: (intent: ReturnType<typeof payoutIntent>) => void;
+function payoutIntent() {
+  const token = live.route.destination.kind === 'erc20' ? `0x${live.route.destination.address.slice(2)}` satisfies `0x${string}` : '0x';
+  return { maxFee: '100000', spec: { version: 1, sourceDomain: 26, destinationDomain: 0,
+    destinationToken: padHex(token, { size: 32 }), destinationRecipient: padHex(`0x${accounts.evmAddress.slice(2)}`, { size: 32 }),
+    value: '5900000', hookData: { remoteDomain: 10007,
+      remoteDepositor: padHex(`0x${accounts.midenAccount.slice(2)}00`, { size: 32 }),
+      remoteToken: padHex(`0x${native.faucetId.slice(2)}00`, { size: 32 }),
+      forwardingContractAddress: '0x0000000000000000000000000000000000000000', forwardingCalldata: '0x' } } };
+}
 function input() {
   const incoming = reviewedCircleTransfer();
   const route = { ...incoming.route, mode: 'send', source: incoming.route.destination, destination: incoming.route.source } satisfies ReviewedTransfer['route'];
@@ -65,6 +84,13 @@ beforeEach(async () => {
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   jest.mocked(readUsdcxDestinationSnapshot).mockResolvedValue({ balance: '0', blockNumber: '100' });
+  changeIntent = () => undefined;
+  fetchMock.mockImplementation(async () => {
+    const intent = payoutIntent();
+    changeIntent(intent);
+    const body = { batches: [{ burnIntents: [intent] }] };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  });
   await Repo.transactions.clear();
 });
 afterEach(() => jest.restoreAllMocks());
@@ -78,6 +104,30 @@ it('queues the exact burn through real admission with note-bound native source a
   expect(row?.extraInputs.usdcxBurn?.phase).toBe('pending');
   expect(row?.extraInputs.usdcxBurn?.destinationBalanceBefore).toEqual({ balance: '0', blockNumber: '100' });
 });
+it('prepares the exact read-only Circle payout before native admission', async () => {
+  await initiateUsdcxBurn(input());
+  expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/v1/prepare-withdrawal'), expect.objectContaining({ method: 'POST' }));
+  expect(await Repo.transactions.count()).toBe(1);
+});
+it.each([
+  'domain', 'recipient', 'token', 'depositor', 'remote token', 'remote domain', 'forwarding script', 'minimum payout', 'fee increase', 'version'
+])('refuses unapproved Circle %s before queueing a native burn', async term => {
+  changeIntent = intent => {
+    if (term === 'domain') intent.spec.destinationDomain = 3;
+    if (term === 'recipient') intent.spec.destinationRecipient = `0x${'0'.repeat(64)}`;
+    if (term === 'token') intent.spec.destinationToken = `0x${'0'.repeat(64)}`;
+    if (term === 'depositor') intent.spec.hookData.remoteDepositor = `0x${'0'.repeat(64)}`;
+    if (term === 'remote token') intent.spec.hookData.remoteToken = `0x${'0'.repeat(64)}`;
+    if (term === 'remote domain') intent.spec.hookData.remoteDomain = 1;
+    if (term === 'forwarding script') intent.spec.hookData.forwardingCalldata = '0x1234';
+    if (term === 'minimum payout') { intent.spec.value = '5899999'; intent.maxFee = '100001'; }
+    if (term === 'fee increase') intent.maxFee = '100001';
+    if (term === 'version') intent.spec.version = 2;
+  };
+  await expect(initiateUsdcxBurn(input())).rejects.toThrow();
+  expect(await Repo.transactions.count()).toBe(0);
+});
+
 it('coalesces an original reviewed burn instead of admitting a second native source', async () => {
   const request = input();
   const first = await initiateUsdcxBurn(request);
