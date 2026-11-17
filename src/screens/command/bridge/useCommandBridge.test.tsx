@@ -582,7 +582,9 @@ it.each(['amount', 'review', 'submit'])(
   'a retained pre-admission %s callback cannot edit or resubmit the original admitted review',
   async callback => {
     // This observes UI entry guards, not mocked execution authority; real queue/CAS controls stay in owner suites.
+    let originalDriveContext: (() => BridgeReviewContext) | undefined;
     jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+      originalDriveContext = deps.getContext;
       deps.onOperation('original-row');
       return { kind: 'started', operationId: 'original-row' };
     });
@@ -596,6 +598,7 @@ it.each(['amount', 'review', 'submit'])(
     const retainedSubmit = result.current.bridge.submit;
     await act(async () => retainedSubmit());
     expect(result.current.bridge.operationId).toBe('original-row');
+    expect(originalDriveContext?.()).toMatchObject({ amount: '6', accounts: original?.accounts });
     await act(async () => {
       if (callback === 'amount') retainedAmount('99');
       else if (callback === 'review') retainedReview();
@@ -607,5 +610,6 @@ it.each(['amount', 'review', 'submit'])(
     expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
     expect(result.current.bridge.canReview).toBe(false);
     expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+    expect(originalDriveContext?.()).toMatchObject({ amount: '6', accounts: original?.accounts });
   }
 );
