@@ -1,5 +1,5 @@
 import { waitFor } from '@testing-library/react';
-import { decodeFunctionData, erc20Abi, parseUnits, type Hash, type Hex, type EIP1193Provider } from 'viem';
+import { createPublicClient, decodeFunctionData, erc20Abi, parseUnits, type Hash, type Hex, type EIP1193Provider } from 'viem';
 
 import { runXReserveReceive } from 'lib/bridge/providers/xreserve/flows';
 import type { XReserveClient } from 'lib/bridge/providers/xreserve/deposit';
@@ -10,7 +10,8 @@ import { bindTransferQuote, quoteAmounts } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
 import { bridgeOperationOf, type BridgeOperationSnapshot } from 'lib/bridge/operation';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
-import { reviewedCircleTransfer } from 'lib/bridge/testing/operation-fixtures';
+import { reviewedOwnedCircleTransfer, TEST_CCTP_TRANSMITTER } from 'lib/bridge/testing/circle-fixtures';
+import { cctpSourceMessage, cctpSourceReceipt, cctpArcReceipt, cctpDepositAttestation, FORWARD_HASH } from 'lib/bridge/testing/cctp-fixtures';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
@@ -22,6 +23,7 @@ import { runUsdcxDeposit } from './deposit';
 import { runUsdcxExecutorDeposit } from './executor';
 import { midenAccountHexToXReserveRecipient } from './recipient';
 
+jest.mock('viem', () => ({ ...jest.requireActual('viem'), createPublicClient: jest.fn() }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
   AccountId: { fromHex: (hex: string) => ({ toString: () => hex.toLowerCase() }) }
@@ -40,7 +42,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 jest.mock('lib/remote-config/runtime', () => ({
   initBridgeConfig: async () => undefined,
   getBridgeConfigSnapshot: () =>
-    jest.requireActual<typeof import('lib/bridge/testing/fixtures')>('lib/bridge/testing/fixtures').referenceSnapshot('testnet')
+    jest.requireActual<typeof import('lib/bridge/testing/circle-fixtures')>('lib/bridge/testing/circle-fixtures').circleSnapshot()
 }));
 
 const sourceHash: Hash = `0x${'c'.repeat(64)}`;
@@ -48,6 +50,7 @@ const approvalHash: Hash = `0x${'a'.repeat(64)}`;
 const adapterRpc = { readContract: jest.fn(), call: jest.fn(), estimateGas: jest.fn(),
   waitForTransactionReceipt: jest.fn(), getBalance: jest.fn(), getGasPrice: jest.fn(), getTransaction: jest.fn(),
   getBlockNumber: jest.fn(), getTransactionCount: jest.fn(), getBlock: jest.fn() } satisfies XReserveClient;
+const receiptReader = jest.fn();
 const adapterWallet = jest.fn();
 const adapterTransactions = new Map<Hash, SourceRpcTransaction>();
 let adapterAllowance: bigint;
@@ -80,7 +83,7 @@ function validationResponse() {
 }
 
 function reviewFor(executor: boolean): ReviewedTransfer {
-  const review = reviewedCircleTransfer();
+  const review = reviewedOwnedCircleTransfer();
   if (!executor) {
     const chain = referenceSnapshot('testnet').config?.supportedEvmChains['arc-testnet'];
     const token = chain?.bridges.usdcx?.tokens.USDC?.contractAddress;
@@ -155,6 +158,11 @@ beforeEach(async () => {
   jest.clearAllMocks();
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  jest.mocked(createPublicClient).mockReturnValue(Object.assign(
+    jest.requireActual('viem').createPublicClient({ transport: jest.requireActual('viem').http('https://rpc.example') }),
+    { getTransactionReceipt: receiptReader }
+  ));
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   duringAllowance = async () => undefined;
   validationPatch = {};
@@ -184,6 +192,7 @@ async function driveAdapter(executor: boolean, configure?: () => void) {
     if (functionName === 'isRemoteDomainRegistered') return targetRegistered;
     if (functionName === 'getRemoteToken') return usdcxExpectedRemoteTokenFor(review.route.recovery.nativeAsset!.faucetId);
     if (functionName === 'paused') return false;
+    if (functionName === 'localMessageTransmitter') return TEST_CCTP_TRANSMITTER;
     if (functionName === 'getFee') return [adapterFee, review.route.source.kind === 'erc20' ? review.route.source.address : ''];
     throw new Error('Unexpected read');
   });
@@ -204,7 +213,9 @@ async function driveAdapter(executor: boolean, configure?: () => void) {
       if (decoded.functionName === 'approve') adapterAllowance = decoded.args[1];
       afterAdapterApproval();
     }
-    return { transactionHash: hash, status: 'success' };
+    const source = getUsdcxSourceChain(11155111);
+    if (executor && hash === sourceHash && source.route === 'cctp-executor') return cctpSourceReceipt(hash, cctpSourceMessage(source));
+    return { transactionHash: hash, status: 'success', logs: [] };
   });
   adapterWallet.mockImplementation(async ({ method, params }) => {
     if (method === 'eth_accounts') return [accounts.evmAddress];
@@ -310,6 +321,85 @@ it.each(['repriced', 'cancelled', 'replaced'])('persists %s approval replacement
   expect(bridgeOperationOf(row!)?.approvals?.[1]?.originalTransaction?.nonce).toBe(1);
   expect(signed).toHaveLength(reason === 'repriced' ? 2 : 1);
   if (reason !== 'repriced') expect(row?.extraInputs.evmTxHash).toBeUndefined();
+});
+
+it('captures verified source MessageSent from the already-awaited burn receipt on the original row', async () => {
+  const id = await driveAdapter(true);
+  await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('delivering'));
+  const source = getUsdcxSourceChain(11155111);
+  if (source.route !== 'cctp-executor') throw new Error('Missing CCTP source');
+  expect((await Repo.transactions.get(id))?.extraInputs.cctp).toMatchObject({
+    sourceMessage: cctpSourceMessage(source), messageTransmitter: TEST_CCTP_TRANSMITTER
+  });
+  expect(adapterRpc.readContract.mock.calls.filter(([args]) => args.functionName === 'localMessageTransmitter')).toHaveLength(1);
+});
+it('refuses a failed transmitter getter before any new source prompt', async () => {
+  const id = await driveAdapter(true, () => {
+    adapterAllowance = 0n;
+    const read = adapterRpc.readContract.getMockImplementation()!;
+    adapterRpc.readContract.mockImplementation(async args => {
+      if (args.functionName === 'localMessageTransmitter') throw new Error('Getter unavailable');
+      return read(args);
+    });
+  });
+  await waitFor(async () => expect(['known', 'uncertain']).toContain(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase));
+  expect(signed).toHaveLength(0);
+});
+it.each(['hash', 'transmitter', 'duplicate log', 'source sender', 'source amount'])('retains the source hash but refuses unverified %s receipt evidence', async change => {
+  const id = await driveAdapter(true, () => {
+    adapterRpc.waitForTransactionReceipt.mockImplementationOnce(async ({ hash }) => {
+      const source = getUsdcxSourceChain(11155111);
+      if (source.route !== 'cctp-executor') throw new Error('Missing source');
+      const receipt = cctpSourceReceipt(hash, cctpSourceMessage(source,
+        change === 'source amount' ? { amount: 1000002n } : change === 'source sender' ? { sender: TEST_CCTP_TRANSMITTER } : {}));
+      if (change === 'hash') receipt.transactionHash = FORWARD_HASH;
+      if (change === 'transmitter') receipt.logs[0].address = source.usdc;
+      if (change === 'duplicate log') receipt.logs.push(receipt.logs[0]);
+      return receipt;
+    });
+  });
+  await waitFor(async () => {
+    const row = await Repo.transactions.get(id);
+    expect(row?.extraInputs.phase === 'delivering' || jest.mocked(console.error).mock.calls.length > 0).toBe(true);
+  });
+  const row = await Repo.transactions.get(id);
+  expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
+  expect(row?.extraInputs.phase).toBe('submitting');
+  expect(signed).toHaveLength(1);
+});
+async function prepareOwnedStatus(change: 'immutable amount' | 'ambiguous' | 'proof' | 'arc nonce' | 'arc deposit' | 'arc handler' | 'none') {
+  const id = await driveAdapter(true);
+  await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('delivering'));
+  const source = getUsdcxSourceChain(11155111);
+  if (source.route !== 'cctp-executor') throw new Error('Missing CCTP source');
+  if (change === 'proof') await Repo.transactions.update(id, { 'extraInputs.cctp.sourceMessage': undefined });
+  const attested = cctpSourceMessage(source, { executed: 1000 });
+  const entries = [{ message: attested, attestation: '0xabcd', status: 'complete', forwardTxHash: FORWARD_HASH }];
+  if (change === 'ambiguous') entries.push({ ...entries[0], message: cctpSourceMessage(source, { executed: 1000, nonce: `0x${'9'.repeat(64)}` }) });
+  if (change === 'immutable amount') entries[0].message = cctpSourceMessage(source, { executed: 1000, amount: 1000002n });
+  fetchMock.mockImplementation(async (url: string) => {
+    const body = url.includes('/v2/messages/') ? { messages: entries } : cctpDepositAttestation(source);
+    return { ok: true, status: 200, json: async () => body };
+  });
+  receiptReader.mockResolvedValue(cctpArcReceipt(source,
+    change === 'arc nonce' ? { nonce: `0x${'9'.repeat(64)}` } : change === 'arc deposit' ? { depositAmount: 1000002n } :
+      change === 'arc handler' ? { handler: TEST_CCTP_TRANSMITTER } : {}));
+  const reconciler = createBridgeReceiveReconciler({ getLocks: () => undefined });
+  await reconciler.reconcile();
+  await reconciler.reconcile();
+  return { id, row: await Repo.transactions.get(id), source };
+}
+it('accepts source placeholder nonce -> unique attested nonce -> same Arc Executed nonce with immutable transfer and exact deposit', async () => {
+  const { row } = await prepareOwnedStatus('none');
+  expect(row?.extraInputs.phase).toBe('ready');
+  expect(row?.extraInputs.cctp?.executeTxHash).toBe(FORWARD_HASH);
+});
+it.each(['ambiguous', 'proof', 'immutable amount', 'arc nonce', 'arc deposit', 'arc handler'])('keeps an owned CCTP %s mismatch proof-pending, not ready or a fresh source', async change => {
+  const { row } = await prepareOwnedStatus(change === 'ambiguous' ? 'ambiguous' : change === 'proof' ? 'proof' :
+    change === 'immutable amount' ? 'immutable amount' : change === 'arc nonce' ? 'arc nonce' : change === 'arc deposit' ? 'arc deposit' : 'arc handler');
+  expect(row?.extraInputs.phase).toBe('delivering');
+  expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
+  expect(signed).toHaveLength(1);
 });
 
 it.each([false, true])('first drives a real claimed Circle row (executor=%s)', async executor => {

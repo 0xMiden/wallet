@@ -2,8 +2,8 @@ import { createPublicClient } from 'viem';
 
 import { bindTransferQuote, quoteAmounts } from 'lib/bridge/core/quote';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
-import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
-import { reviewedCircleTransfer } from 'lib/bridge/testing/operation-fixtures';
+import { accounts, native, now } from 'lib/bridge/testing/fixtures';
+import { circleSnapshot, reviewedOwnedCircleTransfer } from 'lib/bridge/testing/circle-fixtures';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -31,7 +31,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
-  jest.mocked(getBridgeConfigSnapshot).mockReturnValue(referenceSnapshot('testnet'));
+  jest.mocked(getBridgeConfigSnapshot).mockReturnValue(circleSnapshot());
   read.mockImplementation(async ({ functionName }: { functionName: string }) => {
     if (functionName === 'isRemoteDomainRegistered') return true;
     if (functionName === 'getRemoteToken') return `0x${'0'.repeat(32)}${native.faucetId.slice(2)}00`;
@@ -45,7 +45,7 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 function request(executor: boolean) {
-  const review = reviewedCircleTransfer();
+  const review = reviewedOwnedCircleTransfer();
   if (!executor) {
     const chain = review.route.recovery.config.supportedEvmChains['arc-testnet'];
     const token = chain?.bridges.usdcx?.tokens.USDC;
@@ -87,6 +87,14 @@ it('refuses a paused executor or handler before quoting CCTP', async () => {
   const input = respond(true);
   read.mockImplementation(async ({ functionName }: { functionName: string }) =>
     functionName === 'getRemoteToken' ? `0x${'0'.repeat(32)}${native.faucetId.slice(2)}00` : true);
+  await expect(quoteXReserve(input, new AbortController().signal)).rejects.toThrow();
+});
+it('does not offer a new owned CCTP capability without the published underlying messenger', async () => {
+  const input = respond(true);
+  const deposit = input.route.recovery.config.supportedEvmChains.sepolia?.bridges.usdcx?.deposit;
+  if (!deposit) throw new Error('Missing source');
+  Reflect.deleteProperty(deposit, 'tokenMessenger');
+  jest.mocked(getBridgeConfigSnapshot).mockReturnValue({ ...circleSnapshot(), config: input.route.recovery.config });
   await expect(quoteXReserve(input, new AbortController().signal)).rejects.toThrow();
 });
 it('discards a quote when the wallet RPC leaves during live preflight', async () => {
