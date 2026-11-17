@@ -5,6 +5,8 @@ const mockBech32Accounts: Record<string, string> = {
   mtst1acct: `0x${'ab'.repeat(15)}`,
   mtst1other: `0x${'cd'.repeat(15)}`
 };
+/** What every bech32 parse throws instead, when set. */
+const mockBech32Failure: { current: unknown } = { current: undefined };
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('@miden-sdk/miden-sdk/lazy');
   return {
@@ -13,6 +15,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     Address: {
       ...actual.Address,
       fromBech32: (address: string) => {
+        if (mockBech32Failure.current !== undefined) throw mockBech32Failure.current;
         const hex = mockBech32Accounts[address];
         if (hex === undefined) throw new Error(`invalid bech32 address: ${address}`);
         return { accountId: () => ({ toString: () => hex }) };
@@ -106,6 +109,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCallbackOutcomes.length = 0;
   mockLockFailure.current = undefined;
+  mockBech32Failure.current = undefined;
   mockRpcUrl = 'https://node-a.example';
   mockSdkReady.mockImplementation(async () => undefined);
   decodesTo(requestNote(FIRST), requestNote(SECOND));
@@ -396,6 +400,17 @@ describe('the account an execute`s saved request names as its notes` sender', ()
       noteId: SECOND.toLowerCase()
     });
     expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase(), SECOND.toLowerCase()], RPC_READ_TIMEOUT_MS, id);
+  });
+
+  // The account parse is a WASM call inside the hold: a trap there is the engine failing, not a foreign sender.
+  it('a trap while parsing the row`s account reaches the WASM lock and reports a read that gave no answer', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockBech32Failure.current = trap;
+    decodesTo(requestNote(FIRST));
+
+    await expect(checkPinnedReplayNotes(execute, { createReads })).resolves.toEqual({ kind: 'unknown', cause: 'read' });
+    expect(mockCallbackOutcomes).toEqual([{ rejected: trap }]);
+    expect(createReads).not.toHaveBeenCalled();
   });
 
   // The wallet builds a send's, a swap's and a bridged send's request in the row's own name.
