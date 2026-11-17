@@ -108,7 +108,7 @@ it.each(['start', 'finish', 'cancel', 'row-start', 'row-retry'])('shared lock %s
   const value = owned('protected');
   delete value.extraInputs?.epochLockedDeposit;
   await Repo.transactions.bulkPut([value, row('legacy')]);
-  mockStatus.mockResolvedValueOnce({ status: 'Disabled', enabledAt: 0n });
+  if (action === 'start' || action === 'row-start') mockStatus.mockResolvedValueOnce({ status: 'Disabled', enabledAt: 0n });
   const invoke = () => action === 'start' ? startLockWithdrawal(LOCK) : action === 'finish' ? finishLockWithdrawal(LOCK) : action === 'cancel' ? cancelLockWithdrawal(LOCK) : action === 'row-start' ? startLockedDepositWithdrawal('legacy') : retryLockedDeposit('legacy');
   await expect(invoke()).rejects.toThrow();
   expect(mockSdk).not.toHaveBeenCalled();
@@ -126,6 +126,29 @@ it.each(['known', 'uncertain', 'running'])('native-source %s owned facts protect
   await Repo.transactions.put(value);
   await expect(startLockWithdrawal({ ...LOCK, lockId: (1n << 160n).toString() })).rejects.toThrow();
   expect(mockSdk).not.toHaveBeenCalled();
+});
+
+it.each(['restored', 'recovered', 'malformed-no-token'])('the shared lock refuses positively bound %s provenance before any SDK preparation', async kind => {
+  const value = kind === 'malformed-no-token' ? owned('protected') : row('protected');
+  if (kind === 'restored') value.restoredFromBackup = true;
+  if (kind === 'recovered') value.recovered = true;
+  if (kind === 'malformed-no-token') {
+    value.extraInputs = { ...value.extraInputs, bridgeOperation: { malformed: true } };
+    delete value.extraInputs?.epochLockedDeposit;
+  }
+  await Repo.transactions.put(value);
+  await expect(finishLockWithdrawal(LOCK)).rejects.toThrow();
+  expect(mockSdk).not.toHaveBeenCalled();
+  expect(mockWithdraw).not.toHaveBeenCalled();
+});
+
+it('late protected insertion during status preparation refuses the first withdrawal prompt', async () => {
+  mockStatus.mockImplementationOnce(async () => {
+    await Repo.transactions.put(owned('late-protected'));
+    return { status: 'Disabled', enabledAt: 0n };
+  });
+  await expect(startLockWithdrawal(LOCK)).rejects.toThrow();
+  expect(mockEnable).not.toHaveBeenCalled();
 });
 
 it('an owned row inserted during async preparation blocks registration before the real wallet boundary', async () => {
