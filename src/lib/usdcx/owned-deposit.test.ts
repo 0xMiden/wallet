@@ -452,6 +452,15 @@ it('enriches pending Circle approval facts in the existing passive reconciler wi
   expect(signed).toHaveLength(1);
 });
 
+it('keeps provider RPC and request-byte errors out of the submission observer', async () => {
+  const privateData = 'https://private-rpc.example/?key=secret 0xprivate-request-bytes';
+  const id = await driveAdapter(true, () => { adapterRpc.estimateGas.mockRejectedValueOnce(new Error(privateData)); });
+  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('uncertain'));
+  const visible = jest.mocked(console.error).mock.calls.flatMap(call => call.map(String)).join(' ');
+  expect(visible).not.toContain(privateData);
+  expect(signed).toHaveLength(0);
+});
+
 it.each([false, true])('first drives a real claimed Circle row (executor=%s)', async executor => {
   const { row, error } = await drive(executor);
   expect(error).toBeUndefined();

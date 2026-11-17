@@ -203,6 +203,20 @@ it.each([false, true])('keeps a hashless invoked attempt uncertain across unmoun
     expect((await Repo.transactions.get(id))?.extraInputs.cctp).toMatchObject({ executeAttempt: { phase: 'uncertain' } });
   } finally { two.unmount(); }
 });
+it.each([false, true])('does not expose raw wallet RPC or calldata errors from an uncertain owned execute (native=%s)', async useNative => {
+  const { id, leg } = await funded();
+  native = useNative;
+  const privateData = 'https://private-rpc.example/?key=secret 0xprivate-calldata';
+  (useNative ? nativeWrite : write).mockRejectedValueOnce(new Error(privateData));
+  const root = renderHook(useCctpExecute);
+  try {
+    const outcome: unknown = await root.result.current(id, 11155111, leg).catch(error => error);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(String(outcome)).not.toContain(privateData);
+    expect(outcome).not.toHaveProperty('cause');
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toMatchObject({ executeAttempt: { phase: 'uncertain' } });
+  } finally { root.unmount(); }
+});
 it('records the original destination attempt hash after UI RPC departure in the wallet await', async () => {
   const { id, leg } = await funded();
   write.mockImplementationOnce(async () => { jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other.example/private'); return FORWARD_HASH; });
