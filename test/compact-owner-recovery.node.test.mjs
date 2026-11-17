@@ -9,7 +9,8 @@ import {
   compactRecoveryIntent,
   assertCompactRecoveryFees,
   acknowledgeCompactRecovery,
-  consumeCompactRecoveryAttempt
+  consumeCompactRecoveryAttempt,
+  broadcastOriginalCompactOnce
 } from '../scripts/mainnet-compact-recovery-guard.mjs';
 const owner = '0xc3B89CeCb0c5C3442A7DBCbBE379351C6bDfF836',
   compact = '0x00000000000000171ede64904551eeDF3C6C9788',
@@ -107,6 +108,86 @@ test('consumes a durable original attempt marker once and never overwrites it', 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+test('immutable original authorization broadcasts once, never again from the consumed marker', async () => {
+  const f = journalFixture(),
+    dir = mkdtempSync(join(tmpdir(), 'compact-broadcast-'));
+  let sent = 0;
+  try {
+    const input = {
+      authorityBytes: f.bytes,
+      downloadedBytes: f.bytes,
+      binding: f.binding,
+      now: 2000,
+      markerPath: join(dir, 'enable.once'),
+      signedHash: hash,
+      submit: async () => {
+        sent++;
+        return hash;
+      }
+    };
+    let result;
+    await assert.doesNotReject(async () => {
+      result = await broadcastOriginalCompactOnce(input);
+    });
+    assert.equal(result, hash);
+    assert.equal(sent, 1);
+    await assert.rejects(() => broadcastOriginalCompactOnce(input));
+    assert.equal(sent, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test('ambiguous first broadcast leaves marker consumed and never retries', async () => {
+  const f = journalFixture(),
+    dir = mkdtempSync(join(tmpdir(), 'compact-unknown-'));
+  let sent = 0;
+  try {
+    const input = {
+      authorityBytes: f.bytes,
+      downloadedBytes: f.bytes,
+      binding: f.binding,
+      now: 2000,
+      markerPath: join(dir, 'enable.once'),
+      signedHash: hash,
+      submit: async () => {
+        sent++;
+        throw new Error('Simulated ambiguous RPC');
+      }
+    };
+    await assert.rejects(() => broadcastOriginalCompactOnce(input), /Simulated ambiguous RPC/);
+    assert.equal(sent, 1);
+    await assert.rejects(() => broadcastOriginalCompactOnce(input));
+    assert.equal(sent, 1);
+    assert.equal(readFileSync(input.markerPath, 'utf8'), `${hash}\n`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+for (const changed of ['ack', 'signedHash'])
+  test(`never broadcasts with changed ${changed}`, async () => {
+    const f = journalFixture(),
+      dir = mkdtempSync(join(tmpdir(), 'compact-denied-'));
+    let sent = 0;
+    try {
+      await assert.rejects(() =>
+        broadcastOriginalCompactOnce({
+          authorityBytes: f.bytes,
+          downloadedBytes: changed === 'ack' ? `${f.bytes} ` : f.bytes,
+          binding: f.binding,
+          now: 2000,
+          markerPath: join(dir, 'enable.once'),
+          signedHash: changed === 'signedHash' ? `0x${'22'.repeat(32)}` : hash,
+          submit: async () => {
+            sent++;
+            return hash;
+          }
+        })
+      );
+      assert.equal(sent, 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 function fixture(stage = 'enable') {
   const original = {
     checkpointSha256: '77652e5b0590797753f5fe920d79fec252af3411a5b125a663a12d77f60e40a1',

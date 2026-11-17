@@ -16,6 +16,10 @@ export const ORIGINAL_COMPACT_RECOVERY = Object.freeze({
   minimumEthUsdMicros: 1824330000n
 });
 
+export async function broadcastOriginalCompactOnce() {
+  throw new Error('Original Compact one-shot broadcast is not authorized');
+}
+
 // The caller must compute the digest from original immutable artifact bytes, not reserialize SDK authorities.
 export function compactRecoveryIntent(stage, original, live, prior) {
   const c = ORIGINAL_COMPACT_RECOVERY,
