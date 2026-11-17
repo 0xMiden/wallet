@@ -71,7 +71,8 @@ export async function proposeKnownNonce({ client, multisig, accountId, create })
   } catch (error) {
     if (!isPostPushProposalVerificationFailure(error)) throw error;
     try {
-      await multisig.abandonCandidate(nonce);
+      // The proposal never came back, so there is no id: the nonce-only request, which Guardians 0.18 and 0.19 accept.
+      await multisig.abandonCandidate(nonce, undefined);
     } catch (abandonError) {
       console.warn(
         `[Guardian] could not abandon candidate at nonce ${nonce} after SDK verification failed:`,

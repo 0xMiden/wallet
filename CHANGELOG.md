@@ -16,6 +16,7 @@
 - [CHANGE][all] Show distinct token names and an expandable full Faucet ID with copy feedback on token details.
 - [FEATURE][all] Home hides dust tokens, those worth less than a tenth of a cent, behind a Hide dust tokens switch in General Settings that is on by default; the native token always stays listed.
 - [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
+- [CHANGE][all] Guardian accounts use the 0.19.0-rc.1 Guardian clients, which work with Guardian operators on 0.18.1 and later.
 - [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
 - [FIX][all] Use shared adaptive amount displays across wallet screens, retain exact approval values and number animations, and prevent long bridge amounts from overlapping the transfer arrow (#2114).
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).
