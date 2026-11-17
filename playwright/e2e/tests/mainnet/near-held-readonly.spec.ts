@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { getAddress } from 'viem';
+import { requestOneClickQuote } from '../../../../src/lib/one-click/client';
+import { assertOneClickFundingDeadline } from '../../../../src/lib/one-click/deadline';
+import type { OneClickAsset, OneClickQuoteResponse } from '../../../../src/lib/one-click/types';
+import { readMainnetEvmHolding } from '../../helpers/mainnet-one-click-evm';
+import { createMainnetOneClickOriginFetcher } from '../../helpers/mainnet-one-click-origin';
+import { tokenValueUsdMicro } from '../../helpers/mainnet-one-click-plan';
+import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from '../../helpers/mainnet-one-click-prices';
 
 import { test } from '../../fixtures/two-wallets';
-import { fromBaseUnits, vaultBalanceByFaucetId } from '../../helpers/balance-truth';
+import { fromBaseUnits, vaultBalanceByFaucetId, walletDiscoveredBaseFee } from '../../helpers/balance-truth';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { loadMainnetNearCheckpoint } from '../../helpers/mainnet-near-checkpoint';
 import { loadMainnetOneClickSetup } from '../../helpers/mainnet-one-click-config';
@@ -105,6 +113,56 @@ test('observe exact browser dry quote fee fields without opening Review or armin
     report.unsignedNonDry = wet;
     report.stage = 'dry-and-unsigned-non-dry-fees-observed';
     assert.ok(wet.wetQuote && wet.hasDepositAddress);
+    report.stage = 'checking-signed-all-in-terms';
+    // Diagnostic only: strict empty-application-fee mode, no funding path or product config is changed.
+    assert.equal(setup.config.appFees?.length ?? 0, 0);
+    assert.equal(native.decimals, 6);
+    assert.equal(evm.decimals, 6);
+    const config = { ...setup.config, feePolicy: undefined };
+    const fetcher = createMainnetOneClickOriginFetcher(config.serviceUrl, walletB.extensionId);
+    const quote = async (originAsset: OneClickAsset, destinationAsset: OneClickAsset, units: string,
+      refundTo: string, recipient: string) => {
+      const deadline = new Date(Date.now() + 300_000).toISOString();
+      const response = await requestOneClickQuote(config, {
+        originAsset, destinationAsset, amount: units, refundTo, recipient, deadline, slippageTolerance: 100
+      }, false, fetcher);
+      assertOneClickFundingDeadline(deadline, response.quote.deadline);
+      assert.ok(response.quote.depositAddress && BigInt(response.quote.minAmountOut) > 0n);
+      assert.ok(response.quote.refundFee !== undefined && BigInt(response.quote.refundFee) < BigInt(units));
+      return response;
+    };
+    const forward = await quote(native, evm, state.principal, state.account, state.evm.account);
+    report.forwardSignedTermsVerified = true;
+    const reverse = await quote(evm, native, forward.quote.minAmountOut, state.evm.account, state.account);
+    report.reverseSignedTermsVerified = true;
+    const verifiedNative = config.midenAssets.find(asset => asset.assetId === native.assetId);
+    assert.ok(verifiedNative);
+    const nativeId = mainnetOneClickPriceId(native, verifiedNative);
+    const evmId = mainnetOneClickPriceId(evm, verifiedNative);
+    const prices = (await fetchMainnetOneClickUsdPrices([...new Set([nativeId, evmId, 'ethereum'])])).usdMicrosById;
+    const [nativePrice, evmPrice, gasPrice] = [prices[nativeId], prices[evmId], prices.ethereum];
+    assert.ok(nativePrice && evmPrice && gasPrice);
+    const baseFee = await walletDiscoveredBaseFee(walletB.page);
+    assert.ok(baseFee !== null && baseFee > 0);
+    const holding = await readMainnetEvmHolding(evm, getAddress(state.evm.account));
+    assert.ok(holding.gasReserveWei > 0n && holding.nativeBalanceWei >= holding.gasReserveWei * 2n);
+    const loss = (response: OneClickQuoteResponse, inputPrice: bigint, outputPrice: bigint) => {
+      assert.ok(response.quote.refundFee !== undefined);
+      const input = tokenValueUsdMicro(BigInt(response.quote.amountIn), 6, inputPrice, true);
+      const minimum = tokenValueUsdMicro(BigInt(response.quote.minAmountOut), 6, outputPrice, false);
+      return (input > minimum ? input - minimum : 0n) +
+        tokenValueUsdMicro(BigInt(response.quote.refundFee), 6, inputPrice, true) +
+        tokenValueUsdMicro(BigInt(response.quote.withdrawFee ?? '0'), 6, outputPrice, true);
+    };
+    const bound = loss(forward, nativePrice, evmPrice) + loss(reverse, evmPrice, nativePrice) +
+      tokenValueUsdMicro(BigInt(baseFee) * 60n, 6, nativePrice, true) +
+      tokenValueUsdMicro(holding.gasReserveWei, 18, gasPrice, true);
+    const allowance = 1_756_586n;
+    report.estimatedLossBoundUsdMicros = bound.toString();
+    report.campaignRemainingUsdMicros = allowance.toString();
+    report.withinCampaignRemaining = bound <= allowance;
+    assert.equal(report.withinCampaignRemaining, true);
+    report.stage = 'signed-all-in-no-spend-proof';
     await walletB.triggerSync(true);
     await walletB.refreshBalancesLanded(90_000);
     report.nativeBalanceUnchanged = (await vaultBalanceByFaucetId(walletB.page, state.native.faucetId)) === before;
