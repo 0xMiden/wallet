@@ -71,10 +71,13 @@ it('does not turn a block estimate into timestamp consent', async () => {
   expect(result).toMatchObject({ expiry: { mode: 'BLOCK_NUMBER', expiresAtBlock: 400 } });
 });
 
-it('refuses redirects and oversized JSON, not just an oversized signature field', async () => {
+it('refuses redirects', async () => {
   fetchMock.mockResolvedValueOnce(response({}, 302));
   await expect(fetchCctpBurnQuote(3, 26, options)).rejects.toThrow();
   expect(fetchMock.mock.calls[0][1].redirect).toBe('error');
+});
+
+it('refuses oversized JSON, not just an oversized signature field', async () => {
   fetchMock.mockResolvedValueOnce(response({ ...quote(), padding: 'x'.repeat(262145) }));
   await expect(fetchCctpBurnQuote(3, 26, options)).rejects.toThrow();
 });
@@ -84,6 +87,10 @@ it('does not expose raw Circle refusal or transport URL/account data', async () 
   fetchMock.mockResolvedValueOnce(response({ error: privateData, errorCode: privateData }, 422));
   const refused: unknown = await fetchCctpBurnQuote(3, 26, options).catch(error => error);
   expect(String(refused)).not.toContain(privateData);
+});
+
+it('does not expose raw transport URL/account data', async () => {
+  const privateData = 'https://private.example/?account=secret';
   fetchMock.mockRejectedValueOnce(new Error(privateData));
   const unavailable: unknown = await fetchCctpBurnQuote(3, 26, options).catch(error => error);
   expect(String(unavailable)).not.toContain(privateData);
