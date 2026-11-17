@@ -13,6 +13,7 @@ import {
   type BridgeOperationSnapshot
 } from 'lib/bridge/operation';
 import { matchesAgglayerReceiveDeposit } from 'lib/bridge/providers/agglayer/agglayer-status';
+import { assertOwnedCctpArcReceipt, fetchOwnedAttestedCctpMessage, ownedCctpSourceProof } from 'lib/bridge/providers/xreserve/cctp-status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
@@ -351,7 +352,26 @@ async function reconcileUsdcxExecutorRow(
   const leg = inputs.cctp;
   if (!leg) return;
   const { target } = source;
+  const owned = hasBridgeOperation(row);
+  const original = owned ? ownedCctpSourceProof(row, source) : undefined;
+  if (owned && !original) return;
   if (leg.executeTxHash) {
+    let verifiedOutcome: 'success' | 'pending' | 'reverted' | undefined;
+    if (original) {
+      if (!isHash(leg.executeTxHash)) return;
+      const hash = leg.executeTxHash;
+      verifiedOutcome = await readEvmReceiptOutcome(hash, target.chain,
+        receipt => assertOwnedCctpArcReceipt(row, source, original, hash, receipt));
+      if (verifiedOutcome !== 'success') {
+        if (verifiedOutcome === 'reverted') await updateBridgedReceivePhase(row.id, 'delivering', {
+          cctp: revertedExecuteLeg(leg.sourceDomain, hash)
+        });
+        else if (executeStalled(row, leg)) await updateBridgedReceivePhase(row.id, 'delivering', {
+          cctp: stalledExecuteLeg(leg.sourceDomain, hash)
+        });
+        return;
+      }
+    }
     const verdict = await matchUsdcxDeposit(row, inputs, leg.executeTxHash, target.attestationApi);
     if (verdict?.kind === 'attested') {
       await updateBridgedReceivePhase(row.id, 'ready');
@@ -364,7 +384,7 @@ async function reconcileUsdcxExecutorRow(
     }
     if (!isHash(leg.executeTxHash)) return;
     // The foreground hook sees a revert only while its screen is open.
-    const outcome = await readEvmReceiptOutcome(leg.executeTxHash, target.chain);
+    const outcome = verifiedOutcome ?? await readEvmReceiptOutcome(leg.executeTxHash, target.chain);
     if (outcome === 'reverted') {
       await updateBridgedReceivePhase(row.id, 'delivering', {
         cctp: revertedExecuteLeg(leg.sourceDomain, leg.executeTxHash)
@@ -378,14 +398,18 @@ async function reconcileUsdcxExecutorRow(
   }
   // A stalled execute can still mine, and its deposit then lands the row.
   if (leg.stalledExecuteTxHash) {
-    const verdict = await matchUsdcxDeposit(row, inputs, leg.stalledExecuteTxHash, target.attestationApi);
+    const hash = leg.stalledExecuteTxHash;
+    const verified = !original || (isHash(hash) && await readEvmReceiptOutcome(hash, target.chain,
+      receipt => assertOwnedCctpArcReceipt(row, source, original, hash, receipt)) === 'success');
+    const verdict = verified ? await matchUsdcxDeposit(row, inputs, hash, target.attestationApi) : undefined;
     if (verdict?.kind === 'attested') {
       await updateBridgedReceivePhase(row.id, 'ready');
       return;
     }
   }
   if (leg.attestation && !leg.forwarded) return;
-  const attested = await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
+  const attested = original ? await fetchOwnedAttestedCctpMessage(row, source, original) :
+    await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
   if (!attested) return;
   const forwardTxHash = attested.forwardTxHash;
   const forwardRefused =
@@ -401,7 +425,8 @@ async function reconcileUsdcxExecutorRow(
         cctp: {
           sourceDomain: leg.sourceDomain,
           executeTxHash: attested.forwardTxHash,
-          forwardState: attested.forwardState
+          forwardState: attested.forwardState,
+          ...(original && { message: attested.message, attestation: attested.attestation })
         }
       },
       undefined,
@@ -463,6 +488,8 @@ async function reconcileRow(
     }
     return;
   }
+  if (hasBridgeOperation(row) && inputs.provider === 'usdcx' && inputs.evmTxHash &&
+      inputs.usdcxSource?.route === 'cctp-executor' && !ownedCctpSourceProof(row, inputs.usdcxSource)) return;
   if (!withinDeliveryWindow(row, inputs, cutoffSec)) {
     await updateBridgedReceivePhase(row.id, 'failed', {
       error: BRIDGE_DELIVERY_TIMED_OUT,
