@@ -159,6 +159,45 @@ it('admits a reviewed receive through the provider and existing wrapper once, in
   expect((await Repo.transactions.get(first))?.extraInputs.agglayerDelivery).toEqual({ originToken: tokenAddress, faucetId: '0xb41aed8db850a3d140fc2079216c60', scale: 10 });
 });
 
+it.each([false, true])('keeps the outer scope across the actual platform submission-lock await (departed=%s)', async departed => {
+  const review = reviewedErc20Transfer('agglayer');
+  const route = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
+  if (!route || review.route.source.kind !== 'erc20') throw new Error('Missing accepted lock fixture');
+  bridgeAddress = route.contractAddress; tokenAddress = `0x${review.route.source.address.slice(2)}`; approvedAmount = 1000000000000000000n;
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'locks');
+  let release: () => void = () => undefined;
+  let entered: () => void = () => undefined;
+  const released = new Promise<void>(resolve => { release = resolve; });
+  const waiting = new Promise<void>(resolve => { entered = resolve; });
+  let done: () => void = () => undefined;
+  const drained = new Promise<void>(resolve => { done = resolve; });
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: async (_name: string, _options: unknown, callback: (lock: object) => Promise<void>) => { entered(); await released; try { await callback({}); } finally { done(); } } } });
+  try {
+    const pending = runAgglayerReceive({ operationId: 'locked-receive', review }, { client: rpc, provider, checks: { readCurrent: async () => structuredClone(review), verifyBalanceCap: async () => undefined, now: () => now } });
+    await waiting;
+    expect(await Repo.transactions.count()).toBe(0);
+    if (departed) jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://departed-rpc.example/private');
+    release();
+    const outcome = await pending.then(id => ({ id, error: undefined }), (error: unknown) => ({ id: undefined, error }));
+    await drained;
+    if (departed) {
+      expect(outcome.error).toBeInstanceOf(Error);
+      expect(await Repo.transactions.count()).toBe(0);
+      expect(signed).toHaveLength(0);
+    } else {
+      const id = outcome.id;
+      expect(id).toBeDefined();
+      if (!id) throw new Error('Missing admitted lock control');
+      await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBe(depositHash));
+      expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(1);
+    }
+  } finally {
+    release();
+    if (descriptor) Object.defineProperty(navigator, 'locks', descriptor);
+    else Reflect.deleteProperty(navigator, 'locks');
+  }
+});
+
 it('does not adopt another RPC during the asynchronous receive balance-cap check', async () => {
   const review = reviewedErc20Transfer('agglayer');
   const deps = { client: rpc, provider, checks: { readCurrent: async () => structuredClone(review), verifyBalanceCap: async () => { jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example/private'); }, now: () => now } };
