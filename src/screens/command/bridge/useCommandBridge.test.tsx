@@ -454,3 +454,22 @@ it('same-scope batched route selection and literal input never reattach the prev
   expect(result.current.bridge.amount).toBe('2.000000');
   expect(result.current.drafts.readDraft('bridge')).toMatchObject({ route: next.id, amount: '2.000000' });
 });
+
+it('same-named assets on another source network clear input and never silently switch the wallet', () => {
+  const { result } = renderHook(useConsumer, { wrapper });
+  const first = result.current.bridge.routes.find(
+    item => item.source.symbol === 'USDC' && item.source.network === 'sepolia'
+  );
+  const other = result.current.bridge.routes.find(
+    item => item.source.symbol === 'USDC' && item.source.network !== 'sepolia'
+  );
+  if (!first || !other) throw new Error('Missing supported different source networks');
+  act(() => result.current.bridge.selectRoute(first.id));
+  act(() => result.current.bridge.setAmount('1.000000'));
+  expect(result.current.bridge.amount).toBe('1.000000');
+  act(() => result.current.bridge.selectRoute(other.id));
+  expect(result.current.bridge.route?.id).toBe(other.id);
+  expect(result.current.bridge.amount).toBe('');
+  expect(result.current.bridge.canReview).toBe(false);
+  expect(switchWebWalletChain).not.toHaveBeenCalled();
+});
