@@ -3,6 +3,7 @@ import { waitFor } from '@testing-library/react';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, parseUnits, type EIP1193Provider, type Hash, type Hex } from 'viem';
 
 import { AGGLAYER_BRIDGE_ABI } from 'lib/agglayer/constant';
+import { fetchDeposits } from 'lib/agglayer/status';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
 import { bridgeOperationOf, type BridgeOperationSnapshot } from 'lib/bridge/operation';
 import { accounts, now, referenceSnapshot, testRoute } from 'lib/bridge/testing/fixtures';
@@ -38,6 +39,8 @@ jest.mock('lib/remote-config/runtime', () => ({
   initBridgeConfig: async () => undefined,
   getBridgeConfigSnapshot: () => jest.requireActual<typeof import('lib/bridge/testing/fixtures')>('lib/bridge/testing/fixtures').referenceSnapshot('testnet')
 }));
+jest.mock('lib/agglayer/status', () => ({ ...jest.requireActual('lib/agglayer/status'), fetchDeposits: jest.fn() }));
+jest.mock('lib/walletconnect/receipt', () => ({ ...jest.requireActual('lib/walletconnect/receipt'), readEvmReceiptOutcome: async () => 'success' }));
 jest.mock('lib/bridge/providers/agglayer/provider', () => ({ agglayerReadClient: () => rpc }));
 jest.mock('lib/agglayer/contract', () => ({
   midenAddrToEvmAddr: (value: string) => {
@@ -386,6 +389,21 @@ it('recovers an approval cancellation through the existing tracker after departu
   expect(recovered?.extraInputs.evmTxHash).toBeUndefined();
   expect(recovered?.extraInputs.phase).toBe('submitting');
   expect(signed).toHaveLength(1);
+});
+
+it.each(['valid', 'recipient', 'token', 'network', 'amount'])('separates source receipt from exact %s destination observation and local consumption', async field => {
+  const { id, error } = await drive();
+  expect(error).toBeUndefined();
+  const deposit = { leaf_type: 0, orig_net: 0, orig_addr: field === 'token' ? `0x${'8'.repeat(40)}` : tokenAddress,
+    amount: field === 'amount' ? '2000000000000000000' : '1000000000000000000', dest_net: field === 'network' ? 99 : 73,
+    dest_addr: field === 'recipient' ? `0x${'8'.repeat(40)}` : '0x00000000387149ae66116cf114eebd60bb738100', block_num: '1', deposit_cnt: 42,
+    network_id: 0, tx_hash: depositHash, claim_tx_hash: '', metadata: '0x', ready_for_claim: true, global_index: '42' };
+  jest.mocked(fetchDeposits).mockResolvedValueOnce([deposit]);
+  await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
+  const row = await Repo.transactions.get(id);
+  expect(row?.extraInputs.phase).toBe(field === 'valid' ? 'ready' : 'delivering');
+  expect(row?.extraInputs.phase).not.toBe('received');
+  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
 });
 
 it('accepts no-return approval and requires its confirmed allowance before bridging', async () => {
