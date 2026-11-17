@@ -1,6 +1,6 @@
 import type { BrowserContext, CDPSession, Worker } from '@playwright/test';
 
-import { installFetchInstrumentation, SW_FETCH_LOG_PREFIX } from './network-capture';
+import { installFetchInstrumentation, OFFSCREEN_FETCH_FAULTS_KEY, SW_FETCH_LOG_PREFIX } from './fetch-instrumentation';
 import type { FetchFaultWire } from './network-faults';
 
 /**
@@ -70,9 +70,9 @@ const EVAL_ATTEMPTS = 4;
  * by calling `forceCloseOffscreenDocument()` and reopening it. So under a `hang`
  * fault the offscreen realm is destroyed and replaced roughly every 45 seconds —
  * taking the wrapper, the armed config AND the in-realm hit counter with it. The
- * poll re-installs into each new generation (a hung node stays hung after the
- * wallet restarts its realm — modelling anything else would silently lift the
- * fault mid-assertion) and banks the outgoing generation's hits.
+ * E2E startup restores the persisted policy before SDK initialization in each
+ * replacement. The poll only samples counters; re-pushing its old snapshot
+ * could race a newer clear/rearm.
  */
 const WATCH_INTERVAL_MS = 500;
 
@@ -321,24 +321,6 @@ export function installOffscreenFaultRealm(
       });
     })()`;
 
-  /**
-   * The steady-state round trip: re-push the config and read the counter,
-   * WITHOUT shipping the installer source again. Reports `wrapped: false` for a
-   * document that has not been instrumented yet (a fresh generation), which is
-   * the caller's signal to send the full install instead.
-   */
-  const refreshExpression = (wire: FetchFaultWire[]): string =>
-    `(() => {
-      const g = globalThis;
-      if (!g.__e2e_fetch_wrapped) return JSON.stringify({ wrapped: false, hits: 0 });
-      g.__E2E_NET_FAULTS = ${JSON.stringify(wire)};
-      g.__E2E_NET_FAULT_HITS = g.__E2E_NET_FAULT_HITS || {};
-      return JSON.stringify({
-        wrapped: true,
-        hits: Object.values(g.__E2E_NET_FAULT_HITS).reduce((total, n) => total + n, 0)
-      });
-    })()`;
-
   const readExpression = (): string =>
     `JSON.stringify({ wrapped: !!globalThis.__e2e_fetch_wrapped,
       hits: Object.values(globalThis.__E2E_NET_FAULT_HITS || {}).reduce((total, n) => total + n, 0) })`;
@@ -366,17 +348,16 @@ export function installOffscreenFaultRealm(
    * `attempts` bounds the retries the way `applyToRealm` does: a realm busy for
    * the whole window drops out rather than hanging the caller.
    */
-  const syncRealm = async (attempts: number): Promise<RealmReport | undefined> => {
+  const syncRealm = async (attempts: number, arm = false): Promise<RealmReport | undefined> => {
     const targetId = await resolveTarget();
     if (!targetId) {
       debug('no offscreen document exists yet (created lazily on the first dispatched op)');
       return undefined;
     }
     for (let attempt = 0; attempt < attempts; attempt++) {
-      let report = parseReport(await evaluateInDoc(targetId, refreshExpression(armedWire)));
-      if (report && !report.wrapped) {
-        report = parseReport(await evaluateInDoc(targetId, installAndArmExpression(armedWire)));
-      }
+      const report = parseReport(
+        await evaluateInDoc(targetId, arm ? installAndArmExpression(armedWire) : readExpression())
+      );
       if (report) {
         sample(targetId, report.hits);
         return report;
@@ -411,10 +392,23 @@ export function installOffscreenFaultRealm(
     watcher = undefined;
   };
 
+  const persist = async (wire: FetchFaultWire[]): Promise<void> => {
+    const worker = getServiceWorker();
+    if (!worker) throw new Error('Cannot persist offscreen fetch faults without a service worker');
+    await worker.evaluate(
+      async ({ key, wire }) => {
+        if (wire.length) await chrome.storage.local.set({ [key]: wire });
+        else await chrome.storage.local.remove(key);
+      },
+      { key: OFFSCREEN_FETCH_FAULTS_KEY, wire }
+    );
+  };
+
   return {
     async arm(wire: FetchFaultWire[]): Promise<void> {
+      await persist(wire);
       armedWire = wire;
-      const report = await syncRealm(EVAL_ATTEMPTS);
+      const report = await syncRealm(EVAL_ATTEMPTS, true);
       debug(`arm -> ${report ? `wrapped=${report.wrapped} hits=${report.hits}` : 'realm unreachable'}`);
       if (wire.length) startWatching();
       else stopWatching();
@@ -433,6 +427,7 @@ export function installOffscreenFaultRealm(
     },
 
     async clear(): Promise<void> {
+      await persist([]);
       armedWire = [];
       stopWatching();
       const targetId = await resolveTarget();
