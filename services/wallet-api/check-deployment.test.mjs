@@ -10,11 +10,20 @@ const options = { endpoint, origins: [origin], revision: 'release-sha' };
 const noStore = { 'Cache-Control': 'private, no-store' };
 const health = (body = { ok: true, revision: 'release-sha' }, status = 200) =>
   Response.json(body, { status, headers: { ...noStore, Vary: 'Origin' } });
-const preflightOk = () =>
-  new Response(null, {
-    status: 204,
-    headers: { ...noStore, Vary: 'Origin', 'Access-Control-Allow-Origin': origin }
-  });
+/** The preflight the Worker sends (src/http.ts). An override replaces or, with null, drops a header. */
+const preflightOk = (overrides = {}) => {
+  const headers = {
+    ...noStore,
+    Vary: 'Origin',
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE',
+    'Access-Control-Allow-Headers': 'authorization, content-type, if-none-match',
+    'Access-Control-Max-Age': '600',
+    ...overrides
+  };
+  for (const [name, value] of Object.entries(headers)) if (value === null) delete headers[name];
+  return new Response(null, { status: 204, headers });
+};
 const forbidden = () =>
   Response.json(
     { error: 'forbidden', message: 'The origin is not allowed.' },
@@ -37,6 +46,7 @@ const fixture = (overrides = {}) => {
         assert.equal(target.pathname, '/v1/storage');
         assert.equal(init.headers.Origin, origin);
         assert.equal(init.headers['Access-Control-Request-Method'], 'GET');
+        assert.equal(init.headers['Access-Control-Request-Headers'], 'authorization, if-none-match');
         return overrides.preflight?.() ?? preflightOk();
       case 'GET':
         assert.equal(target.pathname, '/healthz');
@@ -139,4 +149,32 @@ test('fails when the preflight answers for another origin', async () => {
 test('fails when a foreign origin is accepted', async () => {
   const { fetchImpl } = fixture({ foreign: () => health() });
   await assert.rejects(checkDeployment({ ...options, fetchImpl }), /not configured/);
+});
+
+for (const [name, headers] of [
+  ['omits Access-Control-Allow-Headers', { 'Access-Control-Allow-Headers': null }],
+  ['does not allow if-none-match', { 'Access-Control-Allow-Headers': 'authorization, content-type' }],
+  ['does not allow authorization', { 'Access-Control-Allow-Headers': 'content-type, if-none-match' }],
+  ['allows only a lookalike header', { 'Access-Control-Allow-Headers': 'x-authorization, if-none-match' }],
+  ['omits Access-Control-Allow-Methods', { 'Access-Control-Allow-Methods': null }],
+  ['does not allow GET', { 'Access-Control-Allow-Methods': 'POST, PUT' }],
+  ['allows only a lookalike method', { 'Access-Control-Allow-Methods': 'GETS, POST, PUT, DELETE' }],
+  ['does not allow PUT', { 'Access-Control-Allow-Methods': 'GET, POST, DELETE' }],
+  ['does not allow content-type', { 'Access-Control-Allow-Headers': 'authorization, if-none-match' }]
+]) {
+  test(`fails when the preflight ${name}`, async () => {
+    const { fetchImpl } = fixture({ preflight: () => preflightOk(headers) });
+    await assert.rejects(checkDeployment({ ...options, fetchImpl }), /configured wallet origin/);
+  });
+}
+
+test('passes a preflight whose lists are reordered, spaced and in mixed case', async () => {
+  const { fetchImpl } = fixture({
+    preflight: () =>
+      preflightOk({
+        'Access-Control-Allow-Methods': 'DELETE,PUT , GET,POST',
+        'Access-Control-Allow-Headers': ' If-None-Match ,Content-Type,  Authorization'
+      })
+  });
+  assert.deepEqual(await checkDeployment({ ...options, fetchImpl }), { endpoint: 'https://wallet-api.example' });
 });

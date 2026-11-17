@@ -10,6 +10,20 @@ import { fileURLToPath } from 'node:url';
 const FOREIGN_ORIGIN = 'https://wallet-api-probe.invalid';
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const noStore = response => /(?:^|,)\s*no-store\s*(?:,|$)/i.test(response.headers.get('Cache-Control') ?? '');
+/** The methods and the request headers the wallet sends to the API (src/http.ts allows exactly these). */
+const WALLET_METHODS = ['GET', 'POST', 'PUT', 'DELETE'];
+const WALLET_HEADERS = ['authorization', 'content-type', 'if-none-match'];
+
+/** True when the comma-separated list holds every name as a whole token; header names ignore case. */
+const allowsEvery = (list, names, ignoreCase) => {
+  const tokens = new Set(
+    (list ?? '')
+      .split(',')
+      .map(token => (ignoreCase ? token.trim().toLowerCase() : token.trim()))
+      .filter(token => token.length > 0)
+  );
+  return names.every(name => tokens.has(name));
+};
 
 /**
  * The base URL the wallet-config document names as `backup.baseUrl`: https, no
@@ -98,10 +112,15 @@ export async function checkDeployment({ endpoint, origins, revision, fetchImpl =
   const variesByOrigin = (preflight.headers.get('Vary') ?? '')
     .split(',')
     .some(value => value.trim().toLowerCase() === 'origin');
+  // The wallet reads with GET and writes with POST, PUT and DELETE, carrying these headers.
+  const allowsMethods = allowsEvery(preflight.headers.get('Access-Control-Allow-Methods'), WALLET_METHODS, false);
+  const allowsHeaders = allowsEvery(preflight.headers.get('Access-Control-Allow-Headers'), WALLET_HEADERS, true);
   if (
     preflight.status !== 204 ||
     preflight.headers.get('Access-Control-Allow-Origin') !== allowed[0] ||
-    !variesByOrigin
+    !variesByOrigin ||
+    !allowsMethods ||
+    !allowsHeaders
   ) {
     throw new Error('Deployed service does not accept the configured wallet origin');
   }
