@@ -3399,6 +3399,109 @@
     "message": "Bridge",
     "englishSource": "Bridge"
   },
+  "commandBridgeDirection": {
+    "message": "Direção",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Bridge out",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Rede Miden",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Mudar de rede",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Provedor",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Época",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "De",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "Para",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Ativo, rede e provedor",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ para $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Conta externa",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Conta Miden",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Estimativa de recebimento",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Valor total de origem",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Taxa do provedor",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Trocar a rede de origem",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "A Epoch não pode cotar um valor de origem fixo com o provedor instalado. Escolha outro provedor para fazer a conexão.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Não há rotas de ponte disponíveis para a rede atual da carteira.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "O limite de saldo de recebimento deve estar disponível e permitir esse depósito antes de prosseguir.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Essa transferência está registrada em “Atividade”. A aprovação da carteira ou a liquidação ainda podem estar pendentes. Não inicie o processo novamente.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Verificar o status da transferência",
+    "englishSource": "View transfer status"
+  },
   "commandDetails": {
     "message": "Detalhes",
     "englishSource": "Details"

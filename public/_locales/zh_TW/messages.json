@@ -3399,6 +3399,109 @@
     "message": "橋接",
     "englishSource": "Bridge"
   },
+  "commandBridgeDirection": {
+    "message": "方向",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "橋接完成",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Miden 網路",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "變更網路",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "提供者",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Epoch",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "出自",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "至",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "資產、網路與服務提供者",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ 至 $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "外部帳戶",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Miden 帳戶",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "預估收到",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "來源總金額",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "服務商手續費",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "切換來源網路",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch 無法透過已安裝的供應商報出固定的來源金額。請選擇另一家供應商進行銜接。",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "目前該錢包網路沒有可用的橋接路徑。",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "在繼續操作之前，收款餘額限額必須充足且允許進行此筆存款。",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "此筆轉帳已記錄於「活動」中。錢包授權或結算可能仍在處理中。請勿重新執行此操作。",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "查看轉帳狀態",
+    "englishSource": "View transfer status"
+  },
   "commandDetails": {
     "message": "詳細說明",
     "englishSource": "Details"

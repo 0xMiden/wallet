@@ -3399,6 +3399,109 @@
     "message": "Міст",
     "englishSource": "Bridge"
   },
+  "commandBridgeDirection": {
+    "message": "Напрямок",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Вихід з мосту",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Мережа Miden",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Зміна мережі",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Провайдер",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Епоха",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "З",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "До",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Актив, мережа та провайдер",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ до $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Зовнішній рахунок",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Рахунок Miden",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Орієнтовна сума, що надійшла",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Загальна сума джерела",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Комісія провайдера",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Зміна вихідної мережі",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch не може вказати фіксовану суму джерела у встановленого постачальника. Оберіть іншого постачальника для підключення.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Для поточної мережі гаманців маршрути-містки недоступні.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "Перед продовженням процедури необхідно переконатися, що на рахунку є достатній залишок, який дозволяє здійснити цей депозит.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Цей переказ зафіксовано в розділі «Активність». Затвердження гаманцем або розрахунок можуть ще перебувати в стані очікування. Не починайте процес заново.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Переглянути статус переказу",
+    "englishSource": "View transfer status"
+  },
   "commandDetails": {
     "message": "Деталі",
     "englishSource": "Details"

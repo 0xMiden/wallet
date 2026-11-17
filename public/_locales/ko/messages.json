@@ -3399,6 +3399,109 @@
     "message": "브리지",
     "englishSource": "Bridge"
   },
+  "commandBridgeDirection": {
+    "message": "방향",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "브리지 아웃",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Miden 네트워크",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "네트워크 변경",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "제공자",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "에포크",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "출처:",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "To",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "자산, 네트워크 및 제공자",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$에서 $destination$로 · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "외부 계정",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Miden 계정",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "예상 수령액",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "원본 총 금액",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "제공자 수수료",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "소스 네트워크 전환",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch는 설치된 제공업체를 통해 고정된 출처 금액을 제시할 수 없습니다. 연결할 다른 제공업체를 선택하십시오.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "현재 지갑 네트워크에는 사용 가능한 브리지 경로가 없습니다.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "계속 진행하기 전에 수취 잔액 한도가 충분해야 하며, 이 입금을 허용해야 합니다.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "이 전송 내역은 ‘활동 내역(Activity)’에 기록됩니다. 지갑 승인 또는 정산이 아직 진행 중일 수 있습니다. 다시 시작하지 마십시오.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "이체 상태 확인",
+    "englishSource": "View transfer status"
+  },
   "commandDetails": {
     "message": "세부 사항",
     "englishSource": "Details"

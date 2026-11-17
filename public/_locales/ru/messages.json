@@ -3399,6 +3399,109 @@
     "message": "Мост",
     "englishSource": "Bridge"
   },
+  "commandBridgeDirection": {
+    "message": "Направление",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Переход на другой мост",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Сеть Miden",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Смена сети",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Провайдер",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Эпоха",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "Из",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "Чтобы",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Актив, сеть и провайдер",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ в $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Внешний счет",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Счёт Miden",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Ориентировочная сумма поступления",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Общая сумма источника",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Комиссия провайдера",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Смена исходной сети",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch не может указать фиксированную сумму источника с установленным провайдером. Выберите другого провайдера для подключения.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Для текущей сети кошелька маршруты моста недоступны.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "Прежде чем продолжить, необходимо убедиться, что на счёте имеется достаточный остаток, позволяющий осуществить данный депозит.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Этот перевод зафиксирован в разделе «Активность». Утверждение кошелька или расчет могут все еще находиться в процессе. Не запускайте его заново.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Просмотреть статус перевода",
+    "englishSource": "View transfer status"
+  },
   "commandDetails": {
     "message": "Подробности",
     "englishSource": "Details"

@@ -3399,6 +3399,109 @@
     "message": "Köprü",
     "englishSource": "Bridge"
   },
+  "commandBridgeDirection": {
+    "message": "Yön",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Köprü dışı",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Miden ağı",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Ağ değişikliği",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Sağlayıcı",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Epoch",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "Kaynak:",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "To",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Varlık, ağ ve sağlayıcı",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$'dan $destination$'a · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Harici hesap",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Miden hesabı",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Tahmini alınan",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Toplam kaynak tutarı",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Sağlayıcı ücreti",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Kaynak ağı değiştirme",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch, kurulu sağlayıcıyla sabit bir kaynak tutarı belirleyemez. Bağlantı kurmak için başka bir sağlayıcı seçin.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Mevcut cüzdan ağı için herhangi bir köprü rotası mevcut değildir.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "Devam etmeden önce, alıcı bakiye limiti mevcut olmalı ve bu para yatırma işlemini desteklemelidir.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Bu transfer, Etkinlik bölümünde kaydedilir. Cüzdan onayı veya takas işlemi hâlâ beklemede olabilir. İşlemi yeniden başlatmayın.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Transfer durumunu görüntüle",
+    "englishSource": "View transfer status"
+  },
   "commandDetails": {
     "message": "Ayrıntılar",
     "englishSource": "Details"
