@@ -90,8 +90,23 @@ export function inspectTestMainnetSendRequest(
   const expected = builder.build();
   const actualBytes = canonicalRequestBytes(bytes);
   const expectedBytes = canonicalRequestBytes(Uint8Array.from(expected.serialize()));
-  if (actualBytes.length !== expectedBytes.length || actualBytes.some((value, index) => value !== expectedBytes[index]))
-    throw new Error('Actual native send bytes differ from the exact authorized request');
+  if (actualBytes.length !== expectedBytes.length || actualBytes.some((value, index) => value !== expectedBytes[index])) {
+    const equal = (left: Uint8Array, right: Uint8Array) =>
+      left.length === right.length && left.every((value, index) => value === right[index]);
+    const differences: string[] = [];
+    if (!equal(note.serialize(), expectedNote.serialize())) differences.push('note');
+    if (note.recipient().digest().toHex() !== expectedNote.recipient().digest().toHex()) differences.push('recipient');
+    if (note.metadata().sender().toString() !== expectedNote.metadata().sender().toString()) differences.push('sender');
+    if (note.metadata().noteType() !== expectedNote.metadata().noteType()) differences.push('visibility');
+    if (note.metadata().tag().asU32() !== expectedNote.metadata().tag().asU32()) differences.push('tag');
+    if (note.attachments().length !== expectedNote.attachments().length) differences.push('attachments');
+    if (request.authArg()?.toHex() !== expected.authArg()?.toHex()) differences.push('auth');
+    if (request.scriptArg()?.toHex() !== expected.scriptArg()?.toHex()) differences.push('script');
+    if (JSON.stringify(request.blockNumbers()) !== JSON.stringify(expected.blockNumbers())) differences.push('blocks');
+    if (request.expectedFutureNotes().length !== expected.expectedFutureNotes().length) differences.push('future');
+    if (!differences.length) differences.push('other');
+    throw new Error(`Actual native send bytes differ from the exact authorized request; NativeSendDifference:${differences.join(',')}`);
+  }
   return note.id().toString();
 }
 
