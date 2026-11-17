@@ -3,7 +3,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { WalletContact } from 'lib/shared/types';
 
-import { plaintextDigest } from '../crypto';
+import { DEFAULT_BLOB_CAP, decryptEntry, plaintextDigest } from '../crypto';
 import { hashedKeyOf } from '../entries';
 import { type BackupSession, clearBackupSession, getBackupSession } from '../session';
 import { onBackupStorageCleared } from '../state';
@@ -203,6 +203,56 @@ describe('syncContacts', () => {
       ['Robert', 'mtst1bob'],
       ['Carol', 'mtst1carol']
     ]);
+  });
+
+  // The merge reads the settings, then writes the whole list: a user write between the two must survive.
+  it('keeps a contact the user saved while the merge ran', async () => {
+    const a = device(contact('Alice', 'mtst1alice'));
+    await syncContacts(await use(a), true);
+    await syncContacts(await use(device(contact('Alice', 'mtst1alice'), contact('Bob', 'mtst1bob'))), true);
+
+    const session = await use(a);
+    const read = a.vault.fetchSettings.bind(a.vault);
+    jest.spyOn(a.vault, 'fetchSettings').mockImplementationOnce(async () => {
+      const snapshot = await read();
+      a.vault.settings = { contacts: [...(a.vault.settings.contacts ?? []), contact('Carol', 'mtst1carol')] };
+      return snapshot;
+    });
+    await syncContacts(session, true);
+
+    expect(a.vault.contactPairs()).toEqual(
+      expect.arrayContaining([
+        ['Alice', 'mtst1alice'],
+        ['Bob', 'mtst1bob'],
+        ['Carol', 'mtst1carol']
+      ])
+    );
+    const uploaded = server.storedEntryOf(session.publicKey, 'contacts', hashedKeyOf(session, CONTACTS_ENTRY_KEY));
+    if (uploaded === undefined) throw new Error('No contacts entry on the server');
+    expect(await decryptEntry(session.encKey, uploaded, DEFAULT_BLOB_CAP)).toContain('mtst1carol');
+  });
+
+  it('writes and uploads nothing while the local list keeps changing', async () => {
+    const a = device(contact('Alice', 'mtst1alice'));
+    await syncContacts(await use(a), true);
+    await syncContacts(await use(device(contact('Alice', 'mtst1alice'), contact('Bob', 'mtst1bob'))), true);
+
+    const session = await use(a);
+    const read = a.vault.fetchSettings.bind(a.vault);
+    let edits = 0;
+    jest.spyOn(a.vault, 'fetchSettings').mockImplementation(async () => {
+      const snapshot = await read();
+      edits += 1;
+      a.vault.settings = {
+        contacts: [...(a.vault.settings.contacts ?? []), contact(`User ${edits}`, `mtst1user${edits}`)]
+      };
+      return snapshot;
+    });
+    const write = jest.spyOn(a.vault, 'updateSettings');
+    const mark = server.requests.length;
+    await expect(syncContacts(session, true)).rejects.toThrow('kept changing');
+    expect(write).not.toHaveBeenCalled();
+    expect(server.requestsSince(mark).some(request => request.method === 'PUT')).toBe(false);
   });
 
   it('merges local edits against the base and uploads them without a read', async () => {

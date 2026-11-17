@@ -132,6 +132,9 @@ function sameContacts(a: readonly WalletContact[], b: readonly WalletContact[]):
   );
 }
 
+/** How many times a merge reads the local list again when a user write changed it under the merge. */
+const MERGE_ATTEMPTS = 3;
+
 /**
  * Read the contacts entry (unless `read` is false), merge it with the local
  * list, save the result locally and upload it when the server copy differs.
@@ -142,17 +145,27 @@ export async function syncContacts(session: BackupSession, read: boolean): Promi
   let changed = false;
 
   const mergeAndSave = async (server: readonly ContactTriple[]): Promise<ContactTriple[]> => {
-    const settings = await session.vault.fetchSettings();
-    const current = (settings.contacts ?? []).filter(contact => !contact.accountInWallet);
-    const merged = mergeContacts(base, projectContacts(current, code), server, code);
-    const next = toLocalContacts(merged, current, code);
-    if (!sameContacts(next, current)) {
-      // The settings read awaited: a lock may have landed, and the write below must not run after it.
+    let settings = await session.vault.fetchSettings();
+    for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
+      const current = (settings.contacts ?? []).filter(contact => !contact.accountInWallet);
+      const merged = mergeContacts(base, projectContacts(current, code), server, code);
+      const next = toLocalContacts(merged, current, code);
+      if (sameContacts(next, current)) return merged;
+      // The write replaces the whole list, so a user write since the read above would be lost under a
+      // list merged from it: read again, and merge again from the new list when it changed.
+      const latest = await session.vault.fetchSettings();
+      if (JSON.stringify(latest.contacts ?? []) !== JSON.stringify(settings.contacts ?? [])) {
+        settings = latest;
+        continue;
+      }
+      // The settings reads awaited: a lock may have landed, and the write below must not run after it.
       assertSessionLive(session);
       settingsUpdated(await session.vault.updateSettings({ contacts: next }));
       changed = true;
+      return merged;
     }
-    return merged;
+    // Nothing is written or uploaded, and the base stays: the next contacts event merges again.
+    throw new Error('The local contacts kept changing while the backup merged them');
   };
 
   const fromServer: { merged: ContactTriple[] | null } = { merged: null };
