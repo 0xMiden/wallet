@@ -13,7 +13,7 @@ import { submitAgglayerDeposit, type AgglayerDepositRequest } from './deposit';
 
 export async function runAgglayerSend(
   operation: BridgeOperationInput,
-  deps: Pick<B2AggBridgeDeps, 'guardianProvider'>
+  deps: Pick<B2AggBridgeDeps, 'guardianProvider'> & { checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'> }
 ): Promise<string> {
   operation = structuredClone(operation);
   const { review } = operation;
@@ -28,7 +28,8 @@ export async function runAgglayerSend(
     senderPublicKey: accounts.midenAccount,
     guardianProvider: deps.guardianProvider,
     destinationChainId: chain.chainId,
-    operation
+    operation,
+    checks: deps.checks
   });
 }
 

@@ -2,6 +2,7 @@ import { CollateralType, type SolveIntentParams } from '@epoch-protocol/epoch-in
 import { formatUnits, parseUnits } from 'viem';
 
 import type { QuoteValidity } from 'lib/bridge/core/quote';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
@@ -135,6 +136,7 @@ export interface EpochSendArgs {
   minimumOutputBaseUnits: bigint;
   reviewedQuote?: EpochReviewedQuote;
   operation?: BridgeOperationInput;
+  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
   /** Miden faucet id of the token being bridged. Epoch accepts any token (hex or bech32). */
   faucetId: string;
   /** EVM recipient (0x) — also the intent sponsor; no connected wallet required. */
@@ -252,16 +254,21 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
       assertReviewedBridge(review, review, Date.now());
     }
   };
-  assertCurrent();
+  const assertLive = async () => {
+    if (args.operation && args.checks)
+      assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
+    assertCurrent();
+  };
+  await assertLive();
   const allocator = selectEpochAllocator(snapshot);
   if (allocator === null) {
     throw new BridgeConfigUnavailableError('epoch.allocatorUrl');
   }
   const { allocatorUrl, accountId } = allocator;
   const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
-  assertCurrent();
+  await assertLive();
   const currentBlock = await getCurrentMidenBlock();
-  assertCurrent();
+  await assertLive();
   const params = buildEpochSendParams(
     usdc,
     args.amount,
@@ -283,7 +290,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   let noteKey: string | undefined;
   let noteResult: ReturnType<NonNullable<SolveIntentParams['createMidenP2IDENote']>> | undefined;
   const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
-  assertCurrent();
+  await assertLive();
   const output = quote.quoteResult.tokenOut;
   if (
     typeof output !== 'string' ||
@@ -340,6 +347,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
             operation: args.operation,
             reviewedOutput,
             expectedWalletScope: originalScope,
+            checks: args.checks,
             onRowCreated: txId => {
               bridgeTxId = txId;
               try {

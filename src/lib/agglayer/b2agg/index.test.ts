@@ -101,7 +101,24 @@ jest.mock('./exit-hash', () => ({ agglayerExitTxHash: (...args: unknown[]) => mo
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('lib/miden/activity/notes', () => ({ queueNoteImport: jest.fn() }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
-jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
+jest.mock('lib/store', () => ({ getIntercom: jest.fn(), useWalletStore: Object.assign(
+  (select: (state: unknown) => unknown) => select({ currentAccount: { publicKey: '0x387149ae66116cf114eebd60bb7381' } }),
+  { getState: () => ({ balances: {}, balancesLoading: {}, balanceReadFailed: {}, tokenPricesStatus: 'ready', tokenPrices: {} }) }
+) }));
+jest.mock('@reown/appkit/react', () => ({ useDisconnect: () => ({ disconnect: jest.fn() }) }));
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => null }));
+jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ locked: false, signTransaction: jest.fn() }), useAllBalances: () => ({}), useAllTokensBaseMetadata: () => ({}) }));
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => jest.requireActual('lib/bridge/testing/fixtures').referenceSnapshot('testnet') }));
+jest.mock('lib/bridge/wallet-transport', () => ({ quoteBridgeTransfer: async (request: unknown) => {
+  const value = jest.requireActual('lib/bridge/core/quote');
+  return value.bindTransferQuote(request, { kind: 'agglayer', received: '1', validity: { kind: 'provider' } });
+} }));
+jest.mock('lib/epoch/client', () => ({ buildEpochWalletClient: jest.fn(), getEvmConnection: jest.fn(), switchWebWalletChain: jest.fn() }));
+jest.mock('lib/walletconnect/native', () => ({ ensureNativeSessionChain: jest.fn() }));
+jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({ useEvmWalletConnection: () => ({ address: '0x1111111111111111111111111111111111111111', connected: true, nativeReown: {}, useNativeReownWallet: false }) }));
+jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { getAccounts: async () => [], getPublicKeyForCommitment: async () => '', signWord: async () => '' } }));
+jest.mock('lib/woozie', () => ({ navigate: jest.fn(), goBack: jest.fn(), createLocationState: () => ({ historyPosition: 1 }), listen: () => () => {} }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getActiveOverride: () => null,
@@ -116,7 +133,7 @@ jest.mock('lib/remote-config/runtime', () => ({
 }));
 
 // Effective network is localnet, so a correctly-encoded row id starts `mlcl1`.
-jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
+jest.mock('lib/miden-chain/constants', () => ({ ...jest.requireActual('lib/miden-chain/networks-config'), getNetworkId: () => 'mlcl' }));
 
 class MockAccountId {
   hex: string;
@@ -161,7 +178,15 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequestBuilder: jest.fn()
 }));
 
+import React from 'react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
+import { CommandBridge } from 'screens/command/bridge/CommandBridge';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
+import { FlowPresentationProvider, CommandFlowBackProvider } from 'components/flow/FlowPresentation';
+import { navigate } from 'lib/woozie';
+import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 
 import { runAgglayerSend } from 'lib/bridge/providers/agglayer/flows';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
@@ -509,7 +534,7 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
       Reflect.apply(initiateBridgedSendTransaction, undefined, args)
     );
   });
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => { cleanup(); jest.restoreAllMocks(); });
 
   function input() {
     const review = reviewedErc20Transfer('agglayer', 'send');
@@ -548,6 +573,38 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
     expect(row?.extraInputs.bridgeOperation?.operationId).toBe('native-agglayer-operation');
     expect(row?.extraInputs.agglayerExitTxHash).toBe(`0x${'c'.repeat(64)}`);
     expect(row?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+    expect(await Repo.transactions.count()).toBe(1);
+  });
+
+  it.each([false, true])('actual Command form Enter admits once, stays visible and opens only the original row (Guardian=%s)', async guardian => {
+    mockIsGuardian.mockResolvedValue(guardian);
+    render(React.createElement(CommandDraftProvider, { scope: { accountId: accounts.midenAccount, network: 'testnet', rpcUrl: 'https://wallet-rpc.example/private' }, children:
+      React.createElement(FlowPresentationProvider, { value: 'command', children:
+        React.createElement(CommandFlowBackProvider, { children:
+          React.createElement(CommandWorkbench, { route: { kind: 'flow', action: 'bridge' }, container: null, children: React.createElement(CommandBridge) })
+        })
+      })
+    }));
+    fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
+    const route = deriveBridgeRoutes(referenceSnapshot('testnet')).find(item => item.mode === 'send' && item.provider === 'agglayer' && item.source.symbol === 'USDC');
+    if (!route) throw new Error('Missing real catalog route');
+    fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+    fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), { target: { value: accounts.evmAddress } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1.00000000' } });
+    const form = screen.getByRole('textbox', { name: 'amount' }).closest('form');
+    if (!form) throw new Error('Missing actual form');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
+    fireEvent.submit(form);
+    expect(screen.queryByRole('textbox', { name: 'amount' })).toBeNull();
+    fireEvent.submit(form);
+    await waitFor(async () => expect(await Repo.transactions.count()).toBe(1));
+    expect(screen.getByTestId('command-bridge')).toBeVisible();
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.submit(form);
+    expect(await Repo.transactions.count()).toBe(1);
+    const row = (await Repo.transactions.toArray())[0];
+    fireEvent.click(screen.getByRole('button', { name: 'commandBridgeViewStatus' }));
+    expect(navigate).toHaveBeenCalledWith(`/history-details/${row.id}`);
     expect(await Repo.transactions.count()).toBe(1);
   });
 

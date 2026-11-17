@@ -10,6 +10,7 @@ import {
 
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
 import {
   initiateBridgedSendTransaction,
@@ -95,6 +96,7 @@ export async function initiateB2AggBridge(args: {
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   destinationChainId?: number;
   operation?: BridgeOperationInput;
+  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }): Promise<string> {
   const { amount, faucetId, destinationAddress, senderPublicKey, guardianProvider, spendingLimitAuthorization } = args;
   const operation = args.operation && structuredClone(args.operation);
@@ -103,8 +105,9 @@ export async function initiateB2AggBridge(args: {
     const original = await findAdmittedBridgeOperation(operation);
     if (original) return original.id;
   }
-  const assertReviewCurrent = () => {
+  const assertReviewCurrent = async () => {
     if (!operation) return;
+    const live = args.checks ? await args.checks.readCurrent() : operation.review;
     const route = operation.review.route;
     const current = getBridgeConfigSnapshot();
     if (
@@ -116,9 +119,9 @@ export async function initiateB2AggBridge(args: {
         configKey([route.recovery.network, route.recovery.config, route.recovery.derived])
     )
       throw new Error('Agglayer bridge review changed');
-    assertReviewedBridge(operation.review, operation.review, Date.now());
+    assertReviewedBridge(operation.review, live, args.checks?.now() ?? Date.now());
   };
-  assertReviewCurrent();
+  await assertReviewCurrent();
   // Read before the lock: the note addresses the configured bridge, with the L1 bridge's networkID() as its
   // destination, which the row records too.
   const { midenBridge, evmNetworkId, recovery } = getAgglayerBridgeOut(args.destinationChainId);
@@ -178,14 +181,7 @@ export async function initiateB2AggBridge(args: {
     // Signing may create only this note; a request that does not create exactly one queues no row.
     const ownNoteId = soleOwnOutputNoteId(request);
     const serialisedReq = request.serialize();
-    console.log('Got the serialised transaction request', serialisedReq);
-    try {
-      TransactionRequest.deserialize(serialisedReq);
-      console.log('Deserialisation test passes');
-    } catch (err) {
-      console.log('Basic deser ser failed', err);
-      throw err;
-    }
+    TransactionRequest.deserialize(serialisedReq);
     return {
       requestBytes: serialisedReq,
       faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(faucetId)),
@@ -194,7 +190,7 @@ export async function initiateB2AggBridge(args: {
     };
   });
 
-  assertReviewCurrent();
+  await assertReviewCurrent();
   // Delegate to the remote prover (mobile always delegates anyway) to avoid
   // OOMing the SW / WebView while proving the bridge note.
   return initiateBridgedSendTransaction(

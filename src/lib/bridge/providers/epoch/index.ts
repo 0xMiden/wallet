@@ -4,6 +4,7 @@ import { isBridgeRouteAvailable } from 'lib/bridge/core/provider';
 import type { QuoteRequest, QuoteResult } from 'lib/bridge/core/quote';
 import { configKey, routeMatchesRecovery } from 'lib/bridge/core/routes';
 import { validateTransferAmount } from 'lib/bridge/core/rules';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import type { BridgeOperationInput } from 'lib/bridge/operation';
 import { reviewedEpochMinimum } from 'lib/epoch/bridge';
 import { bridgeEpochSend, quoteEpochSendOutput } from 'lib/epoch/epoch-send';
@@ -62,7 +63,7 @@ export async function quoteEpochSend(request: QuoteRequest): Promise<QuoteResult
 
 export async function runEpochSend(
   operation: BridgeOperationInput,
-  deps: BridgeNoteDeps,
+  deps: BridgeNoteDeps & { checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'> },
   onRowCreated?: (txId: string) => void
 ): Promise<{ txId?: string }> {
   operation = structuredClone(operation);
@@ -73,6 +74,7 @@ export async function runEpochSend(
     ...terms,
     minimumOutputBaseUnits: reviewedEpochMinimum(review.quote.received, review.route.destination.decimals),
     operation,
+    checks: deps.checks,
     deps,
     onRowCreated
   });

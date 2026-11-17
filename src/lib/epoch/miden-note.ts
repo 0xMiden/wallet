@@ -1,3 +1,5 @@
+import { assertReviewedBridge } from 'lib/bridge/core/review';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import { captureBridgeWalletScope, type BridgeOperationInput } from 'lib/bridge/operation';
 import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import {
@@ -82,6 +84,7 @@ export interface CreateBridgeP2IDENoteArgs {
   operation?: BridgeOperationInput;
   reviewedOutput?: EpochReviewedOutput;
   expectedWalletScope?: Pick<AccountScope, 'network' | 'rpcUrl'>;
+  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }
 
 /**
@@ -128,7 +131,8 @@ export async function createBridgeP2IDENote(
           ? captureBridgeWalletScope()
           : undefined
         : { ...args.expectedWalletScope };
-    console.log('[epoch] creating bridge note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
+    if (args.operation && args.checks)
+      assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
     const {
       requestBytes,
       reclaimHeight,
@@ -141,6 +145,8 @@ export async function createBridgeP2IDENote(
       recallBlocks,
       bindingAttachmentFelts
     });
+    if (args.operation && args.checks)
+      assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
     if (expectedWalletScope) {
       const current = captureBridgeWalletScope();
       if (expectedWalletScope.network !== current.network || expectedWalletScope.rpcUrl !== current.rpcUrl)
@@ -207,7 +213,6 @@ export async function createBridgeP2IDENote(
       console.error('[epoch] bridge note tx completed but no outputNoteIds');
       return { success: false, txId };
     }
-    console.log('[epoch] bridge note created', { noteId, txHash: result.txHash });
     return { success: true, noteId, txId };
   } catch (err) {
     if (spendingLimitAssessmentFromError(err) !== undefined || (!ownedTxId && err instanceof EpochReviewChangedError))
