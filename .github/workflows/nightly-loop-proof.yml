@@ -1,7 +1,7 @@
-name: Current qualified SDK0.18 held-only readiness - NO release or payment
+name: NEAR browser preview fee observation - NO review or payment
 on:
   push:
-    branches: [wiktor/green03-post2208-held-once]
+    branches: [wiktor/green03-near-fee-observation-once]
 permissions:
   contents: read
   actions: read
@@ -26,10 +26,10 @@ jobs:
         run: |
           test "$GITHUB_EVENT_NAME" = push
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green03-post2208-held-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green03-near-fee-observation-once
           git merge-base --is-ancestor 6e3672476008cd2cc18d6841321c3064196baca5 HEAD
           test "$(git diff --name-only 6e3672476008cd2cc18d6841321c3064196baca5 HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-held-readonly.spec.ts scripts/held-review-failure.test.ts scripts/held-review-failure.ts)"
-          ! grep -E 'releaseMainnetSendAuthorization|awaitMainnetLoopAuthorization' playwright/e2e/tests/mainnet/near-held-readonly.spec.ts
+          ! grep -E 'armMainnetSendAuthorization|releaseMainnetSendAuthorization|awaitMainnetLoopAuthorization|confirmMainnetOneClickReview|one-click-review-submit' playwright/e2e/tests/mainnet/near-held-readonly.spec.ts
       - name: Require merged main and all original15 actual checks on qualified source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -85,7 +85,7 @@ jobs:
           import {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import YAML from 'yaml';const doc=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8'));const step=doc.jobs['mainnet-nightly'].steps.find(s=>s.name==='Start owned provider loop config');if(!step?.run)throw new Error('Missing production owned-only overlay');execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
           NODE
       - run: yarn test:e2e:blockchain:build
-      - name: Observe UI and SDK behind mandatory unreleased local scope; verify zero native spend
+      - name: Observe exact browser preview fees without opening Review or arming the SDK
         run: |
           umask 077
           code=0
