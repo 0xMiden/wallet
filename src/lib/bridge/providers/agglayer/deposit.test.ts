@@ -1,6 +1,8 @@
 // Adapted from bridge-portal@cb52c470 src/bridge/providers/agglayer/deposit.test.ts (MIT).
 import { waitFor } from '@testing-library/react';
 import {
+  createWalletClient,
+  custom,
   decodeFunctionData,
   encodeFunctionData,
   erc20Abi,
@@ -17,6 +19,7 @@ import type { SourceRpcTransaction } from 'lib/bridge/evm/source-transaction';
 import { bridgeOperationOf, type BridgeOperationSnapshot } from 'lib/bridge/operation';
 import { accounts, now, referenceSnapshot, testRoute } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
+import { submitReviewedBridge } from 'lib/bridge/wallet-submit';
 import { applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from 'lib/miden/activity/bridge-in';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -39,7 +42,12 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }))
 jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: async (fn: () => unknown) => fn() }));
 jest.mock('lib/miden/activity/notes', () => ({ queueNoteImport: jest.fn() }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
-jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
+const mockWalletState = {
+  balances: { [accounts.midenAccount]: [] },
+  balancesLoading: {}, balanceReadFailed: {},
+  tokenPricesStatus: 'ready', tokenPrices: {}
+};
+jest.mock('lib/store', () => ({ getIntercom: jest.fn(), useWalletStore: { getState: () => mockWalletState } }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getActiveOverride: () => null,
@@ -242,6 +250,33 @@ function reviewAmount(amount: string): ReviewedTransfer {
   assertReviewedBridge(review, structuredClone(review), now);
   return review;
 }
+
+it('admits the public external-wallet receive through the original real DB/CAS and never blindly replays it', async () => {
+  const review = reviewedErc20Transfer('agglayer');
+  const recovery = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
+  if (!recovery || review.route.source.kind !== 'erc20') throw new Error('Missing route');
+  bridgeAddress = recovery.contractAddress;
+  tokenAddress = `0x${review.route.source.address.slice(2)}`;
+  const client = createWalletClient({ account: `0x${accounts.evmAddress.slice(2)}`, transport: custom(provider) });
+  const deps = {
+    signTransaction: async () => new Uint8Array(),
+    guardianProvider: { getAccounts: async () => [], getPublicKeyForCommitment: async () => '', signWord: async () => '' },
+    getContext: () => review,
+    getEvmWallet: async () => client,
+    onOperation: jest.fn()
+  };
+  const result = await submitReviewedBridge(review, deps);
+  expect(result.kind).toBe('started');
+  if (result.kind !== 'started') throw new Error('Expected admission');
+  await waitFor(async () => expect((await Repo.transactions.get(result.operationId))?.extraInputs.evmTxHash).toBe(depositHash));
+  const before = await Repo.transactions.get(result.operationId);
+  const sent = signed.length;
+  expect(before?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('known');
+  expect(before?.extraInputs.bridgeOperation?.operationId).not.toBe(result.operationId);
+  expect(await submitReviewedBridge(review, deps)).toEqual(result);
+  expect(signed).toHaveLength(sent);
+  expect(await Repo.transactions.count()).toBe(1);
+});
 
 it.each(['reset', 'smaller'])(
   'waits for another owned pending %s even when current allowance is sufficient, then makes only the new reviewed deposit',
