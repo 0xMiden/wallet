@@ -56,7 +56,8 @@ jobs:
   run:
     name: Red-before (${{ inputs.expect }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # A linked web-sdk PR is built from source first (linked-pr-injection.test.ts).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 30 }}
     steps:
       # Inputs reach the shell only through env, never through ${{ }} in run:,
       # so a crafted value cannot inject commands.
@@ -127,6 +128,13 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+
+      # The linked web-sdk and Guardian PRs of the branch's open pull request, as
+      # pr.yml builds them, so a red-before run tests what that PR's CI tests.
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
