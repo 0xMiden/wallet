@@ -39,7 +39,12 @@ import {
   swapOpensOrderFromRead
 } from './pinned-replay-check';
 import { latestEndMayStillRun, noteClaimedElsewhere } from './reconcile-judge';
-import { accountRowsOf, checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
+import {
+  accountRowsOf,
+  checkEvidenceForRetry,
+  landedExecuteDeliveryValues,
+  recordLandedDeliveryTarget
+} from './reconcile-unconfirmed';
 import { GuardianHoldRetryError } from './retry-refusal';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
@@ -533,7 +538,9 @@ type PinnedLandingWrite = 'written' | 'declined' | 'claimed';
  * declines once the row moved from what Retry judged (its status, stage, evidence or bytes), and that re-reads the
  * account's rows, since another attempt naming that note may be the one that created it. A swap opens the order its
  * pinned note names when the row holds none ({@link applyVerifiedLanding}), with its expiry anchored at `landedAt`,
- * the including block's time; without it at now, which is later and so never cancels the order early.
+ * the including block's time; without it at now, which is later and so never cancels the order early. An execute
+ * whose tail recorded nothing owes the private notes of the stamp that names the pinned note, as at the reconciler's
+ * landing ({@link landedExecuteDeliveryValues}), a delivery write counted once it commits.
  */
 const writePinnedLanding = async (
   tx: ITransaction,
@@ -544,7 +551,7 @@ const writePinnedLanding = async (
   const outcome = await Repo.db.transaction(
     'rw',
     Repo.transactions,
-    async (): Promise<{ write: PinnedLandingWrite; landed?: ITransaction; target?: string[] }> => {
+    async (): Promise<{ write: PinnedLandingWrite; landed?: ITransaction; target?: string[]; owesNotes?: boolean }> => {
       const fresh = await Repo.transactions.where({ id: tx.id }).first();
       if (
         fresh === undefined ||
@@ -556,22 +563,33 @@ const writePinnedLanding = async (
         return { write: 'declined' };
       }
       if (noteClaimedElsewhere(fresh, pinned.noteId, await accountRowsOf(fresh))) return { write: 'claimed' };
+      // Read from the row as found, before the landed fields label an execute with a recipient undelivered. An attempt
+      // the node proved dead created none of the notes its stamp names, as the note attribution rule has it.
+      const landedStamp = fresh.submitEvidence?.find(
+        entry => entry.verdict !== 'never-committed' && entry.outputNoteIds?.includes(pinned.noteId) === true
+      );
+      const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
       applyVerifiedLanding(
         fresh,
-        { ...verifiedLandingRowFields(fresh), completedAt: landedAt ?? nowSeconds() },
+        { ...verifiedLandingRowFields(fresh), ...executeDelivery, completedAt: landedAt ?? nowSeconds() },
         pinned.order
       );
       const target = recordLandedDeliveryTarget(fresh, { proof: { kind: 'note', noteId: pinned.noteId } });
-      // Not an execute's, as the reconciler's landing writes none: the delivery sweep reads root notes as owed to the
-      // recipient, and these were found on the node, never put in this client's store to relay.
+      // Never an execute's root: the delivery sweep reads root notes as owed to the recipient, public ones and all, and
+      // these were found on the node, never put in this client's store to relay.
       if (fresh.type !== 'execute' && storedNoteIds(fresh.outputNoteIds).length === 0) {
         fresh.outputNoteIds = pinned.noteIds;
       }
       await Repo.transactions.put(fresh);
-      return { write: 'written', landed: fresh, target };
+      return {
+        write: 'written',
+        landed: fresh,
+        target,
+        owesNotes: (executeDelivery?.relayNoteIds?.length ?? 0) > 0
+      };
     }
   );
-  if (outcome.target !== undefined) countNoteDeliveryWrite();
+  if (outcome.target !== undefined || outcome.owesNotes === true) countNoteDeliveryWrite();
   if (outcome.landed !== undefined) reportVerifiedLanding(outcome.landed);
   return outcome.write;
 };
