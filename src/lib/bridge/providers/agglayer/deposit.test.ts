@@ -97,7 +97,7 @@ beforeEach(async () => {
   rpc.readContract.mockImplementation(async ({ functionName }) => {
     if (functionName === 'allowance') return allowance;
     if (functionName === 'balanceOf') return 10n ** 25n;
-    if (functionName === 'decimals') return 6;
+    if (functionName === 'decimals') return 18;
     if (functionName === 'isEmergencyState') return false;
     throw new Error('Unexpected read');
   });
@@ -106,7 +106,7 @@ beforeEach(async () => {
   rpc.getBalance.mockResolvedValue(10n ** 25n);
   rpc.getGasPrice.mockResolvedValue(100n);
   rpc.getTransaction.mockImplementation(async ({ hash }) => {
-    const tx = signed.find(item => item.to === tokenAddress && (hash === resetHash || hash === approvalHash));
+    const tx = signed.find(item => item.to === tokenAddress && decodeFunctionData({ abi: erc20Abi, data: item.data }).args?.[1] === (hash === resetHash ? 0n : approvedAmount));
     return { hash, from: accounts.evmAddress, to: tx?.to ?? bridgeAddress, input: tx?.data ?? '0x', value: 0n, nonce: hash === resetHash ? 1 : 2, blockNumber: 1n };
   });
   rpc.waitForTransactionReceipt.mockImplementation(async ({ hash }) => {
@@ -133,26 +133,26 @@ it('bridges native value exactly once without token approval and saves the origi
   expect(error).toBeUndefined();
   expect(signed).toHaveLength(1);
   expect(signed[0]).toMatchObject({ value: '0xde0b6b3a7640000', chainId: '0xaa36a7', from: accounts.evmAddress });
-  expect(decodeFunctionData({ abi: AGGLAYER_BRIDGE_ABI, data: signed[0]!.data })).toMatchObject({ functionName: 'bridgeAsset', args: [expect.any(Number), '0x00000000387149ae66116cf114eebd60bb738100', 1000000000000000000n, '0x0000000000000000000000000000000000000000', true, '0x'] });
+  expect(decodeFunctionData({ abi: AGGLAYER_BRIDGE_ABI, data: signed[0]!.data })).toMatchObject({ functionName: 'bridgeAsset', args: [expect.any(Number), '0x00000000387149AE66116cF114eEbd60Bb738100', 1000000000000000000n, '0x0000000000000000000000000000000000000000', true, '0x'] });
   expect(row?.extraInputs.evmTxHash).toBe(depositHash);
   expect(row?.extraInputs.phase).not.toBe('received');
 });
 
-it.each([0n, 1n, 2000000n])('uses allowance %s without max approval, resetting a nonzero short allowance', async current => {
+it.each([0n, 1n, 2000000000000000000n])('uses allowance %s without max approval, resetting a nonzero short allowance', async current => {
   allowance = current;
   const { error, row } = await drive();
   expect(error).toBeUndefined();
   const amounts = signed.filter(tx => tx.to === tokenAddress).map(tx => decodeFunctionData({ abi: erc20Abi, data: tx.data }).args?.[1]);
-  expect(amounts).toEqual(current === 0n ? [1000000n] : current === 1n ? [0n, 1000000n] : []);
+  expect(amounts).toEqual(current === 0n ? [1000000000000000000n] : current === 1n ? [0n, 1000000000000000000n] : []);
   expect(signed.at(-1)).toMatchObject({ to: bridgeAddress, value: '0x0' });
-  expect(row?.extraInputs.bridgeOperation?.approvals?.map(item => item.amount)).toEqual(current === 0n ? ['1000000'] : current === 1n ? ['0', '1000000'] : undefined);
+  expect(row?.extraInputs.bridgeOperation?.approvals?.map(item => item.amount)).toEqual(current === 0n ? ['1000000000000000000'] : current === 1n ? ['0', '1000000000000000000'] : undefined);
   expect(row?.extraInputs.evmTxHash).toBe(depositHash);
 });
 
 it('accepts no-return approval and requires its confirmed allowance before bridging', async () => {
   const { error, row } = await drive();
   expect(error).toBeUndefined();
-  expect(rpc.call).toHaveBeenCalledWith(expect.objectContaining({ to: tokenAddress, data: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [bridgeAddress, 1000000n] }) }));
+  expect(rpc.call).toHaveBeenCalledWith(expect.objectContaining({ to: tokenAddress, data: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [bridgeAddress, 1000000000000000000n] }) }));
   expect(row?.extraInputs.bridgeOperation?.approvals?.[0]?.hash).toBe(approvalHash);
   expect(signed).toHaveLength(2);
 });

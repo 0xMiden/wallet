@@ -420,7 +420,25 @@ export async function recordBridgeApproval(
         throw new Error('Original token approval identity changed');
     }
     const previous = approvals.find(item => item.hash.toLowerCase() === reference.hash.toLowerCase());
-    if (previous) return configKey(previous) === configKey(reference);
+    if (previous) {
+      if (
+        previous.chainId !== reference.chainId ||
+        previous.account.toLowerCase() !== reference.account.toLowerCase() ||
+        previous.token.toLowerCase() !== reference.token.toLowerCase() ||
+        previous.spender.toLowerCase() !== reference.spender.toLowerCase() ||
+        BigInt(previous.amount) !== BigInt(reference.amount) ||
+        (previous.transaction && reference.transaction && configKey(previous.transaction) !== configKey(reference.transaction)) ||
+        (previous.originalTransaction && reference.originalTransaction && configKey(previous.originalTransaction) !== configKey(reference.originalTransaction)) ||
+        (previous.replacementReason && reference.replacementReason && previous.replacementReason !== reference.replacementReason) ||
+        (reference.originalTransaction && !previous.originalTransaction &&
+          (!previous.transaction || configKey(previous.transaction) !== configKey(reference.originalTransaction)))
+      ) return false;
+      const merged = parseBridgeApproval({ ...previous, ...reference });
+      await Repo.transactions.update(row.id, {
+        'extraInputs.bridgeOperation': { ...operation, approvals: approvals.map(item => item === previous ? merged : item) }
+      });
+      return true;
+    }
     await Repo.transactions.update(row.id, {
       'extraInputs.bridgeOperation': { ...operation, approvals: [...approvals, reference] }
     });
