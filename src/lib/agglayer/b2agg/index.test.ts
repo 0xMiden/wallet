@@ -161,6 +161,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 import { TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
 
 import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
+import { runAgglayerSend } from 'lib/bridge/providers/agglayer/flows';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
@@ -519,6 +520,17 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
     expect(await Repo.transactions.count()).toBe(1);
     expect(row?.extraInputs.agglayerExitTxHash).toBe(`0x${'c'.repeat(64)}`);
     expect(row?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+  });
+
+  it('adapts the reviewed provider send into the native queue with its exact Miden source scale', async () => {
+    mockIsGuardian.mockResolvedValue(false);
+    const id = await runAgglayerSend(input().operation, { guardianProvider });
+    const row = await Repo.transactions.get(id);
+    expect(row?.amount).toBe(100000000n);
+    expect(row?.extraInputs.bridgeOperation?.operationId).toBe('native-agglayer-operation');
+    expect(row?.extraInputs.agglayerExitTxHash).toBe(`0x${'c'.repeat(64)}`);
+    expect(row?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+    expect(await Repo.transactions.count()).toBe(1);
   });
 
   it('returns the original admitted row after quote expiry and RPC departure without building another note', async () => {
