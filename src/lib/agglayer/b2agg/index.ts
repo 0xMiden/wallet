@@ -10,7 +10,7 @@ import {
 
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
-import { captureBridgeWalletScope, type BridgeOperationInput } from 'lib/bridge/operation';
+import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -99,6 +99,10 @@ export async function initiateB2AggBridge(args: {
   const { amount, faucetId, destinationAddress, senderPublicKey, guardianProvider, spendingLimitAuthorization } = args;
   const operation = args.operation && structuredClone(args.operation);
   const scopeBeforeBuild = operation && captureBridgeWalletScope();
+  if (operation) {
+    const original = await findAdmittedBridgeOperation(operation);
+    if (original) return original.id;
+  }
   const assertReviewCurrent = () => {
     if (!operation) return;
     const route = operation.review.route;
