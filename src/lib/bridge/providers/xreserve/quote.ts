@@ -46,6 +46,7 @@ export async function quoteXReserve(request: QuoteRequest, signal: AbortSignal):
     if (source.route === 'xreserve')
       result = { kind: 'arc-deposit', received: amount.trim(), validity: { kind: 'time', expiresAt: Date.now() + 60000 } };
     else {
+      if (!source.tokenMessenger) throw new Error('Circle source messenger unavailable');
       const authorization = await quoteExecutorBurn(source, buildExecutorBurnIntent(amount, source, recipient, `0x${evmAddress.slice(2)}`));
       result = { kind: 'cctp', received: amount.trim(), fee: formatUnits(authorization.feeTotalAmount, 6),
         validity: { kind: 'provider' }, authorization };

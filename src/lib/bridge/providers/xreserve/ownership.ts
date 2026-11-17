@@ -3,7 +3,7 @@ import { parseUnits, type Hash, type Hex } from 'viem';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
 import type { SubmissionChecks } from 'lib/bridge/core/submission';
-import { assertBridgeOperationCurrent, bridgeOperationOf, recordBridgeSourceAttempt, type BridgeOperationSnapshot } from 'lib/bridge/operation';
+import { assertBridgeOperationCurrent, bridgeOperationOf, findAdmittedBridgeOperation, recordBridgeSourceAttempt, type BridgeOperationSnapshot } from 'lib/bridge/operation';
 import * as Repo from 'lib/miden/repo';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { CctpBurnQuote } from 'lib/usdcx/cctp';
@@ -52,6 +52,26 @@ export async function assertUsdcxDepositCurrent(owned: OwnedUsdcxDeposit): Promi
       current.status !== 'ready' || configKey([current.network, current.config, current.derived]) !==
       configKey([recovery.network, recovery.config, recovery.derived]))
     throw new Error('Circle deposit terms changed');
+}
+
+export async function recordCctpSourceFacts(
+  owned: OwnedUsdcxDeposit, facts: { messageTransmitter?: string; sourceMessage?: Hex }
+): Promise<void> {
+  await Repo.db.transaction('rw', Repo.transactions, async () => {
+    const row = await findAdmittedBridgeOperation(owned.operation);
+    const original = row && bridgeOperationOf(row);
+    if (!row || row.id !== owned.rowId || !original || original.revision !== owned.operation.revision || !original.sourceAttempt)
+      throw new Error('Circle original receipt ownership changed');
+    const previous = row.extraInputs?.cctp;
+    if ((previous?.messageTransmitter && facts.messageTransmitter && previous.messageTransmitter.toLowerCase() !== facts.messageTransmitter.toLowerCase()) ||
+        (previous?.sourceMessage && facts.sourceMessage && previous.sourceMessage.toLowerCase() !== facts.sourceMessage.toLowerCase()) ||
+        (facts.sourceMessage && (!original.sourceAttempt.hash || original.sourceAttempt.hash !== row.extraInputs?.evmTxHash)))
+      throw new Error('Circle original source facts changed');
+    const chain = original.review.route.recovery.config.supportedEvmChains[original.review.route.source.network];
+    const domain = chain?.bridges.usdcx?.domain;
+    if (domain === undefined) throw new Error('Circle original source domain unavailable');
+    await Repo.transactions.update(row.id, { 'extraInputs.cctp': { sourceDomain: domain, ...previous, ...facts } });
+  });
 }
 
 export async function recordUsdcxDepositHash(owned: OwnedUsdcxDeposit, hash: Hash): Promise<void> {

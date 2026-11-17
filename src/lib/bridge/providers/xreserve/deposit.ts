@@ -1,5 +1,5 @@
 // Adapted from bridge-portal@cb52c470 src/bridge/providers/xreserve/{deposit,cctp-deposit}.ts (MIT).
-import { encodeFunctionData, erc20Abi, isHash, parseAbi, parseUnits, toHex, type Address, type EIP1193Provider, type Hash, type Hex, type PublicClient } from 'viem';
+import { encodeFunctionData, erc20Abi, isAddress, isHash, parseAbi, parseUnits, toHex, type Address, type EIP1193Provider, type Hash, type Hex, type PublicClient } from 'viem';
 
 import { quoteAmounts } from 'lib/bridge/core/quote';
 import type { SubmissionChecks } from 'lib/bridge/core/submission';
@@ -10,14 +10,16 @@ import { validateCctpBurnQuote } from 'lib/usdcx/cctp';
 import { getUsdcxSourceChain } from 'lib/usdcx/constant';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
-import { runUsdcxExecutorDeposit, type DepositForBurnWithHookAndFeesArgs } from 'lib/usdcx/executor';
+import { encodeExecutorHookData, runUsdcxExecutorDeposit, type DepositForBurnWithHookAndFeesArgs } from 'lib/usdcx/executor';
 import { TOKEN_MESSENGER_WITH_FEES_ABI, XRESERVE_ABI } from 'lib/usdcx/protocol';
 
+import { assertCctpSourceMessage, sourceMessageFromReceipt } from './cctp-message';
 import { assertXReserveRouteAvailable } from './deposit-preflight';
-import { assertUsdcxDepositCurrent, assertUsdcxDepositTerms } from './ownership';
+import { assertUsdcxDepositCurrent, assertUsdcxDepositTerms, recordCctpSourceFacts } from './ownership';
 import { xreserveReadClient } from './provider';
 
 const feeAbi = parseAbi(['function getFee(bytes) view returns (uint256,address)']);
+const messengerAbi = parseAbi(['function localMessageTransmitter() view returns (address)']);
 
 export type XReserveClient = TokenApprovalClient & Pick<PublicClient, 'estimateGas' | 'getBalance' | 'getGasPrice'>;
 export interface XReserveDepositRequest {
@@ -72,8 +74,16 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
     if (typeof hash !== 'string' || !isHash(hash)) throw new Error('Circle wallet returned no source identity');
     return hash;
   };
+  let messageTransmitter: Address | undefined;
   try {
     await assertWallet();
+    if (source.route === 'cctp-executor') {
+      if (!source.tokenMessenger) throw new Error('Circle source messenger unavailable');
+      const transmitter = await client.readContract({ address: source.tokenMessenger, abi: messengerAbi, functionName: 'localMessageTransmitter' });
+      if (!isAddress(transmitter) || /^0x0{40}$/i.test(transmitter)) throw new Error('Circle source transmitter unavailable');
+      messageTransmitter = transmitter;
+      await recordCctpSourceFacts(owned, { messageTransmitter });
+    }
     await assertRoute();
     await assertFee();
     const spender = source.route === 'xreserve' ? source.xReserve : source.tokenMessengerWithFees;
@@ -91,6 +101,12 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
         const receipt = await client.waitForTransactionReceipt({ hash, timeout: 120000 });
         if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase() || receipt.status !== 'success')
           throw new Error('Circle source receipt is not confirmed');
+        if (source.route === 'cctp-executor') {
+          if (!messageTransmitter) throw new Error('Circle original transmitter unavailable');
+          const sourceMessage = sourceMessageFromReceipt(receipt, hash, messageTransmitter);
+          assertCctpSourceMessage(sourceMessage, source, parseUnits(amount, 6), encodeExecutorHookData(source.target, recipient, account));
+          await recordCctpSourceFacts(owned, { sourceMessage });
+        }
       },
       updatePhase: updateBridgedReceivePhase
     };

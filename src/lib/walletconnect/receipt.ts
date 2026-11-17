@@ -5,7 +5,8 @@ import {
   TransactionReceiptNotFoundError,
   type Address,
   type Chain,
-  type Hash
+  type Hash,
+  type TransactionReceipt
 } from 'viem';
 
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -29,12 +30,15 @@ export async function waitForEvmReceipt(hash: Hash, chain: Chain): Promise<void>
 }
 
 /** A sent transaction's outcome as the chain reports it now: `pending` until it has a receipt. RPC failures throw. */
-export async function readEvmReceiptOutcome(hash: Hash, chain: Chain): Promise<'success' | 'reverted' | 'pending'> {
+export async function readEvmReceiptOutcome(
+  hash: Hash, chain: Chain, verifyReceipt?: (receipt: TransactionReceipt) => void
+): Promise<'success' | 'reverted' | 'pending'> {
   const rpcUrl = getChain(chain.id)?.rpcUrl;
   if (!rpcUrl) throw new Error(`${chain.name} RPC is not configured`);
   const client = createPublicClient({ chain, transport: http(rpcUrl, { timeout: 10_000, retryCount: 0 }) });
   try {
     const receipt = await client.getTransactionReceipt({ hash });
+    if (receipt.status === 'success') verifyReceipt?.(receipt);
     return receipt.status === 'success' ? 'success' : 'reverted';
   } catch (error) {
     if (error instanceof TransactionReceiptNotFoundError) return 'pending';

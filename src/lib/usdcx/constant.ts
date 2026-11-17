@@ -62,6 +62,8 @@ export interface UsdcxExecutorSource extends UsdcxSourceChainBase {
   route: 'cctp-executor';
   /** `TokenMessengerWithFees`, for a burn with a signed quote that Circle forwards and executes. */
   tokenMessengerWithFees: Address;
+  /** Underlying CCTP messenger; older cached routes may omit it, but new owned sources require it. */
+  tokenMessenger?: Address;
   /** Circle's Iris API for this network family, which attests the CCTP leg. */
   irisApi: string;
   target: UsdcxExecutorTarget;
@@ -140,6 +142,7 @@ function sourceChain(entry: SupportedEvmChainConfig): UsdcxSourceChain | undefin
         ...base,
         route: 'cctp-executor',
         tokenMessengerWithFees: getAddress(route.deposit.tokenMessengerWithFees),
+        ...(route.deposit.tokenMessenger === undefined ? {} : { tokenMessenger: getAddress(route.deposit.tokenMessenger) }),
         irisApi: provider.irisUrl,
         target: {
           midenDomain: provider.midenDomain,

@@ -314,6 +314,9 @@ export interface IConsumedNote {
 export interface IUsdcxCctpLeg {
   /** Circle's domain of the source chain, the key of its Iris messages. */
   sourceDomain: number;
+  /** Verified original source receipt facts, never source or execute consent. */
+  sourceMessage?: string;
+  messageTransmitter?: string;
   /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
   message?: string;
   attestation?: string;
