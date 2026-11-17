@@ -1,3 +1,5 @@
+import type { IUsdcxNetworkFeeBudget } from 'lib/miden/db/types';
+
 import { isBridgeRouteAvailable } from './provider';
 import { isQuoteReviewable, type TransferQuote } from './quote';
 import { configKey, routeMatchesRecovery, type BridgeRoute } from './routes';
@@ -8,11 +10,13 @@ export interface ReviewedTransfer {
   amount: string;
   accounts: { midenAccount: string; evmAddress: string };
   quote?: TransferQuote;
+  networkFeeBudget?: IUsdcxNetworkFeeBudget;
 }
 export interface BridgeReviewContext {
   route: BridgeRoute;
   amount: string;
   accounts: ReviewedTransfer['accounts'];
+  networkFeeBudget?: IUsdcxNetworkFeeBudget;
 }
 
 /** Call after every asynchronous admission read; a stored review is never fresh signing permission. */

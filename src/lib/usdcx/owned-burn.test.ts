@@ -56,7 +56,9 @@ jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.f
 jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: async () => jest.requireActual('lib/bridge/testing/fixtures').native.faucetId,
-  getNativeAssetIdSync: () => jest.requireActual('lib/bridge/testing/fixtures').native.faucetId
+  getNativeAssetIdSync: () => jest.requireActual('lib/bridge/testing/fixtures').native.faucetId,
+  getSdkSyncedNativeAssetIdSync: () => jest.requireActual('lib/bridge/testing/fixtures').native.faucetId,
+  cacheScope: () => 'rpc-a|testnet'
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
@@ -114,6 +116,11 @@ function input() {
     route,
     amount: '6',
     accounts,
+    networkFeeBudget: {
+      faucetId: native.faucetId,
+      maxAmount: '300',
+      scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+    },
     quote: bindTransferQuote(
       { route, amount: '6', ...accounts },
       {
@@ -132,6 +139,7 @@ function input() {
     amount: 6000000n,
     destinationAddress: accounts.evmAddress,
     destinationChainId: 11155111,
+    networkFeeBudget: structuredClone(review.networkFeeBudget),
     operation: { operationId: 'circle-native', review },
     checks: { readCurrent: async () => live, now: () => now }
   };
@@ -238,4 +246,52 @@ it('refuses live reviewed amount departure during the payout snapshot read', asy
 it('refuses a native actual amount that differs from the owned review', async () => {
   await expect(initiateUsdcxBurn({ ...input(), amount: 7000000n })).rejects.toThrow();
   expect(await Repo.transactions.count()).toBe(0);
+});
+
+it('forwards only the explicitly reviewed native fee cap through the original provider wrapper', async () => {
+  const request = input();
+  const id = await runXReserveSend(request.operation, request.checks);
+  const row = await Repo.transactions.get(id);
+  expect(row?.extraInputs.usdcxBurn?.networkFeeBudget).toEqual(request.operation.review.networkFeeBudget);
+  expect(bridgeOperationOf(row!)?.review.networkFeeBudget).toEqual(request.operation.review.networkFeeBudget);
+  expect(await Repo.transactions.count()).toBe(1);
+});
+
+it('refuses a changed live native fee cap during the final payout read', async () => {
+  jest.mocked(readUsdcxDestinationSnapshot).mockImplementationOnce(async () => {
+    if (!live.networkFeeBudget) throw new Error('Missing measured fee fixture');
+    live.networkFeeBudget.maxAmount = '900';
+    return { balance: '0', blockNumber: '100' };
+  });
+  await expect(initiateUsdcxBurn(input())).rejects.toThrow();
+  expect(await Repo.transactions.count()).toBe(0);
+});
+
+it('cannot admit a native cap different from the original material review', async () => {
+  const request = input();
+  request.networkFeeBudget.maxAmount = '900';
+  await expect(initiateUsdcxBurn(request)).rejects.toThrow();
+  expect(await Repo.transactions.count()).toBe(0);
+});
+
+it('refuses original-row recovery when the stored native cap no longer matches its operation review', async () => {
+  const request = input();
+  const id = await initiateUsdcxBurn(request);
+  await Repo.transactions.update(id, {
+    'extraInputs.usdcxBurn.networkFeeBudget': { ...request.networkFeeBudget, maxAmount: '900' }
+  });
+  await expect(initiateUsdcxBurn(request)).rejects.toThrow();
+  expect(await Repo.transactions.count()).toBe(1);
+});
+
+it('keeps original-row lookup passive after departure without a new fee measurement or source write', async () => {
+  const request = input();
+  const id = await initiateUsdcxBurn(request);
+  const reads = fetchMock.mock.calls.length;
+  request.checks.readCurrent = async () => {
+    throw new Error('Departed, no new review');
+  };
+  expect(await initiateUsdcxBurn(request)).toBe(id);
+  expect(fetchMock).toHaveBeenCalledTimes(reads);
+  expect(await Repo.transactions.count()).toBe(1);
 });

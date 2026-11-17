@@ -3,11 +3,12 @@ import React from 'react';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 
 import { bindTransferQuote, type QuoteRequest, type TransferQuote } from 'lib/bridge/core/quote';
-import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
+import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
 import { switchWebWalletChain } from 'lib/epoch/client';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 
 import { CommandDraftProvider, useCommandDrafts } from '../command-drafts';
 import { useCommandBridge } from './useCommandBridge';
@@ -16,6 +17,25 @@ let mockSnapshot: BridgeConfigSnapshot;
 let mockLocked = false;
 let mockRpc = 'https://wallet-rpc.example/private';
 let mockAddress = accounts.evmAddress;
+let mockFee: BurnFeeReserve;
+let mockNativeCorroborated = true;
+let mockNativeScaleKnown = true;
+jest.mock('lib/usdcx/use-burn-fee-reserve', () => ({ useBurnFeeReserve: () => mockFee }));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => 'rpc-a|testnet',
+  getNativeAssetIdSync: () => jest.requireActual('lib/bridge/testing/fixtures').native.faucetId,
+  getSdkSyncedNativeAssetIdSync: () =>
+    mockNativeCorroborated ? jest.requireActual('lib/bridge/testing/fixtures').native.faucetId : null
+}));
+jest.mock('lib/miden/metadata/resolve', () => ({
+  resolveDisplayMetadata: () => ({
+    symbol: mockNativeScaleKnown ? 'USDCx' : 'Unknown',
+    name: mockNativeScaleKnown ? 'USDCx' : 'Unknown',
+    decimals: 6,
+    scaleIsUnknown: !mockNativeScaleKnown
+  })
+}));
 const mockState = {
   currentAccount: { publicKey: accounts.midenAccount },
   balances: {} satisfies Record<string, TokenBalanceData[]>,
@@ -73,7 +93,14 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 const useConsumer = () => ({ bridge: useCommandBridge(), drafts: useCommandDrafts() });
 function quote(request: QuoteRequest, received = '1'): TransferQuote {
   return bindTransferQuote(request, {
-    kind: request.route.provider === 'epoch' ? 'epoch' : 'agglayer',
+    kind:
+      request.route.provider === 'epoch'
+        ? 'epoch'
+        : request.route.provider === 'xreserve'
+          ? request.route.mode === 'send'
+            ? 'withdrawal'
+            : 'arc-deposit'
+          : 'agglayer',
     received,
     validity: { kind: 'time', expiresAt: now + 60000 }
   });
@@ -86,6 +113,14 @@ beforeEach(() => {
   mockRpc = scope.rpcUrl;
   mockState.currentAccount.publicKey = accounts.midenAccount;
   mockAddress = accounts.evmAddress;
+  mockFee = {
+    status: 'measured',
+    reserve: 300n,
+    faucetId: native.faucetId,
+    scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+  };
+  mockNativeCorroborated = true;
+  mockNativeScaleKnown = true;
   jest.mocked(quoteBridgeTransfer).mockImplementation(async request => quote(request));
 });
 afterEach(() => {
@@ -257,4 +292,60 @@ it('minimize/reopen restores only unsigned literals, never quote/review/signatur
   );
   expect(screen.getByTestId('amount')).toBeEmptyDOMElement();
   expect(screen.getByTestId('review')).toHaveTextContent('false');
+});
+
+function composeCircle() {
+  const consumer = renderHook(useConsumer, { wrapper });
+  act(() => consumer.result.current.bridge.setDirection('out'));
+  const route = consumer.result.current.bridge.routes.find(item => item.provider === 'xreserve');
+  if (!route) throw new Error('Missing available actual Circle catalog route');
+  act(() => {
+    consumer.result.current.bridge.selectRoute(route.id);
+    consumer.result.current.bridge.setAmount('6');
+    consumer.result.current.bridge.setExternalAccountId(accounts.evmAddress);
+  });
+  return consumer;
+}
+
+it('captures only the measured displayed native cap in Circle review, never in its unsigned draft', async () => {
+  const { result } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  expect(result.current.bridge.review?.networkFeeBudget).toEqual({
+    faucetId: native.faucetId,
+    maxAmount: '300',
+    scope: mockFee.scope
+  });
+  expect(result.current.drafts.readDraft('bridge')).not.toHaveProperty('networkFeeBudget');
+});
+
+it.each(['pending', 'failed', 'wrong faucet', 'wrong source', 'unknown scale', 'uncorroborated native'])(
+  'cannot review Circle from a %s native fee measurement',
+  async kind => {
+    if (kind === 'pending') mockFee = { status: 'pending' };
+    if (kind === 'failed') mockFee = { status: 'failed' };
+    if (kind === 'wrong faucet') mockFee.faucetId = 'other';
+    if (kind === 'wrong source') mockFee.scope = 'b'.repeat(64);
+    if (kind === 'unknown scale') mockNativeScaleKnown = false;
+    if (kind === 'uncorroborated native') mockNativeCorroborated = false;
+    const { result } = composeCircle();
+    await waitFor(() => expect(result.current.bridge.quote).not.toBeNull());
+    expect(result.current.bridge.canReview).toBe(false);
+    act(() => result.current.bridge.reviewTransfer());
+    expect(result.current.bridge.review).toBeUndefined();
+  }
+);
+
+it('invalidates actual Circle review on a changed displayed native cap, not same-cap transport churn', async () => {
+  const { result, rerender } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  const original = result.current.bridge.review;
+  expect(original).toBeDefined();
+  mockFee = { ...mockFee };
+  rerender();
+  expect(result.current.bridge.review).toBe(original);
+  mockFee = { ...mockFee, reserve: 301n };
+  rerender();
+  expect(result.current.bridge.review).toBeUndefined();
 });

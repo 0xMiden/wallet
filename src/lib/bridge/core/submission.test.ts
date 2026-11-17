@@ -204,3 +204,63 @@ it('refuses an otherwise matching review when the captured current start directi
   review.quote.request.recovery = structuredClone(review.route.recovery);
   expect(() => assertReviewedBridge(review, structuredClone(review), now)).toThrow();
 });
+
+function circleSendReview(): ReviewedTransfer {
+  const incoming = cctpReview({ kind: 'provider' });
+  const route = {
+    ...incoming.route,
+    id: 'circle:send:native-fee',
+    mode: 'send',
+    source: incoming.route.destination,
+    destination: incoming.route.source
+  } satisfies ReviewedTransfer['route'];
+  return {
+    route,
+    amount: '6',
+    accounts: { ...accounts },
+    networkFeeBudget: { faucetId: native.faucetId, maxAmount: '300', scope: 'a'.repeat(64) },
+    quote: bindTransferQuote(
+      { route, amount: '6', ...accounts },
+      {
+        kind: 'withdrawal',
+        received: '5.9',
+        fee: '0.1',
+        validity: { kind: 'provider' }
+      }
+    )
+  };
+}
+
+it('accepts the same displayed measured native cap after ordinary JSON transport, including measured zero', () => {
+  const review = circleSendReview();
+  expect(() => assertReviewedBridge(review, JSON.parse(JSON.stringify(review)), now)).not.toThrow();
+  if (!review.networkFeeBudget) throw new Error('Missing fee fixture');
+  review.networkFeeBudget.maxAmount = '0';
+  expect(() => assertReviewedBridge(review, structuredClone(review), now)).not.toThrow();
+});
+
+it.each(['missing', 'empty faucet', 'negative', 'fractional', 'leading zeros', 'invalid source'])(
+  'requires a real canonical native budget, not %s, for a Circle send',
+  kind => {
+    const review = circleSendReview();
+    if (!review.networkFeeBudget) throw new Error('Missing fee fixture');
+    if (kind === 'missing') Reflect.deleteProperty(review, 'networkFeeBudget');
+    if (kind === 'empty faucet') review.networkFeeBudget.faucetId = '';
+    if (kind === 'negative') review.networkFeeBudget.maxAmount = '-1';
+    if (kind === 'fractional') review.networkFeeBudget.maxAmount = '0.1';
+    if (kind === 'leading zeros') review.networkFeeBudget.maxAmount = '0300';
+    if (kind === 'invalid source') review.networkFeeBudget.scope = 'raw-source-placeholder';
+    expect(() => assertReviewedBridge(review, structuredClone(review), now)).toThrow();
+  }
+);
+
+it.each(['maxAmount', 'faucetId', 'scope'])(
+  'requires renewed explicit Circle review when the live native fee %s changes',
+  field => {
+    const review = circleSendReview();
+    const current = structuredClone(review);
+    if (!current.networkFeeBudget) throw new Error('Missing fee fixture');
+    Reflect.set(current.networkFeeBudget, field, field === 'maxAmount' ? '301' : 'b'.repeat(64));
+    expect(() => assertReviewedBridge(review, current, now)).toThrow();
+  }
+);
