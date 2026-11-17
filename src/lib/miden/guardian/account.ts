@@ -214,22 +214,23 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
   return { commitment };
 }
 
-/** Every signer commitment the account holds on chain, in storage order, or none when they cannot be read. */
-export function getSignerCommitmentsFromAccount(account: Account): string[] {
-  try {
-    return AccountInspector.getSignerPublicKeyCommitments(account).map(String);
-  } catch {
-    return [];
-  }
-}
-
-function getSignerCommitmentsForMembership(account: Account): string[] {
+/** The account's signer commitments in storage order, else undefined when they cannot be read. A trap or a kill leaves as itself. */
+function readSignerCommitments(account: Account): string[] | undefined {
   try {
     return AccountInspector.getSignerPublicKeyCommitments(account).map(String);
   } catch (error) {
     rethrowTrapOrKill(error);
-    return [];
+    return undefined;
   }
+}
+
+/**
+ * Every signer commitment the account holds on chain, in storage order, or none
+ * when they cannot be read. A WebAssembly trap or a pipeline kill is not "cannot
+ * be read": it leaves as itself, so the lock around the caller retires the client.
+ */
+export function getSignerCommitmentsFromAccount(account: Account): string[] {
+  return readSignerCommitments(account) ?? [];
 }
 
 /**
@@ -242,7 +243,7 @@ function getSignerCommitmentsForMembership(account: Account): string[] {
  * does not decode, or an account whose signers cannot be read, gives undefined.
  */
 export async function findOwnSignerCommitment(account: Account, publicKeyHex: string): Promise<string | undefined> {
-  const onChain = getSignerCommitmentsForMembership(account);
+  const onChain = getSignerCommitmentsFromAccount(account);
   if (onChain.length === 0) return undefined;
   let own: string;
   try {
@@ -254,9 +255,15 @@ export async function findOwnSignerCommitment(account: Account, publicKeyHex: st
   return onChain.find(commitment => !isEmptyWordHex(stripHexPrefix(commitment)) && sameCommitment(commitment, own));
 }
 
-/** True when the account's signer set holds the given commitment, in any slot. */
+/**
+ * True when the account's signer set holds the given commitment, in any slot.
+ * Throws when the set cannot be read: that is not "not a member", and a caller
+ * that answered it as one would tell the user a key or phrase is wrong.
+ */
 export function hasSignerCommitment(account: Account, commitmentHex: string): boolean {
-  return getSignerCommitmentsForMembership(account).some(commitment => sameCommitment(commitment, commitmentHex));
+  const onChain = readSignerCommitments(account);
+  if (onChain === undefined) throw new Error('The account signer set cannot be read');
+  return onChain.some(commitment => sameCommitment(commitment, commitmentHex));
 }
 
 /**

@@ -226,6 +226,7 @@ const mockResolveGuardianEndpoint = jest.fn((acc: any) => acc?.guardianEndpoint 
 const mockFetchGuardianCreateKey = jest.fn();
 const mockRegisterGuardianAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
+  // Like the real check, an unreadable signer set throws rather than answering "not a member".
   hasSignerCommitment: (account: unknown, commitment: string) =>
     mockGetSignerCommitmentsFromAccount(account).some(onChain =>
       jest.requireActual('lib/secure-hot-key/commitment').sameCommitment(onChain, commitment)

@@ -21,6 +21,7 @@ import {
   fetchGuardianCreateKey,
   findOwnSignerCommitment,
   getGuardianCommitmentFromAccount,
+  getSignerCommitmentsFromAccount,
   getSignerDetailsFromAccount,
   guardianProviderFromEndpoint,
   hasSignerCommitment,
@@ -357,6 +358,31 @@ describe('findOwnSignerCommitment', () => {
   });
 });
 
+describe('getSignerCommitmentsFromAccount', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('is empty for an unreadable signer set', () => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw new Error('not a guarded multisig');
+    });
+    expect(getSignerCommitmentsFromAccount({} as never)).toEqual([]);
+  });
+
+  it.each([
+    new WebAssembly.RuntimeError('unreachable'),
+    new WasmClientPoisonedError('watchdog'),
+    new Error('Client terminated')
+  ])('throws a trap or pipeline kill from the signer read: %s', error => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw error;
+    });
+
+    expect(() => getSignerCommitmentsFromAccount({} as never)).toThrow(error);
+  });
+});
+
 describe('hasSignerCommitment', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -369,14 +395,18 @@ describe('hasSignerCommitment', () => {
     expect(hasSignerCommitment({} as never, '0xAA11')).toBe(true);
   });
 
-  it('is false for a commitment in no slot, and for an unreadable signer set', () => {
+  it('is false for a commitment in no slot', () => {
     mockGetSignerCommitments.mockReturnValue(['0xaa11']);
     expect(hasSignerCommitment({} as never, '0xdd44')).toBe(false);
+  });
 
+  // "Cannot read the set" is not "not a member": the vault would tell the user the key is
+  // not active, or the phrase is wrong, when only the read failed.
+  it('throws, rather than answering false, when the signer set cannot be read', () => {
     mockGetSignerCommitments.mockImplementation(() => {
       throw new Error('not a guarded multisig');
     });
-    expect(hasSignerCommitment({} as never, '0xaa11')).toBe(false);
+    expect(() => hasSignerCommitment({} as never, '0xaa11')).toThrow('signer set cannot be read');
   });
 
   it.each([
