@@ -297,7 +297,7 @@ export function persistBackupState(state: BackupState): Promise<void> {
 export function removeBackupState(state: BackupState): Promise<void> {
   if (!isCurrentState(state, 'removed')) return persistChain;
   persistChain = persistChain
-    .then(() => getStorageProvider().remove([STATE_STORAGE_KEY]))
+    .then(() => (isCurrentState(state, 'removed') ? getStorageProvider().remove([STATE_STORAGE_KEY]) : undefined))
     .catch(error => console.warn('[backup] the local backup state could not be removed', error));
   return persistChain;
 }
