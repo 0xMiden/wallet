@@ -3,7 +3,7 @@ import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
-import { getEvmConnection } from './client';
+import { buildEpochWalletClient, getEvmConnection } from './client';
 import { ensureEpochSmartAccount, getEpochReadOnlySdk, getEpochSdk, getEpochSigningSdk, resetEpochSdk } from './sdk';
 import { TEST_ALLOCATOR_URL } from './testing/bridge-config';
 
@@ -185,5 +185,50 @@ describe('the configured allocator', () => {
     await expect(getEpochReadOnlySdk(EVM_ADDRESS)).rejects.toThrow('no allocator');
     await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow('no allocator');
     expect(EpochIntentSDK).not.toHaveBeenCalled();
+  });
+});
+
+describe('the SDK bound to an expected account', () => {
+  const OTHER_ADDRESS = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+
+  beforeEach(() => {
+    resetEpochSdk();
+    jest.mocked(EpochIntentSDK).mockClear();
+    jest.mocked(buildEpochWalletClient).mockClear();
+    jest.mocked(getEpochAllocatorUrl).mockReset();
+    jest.mocked(getEpochAllocatorUrl).mockReturnValue(TEST_ALLOCATOR_URL);
+  });
+
+  it('gives nothing and builds nothing when another account is connected', async () => {
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: OTHER_ADDRESS, chainId: 11155111, isNative: false });
+
+    await expect(getEpochSdk({ account: EVM_ADDRESS })).resolves.toBeNull();
+
+    expect(buildEpochWalletClient).not.toHaveBeenCalled();
+    expect(EpochIntentSDK).not.toHaveBeenCalled();
+  });
+
+  it('leaves the cache alone when it refuses', async () => {
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: EVM_ADDRESS, chainId: 11155111, isNative: false });
+    const cached = await getEpochSdk();
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: OTHER_ADDRESS, chainId: 11155111, isNative: false });
+    await expect(getEpochSdk({ account: EVM_ADDRESS })).resolves.toBeNull();
+
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: EVM_ADDRESS, chainId: 11155111, isNative: false });
+    expect(await getEpochSdk()).toBe(cached);
+    expect(EpochIntentSDK).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds for the given account when the connected one differs only in letter case', async () => {
+    jest.mocked(getEvmConnection).mockResolvedValue({
+      address: EVM_ADDRESS.toLowerCase(),
+      chainId: 11155111,
+      isNative: false
+    });
+
+    await expect(getEpochSdk({ account: EVM_ADDRESS })).resolves.toBeDefined();
+
+    expect(buildEpochWalletClient).toHaveBeenCalledTimes(1);
+    expect(buildEpochWalletClient).toHaveBeenCalledWith(EVM_ADDRESS, expect.anything());
   });
 });

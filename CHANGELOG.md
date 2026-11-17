@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][all] A Fast bridge-in whose deposit landed in The Compact while Epoch refused its allocation now reads Deposit locked, and its Activity details let the depositing EVM wallet retry the bridge over the locked balance or withdraw the whole lock back after the lock's reset period; Settings > Advanced > Recover locked bridge funds scans The Compact for every Fast bridge-in address and the connected EVM wallet and offers the same withdraw, cancel and retry per lock; the Fast bridge-in flow lets the EVM wallet disable a forced withdrawal and continues with a fresh quote after confirmation (#2120).
 - [FIX][ci] Retain the first Epoch return solve-failure as a keyed fingerprint and finite SDK kind/HTTP status without exporting private errors or changing transaction, retry, timeout or authorization behavior.
 
 - [CHANGE][all] A basket token's page shows its composition, read from its vault: a bar split by each constituent's share of the vault's value and a list of the constituents with their shares. A basket token now has a 24h move, on its page and in every price list, and its page has a chart, both derived from the constituents' market prices weighted by that composition.
