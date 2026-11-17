@@ -17596,7 +17596,7 @@ describe('Guardian proposal effect check', () => {
       });
 
       expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
-      expect(service.abandonCandidate).toHaveBeenCalledWith(12);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(12, 'prop-moved');
       expect(mockDeserializeSummary).not.toHaveBeenCalled();
       expect(claim.status).toBe(ITransactionStatus.Queued);
       expect(claim.nextEligibleAt).toEqual(expect.any(Number));
@@ -17980,8 +17980,12 @@ describe('Guardian proposal effect check', () => {
     });
 
     // Not requeued, since an execute never is, and Retry stays open: the fee was unknown, not the effects changed.
-    const expectFailedAsUnknownFee = (service: ReturnType<typeof serviceWith>, row: Record<string, unknown>) => {
-      expect(service.abandonCandidate).toHaveBeenCalledWith(5);
+    const expectFailedAsUnknownFee = (
+      service: ReturnType<typeof serviceWith>,
+      row: Record<string, unknown>,
+      proposalId: string
+    ) => {
+      expect(service.abandonCandidate).toHaveBeenCalledWith(5, proposalId);
       expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
       expect(row.status).toBe(ITransactionStatus.Failed);
       expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
@@ -17996,7 +18000,7 @@ describe('Guardian proposal effect check', () => {
       });
 
       expect(nativeAsset.cacheScope()).toBe('fixture-rpc|testnet');
-      expectFailedAsUnknownFee(service, row);
+      expectFailedAsUnknownFee(service, row, 'prop-execute-fee-emptied');
     });
 
     it('fails it as an unknown fee when the endpoint moves while its proposal is created', async () => {
@@ -18005,7 +18009,7 @@ describe('Guardian proposal effect check', () => {
       });
 
       expect(nativeAsset.getVerificationBaseFeeSync()).toBe(10000);
-      expectFailedAsUnknownFee(service, row);
+      expectFailedAsUnknownFee(service, row, 'prop-execute-endpoint-moved');
     });
   });
 
@@ -18051,7 +18055,7 @@ describe('Guardian proposal effect check', () => {
       expect(retire).not.toHaveBeenCalled();
       expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
       expect(mockAssertProposalEffect).not.toHaveBeenCalled();
-      expect(service.abandonCandidate).toHaveBeenCalledWith(9);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(9, 'prop-decode-trap');
       // The trap itself fails the row, not the copy of an effects mismatch.
       expect(row).toMatchObject({ status: ITransactionStatus.Failed, error: 'RuntimeError: unreachable' });
     } finally {
@@ -18205,7 +18209,7 @@ describe('Guardian proposal effect check', () => {
 
       expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
       expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
-      expect(service.abandonCandidate).toHaveBeenCalledWith(12);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(12, 'prop-bridge-12');
       expect(client.transactions.executeRequest).not.toHaveBeenCalled();
       expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
       expect(row.status).toBe(ITransactionStatus.Failed);
@@ -18231,7 +18235,7 @@ describe('Guardian proposal effect check', () => {
 
         expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
         expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
-        expect(service.abandonCandidate).toHaveBeenCalledWith(15);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(15, 'prop-bridge-15');
         expect(client.transactions.executeRequest).not.toHaveBeenCalled();
         expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
         expect(row.status).toBe(ITransactionStatus.Failed);
@@ -18393,7 +18397,7 @@ describe('Guardian proposal effect check', () => {
         const row = await run(bridge('bridge-fee-unknown'));
 
         expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
-        expect(service.abandonCandidate).toHaveBeenCalledWith(14);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(14, 'prop-bridge-14');
         expect(client.transactions.executeRequest).not.toHaveBeenCalled();
         expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
         expect(row.status).toBe(ITransactionStatus.Failed);
