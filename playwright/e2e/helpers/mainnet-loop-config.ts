@@ -166,7 +166,9 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
   const configuredPolicy = parseOneClickFeePolicy(previous.feePolicy);
   const feePolicy =
     configuredPolicy ??
-    (url.origin === 'https://1click.chaindefuser.com' && url.pathname.replace(/\/+$/, '') === ''
+    (url.origin === 'https://1click.chaindefuser.com' &&
+    url.pathname.replace(/\/+$/, '') === '' &&
+    Array.isArray(previous.appFees) && previous.appFees.length > 0
       ? {
           kind: 'partner',
           platformRecipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd',

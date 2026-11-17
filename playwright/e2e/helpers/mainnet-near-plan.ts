@@ -29,6 +29,22 @@ export interface MainnetNearPlanningFacts {
   nativeAsset: OneClickAsset;
   candidates: { holding: MainnetEvmHolding; tokenUsdMicros: bigint; gasUsdMicros: bigint }[];
 }
+export function usesMainnetNearSignedEconomics(config: Pick<OneClickConfig, 'serviceUrl' | 'feePolicy' | 'appFees'>) {
+  return /^https:\/\/1click\.chaindefuser\.com\/?$/.test(config.serviceUrl) &&
+    !config.feePolicy && !config.appFees?.length;
+}
+
+export function signedMainnetNearFees(response: OneClickQuoteResponse, inputPrice: bigint, outputPrice: bigint) {
+  if (response.quoteRequest.dry) throw new Error('Native NEAR requires signed execution terms');
+  const { amountIn, minAmountOut, refundFee, withdrawFee } = response.quote;
+  if (refundFee === undefined || !/^\d+$/.test(refundFee) || BigInt(refundFee) >= BigInt(amountIn))
+    throw new Error('Native NEAR quote lacks a bounded refund fee');
+  if (withdrawFee !== undefined && (!/^\d+$/.test(withdrawFee) || BigInt(withdrawFee) >= BigInt(minAmountOut)))
+    throw new Error('Native NEAR quote lacks a bounded withdrawal fee');
+  return tokenValueUsdMicro(BigInt(refundFee), 6, inputPrice, true) +
+    tokenValueUsdMicro(BigInt(withdrawFee ?? '0'), 6, outputPrice, true);
+}
+
 export async function prepareMainnetNearRoundTrip(
   facts: MainnetNearPlanningFacts,
   quote: (request: OneClickQuoteRequest) => Promise<OneClickQuoteResponse | undefined>
@@ -81,12 +97,13 @@ export async function prepareMainnetNearRoundTrip(
   const loss = (value: OneClickQuoteResponse, inputPrice: bigint, outputPrice: bigint): bigint => {
     const input = tokenValueUsdMicro(BigInt(value.quote.amountIn), 6, inputPrice, true);
     const output = tokenValueUsdMicro(BigInt(value.quote.minAmountOut), 6, outputPrice, false);
+    const marketLoss = input > output ? input - output : 0n;
+    if (usesMainnetNearSignedEconomics(facts.config))
+      return marketLoss + signedMainnetNearFees(value, inputPrice, outputPrice);
     if (value.quote.refundFee === undefined) throw new Error('Native NEAR quote lacks a bounded refund fee');
-    return (
-      (input > output ? input - output : 0n) +
+    return marketLoss +
       tokenValueUsdMicro(BigInt(value.quote.refundFee), 6, inputPrice, true) +
-      tokenValueUsdMicro(BigInt(value.quote.withdrawFee ?? '0'), 6, outputPrice, true)
-    );
+      tokenValueUsdMicro(BigInt(value.quote.withdrawFee ?? '0'), 6, outputPrice, true);
   };
   const candidates: {
     state: MainnetNearCheckpoint;
