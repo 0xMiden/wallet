@@ -45,6 +45,16 @@ describe('known-bug registry', () => {
     }
   });
 
+  it.each(['S7', 'M1', 'WP7-switch', 'WP7-revoke', 'WP9'])('requires the SDK 0.18 fixed cell %s to pass', cell => {
+    const registry = registryOf(KNOWN_BUGS);
+    expect(registry.bugsFor(cell, 'extension', 'offchain')).toEqual([]);
+    expect(registry.bugsFor(cell, 'extension', 'guardian')).toEqual([]);
+    expect(registry.bugsFor(cell, 'ios', 'offchain')).toEqual([]);
+    expect(registry.bugsFor(cell, 'ios', 'guardian')).toEqual([]);
+    expect(registry.bugsFor(cell, 'android', 'offchain')).toEqual([]);
+    expect(registry.bugsFor(cell, 'android', 'guardian')).toEqual([]);
+  });
+
   it('K1 matches a provider that moved while the adapter kept the old address', () => {
     expect(bug('K1').cells).toEqual({
       S7: ON_EXTENSION,
