@@ -77,6 +77,34 @@ test('observe exact browser dry quote fee fields without opening Review or armin
     report.returnedFees = fees(record(quoteRequest) ? quoteRequest.appFees : undefined, platform);
     report.stage = 'dry-quote-fees-observed';
     assert.ok(response.ok() && record(quoteRequest) && quoteRequest.dry === true);
+    assert.ok(record(sent) && sent.appFees === undefined && sent.slippageTolerance === 100);
+    const wet = await walletB.page.evaluate(async ({ endpoint, platform, request }) => {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+        body: JSON.stringify(request)
+      });
+      const body = await response.json();
+      const list: unknown = body?.quoteRequest?.appFees;
+      const result = { httpStatus: response.status, wetQuote: body?.quoteRequest?.dry === false,
+        hasDepositAddress: typeof body?.quote?.depositAddress === 'string' && body.quote.depositAddress.length > 0 };
+      if (list === undefined) return { ...result, feeShape: 'absent' };
+      if (!Array.isArray(list) || list.length > 3) return { ...result, feeShape: 'invalid' };
+      return { ...result, feeShape: 'list', fees: list.map(entry => {
+        if (typeof entry?.recipient !== 'string' || !Number.isSafeInteger(entry?.fee) || entry.fee < 0 || entry.fee > 1000)
+          return { valid: false };
+        return { valid: true, platform: entry.recipient === platform, bps: entry.fee };
+      }) };
+    }, { endpoint, platform, request: {
+      dry: false, swapType: 'EXACT_INPUT', slippageTolerance: 100, originAsset: native.assetId,
+      depositType: 'ORIGIN_CHAIN', destinationAsset: evm.assetId, amount: state.principal,
+      refundTo: state.account, refundType: 'ORIGIN_CHAIN', recipient: state.evm.account,
+      recipientType: 'DESTINATION_CHAIN', deadline: new Date(Date.now() + 300_000).toISOString()
+    } });
+    report.unsignedNonDry = wet;
+    report.stage = 'dry-and-unsigned-non-dry-fees-observed';
+    assert.ok(wet.wetQuote && wet.hasDepositAddress);
     await walletB.triggerSync(true);
     await walletB.refreshBalancesLanded(90_000);
     report.nativeBalanceUnchanged = (await vaultBalanceByFaucetId(walletB.page, state.native.faucetId)) === before;
