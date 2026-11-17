@@ -1,7 +1,6 @@
 import React, { FC, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { formatUnits } from 'viem';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { shortenAddress } from 'app/templates/EvmConnectModal/shared';
@@ -12,6 +11,7 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Skeleton } from 'components/ui/Skeleton';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import {
   type AddressLockScan,
   collectBridgeInSponsors,
@@ -73,7 +73,14 @@ const AddressSection: FC<{ scan: AddressLockScan; connected: boolean }> = ({ sca
           {held.map(entry => (
             <ListRow
               key={`${entry.chainId}:${entry.lockId}`}
-              title={`${formatUnits(entry.read.balance, entry.token.decimals)} ${entry.token.symbol}`}
+              title={
+                <TokenAmount
+                  amount={entry.read.balance}
+                  decimals={entry.token.decimals}
+                  symbol={entry.token.symbol}
+                  rounding="down"
+                />
+              }
               subtitle={networkName(entry.chainId)}
               to={recoverFundsLockPath({ sponsorAddress: scan.address, chainId: entry.chainId, lockId: entry.lockId })}
               chevron

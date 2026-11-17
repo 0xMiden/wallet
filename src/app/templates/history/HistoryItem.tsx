@@ -206,7 +206,6 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
           </span>
         )}
         <StatusBadge status={epochReturn.status ?? (hasOwnBridgeBadge(entry) ? bridgeBadgeStatusOf(entry) : status)} />
-
       </div>
     </div>
   );

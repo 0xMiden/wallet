@@ -35,16 +35,16 @@ jest.mock('lib/walletconnect/signing-error', () => ({
 }));
 
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+const USDC_TOKEN = {
+  key: 'USDC',
+  address: '0x0000000000000000000000000000000000000002',
+  chainId: 11155111,
+  symbol: 'USDC',
+  decimals: 6
+};
+const mockSelectTokens = jest.fn();
 jest.mock('lib/remote-config/values', () => ({
-  selectEpochTokens: () => [
-    {
-      key: 'USDC',
-      address: '0x0000000000000000000000000000000000000002',
-      chainId: 11155111,
-      symbol: 'USDC',
-      decimals: 6
-    }
-  ]
+  selectEpochTokens: (...args: unknown[]) => mockSelectTokens(...args)
 }));
 
 const mockReadState = jest.fn();
@@ -98,6 +98,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
   mockLocation.search = `?address=${SPONSOR}`;
+  mockSelectTokens.mockReturnValue([USDC_TOKEN]);
   mockConnection.address = SPONSOR;
   mockConnection.connected = true;
   mockReadState.mockResolvedValue({ balance: 2_500_000n, withdrawal: { status: 'Disabled' } });
@@ -128,6 +129,23 @@ describe('RecoverLockedFundsLock', () => {
     expect(mockFinish).not.toHaveBeenCalled();
     // The action asks for a fresh read of the lock.
     expect(mockReadState).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the exact amount of a listed token, with no rounding', async () => {
+    mockReadState.mockResolvedValue({ balance: 123_456_789_123_456n, withdrawal: { status: 'Disabled' } });
+    await renderLock();
+
+    expect(screen.getByTestId('recover-funds-lock-balance')).toHaveTextContent('123456789.123456 USDC');
+  });
+
+  it('shows the unknown-scale text, never base units, for a token the document does not list', async () => {
+    mockSelectTokens.mockReturnValue([]);
+    await renderLock();
+
+    const balance = screen.getByTestId('recover-funds-lock-balance');
+    expect(balance).toHaveTextContent('assetValueUnknownScale');
+    expect(balance).not.toHaveTextContent('2500000');
+    expect(balance).not.toHaveTextContent('2.5');
   });
 
   it('counts down a pending withdrawal from the chain, and cancels it', async () => {

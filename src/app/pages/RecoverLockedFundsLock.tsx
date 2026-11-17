@@ -1,7 +1,6 @@
 import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { formatUnits } from 'viem';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useNowSec } from 'app/hooks/useNowSec';
@@ -14,6 +13,7 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { formatWithdrawCountdown, secondsUntilWithdrawable } from 'lib/epoch/bridge-in-lock';
 import {
   compactLockToken,
@@ -197,11 +197,20 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
   );
 
   const balance = state.chain.balance;
-  const balanceText = (() => {
+  const balanceContent = (() => {
     if (!state.loaded) return t('recoverFundsChecking');
     if (balance === undefined) return t('recoverFundsCouldNotCheckShort');
-    if (token === undefined) return `${balance.toString()} ${tokenSymbol}`;
-    return `${formatUnits(balance, token.decimals)} ${tokenSymbol}`;
+    // A token the document does not list has no known scale, so the page never guesses one.
+    if (token === undefined) return t('assetValueUnknownScale');
+    return (
+      <TokenAmount
+        amount={balance}
+        decimals={token.decimals}
+        symbol={token.symbol}
+        formatting="exact"
+        rounding="down"
+      />
+    );
   })();
   const withdrawalText = (() => {
     if (!state.loaded) return t('recoverFundsChecking');
@@ -302,7 +311,7 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
           </DetailRow>
           <DetailRow label={t('network')}>{network}</DetailRow>
           <DetailRow label={t('recoverFundsLocked')} data-testid="recover-funds-lock-balance">
-            {balanceText}
+            {balanceContent}
           </DetailRow>
           <DetailRow label={t('recoverFundsWithdrawal')} data-testid="recover-funds-lock-status">
             {withdrawalText}

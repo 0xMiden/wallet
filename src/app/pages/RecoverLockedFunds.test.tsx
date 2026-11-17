@@ -106,6 +106,27 @@ describe('RecoverLockedFunds', () => {
     expect(rows[0]).toHaveAttribute('href', `/settings/recover-funds/11155111/42?address=${SPONSOR}`);
   });
 
+  it('shows a fractional and a large balance through the amount policy', async () => {
+    mockScan.mockResolvedValue([
+      {
+        address: SPONSOR,
+        entries: [
+          { chainId: 11155111, token: USDC, lockId: '42', read: { state: 'ok', balance: 123_456n } },
+          { chainId: 11155111, token: USDC, lockId: '44', read: { state: 'ok', balance: 123_456_789_999_999n } },
+          { chainId: 8453, token: ETH, lockId: '43', read: { state: 'ok', balance: 1_500_000_000_000_000_000n } }
+        ]
+      }
+    ]);
+    await renderPage();
+
+    const rows = screen.getAllByTestId('recover-funds-lock');
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent('0.12 USDC');
+    // The display rounds down, so the amount shown is never above the amount held.
+    expect(rows[1]).toHaveTextContent(/^123456789\.99 USDC/);
+    expect(rows[2]).toHaveTextContent('1.5 ETH');
+  });
+
   it('says when an address holds nothing, and never shows a failed read as zero', async () => {
     mockScan.mockResolvedValue([
       {
