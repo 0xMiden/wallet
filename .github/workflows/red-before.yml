@@ -57,6 +57,11 @@ permissions:
 jobs:
   run:
     name: Red-before (${{ inputs.expect }})
+    # Never scheduled on the default branch or a tag: the tested commit's code
+    # runs in this job, and only a run on another branch is kept out of the
+    # default branch's Actions cache scope. The Validate step repeats the check
+    # with an error message.
+    if: github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
     runs-on: ubuntu-latest
     # A linked web-sdk PR is built from source first (linked-pr-injection.test.ts).
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 30 }}
