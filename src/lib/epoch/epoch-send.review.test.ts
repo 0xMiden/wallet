@@ -234,11 +234,21 @@ it.each(['outer', 'direct'])('refuses revoked live consent during collateral bui
     revoked = true;
     return { requestBytes: new Uint8Array([81, 82]), reclaimHeight: 6000, noteId: 'original-built-note' };
   });
-  const outcome = caller === 'outer'
-    ? await runEpochSend(input.operation!, { ...input.deps, ...{ checks } }).then(() => 'admitted', () => 'refused')
-    : await createBridgeP2IDENote({ ...directNoteInput(), ...{ checks } }).then(
-      result => result.success ? 'admitted' : 'refused', () => 'refused');
-  expect({ outcome, rows: await Repo.transactions.count(), builds: jest.mocked(buildEpochCollateralRequestBytes).mock.calls.length }).toEqual({ outcome: 'refused', rows: 0, builds: 1 });
+  const outcome =
+    caller === 'outer'
+      ? await runEpochSend(input.operation!, { ...input.deps, ...{ checks } }).then(
+          () => 'admitted',
+          () => 'refused'
+        )
+      : await createBridgeP2IDENote({ ...directNoteInput(), ...{ checks } }).then(
+          result => (result.success ? 'admitted' : 'refused'),
+          () => 'refused'
+        );
+  expect({
+    outcome,
+    rows: await Repo.transactions.count(),
+    builds: jest.mocked(buildEpochCollateralRequestBytes).mock.calls.length
+  }).toEqual({ outcome: 'refused', rows: 0, builds: 1 });
 });
 
 it('keeps account and collateral identifiers out of real note admission diagnostics', async () => {

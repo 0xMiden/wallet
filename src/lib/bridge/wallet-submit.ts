@@ -9,7 +9,13 @@ import { isExtension } from 'lib/platform';
 import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
 import { useWalletStore } from 'lib/store';
 
-import { evaluateBalanceCap, priceSymbolsForBalanceCap, type BalanceCapEvaluation, type BalanceCapPrices, type MidenBalances } from './core/balance-cap';
+import {
+  evaluateBalanceCap,
+  priceSymbolsForBalanceCap,
+  type BalanceCapEvaluation,
+  type BalanceCapPrices,
+  type MidenBalances
+} from './core/balance-cap';
 import { assertReviewedBridge, type BridgeReviewContext, type ReviewedTransfer } from './core/review';
 import { configKey, type BridgeRoute } from './core/routes';
 import type { SubmissionChecks } from './core/submission';
@@ -30,14 +36,20 @@ export function walletBridgeBalanceCap(route: BridgeRoute, amount: string, accou
     return { status: 'allowed' };
   const state = useWalletStore.getState();
   const rows = state.balances[account];
-  if (!rows || state.balancesLoading[account] || state.balanceReadFailed[account] || state.tokenPricesStatus !== 'ready')
+  if (
+    !rows ||
+    state.balancesLoading[account] ||
+    state.balanceReadFailed[account] ||
+    state.tokenPricesStatus !== 'ready'
+  )
     return { status: 'unavailable' };
   const balances: MidenBalances = {};
   for (const row of rows) {
     if (!hasKnownScale(row.metadata)) continue;
     if (row.balanceBaseUnits === undefined || !/^\d+$/.test(row.balanceBaseUnits)) return { status: 'unavailable' };
     balances[row.tokenId] = {
-      amountRaw: BigInt(row.balanceBaseUnits), decimals: row.metadata.decimals,
+      amountRaw: BigInt(row.balanceBaseUnits),
+      decimals: row.metadata.decimals,
       pricingSymbol: strictPriceSymbolFor(row.tokenId, row.metadata.symbol, route.recovery.network)
     };
   }
@@ -53,7 +65,10 @@ export function walletBridgeBalanceCap(route: BridgeRoute, amount: string, accou
   return evaluateBalanceCap(route, amount, balances, prices, now);
 }
 
-const inputs = new WeakMap<ReviewedTransfer, { operation: BridgeOperationInput; scope: ReturnType<typeof captureBridgeWalletScope> }>();
+const inputs = new WeakMap<
+  ReviewedTransfer,
+  { operation: BridgeOperationInput; scope: ReturnType<typeof captureBridgeWalletScope> }
+>();
 
 export async function submitReviewedBridge(
   review: ReviewedTransfer,
@@ -61,14 +76,21 @@ export async function submitReviewedBridge(
 ): Promise<BridgeSubmissionOutcome> {
   let captured = inputs.get(review);
   if (!captured) {
-    captured = { operation: { operationId: uuid(), review: structuredClone(review) }, scope: captureBridgeWalletScope() };
+    captured = {
+      operation: { operationId: uuid(), review: structuredClone(review) },
+      scope: captureBridgeWalletScope()
+    };
     inputs.set(review, captured);
   }
   const { operation, scope } = captured;
   let rowId: string | undefined;
   const notify = (id: string) => {
     rowId = id;
-    try { deps.onOperation(id); } catch { /* Observer departure cannot revoke or erase original admitted facts. */ }
+    try {
+      deps.onOperation(id);
+    } catch {
+      /* Observer departure cannot revoke or erase original admitted facts. */
+    }
   };
   const readCurrent = async () => {
     const current = deps.getContext();
@@ -79,8 +101,11 @@ export async function submitReviewedBridge(
     return current;
   };
   const checks: SubmissionChecks = {
-    readCurrent, now: () => Date.now(),
-    verifyBalanceCap: async () => { await readCurrent(); }
+    readCurrent,
+    now: () => Date.now(),
+    verifyBalanceCap: async () => {
+      await readCurrent();
+    }
   };
   try {
     const original = await findAdmittedBridgeOperation(operation);
@@ -114,7 +139,7 @@ export async function submitReviewedBridge(
       const wallet = await deps.getEvmWallet();
       await readCurrent();
       if (!wallet) return { kind: 'rejected' };
-      const provider: EIP1193Provider = { request: wallet.transport.request };
+      const provider: Pick<EIP1193Provider, 'request'> = { request: wallet.transport.request };
       if (route.provider === 'agglayer') {
         const { runAgglayerReceive } = await import('./providers/agglayer/flows');
         const { agglayerReadClient } = await import('./providers/agglayer/provider');

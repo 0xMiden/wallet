@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useDisconnect } from '@reown/appkit/react';
+import { useAppKitNetwork, useDisconnect } from '@reown/appkit/react';
 import { isAddress } from 'viem';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
@@ -8,16 +8,21 @@ import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { sameAsset } from 'lib/bridge/core/assets';
 import { assertReviewedBridge, type BridgeReviewContext, type ReviewedTransfer } from 'lib/bridge/core/review';
-import { configKey, type BridgeRoute } from 'lib/bridge/core/routes';
+import { configKey } from 'lib/bridge/core/routes';
 import { validateTransferAmount } from 'lib/bridge/core/rules';
-import { type TransferQuote, isQuoteReviewable } from 'lib/bridge/core/quote';
-import { walletBridgeBalanceCap } from 'lib/bridge/wallet-submit';
+import type { TransferQuote } from 'lib/bridge/core/quote';
+import { submitReviewedBridge, walletBridgeBalanceCap } from 'lib/bridge/wallet-submit';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
 import { buildEpochWalletClient, getEvmConnection, switchWebWalletChain } from 'lib/epoch/client';
 import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { WalletStatus } from 'lib/shared/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { ensureNativeSessionChain } from 'lib/walletconnect/native';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
@@ -38,12 +43,19 @@ export function useCommandBridge() {
   useWalletStore(state => state.tokenPrices);
   useWalletStore(state => state.tokenPricesStatus);
   const wallet = useEvmWalletConnection();
+  const { chainId } = useAppKitNetwork();
   const { disconnect } = useDisconnect();
   const exit = useBackWithFallback();
   const scope = configKey([account?.publicKey, getEffectiveNetworkName(), getEffectiveRpcUrl(), locked]);
-  const [selection, setSelection] = useState<CommandDrafts['bridge']>(() => drafts.readDraft('bridge') ?? {
-    direction: 'in', route: '', amount: '', externalAccountId: ''
-  });
+  const [selection, setSelection] = useState<CommandDrafts['bridge']>(
+    () =>
+      drafts.readDraft('bridge') ?? {
+        direction: 'in',
+        route: '',
+        amount: '',
+        externalAccountId: ''
+      }
+  );
   const selected = useRef(selection);
   const scopeRef = useRef(scope);
   const generation = useRef(0);
@@ -73,17 +85,38 @@ export function useCommandBridge() {
   }
   useEffect(() => {
     alive.current = true;
-    return () => { alive.current = false; generation.current++; consent.current = undefined; };
+    return () => {
+      alive.current = false;
+      generation.current++;
+      consent.current = undefined;
+    };
   }, []);
-  const routes = locked ? [] : deriveBridgeRoutes(snapshot).filter(route => route.mode === (selection.direction === 'in' ? 'receive' : 'send'));
-  const route = routes.find(item => item.id === selection.route) ?? routes.find(item => !(item.provider === 'epoch' && item.mode === 'receive')) ?? routes[0];
-  const externalAccountId = selection.direction === 'in' ? wallet.address ?? '' : selection.externalAccountId;
-  const context: BridgeReviewContext | undefined = route && account && !locked ? {
-    route, amount: selection.amount, accounts: { midenAccount: account.publicKey, evmAddress: externalAccountId }
-  } : undefined;
+  const routes = locked
+    ? []
+    : deriveBridgeRoutes(snapshot).filter(route => route.mode === (selection.direction === 'in' ? 'receive' : 'send'));
+  const route =
+    routes.find(item => item.id === selection.route) ??
+    routes.find(item => !(item.provider === 'epoch' && item.mode === 'receive')) ??
+    routes[0];
+  const externalAccountId = selection.direction === 'in' ? (wallet.address ?? '') : selection.externalAccountId;
+  const context: BridgeReviewContext | undefined =
+    route && account && !locked
+      ? {
+          route,
+          amount: selection.amount,
+          accounts: { midenAccount: account.publicKey, evmAddress: externalAccountId }
+        }
+      : undefined;
   const current = useRef(context);
   current.current = context;
-  const material = configKey([scope, route, externalAccountId, wallet.connected]);
+  const material = configKey([
+    scope,
+    route,
+    externalAccountId,
+    wallet.connected,
+    chainId,
+    wallet.nativeReown.state?.chainIds
+  ]);
   const materialRef = useRef(material);
   if (materialRef.current !== material) {
     materialRef.current = material;
@@ -104,9 +137,21 @@ export function useCommandBridge() {
     if (!next) return;
     change({ route: id, amount: route && sameAsset(route.source, next.source) ? selected.current.amount : '' });
   };
-  const sourceReady = selection.direction === 'out' || Boolean(wallet.connected && wallet.address);
+  const sourceChain = route && route.recovery.config.supportedEvmChains[route.source.network]?.chainId;
+  const sourceReady =
+    selection.direction === 'out' ||
+    Boolean(
+      wallet.connected &&
+      wallet.address &&
+      sourceChain &&
+      (wallet.useNativeReownWallet
+        ? wallet.nativeReown.state.chainIds?.includes(sourceChain)
+        : Number(chainId) === sourceChain)
+    );
   const blocked = route?.provider === 'epoch' && route.mode === 'receive';
-  const cap = context ? walletBridgeBalanceCap(context.route, context.amount, context.accounts.midenAccount) : { status: 'unavailable' };
+  const cap = context
+    ? walletBridgeBalanceCap(context.route, context.amount, context.accounts.midenAccount)
+    : { status: 'unavailable' };
   const quoteKey = configKey([material, selection.amount, revision]);
   useEffect(() => {
     const abort = new AbortController();
@@ -115,36 +160,65 @@ export function useCommandBridge() {
     setQuote(null);
     setIsQuoting(false);
     if (!captured || !sourceReady || !isAddress(captured.accounts.evmAddress) || blocked) return;
-    try { validateTransferAmount(captured.route, captured.amount); } catch { return; }
+    try {
+      validateTransferAmount(captured.route, captured.amount);
+    } catch {
+      return;
+    }
     setIsQuoting(true);
-    void quoteBridgeTransfer({ route: captured.route, amount: captured.amount, ...captured.accounts }, abort.signal).then(
-      result => {
-        if (!abort.signal.aborted && alive.current && original === generation.current) setQuote(result);
-      },
-      () => { if (!abort.signal.aborted && alive.current && original === generation.current) setError(true); }
-    ).finally(() => {
-      if (!abort.signal.aborted && alive.current && original === generation.current) setIsQuoting(false);
-    });
+    void quoteBridgeTransfer({ route: captured.route, amount: captured.amount, ...captured.accounts }, abort.signal)
+      .then(
+        result => {
+          if (!abort.signal.aborted && alive.current && original === generation.current) setQuote(result);
+        },
+        () => {
+          if (!abort.signal.aborted && alive.current && original === generation.current) setError(true);
+        }
+      )
+      .finally(() => {
+        if (!abort.signal.aborted && alive.current && original === generation.current) setIsQuoting(false);
+      });
     return () => abort.abort();
   }, [quoteKey, sourceReady, blocked]);
+  const quoteDeadline =
+    quote?.validity.kind === 'time'
+      ? quote.validity.expiresAt
+      : quote?.kind === 'cctp' && quote.authorization.expiresAt !== undefined
+        ? quote.authorization.expiresAt * 1000
+        : undefined;
+  useQuoteClock(quoteDeadline);
   let canReview = false;
   if (context && sourceReady && !blocked && !isSubmitting && !operationId && cap.status === 'allowed') {
     try {
       assertReviewedBridge({ ...context, quote: quote ?? undefined }, context, Date.now());
       canReview = true;
-    } catch { /* An incomplete quote or selection is not consent. */ }
+    } catch {
+      /* An incomplete quote or selection is not consent. */
+    }
   }
   const reviewTransfer = () => {
     if (!canReview || !current.current || pending.current) return;
     const captured: ReviewedTransfer = structuredClone({ ...current.current, quote: quote ?? undefined });
-    assertReviewedBridge(captured, current.current, Date.now());
+    try {
+      assertReviewedBridge(captured, current.current, Date.now());
+    } catch {
+      setError(true);
+      return;
+    }
     consent.current = captured;
     setReview(captured);
   };
   const back = useCallback(() => {
-    if (operationId || pending.current) { invalidate(); exit(); return; }
+    if (operationId || pending.current) {
+      invalidate();
+      exit();
+      return;
+    }
     if (review) invalidate();
-    else { invalidate(); exit(); }
+    else {
+      invalidate();
+      exit();
+    }
   }, [review, operationId, invalidate, exit]);
   const connectWallet = async () => {
     invalidate();
@@ -158,7 +232,9 @@ export function useCommandBridge() {
         await appkit.prepareAppKitConnection();
         await appkit.openConnectModal();
       }
-    } catch { if (alive.current) setError(true); }
+    } catch {
+      if (alive.current) setError(true);
+    }
   };
   const switchSource = async () => {
     const captured = current.current;
@@ -170,16 +246,95 @@ export function useCommandBridge() {
       if (wallet.useNativeReownWallet) await ensureNativeSessionChain(wallet.nativeReown.state, chain.chainId);
       else await switchWebWalletChain(chain.chainId);
       if (alive.current) setRevision(value => value + 1);
-    } catch { if (alive.current) setError(true); }
+    } catch {
+      if (alive.current) setError(true);
+    }
   };
-  const submit = async () => undefined;
+  const submit = async () => {
+    const captured = consent.current;
+    if (!captured || captured !== review || pending.current || operationId) return;
+    const originalGeneration = generation.current;
+    const originalScope = scopeRef.current;
+    const getContext = (): BridgeReviewContext => {
+      const live = current.current;
+      const state = useWalletStore.getState();
+      const latestRoute = live && deriveBridgeRoutes(getBridgeConfigSnapshot()).find(item => item.id === live.route.id);
+      if (
+        !alive.current ||
+        consent.current !== captured ||
+        originalGeneration !== generation.current ||
+        scopeRef.current !== originalScope ||
+        !live ||
+        !latestRoute ||
+        state.status === WalletStatus.Locked ||
+        state.currentAccount?.publicKey !== live.accounts.midenAccount
+      )
+        throw new EpochReviewChangedError();
+      return { ...live, route: latestRoute };
+    };
+    pending.current = true;
+    setIsSubmitting(true);
+    setError(false);
+    try {
+      const outcome = await submitReviewedBridge(captured, {
+        signTransaction,
+        guardianProvider: zustandProvider,
+        getContext,
+        getEvmWallet: async () => {
+          const live = getContext();
+          const connection = await getEvmConnection();
+          getContext();
+          const chain = live.route.recovery.config.supportedEvmChains[live.route.source.network];
+          if (
+            !chain ||
+            !connection.address ||
+            connection.address.toLowerCase() !== live.accounts.evmAddress.toLowerCase() ||
+            (!connection.isNative && connection.chainId !== chain.chainId)
+          )
+            throw new EpochReviewChangedError();
+          return buildEpochWalletClient(`0x${connection.address.slice(2)}`, { chainOverride: chain.chainId });
+        },
+        onOperation: id => {
+          if (alive.current && consent.current === captured) {
+            setOperationId(id);
+            drafts.clearDraft('bridge');
+          }
+        }
+      });
+      if (alive.current && consent.current === captured && outcome.kind === 'rejected') {
+        invalidate();
+        setError(true);
+      }
+    } finally {
+      pending.current = false;
+      if (alive.current) setIsSubmitting(false);
+    }
+  };
   return {
-    ...selection, externalAccountId, routes, route, quote, review, cap, error, blocked, operationId,
-    isQuoting, isSubmitting, canReview, sourceReady, connected: wallet.connected,
+    ...selection,
+    externalAccountId,
+    routes,
+    route,
+    quote,
+    review,
+    cap,
+    error,
+    blocked,
+    operationId,
+    isQuoting,
+    isSubmitting,
+    canReview,
+    sourceReady,
+    connected: wallet.connected,
     environment: getEffectiveNetworkName(),
     setAmount: (amount: string) => change({ amount, route: route?.id ?? '' }),
     setExternalAccountId: (externalAccountId: string) => change({ externalAccountId }),
     setDirection: (direction: 'in' | 'out') => change({ direction, route: '', amount: '' }),
-    selectRoute, reviewTransfer, submit, back, connectWallet, switchSource
+    selectRoute,
+    reviewTransfer,
+    submit,
+    back,
+    connectWallet,
+    switchSource
   };
 }

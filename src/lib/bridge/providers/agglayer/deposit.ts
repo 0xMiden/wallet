@@ -42,7 +42,7 @@ export type AgglayerClient = SourceTransactionClient &
 export interface AgglayerDepositRequest {
   rowId: string;
   operation: BridgeOperationSnapshot;
-  provider: EIP1193Provider;
+  provider: Pick<EIP1193Provider, 'request'>;
   client: AgglayerClient;
   checks: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }

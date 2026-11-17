@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FEATURE][extension] Bridge in the fullscreen Command workbench reviews real provider quotes, restores unsigned choices and follows original wallet operations without duplicate funding; fixed-input Epoch bridge-in remains unavailable with the installed provider.
+
 - [FIX][all] Bind Circle bridge quotes, approvals, burn receipts and manual executions to the original wallet operation, preserving exact payout proof and conservative recovery without duplicate funding or gas prompts.
 
 - [CHANGE][all] Port bridge route, quote-review and recovery contracts from the bridge portal, using accepted wallet configuration and verified token identities without changing transaction execution.

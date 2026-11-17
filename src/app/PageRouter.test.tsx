@@ -156,6 +156,9 @@ jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div da
 jest.mock('screens/command/CommandPortfolio', () => ({
   CommandPortfolio: () => <div data-testid="command-portfolio" />
 }));
+jest.mock('screens/command/bridge/CommandBridge', () => ({
+  CommandBridge: () => <div data-testid="command-bridge" />
+}));
 jest.mock('screens/command/CommandHomePrompts', () => ({
   CommandHomePrompts: () => <div data-testid="command-notices" />
 }));
@@ -347,7 +350,7 @@ describe('Command routing', () => {
     ['/earn/positions', 'earn-positions'],
     ['/earn/vaults/v1/deposit', 'earn-deposit-amount'],
     ['/earn/positions/p1/withdraw/review', 'earn-withdraw-review'],
-    ['/bridge/deposit', 'bridge-deposit']
+    ['/bridge/deposit', 'command-bridge']
   ])('renders only the active %s controller in the Command workbench', (path, id) => {
     mockExtension.value = true;
     renderAt(path, { ...ready, fullPage: true });

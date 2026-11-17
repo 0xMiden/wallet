@@ -19,33 +19,64 @@ let mockAddress = accounts.evmAddress;
 const mockState = {
   currentAccount: { publicKey: accounts.midenAccount },
   balances: {} satisfies Record<string, TokenBalanceData[]>,
-  balancesLoading: {}, balanceReadFailed: {}, tokenPricesStatus: 'ready', tokenPrices: {}
+  balancesLoading: {},
+  balanceReadFailed: {},
+  tokenPricesStatus: 'ready',
+  tokenPrices: {}
 };
-jest.mock('@reown/appkit/react', () => ({ useAppKitNetwork: () => ({ chainId: 11155111 }), useDisconnect: () => ({ disconnect: jest.fn() }) }));
+jest.mock('@reown/appkit/react', () => ({
+  useAppKitNetwork: () => ({ chainId: 11155111 }),
+  useDisconnect: () => ({ disconnect: jest.fn() })
+}));
 jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => null }));
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({ locked: mockLocked, signTransaction: jest.fn() }),
-  useAllBalances: () => ({}), useAllTokensBaseMetadata: () => ({})
+  useAllBalances: () => ({}),
+  useAllTokensBaseMetadata: () => ({})
 }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => mockSnapshot }));
 jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockSnapshot }));
 jest.mock('lib/bridge/wallet-transport', () => ({ quoteBridgeTransfer: jest.fn() }));
-jest.mock('lib/epoch/client', () => ({ buildEpochWalletClient: jest.fn(), getEvmConnection: jest.fn(), switchWebWalletChain: jest.fn() }));
+jest.mock('lib/epoch/client', () => ({
+  buildEpochWalletClient: jest.fn(),
+  getEvmConnection: jest.fn(),
+  switchWebWalletChain: jest.fn()
+}));
 jest.mock('lib/walletconnect/native', () => ({ ensureNativeSessionChain: jest.fn() }));
-jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({ useEvmWalletConnection: () => ({ address: mockAddress, connected: true, nativeReown: {}, useNativeReownWallet: false }) }));
-jest.mock('lib/store', () => ({ useWalletStore: Object.assign((select: (state: typeof mockState) => unknown) => select(mockState), { getState: () => mockState }) }));
+jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
+  useEvmWalletConnection: () => ({
+    address: mockAddress,
+    connected: true,
+    nativeReown: {},
+    useNativeReownWallet: false
+  })
+}));
+jest.mock('lib/store', () => ({
+  useWalletStore: Object.assign((select: (state: typeof mockState) => unknown) => select(mockState), {
+    getState: () => mockState
+  })
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveNetworkName: () => 'testnet', getEffectiveRpcUrl: () => mockRpc
+  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveRpcUrl: () => mockRpc
 }));
 
 const scope = { accountId: accounts.midenAccount, network: 'testnet', rpcUrl: 'https://wallet-rpc.example/private' };
-const wrapper = ({ children }: { children: React.ReactNode }) => <CommandDraftProvider scope={{ ...scope, accountId: mockState.currentAccount.publicKey, rpcUrl: mockRpc }}>{children}</CommandDraftProvider>;
+const wrapper = ({ children }: { children: React.ReactNode }) => (
+  <CommandDraftProvider scope={{ ...scope, accountId: mockState.currentAccount.publicKey, rpcUrl: mockRpc }}>
+    {children}
+  </CommandDraftProvider>
+);
 const useConsumer = () => ({ bridge: useCommandBridge(), drafts: useCommandDrafts() });
 function quote(request: QuoteRequest, received = '1'): TransferQuote {
-  return bindTransferQuote(request, { kind: request.route.provider === 'epoch' ? 'epoch' : 'agglayer', received, validity: { kind: 'time', expiresAt: now + 60000 } });
+  return bindTransferQuote(request, {
+    kind: request.route.provider === 'epoch' ? 'epoch' : 'agglayer',
+    received,
+    validity: { kind: 'time', expiresAt: now + 60000 }
+  });
 }
 beforeEach(() => {
   jest.clearAllMocks();
@@ -57,7 +88,10 @@ beforeEach(() => {
   mockAddress = accounts.evmAddress;
   jest.mocked(quoteBridgeTransfer).mockImplementation(async request => quote(request));
 });
-afterEach(() => { cleanup(); jest.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  jest.restoreAllMocks();
+});
 
 it('the real Bridge consumer stores exact unsigned direction, amount and external account in the shared Command draft', () => {
   const { result } = renderHook(useConsumer, { wrapper });
@@ -66,15 +100,21 @@ it('the real Bridge consumer stores exact unsigned direction, amount and externa
     result.current.bridge.setAmount('1.000001');
     result.current.bridge.setExternalAccountId('0x2222222222222222222222222222222222222222');
   });
-  expect(result.current.drafts.readDraft('bridge')).toEqual(expect.objectContaining({
-    direction: 'out', amount: '1.000001', externalAccountId: '0x2222222222222222222222222222222222222222'
-  }));
+  expect(result.current.drafts.readDraft('bridge')).toEqual(
+    expect.objectContaining({
+      direction: 'out',
+      amount: '1.000001',
+      externalAccountId: '0x2222222222222222222222222222222222222222'
+    })
+  );
   expect(result.current.bridge.amount).toBe('1.000001');
 });
 
 it('retains literal source input on a compatible provider change but discards the actual reviewed consent', async () => {
   const { result } = renderHook(useConsumer, { wrapper });
-  const agglayer = result.current.bridge.routes.find(item => item.provider === 'agglayer' && item.source.symbol === 'USDC');
+  const agglayer = result.current.bridge.routes.find(
+    item => item.provider === 'agglayer' && item.source.symbol === 'USDC'
+  );
   const epoch = result.current.bridge.routes.find(item => item.provider === 'epoch' && item.source.symbol === 'USDC');
   if (!agglayer || !epoch) throw new Error('Missing compatible real catalog sources');
   act(() => result.current.bridge.selectRoute(agglayer.id));
@@ -108,7 +148,9 @@ it('source asset changes clear input while withdrawal destination browsing never
 
 it('a late quote cannot replace the current amount or grant its review', async () => {
   const pending: Array<{ request: QuoteRequest; resolve: (quote: TransferQuote) => void }> = [];
-  jest.mocked(quoteBridgeTransfer).mockImplementation(request => new Promise(resolve => pending.push({ request, resolve })));
+  jest
+    .mocked(quoteBridgeTransfer)
+    .mockImplementation(request => new Promise(resolve => pending.push({ request, resolve })));
   const { result } = renderHook(useConsumer, { wrapper });
   act(() => result.current.bridge.setDirection('out'));
   const route = result.current.bridge.routes.find(item => item.provider === 'agglayer');
@@ -143,8 +185,21 @@ it.each(['account', 'rpc', 'lock'])('scope %s clears unsigned selections and rej
 it('minimize/reopen restores only unsigned literals, never quote/review/signature or submit permission', async () => {
   function Consumer() {
     const bridge = useCommandBridge();
-    return <><span data-testid="amount">{bridge.amount}</span><span data-testid="review">{String(Boolean(bridge.review))}</span>
-      <button onClick={() => { bridge.setDirection('out'); bridge.setAmount('1.000001'); bridge.setExternalAccountId(accounts.evmAddress); }}>edit</button></>;
+    return (
+      <>
+        <span data-testid="amount">{bridge.amount}</span>
+        <span data-testid="review">{String(Boolean(bridge.review))}</span>
+        <button
+          onClick={() => {
+            bridge.setDirection('out');
+            bridge.setAmount('1.000001');
+            bridge.setExternalAccountId(accounts.evmAddress);
+          }}
+        >
+          edit
+        </button>
+      </>
+    );
   }
   const view = (show: boolean) => <CommandDraftProvider scope={scope}>{show && <Consumer />}</CommandDraftProvider>;
   const { rerender } = render(view(true));
@@ -155,7 +210,11 @@ it('minimize/reopen restores only unsigned literals, never quote/review/signatur
   expect(screen.getByTestId('amount')).toHaveTextContent('1.000001');
   expect(screen.getByTestId('review')).toHaveTextContent('false');
   await waitFor(() => expect(quoteBridgeTransfer).toHaveBeenCalled());
-  rerender(<CommandDraftProvider key="reload" scope={scope}><Consumer /></CommandDraftProvider>);
+  rerender(
+    <CommandDraftProvider key="reload" scope={scope}>
+      <Consumer />
+    </CommandDraftProvider>
+  );
   expect(screen.getByTestId('amount')).toBeEmptyDOMElement();
   expect(screen.getByTestId('review')).toHaveTextContent('false');
 });

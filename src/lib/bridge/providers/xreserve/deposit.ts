@@ -43,7 +43,7 @@ export type XReserveClient = TokenApprovalClient & Pick<PublicClient, 'estimateG
 export interface XReserveDepositRequest {
   rowId: string;
   operation: BridgeOperationSnapshot;
-  provider: EIP1193Provider;
+  provider: Pick<EIP1193Provider, 'request'>;
   client: XReserveClient;
   checks: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }
