@@ -228,10 +228,13 @@ export async function deleteBackupProfile(): Promise<BackupRefreshOutcome> {
     if (!isSessionLive(opened.session)) return 'locked';
     stopGuardianRereads();
     clearBackupSession();
+    // Queued before any await: a refresh can open the replacement session while this one yields, and its state
+    // writes must land after this removal, not be removed by it.
+    const removal = removeBackupState(opened.session.state);
     // The contacts base described the deleted profile's list; the name marks are local facts and stay.
     opened.session.merge.contactsBase = null;
     await persistMergeRecords(opened.session);
-    await removeBackupState(opened.session.state);
+    await removal;
     return 'updated';
   } catch (error) {
     if (error instanceof BackupSessionClosedError) return 'locked';

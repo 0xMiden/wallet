@@ -390,6 +390,28 @@ describe('deleteBackupProfile', () => {
     expect(readHistory).toHaveBeenCalledTimes(reads);
   });
 
+  it('keeps the state of a session that opened while the delete saved its merge records', async () => {
+    await runBackupRefresh('unlock');
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const save = vault.saveBackupMergeRecords.bind(vault);
+    const saves = jest.spyOn(vault, 'saveBackupMergeRecords').mockImplementationOnce(async records => {
+      await gate;
+      return save(records);
+    });
+    const deleting = deleteBackupProfile();
+    while (saves.mock.calls.length === 0) await new Promise(resolve => setTimeout(resolve, 0));
+
+    // A refresh opens the replacement session for the same wallet and stores its state.
+    const replacement = await getBackupSession();
+    if (!('session' in replacement)) throw new Error('The replacement session should open');
+    release();
+    await expect(deleting).resolves.toBe('updated');
+    expect(getActiveStorage().has('backup_state_v1')).toBe(true);
+  });
+
   it('leaves the records of a wallet made during the delete alone', async () => {
     await runBackupRefresh('unlock');
     const newWallet = { v: 1, publicKey: 'new-wallet' };
