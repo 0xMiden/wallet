@@ -1,0 +1,27 @@
+name: Original Compact owner-only recovery contracts
+on:
+  push:
+    branches: [wiktor/green02-compact-owner-recovery]
+permissions:
+  contents: read
+concurrency:
+  group: green02-compact-recovery-contracts
+  cancel-in-progress: false
+jobs:
+  original-recovery-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 16
+      - name: Bind original qualified application and exact recovery-only overlay
+        run: |
+          git merge-base --is-ancestor 775f30df7ab450165d82f0f2ddd9ff1742431585 HEAD
+          test "$(git diff --name-only 775f30df7ab450165d82f0f2ddd9ff1742431585 HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml scripts/mainnet-compact-recovery-guard.mjs test/compact-owner-recovery.node.test.mjs)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Original principal refund guard regression
+        run: node --test test/compact-owner-recovery.node.test.mjs
