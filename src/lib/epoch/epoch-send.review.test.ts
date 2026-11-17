@@ -238,7 +238,7 @@ it.each(['outer', 'direct'])('refuses revoked live consent during collateral bui
     ? await runEpochSend(input.operation!, { ...input.deps, ...{ checks } }).then(() => 'admitted', () => 'refused')
     : await createBridgeP2IDENote({ ...directNoteInput(), ...{ checks } }).then(
       result => result.success ? 'admitted' : 'refused', () => 'refused');
-  expect({ outcome, rows: await Repo.transactions.count(), builds: noteBuilds + 1 }).toEqual({ outcome: 'refused', rows: 0, builds: 1 });
+  expect({ outcome, rows: await Repo.transactions.count(), builds: jest.mocked(buildEpochCollateralRequestBytes).mock.calls.length }).toEqual({ outcome: 'refused', rows: 0, builds: 1 });
 });
 
 it('keeps account and collateral identifiers out of real note admission diagnostics', async () => {
