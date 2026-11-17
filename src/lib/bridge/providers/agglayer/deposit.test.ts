@@ -797,7 +797,7 @@ it.each(['valid', 'recipient', 'token', 'network', 'amount', 'finality-false', '
     jest.mocked(fetchDeposits).mockResolvedValueOnce([deposit]);
     await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
     const row = await Repo.transactions.get(id);
-    expect(row?.extraInputs.phase).toBe(field === 'valid' || field === 'claimed' ? 'ready' : 'delivering');
+    expect(row?.extraInputs.phase).toBe(field === 'valid' || field === 'claimed' || field === 'contradictory' ? 'ready' : 'delivering');
     expect(row?.extraInputs.phase).not.toBe('received');
     expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
   }
