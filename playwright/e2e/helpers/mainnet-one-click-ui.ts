@@ -89,6 +89,8 @@ export async function captureMainnetOneClickReviewQuote(
     },
     { timeout: 120_000 }
   );
+  // Observe an early rejection; awaiting the original response below still fails closed.
+  void response.catch(() => {});
   if (!selected) await selectMainnetOneClickAssets(wallet.page, route);
   await wallet.page.getByTestId('one-click-pay-amount').fill(route.amount);
   await expect(wallet.page.getByTestId('one-click-review-submit')).toBeEnabled({ timeout: 120_000 });
