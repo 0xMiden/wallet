@@ -149,6 +149,14 @@ it('admits a reviewed receive through the provider and existing wrapper once, in
   expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(1);
 });
 
+it('does not adopt another RPC during the asynchronous receive balance-cap check', async () => {
+  const review = reviewedErc20Transfer('agglayer');
+  const deps = { client: rpc, provider, checks: { readCurrent: async () => structuredClone(review), verifyBalanceCap: async () => { jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example/private'); }, now: () => now } };
+  await expect(runAgglayerReceive({ operationId: 'departed-receive', review }, deps)).rejects.toThrow();
+  expect(await Repo.transactions.count()).toBe(0);
+  expect(signed).toHaveLength(0);
+});
+
 it('bridges native value exactly once without token approval and saves the original source hash', async () => {
   const { error, row } = await drive(nativeReview());
   expect(error).toBeUndefined();

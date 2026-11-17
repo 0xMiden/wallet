@@ -521,6 +521,19 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
     expect(row?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
   });
 
+  it('returns the original admitted row after quote expiry and RPC departure without building another note', async () => {
+    mockIsGuardian.mockResolvedValue(false);
+    const original = input();
+    const id = await initiateB2AggBridge(original);
+    const before = await Repo.transactions.get(id);
+    const built = mockCreateB2AggNote.mock.calls.length;
+    jest.spyOn(Date, 'now').mockReturnValue(now + 120000);
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example/private');
+    await expect(initiateB2AggBridge(original)).resolves.toBe(id);
+    expect(mockCreateB2AggNote).toHaveBeenCalledTimes(built);
+    expect(await Repo.transactions.get(id)).toEqual(before);
+  });
+
   it('refuses RPC departure during the native note build instead of admitting under the new RPC', async () => {
     mockIsGuardian.mockImplementationOnce(async () => {
       jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example/private');
