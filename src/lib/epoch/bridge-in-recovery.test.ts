@@ -363,6 +363,18 @@ describe('withdrawal', () => {
     expect(sdk.withdrawToken).not.toHaveBeenCalled();
   });
 
+  it('clears a recorded withdrawal that The Compact reports as off, so the row can start one again', async () => {
+    seedRow({ withdrawEnabledAt: 900, withdrawableAt: 990 });
+    sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Disabled', enabledAt: 0n });
+
+    await expect(finishLockedDepositWithdrawal('row-1')).rejects.toMatchObject({ reason: 'withdrawalNotStarted' });
+
+    expect(lockOf()?.withdrawEnabledAt).toBeUndefined();
+    expect(lockOf()?.withdrawableAt).toBeUndefined();
+    expect(sdk.withdrawToken).not.toHaveBeenCalled();
+    expect(sdk.disableForcedWithdrawal).not.toHaveBeenCalled();
+  });
+
   it('withdraws the whole lock balance to the sponsor once due, and records the amount sent', async () => {
     seedRow({ withdrawEnabledAt: 900, withdrawableAt: 990 });
     sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Enabled', enabledAt: 990n });
