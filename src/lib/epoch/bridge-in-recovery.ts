@@ -160,10 +160,10 @@ function protectedSourceOnLock(row: ITransaction, ref: CompactLockRef): boolean 
   const operation = tagged ? bridgeOperationOf(row) : undefined;
   const route = operation?.review.route;
   const originalReceive = route?.provider === 'epoch' && route.mode === 'receive';
-  if (inputs.provider !== 'epoch' && !originalReceive) return false;
   if (!tagged && !row.restoredFromBackup && !row.recovered) return false;
   const lock = inputs.epochLockedDeposit;
   if (lock && typeof lock.sponsorAddress === 'string' && isOnLock(lock, ref)) return true;
+  if (inputs.provider !== 'epoch' && !originalReceive) return false;
   if (!tagged) return false;
   const source = route?.source;
   const originalChain = route?.recovery?.config?.supportedEvmChains?.[source?.network ?? '']?.chainId;
