@@ -1,7 +1,7 @@
 // Adapted from bridge-portal@cb52c470 src/bridge/providers/agglayer/flows.ts (MIT).
 import { parseUnits } from 'viem';
 
-import type { B2AggBridgeDeps } from 'lib/agglayer/b2agg';
+import { initiateB2AggBridge, type B2AggBridgeDeps } from 'lib/agglayer/b2agg';
 
 import { configKey } from 'lib/bridge/core/routes';
 import { verifyBridgeSubmission, type SubmissionChecks } from 'lib/bridge/core/submission';
@@ -12,8 +12,16 @@ import { selectAgglayerRecoveryConfig, selectAgglayerRegistryToken } from 'lib/r
 
 import { submitAgglayerDeposit, type AgglayerDepositRequest } from './deposit';
 
-export async function runAgglayerSend(_operation: BridgeOperationInput, _deps: Pick<B2AggBridgeDeps, 'guardianProvider'>): Promise<string> {
-  throw new Error('Agglayer native submit adapter unavailable');
+export async function runAgglayerSend(operation: BridgeOperationInput, deps: Pick<B2AggBridgeDeps, 'guardianProvider'>): Promise<string> {
+  operation = structuredClone(operation);
+  const { review } = operation;
+  const { route, amount, accounts } = review;
+  const chain = route.recovery.config.supportedEvmChains[route.destination.network];
+  if (route.provider !== 'agglayer' || route.mode !== 'send' || route.source.kind !== 'miden' || !chain)
+    throw new Error('Agglayer send terms changed');
+  return initiateB2AggBridge({ amount: parseUnits(amount, route.source.decimals), faucetId: route.source.faucetId,
+    destinationAddress: `0x${accounts.evmAddress.slice(2)}`, senderPublicKey: accounts.midenAccount,
+    guardianProvider: deps.guardianProvider, destinationChainId: chain.chainId, operation });
 }
 
 export async function runAgglayerReceive(operation: BridgeOperationInput, deps: Omit<AgglayerDepositRequest, 'operation' | 'rowId'> & { checks: SubmissionChecks }): Promise<string> {
