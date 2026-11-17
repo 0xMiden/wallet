@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [CHANGE][all] A basket token's page shows its composition, read from its vault: a bar split by each constituent's share of the vault's value and a list of the constituents with their shares. A basket token now has a 24h move, on its page and in every price list, and its page has a chart, both derived from the constituents' market prices weighted by that composition.
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
 
 ## 1.18.0 (2026-11-17)
