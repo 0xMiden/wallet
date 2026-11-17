@@ -378,6 +378,39 @@ describe('the account an execute`s saved request names as its notes` sender', ()
       expect(noteInclusions).not.toHaveBeenCalled();
     }
   );
+
+  // The row keeps the id the dApp named, in any form the wallet parses; the note's metadata names its sender in hex.
+  it.each<[string, string]>([
+    ['a bech32 address', ACCOUNT],
+    ['a composite public key', `${ACCOUNT}_qr7qqq9wr6w`],
+    ['upper-case hex', `0X${'AB'.repeat(15)}`]
+  ])('a request declaring its notes under the row`s own account, stored as %s, still asks the node', async (_f, id) => {
+    decodesTo(requestNote(FIRST), requestNote(SECOND));
+    noteInclusions.mockResolvedValue(new Map([[SECOND.toLowerCase(), 140]]));
+
+    await expect(checkPinnedReplayNotes({ ...execute, accountId: id }, { createReads })).resolves.toMatchObject({
+      kind: 'committed',
+      noteId: SECOND.toLowerCase()
+    });
+    expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase(), SECOND.toLowerCase()], RPC_READ_TIMEOUT_MS, id);
+  });
+
+  // The wallet builds a send's, a swap's and a bridged send's request in the row's own name.
+  it.each(['send', 'swap', 'bridged-send'] as const)(
+    'a %s`s request is not checked for the sender it declares',
+    async type => {
+      decodesTo(requestNote(FIRST, { sender: OTHER_HEX }));
+      noteInclusions.mockResolvedValue(new Map([[FIRST.toLowerCase(), 140]]));
+
+      await expect(
+        checkPinnedReplayNotes({ type, accountId: ACCOUNT, requestBytes: BYTES }, { createReads })
+      ).resolves.toMatchObject({
+        kind: 'committed',
+        noteId: FIRST.toLowerCase()
+      });
+      expect(noteInclusions).toHaveBeenCalledWith([FIRST.toLowerCase()], RPC_READ_TIMEOUT_MS);
+    }
+  );
 });
 
 describe('orderFromSavedRequest', () => {
