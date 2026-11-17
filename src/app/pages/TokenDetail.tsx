@@ -309,7 +309,8 @@ const BasketPriceChart: FC<{
           basketKlines(
             composition,
             await Promise.all(composition.map(c => fetchKlineSeries(c.priceSymbol, timeframe))),
-            priceInfo.price
+            priceInfo.price,
+            prices
           )
       }}
     />

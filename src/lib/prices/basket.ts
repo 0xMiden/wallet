@@ -42,16 +42,20 @@ export function basketChange24h(composition: readonly BasketComponent[], prices:
 }
 
 /**
- * The basket's price line: at each candle close all of its tokens share, the basket's price scaled from `price` (its
- * current price) by the value its holdings had then relative to their value at the last shared candle close. A candle
- * closes one declared step after it opens, so candles of different lengths pair only where they end together. The
- * candle that is still open closes after `now`, so its point is dated `now`. Empty when any token has no candles, any
- * step is not a finite positive number, or they share no candle close.
+ * The basket's price line: at each candle close all of its tokens share, the basket's price `price` (its current
+ * price) scaled by Σ weightᵢ · closeᵢ / nowᵢ, the value its holdings had then relative to their value now. `nowᵢ` is
+ * each token's current market quote in `prices`, the same quotes the composition's weights were read from, so tokens
+ * whose candles close at different times (6h Binance, 4h Kraken) are still anchored at the present. When a token has
+ * no market quote, the line falls back to anchoring every token at the last shared close. A candle closes one
+ * declared step after it opens, so candles of different lengths pair only where they end together. The candle that
+ * is still open closes after `now`, so its point is dated `now`. Empty when any token has no candles, any step is not
+ * a finite positive number, or they share no candle close.
  */
 export function basketKlines(
   composition: readonly BasketComponent[],
   candles: readonly KlineSeries[],
   price: number,
+  prices: TokenPrices = {},
   now: number = Date.now()
 ): KlinePoint[] {
   if (composition.length === 0 || candles.length !== composition.length || !(price > 0)) return [];
@@ -66,9 +70,14 @@ export function basketKlines(
     .sort((a, b) => a - b);
   const last = times[times.length - 1];
   if (last === undefined) return [];
-  // Each token's candles divided by its value at the last shared close: the factor its value has moved by since then.
-  const relative = series.map(s => {
-    const end = s.get(last) ?? 0;
+  // Each token's candles divided by its current quote: the factor its value has moved by since then. Without a
+  // quote for every token, divide by the value at the last shared close instead.
+  const quoted = composition.map(c => marketQuote(prices, c.priceSymbol)?.price);
+  const anchors = quoted.every(p => p !== undefined && p > 0 && Number.isFinite(p))
+    ? (quoted as number[])
+    : series.map(s => s.get(last) ?? 0);
+  const relative = series.map((s, i) => {
+    const end = anchors[i] ?? 0;
     return (time: number) => (s.get(time) ?? 0) / end;
   });
   return times.map(time => ({

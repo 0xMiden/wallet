@@ -104,9 +104,40 @@ describe('basketKlines', () => {
       { time: 6, value: 1 }
     ]);
     // At 8 the candle that opened at 6 is still open: its close at 12 has not happened yet.
-    expect(basketKlines(mix, [btc, eth], 2, 8)).toEqual([
+    expect(basketKlines(mix, [btc, eth], 2, {}, 8)).toEqual([
       { time: 6, value: 2 * (0.6 * 0.5 + 0.4 * 1) },
       { time: 8, value: 2 }
+    ]);
+  });
+
+  it("anchors each token at its current quote, so tokens whose candles close apart still end at today's value", () => {
+    // 6h and 4h candles: BTC closes at -12, -6, 0 and its open candle at 6; ETH at -12, -8, -4, 0 and its open
+    // candle at 8. The last close they share is 0, hours before now.
+    const btc = series(6, [
+      { time: -18, value: 40 },
+      { time: -12, value: 45 },
+      { time: -6, value: 50 },
+      { time: 0, value: 100 }
+    ]);
+    const eth = series(4, [
+      { time: -16, value: 10 },
+      { time: -12, value: 15 },
+      { time: -8, value: 18 },
+      { time: -4, value: 20 },
+      { time: 0, value: 22 },
+      { time: 4, value: 20 }
+    ]);
+    const btcQuote = { price: 100, change24h: 0, percentageChange24h: 0 };
+    const prices: TokenPrices = { BTC: btcQuote, ETH: { price: 20, change24h: 0, percentageChange24h: 0 } };
+    // At 0 BTC was 50 of today's 100 and ETH 20 of today's 20: the basket was worth 0.6 * 0.5 + 0.4 * 1 of today.
+    expect(basketKlines(mix, [btc, eth], 2, prices, 5)).toEqual([
+      { time: -12, value: 2 * (0.6 * 0.4 + 0.4 * 0.5) },
+      { time: 0, value: 2 * (0.6 * 0.5 + 0.4 * 1) }
+    ]);
+    // Without a quote for every token the line falls back to the last shared close, where it reads today's price.
+    expect(basketKlines(mix, [btc, eth], 2, { BTC: btcQuote }, 5)).toEqual([
+      { time: -12, value: 2 * (0.6 * 0.8 + 0.4 * 0.5) },
+      { time: 0, value: 2 }
     ]);
   });
 
