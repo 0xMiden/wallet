@@ -464,8 +464,8 @@ export class MultisigService {
     if (!walletAccount.coldPublicKey) {
       throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey - re-create the wallet`);
     }
-    // UNDER A HOLD. `getSignerDetailsFromAccount` walks the account's storage
-    // maps, so it is a WASM call and not a field read - and every one of this
+    // UNDER A HOLD. The signer read walks the account's storage maps, so it is
+    // a WASM call and not a field read - and every one of this
     // method's five callers hands in an `account` read under a hold that has
     // already RELEASED, which left this call free to run concurrently with
     // another flow's client operation: the `recursive use of an object ...
@@ -488,8 +488,11 @@ export class MultisigService {
     // surfaces as the SDK's own `isDisposed` throw, i.e. a failed attempt and a
     // retry, not a wrong commitment written to the guardian. Should this method
     // ever read a field that a rotation moves, that reasoning expires and the
-    // threading is required. The cold commitment is found by membership, not by
-    // position, so a rotation that moves the order does not change the result.
+    // threading is required. The cold commitment is found by membership
+    // (`findOwnSignerCommitment`), not by position, so a rotation that moves the
+    // order does not change the result. That lookup parks on a dynamic SDK import
+    // after the storage read, and no client call follows it inside this hold, so
+    // no ownership re-check is needed after it; add one if a read ever follows.
     const coldPublicKey = walletAccount.coldPublicKey;
     const { commitment, signerCommitments } = await withWasmClientLock(async () => {
       const allCommitments = getSignerCommitmentsFromAccount(account);
