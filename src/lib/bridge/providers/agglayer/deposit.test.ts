@@ -20,8 +20,8 @@ import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import { applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from 'lib/miden/activity/bridge-in';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import * as Repo from 'lib/miden/repo';
+import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiate';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -590,17 +590,16 @@ it.each([false, true])(
         (error: unknown) => ({ id: undefined, error })
       );
       await drained;
-      if (departed) {
-        expect(outcome.error).toBeInstanceOf(Error);
-        expect(await Repo.transactions.count()).toBe(0);
-        expect(signed).toHaveLength(0);
-      } else {
-        const id = outcome.id;
-        expect(id).toBeDefined();
-        if (!id) throw new Error('Missing admitted lock control');
-        await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBe(depositHash));
-        expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(1);
-      }
+      const refusal = expect.any(Error);
+      const admittedId = expect.any(String);
+      expect(outcome).toEqual(departed ? { id: undefined, error: refusal } : { id: admittedId, error: undefined });
+      expect(await Repo.transactions.count()).toBe(departed ? 0 : 1);
+      await waitFor(async () => {
+        const row = outcome.id === undefined ? undefined : await Repo.transactions.get(outcome.id);
+        expect(row?.extraInputs.evmTxHash).toBe(departed ? undefined : depositHash);
+      });
+      expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(departed ? 0 : 1);
+      expect(signed).toHaveLength(departed ? 0 : 2);
     } finally {
       release();
       if (descriptor) Object.defineProperty(navigator, 'locks', descriptor);
@@ -721,8 +720,7 @@ it.each(['revision', 'operation', 'review'])(
     expect(signed).toHaveLength(0);
     expect(row?.extraInputs.phase).toBe('submitting');
     expect(row?.extraInputs.evmTxHash).toBeUndefined();
-    if (changed === 'revision' || changed === 'operation')
-      expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('running');
+    expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe(changed === 'review' ? 'uncertain' : 'running');
   }
 );
 
@@ -730,8 +728,8 @@ it.each([0n, -1n])('keeps the exact native deposit plus buffered gas reserve bou
   rpc.getBalance.mockResolvedValue(1000000000012000000n + offset);
   const { error } = await drive(nativeReview());
   expect(signed).toHaveLength(offset === 0n ? 1 : 0);
-  if (offset === 0n) expect(error).toBeUndefined();
-  else expect(error).toBeInstanceOf(Error);
+  const refusal = expect.any(Error);
+  expect(error).toEqual(offset === 0n ? undefined : refusal);
 });
 
 it('refuses a false-return approval without a signature', async () => {
@@ -897,11 +895,9 @@ it.each(['repriced', 'cancelled', 'replaced'])(
       transaction: { hash: `0x${'e'.repeat(64)}`, nonce: 2 }
     });
     expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(reason === 'repriced' ? 1 : 0);
-    if (reason === 'repriced') expect(error).toBeUndefined();
-    else {
-      expect(error).toBeInstanceOf(Error);
-      expect(row?.extraInputs.evmTxHash).toBeUndefined();
-    }
+    const refusal = expect.any(Error);
+    expect(error).toEqual(reason === 'repriced' ? undefined : refusal);
+    expect(row?.extraInputs.evmTxHash).toBe(reason === 'repriced' ? depositHash : undefined);
   }
 );
 

@@ -163,10 +163,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 
 import { TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
 
-import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
 import { runAgglayerSend } from 'lib/bridge/providers/agglayer/flows';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
+import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
