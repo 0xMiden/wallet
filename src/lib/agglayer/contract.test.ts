@@ -12,6 +12,7 @@ jest.mock('ethers', () => ({
   BaseContract: { from: (...args: unknown[]) => mockFrom(...args) },
   BrowserProvider: jest.fn(() => ({ getSigner: async () => 'signer' }))
 }));
+jest.mock('lib/i18n', () => ({ ...jest.requireActual('lib/i18n'), getMessage: (key: string) => `translated:${key}` }));
 jest.mock('lib/remote-config/values', () => ({ getAgglayerL1Bridge: jest.fn() }));
 jest.mock('./status', () => ({ ...jest.requireActual('./status'), fetchMerkleProof: jest.fn() }));
 // As strict as the SDK where it matters: fromHex takes only a literal `0x`, and fromBech32 rejects an
@@ -133,6 +134,18 @@ it('keeps the original exit amount and global index across its proof await', asy
   expect(mockClaimAsset).toHaveBeenCalledTimes(1);
   expect(mockClaimAsset.mock.calls[0]?.[2]).toBe(365072220160n);
   expect(mockClaimAsset.mock.calls[0]?.[9]).toBe(5n);
+});
+
+it.each(['pending', 'claimed', 'wallet'])('localizes the known %s manual-claim refusal without provider details', async reason => {
+  const deposit = { ...DEPOSIT, ready_for_claim: reason !== 'pending', claim_tx_hash: reason === 'claimed' ? `0x${'a'.repeat(64)}` : '' };
+  if (reason === 'wallet') {
+    jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+    const proof = { main_exit_root: '0xmain', rollup_exit_root: '0xrollup', merkle_proof: [], rollup_merkle_proof: [] };
+    jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => { onChains('0x1'); return proof; });
+  }
+  const key = reason === 'pending' ? 'claimPending' : reason === 'claimed' ? 'claimed' : 'connectDestinationWalletToClaim';
+  await expect(claimAgglayerDeposit({ deposit, provider })).rejects.toThrow(`translated:${key}`);
+  expect(mockClaimAsset).not.toHaveBeenCalled();
 });
 
 it('claims a row saved before its route on the L1 bridge the config names for Sepolia', async () => {
