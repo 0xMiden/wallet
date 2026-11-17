@@ -185,9 +185,7 @@ export async function initiateB2AggBridge(args: {
     spendingLimitAuthorization,
     exitTxHash,
     undefined,
-    recovery,
-    undefined,
-    args.operation
+    recovery
   );
 }
 
