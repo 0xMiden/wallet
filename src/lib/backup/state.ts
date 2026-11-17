@@ -42,7 +42,7 @@ export interface EntryMark {
 export interface FeatureState {
   /** The complete-feature ETag of the last applied read. */
   etag: string | null;
-  /** The largest `updatedAt` of the last applied read: the next `since`. */
+  /** The largest `updatedAt` of the last applied read the server held still (`readFeature`): the next `since`. */
   cursor: number | null;
   /** Per hashed key. PUT acknowledgements write here; they never touch `etag` or `cursor`. */
   entries: Record<string, EntryMark>;

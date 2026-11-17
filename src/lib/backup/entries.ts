@@ -8,6 +8,12 @@
  *   copy has a higher revision. Revisions are compared only for the same
  *   hashed key in the same key generation (the state is cleared on a salt change).
  * - The ETag and the cursor move only after the feature applied every entry.
+ * - Pages follow the hashed-key order and a `since` read takes entries written
+ *   at or after the cursor, so the cursor (the newest `updatedAt` read) moves
+ *   past a read of several pages only when the server held still: the feature
+ *   still reports the first page's ETag after the last page (every write
+ *   raises a revision, so any write during the read changes it). Otherwise a write to a page already read could fall behind the
+ *   new cursor and never be read. One page is one server snapshot.
  *
  * Write rules:
  * - Uploads of this device run one at a time, so a late retry cannot replace a
@@ -32,6 +38,7 @@ import {
   MAX_REQUEST_BODY_BYTES,
   type StoredEntry,
   getFeature,
+  getStorageIndex,
   putEntries
 } from './api-client';
 import {
@@ -121,7 +128,7 @@ async function readPages(
   feature: BackupFeature,
   ifNoneMatch: string | null,
   since: number | null
-): Promise<{ etag: string; entries: StoredEntry[] } | null> {
+): Promise<{ etag: string; entries: StoredEntry[]; pages: number } | null> {
   const entries: StoredEntry[] = [];
   let etag: string | null = null;
   let after: string | null = null;
@@ -134,7 +141,7 @@ async function readPages(
     if (read === null) return null;
     etag ??= read.etag;
     entries.push(...read.entries);
-    if (read.next === null) return { etag, entries };
+    if (read.next === null) return { etag, entries, pages: page + 1 };
     after = read.next;
   }
   throw new Error(`The ${feature} read did not end within ${MAX_READ_PAGES} pages`);
@@ -168,6 +175,11 @@ export function readFeature(
     assertSessionLive(session);
     await options.apply(incoming);
     assertSessionLive(session);
+    let moveCursor = read.entries.length > 0;
+    if (moveCursor && read.pages > 1) {
+      moveCursor = (await currentFeatureEtag(session, feature)) === read.etag;
+      assertSessionLive(session);
+    }
 
     // Everything is applied: only now the records, the ETag and the cursor move.
     for (const entry of incoming) {
@@ -178,10 +190,16 @@ export function readFeature(
       };
     }
     featureState.etag = read.etag;
-    if (read.entries.length > 0) featureState.cursor = cursor;
+    if (moveCursor) featureState.cursor = cursor;
     await persistBackupState(session.state);
     return incoming.length > 0 ? 'applied' : 'no-new-entries';
   });
+}
+
+/** The feature's ETag on the server now, from the storage index; null when the index does not name the feature. */
+async function currentFeatureEtag(session: BackupSession, feature: BackupFeature): Promise<string | null> {
+  const index = await withSessionToken(session, token => getStorageIndex(token, null));
+  return index?.features[feature]?.etag ?? null;
 }
 
 /**

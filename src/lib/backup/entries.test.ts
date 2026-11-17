@@ -201,6 +201,60 @@ describe('readFeature', () => {
     expect(third.calls[0]?.map(entry => entry.hashedKey)).toContain(late);
   });
 
+  // Pages follow the hashed-key order and the server filters `updated_at >= since`, so a cursor taken as the newest
+  // write of a read that the server changed under it can pass a write behind the page boundary for good.
+  it('keeps the since cursor when a write lands behind the page boundary during the read', async () => {
+    server.pageSize = 2;
+    await uploadEntries(session, 'accounts', entryKeys(5));
+    forget('accounts');
+    await readFeature(session, 'accounts', { since: true, apply: async () => {} });
+    const keys = server.entriesOf(session.publicKey, 'accounts').map(entry => entry.hashedKey);
+    const [early, , , , late] = keys;
+    if (early === undefined || late === undefined) throw new Error('Five entries expected');
+    // Every entry changes, so the next since read spans three pages.
+    for (const key of keys) server.rewriteEntry(session.publicKey, 'accounts', key);
+    const before = session.state.features.accounts.cursor;
+
+    // Between the first and second page a peer rewrites an entry of the first page, then one of the last page.
+    let wrote = false;
+    server.onRequest = request => {
+      if (!wrote && request.path === '/v1/storage/accounts' && request.query.after !== undefined) {
+        wrote = true;
+        server.rewriteEntry(session.publicKey, 'accounts', early);
+        server.rewriteEntry(session.publicKey, 'accounts', late);
+      }
+    };
+    await readFeature(session, 'accounts', { since: true, apply: async () => {} });
+    server.onRequest = null;
+    expect(session.state.features.accounts.cursor).toBe(before);
+
+    // The next since read still reaches the write behind the boundary.
+    const next = recordingApply();
+    await readFeature(session, 'accounts', { since: true, apply: next.apply });
+    const latest = server.entriesOf(session.publicKey, 'accounts').find(entry => entry.hashedKey === early);
+    expect(next.calls[0]?.find(entry => entry.hashedKey === early)?.revision).toBe(latest?.revision);
+  });
+
+  it('advances the since cursor past a multi-page read the server held still', async () => {
+    server.pageSize = 2;
+    await uploadEntries(session, 'accounts', entryKeys(5));
+    forget('accounts');
+    await readFeature(session, 'accounts', { since: true, apply: async () => {} });
+    const newest = Math.max(...server.entriesOf(session.publicKey, 'accounts').map(entry => entry.updatedAt));
+    expect(session.state.features.accounts.cursor).toBe(newest);
+  });
+
+  it('makes no request after a 304', async () => {
+    await uploadEntries(session, 'accounts', entryKeys(2));
+    forget('accounts');
+    await readFeature(session, 'accounts', { since: true, apply: async () => {} });
+    const mark = server.requests.length;
+    await expect(readFeature(session, 'accounts', { since: true, apply: async () => {} })).resolves.toBe(
+      'not-modified'
+    );
+    expect(server.requestsSince(mark)).toHaveLength(1);
+  });
+
   it('refuses a feature that does not end within 16 pages', async () => {
     server.pageSize = 1;
     await uploadEntries(session, 'accounts', entryKeys(17));
