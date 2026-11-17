@@ -297,7 +297,7 @@ const BasketPriceChart: FC<{
   prices: TokenPrices;
 }> = ({ symbol, priceInfo, composition, prices }) => {
   const change = basketChange24h(composition, prices);
-  const mix = composition.map(c => `${c.priceSymbol}:${c.weight.toFixed(4)}`).join(',');
+  const mix = composition.map(c => `${c.priceSymbol}:${c.weight}`).join(',');
   return (
     <PriceChart
       symbol={symbol}

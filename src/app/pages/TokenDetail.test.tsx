@@ -552,6 +552,28 @@ describe('TokenDetail', () => {
     expect(segments.map(segment => segment.style.width)).toEqual(['60%', '40%']);
   });
 
+  it('keys the basket chart on its exact weights, so a change below a rounding step refetches the line', () => {
+    renderPage({
+      tokenPrices: {
+        ETH: {
+          price: 2,
+          change24h: 0,
+          percentageChange24h: 0,
+          source: 'basket',
+          composition: [
+            { faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.600004 },
+            { faucetId: 'mtst1sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.399996 }
+          ]
+        },
+        BTC: { price: 60000, change24h: 0, percentageChange24h: 1 },
+        SOL: { price: 90, change24h: 0, percentageChange24h: 1 }
+      }
+    });
+
+    const keys = mockUseRetryableSWR.mock.calls.map(([key]) => (key as unknown[])[1]);
+    expect(keys).toContain('basket:BTC:0.600004,SOL:0.399996:2');
+  });
+
   it('charts a basket without a move while one of its tokens has no market quote', () => {
     renderPage({
       tokenPrices: {
