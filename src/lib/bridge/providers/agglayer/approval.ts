@@ -19,6 +19,8 @@ interface ApprovalRequest {
   assertCurrent: () => Promise<void>;
 }
 
+export async function recoverAgglayerApprovals(_operation: BridgeOperationSnapshot, _client: AgglayerClient): Promise<void> {}
+
 /** A receipt verifies the requested allowance, never permission to deposit after a scope change. */
 export async function ensureAgglayerApproval(request: ApprovalRequest): Promise<void> {
   const { operation, client, chainId, account, token, spender, amount } = request;

@@ -38,6 +38,7 @@ jest.mock('lib/remote-config/runtime', () => ({
   initBridgeConfig: async () => undefined,
   getBridgeConfigSnapshot: () => jest.requireActual<typeof import('lib/bridge/testing/fixtures')>('lib/bridge/testing/fixtures').referenceSnapshot('testnet')
 }));
+jest.mock('lib/bridge/providers/agglayer/provider', () => ({ agglayerReadClient: () => rpc }));
 jest.mock('lib/agglayer/contract', () => ({
   midenAddrToEvmAddr: (value: string) => {
     if (value !== '0x387149ae66116cf114eebd60bb7381') throw new Error('Wrong destination');
@@ -307,6 +308,44 @@ it('retains the untagged legacy source-unit scaling contract', async () => {
   expect(error).toBeUndefined();
   await Repo.transactions.where({ id }).modify(row => { Reflect.deleteProperty(row.extraInputs, 'bridgeOperation'); row.amount = 1000000000000000000n; });
   expect(await takeAgglayerBridgeInInfo({ accountId: accounts.midenAccount, senderAccountId: '0xb41aed8db850a3d140fc2079216c60', amount: 100000000n })).toMatchObject({ bridgeReceiveTxId: id });
+});
+
+it.each(['repriced', 'cancelled', 'replaced'])('records verified %s approval lineage without treating the approval as a deposit', async reason => {
+  rpc.waitForTransactionReceipt.mockImplementationOnce(async ({ onReplaced }) => {
+    const original = await rpc.getTransaction({ hash: approvalHash });
+    const replacement = { ...original, hash: `0x${'e'.repeat(64)}`, to: reason === 'cancelled' ? accounts.evmAddress : tokenAddress, input: reason === 'cancelled' ? '0x' : reason === 'replaced' ? '0x1234' : original.input };
+    onReplaced({ reason, transaction: replacement });
+    allowance = approvedAmount;
+    return { status: 'success', transactionHash: replacement.hash };
+  });
+  const { error, row } = await drive();
+  const approvals = row?.extraInputs.bridgeOperation?.approvals;
+  expect(approvals).toHaveLength(2);
+  expect(approvals?.[1]).toMatchObject({ hash: `0x${'e'.repeat(64)}`, replacementReason: reason, originalTransaction: { hash: approvalHash, nonce: 2 }, transaction: { hash: `0x${'e'.repeat(64)}`, nonce: 2 } });
+  expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(reason === 'repriced' ? 1 : 0);
+  if (reason === 'repriced') expect(error).toBeUndefined();
+  else { expect(error).toBeInstanceOf(Error); expect(row?.extraInputs.evmTxHash).toBeUndefined(); }
+});
+
+it('recovers an approval cancellation through the existing tracker after departure without any source or approval replay', async () => {
+  rpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Receipt unavailable'));
+  const { id, error, row } = await drive();
+  expect(error).toBeInstanceOf(Error);
+  expect(row?.extraInputs.bridgeOperation?.approvals?.[0]?.transaction?.nonce).toBe(2);
+  const own = await rpc.getTransaction({ hash: approvalHash });
+  rpc.getTransaction.mockResolvedValue({ ...own, blockNumber: null });
+  rpc.getBlockNumber.mockResolvedValue(20n);
+  rpc.getTransactionCount.mockImplementation(async ({ blockNumber }) => blockNumber >= 10n ? 3 : 2);
+  rpc.getBlock.mockResolvedValue({ timestamp: 1800000010n, transactions: [{ ...own, hash: `0x${'e'.repeat(64)}`, to: accounts.evmAddress, input: '0x', value: 0n, blockNumber: 10n }] });
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://departed-rpc.example/private');
+  jest.spyOn(Date, 'now').mockReturnValue(now + 120000);
+  await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
+  const recovered = await Repo.transactions.get(id);
+  expect(recovered?.extraInputs.bridgeOperation?.approvals).toHaveLength(2);
+  expect(recovered?.extraInputs.bridgeOperation?.approvals?.[1]).toMatchObject({ hash: `0x${'e'.repeat(64)}`, replacementReason: 'cancelled', originalTransaction: { hash: approvalHash, nonce: 2 } });
+  expect(recovered?.extraInputs.evmTxHash).toBeUndefined();
+  expect(recovered?.extraInputs.phase).toBe('submitting');
+  expect(signed).toHaveLength(1);
 });
 
 it('accepts no-return approval and requires its confirmed allowance before bridging', async () => {
