@@ -23,7 +23,8 @@ import {
   EarnDepositTransaction,
   IApprovedCustomEffects,
   ITransaction,
-  ITransactionStatus
+  ITransactionStatus,
+  IUsdcxBurn
 } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
@@ -463,6 +464,51 @@ describe('bridged-send and earn-deposit', () => {
       await expect(refused).rejects.toThrow(ProposalEffectRefusedError);
       await expect(refused).rejects.toThrow('the transaction has no recorded note of its own');
     });
+  });
+});
+
+describe('reviewed USDCx network fee budget', () => {
+  const budgeted = (maxAmount = '2', faucetId = 'bech32:usdcx', scope = 'rpc-a|testnet') => {
+    const tx = new BridgedSendTransaction('acct', 100n, '0xevm', 6, 'usdcx', 'bech32:usdcx', REQUEST, true);
+    const burn: IUsdcxBurn & {
+      networkFeeBudget?: { faucetId: string; maxAmount: string; scope: string };
+    } = {
+      noteId: BUILT,
+      destinationDomain: 6,
+      phase: 'pending',
+      networkFeeBudget: { faucetId, maxAmount, scope }
+    };
+    tx.extraInputs.usdcxBurn = burn;
+    tx.approvedOutputNoteIds = [BUILT];
+    return tx;
+  };
+  const paid = () =>
+    summaryToView(
+      summary({
+        removed: [fa('usdcx', 102n)],
+        outputs: [note([fa('usdcx', 100n)], [], BUILT), feeNote(2n)]
+      })
+    );
+
+  it('keeps the reviewed principal allowance when total native fees fit the cap', () => {
+    expect(proposalEffectRefusal(budgeted(), paid())).toBeUndefined();
+  });
+
+  it.each(['0', '1', '-1', '', '1.5', 'NaN', '0002'])('refuses a native fee budget of %s', maximum => {
+    expect(proposalEffectRefusal(budgeted(maximum), paid())).toBeDefined();
+  });
+
+  it('does not invent fee approval for a previously queued row', () => {
+    const tx = budgeted();
+    const burn = tx.extraInputs.usdcxBurn;
+    if (!burn) throw new Error('missing test burn');
+    Reflect.deleteProperty(burn, 'networkFeeBudget');
+    expect(proposalEffectRefusal(tx, paid())).toBeDefined();
+  });
+
+  it('refuses a fee budget for another asset or source scope', () => {
+    expect(proposalEffectRefusal(budgeted('2', 'bech32:other'), paid())).toBeDefined();
+    expect(proposalEffectRefusal(budgeted('2', 'bech32:usdcx', 'rpc-b|testnet'), paid())).toBeDefined();
   });
 });
 
