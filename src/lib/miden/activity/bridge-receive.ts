@@ -421,7 +421,15 @@ async function reconcileRow(
     await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
     return;
   }
-  if (hasBridgeOperation(row) && inputs.phase === 'submitting' && !inputs.evmTxHash && !inputs.intentNonce) return;
+  if (hasBridgeOperation(row) && inputs.phase === 'submitting' && !inputs.evmTxHash && !inputs.intentNonce) {
+    const operation = bridgeOperationOf(row);
+    if (inputs.provider === 'agglayer' && operation?.approvals?.length && inputs.agglayerRoute) {
+      const { recoverAgglayerApprovals } = await import('lib/bridge/providers/agglayer/approval');
+      const { agglayerReadClient } = await import('lib/bridge/providers/agglayer/provider');
+      await recoverAgglayerApprovals(operation, agglayerReadClient(inputs.agglayerRoute.chainId));
+    }
+    return;
+  }
   if (!withinDeliveryWindow(row, inputs, cutoffSec)) {
     await updateBridgedReceivePhase(row.id, 'failed', {
       error: BRIDGE_DELIVERY_TIMED_OUT,

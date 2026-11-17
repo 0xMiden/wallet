@@ -2,8 +2,8 @@
 import { encodeFunctionData, erc20Abi, type Address, type Hash, type Hex } from 'viem';
 
 import { parseBridgeApproval, replaceApproval, type BridgeApproval } from 'lib/bridge/evm/approval';
-import { captureSourceTransaction, type SourceTransaction } from 'lib/bridge/evm/source-transaction';
-import { recordBridgeApproval, type BridgeOperationSnapshot } from 'lib/bridge/operation';
+import { captureSourceTransaction, recoverSourceTransaction, type SourceTransaction } from 'lib/bridge/evm/source-transaction';
+import { bridgeOperationOf, findAdmittedBridgeOperation, recordBridgeApproval, type BridgeOperationSnapshot } from 'lib/bridge/operation';
 
 import type { AgglayerClient } from './deposit';
 
@@ -19,7 +19,26 @@ interface ApprovalRequest {
   assertCurrent: () => Promise<void>;
 }
 
-export async function recoverAgglayerApprovals(_operation: BridgeOperationSnapshot, _client: AgglayerClient): Promise<void> {}
+/** Passive facts only: a pending approval can never restart its original source attempt. */
+export async function recoverAgglayerApprovals(operation: BridgeOperationSnapshot, client: AgglayerClient): Promise<void> {
+  const admitted = await findAdmittedBridgeOperation(operation);
+  if (!admitted || bridgeOperationOf(admitted)?.revision !== operation.revision) return;
+  for (const saved of operation.approvals ?? []) {
+    if (saved.replacementReason === 'cancelled' || saved.replacementReason === 'replaced' || operation.approvals?.some(next => next.hash !== saved.hash && next.originalTransaction?.hash === saved.hash)) continue;
+    const resolved = await recoverSourceTransaction(client, saved.chainId, saved.hash, saved.transaction);
+    const row = await findAdmittedBridgeOperation(operation);
+    if (!row || bridgeOperationOf(row)?.revision !== operation.revision) return;
+    let reference = saved;
+    if (resolved.transaction) {
+      reference = parseBridgeApproval({ ...saved, transaction: resolved.transaction });
+      if (!(await recordBridgeApproval(operation.operationId, operation.revision, reference))) return;
+    }
+    if (resolved.replacement && reference.transaction) {
+      const replacement = replaceApproval(reference, resolved.replacement);
+      await recordBridgeApproval(operation.operationId, operation.revision, replacement);
+    }
+  }
+}
 
 /** A receipt verifies the requested allowance, never permission to deposit after a scope change. */
 export async function ensureAgglayerApproval(request: ApprovalRequest): Promise<void> {
