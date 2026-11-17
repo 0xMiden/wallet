@@ -1,8 +1,9 @@
 import { waitFor } from '@testing-library/react';
-import { parseUnits, type Hash, type EIP1193Provider } from 'viem';
+import { decodeFunctionData, erc20Abi, parseUnits, type Hash, type Hex, type EIP1193Provider } from 'viem';
 
 import { runXReserveReceive } from 'lib/bridge/providers/xreserve/flows';
 import type { XReserveClient } from 'lib/bridge/providers/xreserve/deposit';
+import type { SourceRpcTransaction } from 'lib/bridge/evm/source-transaction';
 import { usdcxExpectedRemoteTokenFor } from 'lib/usdcx/deposit-target';
 
 import { bindTransferQuote, quoteAmounts } from 'lib/bridge/core/quote';
@@ -44,6 +45,17 @@ jest.mock('lib/remote-config/runtime', () => ({
 
 const sourceHash: Hash = `0x${'c'.repeat(64)}`;
 const approvalHash: Hash = `0x${'a'.repeat(64)}`;
+const adapterRpc = { readContract: jest.fn(), call: jest.fn(), estimateGas: jest.fn(),
+  waitForTransactionReceipt: jest.fn(), getBalance: jest.fn(), getGasPrice: jest.fn(), getTransaction: jest.fn(),
+  getBlockNumber: jest.fn(), getTransactionCount: jest.fn(), getBlock: jest.fn() } satisfies XReserveClient;
+const adapterWallet = jest.fn();
+const adapterTransactions = new Map<Hash, SourceRpcTransaction>();
+let adapterAllowance: bigint;
+let afterAdapterApproval: () => void;
+let adapterFee: bigint;
+let targetRegistered: boolean;
+let signed: { from: string; to: Hex; data: Hex; chainId: Hex; value: Hex }[];
+jest.mock('lib/bridge/providers/xreserve/provider', () => ({ xreserveReadClient: () => adapterRpc }));
 const fetchMock = jest.fn();
 const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
 beforeAll(() => Object.defineProperty(globalThis, 'fetch', { configurable: true, value: fetchMock }));
@@ -142,6 +154,7 @@ async function drive(executor: boolean, afterClaim?: (claimed: BridgeOperationSn
 beforeEach(async () => {
   jest.clearAllMocks();
   jest.spyOn(Date, 'now').mockReturnValue(now);
+  jest.spyOn(console, 'error').mockImplementation(() => undefined);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   duringAllowance = async () => undefined;
   validationPatch = {};
@@ -155,38 +168,148 @@ beforeEach(async () => {
 });
 afterEach(() => jest.restoreAllMocks());
 
-it.each([false, true])('adapts the reviewed provider into the actual receive wrapper and source leaf (executor=%s)', async executor => {
+async function driveAdapter(executor: boolean, configure?: () => void) {
   const review = reviewFor(executor);
   live = structuredClone(review);
-  const client = {
-    readContract: jest.fn(async ({ functionName }: { functionName: string }) => {
-      if (functionName === 'allowance') return 10000000n;
-      if (functionName === 'balanceOf') return 1000000000n;
-      if (functionName === 'decimals') return 6;
-      if (functionName === 'isRemoteDomainRegistered') return true;
-      if (functionName === 'getRemoteToken') return usdcxExpectedRemoteTokenFor(review.route.recovery.nativeAsset!.faucetId);
-      if (functionName === 'paused') return false;
-      if (functionName === 'getFee') return [1n, review.route.source.kind === 'erc20' ? review.route.source.address : ''];
-      throw new Error('Unexpected read');
-    }), call: jest.fn(async () => ({ data: '0x' })), estimateGas: jest.fn(async () => 100000n),
-    waitForTransactionReceipt: jest.fn(async () => ({ transactionHash: sourceHash, status: 'success' })), getBalance: jest.fn(async () => 1000000000n), getGasPrice: jest.fn(async () => 1n),
-    getTransaction: jest.fn(), getBlockNumber: jest.fn(), getTransactionCount: jest.fn(), getBlock: jest.fn()
-  } satisfies XReserveClient;
-  const send = jest.fn(async ({ method }: { method: string }) => {
+  adapterAllowance = 10000000n;
+  adapterFee = 1n;
+  targetRegistered = true;
+  afterAdapterApproval = () => undefined;
+  signed = [];
+  adapterTransactions.clear();
+  adapterRpc.readContract.mockImplementation(async ({ functionName }) => {
+    if (functionName === 'allowance') return adapterAllowance;
+    if (functionName === 'balanceOf') return 1000000000n;
+    if (functionName === 'decimals') return 6;
+    if (functionName === 'isRemoteDomainRegistered') return targetRegistered;
+    if (functionName === 'getRemoteToken') return usdcxExpectedRemoteTokenFor(review.route.recovery.nativeAsset!.faucetId);
+    if (functionName === 'paused') return false;
+    if (functionName === 'getFee') return [adapterFee, review.route.source.kind === 'erc20' ? review.route.source.address : ''];
+    throw new Error('Unexpected read');
+  });
+  adapterRpc.call.mockResolvedValue({ data: '0x' });
+  adapterRpc.estimateGas.mockResolvedValue(100000n);
+  adapterRpc.getBalance.mockResolvedValue(1000000000n);
+  adapterRpc.getGasPrice.mockResolvedValue(1n);
+  adapterRpc.getTransaction.mockImplementation(async ({ hash }) => {
+    const tx = adapterTransactions.get(hash);
+    if (!tx) throw new Error('Unmodelled transaction');
+    return tx;
+  });
+  adapterRpc.waitForTransactionReceipt.mockImplementation(async ({ hash }) => {
+    const tx = adapterTransactions.get(hash);
+    if (!tx) throw new Error('Unmodelled receipt');
+    if (tx.input.startsWith('0x095ea7b3')) {
+      const decoded = decodeFunctionData({ abi: erc20Abi, data: tx.input });
+      if (decoded.functionName === 'approve') adapterAllowance = decoded.args[1];
+      afterAdapterApproval();
+    }
+    return { transactionHash: hash, status: 'success' };
+  });
+  adapterWallet.mockImplementation(async ({ method, params }) => {
     if (method === 'eth_accounts') return [accounts.evmAddress];
     if (method === 'eth_chainId') return executor ? '0xaa36a7' : '0x4cef52';
-    if (method === 'eth_sendTransaction') return sourceHash;
-    throw new Error('Unexpected wallet method');
+    if (method !== 'eth_sendTransaction') throw new Error('Unexpected wallet method');
+    const tx = params[0];
+    signed.push(tx);
+    const approval = tx.data.startsWith('0x095ea7b3');
+    const hash: Hash = approval ? `0x${signed.length.toString(16).padStart(64, '0')}` : sourceHash;
+    adapterTransactions.set(hash, { hash, from: `0x${accounts.evmAddress.slice(2)}`, to: tx.to, input: tx.data,
+      value: BigInt(tx.value), nonce: signed.length, blockNumber: 1n });
+    return hash;
   });
-  const provider: EIP1193Provider = { request: send, on: jest.fn(), removeListener: jest.fn() };
-  const id = await runXReserveReceive({ operationId: 'circle-provider', review }, { provider, client,
+  configure?.();
+  const provider: EIP1193Provider = { request: adapterWallet, on: jest.fn(), removeListener: jest.fn() };
+  return runXReserveReceive({ operationId: 'circle-provider', review }, { provider, client: adapterRpc,
     checks: { readCurrent: async () => live, verifyBalanceCap: async () => undefined, now: () => now } });
+}
+it.each([false, true])('adapts the reviewed provider into the actual receive wrapper and source leaf (executor=%s)', async executor => {
+  const id = await driveAdapter(executor);
   await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('delivering'));
   const row = await Repo.transactions.get(id);
   expect(bridgeOperationOf(row!)?.sourceAttempt).toMatchObject({ phase: 'known', hash: sourceHash });
   expect(bridgeOperationOf(row!)?.operationId).toBe('circle-provider');
-  expect(send.mock.calls.filter(([args]) => args.method === 'eth_sendTransaction')).toHaveLength(1);
+  expect(signed).toHaveLength(1);
   expect(await Repo.transactions.count()).toBe(1);
+});
+
+it.each([false, true])('resets a short nonzero allowance and records exact original approval facts (executor=%s)', async executor => {
+  const id = await driveAdapter(executor, () => { adapterAllowance = 1n; });
+  await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('delivering'));
+  const row = await Repo.transactions.get(id);
+  expect(bridgeOperationOf(row!)?.approvals?.map(item => item.amount)).toEqual(['0', executor ? '1000002' : '1000001']);
+  expect(bridgeOperationOf(row!)?.approvals?.every(item => item.transaction?.nonce !== undefined)).toBe(true);
+  expect(signed).toHaveLength(3);
+});
+it.each([false, true])('checks the current remote token before paying for an approval (executor=%s)', async executor => {
+  const id = await driveAdapter(executor, () => {
+    adapterAllowance = 0n;
+    const read = adapterRpc.readContract.getMockImplementation()!;
+    adapterRpc.readContract.mockImplementation(async args => args.functionName === 'getRemoteToken' ? `0x${'0'.repeat(64)}` : read(args));
+  });
+  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).not.toBe('running'));
+  expect(signed).toHaveLength(0);
+});
+it('refuses a signed-quote on-chain fee increase after a paid approval', async () => {
+  const id = await driveAdapter(true, () => {
+    adapterAllowance = 0n;
+    afterAdapterApproval = () => { adapterFee = 2n; };
+  });
+  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).not.toBe('running'));
+  const row = await Repo.transactions.get(id);
+  expect(signed).toHaveLength(1);
+  expect(row?.extraInputs.evmTxHash).toBeUndefined();
+  expect(bridgeOperationOf(row!)?.approvals).toHaveLength(1);
+});
+it('keeps the original paid approval but refuses a quote that expires before burn preparation', async () => {
+  const id = await driveAdapter(true, () => {
+    adapterAllowance = 0n;
+    afterAdapterApproval = () => { validationPatch = { claimable: false, failedChecks: ['QUOTE_EXPIRED'],
+      expiry: { mode: 'TIMESTAMP', expiresAt: now / 1000, expired: true, secondsRemaining: 0 } }; };
+  });
+  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('uncertain'));
+  const row = await Repo.transactions.get(id);
+  expect(signed).toHaveLength(1);
+  expect(row?.extraInputs.evmTxHash).toBeUndefined();
+  expect(bridgeOperationOf(row!)?.approvals).toHaveLength(1);
+});
+it('retains an unconfirmed original approval without prompting or funding on recovery', async () => {
+  const id = await driveAdapter(true, () => {
+    adapterAllowance = 0n;
+    adapterRpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Receipt unavailable'));
+  });
+  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('uncertain'));
+  const row = await Repo.transactions.get(id);
+  const owner = row && bridgeOperationOf(row);
+  if (!owner) throw new Error('Missing original owner');
+  expect(owner.approvals).toHaveLength(1);
+  const original = structuredClone(row);
+  const provider: EIP1193Provider = { request: adapterWallet, on: jest.fn(), removeListener: jest.fn() };
+  expect(await runXReserveReceive(owner, { provider, client: adapterRpc,
+    checks: { readCurrent: async () => live, verifyBalanceCap: async () => undefined, now: () => now } })).toBe(id);
+  expect(await Repo.transactions.get(id)).toEqual(original);
+  expect(signed).toHaveLength(1);
+});
+it.each(['repriced', 'cancelled', 'replaced'])('persists %s approval replacement facts without rearming funding', async reason => {
+  const id = await driveAdapter(true, () => {
+    adapterAllowance = 0n;
+    adapterRpc.waitForTransactionReceipt.mockImplementationOnce(async ({ hash, onReplaced }) => {
+      const original = adapterTransactions.get(hash);
+      if (!original) throw new Error('Missing original approval');
+      const replacement: SourceRpcTransaction = { ...original, hash: `0x${'e'.repeat(64)}`,
+        ...(reason === 'cancelled' && { to: `0x${accounts.evmAddress.slice(2)}` satisfies Hex, input: '0x', value: 0n }),
+        ...(reason === 'replaced' && { input: '0x1234' }) };
+      onReplaced({ reason, transaction: replacement });
+      if (reason === 'repriced') adapterAllowance = 1000002n;
+      return { status: 'success', transactionHash: replacement.hash };
+    });
+  });
+  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).not.toBe('running'));
+  const row = await Repo.transactions.get(id);
+  expect(bridgeOperationOf(row!)?.approvals?.[1]?.replacementReason).toBe(reason);
+  expect(bridgeOperationOf(row!)?.approvals?.[1]?.originalTransaction?.nonce).toBe(1);
+  expect(signed).toHaveLength(reason === 'repriced' ? 2 : 1);
+  if (reason !== 'repriced') expect(row?.extraInputs.evmTxHash).toBeUndefined();
 });
 
 it.each([false, true])('first drives a real claimed Circle row (executor=%s)', async executor => {
