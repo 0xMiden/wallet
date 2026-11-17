@@ -278,20 +278,21 @@ describe("Retry's pinned landing of an execute whose tail recorded nothing", () 
     expect(await pushesAfterTheFirstWait(NOW)).toEqual([]);
   });
 
-  // The pinned note is attempt a1's; the later attempt a2's stamp names another private note.
-  it('owes only the private notes of the stamp that names the pinned note, not a later attempt`s', async () => {
+  // Attempt a2 replayed the request; only one of the two stamps names the pinned note.
+  it.each<[string, (other: ISubmitEvidence, pinnedStamp: ISubmitEvidence) => [ISubmitEvidence, ISubmitEvidence]]>([
+    ['a later', (other, pinnedStamp) => [pinnedStamp, other]],
+    ['an earlier', (other, pinnedStamp) => [other, pinnedStamp]]
+  ])('owes only the private notes of the stamp that names the pinned note, not %s attempt`s', async (_t, order) => {
+    const [first, second] = order(
+      entry({ outputNoteIds: [SIBLING_NOTE], privateOutputNoteIds: [SIBLING_NOTE] }),
+      entry()
+    );
     await Repo.transactions.put(
       failedExecute({
         attemptId: 'a2',
         submitEvidence: [
-          entry(),
-          entry({
-            attemptId: 'a2',
-            capturedAt: NOW - 30,
-            transactionId: hex(3),
-            outputNoteIds: [SIBLING_NOTE],
-            privateOutputNoteIds: [SIBLING_NOTE]
-          })
+          { ...first, attemptId: 'a1' },
+          { ...second, attemptId: 'a2', capturedAt: NOW - 30, transactionId: hex(3) }
         ]
       })
     );
