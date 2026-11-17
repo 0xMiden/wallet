@@ -1,0 +1,51 @@
+name: SDK 0.18 dependency preparation
+on:
+  push:
+    branches: [ci/wallet-018-prep]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Resolve exact published dependencies
+        run: yarn install --ignore-scripts --non-interactive --network-timeout 120000
+      - name: Apply patches and build local TypeScript packages
+        run: yarn postinstall
+      - name: Fetch exact registry sources named by the published WASM
+        run: |
+          node --input-type=module <<'JS' > /tmp/sdk-crates.tsv
+          import { readFileSync } from 'node:fs';
+          import { cratesBuiltInto } from './scripts/generate-protocol-assertions.mjs';
+          const wasm = readFileSync('node_modules/@miden-sdk/miden-sdk/dist/st/assets/miden_client_web.wasm');
+          for (const [name, versions] of cratesBuiltInto(wasm)) {
+            if (versions.size !== 1) throw new Error(`Ambiguous crate ${name}`);
+            console.log(`${name}\t${[...versions][0]}`);
+          }
+          JS
+          mkdir -p /tmp/sdk-registry
+          while IFS=$'\t' read -r name version; do
+            curl --fail --location --retry 3 "https://static.crates.io/crates/$name/$name-$version.crate" -o /tmp/source.crate
+            tar -xzf /tmp/source.crate -C /tmp/sdk-registry
+          done < /tmp/sdk-crates.tsv
+      - name: Regenerate protocol assertion provenance
+        run: node scripts/generate-protocol-assertions.mjs --registry /tmp/sdk-registry
+      - name: Verify generated provenance and exact package versions
+        run: |
+          node scripts/generate-protocol-assertions.mjs --registry /tmp/sdk-registry --check
+          node -e 'for (const p of ["miden-sdk","react","miden-wallet-adapter-base","miden-wallet-adapter-miden","miden-wallet-adapter-react","vite-plugin"]) { const x=require("./node_modules/@miden-sdk/"+p+"/package.json"); if(x.version!=="0.18.0") throw Error(p+": "+x.version); console.log(p,x.version); }'
+      - name: Preserve exact generated files
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sdk18-prepared-dependencies
+          path: |
+            yarn.lock
+            src/lib/telemetry/protocol-assertions.json
+            src/lib/telemetry/protocol-assertions.sources.json
+          if-no-files-found: error
