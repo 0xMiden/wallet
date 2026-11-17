@@ -75,6 +75,7 @@
 - [FIX][all] Retry anyway on a dApp transaction that may already have gone through now checks the network for the notes it creates and the notes its approval recorded: when one is already on chain, the wallet completes the transaction instead of running it again, and while the network cannot be checked it runs nothing. A saved dApp request that creates a note in another account's name, which an older version could save when its approval check failed, can never be sent from this account, so Retry refuses it without checking the network instead of asking you to try again later (#2147).
 - [FIX][all] A private note from a send or a dApp transaction that went through is still retried for delivery when the wallet cannot read the transaction's id, or anything of its result, back afterwards, however many notes the transaction created; a dApp transaction that created no private note then no longer says one could not be delivered.
 - [FIX][chrome] A send, swap or dApp transaction from a single-key account is sent only once the extension has recorded what it is about to send, so a private note from one that went through is still retried for delivery, and a swap keeps its order, when the extension cannot read its result back; when that record cannot be written, nothing is sent.
+- [FIX][all] A private note from a dApp transaction that went through after it was cancelled, by you or because it took too long, is still retried for delivery when the wallet cannot read the transaction's result back.
 
 ## 1.17.11 (2026-11-09)
 
