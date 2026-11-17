@@ -639,16 +639,17 @@ describe.each([
 
     expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
     // A note carrying another amount is another note, so it is not the one the row was built with either.
-    if (provider === 'usdcx') {
-      expect(failure).toMatchObject({
-        cause: { message: 'The approved USDCx burn is missing from the fee-bearing transaction' }
-      });
-    } else {
-      expect(failure instanceof Error ? failure.message : undefined).toBe(
-        'Refused to sign this bridged-send transaction: 1001 of faucet leaves (approved 1000); ' +
-          'creates a note that was not approved (note:1001)'
-      );
-    }
+    const expected =
+      provider === 'usdcx'
+        ? {
+            cause: { message: 'The approved USDCx burn is missing from the fee-bearing transaction' }
+          }
+        : {
+            message:
+              'Refused to sign this bridged-send transaction: 1001 of faucet leaves (approved 1000); ' +
+              'creates a note that was not approved (note:1001)'
+          };
+    expect(failure).toMatchObject(expected);
     expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
     expect(signCallback).not.toHaveBeenCalled();
     expect(mockSubmit).not.toHaveBeenCalled();
@@ -671,15 +672,15 @@ describe.each([
       });
 
       expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
-      if (provider === 'usdcx') {
-        expect(failure).toMatchObject({
-          cause: { message: 'The approved USDCx burn is missing from the fee-bearing transaction' }
-        });
-      } else {
-        expect(failure instanceof Error ? failure.message : undefined).toBe(
-          'Refused to sign this bridged-send transaction: creates a note that was not approved (note:1000)'
-        );
-      }
+      const expected =
+        provider === 'usdcx'
+          ? {
+              cause: { message: 'The approved USDCx burn is missing from the fee-bearing transaction' }
+            }
+          : {
+              message: 'Refused to sign this bridged-send transaction: creates a note that was not approved (note:1000)'
+            };
+      expect(failure).toMatchObject(expected);
       expect(signCallback).not.toHaveBeenCalled();
       expect(mockSubmit).not.toHaveBeenCalled();
       expect(mockComplete.bridged).not.toHaveBeenCalled();
