@@ -33,6 +33,14 @@ for (const width of [320, 360, 402]) {
       await expect(amount).toHaveValue('0.15');
       await expect(page.getByRole('button', { name: 'USD', exact: true })).toBeVisible();
 
+      // Production presentation primitives and translations, with synthetic data and no wallet/signer.
+      const feeRow = page.getByTestId('reviewed-native-fee');
+      const maximum = feeRow.getByText('0.000298 USDCX', { exact: true });
+      await expect(feeRow).toContainText('Max network fee');
+      await expect(feeRow).toContainText('Paid in USDCX, including faucet execution sponsorship');
+      await expect(maximum).toBeVisible();
+      expect(await maximum.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+
       const screenshotPath = test.info().outputPath(`token-display-${width}-${dark ? 'dark' : 'light'}.png`);
       const screenshot = await page.screenshot({ path: screenshotPath, animations: 'disabled', caret: 'hide' });
       await sharp(screenshot).resize(1800, 1800, { fit: 'inside', withoutEnlargement: true }).toFile(screenshotPath);

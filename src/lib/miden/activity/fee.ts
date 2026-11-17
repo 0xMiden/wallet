@@ -1,6 +1,12 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk';
 
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import type { ITransaction } from 'lib/miden/db/types';
+import {
+  partitionApprovedUsdcxSponsorship,
+  usdcxSponsorshipApprovalOf,
+  type SponsorshipNote
+} from 'lib/usdcx/sponsorship';
 
 import { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes, splitLandedOutputNotes } from './fee-notes';
 import type { FeePaid } from './fee-notes';
@@ -31,24 +37,47 @@ export type { UserOutputNote, FeePaid } from './fee-notes';
  * plausible `undefined` and let the caller run its NEXT WASM read on the same evicted
  * client -- the double borrow the poison contract exists to prevent.
  */
-export function feePaidFromResult(result: TransactionResult, landing: string): FeePaid | undefined {
+export function feePaidFromResult(
+  result: TransactionResult,
+  landing: string,
+  transaction?: ITransaction
+): FeePaid | undefined {
   try {
-    const { feeNote } = splitLandedOutputNotes(result, landing);
-    if (!feeNote) {
-      return undefined;
-    }
-    const assets = feeNote.assets()?.fungibleAssets() ?? [];
-    const first = assets[0];
-    if (!first) {
-      return undefined;
-    }
+    const { feeNote, userNotes, verificationFeeKnown } = splitLandedOutputNotes(result, landing);
+    const budgetedBurn =
+      transaction?.extraInputs?.provider === 'usdcx' &&
+      transaction.extraInputs.usdcxBurn?.networkFeeBudget !== undefined
+        ? transaction
+        : undefined;
+    // A verified companion is not a known TOTAL if the ordinary fee split was ambiguous or trapped.
+    if (budgetedBurn && !verificationFeeKnown) return undefined;
+    const first = feeNote?.assets()?.fungibleAssets()[0];
     // BECH32, like every other faucet id the wallet stores -- `String(AccountId)`
     // gives canonical hex, and the two are different encodings of the same account.
     // `assetsMetadata` is keyed by bech32 and `resolveDisplayMetadata` compares the
     // native faucet id by string equality, so a hex id missed both, resolved to the
     // unknown-token placeholder (`scaleIsUnknown: true`) and made `hasKnownScale`
     // false -- which meant the receipt's fee row was never rendered at all.
-    return { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) };
+    const paid = first
+      ? { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) }
+      : undefined;
+    if (!budgetedBurn) return paid;
+    const approval = usdcxSponsorshipApprovalOf(budgetedBurn);
+    if (!approval) throw new Error('The completed burn has no approved fee context');
+    const notes = userNotes.map((note): SponsorshipNote => {
+      const id = note.id().toString();
+      const assets = note.assets();
+      if (!assets) return { id, amounts: [], nfts: [], opaque: true };
+      return {
+        id,
+        amounts: assets.fungibleAssets().map(asset => ({
+          amount: BigInt(asset.amount()),
+          faucetId: getBech32AddressFromAccountId(asset.faucetId())
+        })),
+        nfts: assets.nonFungibleAssets()
+      };
+    });
+    return partitionApprovedUsdcxSponsorship(notes, paid, approval).fee;
   } catch (err) {
     if (isWasmClientPoisonedError(err)) {
       throw err;
@@ -67,7 +96,8 @@ export function feePaidFromResult(result: TransactionResult, landing: string): F
  */
 export function feeFieldsFromResult(
   result: TransactionResult | undefined,
-  landing: string
+  landing: string,
+  transaction?: ITransaction
 ): {
   feeAmount?: bigint;
   feeFaucetId?: string;
@@ -75,7 +105,7 @@ export function feeFieldsFromResult(
   if (!result) {
     return {};
   }
-  const paid = feePaidFromResult(result, landing);
+  const paid = feePaidFromResult(result, landing, transaction);
   return paid ? { feeAmount: paid.amount, feeFaucetId: paid.faucetId } : {};
 }
 

@@ -2729,23 +2729,37 @@ describe('actions', () => {
     beforeEach(() => mockEstimateUsdcxBurnFeeReserve.mockReset());
 
     it('measures for the account and chain and answers the reserve as a decimal string', async () => {
-      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({ outcome: 'measured', reserve: 9007199254740993n });
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({
+        outcome: 'measured',
+        reserve: 9007199254740993n,
+        faucetId: 'native',
+        scope: 'source-scope'
+      });
 
       await expect(estimateUsdcxBurnFee(request)).resolves.toEqual({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '9007199254740993'
+        feeReserve: '9007199254740993',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
       expect(mockEstimateUsdcxBurnFeeReserve).toHaveBeenCalledWith('mm1account', 5042002);
     });
 
     it('answers a measured zero as a measurement', async () => {
-      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({ outcome: 'measured', reserve: 0n });
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({
+        outcome: 'measured',
+        reserve: 0n,
+        faucetId: 'native',
+        scope: 'source-scope'
+      });
 
       await expect(estimateUsdcxBurnFee(request)).resolves.toStrictEqual({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '0'
+        feeReserve: '0',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
     });
 
