@@ -10,6 +10,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { createNodeReads, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import type { ITransaction } from '../db/types';
 import { recordedSwapOrder, swapOrderOf } from '../sdk/apply-after-submit';
+import { canonicalWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { landedOrderFacts, type LandedTransaction, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
@@ -30,10 +31,11 @@ export type PinnedReplayCheck =
       order?: Pick<LandedTransaction, 'orderId' | 'orderNoteId'>;
     }
   /**
-   * `decode`: the saved request's bytes do not deserialize, so no Retry can resend it. `read`: the SDK, the WASM
-   * engine (a trap), the WASM lock or the node gave no answer this time.
+   * `decode`: the saved request's bytes do not deserialize, so no Retry can resend it. `sender`: an execute's request
+   * declares a note in another account's name, which no run as its own account creates, so no Retry can send it
+   * either. `read`: the SDK, the WASM engine (a trap), the WASM lock or the node gave no answer this time.
    */
-  | { kind: 'unknown'; cause: 'decode' | 'read' };
+  | { kind: 'unknown'; cause: 'decode' | 'sender' | 'read' };
 
 interface PinnedNotes {
   noteIds: string[];
@@ -42,6 +44,9 @@ interface PinnedNotes {
 
 /** The saved request's own bytes did not deserialize, so no Retry can resend them. */
 class SavedRequestUnreadable extends Error {}
+
+/** An execute's saved request declares a note under another account, so no run as the row's account can send it. */
+class SavedRequestForeignSender extends Error {}
 
 const NOTE_ID_HEX = /^0x[0-9a-f]{64}$/i;
 
@@ -151,6 +156,15 @@ export async function checkPinnedReplayNotes(
           throw new SavedRequestUnreadable('the saved request does not deserialize', { cause: error });
         }
         const notes = request.expectedOutputOwnNotes();
+        // The SDK refuses a note declared under another account only when it executes the request, and the wallet once
+        // queued a dApp's request whose approval run failed: such bytes never run as this row, so they are refused here
+        // rather than asked about on every Retry.
+        if (row.type === 'execute' && notes.length > 0) {
+          const owner = normalizeHex(canonicalWalletAccountId(row.accountId));
+          if (notes.some(note => normalizeHex(note.metadata().sender().toString()) !== owner)) {
+            throw new SavedRequestForeignSender('the saved request declares a note under another account');
+          }
+        }
         const noteIds = notes.map(note => normalizeHex(note.id().toString()));
         if (row.type !== 'swap') return { noteIds };
         const order = pinnedOrderOf(notes);
@@ -159,6 +173,10 @@ export async function checkPinnedReplayNotes(
       { label: 'retry-pinned-notes' }
     );
   } catch (error) {
+    if (error instanceof SavedRequestForeignSender) {
+      console.warn('[retry] the saved request declares a note under another account, so no Retry sends it');
+      return { kind: 'unknown', cause: 'sender' };
+    }
     console.warn('[retry] could not read the notes the saved request creates', error);
     return { kind: 'unknown', cause: error instanceof SavedRequestUnreadable ? 'decode' : 'read' };
   }

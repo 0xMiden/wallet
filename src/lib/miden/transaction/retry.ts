@@ -374,7 +374,8 @@ interface RequeuePlan {
 const completedFromPinnedNotes = async (tx: ITransaction, baseline: string): Promise<boolean> => {
   const pinned = await checkPinnedReplayNotes(tx);
   if (pinned.kind === 'unknown') {
-    throw pinned.cause === 'decode'
+    // Bytes that do not decode, or that declare a note under another account, can never be sent from this row.
+    throw pinned.cause === 'decode' || pinned.cause === 'sender'
       ? retryRefusal(new Error(TRANSACTION_REPLAY_UNREADABLE_ERROR), 'replay_request_unreadable')
       : retryRefusal(new Error(TRANSACTION_REPLAY_CHECK_FAILED_ERROR), 'replay_check_failed');
   }
