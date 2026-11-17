@@ -26,6 +26,7 @@ import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiat
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
+import { readEvmReceiptOutcome } from 'lib/walletconnect/receipt';
 
 import { submitAgglayerDeposit, type AgglayerClient } from './deposit';
 import { runAgglayerReceive } from './flows';
@@ -55,7 +56,7 @@ jest.mock('lib/remote-config/runtime', () => ({
 jest.mock('lib/agglayer/status', () => ({ ...jest.requireActual('lib/agglayer/status'), fetchDeposits: jest.fn() }));
 jest.mock('lib/walletconnect/receipt', () => ({
   ...jest.requireActual('lib/walletconnect/receipt'),
-  readEvmReceiptOutcome: async () => 'success'
+  readEvmReceiptOutcome: jest.fn()
 }));
 jest.mock('lib/bridge/providers/agglayer/provider', () => ({ agglayerReadClient: () => rpc }));
 jest.mock('lib/agglayer/contract', () => ({
@@ -175,6 +176,7 @@ beforeEach(async () => {
     if (functionName === 'isEmergencyState') return false;
     throw new Error('Unexpected read');
   });
+  jest.mocked(readEvmReceiptOutcome).mockResolvedValue('success');
   rpc.call.mockResolvedValue({ data: '0x' });
   rpc.estimateGas.mockResolvedValue(100000n);
   rpc.getBalance.mockResolvedValue(10n ** 25n);
@@ -853,6 +855,21 @@ it.each([
   expect(row?.extraInputs.phase).toBe(
     field === 'valid' || field === 'claimed' || field === 'contradictory' ? 'ready' : 'delivering'
   );
+  expect(row?.extraInputs.phase).not.toBe('received');
+  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
+});
+
+it.each(['receipt-unavailable', 'receipt-pending', 'all-unavailable'])('keeps exact destination evidence independent of %s source reads', async observation => {
+  const { id, error } = await drive();
+  expect(error).toBeUndefined();
+  const deposit = { leaf_type: 0, orig_net: 0, orig_addr: tokenAddress, amount: '1000000000000000000', dest_net: 73, dest_addr: '0x00000000387149ae66116cf114eebd60bb738100', block_num: '1', deposit_cnt: 42, network_id: 0, tx_hash: depositHash, claim_tx_hash: '', metadata: '0x', ready_for_claim: true, global_index: '42' };
+  if (observation === 'receipt-pending') jest.mocked(readEvmReceiptOutcome).mockResolvedValueOnce('pending');
+  else jest.mocked(readEvmReceiptOutcome).mockRejectedValueOnce(new Error('Receipt RPC unavailable'));
+  if (observation === 'all-unavailable') jest.mocked(fetchDeposits).mockRejectedValueOnce(new Error('Indexer unavailable'));
+  else jest.mocked(fetchDeposits).mockResolvedValueOnce([deposit]);
+  await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
+  const row = await Repo.transactions.get(id);
+  expect(row?.extraInputs.phase).toBe(observation === 'all-unavailable' ? 'submitting' : 'ready');
   expect(row?.extraInputs.phase).not.toBe('received');
   expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
 });
