@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 
 import {
   bodyOf,
@@ -135,6 +135,31 @@ describe('storage rate limit', () => {
     await expectRateLimited(await putBatch(harness, session, 'accounts', keys));
     expect(harness.storageLimit.keys.length - before).toBe(3);
     expect(harness.db.entriesOf(session.profileId, 'accounts')).toEqual([]);
+  });
+
+  it('checks the write limit before it reads a batch body', async () => {
+    const harness = createHarness();
+    const session = await readyProfile(harness);
+    harness.storageLimit.allow(0);
+    const request = new Request('https://wallet-api.test/v1/storage/accounts', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${session.token}` },
+      body: 'not json'
+    });
+    const stream = request.body;
+    if (stream === null) throw new Error('The request has no body');
+    const getReader = jest.spyOn(stream, 'getReader');
+    await expectRateLimited(await harness.service.fetch(request, harness.env));
+    expect(getReader).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed batch over the limit with 429, not 400', async () => {
+    const harness = createHarness();
+    const session = await readyProfile(harness);
+    harness.storageLimit.allow(0);
+    await expectRateLimited(
+      await send(harness, '/v1/storage/accounts', { method: 'PUT', token: session.token, body: 'not json' })
+    );
   });
 
   it('refuses a salt set and a delete over the limit and changes nothing', async () => {

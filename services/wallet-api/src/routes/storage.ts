@@ -105,8 +105,12 @@ export async function writeEntry(context: RequestContext, feature: Feature, hash
 export async function writeBatch(context: RequestContext, feature: Feature): Promise<Response> {
   const db = database(context.env);
   const principal = await authenticate(context);
+  // One unit before the body is read, as every write route charges, so a refused or malformed batch still
+  // costs one; the rest of the batch's cost after validation, before the write.
+  await limitStorage(context, principal, 'write');
   const items = parseBatch(await readJson(context.request), feature);
-  await limitStorage(context, principal, 'write', batchWriteCost(items.length));
+  const remaining = batchWriteCost(items.length) - 1;
+  if (remaining > 0) await limitStorage(context, principal, 'write', remaining);
   const body: BatchWriteResponse = { entries: await writeEntries(db, principal, feature, items) };
   return json(body);
 }

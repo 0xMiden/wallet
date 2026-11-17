@@ -180,17 +180,41 @@ describe('batch write cost', () => {
     expect(harness.storageLimit.keys.slice(before)).toEqual(Array(3).fill(`write:${session.profileId}`));
   });
 
-  it('charges nothing for a batch that fails validation', async () => {
+  it.each([
+    ['malformed JSON', 'not json'],
+    ['an empty batch', { entries: [] }],
+    ['an invalid entry', { entries: [{ hashedKey: hashedKey(1), entry: { envelope: 2 } }] }]
+  ])('charges one unit for a batch with %s and writes nothing', async (_name, body) => {
     const harness = createHarness();
     const session = await readyProfile(harness);
     const before = harness.storageLimit.keys.length;
-    const response = await send(harness, '/v1/storage/accounts', {
-      method: 'PUT',
-      token: session.token,
-      body: { entries: [] }
-    });
+    const response = await send(harness, '/v1/storage/accounts', { method: 'PUT', token: session.token, body });
     expect(response.status).toBe(400);
-    expect(harness.storageLimit.keys.slice(before)).toEqual([]);
+    expect(harness.storageLimit.keys.slice(before)).toEqual([`write:${session.profileId}`]);
+    expect(harness.db.entriesOf(session.profileId, 'accounts')).toEqual([]);
+  });
+
+  it('charges one unit for a batch of more than 100 entries and writes nothing', async () => {
+    const harness = createHarness();
+    const session = await readyProfile(harness);
+    const before = harness.storageLimit.keys.length;
+    const keys = Array.from({ length: 101 }, (_unused, index) => hashedKey(index + 1));
+    expect((await putBatch(harness, session, 'accounts', keys)).status).toBe(413);
+    expect(harness.storageLimit.keys.slice(before)).toEqual([`write:${session.profileId}`]);
+    expect(harness.db.entriesOf(session.profileId, 'accounts')).toEqual([]);
+  });
+
+  it.each([
+    [10, 1],
+    [11, 2],
+    [100, 10]
+  ])('still charges a valid batch of %i entries %i units in all', async (entries, units) => {
+    const harness = createHarness();
+    const session = await readyProfile(harness);
+    const before = harness.storageLimit.keys.length;
+    const keys = Array.from({ length: entries }, (_unused, index) => hashedKey(index + 1));
+    expect((await putBatch(harness, session, 'accounts', keys)).status).toBe(200);
+    expect(harness.storageLimit.keys.slice(before)).toEqual(Array(units).fill(`write:${session.profileId}`));
   });
 });
 

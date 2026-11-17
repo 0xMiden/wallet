@@ -52,7 +52,7 @@ A profile has a generation: 16 random bytes that the login writes when it create
 
 ## Rate limits
 
-The nonce and login routes count per caller address (`AUTH_RATE_LIMIT`). Every authenticated route counts per profile (`STORAGE_RATE_LIMIT`), on the key `read:<profileId>` for a `GET` and `write:<profileId>` for a `PUT` or `DELETE`. A batch `PUT` costs one unit per started group of 10 entries. A refused request gets `429 rate_limited` with `Retry-After: 60`. Anyone can make a sync key and get a token, so the token alone bounds no load; the per-profile budget does.
+The nonce and login routes count per caller address (`AUTH_RATE_LIMIT`). Every authenticated route counts per profile (`STORAGE_RATE_LIMIT`), on the key `read:<profileId>` for a `GET` and `write:<profileId>` for a `PUT` or `DELETE`. A batch `PUT` costs one unit per started group of 10 entries; the first unit is charged before the body is read, so a refused or malformed batch still costs one. A refused request gets `429 rate_limited` with `Retry-After: 60`. Anyone can make a sync key and get a token, so the token alone bounds no load; the per-profile budget does.
 
 ## Pages
 
