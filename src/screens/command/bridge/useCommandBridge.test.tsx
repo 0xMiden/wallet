@@ -182,6 +182,44 @@ it.each(['account', 'rpc', 'lock'])('scope %s clears unsigned selections and rej
   expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
 });
 
+it('A to B to A never revives a retained setter from the original account scope', () => {
+  const { result, rerender } = renderHook(useConsumer, { wrapper });
+  const staleSetter = result.current.bridge.setAmount;
+  act(() => result.current.bridge.setAmount('1.00000000'));
+  mockState.currentAccount.publicKey = '0x287149ae66116cf114eebd60bb7381';
+  rerender();
+  mockState.currentAccount.publicKey = accounts.midenAccount;
+  rerender();
+  act(() => staleSetter('99'));
+  expect(result.current.bridge.amount).toBe('');
+  expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
+  act(() => result.current.bridge.setAmount('2.00000000'));
+  expect(result.current.bridge.amount).toBe('2.00000000');
+});
+
+it('a retained setter after minimize/unmount cannot overwrite the reopened consumer shared draft', () => {
+  let setter: (value: string) => void = () => undefined;
+  let readDraft: ReturnType<typeof useCommandDrafts>['readDraft'] | undefined;
+  function Consumer() {
+    const bridge = useCommandBridge();
+    setter = bridge.setAmount;
+    readDraft = useCommandDrafts().readDraft;
+    return <span data-testid="amount">{bridge.amount}</span>;
+  }
+  const view = (show: boolean) => <CommandDraftProvider scope={scope}>{show && <Consumer />}</CommandDraftProvider>;
+  const { rerender } = render(view(true));
+  act(() => setter('1.00000000'));
+  const staleSetter = setter;
+  rerender(view(false));
+  rerender(view(true));
+  act(() => staleSetter('99'));
+  expect(screen.getByTestId('amount')).toHaveTextContent('1.00000000');
+  expect(readDraft?.('bridge')?.amount).toBe('1.00000000');
+  act(() => setter('2.00000000'));
+  expect(screen.getByTestId('amount')).toHaveTextContent('2.00000000');
+  expect(readDraft?.('bridge')?.amount).toBe('2.00000000');
+});
+
 it('minimize/reopen restores only unsigned literals, never quote/review/signature or submit permission', async () => {
   function Consumer() {
     const bridge = useCommandBridge();
