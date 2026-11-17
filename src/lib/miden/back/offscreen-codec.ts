@@ -170,6 +170,8 @@ export const OFFSCREEN_PROVE_MARKER = 'OFFSCREEN_PROVE_MARKER' as const;
  * the per-op deadline the SW enforces; `null` means "no deadline". `endpoints`
  * is the SW's endpoint state when the call is sent: this realm has no extension
  * storage, so it runs every call on the network the call names (#1482).
+ * `submitGated` says the SW registered a submit gate for the op, which a
+ * single-key write then asks for its 'submitting' stamp (#1081).
  */
 export interface OffscreenCallRequest {
   target: typeof OFFSCREEN_TARGET;
@@ -179,6 +181,7 @@ export interface OffscreenCallRequest {
   argsB64: string[];
   deadline_ms: number | null;
   endpoints: EndpointState;
+  submitGated?: true;
 }
 
 /**

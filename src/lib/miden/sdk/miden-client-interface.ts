@@ -2252,18 +2252,15 @@ export class MidenClientInterface {
     { beforeSubmit, requestOrder }: StagedSubmit = {}
   ): Promise<TransactionResult> {
     const proof = await attempt.proveInWorker(executed.result);
-    // No re-check of the hold between here and `submitProven`: the helper's own
-    // post-prove `assertWasmHoldCurrent` already ran, and the only `onStage` this
-    // realm installs (`postStageEvent`) is synchronous, so `await` only yields one
-    // microtask before `markSubmitting()`, not a real parking point. An async
-    // `onStage` would need its own re-check.
     // Read under the hold that executed and proved it, before the stamp, so the evidence rides the stamp (#1081).
     if (onStage) {
       await onStage('submitting', {
         evidence: { ...readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent()), ...requestOrder }
       });
     }
-    if (beforeSubmit && attempt.evicted()) {
+    // A gated write's stamp waits for the service worker to record the crossing, a real parking point, so ownership is
+    // asked again whether or not the write has a check of its own before its submit (#1081).
+    if (attempt.evicted()) {
       throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove'));
     }
     beforeSubmit?.();

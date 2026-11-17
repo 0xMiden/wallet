@@ -677,7 +677,7 @@ const stageStampFor =
   };
 
 /**
- * The offscreen Guardian leaf's submit gate (#1644), for one attempt. The leaf submits only once this answers yes, and
+ * An offscreen leaf's submit gate (#1644), for one attempt. The leaf submits only once this answers yes, and
  * it answers yes only after the reliable 'submitting' stamp recorded the crossing (a stamp that throws leaves it shut)
  * and while the attempt has not settled, so an attempt it never answered yes for never called submit. `settle` is
  * called first thing when the attempt's outcome is decided; a gate still recording then answers no.
@@ -2386,20 +2386,18 @@ const generateTransactionWithProvider = async (
               t.requestBytes = preparedBytes;
             });
           }
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          // A claim's own leaf keeps its fire-and-forget stamp: only a prepared request takes the gate.
+          return runStampedWriteLeaf(transaction.id, attempt, (stamp, submitGate) =>
             preparedBytes
               ? midenClientProxy.newTransaction(
                   transaction.accountId,
                   preparedBytes,
                   transaction.delegateTransaction,
                   signer,
-                  attempt && stageStampFor(transaction.id, attempt)
+                  stamp,
+                  submitGate
                 )
-              : midenClientProxy.consumeNoteId(
-                  transaction as ConsumeTransaction,
-                  signer,
-                  attempt && stageStampFor(transaction.id, attempt)
-                )
+              : midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signer, stamp)
           );
         }
         case 'send': {
@@ -2413,23 +2411,13 @@ const generateTransactionWithProvider = async (
           // matters because the SW build (`vite.background.config.ts`) is the ONE build
           // that defaults the flag ON - a stage callback that rode the inline leaf only
           // would silently lose the timings on Chrome, the primary platform.
-          const attempt = attemptContextOf(transaction);
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-            midenClientProxy.sendTransaction(
-              transaction as SendTransaction,
-              signer,
-              stageStampFor(transaction.id, attempt)
-            )
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+            midenClientProxy.sendTransaction(transaction as SendTransaction, signer, stamp, submitGate)
           );
         }
         case 'swap': {
-          const attempt = attemptContextOf(transaction);
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-            midenClientProxy.swapTransaction(
-              transaction as SwapTransaction,
-              signer,
-              stageStampFor(transaction.id, attempt)
-            )
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+            midenClientProxy.swapTransaction(transaction as SwapTransaction, signer, stamp, submitGate)
           );
         }
         case 'bridged-send':
@@ -2457,13 +2445,14 @@ const generateTransactionWithProvider = async (
           // the annotation is idempotent.
           // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
           const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          return runStampedWriteLeaf(transaction.id, attempt, (stamp, submitGate) =>
             midenClientProxy.newTransaction(
               transaction.accountId,
               requestBytes,
               transaction.delegateTransaction,
               signer,
-              attempt && stageStampFor(transaction.id, attempt)
+              stamp,
+              submitGate
             )
           );
         }
@@ -2504,14 +2493,14 @@ const generateTransactionWithProvider = async (
               t.requestBytes = executeBytes;
             });
           }
-          const attempt = attemptContextOf(transaction);
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
             midenClientProxy.newTransaction(
               transaction.accountId,
               executeBytes,
               transaction.delegateTransaction,
               signer,
-              stageStampFor(transaction.id, attempt)
+              stamp,
+              submitGate
             )
           );
         }
@@ -3175,6 +3164,26 @@ const runWriteLeaf = async <T>(
       await recordLeafEnd(txId, attempt);
     }
     throw error;
+  }
+};
+
+/**
+ * Run a single-key write leaf with its attempt's 'submitting' stamp and submit gate (#1081): the stamp is the submit's
+ * precondition on both routes, awaited by the inline leaf and through the gate by the offscreen one, which the proxy
+ * alone tells apart. Without an attempt the leaf stamps nothing and gets no gate.
+ */
+const runStampedWriteLeaf = async <T>(
+  txId: string,
+  attempt: AttemptContext | undefined,
+  leaf: (stamp?: ReturnType<typeof stageStampFor>, submitGate?: SubmitGate) => Promise<T>
+): Promise<T> => {
+  if (attempt === undefined) return runWriteLeaf(txId, undefined, writeLeafRunsOffscreen(), () => leaf());
+  const stamp = stageStampFor(txId, attempt);
+  const submitGate = offscreenSubmitGate(stamp);
+  try {
+    return await runWriteLeaf(txId, attempt, writeLeafRunsOffscreen(), () => leaf(stamp, submitGate.gate));
+  } finally {
+    submitGate.settle();
   }
 };
 
