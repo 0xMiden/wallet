@@ -106,13 +106,14 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   const landedId = () => keptValue(landed.transactionId) ?? executedTx.id().toHex();
 
   // What the sweep needs to re-push this row's notes if the pipeline stops before its
-  // terminal write: which notes, to whom, and which of them no push can carry.
-  const relayEvidence = () => ({
-    transactionId: landedId(),
+  // terminal write: which notes, to whom, and which of them no push can carry. Only values the read kept, so an id
+  // that did not read leaves out the id alone.
+  const relayEvidence = {
+    transactionId: keptValue(landed.transactionId),
     relayNoteIds,
     relayRecipientId,
     deadNoteIds: relayDeadNoteIds
-  });
+  };
 
   let noteDelivery: INoteDeliveryState | undefined;
 
@@ -121,9 +122,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // the SDK keeps no record of a relay it could not make, so this row is the only
     // durable trace that a note is owed, and what the delivery sweep retries from.
     try {
-      await recordNoteDelivery(transaction.id, 'pending', relayEvidence());
+      await recordNoteDelivery(transaction.id, 'pending', relayEvidence);
     } catch (error) {
-      retireLandedTrap(error, transaction.id, result);
       console.warn('Could not record the pending note delivery', { txId: transaction.id, error });
     }
 
@@ -192,9 +192,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // Private notes existed but none could be turned into a relayable note.
     noteDelivery = 'undelivered';
     try {
-      await recordNoteDelivery(transaction.id, noteDelivery, relayEvidence());
+      await recordNoteDelivery(transaction.id, noteDelivery, relayEvidence);
     } catch (error) {
-      retireLandedTrap(error, transaction.id, result);
       console.warn('Could not record the note delivery outcome', { txId: transaction.id, error });
     }
   }
@@ -968,13 +967,13 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     // not make, so without this stamp nothing between submit and the terminal write
     // would say a note is owed to anyone, and an interrupted relay would read like a
     // delivered one. The worst case is a row left at `pending`, which the delivery
-    // sweep (`note-delivery-sweep.ts`) picks up and retries.
+    // sweep (`note-delivery-sweep.ts`) picks up and retries. Only values the read kept, so an id that did not read
+    // leaves out the id alone.
     try {
-      await recordNoteDelivery(tx.id, 'pending', { transactionId: landedId(), outputNoteIds });
+      await recordNoteDelivery(tx.id, 'pending', { transactionId: keptValue(landed.transactionId), outputNoteIds });
     } catch (error) {
       // Best-effort: a failed journal write must not stop the relay, which is the
       // thing that actually delivers the note.
-      retireLandedTrap(error, tx.id, result);
       console.warn('Could not record the pending note delivery', { txId: tx.id, noteId, error });
     }
 
