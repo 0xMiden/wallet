@@ -11,7 +11,7 @@ import {
   type BridgeOperationSnapshot
 } from 'lib/bridge/operation';
 import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
-import type { IBridgedReceiveExtraInputs, ITransaction } from 'lib/miden/db/types';
+import type { IBridgedReceiveExtraInputs, IEpochLockedDeposit, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
@@ -376,9 +376,25 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (intent.error) {
         if (!tagged || request === latestRequest) set({ status: 'failed', intent, error: intent.error });
         if (bridgeReceiveTxId && !tagged) {
+          const stranded = intent.strandedDeposit;
+          const params = quote.params;
+          // The deposit landed but has no allocation: keep what the sponsor needs to register it again or to
+          // withdraw it, so the row offers recovery instead of a plain failure (#2120).
+          const epochLockedDeposit: IEpochLockedDeposit | undefined = stranded && {
+            sponsorAddress: params.evmSourceAddress,
+            chainId: sourceChainId,
+            lockId: stranded.lockId,
+            tokenAddress: stranded.tokenAddress,
+            isNative: params.isNative === true,
+            amount: stranded.amount,
+            taskTypeString: intent.taskTypeString,
+            intentData: intent.intentData,
+            lockedAt: Math.floor(Date.now() / 1000)
+          };
           // The Epoch SDK's own text, viem's flattened answer, so its report reads it as the cause.
           await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
             error: intent.error,
+            ...(epochLockedDeposit ? { epochLockedDeposit, epochAllocatorUrl: allocatorUrl } : {}),
             failure: {
               step: 'epoch_solve',
               requestClient: connection.isNative ? 'native_reown' : 'wagmi',

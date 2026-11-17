@@ -42,6 +42,9 @@ beforeEach(() => {
   restoreTrackingLookup = () => lookup.mockRestore();
 });
 afterEach(() => restoreTrackingLookup());
+jest.mock('./EpochWithdrawalGate', () => ({
+  EpochWithdrawalGate: ({ children }: { children: React.ReactNode }) => children
+}));
 
 // The suite's document unless a case sets another before it renders, or publishes one mid-flow.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
