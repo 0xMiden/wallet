@@ -191,8 +191,8 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
 
   let notes: ReadonlyMap<string, number> = new Map();
   if ((offInitial || !moved) && entry.outputNoteIds.length > 0) {
-    // A dApp built an execute's bytes and knows its notes' serials, so it can commit the same note from another
-    // account: only a copy this account created is E's, and a note held only as another account's fails the read.
+    // E's notes are the ones its run created as this account, and a note's id commits to its sender, so an execute's
+    // read counts only a copy this account created: one the node holds only under another sender fails the read.
     const read =
       row.type === 'execute'
         ? await reads.node.noteInclusions(entry.outputNoteIds, RPC_READ_TIMEOUT_MS, row.accountId)

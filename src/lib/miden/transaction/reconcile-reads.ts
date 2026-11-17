@@ -37,8 +37,8 @@ export interface NodeReads {
   account(accountId: string, atBlock: number | undefined, timeoutMs: number): Promise<AccountRead>;
   /**
    * The block including each of `noteIds` the node holds. With `sender`, only a copy that account created counts, and
-   * a note the node holds only as another account's fails the read: a note id does not commit to its sender, so that
-   * copy does not show the account created none.
+   * a note the node holds only under another sender fails the read: a note's id commits to its sender, so that copy is
+   * metadata that contradicts its id, and shows neither that the account created the note nor that it created none.
    */
   noteInclusions(
     noteIds: readonly string[],
@@ -165,7 +165,7 @@ export async function createNodeReads(): Promise<NodeReads> {
         }
         const unattributed = [...elsewhere].filter(noteId => !blocks.has(noteId));
         if (unattributed.length > 0) {
-          console.warn('[reconcile] the node holds a note only as another account created it', unattributed);
+          console.warn('[reconcile] the node names another sender for a note than the one asked for', unattributed);
           return undefined;
         }
         return blocks;

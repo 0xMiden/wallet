@@ -770,7 +770,7 @@ describe('the account that created an execute`s attempt note (#2147)', () => {
     ['the reconciler', 'swap', reconciler],
     ['the tap-time check', 'send', tapTime],
     ['the tap-time check', 'swap', tapTime]
-  ])('%s completes a %s from a note another account created, asking with no sender', async (_label, type, check) => {
+  ])('%s completes a %s from a copy under another sender, asking with no sender', async (_label, type, check) => {
     await Repo.transactions.put(unconfirmed({ type }));
     const { reads, noteInclusions } = heldBy('mtst1other');
     expect(await check(reads)).toBe('landed');

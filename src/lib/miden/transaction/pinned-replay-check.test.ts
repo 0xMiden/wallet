@@ -325,14 +325,17 @@ describe('the notes an execute`s approval recorded', () => {
 });
 
 describe('the account that created a pinned note', () => {
-  /** The node holds FIRST as another account's: a read that names this row's account as the sender gets no answer. */
+  /**
+   * The node's metadata for FIRST names another sender than the one its id commits to: a read that names this row's
+   * account as the sender gets no answer.
+   */
   const heldOnlyElsewhere = () =>
     noteInclusions.mockImplementation(async (_ids, _timeoutMs, sender) =>
       sender === undefined ? new Map([[FIRST.toLowerCase(), 140]]) : undefined
     );
   const execute = { type: 'execute' as const, accountId: ACCOUNT, requestBytes: BYTES };
 
-  it('an execute`s check counts only a copy its own account created, and one held only elsewhere is unknown', async () => {
+  it('an execute`s check counts only a copy its own account created, and one under another sender is unknown', async () => {
     decodesTo(requestNote(FIRST));
     heldOnlyElsewhere();
 
@@ -343,7 +346,7 @@ describe('the account that created a pinned note', () => {
   it.each<[string, typeof send | typeof swap]>([
     ['send', send],
     ['swap', swap]
-  ])('a %s`s check names no sender, so a note whichever account created it is committed', async (_type, row) => {
+  ])('a %s`s check names no sender, so the node`s copy is committed whatever sender it names', async (_type, row) => {
     decodesTo(requestNote(FIRST));
     heldOnlyElsewhere();
 

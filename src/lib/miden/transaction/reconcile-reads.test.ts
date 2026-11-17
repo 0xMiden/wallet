@@ -156,7 +156,7 @@ describe('createNodeReads (#1081)', () => {
     expect(await reads.noteInclusions([LOWER, CD], 15_000, ACCOUNT_HEX)).toBeUndefined();
   });
 
-  it('without a sender, dates a note whichever account created it', async () => {
+  it('without a sender, dates a note whatever sender the node names for it', async () => {
     const reads = await createNodeReads();
     mockClient.getNotesById.mockResolvedValueOnce([fetchedNote(UPPER, 44, OTHER_HEX)]);
 

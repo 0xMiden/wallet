@@ -191,9 +191,9 @@ export async function checkPinnedReplayNotes(
     console.warn('[retry] could not reach the node to check the saved request', error);
     return { kind: 'unknown', cause: 'read' };
   }
-  // A dApp built an execute's bytes and knows its notes' serials, so it can commit the same note from another account:
-  // only a copy this row's account created is the row's, and one held only as another account's answers nothing, never
-  // absent, since absent replays. The wallet drew a send's and a swap's serials itself.
+  // An execute's notes are its own account's: its request's, as checked above, and its approval's, from its own run. A
+  // note's id commits to its sender, so a copy the node holds only under another sender contradicts its id and answers
+  // nothing, never absent, since absent replays. The wallet built a send's and a swap's request itself.
   const held =
     row.type === 'execute'
       ? await node.noteInclusions(noteIds, RPC_READ_TIMEOUT_MS, row.accountId)

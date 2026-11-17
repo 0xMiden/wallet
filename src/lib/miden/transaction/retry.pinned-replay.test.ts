@@ -592,8 +592,8 @@ describe('an execute in doubt asks the node only once the user acknowledged it',
   });
 });
 
-// The dApp built an execute's bytes and knows its notes' serials, so the same note can be committed from another
-// account: only a copy the row's account created completes it.
+// A note's id commits to its sender, so a copy the node holds under another sender is metadata that contradicts its
+// id: only a copy the row's account created completes the row.
 describe('the account that created an execute`s pinned note', () => {
   const OWN_NOTE: [string, Partial<ITransaction>, () => void, string] = [
     'its own note',
@@ -646,7 +646,7 @@ describe('the account that created an execute`s pinned note', () => {
     ['send', {}],
     ['swap', SWAP],
     ['bridged-send', BRIDGED]
-  ])('a pinned %s still completes from a note the node holds whichever account created it', async (_t, o) => {
+  ])('a pinned %s still completes from a note the node holds whatever sender it names', async (_t, o) => {
     await Repo.transactions.put(pinnedRow(o));
     nodeHoldsFrom('mtst1other', PINNED);
 

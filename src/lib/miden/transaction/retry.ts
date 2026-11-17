@@ -516,9 +516,9 @@ const planRequeue = async (
   // An acknowledged execute replays the same bytes, so a note they create, or one its approval recorded (the only
   // notes signing lets it create), already on chain means a run created it: the user's word cannot rule that out. Asked
   // only here, behind the acknowledgement, so the refusal above takes no lock and reads no node, and a request that
-  // names no note keeps the user's word (#1081). The dApp built the bytes and knows its notes' serials, so it could
-  // commit the same note from another account: the check counts only a copy this account created, and refuses on one
-  // held only as another account's.
+  // names no note keeps the user's word (#1081). Bytes that declare a note under another account never run as this
+  // one, and an older wallet saved such a dApp request when its approval run failed, so the check refuses them before
+  // any read; it counts only a copy this account created, and refuses on node metadata that contradicts a note's id.
   if (!proven && executeInDoubt && tx.requestBytes !== undefined && (await completedFromPinnedNotes(tx, baseline))) {
     return undefined;
   }

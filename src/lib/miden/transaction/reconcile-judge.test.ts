@@ -304,7 +304,7 @@ describe('the account that created an execute`s attempt note (#2147)', () => {
   });
 
   it.each(['send', 'swap'] as const)(
-    'a %s`s note read names no sender, so a note another account created still lands it',
+    'a %s`s note read names no sender, so a copy under another sender still lands it',
     async type => {
       const { judged, noteReads } = await judgedWith(row('t', { type }), onChain('mtst1other'));
       expect(judged.entries[0]).toMatchObject({ result: 'landed', proof: { kind: 'note', noteId: NOTE } });
