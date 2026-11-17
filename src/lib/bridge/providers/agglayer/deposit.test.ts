@@ -23,7 +23,8 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import * as Repo from 'lib/miden/repo';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiate';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
 import { submitAgglayerDeposit, type AgglayerClient } from './deposit';
@@ -159,6 +160,7 @@ async function drive(review = reviewedErc20Transfer('agglayer'), operationId = '
 
 beforeEach(async () => {
   jest.resetAllMocks();
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   jest.spyOn(Date, 'now').mockReturnValue(now);
   await Repo.transactions.clear();
