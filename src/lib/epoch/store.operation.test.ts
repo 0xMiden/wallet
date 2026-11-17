@@ -130,6 +130,25 @@ it('the original owned store rechecks departure after the new Compact balance re
   expect((await Repo.transactions.get('epoch-row'))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
 });
 
+it('touched owned Compact preparation and solve diagnostics omit raw provider payloads', async () => {
+  await seed();
+  const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const solve = jest.fn(async () => { throw new Error('private-owned-provider-placeholder'); });
+  mockBuildIntent.mockImplementationOnce(async (_sdk: unknown, params: EVMToMidenQuote['params'], beforeSolve: unknown) => {
+    const bridge = jest.requireActual<typeof import('./bridge')>('./bridge');
+    return Reflect.apply(bridge.buildEVMToMidenIntent, undefined, [{
+      getDepositedBalances: async () => { throw new Error('private-owned-provider-placeholder'); },
+      solveIntent: solve
+    }, params, beforeSolve]);
+  });
+  await useEpochStore.getState().executeEVMToMiden('epoch-row');
+  expect(solve).toHaveBeenCalledTimes(1);
+  expect((await Repo.transactions.get('epoch-row'))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
+  const diagnostics = [...jest.mocked(console.log).mock.calls, ...jest.mocked(console.error).mock.calls, ...warning.mock.calls]
+    .flat().map(value => value instanceof Error ? value.message : JSON.stringify(value)).join(' ');
+  expect(diagnostics).not.toContain('private-owned-provider-placeholder');
+});
+
 async function admitEpoch() {
   const expected = operation();
   const destination = expected.review.route.destination;
