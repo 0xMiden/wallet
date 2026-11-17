@@ -353,9 +353,7 @@ it.each([
   { executor: false, received: '2.000002' },
   { executor: true, received: '2.000002' },
   { executor: false, received: '0.500000' },
-  { executor: true, received: '0.500000' },
-  { executor: false, received: '1.0000011' },
-  { executor: true, received: '1.0000011' }
+  { executor: true, received: '0.500000' }
 ])('refuses inconsistent native received $received before approval/source prompts (executor=$executor)', async ({ executor, received }) => {
   const id = await driveAdapter(executor, () => { adapterAllowance = 0n; }, received);
   await waitFor(async () =>
@@ -365,6 +363,11 @@ it.each([
   );
   expect(signed).toHaveLength(0);
   expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBeUndefined();
+});
+
+it.each([false, true])('retains existing unrepresentable received refusal (executor=%s)', async executor => {
+  await expect(driveAdapter(executor, undefined, '1.0000011')).rejects.toThrow('Bridge minimum is not representable');
+  expect(signed).toHaveLength(0);
 });
 
 it.each([false, true])(
