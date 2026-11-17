@@ -63,7 +63,8 @@ export async function restoreOffscreenFetchFaults(): Promise<void> {
       message.type !== OFFSCREEN_FETCH_FAULTS_KEY
     )
       return false;
-    const workerPath = chrome.runtime.getManifest().background?.service_worker;
+    const background = chrome.runtime.getManifest().background;
+    const workerPath = background && 'service_worker' in background ? background.service_worker : undefined;
     if (
       !isExtensionServiceWorkerSender(sender, chrome.runtime.id) &&
       !(
