@@ -217,6 +217,18 @@ it.each([false, true])('does not expose raw wallet RPC or calldata errors from a
     expect((await Repo.transactions.get(id))?.extraInputs.cctp).toMatchObject({ executeAttempt: { phase: 'uncertain' } });
   } finally { root.unmount(); }
 });
+it('keeps a known manual hash without logging private receipt RPC errors', async () => {
+  const { id, leg } = await funded();
+  const privateData = 'https://private-rpc.example/?key=secret receipt-request-bytes';
+  jest.mocked(waitForEvmReceipt).mockRejectedValueOnce(new Error(privateData));
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const root = renderHook(useCctpExecute);
+  try {
+    expect(await root.result.current(id, 11155111, leg)).toBe(FORWARD_HASH);
+    expect(warn.mock.calls.flatMap(call => call.map(String)).join(' ')).not.toContain(privateData);
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp?.executeTxHash).toBe(FORWARD_HASH);
+  } finally { root.unmount(); }
+});
 it('records the original destination attempt hash after UI RPC departure in the wallet await', async () => {
   const { id, leg } = await funded();
   write.mockImplementationOnce(async () => { jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other.example/private'); return FORWARD_HASH; });
