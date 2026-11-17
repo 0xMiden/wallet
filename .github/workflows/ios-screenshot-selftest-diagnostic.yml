@@ -1,0 +1,35 @@
+name: Frozen iOS screenshot helper diagnostic
+on:
+  push:
+    branches: [ci/release-118-ios-screenshot-diagnostic]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-26-xlarge
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: bca5ddda76fe867cc45d4e3f465c66ebc6f58610
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Run unchanged deadlines with failure diagnostics
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = bca5ddda76fe867cc45d4e3f465c66ebc6f58610
+          node --version
+          uname -m
+          uptime
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/ios-test-screenshots.test.cjs')
+          s = p.read_text()
+          old = 'assert.ok(await until(() => exists(first.png)));'
+          new = 'assert.ok(await until(() => exists(first.png)), `first capture: ${f.errors()}${f.output()}`);'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new))
+          PY
+          node --test scripts/ios-test-screenshots.test.cjs
