@@ -1282,6 +1282,7 @@
   "invalidAmount": "Invalid amount",
   "tokenPrice": "Token price",
   "tokenInfo": "Token info",
+  "basketComposition": "Composition",
   "tokenDescription": "Description",
   "fungible": "Fungible",
   "network": "Network",

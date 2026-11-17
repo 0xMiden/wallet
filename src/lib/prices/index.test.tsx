@@ -18,12 +18,14 @@ const mockListListeners = new Set<(network: string) => void>();
 let mockLoadedAssets: Map<string, string> | null = null;
 let mockBaskets: Map<string, string[]> | null = null;
 let mockDecimals: Map<string, number> | null = null;
+let mockSymbols: Map<string, string> | null = null;
 let mockResolveList: ((value: Map<string, string> | null) => void) | undefined;
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetwork }));
 jest.mock('lib/token-list/runtime', () => ({
   peekTokenPriceAssets: () => mockLoadedAssets,
   peekTokenBaskets: () => mockBaskets,
   peekTokenDecimals: () => mockDecimals,
+  peekTokenSymbols: () => mockSymbols,
   loadTokenPriceAssets: () =>
     new Promise<Map<string, string> | null>(resolve => {
       mockResolveList = resolve;
@@ -62,7 +64,7 @@ jest.mock('./basket-nav', () => ({
 jest.mock('./usd', () => ({ writeUsdPriceCache: jest.fn(async () => undefined) }));
 
 // The list key while no list has loaded (`peekPriceListKey` with every peek null).
-const NO_LIST_KEY = JSON.stringify([null, null, null]);
+const NO_LIST_KEY = JSON.stringify([null, null, null, null]);
 
 const mockUseRetryableSWR = jest.fn();
 jest.mock('lib/swr', () => ({
@@ -86,6 +88,7 @@ beforeEach(() => {
   mockLoadedAssets = null;
   mockBaskets = null;
   mockDecimals = null;
+  mockSymbols = null;
   jest.mocked(hasNoUsdMarket).mockReturnValue(false);
   jest.mocked(fetchBasketPrices).mockClear();
   jest.mocked(writeUsdPriceCache).mockClear();
@@ -143,7 +146,7 @@ describe('PriceProvider', () => {
         ['bridge', 'ETH'],
         ['verified', 'ARB']
       ]),
-      JSON.stringify([null, null, null])
+      NO_LIST_KEY
     ]);
     await expect(fetcher()).resolves.toEqual({
       network: 'testnet',
@@ -178,7 +181,7 @@ describe('PriceProvider', () => {
       'token-prices',
       'testnet',
       JSON.stringify([['new', 'DOGE']]),
-      JSON.stringify([[['new', 'DOGE']], null, null])
+      JSON.stringify([[['new', 'DOGE']], null, null, null])
     ]);
     await mockUseRetryableSWR.mock.lastCall?.[1]();
     expect(fetchTokenPrices).toHaveBeenLastCalledWith(['DOGE']);
@@ -211,9 +214,36 @@ describe('PriceProvider', () => {
     const after = mockUseRetryableSWR.mock.lastCall?.[0];
     expect(after?.[2]).toBe(before?.[2]);
     expect(after?.[3]).not.toBe(before?.[3]);
-    expect(after?.[3]).toBe(JSON.stringify([Array.from(mockAssets), [['verified', ['bridge']]], [['bridge', 18]]]));
+    expect(after?.[3]).toBe(
+      JSON.stringify([Array.from(mockAssets), [['verified', ['bridge']]], [['bridge', 18]], null])
+    );
     // The old value is cleared, and prices fetched for the old list are not applied to the new one.
     expect(setTokenPrices).toHaveBeenLastCalledWith({});
+  });
+
+  it('symbol-only list change changes the price list key', async () => {
+    render(<PriceProvider />);
+    await act(async () => {
+      mockLoadedAssets = mockAssets;
+      mockBaskets = new Map([['verified', ['bridge']]]);
+      mockDecimals = new Map([['bridge', 8]]);
+      mockSymbols = new Map([['bridge', 'WETH']]);
+      mockResolveList?.(mockAssets);
+    });
+    const before = mockUseRetryableSWR.mock.lastCall?.[0];
+
+    // Only the constituent's symbol changes: its price asset, the basket and the decimals stay the same.
+    await act(async () => {
+      mockSymbols = new Map([['bridge', 'ETHER']]);
+      mockListListeners.forEach(listener => listener('testnet'));
+      mockResolveList?.(mockAssets);
+    });
+    const after = mockUseRetryableSWR.mock.lastCall?.[0];
+    expect(after?.[2]).toBe(before?.[2]);
+    expect(after?.[3]).not.toBe(before?.[3]);
+    expect(after?.[3]).toBe(
+      JSON.stringify([Array.from(mockAssets), [['verified', ['bridge']]], [['bridge', 8]], [['bridge', 'ETHER']]])
+    );
   });
 
   it('requests new assets after bridge config arrives', async () => {
@@ -227,7 +257,7 @@ describe('PriceProvider', () => {
       'token-prices',
       'testnet',
       JSON.stringify([['bridge', 'BTC']]),
-      JSON.stringify([null, null, null])
+      NO_LIST_KEY
     ]);
     await mockUseRetryableSWR.mock.lastCall?.[1]();
     expect(fetchTokenPrices).toHaveBeenLastCalledWith(['BTC']);
@@ -292,6 +322,7 @@ describe('PriceProvider', () => {
   it('prices a basket from its vault only once the feed has ruled out its market', async () => {
     mockBaskets = new Map([['verified', ['bridge']]]);
     mockDecimals = new Map([['bridge', 8]]);
+    mockSymbols = new Map([['bridge', 'WETH']]);
     render(<PriceProvider />);
     await mockUseRetryableSWR.mock.lastCall?.[1]();
     expect(fetchBasketPrices).not.toHaveBeenCalled();
@@ -309,7 +340,7 @@ describe('PriceProvider', () => {
         {
           faucetId: 'verified',
           priceSymbol: 'ARB',
-          constituents: [{ faucetId: 'bridge', priceSymbol: 'ETH', decimals: 8 }]
+          constituents: [{ faucetId: 'bridge', symbol: 'WETH', priceSymbol: 'ETH', decimals: 8 }]
         }
       ],
       exchange
