@@ -19,6 +19,10 @@ import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 import { submitAgglayerDeposit, type AgglayerClient } from './deposit';
 import { runAgglayerReceive } from './flows';
 
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
+  AccountId: { fromHex: (hex: string) => ({ toString: () => hex.toLowerCase() }) }
+}));
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: async (fn: () => unknown) => fn() }));
 jest.mock('lib/miden/activity/notes', () => ({ queueNoteImport: jest.fn() }));
