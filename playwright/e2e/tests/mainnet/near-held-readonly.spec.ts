@@ -11,7 +11,7 @@ import {loadMainnetOneClickSetup} from '../../helpers/mainnet-one-click-config';
 import {fromBaseUnits,vaultBalanceByFaucetId} from '../../helpers/balance-truth';
 import {captureMainnetOneClickReviewQuote,confirmMainnetOneClickReview} from '../../helpers/mainnet-one-click-ui';
 import {armMainnetSendAuthorization} from '../../helpers/mainnet-send-authorization';
-import {plantQueueBlocker,releaseQueueBlocker,readTransactionRows,TxStatus} from '../../helpers/history';
+import {plantQueueBlocker,releaseQueueBlocker,readTransactionRows,TxStatus,type TransactionRowSnapshot} from '../../helpers/history';
 import {assertOneClickQuoteBinding} from '../../../../src/lib/one-click/client';
 import {assertOneClickFundingDeadline} from '../../../../src/lib/one-click/deadline';
 
@@ -26,7 +26,7 @@ const classify=(message:string)=>catalog.filter(entry=>message.includes(entry.li
 assert.ok(catalog.length>10);assert.deepEqual(classify('private payload not in the public error catalog'),[]);
 const publicAssets=new Set(readdirSync('dist/chrome_unpacked',{recursive:true}).filter((p):p is string=>typeof p==='string'&&p.endsWith('.js')));
 const scriptUrls=new Map<string,string>();
-const safeFrames=(frames:readonly {url:string;location:{scriptId:string;lineNumber:number;columnNumber:number}}[])=>frames.flatMap(frame=>{try{const url=new URL(frame.url||scriptUrls.get(frame.location.scriptId)||''),path=url.pathname.slice(1);return url.protocol==='chrome-extension:'&&publicAssets.has(path)&&Number.isSafeInteger(frame.location.lineNumber)&&Number.isSafeInteger(frame.location.columnNumber)?[{asset:path,line:frame.location.lineNumber+1,column:frame.location.columnNumber+1}]:[];}catch{return [];}}).slice(0,3);
+const safeFrames=(frames:readonly {url:string;location:{scriptId:string;lineNumber:number;columnNumber?:number}}[])=>frames.flatMap(frame=>{try{const url=new URL(frame.url||scriptUrls.get(frame.location.scriptId)||''),path=url.pathname.slice(1);return url.protocol==='chrome-extension:'&&publicAssets.has(path)&&Number.isSafeInteger(frame.location.lineNumber)&&typeof frame.location.columnNumber==='number'&&Number.isSafeInteger(frame.location.columnNumber)?[{asset:path,line:frame.location.lineNumber+1,column:frame.location.columnNumber+1}]:[];}catch{return [];}}).slice(0,3);
 let stage='checkpoint-binding';
 const report:Record<string,unknown>={purpose:'held-only native NEAR UI/queue/SDK boundary diagnostic; never release SDK authorization, no upload ACK, no financial checkpoint mutation',applicationSource:'3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c',acceptedOriginalReadinessRun:'44126541096',conservativeRemainingUsdMicros:'1756586',applicationSdkVersion:'0.18.0',guardianSdkVersion:'0.19.0-rc.2',originalAuthorityReserializedOrReissued:false,originalRunId:'43999834254',diagnosticOnly:true};
 test.use({injectFeeFaucet:false});
@@ -44,7 +44,7 @@ test('observe original-source native NEAR boundaries with mandatory SDK hold and
   await confirmMainnetOneClickReview(walletB.page);stage='observe-queue-and-sdk-without-release';let lastStatus:unknown;
   for(let poll=0;poll<240;poll++){
    const policy=await walletB.page.evaluate(async key=>(await chrome.storage.local.get(key))[key],key);assert.ok(policy&&['armed','waiting'].includes(policy.status));lastStatus=policy.status;
-   const rows=await readTransactionRows(walletB.page);const sends=rows.filter(row=>row.type==='send'&&row.accountId&&canonicalMainnetLoopFaucet(row.accountId)===state.accountHex);
+   const rows=await readTransactionRows(walletB.page);const sends:TransactionRowSnapshot[]=rows.filter(row=>row.type==='send'&&row.accountId&&canonicalMainnetLoopFaucet(row.accountId)===state.accountHex);
    const challengeVisible=await walletB.page.locator(SPENDING_LIMIT_CHALLENGE).isVisible();
    if(challengeVisible&&!report.actualChallengeAuthenticated){report.challengeBeforeAuthentication={visible:true,sendRowCount:sends.length,sdkPolicyStatus:policy.status};await authenticateSpendingLimitChallenge(walletB.page);report.actualChallengeAuthenticated=true;}
    report.rows=sends.map(row=>({status:row.status,stage:['syncing','sending','creating-proposal','signing-proposal','signing-locally','proving','submitting','confirming','completed'].includes(row.stage??'')?row.stage:'unavailable',started:row.processingStartedAt!==undefined,hasTransactionId:!!row.transactionId,hasPaidFee:row.feeAmount!==undefined&&row.feeAmount!=='0',publicErrorSites:classify(`${row.error??''}\n${row.rawError??''}`),errorFingerprint:row.error||row.rawError?fingerprint(`${row.error??''}\n${row.rawError??''}`):undefined}));

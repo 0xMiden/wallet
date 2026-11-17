@@ -1,7 +1,7 @@
 name: Current qualified SDK0.18 held-only readiness - NO release or payment
 on:
   push:
-    branches: [wiktor/green03-current-held-graphql-read-once]
+    branches: [wiktor/green03-current-held-typed-once]
 permissions:
   contents: read
   actions: read
@@ -26,7 +26,7 @@ jobs:
         run: |
           test "$GITHUB_EVENT_NAME" = push
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green03-current-held-graphql-read-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green03-current-held-typed-once
           git merge-base --is-ancestor 3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c HEAD
           test "$(git diff --name-only 3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-held-readonly.spec.ts scripts/held-review-failure.test.ts scripts/held-review-failure.ts)"
           ! grep -E 'releaseMainnetSendAuthorization|awaitMainnetLoopAuthorization' playwright/e2e/tests/mainnet/near-held-readonly.spec.ts
