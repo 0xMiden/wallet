@@ -402,7 +402,17 @@ describe('a request that must open no sheet', () => {
     const ctx = contextFor();
     const send = jest.fn().mockResolvedValueOnce({ height: 10 }).mockResolvedValueOnce({ height: 11 });
     await expect(expectNoSheet(hostFor(send), async () => declined, ctx, { refusal: true })).resolves.toEqual(declined);
-    expect(ctx.evidence).toEqual({ popupOpened: false, dappError: declined.error });
+    expect(ctx.evidence).toEqual({
+      popupOpened: false,
+      dappError: declined.error,
+      refusalTiming: {
+        beforeHeight: 10,
+        afterHeight: 11,
+        beforeSyncMs: expect.any(Number),
+        requestMs: expect.any(Number),
+        afterSyncMs: expect.any(Number)
+      }
+    });
     expect(send).toHaveBeenCalledTimes(2);
   });
 
@@ -442,7 +452,17 @@ describe('a request that must open no sheet', () => {
     await expect(expectNoSheet(hostFor(send), start, ctx, { refusal: true })).rejects.toThrow(
       'an approval sheet opened for a request that must not prompt'
     );
-    expect(ctx.evidence).toEqual({ popupOpened: true, dappError: declined.error });
+    expect(ctx.evidence).toEqual({
+      popupOpened: true,
+      dappError: declined.error,
+      refusalTiming: {
+        beforeHeight: 10,
+        afterHeight: 10,
+        beforeSyncMs: expect.any(Number),
+        requestMs: expect.any(Number),
+        afterSyncMs: expect.any(Number)
+      }
+    });
   }, 10_000);
 });
 
