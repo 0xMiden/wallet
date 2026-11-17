@@ -64,8 +64,11 @@ test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data
     sdk.NoteType.Public,
     new sdk.NoteAttachment()
   );
-  const original = builder().withOwnOutputNotes(new sdk.NoteArray([note]))
-    .withAuthArgs(new sdk.FeltArray(values())).withBlockNumbers([321]).build();
+  const original = builder()
+    .withOwnOutputNotes(new sdk.NoteArray([note]))
+    .withAuthArgs(new sdk.FeltArray(values()))
+    .withBlockNumbers([321])
+    .build();
   assert.equal(inspectTestMainnetSendRequest(scope, original.serialize(), true), note.id().toString());
   const wrong = values();
   wrong[0] = new sdk.Felt(999n);
@@ -91,7 +94,7 @@ test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data
     view.setBigUint64(entriesEnd + index * 8, n, true);
   });
   const extraMerkle = sdk.TransactionRequest.deserialize(expanded);
-  assert.deepEqual(extraMerkle.serialize(), expanded);
+  assert.deepEqual(Uint8Array.from(extraMerkle.serialize()), expanded);
   assert.deepEqual(canonicalRequestBytes(expanded), expanded);
   assert.throws(() => inspectTestMainnetSendRequest(scope, expanded, true), /differ from the exact/);
 });

@@ -315,7 +315,7 @@ test('refuses additional Merkle data without discarding it', async () => {
   });
   const changed = sdk.TransactionRequest.deserialize(expanded);
   assert.equal(changed.serialize().length, expanded.length);
-  assert.deepEqual(changed.serialize(), expanded);
+  assert.deepEqual(Uint8Array.from(changed.serialize()), expanded);
   assert.throws(
     () => enrichOwnOutputRequest(changed, authBuilder(), changed.serialize()),
     /only own output notes/

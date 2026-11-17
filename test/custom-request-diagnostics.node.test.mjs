@@ -91,7 +91,10 @@ async function authRequest(kind) {
   const input = [...values.slice(4), ...values.slice(0, 4)];
   assert.equal(sdk.Poseidon2.hashElements(new sdk.FeltArray(input)).toHex(), auth.toHex());
   advice.insert(auth, new sdk.FeltArray(values));
-  const request = new sdk.TransactionRequestBuilder().withAuthArgs(new sdk.FeltArray(input)).extendAdviceMap(advice).build();
+  const request = new sdk.TransactionRequestBuilder()
+    .withAuthArgs(new sdk.FeltArray(input))
+    .extendAdviceMap(advice)
+    .build();
   assert.equal(request.authArg().toHex(), auth.toHex());
   return request;
 }

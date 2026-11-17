@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { TransactionRequestBuilder } from '@miden-sdk/miden-sdk';
+import { test } from 'node:test';
+import { TransactionRequest, TransactionRequestBuilder } from '@miden-sdk/miden-sdk';
 import { canonicalRequestBytes } from '../scripts/canonical-request-bytes.mjs';
 
 test('SDK 0.18 default MerkleStore omits empty nodes and canonical bytes stay exact', () => {
   const bytes = new TransactionRequestBuilder().build().serialize();
   assert.equal(bytes.length, 24);
   const result = canonicalRequestBytes(bytes);
-  assert.deepEqual(result, bytes);
+  assert.deepEqual(result, Uint8Array.from(bytes));
   assert.notEqual(result, bytes);
 });
 
@@ -19,6 +19,8 @@ test('frozen published SDK 0.17.5 authorities keep their canonical identity', ()
   const bytes = new Uint8Array(Buffer.from(fixture.serializedBase64, 'base64'));
   const digest = input => createHash('sha256').update(canonicalRequestBytes(input)).digest('hex');
   assert.equal(digest(bytes), fixture.canonicalSha256);
+  // Re-serialization is not fresh authority: SDK 0.18 drops default nodes, changing the old hash.
+  assert.notEqual(digest(TransactionRequest.deserialize(bytes).serialize()), fixture.canonicalSha256);
   const reordered = Uint8Array.from(bytes);
   const start = 16;
   for (let index = 0; index < 255; index++) {
