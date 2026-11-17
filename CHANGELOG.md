@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][all] Read recent Activity history in bounded batches for the unread indicator instead of loading the full completed history (#2202).
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
 
 ## 1.18.0 (2026-11-17)

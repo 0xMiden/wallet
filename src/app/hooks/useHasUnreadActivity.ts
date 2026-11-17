@@ -5,7 +5,7 @@ import { useClaimCheckInvalidNoteIds } from 'app/hooks/useClaimNotes';
 import { historyEntryUnreadKey, pendingNoteUnreadKey } from 'app/templates/history/activityUnread';
 import { suppressLinkedConsumes } from 'app/templates/history/History';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
-import { getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
+import { CompletedHistoryCursor, getCompletedTransactionsPage, getUncompletedTransactions } from 'lib/miden/activity';
 import { ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
 import { useManuallyClaimableNotes } from 'lib/miden/front/auto-managed-notes';
@@ -14,10 +14,8 @@ import { isActivityRead, useActivityReadState } from 'lib/settings/activity-read
 /**
  * How many of the account's completed and failed rows count.
  *
- * It bounds what counts, not what is read: the rows are read whole through History's own loaders.
- * Once the newest `RECENT_ROWS` of them are read, anything older is read too in every case that
- * matters: the read state collapses old reads into a high-water mark, and a user who has opened
- * the last fifty things has been down the list. Every in-flight row counts regardless.
+ * Read completed history in batches until this many visible rows are found.
+ * Every queued or running row counts, regardless of its age.
  */
 const RECENT_ROWS = 50;
 
@@ -31,6 +29,26 @@ const toRecentRow = (row: ITransaction, timestamp: number): RecentRow => ({
   timestamp
 });
 
+async function readRecentCompletedRows(address: string): Promise<RecentRow[]> {
+  const recent: RecentRow[] = [];
+  let cursor: CompletedHistoryCursor | null = null;
+  while (recent.length < RECENT_ROWS) {
+    const page = await getCompletedTransactionsPage({
+      accountId: address,
+      includeFailed: true,
+      limit: RECENT_ROWS,
+      cursor
+    });
+    const visible = await suppressLinkedConsumes(page.transactions);
+    recent.push(
+      ...visible.slice(0, RECENT_ROWS - recent.length).map(row => toRecentRow(row, row.completedAt ?? row.initiatedAt))
+    );
+    if (!page.hasMore || page.nextCursor === null) break;
+    cursor = page.nextCursor;
+  }
+  return recent;
+}
+
 /**
  * The rows History shows for `address`, through the same loaders and the same suppression
  * (`suppressLinkedConsumes`: consumes a linked swap, bridge receive or Earn withdraw row stands for,
@@ -41,13 +59,9 @@ const toRecentRow = (row: ITransaction, timestamp: number): RecentRow => ({
 async function readRecentRows(address: string): Promise<RecentRow[]> {
   const [uncompleted, completed] = await Promise.all([
     getUncompletedTransactions(address).then(suppressLinkedConsumes),
-    getCompletedTransactions(address, undefined, undefined, true).then(suppressLinkedConsumes)
+    readRecentCompletedRows(address)
   ]);
-  return [
-    ...uncompleted.map(row => toRecentRow(row, row.initiatedAt)),
-    // Ascending, so the newest are at the end.
-    ...completed.slice(-RECENT_ROWS).map(row => toRecentRow(row, row.completedAt ?? row.initiatedAt))
-  ];
+  return [...uncompleted.map(row => toRecentRow(row, row.initiatedAt)), ...completed];
 }
 
 /**

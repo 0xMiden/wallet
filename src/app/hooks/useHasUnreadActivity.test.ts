@@ -12,6 +12,12 @@ import { useHasUnreadActivity } from './useHasUnreadActivity';
 // collaborators and the SDK are stubbed.
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ PswapLineageState: {}, InputNoteState: { Invalid: 'Invalid' } }));
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/miden/activity', () => ({
+  ...jest.requireActual('lib/miden/activity'),
+  getCompletedTransactions: () => {
+    throw new Error('The unread indicator must use bounded history reads');
+  }
+}));
 jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: (fn: () => unknown) => fn() }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
@@ -219,6 +225,44 @@ describe('useHasUnreadActivity - the account feed rows', () => {
 
     mockAccount.publicKey = A;
     rerender();
+    await waitFor(() => expect(result.current).toBe(true));
+  });
+
+  it('keeps the newest 50 visible rows when a timestamp tie spans pages', async () => {
+    const visible = Array.from({ length: 51 }, (_, i) => tx(`row-${String(i).padStart(3, '0')}`));
+    const hidden = Array.from({ length: 55 }, (_, i) =>
+      tx(`settle-${i}`, { type: 'consume', extraInputs: { swapOrderTxId: 'swap' } })
+    );
+    await transactions.bulkAdd([
+      tx('swap', { type: 'swap', displayIcon: 'SWAP', initiatedAt: 1, completedAt: 1 }),
+      ...visible,
+      ...hidden
+    ]);
+    setRead(...visible.slice(1).map(row => txKey(row.id)));
+    expect((await renderUnread()).current).toBe(false);
+  });
+
+  it('includes the oldest visible row in the recent window across tied pages', async () => {
+    const visible = Array.from({ length: 50 }, (_, i) => tx(`row-${String(i).padStart(3, '0')}`));
+    const hidden = Array.from({ length: 55 }, (_, i) =>
+      tx(`settle-${i}`, { type: 'consume', extraInputs: { swapOrderTxId: 'swap' } })
+    );
+    await transactions.bulkAdd([
+      tx('swap', { type: 'swap', displayIcon: 'SWAP', initiatedAt: 1, completedAt: 1 }),
+      ...visible,
+      ...hidden
+    ]);
+    setRead(txKey('swap'), ...visible.slice(1).map(row => txKey(row.id)));
+    expect((await renderUnread()).current).toBe(true);
+  });
+
+  it('updates when a new transaction enters the recent window', async () => {
+    const completed = Array.from({ length: 60 }, (_, i) => tx(`c${i}`, { completedAt: 200 + i }));
+    await transactions.bulkAdd(completed);
+    setRead(...completed.map(row => txKey(row.id)));
+    const result = await renderUnread();
+    expect(result.current).toBe(false);
+    await transactions.add(tx('new', { completedAt: 500 }));
     await waitFor(() => expect(result.current).toBe(true));
   });
 });
