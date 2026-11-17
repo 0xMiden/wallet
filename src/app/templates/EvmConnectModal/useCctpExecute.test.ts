@@ -1,5 +1,7 @@
 import { renderHook } from '@testing-library/react';
 
+import 'lib/bridge/testing/fixtures';
+
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 import { BridgedReceiveTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
