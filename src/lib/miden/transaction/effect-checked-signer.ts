@@ -4,6 +4,7 @@ import { Buffer } from 'buffer';
 import { summaryToView } from 'app/confirm/decode';
 import { getMessage } from 'lib/i18n/core';
 import { cacheScope, isVerificationBaseFeeKnownAbsent, refreshVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { usdcxSponsorshipApprovalOf } from 'lib/usdcx/sponsorship';
 
 import { ProposalFeeUnknownError } from './constants';
 import { assertCachedViewEffectApproved, effectRefusal, isEffectChecked } from './proposal-effect-guard';
@@ -45,7 +46,11 @@ async function assertSignable(transaction: ITransaction, signingInputsHex: strin
     }
     const signed = summary;
     try {
-      await assertCachedViewEffectApproved(transaction, () => summaryToView(signed), feeScope);
+      await assertCachedViewEffectApproved(
+        transaction,
+        () => summaryToView(signed, usdcxSponsorshipApprovalOf(transaction)),
+        feeScope
+      );
     } catch (error) {
       rethrowTrap(error);
       throw error;

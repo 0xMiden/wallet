@@ -20,6 +20,8 @@ const mockDestination = jest.fn();
 const mockInitBridgeConfig = jest.fn<Promise<void>, []>();
 const mockAssertHold = jest.fn<void, [object, string]>();
 let mockInlineRealm = true;
+let mockSourceScope = 'rpc-a|testnet';
+let mockCurrentNative = NATIVE;
 
 // A FIFO mutex like the real one: a hold runs only once every earlier hold has settled. Each hold
 // it hands out and the options each acquisition passed are recorded.
@@ -80,7 +82,11 @@ jest.mock('lib/miden/back/simulate-custom-tx', () => ({
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ({ toString: () => `hex:${ref}` }) }));
 jest.mock('app/confirm/decode', () => ({ simulatedBytesToView: (result: unknown) => mockView(result) }));
-jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetId: () => mockNativeAsset() }));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: () => mockNativeAsset(),
+  getNativeAssetIdSync: () => mockCurrentNative,
+  cacheScope: () => mockSourceScope
+}));
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: () => mockInitBridgeConfig() }));
 jest.mock('lib/shared/helpers', () => ({ u8ToB64: () => 'request-b64' }));
 jest.mock('./burn', () => ({ buildUsdcxBurnRequest: (...args: unknown[]) => mockBuild(...args) }));
@@ -101,7 +107,10 @@ function view(fee: TxAssetView['fee'], outgoing: TxAssetView['outgoing']): TxAss
 }
 
 const measuredView = () => view({ faucetId: NATIVE, amount: 252n }, [{ faucetId: NATIVE, amount: 1n }]);
-const measured = (reserve: bigint) => ({ outcome: 'measured', reserve });
+const measured = (reserve: bigint) => ({
+  outcome: 'measured', reserve, faucetId: NATIVE,
+  scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+});
 const BUSY = { outcome: 'busy' };
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -116,6 +125,8 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     mockLock.options = [];
     trapsFromTheHold.length = 0;
     mockInlineRealm = true;
+    mockSourceScope = 'rpc-a|testnet';
+    mockCurrentNative = NATIVE;
     mockInitBridgeConfig.mockResolvedValue(undefined);
     mockNativeAsset.mockResolvedValue(NATIVE);
     mockDestination.mockReturnValue({ domain: 0 });
@@ -154,6 +165,42 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       expect(typeof options?.watchdogMs === 'number').toBe(inline);
     }
   );
+
+  it('does not label an estimate with a source or native identity changed during its dry run', async () => {
+    mockDryRun.mockImplementationOnce(async () => {
+      mockSourceScope = 'rpc-b|testnet';
+      return { executedBytes: 'executed' };
+    });
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed', failure: 'configuration_failed'
+    });
+    mockSourceScope = 'rpc-a|testnet';
+    mockDryRun.mockImplementationOnce(async () => {
+      mockCurrentNative = OTHER;
+      return { executedBytes: 'executed' };
+    });
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed', failure: 'configuration_failed'
+    });
+  });
+
+  it('does not share an old-source estimate with a new-source caller of the same account and chain', async () => {
+    let release = () => {};
+    mockDryRun.mockImplementationOnce(() => new Promise(resolve => {
+      release = () => resolve({ executedBytes: 'executed' });
+    }));
+    const first = estimateUsdcxBurnFeeReserve('mm1sender', 1);
+    await flush();
+    mockSourceScope = 'rpc-b|testnet';
+    const second = estimateUsdcxBurnFeeReserve('mm1sender', 1);
+    release();
+    const answers = await Promise.all([first, second]);
+    expect(second).not.toBe(first);
+    expect(answers[0]).toEqual({ outcome: 'failed', failure: 'configuration_failed' });
+    expect(answers[1]).toEqual({
+      ...measured(315n), scope: 'ac86888532e6c070013d6f92d90a251ff6e97b0fac34bb6819db27298ac309f4'
+    });
+  });
 
   it('runs one dry run for concurrent estimates of the same account and chain, and a fresh one afterwards', async () => {
     let finish: ((result: { executedBytes: string }) => void) | undefined;

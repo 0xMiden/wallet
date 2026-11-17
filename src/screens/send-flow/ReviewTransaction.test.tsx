@@ -79,14 +79,13 @@ let mockEpochQuote: {
 let mockEpochQuoteArgs: { amount?: bigint } = {};
 let mockBurnMinimum = 5_000_000n;
 let mockUseRealBurnMinimum = false;
-type ReviewBurnFeeReserve = BurnFeeReserve & { scope?: string; faucetId?: string };
-const REVIEWED_BURN_FEE: ReviewBurnFeeReserve = {
+const REVIEWED_BURN_FEE: BurnFeeReserve = {
   status: 'measured',
   reserve: 298n,
   faucetId: 'mtst1usdcxnative',
   scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
 };
-let mockBurnFeeReserve: ReviewBurnFeeReserve = REVIEWED_BURN_FEE;
+let mockBurnFeeReserve: BurnFeeReserve = REVIEWED_BURN_FEE;
 let mockNativeVerified = true;
 jest.mock('lib/usdcx/use-burn-fee-reserve', () => ({
   useBurnFeeReserve: jest.fn(() => mockBurnFeeReserve)
@@ -672,7 +671,7 @@ describe('USDCx burn review', () => {
     expect(initiateB2AggBridge).not.toHaveBeenCalled();
   });
 
-  const unreviewable: [string, ReviewBurnFeeReserve][] = [
+  const unreviewable: [string, BurnFeeReserve][] = [
     ['pending', { status: 'pending' }],
     ['failed', { status: 'failed' }],
     ['wrong faucet', { ...REVIEWED_BURN_FEE, faucetId: 'other' }],

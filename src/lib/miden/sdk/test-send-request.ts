@@ -22,6 +22,8 @@ import {
 import { testRequestSha256 } from './test-request-sha256';
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
 
+export { canonicalFeeSponsorshipNoteId } from './fee-sponsorship';
+
 export interface TestMainnetSendScope {
   accountId: string;
   recipientId: string;

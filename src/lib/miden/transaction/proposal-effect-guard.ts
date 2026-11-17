@@ -9,6 +9,7 @@ import {
 import { getMessage } from 'lib/i18n/core';
 import { isSummaryFeeUnknownAtDecode } from 'lib/miden-chain/fee-at-decode';
 import { cacheScope, isVerificationBaseFeeKnownAbsent, refreshVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { usdcxSponsorshipApprovalOf } from 'lib/usdcx/sponsorship';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import type { IConsumeGcPurchaseExtraInputs, IExecuteApproval, ITransaction, ITransactionType } from '../db/types';
@@ -101,6 +102,17 @@ export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetVi
   const allowedOutflow = ALLOWED_OUTFLOW[transaction.type];
   if (allowedOutflow === undefined) return undefined;
   const allowance = allowedOutflow(transaction);
+  try {
+    const approval = usdcxSponsorshipApprovalOf(transaction);
+    if (approval && view.fee && (
+      view.fee.faucetId !== approval.budget.faucetId ||
+      view.fee.amount < 0n ||
+      view.fee.amount > BigInt(approval.budget.maxAmount)
+    )) return 'the network fee exceeds its reviewed native budget';
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError || isKilledPipeline(error)) throw error;
+    return 'the reviewed native fee budget could not be read';
+  }
   let measured = view;
   if (allowance.introducedNoteIds !== undefined) {
     try {
@@ -198,7 +210,8 @@ async function assertDecodedViewApproved(
   } catch (error) {
     // The allowance's own refusal (a pre-built row with no recorded note) is already that error. Any other throw,
     // such as an amount that does not parse, stays the unreadable-amounts refusal.
-    if (error instanceof ProposalEffectRefusedError) throw error;
+    if (error instanceof ProposalEffectRefusedError || error instanceof WebAssembly.RuntimeError || isKilledPipeline(error))
+      throw error;
     throw effectRefusal(transaction, 'its approved amounts could not be read', error);
   }
   if (detail !== undefined) throw effectRefusal(transaction, detail);
@@ -264,7 +277,7 @@ export async function assertProposalEffectApproved(
       return await withWasmClientLock(
         async () => {
           assertFeeKnownAtDecode();
-          return summaryBytesToView(txSummary);
+          return summaryBytesToView(txSummary, usdcxSponsorshipApprovalOf(transaction));
         },
         { label: 'proposal effect check' }
       );

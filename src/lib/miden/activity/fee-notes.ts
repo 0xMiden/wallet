@@ -293,17 +293,22 @@ export function splitLandedOutputNotes(
 ): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
+  verificationFeeKnown: boolean;
 } {
   const executed = result.executedTransaction();
   const notes = readOutputNotes(executed);
   const traps: WebAssembly.RuntimeError[] = [];
-  const split = partitionNotes(notes, getNativeAssetIdSync(), executedBaseFee(executed, traps), 'kernel', traps);
+  const verificationBaseFee = executedBaseFee(executed, traps);
+  const split = partitionNotes(notes, getNativeAssetIdSync(), verificationBaseFee, 'kernel', traps);
   if (traps.length > 0) {
     console.warn('[fee-notes] landed fee split answered a trap', traps);
     // No lock sees a trap past submit, so the split that answers it retires the client.
     retireLandedTrap(traps[0], landing, result);
   }
-  return split;
+  return {
+    ...split,
+    verificationFeeKnown: traps.length === 0 && (verificationBaseFee === 0 || split.feeNote !== undefined)
+  };
 }
 
 /** Read before any fee check, so a split that answers a trap still has the notes. */

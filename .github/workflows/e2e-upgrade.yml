@@ -46,7 +46,6 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 165 || 120 }}
     env:
       E2E_NETWORK: mainnet
-      SW_DEBUG: '1'
       # Where the build under test is built: its own checkout for `to`, else the harness checkout.
       CANDIDATE_DIR: ${{ inputs.to != '' && 'candidate' || '.' }}
     steps:
@@ -179,22 +178,6 @@ jobs:
         run: |
           yarn test:e2e:blockchain:build
           mv dist/chrome_unpacked "$RUNNER_TEMP/candidate-extension"
-
-      - name: Retain upgrade build identities
-        run: |
-          set -euo pipefail
-          for phase in previous candidate; do
-            output="test-results/upgrade/builds/$phase"
-            mkdir -p "$output"
-            cp "$RUNNER_TEMP/$phase-extension/background.js" "$output/background.js"
-            cp "$RUNNER_TEMP/$phase-extension/manifest.json" "$output/manifest.json"
-            test -s "$output/background.js"
-            test -s "$output/manifest.json"
-            (
-              cd "$RUNNER_TEMP/$phase-extension"
-              sha256sum background.js manifest.json static/wasm/miden_client_web.*.wasm
-            ) > "$output/SHA256SUMS"
-          done
 
       # Both builds load from one path: an unpacked extension's id comes from its path, and its storage from its id.
       - name: Restore the accounts on the previous release

@@ -15,7 +15,8 @@ const mockUnlock = jest.fn(async (_password: string) => undefined);
 const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
   type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
   outcome: 'measured',
-  feeReserve: '315'
+  feeReserve: '315',
+  faucetId: 'native', scope: 'source-scope'
 }));
 jest.mock('lib/miden/back/actions', () => ({
   estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
@@ -89,7 +90,8 @@ describe('processInProcessRequest', () => {
     expect(res).toEqual({
       type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
       outcome: 'measured',
-      feeReserve: '315'
+      feeReserve: '315',
+      faucetId: 'native', scope: 'source-scope'
     });
     expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledWith(req);
   });

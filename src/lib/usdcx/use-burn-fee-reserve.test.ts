@@ -7,9 +7,17 @@ import { useBurnFeeReserve } from './use-burn-fee-reserve';
 const mockEstimate = jest.fn<Promise<UsdcxBurnFeeEstimate>, [string, number]>();
 jest.mock('lib/miden/front/client', () => ({ useMidenContext: () => ({ estimateUsdcxBurnFee: mockEstimate }) }));
 
+let mockSourceScope = 'rpc-a|testnet';
+let mockNative = 'mm1native';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: () => mockSourceScope, getNativeAssetIdSync: () => mockNative
+}));
+const SCOPE = '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c';
 const TARGET = { accountPublicKey: 'mm1account', destinationChainId: 5042002 };
 const never = () => new Promise<UsdcxBurnFeeEstimate>(() => {});
-const measured = (reserve: bigint): UsdcxBurnFeeEstimate => ({ outcome: 'measured', reserve });
+const measured = (reserve: bigint): UsdcxBurnFeeEstimate => ({
+  outcome: 'measured', reserve, faucetId: 'mm1native', scope: SCOPE
+});
 const BUSY: UsdcxBurnFeeEstimate = { outcome: 'busy' };
 const FAILED: UsdcxBurnFeeEstimate = { outcome: 'failed' };
 /** Longer than every busy backoff the hook waits, so each ask it schedules runs. */
@@ -21,6 +29,8 @@ const elapse = (ms: number) =>
   });
 
 beforeEach(() => {
+  mockSourceScope = 'rpc-a|testnet';
+  mockNative = 'mm1native';
   mockEstimate.mockReset();
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -40,12 +50,41 @@ it('is pending while the estimate runs, and asks for the account and chain only'
   expect(mockEstimate).toHaveBeenCalledWith('mm1account', 5042002);
 });
 
+it.each(['source', 'native faucet'])('invalidates a measured reserve when its %s changes', async changed => {
+  mockEstimate.mockResolvedValueOnce(measured(315n)).mockImplementationOnce(never);
+  const { result, rerender } = renderHook(() => useBurnFeeReserve(TARGET));
+  await waitFor(() => expect(result.current.reserve).toBe(315n));
+  if (changed === 'source') mockSourceScope = 'rpc-b|testnet';
+  else mockNative = 'mm1other';
+  rerender();
+  expect(result.current.status).toBe('pending');
+  await waitFor(() => expect(mockEstimate).toHaveBeenCalledTimes(2));
+});
+
+it.each(['scope', 'faucetId'])('does not relabel a backend estimate with the current %s', async field => {
+  const reply = measured(315n);
+  Reflect.set(reply, field, 'stale');
+  mockEstimate.mockResolvedValue(reply);
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await waitFor(() => expect(result.current).toEqual({ status: 'failed', failure: 'configuration_failed' }));
+  expect(mockEstimate).toHaveBeenCalledTimes(2);
+});
+
+it('does not invent a scope for an old unscoped backend response', async () => {
+  const reply = measured(315n);
+  Reflect.deleteProperty(reply, 'scope');
+  mockEstimate.mockResolvedValue(reply);
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await waitFor(() => expect(result.current.status).toBe('failed'));
+  expect(result.current.reserve).toBeUndefined();
+});
+
 it('reports the measured reserve', async () => {
   mockEstimate.mockResolvedValue(measured(315n));
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 315n }));
+  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 315n, faucetId: 'mm1native', scope: SCOPE }));
   expect(mockEstimate).toHaveBeenCalledTimes(1);
 });
 
@@ -54,7 +93,7 @@ it('reports a measured zero as measured, not failed', async () => {
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 0n }));
+  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 0n, faucetId: 'mm1native', scope: SCOPE }));
   expect(mockEstimate).toHaveBeenCalledTimes(1);
 });
 
@@ -63,7 +102,7 @@ it('retries a failed estimate once and reports what the retry measured', async (
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 400n }));
+  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 400n, faucetId: 'mm1native', scope: SCOPE }));
   expect(mockEstimate).toHaveBeenCalledTimes(2);
   expect(mockEstimate).toHaveBeenNthCalledWith(2, 'mm1account', 5042002);
 });
@@ -90,7 +129,7 @@ it('stays pending while the lock is busy and asks again after a backoff, reporti
 
   await elapse(PAST_EVERY_BACKOFF_MS);
 
-  expect(result.current).toEqual({ status: 'measured', reserve: 315n });
+  expect(result.current).toEqual({ status: 'measured', reserve: 315n, faucetId: 'mm1native', scope: SCOPE });
   expect(mockEstimate).toHaveBeenCalledTimes(3);
 });
 
@@ -134,7 +173,7 @@ it("makes no call for the old chain once the chain changes during that chain's b
   rerender({ target: { ...TARGET, destinationChainId: 84532 } });
   await elapse(PAST_EVERY_BACKOFF_MS);
 
-  expect(result.current).toEqual({ status: 'measured', reserve: 500n });
+  expect(result.current).toEqual({ status: 'measured', reserve: 500n, faucetId: 'mm1native', scope: SCOPE });
   expect(mockEstimate.mock.calls).toEqual([
     ['mm1account', 5042002],
     ['mm1account', 84532]
@@ -165,7 +204,7 @@ it('starts pending for a new chain and drops the answer for the previous one', a
   expect(result.current).toEqual({ status: 'pending', reserve: undefined });
 
   await act(async () => answerFirst(measured(315n)));
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 500n }));
+  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 500n, faucetId: 'mm1native', scope: SCOPE }));
   expect(mockEstimate).toHaveBeenLastCalledWith('mm1account', 84532);
 });
 
@@ -175,7 +214,7 @@ it('asks again for the same target only once it changes', async () => {
   const { result, rerender } = renderHook(({ target }) => useBurnFeeReserve(target), {
     initialProps: { target: TARGET }
   });
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 315n }));
+  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 315n, faucetId: 'mm1native', scope: SCOPE }));
   rerender({ target: { ...TARGET } });
 
   expect(mockEstimate).toHaveBeenCalledTimes(1);

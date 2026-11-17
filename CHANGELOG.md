@@ -2,6 +2,8 @@
 
 ## 1.18.0 (2026-11-17)
 
+- [FIX][all] USDCx burn confirmation shows and records a source-bound native fee maximum. Both signing paths accept only the exact protocol sponsorship for the approved burn within that total cap, and receipts include its actual cost.
+
 - [FIX][ci] Validate the updated extension on its existing profile and keep dApp request accounts and required adapter checks aligned with SDK 0.18.
 
 - [CHANGE][all] Upgrade the Miden web, React and wallet adapter SDKs to 0.18.0 and the Rust client and CLI to 0.18.2, with matching native proving dependencies.
