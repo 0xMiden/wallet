@@ -21,7 +21,7 @@ import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import { FlowPresentationProvider, CommandFlowBackProvider } from 'components/flow/FlowPresentation';
 import { navigate } from 'lib/woozie';
 import { deriveBridgeRoutes } from 'lib/bridge/catalog';
-import { buildNativeReownProvider, NativeReown } from 'lib/walletconnect/native';
+import { NativeReown, type ReownPlugin } from 'lib/walletconnect/native';
 import { fetchDeposits } from 'lib/agglayer/status';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
 import type { SourceRpcTransaction } from 'lib/bridge/evm/source-transaction';
@@ -136,12 +136,18 @@ jest.mock('lib/woozie', () => ({
 jest.mock('lib/walletconnect/fees', () => ({
   readNativeFeeFields: async () => ({ maxFeePerGas: '0x1', maxPriorityFeePerGas: '0x1' })
 }));
+var mockNativeSend: jest.MockedFunction<ReownPlugin['sendTransaction']>;
 jest.mock('@capacitor/core', () => ({
-  registerPlugin: jest.fn(() => ({
-    getState: jest.fn(),
-    sendTransaction: jest.fn(),
-    addListener: jest.fn(async () => ({ remove: async () => undefined }))
-  }))
+  ...jest.requireActual('@capacitor/core'),
+  registerPlugin: jest.fn((name: string) => {
+    const plugin = {
+      getState: jest.fn(),
+      sendTransaction: jest.fn(),
+      addListener: jest.fn(async () => ({ remove: async () => undefined }))
+    };
+    if (name === 'Reown') mockNativeSend = plugin.sendTransaction;
+    return plugin;
+  })
 }));
 jest.mock('lib/agglayer/status', () => ({ ...jest.requireActual('lib/agglayer/status'), fetchDeposits: jest.fn() }));
 jest.mock('lib/walletconnect/receipt', () => ({
@@ -262,21 +268,19 @@ beforeEach(async () => {
   jest.spyOn(Date, 'now').mockReturnValue(now);
   await Repo.transactions.clear();
   mockNative = false;
-  jest
-    .mocked(NativeReown.getState)
-    .mockResolvedValue({
-      configured: true,
-      connected: true,
-      topic: 'test-session',
-      address: accounts.evmAddress,
-      accounts: [`eip155:11155111:${accounts.evmAddress}`],
-      chainId: 11155111,
-      chainIds: [11155111]
-    });
+  jest.mocked(NativeReown.getState).mockResolvedValue({
+    configured: true,
+    connected: true,
+    topic: 'test-session',
+    address: accounts.evmAddress,
+    accounts: [`eip155:11155111:${accounts.evmAddress}`],
+    chainId: 11155111,
+    chainIds: [11155111]
+  });
   jest.mocked(NativeReown.addListener).mockResolvedValue({ remove: async () => undefined });
-  jest
-    .mocked(NativeReown.sendTransaction)
-    .mockImplementation(async tx => ({ hash: await wallet({ method: 'eth_sendTransaction', params: [tx] }) }));
+  mockNativeSend.mockImplementation(async tx => ({
+    hash: await wallet({ method: 'eth_sendTransaction', params: [tx] })
+  }));
   allowance = 0n;
   activeAccount = accounts.evmAddress;
   signed = [];
@@ -403,6 +407,7 @@ it.each([false, true])(
     expect(signed).toHaveLength(0);
     expect(navigate).not.toHaveBeenCalled();
     const row = (await Repo.transactions.toArray())[0];
+    if (!row) throw new Error('Missing real admitted row');
     expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('running');
     fireEvent.submit(form);
     expect(await Repo.transactions.count()).toBe(1);
@@ -410,7 +415,7 @@ it.each([false, true])(
     await waitFor(async () => expect((await Repo.transactions.get(row.id))?.extraInputs.evmTxHash).toBe(depositHash));
     expect(signed).toHaveLength(2);
     expect(screen.getByTestId('command-bridge')).toBeVisible();
-    if (native) expect(NativeReown.sendTransaction).toHaveBeenCalledTimes(2);
+    if (native) expect(mockNativeSend).toHaveBeenCalledTimes(2);
     fireEvent.submit(form);
     expect(signed).toHaveLength(2);
     expect(await Repo.transactions.count()).toBe(1);
@@ -430,6 +435,7 @@ it('explicit minimize before a later prompt refuses fresh spending and reopen do
   await waitFor(() => expect(screen.getByRole('button', { name: 'commandBridgeViewStatus' })).toBeVisible());
   await waitFor(() => expect(rpc.call).toHaveBeenCalledTimes(1));
   const row = (await Repo.transactions.toArray())[0];
+  if (!row) throw new Error('Missing real admitted row');
   fireEvent.click(screen.getByRole('button', { name: 'minimize' }));
   unmount();
   release({ data: '0x' });
@@ -441,6 +447,20 @@ it('explicit minimize before a later prompt refuses fresh spending and reopen do
   expect(await Repo.transactions.count()).toBe(1);
   expect(signed).toHaveLength(0);
   reopened.unmount();
+});
+
+it('the original receive driver never discloses raw external wallet failures from the real Command path', async () => {
+  const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+  rpc.call.mockRejectedValueOnce(new Error('private-wallet-payload-placeholder'));
+  const { form } = await renderReceive();
+  fireEvent.submit(form);
+  await waitFor(async () =>
+    expect((await Repo.transactions.toArray())[0]?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain')
+  );
+  await waitFor(() => expect(log).toHaveBeenCalled());
+  expect(JSON.stringify(log.mock.calls)).not.toContain('private-wallet-payload-placeholder');
+  expect(signed).toHaveLength(0);
+  expect(await Repo.transactions.count()).toBe(1);
 });
 
 it('a returned source hash is saved to the original owner after explicit UI departure', async () => {
@@ -459,6 +479,7 @@ it('a returned source hash is saved to the original owner after explicit UI depa
   fireEvent.submit(form);
   await waitFor(() => expect(signed).toHaveLength(2));
   const row = (await Repo.transactions.toArray())[0];
+  if (!row) throw new Error('Missing real admitted row');
   fireEvent.click(screen.getByRole('button', { name: 'minimize' }));
   unmount();
   release(depositHash);
@@ -963,6 +984,7 @@ it.each(['revision', 'operation', 'review'])(
   async changed => {
     rpc.estimateGas.mockImplementationOnce(async () => {
       const row = (await Repo.transactions.toArray())[0];
+      if (!row) throw new Error('Missing real admitted row');
       if (!row) throw new Error('Missing claimed row');
       if (changed === 'revision')
         await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.revision': 'another-owner' });

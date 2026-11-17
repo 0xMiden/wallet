@@ -160,9 +160,11 @@ it('a late quote cannot replace the current amount or grant its review', async (
   act(() => result.current.bridge.setAmount('1'));
   act(() => result.current.bridge.setAmount('2'));
   expect(pending).toHaveLength(2);
-  await act(async () => pending[1].resolve(quote(pending[1].request, '2')));
+  const [first, second] = pending;
+  if (!first || !second) throw new Error('Missing actual pending quote requests');
+  await act(async () => second.resolve(quote(second.request, '2')));
   expect(result.current.bridge.quote?.received).toBe('2');
-  await act(async () => pending[0].resolve(quote(pending[0].request, '1')));
+  await act(async () => first.resolve(quote(first.request, '1')));
   expect(result.current.bridge.amount).toBe('2');
   expect(result.current.bridge.quote?.received).toBe('2');
   expect(result.current.bridge.review).toBeUndefined();

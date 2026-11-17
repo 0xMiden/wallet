@@ -665,6 +665,7 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
       fireEvent.submit(form);
       expect(await Repo.transactions.count()).toBe(1);
       const row = (await Repo.transactions.toArray())[0];
+      if (!row) throw new Error('Missing actual admitted row');
       fireEvent.click(screen.getByRole('button', { name: 'commandBridgeViewStatus' }));
       expect(navigate).toHaveBeenCalledWith(`/history-details/${row.id}`);
       expect(await Repo.transactions.count()).toBe(1);
@@ -687,13 +688,14 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
       const results = await Promise.all([submitReviewedBridge(review, deps), submitReviewedBridge(review, deps)]);
       const rows = await Repo.transactions.toArray();
       expect(rows).toHaveLength(1);
-      expect(results).toEqual([
-        { kind: 'started', operationId: rows[0].id },
-        { kind: 'started', operationId: rows[0].id }
-      ]);
-      expect(rows[0].extraInputs.bridgeOperation?.operationId).not.toBe(rows[0].id);
-      expect(observed).toHaveBeenCalledWith(rows[0].id);
       const before = rows[0];
+      if (!before) throw new Error('Missing original durable row');
+      expect(results).toEqual([
+        { kind: 'started', operationId: before.id },
+        { kind: 'started', operationId: before.id }
+      ]);
+      expect(before.extraInputs.bridgeOperation?.operationId).not.toBe(before.id);
+      expect(observed).toHaveBeenCalledWith(before.id);
       const builds = mockCreateB2AggNote.mock.calls.length;
       await submitReviewedBridge(review, deps);
       expect(await Repo.transactions.get(before.id)).toEqual(before);
