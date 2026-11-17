@@ -102,7 +102,7 @@ jobs:
           cp -R "$stage/packages/native-prover/ios/MidenMobileProver.xcframework" native-artifacts/packages/native-prover/ios/
           cp "$RUNNER_TEMP/web-sdk/Cargo.lock" native-artifacts/web-Cargo.lock
           cp "$stage/package.json" native-artifacts/ios-staging-package.json
-          {
+          (
             echo "wallet_source=$GITHUB_SHA"
             echo "web_sdk_source=$WEB_SDK_SHA"
             echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
@@ -113,7 +113,7 @@ jobs:
             xcrun --sdk iphoneos --show-sdk-version
             uname -a
             shasum -a 256 Cargo.lock "$stage/packages/native-prover/scripts/build-ios.sh" "$stage/package.json" "$stage/packages/native-prover/ios/MidenMobileProver.xcframework"/*/*.a
-          } > native-artifacts/ios-provenance.txt
+          ) > native-artifacts/ios-provenance.txt
           for slice in ios-arm64 ios-arm64-simulator; do
             lib="native-artifacts/packages/native-prover/ios/MidenMobileProver.xcframework/$slice/libmiden_mobile_prover.a"
             xcrun lipo -info "$lib" | tee "native-artifacts/$slice-architecture.txt"
