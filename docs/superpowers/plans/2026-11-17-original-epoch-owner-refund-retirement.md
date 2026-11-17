@@ -31,8 +31,8 @@
 - [x] Write positive test using original downloaded checkpoint and the known successful audit as fixtures: phase cancelled, after native18835663/evmToken254080030/evmNative297487428658860326, loss70126, no consumeAuthority/returnNoteId/returnMidenTxId. Verify original fields and input bytes unchanged.
 - [x] Add single-input negative cases for wrong checkpoint bytes, sourceRunId/applicationSource/SDK, public/private failed status, unreturned principal, nonzero SFT, enabled status, nonzero withdrawable timestamp, intent not empty, wrong private holdings/nonces, unblocked consume/live policy/new authority, mismatched public/private cost and malformed costs.
 - [x] Establish the importable fail-closed baseline only after the test exists. Push frozen tests/baseline to the owned auxiliary workflow, download original producer and audit fixture artifacts, run Node tests. Expected: positive assertion fails for the missing retirement behavior, not import/setup; negatives deny. Inspect actual failure before implementing.
-- [ ] Implement the minimum exact-case builder; preserve original object fields and populate only the four allowed fields. Include real loader validation at the CLI boundary using the existing bundled loader, not a new schema.
-- [ ] Run the exact same CI tests and original45 guard cases. Expected: all actual tests pass with nonzero counts. Record source, run and assertion chronology. Commit signed.
+- [x] Implement the minimum exact-case builder; preserve original object fields and populate only the four allowed fields. Include real loader validation at the CLI boundary using the existing bundled loader, not a new schema.
+- [x] Run the exact same CI tests and original45 guard cases. Expected: all actual tests pass with nonzero counts. Record source, run and assertion chronology. Commit signed.
 
 ### Task 2: No-spend official canonical retirement
 
@@ -42,7 +42,7 @@
 - [ ] Configure push trigger only for a distinct canonical-once ref, original shared concurrency, read-only permissions, no EVM signing secret/executor or fresh provider stages. Retain auxiliary unit qualification on its own branch only.
 - [ ] Bind original producer and all financial first-attempt run/source/authority hashes as in the already successful9937 audit. Bind current official producer frontier before execution. Run the existing actual SDK018 public and PRIVATE auditors against untouched original copies.
 - [ ] After actual audits pass, run the builder, validate with existing loader, preserve original swap/NEAR bytes and original Epoch authorities. Require normal cancelled shape and recoveryOnly=true; no native/funded-complete claim.
-- [ ] Freeze source after internal complete-source review and same-source unit qualification. Consume a distinct nonfinancial once marker, push the frozen canonical ref once, monitor exact run/SHA at30s. Expected: canonical artifacts and actual audit pass, zero transactions/signatures/new fees.
+- [ ] Freeze source after internal complete-source review and same-source unit qualification. Consume a distinct nonfinancial once marker, push the frozen canonical ref once, monitor exact run/SHA at30s. Expected: canonical artifacts and actual audit pass, zero transactions/signatures/new fees. Preserve the existing recovery-only convention: only final Report recovery-only coverage deliberately fails, so an official no-spend retirement cannot masquerade as funded green.
 
 ### Task 3: Independently verify canonical retirement and resume campaign
 
