@@ -213,12 +213,7 @@ async function assertDecodedViewApproved(
   } catch (error) {
     // The allowance's own refusal (a pre-built row with no recorded note) is already that error. Any other throw,
     // such as an amount that does not parse, stays the unreadable-amounts refusal.
-    if (
-      error instanceof ProposalEffectRefusedError ||
-      error instanceof WebAssembly.RuntimeError ||
-      isKilledPipeline(error)
-    )
-      throw error;
+    if (error instanceof ProposalEffectRefusedError) throw error;
     throw effectRefusal(transaction, 'its approved amounts could not be read', error);
   }
   if (detail !== undefined) throw effectRefusal(transaction, detail);

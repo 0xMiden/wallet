@@ -622,6 +622,7 @@ beforeEach(() => {
   mockNativeMetadata = null;
   mockNativeVerified = true;
   mockBurnFeeReserve = { ...REVIEWED_BURN_FEE };
+  jest.mocked(useBurnFeeReserve).mockImplementation(() => mockBurnFeeReserve);
 
   delete process.env.MIDEN_E2E_TEST;
 });

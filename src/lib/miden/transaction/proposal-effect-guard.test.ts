@@ -546,7 +546,9 @@ describe('reviewed USDCx network fee budget', () => {
     jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => {
       throw trap;
     });
-    await expect(assertProposalEffectApproved(budgeted('5'), 'sum')).rejects.toBe(trap);
+    const refused = assertProposalEffectApproved(budgeted('5'), 'sum');
+    await expect(refused).rejects.toMatchObject({ cause: trap });
+    await expect(jest.mocked(withWasmClientLock).mock.results[0]?.value).rejects.toBe(trap);
   });
 
   it('keeps the reviewed principal allowance when total native fees fit the cap', () => {
