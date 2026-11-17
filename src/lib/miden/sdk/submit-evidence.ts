@@ -11,8 +11,11 @@ import { NoteTypeEnum } from '../types';
 
 /** A delta can move the expiration at most this far past the reference block. */
 export const EXPIRATION_DELTA_RANGE = 65535;
-/** The most entries the parser accepts in one list. */
-export const MAX_EVIDENCE_LIST = 256;
+/**
+ * The most entries the parser accepts in one list: `MAX_OUTPUT_NOTES_PER_TX` and `MAX_INPUT_NOTES_PER_TX`, both 1024 in
+ * miden-protocol 0.17.1, so it bounds the nullifiers too. A longer list is no transaction's and is refused whole.
+ */
+export const MAX_EVIDENCE_LIST = 1024;
 
 const WORD_HEX = /^0x[0-9a-f]{64}$/i;
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
