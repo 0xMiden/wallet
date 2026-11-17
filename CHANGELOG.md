@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
+
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
 
 ## 1.18.0 (2026-11-17)

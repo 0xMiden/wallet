@@ -6,7 +6,7 @@ import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
-import { readFaucetProofMetadata } from './faucet-proof';
+import { fetchFaucetProof, readFaucetProofMetadata } from './faucet-proof';
 import { getNativeDisplayMetadataSync } from './native';
 import { ensureTokensMetadataSchema, TOKENS_BASE_METADATA_STORAGE_KEY, updateTokensBaseMetadata } from './storage';
 import { AssetMetadata } from './types';
@@ -60,7 +60,7 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
     const endpoint = getRpcEndpoint();
     const rpcClient = new RpcClient(endpoint);
     const accountId = accountRefToSdk(assetId);
-    const proof = await rpcClient.getAccountProof(accountId);
+    const proof = await fetchFaucetProof(rpcClient, accountId);
     if (!proof.accountHeader()) {
       if (accountId.isPublic()) {
         // if the account was public and we couldn't fetch metadata it should not happen in first place

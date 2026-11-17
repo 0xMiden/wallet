@@ -1,4 +1,4 @@
-import type { AccountProof } from '@miden-sdk/miden-sdk/lazy';
+import type { AccountId, AccountProof, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import type { AssetMetadata } from './types';
 
@@ -80,4 +80,9 @@ export function readFaucetProofMetadata(proof: AccountProof): AssetMetadata {
     scaleIsUnknown: false,
     ...(description ? { description } : {})
   };
+}
+
+/** Reads the account header and storage values without fetching storage maps. */
+export function fetchFaucetProof(rpc: RpcClient, accountId: AccountId): Promise<AccountProof> {
+  return rpc.getAccountProof(accountId);
 }
