@@ -10,7 +10,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { failInterruptedTransactions, MAX_WAIT_BEFORE_CANCEL } from './cancel';
 import { TRANSACTION_INTERRUPTED_ON_STARTUP } from './constants';
-import { noteDeliveryWriteCount, recordSubmitCrossing, setTransactionStage } from './helper';
+import { markAttemptPreSubmitEnd, noteDeliveryWriteCount, recordSubmitCrossing, setTransactionStage } from './helper';
 import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from './note-delivery-sweep';
 import { AccountRead, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { acknowledgementOf, requeueFailedTransaction } from './retry';
@@ -142,10 +142,10 @@ const failedExecute = (overrides: Partial<ITransaction> = {}): ITransaction =>
     ...overrides
   });
 
-/** The executed transaction attempt a1's leaf read just before its submit: notes `outputs`, the private ones as such. */
-const executed = (outputs: string[], privateNotes: string[]) => ({
+/** The executed transaction an attempt's leaf read just before its submit: notes `outputs`, the private ones as such. */
+const executed = (outputs: string[], privateNotes: string[], transactionId = hex(2)) => ({
   executedTransaction: () => ({
-    id: () => ({ toHex: () => hex(2) }),
+    id: () => ({ toHex: () => transactionId }),
     initialAccountHeader: () => ({
       to_commitment: () => ({ toHex: () => INITIAL }),
       nonce: () => ({ asInt: () => 5n })
@@ -158,12 +158,14 @@ const executed = (outputs: string[], privateNotes: string[]) => ({
       }))
   })
 });
-const proof = {
+/** The proven transaction's spend-free shape, included only after block `ref` and at or before block `expiration`. */
+const provenWithin = (ref: number, expiration: number) => ({
   nullifiers: () => [],
-  refBlockNumber: () => 100,
+  refBlockNumber: () => ref,
   refBlockCommitment: () => ({ toHex: () => HEADER }),
-  expirationBlockNumber: () => 700
-};
+  expirationBlockNumber: () => expiration
+});
+const proof = provenWithin(100, 700);
 
 const read = () => Repo.transactions.where({ id: 'tx-1' }).first();
 const refusal = async (): Promise<unknown> =>
@@ -361,5 +363,169 @@ describe("Retry's pinned landing of an execute whose tail recorded nothing", () 
     });
     expect(noteDeliveryWriteCount()).toBe(writes);
     expect(await pushesAfterTheFirstWait(NOW)).toEqual([[SIBLING_NOTE, RECIPIENT]]);
+  });
+});
+
+// A dApp script that creates the approved private note N only while a state condition holds: attempt a1 ran while it
+// failed, so its stamp names the pinned note P alone, and attempt a2 created both. Only an attempt that can have created
+// P speaks for the landing: one not retired before its submit, whose window admits P's block.
+describe("Retry's pinned landing takes the private notes of the attempts that can have created the pinned note", () => {
+  const UNDELIVERED = 'Executed - the private note could not be delivered';
+  /** Past the liveness refusal the startup sweep's end of attempt a2 holds Retry to. */
+  const SECOND_TAP_AT = TAP_AT + MAX_WAIT_BEFORE_CANCEL + 60;
+
+  /** Attempt a1 stamps P alone and ends as `end` says; a requeue runs attempt a2, whose realm dies after its apply. */
+  const landsAfterAnEarlierAttempt = async (end: 'retired before its submit' | 'expired before the note') => {
+    await Repo.transactions.put(runningExecute());
+    await recordSubmitCrossing(
+      'tx-1',
+      readSubmitEvidence(
+        executed([PUBLIC_NOTE], []),
+        end === 'expired before the note' ? provenWithin(100, 130) : proof,
+        () => true
+      ),
+      { attemptId: 'a1', fromExecute: true }
+    );
+    if (end === 'retired before its submit') {
+      // Evicted after its stamp and before its submit call: the leaf retires the attempt and fails the row unsent, so
+      // a plain Retry requeues it.
+      await markAttemptPreSubmitEnd('tx-1', 'a1');
+      await Repo.transactions.update('tx-1', {
+        status: ITransactionStatus.Failed,
+        error: 'The wallet lost the WASM client before sending',
+        displayIcon: 'FAILED',
+        completedAt: NOW - 100
+      });
+      await requeueFailedTransaction('tx-1');
+    } else {
+      // Its outcome unknown, the startup sweep fails it, and the acknowledged Retry finds P absent and requeues it.
+      await setTransactionStage('tx-1', 'submitting');
+      await failInterruptedTransactions();
+      noteInclusions.mockResolvedValue(new Map());
+      jest.spyOn(Date, 'now').mockReturnValue(TAP_AT * 1000);
+      await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a1' } });
+    }
+    expect((await read())?.status).toBe(ITransactionStatus.Queued);
+
+    await Repo.transactions.update('tx-1', {
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'a2',
+      processingStartedAt: NOW - 50,
+      stage: 'proving'
+    });
+    await recordSubmitCrossing(
+      'tx-1',
+      readSubmitEvidence(executed([PUBLIC_NOTE, OWED], [OWED], hex(3)), provenWithin(130, 700), () => true),
+      { attemptId: 'a2', fromExecute: true }
+    );
+    await setTransactionStage('tx-1', 'submitting');
+    await failInterruptedTransactions();
+    nodeHolds(PUBLIC_NOTE, OWED);
+
+    jest.spyOn(Date, 'now').mockReturnValue(SECOND_TAP_AT * 1000);
+    expect(acknowledgementOf(await refusal())).toEqual({ attemptId: 'a2' });
+    const writes = noteDeliveryWriteCount();
+    await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a2' } });
+    return writes;
+  };
+
+  it.each(['retired before its submit', 'expired before the note'] as const)(
+    "owes the later attempt's private note when the earlier one naming P %s, and the sweep pushes it",
+    async end => {
+      decodesTo(PUBLIC_NOTE);
+      const writes = await landsAfterAnEarlierAttempt(end);
+
+      const row = await read();
+      expect(row?.submitEvidence?.map(stamp => [stamp.attemptId, stamp.outputNoteIds])).toEqual([
+        ['a1', [PUBLIC_NOTE]],
+        ['a2', [PUBLIC_NOTE, OWED]]
+      ]);
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Completed,
+        relayNoteIds: [OWED],
+        relayRecipientId: RECIPIENT,
+        noteDelivery: 'undelivered',
+        displayMessage: 'Executed - a private note could not be delivered',
+        completedAt: SECOND_TAP_AT
+      });
+      expect(row?.outputNoteIds).toBeUndefined();
+      expect(noteDeliveryWriteCount()).toBe(writes + 1);
+      expect(await pushesAfterTheFirstWait(SECOND_TAP_AT)).toEqual([[OWED, RECIPIENT]]);
+    }
+  );
+
+  /** A Failed row holding attempt a1's stamp of P alone and attempt a2's of P and N, both windows admitting P's block. */
+  const bothMayHaveCreatedP = (first: Partial<ISubmitEvidence>, second: Partial<ISubmitEvidence>) =>
+    failedExecute({
+      attemptId: 'a2',
+      submitEvidence: [entry(first), entry({ capturedAt: NOW - 30, ...second })]
+    });
+  const A1: Partial<ISubmitEvidence> = { attemptId: 'a1', outputNoteIds: [PUBLIC_NOTE], privateOutputNoteIds: [] };
+  const A2: Partial<ISubmitEvidence> = { attemptId: 'a2', transactionId: hex(3) };
+
+  // Either attempt may have created P, and they disagree on what is owed: neither list is installed, and the row keeps
+  // the warning that a private note may not have been delivered.
+  it.each<[string, Partial<ISubmitEvidence>, Partial<ISubmitEvidence>]>([
+    ['the earlier one', A1, A2],
+    ['the later one', { attemptId: 'a1' }, { ...A1, attemptId: 'a2', transactionId: hex(3) }]
+  ])(
+    'two attempts that may have created P with different private notes install neither, P alone stamped by %s',
+    async (_t, first, second) => {
+      await Repo.transactions.put(bothMayHaveCreatedP(first, second));
+      decodesTo(PUBLIC_NOTE);
+      nodeHolds(PUBLIC_NOTE, OWED);
+      const writes = noteDeliveryWriteCount();
+
+      await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a2' } });
+
+      const row = await read();
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Completed,
+        noteDelivery: 'undelivered',
+        displayMessage: UNDELIVERED
+      });
+      expect(row?.relayNoteIds).toBeUndefined();
+      expect(row?.relayRecipientId).toBeUndefined();
+      expect(row?.outputNoteIds).toBeUndefined();
+      expect(noteDeliveryWriteCount()).toBe(writes);
+      expect(await pushesAfterTheFirstWait(NOW)).toEqual([]);
+    }
+  );
+
+  it('two attempts that may have created P and both prove only public notes land under the clean label', async () => {
+    await Repo.transactions.put(
+      bothMayHaveCreatedP(A1, { ...A2, outputNoteIds: [PUBLIC_NOTE, SIBLING_NOTE], privateOutputNoteIds: [] })
+    );
+    decodesTo(PUBLIC_NOTE);
+    nodeHolds(PUBLIC_NOTE);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a2' } });
+
+    const row = await read();
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Executed' });
+    expect(row?.noteDelivery).toBeUndefined();
+    expect(row?.relayNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+    expect(await pushesAfterTheFirstWait(NOW)).toEqual([]);
+  });
+
+  // A stamp with no transaction id, or not made by an execute, binds no landing, so it does not void the one that can.
+  it.each<[string, Partial<ISubmitEvidence>]>([
+    ['no transaction id', { transactionId: undefined }],
+    ['no execute mark', { fromExecute: undefined }]
+  ])("a stamp of P alone with %s leaves the owing attempt's private note owed", async (_t, unbound) => {
+    await Repo.transactions.put(bothMayHaveCreatedP({ ...A1, ...unbound }, A2));
+    decodesTo(PUBLIC_NOTE);
+    nodeHolds(PUBLIC_NOTE, OWED);
+
+    await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a2' } });
+
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [OWED],
+      relayRecipientId: RECIPIENT
+    });
+    expect(await pushesAfterTheFirstWait(NOW)).toEqual([[OWED, RECIPIENT]]);
   });
 });
