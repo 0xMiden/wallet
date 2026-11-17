@@ -12,6 +12,7 @@ import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { encodeExecutorHookData, runUsdcxExecutorDeposit, type DepositForBurnWithHookAndFeesArgs } from 'lib/usdcx/executor';
 import { TOKEN_MESSENGER_WITH_FEES_ABI, XRESERVE_ABI } from 'lib/usdcx/protocol';
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 
 import { assertCctpSourceMessage, sourceMessageFromReceipt } from './cctp-message';
 import { assertXReserveRouteAvailable } from './deposit-preflight';
@@ -121,8 +122,11 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
         signer: { approve, depositForBurnWithHookAndFees: args => send(source.tokenMessengerWithFees, encodeFunctionData({ abi: TOKEN_MESSENGER_WITH_FEES_ABI, functionName: 'depositForBurnWithHookAndFees', args }), args) }
       });
     }
-  } catch (error) {
-    await recordBridgeSourceAttempt(operation.operationId, operation.revision, { phase: 'uncertain' });
-    throw error;
+  } catch {
+    try {
+      await recordBridgeSourceAttempt(operation.operationId, operation.revision, { phase: 'uncertain' });
+    } finally {
+      throw new UsdcxBurnError('bridgeReviewChanged');
+    }
   }
 }

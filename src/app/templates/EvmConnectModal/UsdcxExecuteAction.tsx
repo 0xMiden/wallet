@@ -7,8 +7,9 @@ import { Button, ButtonVariant } from 'components/Button';
 import { IBridgedReceivePhase, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
-import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+import { isUserErrorId, type UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { usdcxSourceChains, UsdcxSourceChain } from 'lib/usdcx/constant';
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { nativeSigningErrorId, nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 
 import { useCctpExecute } from './useCctpExecute';
@@ -95,8 +96,8 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
           operation,
           busy: true,
           error: {
-            text: nativeSigningErrorMessage(cause, t),
-            id: nativeSigningErrorId(cause) ?? 'raw_usdcx_execute_failed'
+            text: cause instanceof UsdcxBurnError ? t(cause.translationKey, cause.values) : nativeSigningErrorMessage(cause, t),
+            id: cause instanceof UsdcxBurnError && isUserErrorId(cause.translationKey) ? cause.translationKey : nativeSigningErrorId(cause) ?? 'raw_usdcx_execute_failed'
           }
         });
       }

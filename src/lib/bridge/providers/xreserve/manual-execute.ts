@@ -7,6 +7,7 @@ import type { ITransaction, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import type { UsdcxExecutorSource } from 'lib/usdcx/constant';
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 
 import { matchesCctpSourceMessage } from './cctp-message';
 import { ownedCctpSourceProof } from './cctp-status';
@@ -27,7 +28,7 @@ export function captureCctpExecution(
 ): OwnedCctpExecution | undefined {
   const inputs = row?.extraInputs;
   if (!row || row.type !== 'bridged-receive' || row.restoredFromBackup || row.recovered ||
-      inputs?.provider !== 'usdcx' || inputs.phase !== 'delivering') throw new Error('Circle execute needs its original local row');
+      inputs?.provider !== 'usdcx' || inputs.phase !== 'delivering') throw new UsdcxBurnError('bridgeReviewChanged');
   if (!hasBridgeOperation(row)) return undefined;
   const operation = bridgeOperationOf(row);
   const source = inputs.usdcxSource;
@@ -37,11 +38,11 @@ export function captureCctpExecution(
       inputs.sourceChainId !== sourceChainId || !isHash(hash) || !original || !isHex(leg.message) ||
       !isHex(leg.attestation) || leg.attestation === '0x' || !matchesCctpSourceMessage(original, leg.message) ||
       configKey(inputs.cctp) !== configKey(leg) || leg.executeTxHash)
-    throw new Error('Circle original execute proof changed');
+    throw new UsdcxBurnError('bridgeReviewChanged');
   const prior = leg.executeAttempt;
   if (prior && (prior.phase !== 'known' || !isHash(prior.hash) ||
       ![leg.revertedExecuteTxHash, leg.stalledExecuteTxHash].some(value => value?.toLowerCase() === prior.hash?.toLowerCase())))
-    throw new Error('Circle execute outcome is already pending or uncertain');
+    throw new UsdcxBurnError('bridgeReviewChanged');
   return structuredClone({ rowId: row.id, operation, sourceHash: hash, source, leg, invocationScope });
 }
 
@@ -53,7 +54,7 @@ export async function reserveCctpExecution(expected: OwnedCctpExecution): Promis
     if (!current || current.rowId !== expected.rowId || current.operation.revision !== expected.operation.revision ||
         current.sourceHash !== expected.sourceHash || configKey(current.source) !== configKey(expected.source) ||
         configKey(expected.invocationScope) !== configKey(captureBridgeWalletScope()))
-      throw new Error('Circle original execute ownership changed');
+      throw new UsdcxBurnError('bridgeReviewChanged');
     const id = uuid();
     await Repo.transactions.update(expected.rowId, { 'extraInputs.cctp.executeAttempt': { id, phase: 'uncertain' } });
     return id;
@@ -70,7 +71,7 @@ export async function recordCctpExecutionHash(expected: OwnedCctpExecution, atte
     if (!row || row.id !== expected.rowId || original?.revision !== expected.operation.revision ||
         inputs?.evmTxHash !== expected.sourceHash || !attempt || attempt.id !== attemptId ||
         (attempt.hash && attempt.hash.toLowerCase() !== hash.toLowerCase()))
-      throw new Error('Circle execute result ownership changed');
+      throw new UsdcxBurnError('bridgeReviewChanged');
     await Repo.transactions.update(row.id, { 'extraInputs.cctp.executeAttempt': { ...attempt, phase: 'known', hash } });
     if (inputs.phase === 'delivering' && !inputs.cctp?.executeTxHash)
       await updateBridgedReceivePhase(row.id, 'delivering', { cctp: { sourceDomain: expected.leg.sourceDomain, executeTxHash: hash } },
