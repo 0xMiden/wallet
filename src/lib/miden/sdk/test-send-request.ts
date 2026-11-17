@@ -106,6 +106,19 @@ export function inspectTestMainnetSendRequest(
     if (request.scriptArg()?.toHex() !== expected.scriptArg()?.toHex()) differences.push('script');
     if (JSON.stringify(request.blockNumbers()) !== JSON.stringify(expected.blockNumbers())) differences.push('blocks');
     if (request.expectedFutureNotes().length !== expected.expectedFutureNotes().length) differences.push('future');
+    if (!equal(actualBytes, canonicalRequestBytes(Uint8Array.from(request.serialize())))) differences.push('roundtrip');
+    if (guardian) {
+      // Diagnostic candidates only; every mismatch still throws and the local scope stays unreleased.
+      for (const [delta, code] of [[65535, 'expiration-default'], [256, 'expiration-guardian']] as const) {
+        const candidate = withTestGuardianAuthentication(
+          new TransactionRequestBuilder()
+            .withOwnOutputNotes(new NoteArray(expected.expectedOutputOwnNotes()))
+            .withExpirationDelta(delta),
+          request
+        ).build();
+        if (equal(actualBytes, canonicalRequestBytes(Uint8Array.from(candidate.serialize())))) differences.push(code);
+      }
+    }
     if (!differences.length) differences.push('other');
     throw new Error(`Actual native send bytes differ from the exact authorized request; NativeSendDifference:${differences.join(',')}`);
   }
