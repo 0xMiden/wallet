@@ -16459,6 +16459,80 @@ describe('generateTransaction - Guardian routing', () => {
           restore();
         }
       });
+
+      // Only an applied leaf left the notes in the store, so neither an apply that failed nor a failure before the
+      // submit lets the landing stamp's notes reach the row, however much evidence it holds.
+      it('a Guardian private send whose apply fails after its submit owes none of the notes its landing stamp named', async () => {
+        const txId = 'guardian-send-apply-fails-stamped';
+        const { result } = armedResult({
+          notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
+          stamped: [OWED_NOTE],
+          trapping: 'id'
+        });
+        const client = sweepClient(
+          result,
+          jest.fn(async () => {
+            throw new Error(STORE_APPLY_ERROR_MESSAGE);
+          })
+        );
+        const writes = noteDeliveryWriteCount();
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            sendRow(txId, 'private'),
+            { result, replace: () => {}, log: [] },
+            sendProposal(),
+            client
+          );
+
+          expect(row).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+          expect(row.submitEvidence).toEqual([expect.objectContaining({ outputNoteIds: [OWED_NOTE] })]);
+          expect(row.outputNoteIds).toBeUndefined();
+          expect(row.relayNoteIds).toBeUndefined();
+          expect(noteDeliveryWriteCount()).toBe(writes);
+          const landing = Math.floor(Date.now() / 1000);
+          await sweepAt(landing);
+          await sweepAt(landing + 10 * 60);
+          expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+        } finally {
+          quiet();
+        }
+      });
+
+      it('a Guardian private send whose submit is refused after its submitting stamp named its note records no delivery', async () => {
+        const txId = 'guardian-send-submit-refused-stamped';
+        const { result, apply } = armedResult({
+          notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
+          stamped: [OWED_NOTE],
+          trapping: 'id'
+        });
+        const client = sweepClient(result, apply);
+        client.client.transactions.submitProven.mockRejectedValueOnce(
+          new Error('failed to submit proven transaction: connection reset')
+        );
+        const writes = noteDeliveryWriteCount();
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            sendRow(txId, 'private'),
+            { result, replace: () => {}, log: [] },
+            sendProposal(),
+            client
+          );
+
+          expect(apply).not.toHaveBeenCalled();
+          expect(row.submitEvidence).toEqual([expect.objectContaining({ outputNoteIds: [OWED_NOTE] })]);
+          expect(row.status).not.toBe(ITransactionStatus.Completed);
+          expect(row.outputNoteIds).toBeUndefined();
+          expect(row.relayNoteIds).toBeUndefined();
+          expect(row.noteDelivery).toBeUndefined();
+          expect(noteDeliveryWriteCount()).toBe(writes);
+        } finally {
+          quiet();
+        }
+      });
     });
   });
 });
