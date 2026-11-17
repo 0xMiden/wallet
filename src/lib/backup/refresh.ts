@@ -39,6 +39,7 @@ import { flushHistory, peerHistoryChunkCount, readHistory } from './features/his
 import {
   type BackupSession,
   BackupSessionClosedError,
+  assertSessionLive,
   clearBackupSession,
   getBackupSession,
   isSessionLive,
@@ -111,6 +112,8 @@ export function refreshOnUnlock(): Promise<BackupRefreshOutcome> {
     changed = (await syncContacts(session, changedFeature('contacts'))) || changed;
     if (changedFeature('history')) changed = (await readHistory(session, true)) || changed;
     if (index !== null) {
+      // The syncs awaited: a lock or a profile delete may have closed the session, and its state must stay removed.
+      assertSessionLive(session);
       // Every changed feature is applied: the profile ETag may move now.
       state.profileEtag = index.etag;
       await persistBackupState(state);

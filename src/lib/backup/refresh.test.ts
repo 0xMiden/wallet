@@ -371,6 +371,20 @@ describe('restoreHistoryFromBackup', () => {
   });
 });
 
+describe('an unlock refresh that a profile delete overtook', () => {
+  it('writes no state after the delete closed its session', async () => {
+    const before = readBackupState(getActiveStorage().read('backup_state_v1'))?.profileEtag ?? null;
+    // The delete lands while the contacts sync runs: it closes the session and queues the state removal.
+    jest.mocked(syncContacts).mockImplementationOnce(async () => {
+      clearBackupSession();
+      return false;
+    });
+    const outcome = await runBackupRefresh('unlock');
+    expect(readBackupState(getActiveStorage().read('backup_state_v1'))?.profileEtag ?? null).toBe(before);
+    expect(outcome).toBe('locked');
+  });
+});
+
 describe('deleteBackupProfile', () => {
   it('deletes the server profile, closes the session and removes the local records', async () => {
     session.merge.contactsBase = '[]';
