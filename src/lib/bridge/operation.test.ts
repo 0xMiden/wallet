@@ -196,6 +196,28 @@ beforeEach(async () => {
 });
 afterEach(() => jest.restoreAllMocks());
 
+it('hands the real non-Epoch CAS winner its captured rotated revision without a second claim', async () => {
+  const id = await seed();
+  const original = await snapshot(id);
+  let finish: () => void = () => undefined;
+  const completed = new Promise<void>(resolve => { finish = resolve; });
+  let handed: BridgeOperationSnapshot | undefined;
+  const owner = createBridgeReceiveReconciler({ getLocks: () => undefined });
+  await owner.startSubmission(async () => id, async (rowId, claimed) => {
+    expect(rowId).toBe(id);
+    handed = claimed;
+    finish();
+  });
+  await completed;
+  const recorded = await snapshot(id);
+  expect(recorded.sourceAttempt).toEqual({ phase: 'running' });
+  expect(recorded.revision).not.toBe(original.revision);
+  expect(handed).toEqual(recorded);
+  expect(handed?.review).toEqual(original.review);
+  expect(handed?.walletScope).toEqual(original.walletScope);
+  expect(await claimBridgeSourceAttempt(original.operationId, original.revision)).toBe('already-running');
+});
+
 it('atomically coalesces only the same reviewed operation and generates its revision at admission', async () => {
   const ids = await Promise.all([admit(), admit()]);
   expect(ids[0]).toBe(ids[1]);

@@ -7,7 +7,8 @@ import {
   assertBridgeOperationCurrent,
   bridgeOperationOf,
   claimBridgeSourceAttempt,
-  hasBridgeOperation
+  hasBridgeOperation,
+  type BridgeOperationSnapshot
 } from 'lib/bridge/operation';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
@@ -491,7 +492,10 @@ export function createBridgeReceiveReconciler({
   let startedSubmissions = 0;
 
   /** Resolves with the new row's id as soon as `create` returns it; the lock is held until `drive` settles. */
-  function startSubmission(create: () => Promise<string>, drive: (txId: string) => Promise<void>): Promise<string> {
+  function startSubmission(
+    create: () => Promise<string>,
+    drive: (txId: string, claimed?: BridgeOperationSnapshot) => Promise<void>
+  ): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       const run = async () => {
         let txId: string;
