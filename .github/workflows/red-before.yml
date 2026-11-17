@@ -82,8 +82,11 @@ jobs:
           done
           read -ra files <<< "$TESTS"
           (( ${#files[@]} > 0 && ${#files[@]} <= 20 )) || { echo "::error::give 1-20 test files"; exit 1; }
+          # Jest collects these, and under playwright/ only the *.test.ts unit files
+          # (jest.config.ts testPathIgnorePatterns).
           for f in "${files[@]}"; do
-            [[ "$f" =~ ^(src|test|scripts|packages)/[A-Za-z0-9_./@-]+\.test\.(ts|tsx|js)$ && "$f" != *..* ]] \
+            [[ ( "$f" =~ ^(src|test|scripts|packages)/[A-Za-z0-9_./@-]+\.test\.(ts|tsx|js)$ \
+              || "$f" =~ ^playwright/[A-Za-z0-9_./@-]+\.test\.ts$ ) && "$f" != *..* ]] \
               || { echo "::error::not an allowed test path: $f"; exit 1; }
           done
           (( ${#PATTERN} <= 500 && ${#FAILING} <= 4000 )) || { echo "::error::pattern or failing is too long"; exit 1; }
