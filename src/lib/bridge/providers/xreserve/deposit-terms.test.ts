@@ -1,4 +1,6 @@
 // Adapted from bridge-portal@cb52c470 src/bridge/providers/xreserve/deposit.test.ts (MIT).
+import 'lib/bridge/testing/fixtures';
+
 import { getUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { buildDepositToRemoteArgs } from 'lib/usdcx/deposit';
 import { buildExecutorBurnIntent } from 'lib/usdcx/executor';
