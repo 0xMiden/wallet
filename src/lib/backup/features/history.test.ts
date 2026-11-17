@@ -1,3 +1,5 @@
+import Dexie from 'dexie';
+
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -387,10 +389,9 @@ describe('history sync', () => {
     const gate = new Promise<void>(resolve => {
       release = resolve;
     });
-    const passes = jest.spyOn(Repo.transactions, 'bulkGet').mockImplementationOnce(async keys => {
-      await gate;
-      return bulkGet(keys);
-    });
+    const passes = jest
+      .spyOn(Repo.transactions, 'bulkGet')
+      .mockImplementationOnce(keys => Dexie.Promise.resolve(gate).then(() => bulkGet(keys)));
     const first = flushHistory(session);
     while (passes.mock.calls.length === 0) await new Promise(resolve => setTimeout(resolve, 0));
 
