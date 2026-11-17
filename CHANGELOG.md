@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Retain the first Epoch return solve-failure as a keyed fingerprint and finite SDK kind/HTTP status without exporting private errors or changing transaction, retry, timeout or authorization behavior.
+
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
 
 ## 1.18.0 (2026-11-17)
