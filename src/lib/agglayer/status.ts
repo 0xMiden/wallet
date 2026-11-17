@@ -53,7 +53,7 @@ export interface AgglayerDeposit {
   global_index: string;
 }
 
-const TERMINAL_DEPOSIT_STATUSES = new Set(['finalized', 'finalised', 'ready_to_claim', 'ready_for_claim', 'claimed']);
+const DESTINATION_READY_STATUSES = new Set(['ready_to_claim', 'ready_for_claim']);
 
 function normalizedDepositStatus(deposit: AgglayerDeposit): string | undefined {
   return deposit.status
@@ -68,9 +68,7 @@ export function isAgglayerDepositReady(deposit: AgglayerDeposit): boolean {
   return Boolean(
     deposit.ready_for_claim === true ||
     deposit.ready_to_claim === true ||
-    deposit.finalized === true ||
-    deposit.finalised === true ||
-    (normalizedStatus && TERMINAL_DEPOSIT_STATUSES.has(normalizedStatus))
+    (normalizedStatus && DESTINATION_READY_STATUSES.has(normalizedStatus))
   );
 }
 
@@ -81,7 +79,7 @@ const ZERO_TX_HASH = /^(0x)?0*$/i;
  * True once AggLayer has recorded a claim for this deposit.
  *
  * `isAgglayerDepositReady` stays true after a claim on the indexers that keep
- * `ready_for_claim` set (and `claimed` is itself one of its terminal statuses),
+ * `ready_for_claim` set,
  * so readiness alone would keep offering a deposit that can only revert as
  * already-claimed. Claim selection has to exclude these explicitly.
  */

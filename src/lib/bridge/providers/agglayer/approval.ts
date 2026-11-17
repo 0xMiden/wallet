@@ -29,37 +29,75 @@ interface ApprovalRequest {
   assertCurrent: () => Promise<void>;
 }
 
-async function approvalReceipt(client: AgglayerClient, initial: BridgeApproval, save: (approval: BridgeApproval) => Promise<void>) {
+async function approvalReceipt(
+  client: AgglayerClient,
+  initial: BridgeApproval,
+  save: (approval: BridgeApproval) => Promise<void>
+) {
   let approval = initial;
   const writes: Promise<void>[] = [];
   let replacementError: unknown;
-  const receipt = await client.waitForTransactionReceipt({
-    hash: approval.hash, timeout: 120000,
-    onReplaced: replacement => {
-      try {
-        const transaction: SourceTransaction = { ...replacement.transaction, chainId: approval.chainId, value: replacement.transaction.value.toString() };
-        approval = replaceApproval(approval, transaction);
-        if (approval.replacementReason !== replacement.reason) throw new Error('Agglayer approval replacement changed');
-        writes.push(save(approval).catch(error => { replacementError = error; }));
-      } catch (error) { replacementError = error; }
-    }
-  }).finally(async () => { await Promise.all(writes); });
+  const receipt = await client
+    .waitForTransactionReceipt({
+      hash: approval.hash,
+      timeout: 120000,
+      onReplaced: replacement => {
+        try {
+          const transaction: SourceTransaction = {
+            ...replacement.transaction,
+            chainId: approval.chainId,
+            value: replacement.transaction.value.toString()
+          };
+          approval = replaceApproval(approval, transaction);
+          if (approval.replacementReason !== replacement.reason)
+            throw new Error('Agglayer approval replacement changed');
+          writes.push(
+            save(approval).catch(error => {
+              replacementError = error;
+            })
+          );
+        } catch (error) {
+          replacementError = error;
+        }
+      }
+    })
+    .finally(async () => {
+      await Promise.all(writes);
+    });
   if (replacementError) throw replacementError;
-  if (receipt.transactionHash.toLowerCase() !== approval.hash.toLowerCase() || (receipt.status !== 'success' && receipt.status !== 'reverted'))
+  if (
+    receipt.transactionHash.toLowerCase() !== approval.hash.toLowerCase() ||
+    (receipt.status !== 'success' && receipt.status !== 'reverted')
+  )
     throw new Error('Agglayer approval receipt is not verified');
   return { approval, receipt };
 }
 
 async function settleEarlierApprovals(request: ApprovalRequest, allowance: () => Promise<bigint>): Promise<void> {
-  const rows = await Repo.transactions.where('type').equals('bridged-receive').filter(row => !row.restoredFromBackup && !row.recovered).toArray();
+  const rows = await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
+    .filter(row => !row.restoredFromBackup && !row.recovered)
+    .toArray();
   await request.assertCurrent();
   for (const row of rows) {
     const original = bridgeOperationOf(row);
-    if (!original || original.operationId === request.operation.operationId ||
-      (original.sourceAttempt?.hash && original.sourceAttempt.hash === row.extraInputs?.evmTxHash)) continue;
-    const references = (original.approvals ?? []).filter(reference => reference.chainId === request.chainId &&
-      reference.account.toLowerCase() === request.account.toLowerCase() && reference.token.toLowerCase() === request.token.toLowerCase() && reference.spender.toLowerCase() === request.spender.toLowerCase() &&
-      !original.approvals?.some(next => next.hash !== reference.hash && next.originalTransaction?.hash === reference.hash));
+    if (
+      !original ||
+      original.operationId === request.operation.operationId ||
+      (original.sourceAttempt?.hash && original.sourceAttempt.hash === row.extraInputs?.evmTxHash)
+    )
+      continue;
+    const references = (original.approvals ?? []).filter(
+      reference =>
+        reference.chainId === request.chainId &&
+        reference.account.toLowerCase() === request.account.toLowerCase() &&
+        reference.token.toLowerCase() === request.token.toLowerCase() &&
+        reference.spender.toLowerCase() === request.spender.toLowerCase() &&
+        !original.approvals?.some(
+          next => next.hash !== reference.hash && next.originalTransaction?.hash === reference.hash
+        )
+    );
     if (!references.length) continue;
     const admitted = await findAdmittedBridgeOperation(original);
     await request.assertCurrent();
@@ -81,7 +119,11 @@ async function settleEarlierApprovals(request: ApprovalRequest, allowance: () =>
         await save(reference);
         await request.assertCurrent();
       }
-      if (reference.replacementReason !== 'cancelled' && reference.replacementReason !== 'replaced' && BigInt(reference.amount) >= request.amount) {
+      if (
+        reference.replacementReason !== 'cancelled' &&
+        reference.replacementReason !== 'replaced' &&
+        BigInt(reference.amount) >= request.amount
+      ) {
         const sufficient = await allowance();
         await request.assertCurrent();
         if (sufficient >= request.amount) continue;

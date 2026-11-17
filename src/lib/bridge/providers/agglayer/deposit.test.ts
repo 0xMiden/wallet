@@ -201,15 +201,25 @@ beforeEach(async () => {
     signed.push(tx);
     const deposit = tx.to.toLowerCase() === bridgeAddress.toLowerCase();
     let hash: Hash = depositHash;
-    if (deposit) hash = signed.filter(item => item.to === bridgeAddress).length === 1 ? depositHash : `0x${'d'.repeat(64)}`;
+    if (deposit)
+      hash = signed.filter(item => item.to === bridgeAddress).length === 1 ? depositHash : `0x${'d'.repeat(64)}`;
     else {
       if (tx.to.toLowerCase() !== tokenAddress.toLowerCase()) throw new Error('Wrong signing target');
       const decoded = decodeFunctionData({ abi: erc20Abi, data: tx.data });
-      if (decoded.functionName !== 'approve' || decoded.args[0].toLowerCase() !== bridgeAddress.toLowerCase()) throw new Error('Wrong approval call');
+      if (decoded.functionName !== 'approve' || decoded.args[0].toLowerCase() !== bridgeAddress.toLowerCase())
+        throw new Error('Wrong approval call');
       hash = decoded.args[1] === 0n ? resetHash : approvalHash;
       if (sourceTransactions.has(hash)) hash = `0x${(10 + signed.length).toString(16).padStart(64, '0')}`;
     }
-    sourceTransactions.set(hash, { hash, from: `0x${String(tx.from).slice(2)}`, to: deposit ? bridgeAddress : tokenAddress, input: tx.data, value: BigInt(tx.value), nonce: hash === resetHash ? 1 : hash === approvalHash ? 2 : 10 + signed.length, blockNumber: 1n });
+    sourceTransactions.set(hash, {
+      hash,
+      from: `0x${String(tx.from).slice(2)}`,
+      to: deposit ? bridgeAddress : tokenAddress,
+      input: tx.data,
+      value: BigInt(tx.value),
+      nonce: hash === resetHash ? 1 : hash === approvalHash ? 2 : 10 + signed.length,
+      blockNumber: 1n
+    });
     return hash;
   });
 });
@@ -225,67 +235,88 @@ function reviewAmount(amount: string): ReviewedTransfer {
   return review;
 }
 
-it.each(['reset', 'smaller'])('waits for another owned pending %s even when current allowance is sufficient, then makes only the new reviewed deposit', async stage => {
-  allowance = stage === 'reset' ? 1n : 0n;
-  rpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Old receipt unavailable'));
-  const old = await drive(stage === 'reset' ? reviewAmount('1') : reviewAmount('0.5'), 'old-pending');
-  expect(old.error).toBeInstanceOf(Error);
-  const reference = old.row?.extraInputs.bridgeOperation?.approvals?.[0];
-  if (!reference) throw new Error('Missing actual old approval');
-  const transaction = sourceTransactions.get(reference.hash);
-  if (!transaction) throw new Error('Missing original own call');
-  sourceTransactions.set(reference.hash, { ...transaction, blockNumber: null });
-  rpc.getBlockNumber.mockResolvedValue(20n);
-  rpc.getTransactionCount.mockResolvedValue(transaction.nonce);
-  allowance = 2000000000000000000n;
-  let release: () => void = () => undefined;
-  let entered: () => void = () => undefined;
-  const released = new Promise<void>(resolve => { release = resolve; });
-  const waiting = new Promise<void>(resolve => { entered = resolve; });
-  rpc.waitForTransactionReceipt.mockImplementationOnce(async ({ hash }) => {
-    expect(hash).toBe(reference.hash);
-    entered(); await released;
-    allowance = stage === 'reset' ? 0n : 500000000000000000n;
-    return { status: 'success', transactionHash: hash };
-  });
-  const current = drive(reviewAmount('1'), 'new-reviewed');
-  try {
-    expect(await Promise.race([waiting.then(() => true), current.then(() => false)])).toBe(true);
-    expect(signed).toHaveLength(1);
-    expect((await Repo.transactions.get(old.id))?.extraInputs.evmTxHash).toBeUndefined();
-    release();
-    const result = await current;
-    expect(result.error).toBeUndefined();
-    expect(result.row?.extraInputs.evmTxHash).toBe(depositHash);
-    expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(1);
-    const original = await Repo.transactions.get(old.id);
-    expect(original?.extraInputs.bridgeOperation?.revision).toBe(old.captured?.revision);
-    expect(original?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
-    expect(original?.extraInputs.evmTxHash).toBeUndefined();
-  } finally { release(); await current; }
-});
-
-it.each(['rpc', 'missing-call', 'nonce-conflict', 'receipt-hash', 'scope'])('blocks the new operation when old reducing approval observation has %s uncertainty', async uncertainty => {
-  allowance = 1n;
-  rpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Old receipt unavailable'));
-  const old = await drive(reviewAmount('1'), 'old-reset');
-  expect(old.error).toBeInstanceOf(Error);
-  allowance = 2000000000000000000n;
-  if (uncertainty === 'rpc' || uncertainty === 'missing-call') {
-    rpc.getTransaction.mockRejectedValue(new Error('Old transaction unreadable'));
-    if (uncertainty === 'missing-call') await Repo.transactions.update(old.id, { 'extraInputs.bridgeOperation.approvals': [{ ...old.row?.extraInputs.bridgeOperation.approvals[0], transaction: undefined }] });
+it.each(['reset', 'smaller'])(
+  'waits for another owned pending %s even when current allowance is sufficient, then makes only the new reviewed deposit',
+  async stage => {
+    allowance = stage === 'reset' ? 1n : 0n;
+    rpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Old receipt unavailable'));
+    const old = await drive(stage === 'reset' ? reviewAmount('1') : reviewAmount('0.5'), 'old-pending');
+    expect(old.error).toBeInstanceOf(Error);
+    const reference = old.row?.extraInputs.bridgeOperation?.approvals?.[0];
+    if (!reference) throw new Error('Missing actual old approval');
+    const transaction = sourceTransactions.get(reference.hash);
+    if (!transaction) throw new Error('Missing original own call');
+    sourceTransactions.set(reference.hash, { ...transaction, blockNumber: null });
+    rpc.getBlockNumber.mockResolvedValue(20n);
+    rpc.getTransactionCount.mockResolvedValue(transaction.nonce);
+    allowance = 2000000000000000000n;
+    let release: () => void = () => undefined;
+    let entered: () => void = () => undefined;
+    const released = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const waiting = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    rpc.waitForTransactionReceipt.mockImplementationOnce(async ({ hash }) => {
+      expect(hash).toBe(reference.hash);
+      entered();
+      await released;
+      allowance = stage === 'reset' ? 0n : 500000000000000000n;
+      return { status: 'success', transactionHash: hash };
+    });
+    const current = drive(reviewAmount('1'), 'new-reviewed');
+    try {
+      expect(await Promise.race([waiting.then(() => true), current.then(() => false)])).toBe(true);
+      expect(signed).toHaveLength(1);
+      expect((await Repo.transactions.get(old.id))?.extraInputs.evmTxHash).toBeUndefined();
+      release();
+      const result = await current;
+      expect(result.error).toBeUndefined();
+      expect(result.row?.extraInputs.evmTxHash).toBe(depositHash);
+      expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(1);
+      const original = await Repo.transactions.get(old.id);
+      expect(original?.extraInputs.bridgeOperation?.revision).toBe(old.captured?.revision);
+      expect(original?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
+      expect(original?.extraInputs.evmTxHash).toBeUndefined();
+    } finally {
+      release();
+      await current;
+    }
   }
-  if (uncertainty === 'nonce-conflict') await Repo.transactions.update(old.id, { 'extraInputs.bridgeOperation.approvals.0.transaction.nonce': 99 });
-  rpc.waitForTransactionReceipt.mockImplementationOnce(async ({ hash }) => {
-    if (uncertainty === 'scope') jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://departed-rpc.example/private');
-    return { status: 'success', transactionHash: uncertainty === 'receipt-hash' ? `0x${'f'.repeat(64)}` : hash };
-  });
-  const current = await drive(reviewAmount('1'), 'new-reset-review');
-  expect(current.error).toBeInstanceOf(Error);
-  expect(signed).toHaveLength(1);
-  expect(current.row?.extraInputs.evmTxHash).toBeUndefined();
-  expect((await Repo.transactions.get(old.id))?.extraInputs.evmTxHash).toBeUndefined();
-});
+);
+
+it.each(['rpc', 'missing-call', 'nonce-conflict', 'receipt-hash', 'scope'])(
+  'blocks the new operation when old reducing approval observation has %s uncertainty',
+  async uncertainty => {
+    allowance = 1n;
+    rpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Old receipt unavailable'));
+    const old = await drive(reviewAmount('1'), 'old-reset');
+    expect(old.error).toBeInstanceOf(Error);
+    allowance = 2000000000000000000n;
+    if (uncertainty === 'rpc' || uncertainty === 'missing-call') {
+      rpc.getTransaction.mockRejectedValue(new Error('Old transaction unreadable'));
+      if (uncertainty === 'missing-call')
+        await Repo.transactions.update(old.id, {
+          'extraInputs.bridgeOperation.approvals': [
+            { ...old.row?.extraInputs.bridgeOperation.approvals[0], transaction: undefined }
+          ]
+        });
+    }
+    if (uncertainty === 'nonce-conflict')
+      await Repo.transactions.update(old.id, { 'extraInputs.bridgeOperation.approvals.0.transaction.nonce': 99 });
+    rpc.waitForTransactionReceipt.mockImplementationOnce(async ({ hash }) => {
+      if (uncertainty === 'scope')
+        jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://departed-rpc.example/private');
+      return { status: 'success', transactionHash: uncertainty === 'receipt-hash' ? `0x${'f'.repeat(64)}` : hash };
+    });
+    const current = await drive(reviewAmount('1'), 'new-reset-review');
+    expect(current.error).toBeInstanceOf(Error);
+    expect(signed).toHaveLength(1);
+    expect(current.row?.extraInputs.evmTxHash).toBeUndefined();
+    expect((await Repo.transactions.get(old.id))?.extraInputs.evmTxHash).toBeUndefined();
+  }
+);
 
 it('allows a distinct fresh operation after independently verified mined cancellation of an old reset, without rearming it', async () => {
   allowance = 1n;
@@ -296,7 +327,13 @@ it('allows a distinct fresh operation after independently verified mined cancell
   rpc.waitForTransactionReceipt.mockImplementationOnce(async ({ onReplaced }) => {
     const original = sourceTransactions.get(resetHash);
     if (!original) throw new Error('Missing original reset');
-    const replacement: SourceRpcTransaction = { ...original, hash: `0x${'e'.repeat(64)}`, to: `0x${accounts.evmAddress.slice(2)}`, input: '0x', value: 0n };
+    const replacement: SourceRpcTransaction = {
+      ...original,
+      hash: `0x${'e'.repeat(64)}`,
+      to: `0x${accounts.evmAddress.slice(2)}`,
+      input: '0x',
+      value: 0n
+    };
     sourceTransactions.set(replacement.hash, replacement);
     onReplaced({ reason: 'cancelled', transaction: replacement });
     return { status: 'success', transactionHash: replacement.hash };
@@ -545,22 +582,29 @@ it.each(['account', 'chain', 'rpc'])(
   }
 );
 
-it.each(['revision', 'operation', 'review'])('does not adopt a changed %s after an asynchronous gas estimate or demote its owner', async changed => {
-  rpc.estimateGas.mockImplementationOnce(async () => {
-    const row = (await Repo.transactions.toArray())[0];
-    if (!row) throw new Error('Missing claimed row');
-    if (changed === 'revision') await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.revision': 'another-owner' });
-    if (changed === 'operation') await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.operationId': 'another-operation' });
-    if (changed === 'review') await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.review.amount': '2' });
-    return 100000n;
-  });
-  const { error, row } = await drive();
-  expect(error).toBeInstanceOf(Error);
-  expect(signed).toHaveLength(0);
-  expect(row?.extraInputs.phase).toBe('submitting');
-  expect(row?.extraInputs.evmTxHash).toBeUndefined();
-  if (changed === 'revision' || changed === 'operation') expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('running');
-});
+it.each(['revision', 'operation', 'review'])(
+  'does not adopt a changed %s after an asynchronous gas estimate or demote its owner',
+  async changed => {
+    rpc.estimateGas.mockImplementationOnce(async () => {
+      const row = (await Repo.transactions.toArray())[0];
+      if (!row) throw new Error('Missing claimed row');
+      if (changed === 'revision')
+        await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.revision': 'another-owner' });
+      if (changed === 'operation')
+        await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.operationId': 'another-operation' });
+      if (changed === 'review')
+        await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.review.amount': '2' });
+      return 100000n;
+    });
+    const { error, row } = await drive();
+    expect(error).toBeInstanceOf(Error);
+    expect(signed).toHaveLength(0);
+    expect(row?.extraInputs.phase).toBe('submitting');
+    expect(row?.extraInputs.evmTxHash).toBeUndefined();
+    if (changed === 'revision' || changed === 'operation')
+      expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('running');
+  }
+);
 
 it.each([0n, -1n])('keeps the exact native deposit plus buffered gas reserve boundary (offset=%s)', async offset => {
   rpc.getBalance.mockResolvedValue(1000000000012000000n + offset);
@@ -771,37 +815,47 @@ it('recovers an approval cancellation through the existing tracker after departu
   expect(signed).toHaveLength(1);
 });
 
-it.each(['valid', 'recipient', 'token', 'network', 'amount', 'finality-false', 'finality-only', 'contradictory', 'claimed'])(
-  'separates source receipt from exact %s destination observation and local consumption',
-  async field => {
-    const { id, error } = await drive();
-    expect(error).toBeUndefined();
-    const deposit = {
-      leaf_type: 0,
-      orig_net: 0,
-      orig_addr: field === 'token' ? `0x${'8'.repeat(40)}` : tokenAddress,
-      amount: field === 'amount' ? '2000000000000000000' : '1000000000000000000',
-      dest_net: field === 'network' ? 99 : 73,
-      dest_addr: field === 'recipient' ? `0x${'8'.repeat(40)}` : '0x00000000387149ae66116cf114eebd60bb738100',
-      block_num: '1',
-      deposit_cnt: 42,
-      network_id: 0,
-      tx_hash: depositHash,
-      claim_tx_hash: field === 'claimed' ? `0x${'e'.repeat(64)}` : '',
-      metadata: '0x',
-      ready_for_claim: field === 'finality-only' ? undefined : field === 'finality-false' || field === 'claimed' ? false : true,
-      ready_to_claim: field === 'contradictory' ? false : undefined,
-      finalized: field === 'finality-false' || field === 'finality-only',
-      global_index: '42'
-    };
-    jest.mocked(fetchDeposits).mockResolvedValueOnce([deposit]);
-    await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
-    const row = await Repo.transactions.get(id);
-    expect(row?.extraInputs.phase).toBe(field === 'valid' || field === 'claimed' || field === 'contradictory' ? 'ready' : 'delivering');
-    expect(row?.extraInputs.phase).not.toBe('received');
-    expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
-  }
-);
+it.each([
+  'valid',
+  'recipient',
+  'token',
+  'network',
+  'amount',
+  'finality-false',
+  'finality-only',
+  'contradictory',
+  'claimed'
+])('separates source receipt from exact %s destination observation and local consumption', async field => {
+  const { id, error } = await drive();
+  expect(error).toBeUndefined();
+  const deposit = {
+    leaf_type: 0,
+    orig_net: 0,
+    orig_addr: field === 'token' ? `0x${'8'.repeat(40)}` : tokenAddress,
+    amount: field === 'amount' ? '2000000000000000000' : '1000000000000000000',
+    dest_net: field === 'network' ? 99 : 73,
+    dest_addr: field === 'recipient' ? `0x${'8'.repeat(40)}` : '0x00000000387149ae66116cf114eebd60bb738100',
+    block_num: '1',
+    deposit_cnt: 42,
+    network_id: 0,
+    tx_hash: depositHash,
+    claim_tx_hash: field === 'claimed' ? `0x${'e'.repeat(64)}` : '',
+    metadata: '0x',
+    ready_for_claim:
+      field === 'finality-only' ? undefined : field === 'finality-false' || field === 'claimed' ? false : true,
+    ready_to_claim: field === 'contradictory' ? false : undefined,
+    finalized: field === 'finality-false' || field === 'finality-only',
+    global_index: '42'
+  };
+  jest.mocked(fetchDeposits).mockResolvedValueOnce([deposit]);
+  await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
+  const row = await Repo.transactions.get(id);
+  expect(row?.extraInputs.phase).toBe(
+    field === 'valid' || field === 'claimed' || field === 'contradictory' ? 'ready' : 'delivering'
+  );
+  expect(row?.extraInputs.phase).not.toBe('received');
+  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
+});
 
 it('accepts no-return approval and requires its confirmed allowance before bridging', async () => {
   const { error, row } = await drive();

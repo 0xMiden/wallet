@@ -1,7 +1,7 @@
 import { isHash } from 'viem';
 
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
-import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
+import { fetchDeposits, isAgglayerDepositClaimed, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { walletBridgeProvider } from 'lib/bridge/core/provider';
 import { configKey } from 'lib/bridge/core/routes';
 import {
@@ -157,7 +157,11 @@ async function reconcileAgglayerRow(
             inputs.agglayerRoute &&
             matchesAgglayerReceiveDeposit(candidate, operation, inputs.agglayerRoute)))
     );
-    if (deposit && isAgglayerDepositReady(deposit) && (await originalStillBound())) {
+    if (
+      deposit &&
+      (isAgglayerDepositReady(deposit) || isAgglayerDepositClaimed(deposit)) &&
+      (await originalStillBound())
+    ) {
       await updateBridgedReceivePhase(row.id, 'ready');
     }
   } catch (error) {
