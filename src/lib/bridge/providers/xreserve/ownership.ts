@@ -1,4 +1,4 @@
-import type { Hash } from 'viem';
+import { parseUnits, type Hash, type Hex } from 'viem';
 
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
@@ -6,11 +6,32 @@ import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import { assertBridgeOperationCurrent, bridgeOperationOf, recordBridgeSourceAttempt, type BridgeOperationSnapshot } from 'lib/bridge/operation';
 import * as Repo from 'lib/miden/repo';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { CctpBurnQuote } from 'lib/usdcx/cctp';
+import { getUsdcxSourceChain, type UsdcxSourceChain } from 'lib/usdcx/constant';
+import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 
 export interface OwnedUsdcxDeposit {
   rowId: string;
   operation: BridgeOperationSnapshot;
   checks: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
+}
+
+export function assertUsdcxDepositTerms(
+  owned: OwnedUsdcxDeposit, trackingTxId: string, amount: string, recipient: Hex, source: UsdcxSourceChain,
+  depositor?: string, quote?: CctpBurnQuote
+): void {
+  const { route, accounts, quote: reviewed } = owned.operation.review;
+  const chain = route.recovery.config.supportedEvmChains[route.source.network];
+  if (trackingTxId !== owned.rowId || route.source.kind !== 'erc20' || !reviewed ||
+      chain?.chainId !== source.chain.id || configKey(source) !== configKey(getUsdcxSourceChain(source.chain.id)) ||
+      parseUnits(amount, 6) !== parseUnits(owned.operation.review.amount, 6) ||
+      recipient.toLowerCase() !== usdcxRemoteRecipientFor(accounts.midenAccount).toLowerCase() ||
+      (source.route === 'xreserve' ? reviewed.kind !== 'arc-deposit' :
+        reviewed.kind !== 'cctp' || depositor?.toLowerCase() !== accounts.evmAddress.toLowerCase()))
+    throw new Error('Circle source terms changed');
+  if (quote && (reviewed.kind !== 'cctp' || quote.signedQuote.toLowerCase() !== reviewed.authorization.signedQuote.toLowerCase() ||
+      quote.feeTotalAmount !== reviewed.authorization.feeTotalAmount))
+    throw new Error('Circle authorization changed');
 }
 
 /** Uses only the receive wrapper's original CAS winner, never a reread revision or a second claim. */

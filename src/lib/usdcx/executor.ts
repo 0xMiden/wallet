@@ -316,6 +316,7 @@ export async function runUsdcxExecutorDeposit(
   const original = owned && { ...owned, operation: structuredClone(owned.operation) };
   const ownership = original && await import('lib/bridge/providers/xreserve/ownership');
   const assertCurrent = async () => { if (original && ownership) await ownership.assertUsdcxDepositCurrent(original); };
+  if (original && ownership) ownership.assertUsdcxDepositTerms(original, trackingTxId, amount, remoteRecipient, source, depositor);
   await assertCurrent();
   const intent = buildExecutorBurnIntent(amount, source, remoteRecipient, depositor);
 
@@ -326,7 +327,9 @@ export async function runUsdcxExecutorDeposit(
 
   const quoteOrFail = async (): Promise<CctpBurnQuote> => {
     try {
-      return await fetchQuote(intent);
+      const quote = await fetchQuote(intent);
+      if (original && ownership) ownership.assertUsdcxDepositTerms(original, trackingTxId, amount, remoteRecipient, source, depositor, quote);
+      return quote;
     } catch (error) {
       throw new UsdcxForwardQuoteUnavailableError('the quote request failed', { cause: error });
     }
