@@ -59,6 +59,9 @@ export async function submitAgglayerDeposit(request: AgglayerDepositRequest): Pr
   };
   const send = async (to: Address, data: Hex, value: bigint): Promise<Hash> => {
     const gas = (await client.estimateGas({ account, to, data, value })) * 120n / 100n;
+    const gasPrice = await client.getGasPrice();
+    if (await client.getBalance({ address: account }) < value + gas * gasPrice)
+      throw new Error('Insufficient Agglayer native balance for gas');
     await assertWallet();
     const result: unknown = await provider.request({ method: 'eth_sendTransaction', params: [{ from: account, chainId: toHex(recovery.chainId), to, data, value: toHex(value), gas: toHex(gas) }] });
     if (typeof result !== 'string' || !isHash(result)) throw new Error('Agglayer wallet returned no source identity');
@@ -69,6 +72,8 @@ export async function submitAgglayerDeposit(request: AgglayerDepositRequest): Pr
     if (await client.readContract({ address: recovery.contractAddress, abi: agglayerStatusAbi, functionName: 'isEmergencyState' }))
       throw new Error('Agglayer is paused');
     if (source.kind === 'erc20') {
+      if (await client.readContract({ address: token, abi: erc20Abi, functionName: 'decimals' }) !== source.decimals)
+        throw new Error('Agglayer token decimals changed');
       if (await client.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [account] }) < units)
         throw new Error('Insufficient Agglayer token balance');
       await ensureAgglayerApproval({ operation, chainId: recovery.chainId, account, token, spender: recovery.contractAddress, amount: units, client, send, assertCurrent: assertWallet });

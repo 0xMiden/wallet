@@ -8,7 +8,9 @@ import {
   TransactionRequest
 } from '@miden-sdk/miden-sdk/lazy';
 
-import type { BridgeOperationInput } from 'lib/bridge/operation';
+import { assertReviewedBridge } from 'lib/bridge/core/review';
+import { configKey } from 'lib/bridge/core/routes';
+import { captureBridgeWalletScope, type BridgeOperationInput } from 'lib/bridge/operation';
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -27,6 +29,7 @@ import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/m
 import { soleOwnOutputNoteId } from 'lib/miden/sdk/own-output-request';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { isExtension } from 'lib/platform';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { getAgglayerBridgeOut } from 'lib/remote-config/values';
 
 import { agglayerExitTxHash } from './exit-hash';
@@ -94,6 +97,20 @@ export async function initiateB2AggBridge(args: {
   operation?: BridgeOperationInput;
 }): Promise<string> {
   const { amount, faucetId, destinationAddress, senderPublicKey, guardianProvider, spendingLimitAuthorization } = args;
+  const operation = args.operation && structuredClone(args.operation);
+  const scopeBeforeBuild = operation && captureBridgeWalletScope();
+  const assertReviewCurrent = () => {
+    if (!operation) return;
+    const route = operation.review.route;
+    const current = getBridgeConfigSnapshot();
+    if (
+      configKey(scopeBeforeBuild) !== configKey(captureBridgeWalletScope()) ||
+      route.provider !== 'agglayer' || route.mode !== 'send' || current.status !== 'ready' ||
+      configKey([current.network, current.config, current.derived]) !== configKey([route.recovery.network, route.recovery.config, route.recovery.derived])
+    ) throw new Error('Agglayer bridge review changed');
+    assertReviewedBridge(operation.review, operation.review, Date.now());
+  };
+  assertReviewCurrent();
   // Read before the lock: the note addresses the configured bridge, with the L1 bridge's networkID() as its
   // destination, which the row records too.
   const { midenBridge, evmNetworkId, recovery } = getAgglayerBridgeOut(args.destinationChainId);
@@ -169,6 +186,7 @@ export async function initiateB2AggBridge(args: {
     };
   });
 
+  assertReviewCurrent();
   // Delegate to the remote prover (mobile always delegates anyway) to avoid
   // OOMing the SW / WebView while proving the bridge note.
   return initiateBridgedSendTransaction(
@@ -187,7 +205,7 @@ export async function initiateB2AggBridge(args: {
     undefined,
     recovery,
     undefined,
-    args.operation
+    operation
   );
 }
 
