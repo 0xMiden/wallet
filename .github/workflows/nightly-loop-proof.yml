@@ -1,27 +1,92 @@
-name: Original Compact owner-only recovery contracts
+name: Original Compact owner-only recovery readiness
 on:
   push:
     branches: [wiktor/green02-compact-owner-recovery]
 permissions:
   contents: read
+  actions: read
 concurrency:
-  group: green02-compact-recovery-contracts
+  group: e2e-mainnet-nightly
   cancel-in-progress: false
 jobs:
-  original-recovery-contracts:
+  original-recovery-readiness:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+      COMPACT_RECOVERY_STAGE: enable
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 16
-      - name: Bind original qualified application and exact recovery-only overlay
+      - name: Bind qualified application and exact recovery-only overlays
         run: |
           git merge-base --is-ancestor 775f30df7ab450165d82f0f2ddd9ff1742431585 HEAD
-          test "$(git diff --name-only 775f30df7ab450165d82f0f2ddd9ff1742431585 HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml scripts/mainnet-compact-recovery-guard.mjs test/compact-owner-recovery.node.test.mjs)"
+          test "$(git diff --name-only 775f30df7ab450165d82f0f2ddd9ff1742431585 HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/green02-private-outcome.spec.ts scripts/green02-public-outcome.mjs scripts/mainnet-compact-owner-recovery.mjs scripts/mainnet-compact-recovery-guard.mjs test/compact-owner-recovery.node.test.mjs)"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Original principal refund guard regression
+      - name: Original principal refund, immutable ACK and one-shot broadcast contracts
         run: node --test test/compact-owner-recovery.node.test.mjs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 44034323631
+          github-token: ${{ github.token }}
+          pattern: mainnet-*-44034323631
+          path: test-results/evidence
+      - name: Bind original failed producer and immutable authorities, never replay
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/0xMiden/wallet/actions/runs/44034323631 > "$RUNNER_TEMP/producer.json"
+          gh api 'repos/0xMiden/wallet/actions/runs/44034323631/jobs?per_page=100' > "$RUNNER_TEMP/producer-jobs.json"
+          node <<'NODE'
+          const assert=require('node:assert/strict'),fs=require('node:fs');const run=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/producer.json`)),jobs=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/producer-jobs.json`));assert.equal(run.head_sha,'775f30df7ab450165d82f0f2ddd9ff1742431585');assert.equal(run.run_attempt,1);assert.equal(run.workflow_id,391951744);assert.equal(run.conclusion,'failure');assert.deepEqual(jobs.jobs.flatMap(j=>j.steps??[]).filter(s=>s.conclusion==='failure').map(s=>s.name),['Upload mainnet epoch native return claim','Verify no new provider principal remains unresolved']);
+          const roles={'mainnet-swap-final':'swap','mainnet-epoch-final':'epoch','mainnet-1click-final':'near','mainnet-epoch-forward-sdk-authorized':'epoch-forward','mainnet-swap-forward-sdk-authorized':'forward-create','mainnet-swap-reverse-sdk-authorized':'reverse-create','mainnet-swap-forward-claim-sdk-authorized':'forward-claim','mainnet-swap-reverse-claim-sdk-authorized':'reverse-claim','mainnet-nightly':'public'};for(const [name,role] of Object.entries(roles))fs.cpSync(`test-results/evidence/${name}-44034323631`,`test-results/${role}`,{recursive:true});
+          NODE
+      - name: Original production read-only SDK018 bootstrap
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import YAML from 'yaml';const doc=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8')),step=doc.jobs['mainnet-nightly'].steps.find(s=>s.name==='Build read-only Epoch SDK');if(!step?.run)throw new Error('Missing original read-only SDK bootstrap');execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
+          NODE
+      - name: Independent original SDK018 settlement and escrow reconciliation
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-epoch-evm.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-evm.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-epoch-provider.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-provider.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-budget.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-loop-budget.mjs
+          node scripts/green02-public-outcome.mjs
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - run: yarn test:e2e:blockchain:build
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      - name: Fresh actual original PRIVATE inventory, consume blocked and no policy or mutations
+        env:
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+        run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/green02-private" xvfb-run -a yarn playwright test green02-private-outcome.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/green02-private.log" 2>&1 || code=$?
+          node --input-type=module <<'NODE'
+          import {existsSync,readFileSync} from 'node:fs';for(const path of ['test-results/green02-private-status.json','test-results/green02-private-outcome.json'])if(existsSync(path))console.log(JSON.stringify(JSON.parse(readFileSync(path,'utf8'))));
+          NODE
+          exit "$code"
+      - name: Simulate exact owner-only refund with current state and capped fresh fees, NO KEY OR SIGNATURE
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-one-click-prices.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-compact-prices.mjs
+          node scripts/mainnet-compact-owner-recovery.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: original-compact-owner-recovery-readonly
+          path: |
+            test-results/compact-owner-recovery-readonly.json
+            test-results/green02-public-outcome.json
+            test-results/green02-private-status.json
+            test-results/green02-private-outcome.json

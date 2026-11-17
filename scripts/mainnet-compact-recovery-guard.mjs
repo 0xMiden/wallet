@@ -16,8 +16,20 @@ export const ORIGINAL_COMPACT_RECOVERY = Object.freeze({
   minimumEthUsdMicros: 1824330000n
 });
 
-export async function broadcastOriginalCompactOnce() {
-  throw new Error('Original Compact one-shot broadcast is not authorized');
+export async function broadcastOriginalCompactOnce({
+  authorityBytes,
+  downloadedBytes,
+  binding,
+  now,
+  markerPath,
+  signedHash,
+  submit
+}) {
+  acknowledgeCompactRecovery(authorityBytes, downloadedBytes, binding, now);
+  if (JSON.parse(authorityBytes).signedHash !== signedHash)
+    throw new Error('Original Compact signed transaction changed after immutable acknowledgement');
+  consumeCompactRecoveryAttempt(markerPath, signedHash);
+  return await submit();
 }
 
 // The caller must compute the digest from original immutable artifact bytes, not reserialize SDK authorities.
