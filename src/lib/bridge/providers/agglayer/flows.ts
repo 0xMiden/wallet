@@ -1,6 +1,8 @@
 // Adapted from bridge-portal@cb52c470 src/bridge/providers/agglayer/flows.ts (MIT).
 import { parseUnits } from 'viem';
 
+import type { B2AggBridgeDeps } from 'lib/agglayer/b2agg';
+
 import { configKey } from 'lib/bridge/core/routes';
 import { verifyBridgeSubmission, type SubmissionChecks } from 'lib/bridge/core/submission';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
@@ -9,6 +11,10 @@ import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiat
 import { selectAgglayerRecoveryConfig, selectAgglayerRegistryToken } from 'lib/remote-config/values';
 
 import { submitAgglayerDeposit, type AgglayerDepositRequest } from './deposit';
+
+export async function runAgglayerSend(_operation: BridgeOperationInput, _deps: Pick<B2AggBridgeDeps, 'guardianProvider'>): Promise<string> {
+  throw new Error('Agglayer native submit adapter unavailable');
+}
 
 export async function runAgglayerReceive(operation: BridgeOperationInput, deps: Omit<AgglayerDepositRequest, 'operation' | 'rowId'> & { checks: SubmissionChecks }): Promise<string> {
   operation = structuredClone(operation);
@@ -28,11 +34,14 @@ export async function runAgglayerReceive(operation: BridgeOperationInput, deps: 
   if (route.source.kind === 'erc20' && (!registry || registry.midenFaucetId !== faucetId))
     throw new Error('Agglayer delivery identity changed');
   const agglayerDelivery = route.source.kind === 'erc20' && registry ? { originToken: `0x${route.source.address.slice(2)}` satisfies `0x${string}`, faucetId: registry.midenFaucetId, scale: registry.scale } : undefined;
-  return startBridgeReceiveSubmission(() => initiateBridgedReceiveTransaction({
+  return startBridgeReceiveSubmission(() => {
+    if (configKey(captureBridgeWalletScope()) !== configKey(originalScope)) throw new Error('Agglayer wallet scope changed');
+    return initiateBridgedReceiveTransaction({
     accountId: accounts.midenAccount, amount: parseUnits(quote.received, route.destination.decimals), faucetId,
     provider: 'agglayer', sourceChainId: recovery.chainId, sourceAddress: accounts.evmAddress,
     sourceAmount: amount, sourceSymbol: route.source.symbol, agglayerRoute: recovery, agglayerDelivery, operation
-  }), async (rowId, claimed) => {
+    });
+  }, async (rowId, claimed) => {
     if (!claimed) return;
     await submitAgglayerDeposit({ rowId, operation: claimed, provider: deps.provider, client: deps.client });
   });

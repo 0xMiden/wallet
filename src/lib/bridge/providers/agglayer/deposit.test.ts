@@ -75,6 +75,7 @@ async function drive(review = reviewedErc20Transfer('agglayer'), operationId = '
   const route = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
   if (!route || review.route.destination.kind !== 'miden') throw new Error('Missing accepted Agglayer route');
   bridgeAddress = route.contractAddress;
+  const faucetId = review.route.destination.faucetId;
   if (review.route.source.kind === 'erc20') tokenAddress = `0x${review.route.source.address.slice(2)}`;
   approvedAmount = parseUnits(review.amount, review.route.source.decimals);
   let complete: (error?: unknown) => void = () => undefined;
@@ -83,10 +84,10 @@ async function drive(review = reviewedErc20Transfer('agglayer'), operationId = '
   const wrapper = createBridgeReceiveReconciler({ getLocks: () => undefined });
   const id = await wrapper.startSubmission(() => initiateBridgedReceiveTransaction({
     accountId: accounts.midenAccount, amount: parseUnits('1', review.route.destination.decimals),
-    faucetId: review.route.destination.faucetId, provider: 'agglayer', sourceAddress: accounts.evmAddress,
+    faucetId, provider: 'agglayer', sourceAddress: accounts.evmAddress,
     sourceChainId: route.chainId, sourceAmount: review.amount, sourceSymbol: review.route.source.symbol,
     agglayerRoute: route, operation: { operationId, review },
-    agglayerDelivery: review.route.source.kind === 'erc20' ? { originToken: `0x${review.route.source.address.slice(2)}`, faucetId: review.route.destination.faucetId, scale: 10 } : undefined
+    agglayerDelivery: review.route.source.kind === 'erc20' ? { originToken: `0x${review.route.source.address.slice(2)}`, faucetId, scale: 10 } : undefined
   }), async (rowId, claimed) => {
     captured = claimed;
     if (!captured) { complete(new Error('Missing real CAS winner')); return; }
@@ -223,7 +224,7 @@ it.each([0n, 1n, 2000000000000000000n])('uses allowance %s without max approval,
   const amounts = signed.filter(tx => tx.to === tokenAddress).map(tx => decodeFunctionData({ abi: erc20Abi, data: tx.data }).args?.[1]);
   expect(amounts).toEqual(current === 0n ? [1000000000000000000n] : current === 1n ? [0n, 1000000000000000000n] : []);
   expect(signed.at(-1)).toMatchObject({ to: bridgeAddress, value: '0x0' });
-  expect(row?.extraInputs.bridgeOperation?.approvals?.map(item => item.amount)).toEqual(current === 0n ? ['1000000000000000000'] : current === 1n ? ['0', '1000000000000000000'] : undefined);
+  expect((row && bridgeOperationOf(row))?.approvals?.map(item => item.amount)).toEqual(current === 0n ? ['1000000000000000000'] : current === 1n ? ['0', '1000000000000000000'] : undefined);
   expect(row?.extraInputs.evmTxHash).toBe(depositHash);
 });
 

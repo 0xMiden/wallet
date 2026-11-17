@@ -13,7 +13,7 @@ jest.mock('ethers', () => ({
   BrowserProvider: jest.fn(() => ({ getSigner: async () => 'signer' }))
 }));
 jest.mock('lib/remote-config/values', () => ({ getAgglayerL1Bridge: jest.fn() }));
-jest.mock('./status', () => ({ fetchMerkleProof: jest.fn() }));
+jest.mock('./status', () => ({ ...jest.requireActual('./status'), fetchMerkleProof: jest.fn() }));
 // As strict as the SDK where it matters: fromHex takes only a literal `0x`, and fromBech32 rejects an
 // underscore, standing in for a routing suffix it cannot decode.
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -142,4 +142,6 @@ it('claims against the saved chain and contract after the route is removed', asy
   expect(mockRequest).toHaveBeenCalledWith({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x14a34' }] });
   expect(fetchMerkleProof).toHaveBeenCalledWith(DEPOSIT.deposit_cnt, DEPOSIT.network_id, route);
   expect(mockFrom).toHaveBeenCalledWith(route.contractAddress, expect.any(Array), 'signer');
+  expect(mockClaimAsset.mock.calls[0]?.[8]).toBe(DEPOSIT.dest_addr);
+  expect(mockClaimAsset.mock.calls[0]?.[11]).toEqual({ chainId: route.chainId });
 });
