@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: 22
       - name: Verify CLI kernel pin preparation
-        run: node --test scripts/install-pinned-miden-cli.test.cjs
+        run: node --test scripts/install-pinned-miden-cli.test.cjs packages/native-prover/scripts/build-scripts.test.mjs packages/native-prover/scripts/verify-release-lock.test.mjs
       - name: Check native-prover miden-client pin
         run: |
           node scripts/check-native-prover-pin.mjs --self-test

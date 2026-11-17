@@ -1,10 +1,23 @@
 # Changelog
 
-## 1.17.12 (TBD)
+## 1.18.1 (TBD)
 
+- [CHANGE][all] Port bridge route, quote-review and recovery contracts from the bridge portal, using accepted wallet configuration and verified token identities without changing transaction execution.
+- [FEATURE][extension] Command Swap restores unsigned offers and settings across minimize, shows a read-only receive estimate, and keeps the separately gated 1Click route in the same workbench with fresh quote and funding checks.
+- [FEATURE][extension] Fullscreen Earn lets you select live vaults and owned positions, keeps unsigned deposit and withdrawal amounts across Back and minimize, and uses the existing risk, quote and transaction reviews.
+- [FEATURE][extension] Fullscreen Receive shares the current wallet address and network, remembers an unsigned asset choice, and reviews real pending transfers before native claim acceptance.
+- [FEATURE][extension] Send in the fullscreen Command workbench keeps one editable amount and recipient, restores unsigned choices across Back and minimize, and uses the existing review, fee reserve and signing checks.
+- [FEATURE][extension] Show the fullscreen Command dashboard's live wallet portfolio, local observed USD history and a saved hide-balances control without changing compact wallet data or transaction admission.
+- [FEATURE][extension] Add a guarded fullscreen Command shell with direct access to the existing Send, Receive, Swap, Earn and Bridge screens, scoped unsigned drafts and a keyboard action palette; compact, native, locked and confirmation views retain their existing presentation.
+- [FEATURE][extension] Open the unlocked wallet in a new fullscreen tab from a prominent button on the compact Home and action pages; a failed tab opening keeps the compact wallet available to retry.
 - [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
 - [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
 - [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
+- [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
+
+## 1.18.0 (2026-11-17)
+
+- [CHANGE][all] Upgrade the Miden web, React and wallet adapter SDKs to 0.18.0 and the Rust client and CLI to 0.18.2, with matching native proving dependencies.
 - [FIX][ci] Recognize the next exactly pinned, independently audited unsigned NEAR nightly checkpoint for recovery-only no-spend reconciliation without replaying its expired quote or relaxing SDK upload and inventory checks.
 
 - [FIX][ci] Wait for the exact Epoch return note on the public chain before wallet import and retain sanitized return-readiness failures without exposing private logs or changing claim authorization.
@@ -21,6 +34,7 @@
 - [CHANGE][all] Show distinct token names and an expandable full Faucet ID with copy feedback on token details.
 - [FEATURE][all] Home hides dust tokens, those worth less than a tenth of a cent, behind a Hide dust tokens switch in General Settings that is on by default; the native token always stays listed.
 - [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
+- [CHANGE][all] Guardian accounts use the 0.19.0-rc.2 Guardian clients for the Miden 0.18 protocol line.
 - [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
 - [FIX][all] Use shared adaptive amount displays across wallet screens, retain exact approval values and number animations, and prevent long bridge amounts from overlapping the transfer arrow (#2114).
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).
@@ -56,14 +70,6 @@
 - [FIX][all] Swap settlement claims a payback automatically only when the order's paybacks add up to the fill the order recorded; any other payback is claimed by hand from the claim list (on the extension it may also be claimed as an ordinary transfer).
 - [FIX][all] Automatic claims wait until the network fee is known, or the network is known to charge none, so the wallet never claims a note worth less than its fee while the fee is unknown; claiming by hand is unaffected.
 - [FIX][all] Show spinners while Earn data, balances, quotes, retries, and submissions load (#2095).
-- [CHANGE][all] Port bridge route, quote-review and recovery contracts from the bridge portal, using accepted wallet configuration and verified token identities without changing transaction execution.
-- [FEATURE][extension] Command Swap restores unsigned offers and settings across minimize, shows a read-only receive estimate, and keeps the separately gated 1Click route in the same workbench with fresh quote and funding checks.
-- [FEATURE][extension] Fullscreen Earn lets you select live vaults and owned positions, keeps unsigned deposit and withdrawal amounts across Back and minimize, and uses the existing risk, quote and transaction reviews.
-- [FEATURE][extension] Fullscreen Receive shares the current wallet address and network, remembers an unsigned asset choice, and reviews real pending transfers before native claim acceptance.
-- [FEATURE][extension] Send in the fullscreen Command workbench keeps one editable amount and recipient, restores unsigned choices across Back and minimize, and uses the existing review, fee reserve and signing checks.
-- [FEATURE][extension] Show the fullscreen Command dashboard's live wallet portfolio, local observed USD history and a saved hide-balances control without changing compact wallet data or transaction admission.
-- [FEATURE][extension] Add a guarded fullscreen Command shell with direct access to the existing Send, Receive, Swap, Earn and Bridge screens, scoped unsigned drafts and a keyboard action palette; compact, native, locked and confirmation views retain their existing presentation.
-- [FEATURE][extension] Open the unlocked wallet in a new fullscreen tab from a prominent button on the compact Home and action pages; a failed tab opening keeps the compact wallet available to retry.
 - [FIX][mobile] The Home action bar's pill follows a swipe between Home pages, instead of moving only after the new page has settled.
 - [FIX][mobile] The claim list's first view, drawn from its cache before the live read, shows only payments to the account and notes of its own swap orders, on mobile and desktop.
 - [FIX][extension] The background service answers wallet requests only from the extension's own pages, and signs for its offscreen document only while a transaction or dry run it started is running; a content script can only forward dApp requests. The offscreen document answers only the extension's own pages and its service worker. Incoming-transfer and failure notifications now also appear while web pages are open; only the wallet's own open pages suppress them.
