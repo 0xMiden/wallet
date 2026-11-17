@@ -77,15 +77,20 @@ export function inspectTestMainnetSendRequest(
     new NoteAttachment()
   );
   // The SDK chose the live serial; every other field must match the exact authorized route.
-  const expectedNote = Note.withAttachments(
-    template.assets(),
-    template.metadata(),
-    new NoteRecipient(note.recipient().serialNum(), template.script(), template.recipient().storage()),
-    template.attachments()
+  const expectedRecipient = new NoteRecipient(
+    note.recipient().serialNum(),
+    template.script(),
+    template.recipient().storage()
   );
+  // Guardian SDK P2ID notes have no attachments; standalone SDK sends carry one empty attachment.
+  const expectedNote = guardian
+    ? new Note(template.assets(), template.metadata(), expectedRecipient)
+    : Note.withAttachments(template.assets(), template.metadata(), expectedRecipient, template.attachments());
   let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([expectedNote]));
-  // Guardian rebasing keeps the note and binds expiration in auth args, not a tip-relative request delta.
-  builder = guardian ? withTestGuardianAuthentication(builder, request) : builder.withExpirationDelta(600);
+  // The SDK rebuilds built-in mainnet proposals with their signed 20-block fee-policy cap.
+  builder = guardian
+    ? withTestGuardianAuthentication(builder, request).withExpirationDelta(20)
+    : builder.withExpirationDelta(600);
   const expected = builder.build();
   const actualBytes = canonicalRequestBytes(bytes);
   const expectedBytes = canonicalRequestBytes(Uint8Array.from(expected.serialize()));
@@ -235,7 +240,7 @@ export async function inspectTestMainnetGuardianConsumeRequest(
   if ((await testRequestSha256(canonicalRequestBytes(builder().build().serialize()))) !== scope.canonicalSha256)
     throw new Error('Guardian consume note differs from its original canonical reference');
   const request = TransactionRequest.deserialize(bytes);
-  const expected = withTestGuardianAuthentication(builder(), request).build();
+  const expected = withTestGuardianAuthentication(builder(), request).withExpirationDelta(20).build();
   const actualBytes = canonicalRequestBytes(bytes);
   const expectedBytes = canonicalRequestBytes(expected.serialize());
   if (actualBytes.length !== expectedBytes.length || actualBytes.some((value, index) => value !== expectedBytes[index]))

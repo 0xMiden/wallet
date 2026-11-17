@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import * as sdk from '@miden-sdk/miden-sdk';
 import {
   withTestGuardianAuthentication,
-  inspectTestMainnetSendRequest
+  inspectTestMainnetSendRequest,
+  inspectTestMainnetGuardianConsumeRequest
 } from '../node_modules/.cache/nightly-send-request.mjs';
 import { canonicalRequestBytes } from '../scripts/canonical-request-bytes.mjs';
 
@@ -25,7 +27,13 @@ test('SDK 0.18 copies the actual authentication preimage and preserves blocks an
   advice.insert(sdk.Word.fromHex(`0x${'01'.repeat(32)}`), new sdk.FeltArray([new sdk.Felt(17n)]));
   const original = transported(authenticated().extendAdviceMap(advice));
   const copied = withTestGuardianAuthentication(builder(), original).build();
-  assert.deepEqual(copied.adviceMap().get(copied.authArg()).map(n => n.asInt()), values().map(n => n.asInt()));
+  assert.deepEqual(
+    copied
+      .adviceMap()
+      .get(copied.authArg())
+      .map(n => n.asInt()),
+    values().map(n => n.asInt())
+  );
   assert.deepEqual(copied.blockNumbers(), [321]);
   assert.deepEqual(canonicalRequestBytes(copied.serialize()), canonicalRequestBytes(original.serialize()));
 });
@@ -50,24 +58,31 @@ test('SDK 0.18 auth copy refuses conflicting fee salt before its destructive set
   );
 });
 
-test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data after transport', () => {
+function nativeFixture() {
   const scope = {
     accountId: '0xa95e28ec96b9ae1132266aa4d4ddb9',
     recipientId: '0x593c167bec26769178dcbd1f9bcb40',
     faucetId: '0xe69e6ca6e39df1b10c1e5399399feb',
     amount: '1010000'
   };
-  const note = sdk.Note.createP2IDNote(
+  const template = sdk.Note.createP2IDNote(
     sdk.AccountId.fromHex(scope.accountId),
     sdk.AccountId.fromHex(scope.recipientId),
     new sdk.NoteAssets([new sdk.FungibleAsset(sdk.AccountId.fromHex(scope.faucetId), BigInt(scope.amount))]),
     sdk.NoteType.Public,
     new sdk.NoteAttachment()
   );
+  const note = new sdk.Note(template.assets(), template.metadata(), template.recipient());
+  return { scope, note };
+}
+
+test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data after transport', () => {
+  const { scope, note } = nativeFixture();
   const original = builder()
     .withOwnOutputNotes(new sdk.NoteArray([note]))
     .withAuthArgs(new sdk.FeltArray(values()))
     .withBlockNumbers([321])
+    .withExpirationDelta(20)
     .build();
   assert.equal(inspectTestMainnetSendRequest(scope, original.serialize(), true), note.id().toString());
   const wrong = values();
@@ -80,7 +95,7 @@ test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data
   assert.throws(() => inspectTestMainnetSendRequest(scope, corrupted.serialize(), true), /differ from the exact/);
 
   const bytes = original.serialize();
-  const entriesEnd = bytes.length - 40; // Eight trailing fields plus the present auth Word.
+  const entriesEnd = bytes.length - 42; // Eight trailing fields, the auth Word and exact u16 fee-policy expiry.
   assert.equal(new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(entriesEnd - 8, true), 0n);
   const expanded = new Uint8Array(bytes.length + 96);
   expanded.set(bytes.subarray(0, entriesEnd));
@@ -97,4 +112,24 @@ test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data
   assert.deepEqual(Uint8Array.from(extraMerkle.serialize()), expanded);
   assert.deepEqual(canonicalRequestBytes(expanded), expanded);
   assert.throws(() => inspectTestMainnetSendRequest(scope, expanded, true), /differ from the exact/);
+});
+
+test('SDK 0.18 final Guardian consume requires exactly the signed mainnet fee-policy expiry', async () => {
+  const { note } = nativeFixture();
+  const noteBytes = note.serialize();
+  const make = () =>
+    builder().withInputNotes(new sdk.NoteAndArgsArray([new sdk.NoteAndArgs(sdk.Note.deserialize(noteBytes), null)]));
+  const hash = request => createHash('sha256').update(canonicalRequestBytes(request.serialize())).digest('hex');
+  const scope = { noteId: note.id().toString(), canonicalSha256: hash(make().build()) };
+  const finalBuilder = () => make().withAuthArgs(new sdk.FeltArray(values())).withBlockNumbers([321]);
+  const final = finalBuilder().withExpirationDelta(20).build();
+  assert.equal(await inspectTestMainnetGuardianConsumeRequest(scope, final.serialize(), note), hash(final));
+  for (const delta of [undefined, 19, 21, 180, 600]) {
+    const changed = finalBuilder();
+    const request = (delta === undefined ? changed : changed.withExpirationDelta(delta)).build();
+    await assert.rejects(
+      () => inspectTestMainnetGuardianConsumeRequest(scope, request.serialize(), note),
+      /unreviewed execution fields/
+    );
+  }
 });
