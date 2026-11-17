@@ -113,6 +113,23 @@ async function seed(): Promise<BridgeOperationSnapshot> {
   return owned;
 }
 
+it('the original owned store rechecks departure after the new Compact balance read and before solve', async () => {
+  await seed();
+  const solve = jest.fn(async () => ({ nonce: 'unexpected-new-nonce', hash }));
+  let reads = 0;
+  mockBuildIntent.mockImplementationOnce(async (_sdk: unknown, params: EVMToMidenQuote['params'], beforeSolve: unknown) => {
+    const bridge = jest.requireActual<typeof import('./bridge')>('./bridge');
+    return Reflect.apply(bridge.buildEVMToMidenIntent, undefined, [{
+      getDepositedBalances: async () => { reads++; useEpochStore.getState().reset(); return []; },
+      solveIntent: solve
+    }, params, beforeSolve]);
+  });
+  await useEpochStore.getState().executeEVMToMiden('epoch-row');
+  expect(reads).toBeGreaterThan(0);
+  expect(solve).not.toHaveBeenCalled();
+  expect((await Repo.transactions.get('epoch-row'))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
+});
+
 async function admitEpoch() {
   const expected = operation();
   const destination = expected.review.route.destination;

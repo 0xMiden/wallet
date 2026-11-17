@@ -169,7 +169,6 @@ it('fails the tracking row at the solve, with what failed it, when the Epoch SDK
 
 it('keeps a deposit that a refused allocation left in The Compact on the row, for recovery (#2120)', async () => {
   const refusal = 'Nonce has already been used; request a fresh nonce';
-  mockGetRow.mockResolvedValue(undefined);
   jest.spyOn(Date, 'now').mockReturnValue(5_000_000);
   mockBuildIntent.mockResolvedValue({
     taskTypeString: 'bridge',
