@@ -147,6 +147,46 @@ describe('readSubmitEvidence (#1081)', () => {
     expect(userOutputNotes).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves the private notes out, keeping outputNoteIds, when any note's type does not read, never a shorter list", () => {
+    const unreadable = {
+      ...note(hex(0xa2), NoteType.Private),
+      metadata: () => {
+        throw new Error('freed');
+      }
+    };
+    const evidence = readSubmitEvidence(
+      result({ userOutputNotes: () => [note(hex(0xa1), NoteType.Private), unreadable, note(hex(0xa3))] }),
+      proof(),
+      () => true
+    );
+
+    expect(evidence.outputNoteIds).toEqual([hex(0xa1), hex(0xa2), hex(0xa3)]);
+    expect(evidence).not.toHaveProperty('privateOutputNoteIds');
+    // Unknown, not none: an unreadable list is never recorded as an empty one either.
+    expect(
+      readSubmitEvidence(
+        result({
+          userOutputNotes: () => {
+            throw new Error('freed');
+          }
+        }),
+        proof(),
+        () => true
+      )
+    ).not.toHaveProperty('privateOutputNoteIds');
+  });
+
+  // The fee note is created by the kernel, and only `outputNotes` lists it; it must never reach the counterparty.
+  it('reads the private notes off the user output notes only, never the list that holds the fee note', () => {
+    const outputNotes = jest.fn(() => ({ notes: () => [note(hex(0xfe), NoteType.Private)] }));
+    const executed = { ...result().executedTransaction(), outputNotes };
+
+    const evidence = readSubmitEvidence({ executedTransaction: () => executed }, proof(), () => true);
+
+    expect(evidence.privateOutputNoteIds).toEqual([]);
+    expect(outputNotes).not.toHaveBeenCalled();
+  });
+
   it("lets a trap reading a note's type leave as itself, before any proof field is read", () => {
     const trap = new WebAssembly.RuntimeError('unreachable');
     const nullifiers = jest.fn(() => [word(hex(7))]);
@@ -296,6 +336,19 @@ describe('parseSubmitEvidence (#1081)', () => {
       privateOutputNoteIds: [hex(0xab)]
     });
     expect(parseSubmitEvidence({ ...valid, privateOutputNoteIds: [] })).toEqual({ ...valid, privateOutputNoteIds: [] });
+  });
+
+  // A whole list or none: a parser that kept the well-formed part would owe the recipient a shorter list.
+  it.each<[string, Record<string, unknown>]>([
+    ['a list that is not an array', { privateOutputNoteIds: hex(9) }],
+    ['a list with a malformed member after a valid one', { privateOutputNoteIds: [hex(9), 'nope'] }],
+    ['a list that repeats a note', { privateOutputNoteIds: [hex(9), hex(9)] }],
+    ['a note outputNoteIds does not name', { privateOutputNoteIds: [hex(9), hex(0xab)] }],
+    ['a list that crossed without outputNoteIds', { outputNoteIds: undefined, privateOutputNoteIds: [hex(9)] }],
+    ['a list over 256 entries', { privateOutputNoteIds: Array.from({ length: 257 }, () => hex(9)) }]
+  ])('drops only the private notes for %s', (_label, bad) => {
+    // `toEqual` reads an undefined field as an absent one.
+    expect(parseSubmitEvidence({ ...valid, ...bad })).toEqual({ ...valid, ...bad, privateOutputNoteIds: undefined });
   });
 
   it('normalizeHex lower-cases', () => {

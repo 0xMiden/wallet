@@ -3873,6 +3873,40 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(service.abandonCandidate).not.toHaveBeenCalled();
   });
 
+  // A failure before the submit never reaches the landed write, so the notes its gate recorded are owed to nobody.
+  it('execute: a failure before its submit owes none of the private notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(
+        await gate({
+          transactionId: appliedSendTxId,
+          outputNoteIds: [appliedExecuteNote, appliedSendNote],
+          privateOutputNoteIds: [appliedSendNote]
+        })
+      ).toBe(true);
+      throw markErrorBeforeSubmit(new Error("Offscreen call 'guardianPipeline' failed: the chain tip did not read"));
+    });
+    arrange('pre-submit-private-execute', privateExecute);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('pre-submit-private-execute', privateExecute) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'pre-submit-private-execute')!;
+    expect(finalRow.submitEvidence).toEqual([expect.objectContaining({ privateOutputNoteIds: [appliedSendNote] })]);
+    expect(finalRow.status).not.toBe(ITransactionStatus.Completed);
+    expect(finalRow.relayNoteIds).toBeUndefined();
+    expect(finalRow.relayRecipientId).toBeUndefined();
+    expect(finalRow.noteDelivery).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
   // The offscreen leaf resolves only after its apply, so a tail that fails after it leaves the notes its gate recorded
   // in the store, owed as after a serialize trap.
   it('send: a tail that fails after a resolved offscreen leaf owes the notes its gate recorded', async () => {

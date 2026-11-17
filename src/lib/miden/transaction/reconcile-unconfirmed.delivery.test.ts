@@ -9,7 +9,12 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { completeSendTransaction } from './complete';
 import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import { NodeReads } from './reconcile-reads';
-import { judgeAndWrite, landedDeliveryTargetValues, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
+import {
+  judgeAndWrite,
+  landedDeliveryTargetValues,
+  landedExecuteDeliveryValues,
+  recordLandedDeliveryTarget
+} from './reconcile-unconfirmed';
 import { ISubmitEvidence, ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
@@ -647,5 +652,78 @@ describe('landedDeliveryTargetValues records what recordLandedDeliveryTarget rec
 
     expect(target).toBeUndefined();
     expect(values).toBeUndefined();
+  });
+});
+
+// An applied execute's landing owes the private notes its own stamp read off the executed transaction, to the recipient
+// its row names: nothing else on the row, and nothing when the row names no recipient or the tail recorded its own.
+describe('landedExecuteDeliveryValues', () => {
+  const stamp = (overrides: Partial<ISubmitEvidence> = {}) =>
+    entry({
+      fromExecute: true,
+      outputNoteIds: [OTHER_NOTE, NOTE],
+      privateOutputNoteIds: [NOTE],
+      ...overrides
+    });
+  const landedExecute = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+    id: 'execute-row',
+    type: 'execute',
+    accountId: 'acct-sender',
+    secondaryAccountId: RECIPIENT,
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: NOW - 120,
+    displayIcon: 'DEFAULT',
+    // What the approval's dry run created and what the saved request declares, neither of which the landing owes.
+    approvedEffects: {
+      shape: 'executed',
+      outgoing: [],
+      incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
+      recipients: [],
+      inputNotesConsumed: 0,
+      outputNotesCreated: 2,
+      storageChanged: false,
+      approvedOutputNoteIds: [SIBLING_NOTE]
+    },
+    approvedOutputNoteIds: [SIBLING_NOTE],
+    ...overrides
+  });
+
+  it("owes exactly the stamp's private notes to the row's recipient, beside the root", () => {
+    expect(landedExecuteDeliveryValues(landedExecute(), stamp())).toEqual({
+      relayNoteIds: [NOTE],
+      relayRecipientId: RECIPIENT,
+      displayMessage: 'Executed - a private note could not be delivered',
+      noteDelivery: 'undelivered',
+      relayAttempts: undefined,
+      nextRelayAt: undefined,
+      relayRetriesStopped: undefined
+    });
+  });
+
+  it.each<[string, Partial<ITransaction>, Partial<ISubmitEvidence>]>([
+    ['a stamp an execute did not make', {}, { fromExecute: undefined }],
+    ['a stored row that is no longer an execute', { type: 'send' }, {}],
+    ['a stamp with no transaction', {}, { transactionId: undefined }],
+    ['a row whose tail recorded what it owes', { relayNoteIds: [OTHER_NOTE], relayRecipientId: RECIPIENT }, {}],
+    ['a row whose tail recorded that it owes nothing', { relayNoteIds: [] }, {}],
+    ['a row that names no recipient', { secondaryAccountId: undefined }, {}],
+    ['a row whose recipient is empty', { secondaryAccountId: '' }, {}],
+    ['a stamp that did not read the types of its notes', {}, { privateOutputNoteIds: undefined }],
+    ['a private list that is not part of the stamp notes', {}, { privateOutputNoteIds: [SIBLING_NOTE] }],
+    ['a private list that repeats a note', {}, { privateOutputNoteIds: [NOTE, NOTE] }],
+    ['a private list with a malformed id', {}, { privateOutputNoteIds: [NOTE, 'note'] }],
+    ['an empty list on a row that recorded a delivery', { noteDelivery: 'pending' }, { privateOutputNoteIds: [] }]
+  ])('owes nothing for %s', (_name, rowOverrides, stampOverrides) => {
+    expect(landedExecuteDeliveryValues(landedExecute(rowOverrides), stamp(stampOverrides))).toBeUndefined();
+  });
+
+  it('reads Executed and owes nothing when the stamp proves no private note', () => {
+    expect(landedExecuteDeliveryValues(landedExecute(), stamp({ privateOutputNoteIds: [] }))).toEqual({
+      displayMessage: 'Executed',
+      noteDelivery: undefined
+    });
   });
 });
