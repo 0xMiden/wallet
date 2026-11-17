@@ -4,11 +4,14 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } 
 
 import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { bindTransferQuote, type QuoteRequest, type TransferQuote } from 'lib/bridge/core/quote';
+import type { BridgeReviewContext } from 'lib/bridge/core/review';
 import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { submitReviewedBridge } from 'lib/bridge/wallet-submit';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
 import { switchWebWalletChain } from 'lib/epoch/client';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 
@@ -21,6 +24,7 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 let mockSnapshot: BridgeConfigSnapshot;
 let mockLocked = false;
 let mockRpc = 'https://wallet-rpc.example/private';
+let mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
 let mockAddress = accounts.evmAddress;
 let mockFee: BurnFeeReserve;
 let mockNativeCorroborated = true;
@@ -90,7 +94,7 @@ jest.mock('lib/store', () => ({
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveNetworkName: () => mockNetwork,
   getEffectiveRpcUrl: () => mockRpc
 }));
 
@@ -134,6 +138,7 @@ beforeEach(() => {
   mockSnapshot = referenceSnapshot('testnet');
   mockLocked = false;
   mockRpc = scope.rpcUrl;
+  mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
   mockState.currentAccount.publicKey = accounts.midenAccount;
   mockAddress = accounts.evmAddress;
   mockFee = {
@@ -538,3 +543,37 @@ it('keeps the admitted review as readonly original facts when a later measuremen
   await act(async () => result.current.bridge.submit());
   expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
 });
+
+it.each(['rpc', 'network'])(
+  'the actual live getter refuses an authoritative %s change before any React rerender',
+  async changed => {
+    const observed: { before?: BridgeReviewContext; returned?: BridgeReviewContext; error?: unknown } = {};
+    jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+      observed.before = deps.getContext();
+      if (changed === 'rpc') mockRpc = 'https://changed-source-rpc.example';
+      else mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
+      try {
+        observed.returned = deps.getContext();
+      } catch (error) {
+        observed.error = error;
+      }
+      return { kind: 'rejected' };
+    });
+    const { result } = renderHook(useConsumer, { wrapper });
+    act(() => result.current.bridge.setDirection('out'));
+    const route = result.current.bridge.routes.find(item => item.provider === 'agglayer');
+    if (!route) throw new Error('Missing supported non-Circle native source');
+    act(() => result.current.bridge.selectRoute(route.id));
+    act(() => {
+      result.current.bridge.setAmount('1');
+      result.current.bridge.setExternalAccountId(accounts.evmAddress);
+    });
+    await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+    act(() => result.current.bridge.reviewTransfer());
+    await act(async () => result.current.bridge.submit());
+    expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+    expect(observed.before).toMatchObject({ amount: '1', accounts, route: { id: route.id } });
+    expect(observed.returned).toBeUndefined();
+    expect(observed.error).toBeInstanceOf(EpochReviewChangedError);
+  }
+);
