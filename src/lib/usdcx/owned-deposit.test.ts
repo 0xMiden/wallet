@@ -255,8 +255,13 @@ beforeEach(async () => {
 });
 afterEach(() => jest.restoreAllMocks());
 
-async function driveAdapter(executor: boolean, configure?: () => void) {
+async function driveAdapter(executor: boolean, configure?: () => void, received?: string) {
   const review = reviewFor(executor);
+  if (received !== undefined && review.quote)
+    review.quote = bindTransferQuote(
+      { route: review.route, amount: review.amount, ...accounts },
+      { ...review.quote, received }
+    );
   live = structuredClone(review);
   adapterAllowance = 10000000n;
   adapterFee = 1n;
@@ -338,9 +343,29 @@ it.each([false, true])(
     expect(bridgeOperationOf(row!)?.sourceAttempt).toMatchObject({ phase: 'known', hash: sourceHash });
     expect(bridgeOperationOf(row!)?.operationId).toBe('circle-provider');
     expect(signed).toHaveLength(1);
+    expect(row?.amount).toBe(1000001n);
+    expect(row?.extraInputs.sourceAmount).toBe(executor ? '1.000002' : '1.000001');
     expect(await Repo.transactions.count()).toBe(1);
   }
 );
+
+it.each([
+  { executor: false, received: '2.000002' },
+  { executor: true, received: '2.000002' },
+  { executor: false, received: '0.500000' },
+  { executor: true, received: '0.500000' },
+  { executor: false, received: '1.0000011' },
+  { executor: true, received: '1.0000011' }
+])('refuses inconsistent native received $received before approval/source prompts (executor=$executor)', async ({ executor, received }) => {
+  const id = await driveAdapter(executor, () => { adapterAllowance = 0n; }, received);
+  await waitFor(async () =>
+    expect(['known', 'uncertain']).toContain(
+      bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase
+    )
+  );
+  expect(signed).toHaveLength(0);
+  expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBeUndefined();
+});
 
 it.each([false, true])(
   'resets a short nonzero allowance and records exact original approval facts (executor=%s)',

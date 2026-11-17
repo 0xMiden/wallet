@@ -92,12 +92,12 @@ describe('readSepoliaErc20Allowance', () => {
 const hash: `0x${string}` = `0x${'1'.repeat(64)}`;
 
 it('accepts a successful receipt', async () => {
-  mockWaitForReceipt.mockResolvedValueOnce({ status: 'success' });
+  mockWaitForReceipt.mockResolvedValueOnce({ transactionHash: hash, status: 'success' });
   await expect(waitForEvmReceipt(hash, sepolia)).resolves.toBeUndefined();
 });
 
 it('identifies a reverted receipt', async () => {
-  mockWaitForReceipt.mockResolvedValueOnce({ status: 'reverted' });
+  mockWaitForReceipt.mockResolvedValueOnce({ transactionHash: hash, status: 'reverted' });
   await expect(waitForEvmReceipt(hash, sepolia)).rejects.toBeInstanceOf(EvmTransactionRevertedError);
 });
 
@@ -109,8 +109,8 @@ it('preserves a receipt request error without classifying it as a revert', async
 
 describe('readEvmReceiptOutcome', () => {
   it.each([
-    ['success', { status: 'success' }],
-    ['reverted', { status: 'reverted' }]
+    ['success', { transactionHash: hash, status: 'success' }],
+    ['reverted', { transactionHash: hash, status: 'reverted' }]
   ])('reads a %s receipt', async (outcome, receipt) => {
     mockGetReceipt.mockResolvedValueOnce(receipt);
     await expect(readEvmReceiptOutcome(hash, sepolia)).resolves.toBe(outcome);
@@ -126,6 +126,24 @@ describe('readEvmReceiptOutcome', () => {
     const error = new Error('RPC disconnected');
     mockGetReceipt.mockRejectedValueOnce(error);
     await expect(readEvmReceiptOutcome(hash, sepolia)).rejects.toBe(error);
+  });
+});
+
+describe.each(['foreground', 'passive'])('%s receipt identity', boundary => {
+  it.each([
+    { label: 'another successful transaction', receipt: { transactionHash: `0x${'2'.repeat(64)}`, status: 'success' } },
+    { label: 'another reverted transaction', receipt: { transactionHash: `0x${'2'.repeat(64)}`, status: 'reverted' } },
+    { label: 'missing successful hash', receipt: { status: 'success' } },
+    { label: 'missing reverted hash', receipt: { status: 'reverted' } },
+    { label: 'malformed hash', receipt: { transactionHash: 123, status: 'reverted' } },
+    { label: 'malformed status', receipt: { transactionHash: hash, status: 'unknown' } }
+  ])('refuses $label before classifying an outcome', async ({ receipt }) => {
+    (boundary === 'foreground' ? mockWaitForReceipt : mockGetReceipt).mockResolvedValueOnce(receipt);
+    const outcome: unknown = await (boundary === 'foreground'
+      ? waitForEvmReceipt(hash, sepolia)
+      : readEvmReceiptOutcome(hash, sepolia)).catch((error: unknown) => error);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome).not.toBeInstanceOf(EvmTransactionRevertedError);
   });
 });
 

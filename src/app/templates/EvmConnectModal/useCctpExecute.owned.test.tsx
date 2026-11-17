@@ -52,6 +52,7 @@ const switchChain = jest.fn();
 const prepare = jest.fn();
 const fees = jest.fn();
 const receiptReader = jest.fn();
+const waitReceiptReader = jest.fn();
 let native = false;
 jest.mock('wagmi', () => ({
   useWriteContract: () => ({ mutateAsync: write }),
@@ -73,6 +74,12 @@ const fetchMock = jest.fn();
 const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
 const sourceHash: Hash = `0x${'c'.repeat(64)}`;
 const retryHash: Hash = `0x${'d'.repeat(64)}`;
+const unavailableReceipts = [
+  { label: 'another transaction reverted', receipt: { transactionHash: retryHash, status: 'reverted' } },
+  { label: 'missing reverted hash', receipt: { status: 'reverted' } },
+  { label: 'malformed reverted hash', receipt: { transactionHash: 123, status: 'reverted' } },
+  { label: 'malformed receipt status', receipt: { transactionHash: FORWARD_HASH, status: 'unknown' } }
+];
 beforeAll(() => Object.defineProperty(globalThis, 'fetch', { configurable: true, value: fetchMock }));
 afterAll(() => {
   if (descriptor) Object.defineProperty(globalThis, 'fetch', descriptor);
@@ -90,7 +97,7 @@ beforeEach(async () => {
         jest
           .requireActual('viem')
           .createPublicClient({ transport: jest.requireActual('viem').http('https://rpc.example') }),
-        { getTransactionReceipt: receiptReader }
+        { getTransactionReceipt: receiptReader, waitForTransactionReceipt: waitReceiptReader }
       )
     );
   write.mockResolvedValue(FORWARD_HASH);
@@ -196,6 +203,10 @@ it.each([false, true])('preserves a real persisted untagged legacy execute path 
     Reflect.deleteProperty(row.extraInputs, 'bridgeOperation');
   });
   native = useNative;
+  jest.mocked(waitForEvmReceipt).mockImplementation(
+    jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
+  );
+  waitReceiptReader.mockResolvedValue({ transactionHash: FORWARD_HASH, status: 'success' });
   const root = renderHook(useCctpExecute);
   try {
     expect(await root.result.current(id, 11155111, leg)).toBe(FORWARD_HASH);
@@ -464,3 +475,115 @@ it.each(['revert', 'known stall'])(
     }
   }
 );
+
+describe.each([false, true])('actual owned receipt boundaries (native=%s)', useNative => {
+  it.each(unavailableReceipts)('does not reopen after foreground $label', async ({ receipt }) => {
+    const { id, leg, owner } = await funded();
+    native = useNative;
+    write.mockResolvedValueOnce(FORWARD_HASH).mockResolvedValue(retryHash);
+    nativeWrite.mockResolvedValueOnce({ hash: FORWARD_HASH }).mockResolvedValue({ hash: retryHash });
+    jest.mocked(waitForEvmReceipt).mockImplementation(
+      jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
+    );
+    waitReceiptReader.mockResolvedValueOnce(receipt).mockResolvedValue({ transactionHash: retryHash, status: 'success' });
+    receiptReader.mockRejectedValue(new Error('Receipt unavailable'));
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const root = renderHook(useCctpExecute);
+    try {
+      await root.result.current(id, 11155111, leg).catch(() => undefined);
+      expect(waitReceiptReader).toHaveBeenCalledWith({ hash: FORWARD_HASH, confirmations: 1 });
+      const retained = await Repo.transactions.get(id);
+      await owner.reconcile();
+      const next: IBridgedReceiveExtraInputs['cctp'] = (await Repo.transactions.get(id))?.extraInputs.cctp;
+      if (!next) throw new Error('Missing original execution leg');
+      await root.result.current(id, 11155111, next).catch(() => undefined);
+      expect(useNative ? nativeWrite : write).toHaveBeenCalledTimes(1);
+      expect(retained?.extraInputs.cctp).toMatchObject({
+        executeTxHash: FORWARD_HASH,
+        executeAttempt: { phase: 'known', hash: FORWARD_HASH }
+      });
+      expect(retained?.extraInputs.cctp?.revertedExecuteTxHash).toBeUndefined();
+      expect(bridgeOperationOf(retained!)?.sourceAttempt?.hash).toBe(sourceHash);
+    } finally {
+      root.unmount();
+    }
+  });
+
+  it.each(unavailableReceipts)('does not turn passive $label into a revert or stall retry', async ({ receipt }) => {
+    const { id, leg, owner } = await funded();
+    native = useNative;
+    write.mockResolvedValueOnce(FORWARD_HASH).mockResolvedValue(retryHash);
+    nativeWrite.mockResolvedValueOnce({ hash: FORWARD_HASH }).mockResolvedValue({ hash: retryHash });
+    const root = renderHook(useCctpExecute);
+    try {
+      await root.result.current(id, 11155111, leg);
+      jest.spyOn(Date, 'now').mockReturnValue(now + 31 * 60 * 1000);
+      receiptReader.mockResolvedValue(receipt);
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await owner.reconcile();
+      await owner.reconcile();
+      expect(receiptReader).toHaveBeenCalledWith({ hash: FORWARD_HASH });
+      const retained = await Repo.transactions.get(id);
+      const next: IBridgedReceiveExtraInputs['cctp'] = retained?.extraInputs.cctp;
+      if (!next) throw new Error('Missing original execution leg');
+      await root.result.current(id, 11155111, next).catch(() => undefined);
+      expect(useNative ? nativeWrite : write).toHaveBeenCalledTimes(1);
+      expect(retained?.extraInputs.cctp).toMatchObject({
+        executeTxHash: FORWARD_HASH,
+        executeAttempt: { phase: 'known', hash: FORWARD_HASH }
+      });
+      expect(retained?.extraInputs.cctp?.revertedExecuteTxHash).toBeUndefined();
+      expect(retained?.extraInputs.cctp?.stalledExecuteTxHash).toBeUndefined();
+      expect(bridgeOperationOf(retained!)?.sourceAttempt?.hash).toBe(sourceHash);
+    } finally {
+      root.unmount();
+    }
+  });
+
+  it('reopens an exact-hash foreground reverted receipt without success logs', async () => {
+    const { id, leg, owner } = await funded();
+    native = useNative;
+    write.mockResolvedValueOnce(FORWARD_HASH).mockResolvedValue(retryHash);
+    nativeWrite.mockResolvedValueOnce({ hash: FORWARD_HASH }).mockResolvedValue({ hash: retryHash });
+    jest.mocked(waitForEvmReceipt).mockImplementation(
+      jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
+    );
+    waitReceiptReader.mockResolvedValueOnce({ transactionHash: FORWARD_HASH, status: 'reverted', logs: [] })
+      .mockResolvedValue({ transactionHash: retryHash, status: 'success' });
+    const root = renderHook(useCctpExecute);
+    try {
+      await expect(root.result.current(id, 11155111, leg)).rejects.toBeInstanceOf(EvmTransactionRevertedError);
+      await owner.reconcile();
+      const next: IBridgedReceiveExtraInputs['cctp'] = (await Repo.transactions.get(id))?.extraInputs.cctp;
+      if (!next) throw new Error('Missing exactly reverted execution leg');
+      expect(next.revertedExecuteTxHash).toBe(FORWARD_HASH);
+      expect(await root.result.current(id, 11155111, next)).toBe(retryHash);
+      expect(useNative ? nativeWrite : write).toHaveBeenCalledTimes(2);
+      expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.hash).toBe(sourceHash);
+    } finally {
+      root.unmount();
+    }
+  });
+
+  it('reopens an exact-hash passive reverted receipt without success logs', async () => {
+    const { id, leg, owner } = await funded();
+    native = useNative;
+    write.mockResolvedValueOnce(FORWARD_HASH).mockResolvedValue(retryHash);
+    nativeWrite.mockResolvedValueOnce({ hash: FORWARD_HASH }).mockResolvedValue({ hash: retryHash });
+    const root = renderHook(useCctpExecute);
+    try {
+      await root.result.current(id, 11155111, leg);
+      receiptReader.mockResolvedValue({ transactionHash: FORWARD_HASH, status: 'reverted', logs: [] });
+      await owner.reconcile();
+      await owner.reconcile();
+      const next: IBridgedReceiveExtraInputs['cctp'] = (await Repo.transactions.get(id))?.extraInputs.cctp;
+      if (!next) throw new Error('Missing exactly reverted execution leg');
+      expect(next.revertedExecuteTxHash).toBe(FORWARD_HASH);
+      expect(await root.result.current(id, 11155111, next)).toBe(retryHash);
+      expect(useNative ? nativeWrite : write).toHaveBeenCalledTimes(2);
+      expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.hash).toBe(sourceHash);
+    } finally {
+      root.unmount();
+    }
+  });
+});
