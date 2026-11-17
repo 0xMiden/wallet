@@ -140,11 +140,22 @@ describe.each(['foreground', 'passive'])('%s receipt identity', boundary => {
   ])('refuses $label before classifying an outcome', async ({ receipt }) => {
     (boundary === 'foreground' ? mockWaitForReceipt : mockGetReceipt).mockResolvedValueOnce(receipt);
     const outcome: unknown = await (
-      boundary === 'foreground' ? waitForEvmReceipt(hash, sepolia) : readEvmReceiptOutcome(hash, sepolia)
+      boundary === 'foreground' ? waitForEvmReceipt(hash, sepolia, true) : readEvmReceiptOutcome(hash, sepolia, () => undefined)
     ).catch((error: unknown) => error);
     expect(outcome).toBeInstanceOf(Error);
     expect(outcome).not.toBeInstanceOf(EvmTransactionRevertedError);
   });
+});
+
+it.each(['success', 'reverted'])('preserves a legacy waiter replacement receipt with %s status', async status => {
+  mockWaitForReceipt.mockResolvedValueOnce({ transactionHash: `0x${'2'.repeat(64)}`, status });
+  const outcome: unknown = await waitForEvmReceipt(hash, sepolia).catch((error: unknown) => error);
+  expect(status === 'success' ? outcome === undefined : outcome instanceof EvmTransactionRevertedError).toBe(true);
+});
+
+it.each(['success', 'reverted'])('preserves the legacy unverified status read for %s', async status => {
+  mockGetReceipt.mockResolvedValueOnce({ transactionHash: `0x${'2'.repeat(64)}`, status });
+  await expect(readEvmReceiptOutcome(hash, sepolia)).resolves.toBe(status);
 });
 
 it('reads allowance on the selected chain rather than the old Sepolia default', async () => {

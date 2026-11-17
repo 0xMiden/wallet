@@ -218,6 +218,29 @@ it.each([false, true])('preserves a real persisted untagged legacy execute path 
     root.unmount();
   }
 });
+it.each([false, true])('preserves actual untagged replacement receipt compatibility (native=%s)', async useNative => {
+  const { id, leg } = await funded();
+  await Repo.transactions.where({ id }).modify(row => {
+    Reflect.deleteProperty(row.extraInputs, 'bridgeOperation');
+  });
+  native = useNative;
+  jest.mocked(waitForEvmReceipt).mockImplementation(
+    jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
+  );
+  waitReceiptReader.mockResolvedValue({ transactionHash: retryHash, status: 'success' });
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const root = renderHook(useCctpExecute);
+  try {
+    expect(await root.result.current(id, 11155111, leg)).toBe(FORWARD_HASH);
+    expect(waitReceiptReader).toHaveBeenCalledWith({ hash: FORWARD_HASH, confirmations: 1 });
+    expect(warn).not.toHaveBeenCalled();
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp?.executeTxHash).toBe(FORWARD_HASH);
+    expect(useNative ? nativeWrite : write).toHaveBeenCalledTimes(1);
+  } finally {
+    root.unmount();
+  }
+});
+
 it.each(['missing row', 'legacy restored', 'legacy recovered'])(
   'refuses %s rather than treating absent ownership as legacy consent',
   async change => {
