@@ -3,7 +3,6 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 
 import { deriveBridgeRoutes } from 'lib/bridge/catalog';
-
 import { bindTransferQuote, type QuoteRequest, type TransferQuote } from 'lib/bridge/core/quote';
 import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
@@ -30,6 +29,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   cacheScope: () => 'rpc-a|testnet',
   getNativeAssetIdSync: () => jest.requireActual('lib/bridge/testing/fixtures').native.faucetId,
+  getNativeAssetMetadataSync: () => ({ symbol: 'USDCx', decimals: 6, scaleIsUnknown: false }),
   getSdkSyncedNativeAssetIdSync: () =>
     mockNativeCorroborated ? jest.requireActual('lib/bridge/testing/fixtures').native.faucetId : null
 }));
@@ -304,11 +304,12 @@ function composeCircle() {
   act(() => consumer.result.current.bridge.setDirection('out'));
   const route = consumer.result.current.bridge.routes.find(item => item.provider === 'xreserve');
   if (!route) throw new Error('Missing available actual Circle catalog route');
+  act(() => consumer.result.current.bridge.selectRoute(route.id));
   act(() => {
-    consumer.result.current.bridge.selectRoute(route.id);
     consumer.result.current.bridge.setAmount('6');
     consumer.result.current.bridge.setExternalAccountId(accounts.evmAddress);
   });
+  expect(consumer.result.current.bridge.route?.provider).toBe('xreserve');
   return consumer;
 }
 
@@ -381,4 +382,75 @@ it('shows the exact reviewed native maximum in the actual Command Bridge workben
   expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled();
   expect(screen.getByText('networkFeeMax')).toBeVisible();
   expect(screen.getByText('0.0003 USDCx')).toBeVisible();
+});
+
+function removeCircleWithdrawals() {
+  if (!mockSnapshot.config) throw new Error('Missing current configuration');
+  for (const chain of Object.values(mockSnapshot.config.supportedEvmChains)) {
+    if (chain.bridges.usdcx) chain.bridges.usdcx.withdrawalEnabled = false;
+  }
+}
+
+it('clears source input before quoting a different fallback when the selected provider disappears', async () => {
+  const { result, rerender } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.quote).not.toBeNull());
+  expect(result.current.bridge.amount).toBe('6');
+  jest.mocked(quoteBridgeTransfer).mockClear();
+  removeCircleWithdrawals();
+  rerender();
+  expect(result.current.bridge.route?.provider).not.toBe('xreserve');
+  expect(result.current.bridge.amount).toBe('');
+  expect(result.current.bridge.quote).toBeNull();
+  expect(result.current.bridge.review).toBeUndefined();
+  expect(result.current.drafts.readDraft('bridge')?.amount ?? '').toBe('');
+  expect(jest.mocked(quoteBridgeTransfer).mock.calls.filter(([request]) => request.amount === '6')).toHaveLength(0);
+});
+
+it('does not resurrect a minimized amount under a different source when its saved route disappears', async () => {
+  let consumer: ReturnType<typeof useConsumer> | undefined;
+  function Consumer() {
+    consumer = useConsumer();
+    return <span data-testid="source-amount">{consumer.bridge.amount}</span>;
+  }
+  function current() {
+    if (!consumer) throw new Error('Missing actual draft consumer');
+    return consumer;
+  }
+  const view = (shown: boolean) => <CommandDraftProvider scope={scope}>{shown && <Consumer />}</CommandDraftProvider>;
+  const { rerender } = render(view(true));
+  act(() => current().bridge.setDirection('out'));
+  const route = current().bridge.routes.find(item => item.provider === 'xreserve');
+  if (!route) throw new Error('Missing real Circle source');
+  act(() => current().bridge.selectRoute(route.id));
+  act(() => {
+    current().bridge.setAmount('6');
+    current().bridge.setExternalAccountId(accounts.evmAddress);
+  });
+  await waitFor(() => expect(current().bridge.quote).not.toBeNull());
+  expect(current().drafts.readDraft('bridge')?.route).toBe(route.id);
+  rerender(view(false));
+  removeCircleWithdrawals();
+  jest.mocked(quoteBridgeTransfer).mockClear();
+  rerender(view(true));
+  expect(current().bridge.route?.provider).not.toBe('xreserve');
+  expect(screen.getByTestId('source-amount')).toBeEmptyDOMElement();
+  expect(current().drafts.readDraft('bridge')?.amount ?? '').toBe('');
+  expect(current().drafts.readDraft('bridge')?.route).not.toBe(route.id);
+  expect(jest.mocked(quoteBridgeTransfer).mock.calls.filter(([request]) => request.amount === '6')).toHaveLength(0);
+});
+
+it('same-scope batched route selection and literal input never reattach the previous rendered route', () => {
+  const { result } = renderHook(useConsumer, { wrapper });
+  act(() => result.current.bridge.setDirection('out'));
+  const previous = result.current.bridge.route;
+  const next = result.current.bridge.routes.find(item => item.source.symbol === 'ETH' && item.id !== previous?.id);
+  if (!previous || !next) throw new Error('Missing different actual source choices');
+  const currentScopeSetter = result.current.bridge.setAmount;
+  act(() => {
+    result.current.bridge.selectRoute(next.id);
+    currentScopeSetter('2.000000');
+  });
+  expect(result.current.bridge.route?.id).toBe(next.id);
+  expect(result.current.bridge.amount).toBe('2.000000');
+  expect(result.current.drafts.readDraft('bridge')).toMatchObject({ route: next.id, amount: '2.000000' });
 });
