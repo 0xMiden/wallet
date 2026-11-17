@@ -24,8 +24,8 @@ import { useFeatureAvailability } from 'lib/remote-config/use-feature-availabili
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';
-import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { useBurnFeeReserve, type BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
@@ -672,13 +672,16 @@ describe('USDCx burn review', () => {
     expect(initiateB2AggBridge).not.toHaveBeenCalled();
   });
 
-  const unreviewable: ReviewBurnFeeReserve[] = [
-    { status: 'pending' },
-    { status: 'failed' },
-    { ...REVIEWED_BURN_FEE, faucetId: 'other' },
-    { ...REVIEWED_BURN_FEE, scope: 'ac86888532e6c070013d6f92d90a251ff6e97b0fac34bb6819db27298ac309f4' }
+  const unreviewable: [string, ReviewBurnFeeReserve][] = [
+    ['pending', { status: 'pending' }],
+    ['failed', { status: 'failed' }],
+    ['wrong faucet', { ...REVIEWED_BURN_FEE, faucetId: 'other' }],
+    [
+      'stale source',
+      { ...REVIEWED_BURN_FEE, scope: 'ac86888532e6c070013d6f92d90a251ff6e97b0fac34bb6819db27298ac309f4' }
+    ]
   ];
-  it.each(unreviewable)('does not confirm an unreviewable native fee quote %j', async estimate => {
+  it.each(unreviewable)('does not confirm an unreviewable native fee quote %s', async (_label, estimate) => {
     mockBurnFeeReserve = estimate;
     render(<ReviewTransaction />);
     await flush();
