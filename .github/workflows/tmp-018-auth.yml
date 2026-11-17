@@ -28,6 +28,21 @@ jobs:
           ln -s "$RUNNER_TEMP/auth-deps/node_modules" node_modules
           npm ls --prefix "$RUNNER_TEMP/auth-deps" --all > auth-evidence/dependencies.txt
           git rev-parse HEAD | tee auth-evidence/commit.txt
+      - name: Freeze published SDK 0.17.5 canonical evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/old-auth-deps" @miden-sdk/miden-sdk@0.17.5 2>&1 | tee auth-evidence/sdk017-install.log
+          OLD_SDK="$RUNNER_TEMP/old-auth-deps/node_modules/@miden-sdk/miden-sdk/js/node-index.js" node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { canonicalRequestBytes } from './scripts/canonical-request-bytes.mjs';
+          const sdk = await import(process.env.OLD_SDK);
+          const bytes = new sdk.TransactionRequestBuilder().withExpirationDelta(600).build().serialize();
+          const canonical = canonicalRequestBytes(bytes);
+          writeFileSync('auth-evidence/sdk017-golden.json', JSON.stringify({ sdk: '0.17.5', serializedBase64: Buffer.from(bytes).toString('base64'), canonicalSha256: createHash('sha256').update(canonical).digest('hex') }, null, 2) + '\n');
+          JS
+          cp "$RUNNER_TEMP/old-auth-deps/package-lock.json" auth-evidence/sdk017-package-lock.json
       - name: Build scoped real-SDK validators
         shell: bash
         run: |
@@ -44,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --test --test-concurrency=2 test/sdk018-auth.node.test.mjs scripts/mainnet-send-request.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-epoch-request.test.mjs scripts/mainnet-swap-claim.test.mjs test/custom-request-diagnostics.node.test.mjs test/dapp-custom-request.node.test.mjs test/guardian-custom-request.node.test.mjs 2>&1 | tee auth-evidence/tests.log
+          node --test --test-concurrency=2 test/canonical-request-bytes.node.test.mjs test/sdk018-auth.node.test.mjs scripts/mainnet-send-request.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-epoch-request.test.mjs scripts/mainnet-swap-claim.test.mjs test/custom-request-diagnostics.node.test.mjs test/dapp-custom-request.node.test.mjs test/guardian-custom-request.node.test.mjs 2>&1 | tee auth-evidence/tests.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
