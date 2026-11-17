@@ -247,7 +247,7 @@ it.each([false, true])('checks the current remote token before paying for an app
     const read = adapterRpc.readContract.getMockImplementation()!;
     adapterRpc.readContract.mockImplementation(async args => args.functionName === 'getRemoteToken' ? `0x${'0'.repeat(64)}` : read(args));
   });
-  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).not.toBe('running'));
+  await waitFor(async () => expect(['known', 'uncertain']).toContain(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase));
   expect(signed).toHaveLength(0);
 });
 it('refuses a signed-quote on-chain fee increase after a paid approval', async () => {
@@ -255,7 +255,7 @@ it('refuses a signed-quote on-chain fee increase after a paid approval', async (
     adapterAllowance = 0n;
     afterAdapterApproval = () => { adapterFee = 2n; };
   });
-  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).not.toBe('running'));
+  await waitFor(async () => expect(['known', 'uncertain']).toContain(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase));
   const row = await Repo.transactions.get(id);
   expect(signed).toHaveLength(1);
   expect(row?.extraInputs.evmTxHash).toBeUndefined();
@@ -304,7 +304,7 @@ it.each(['repriced', 'cancelled', 'replaced'])('persists %s approval replacement
       return { status: 'success', transactionHash: replacement.hash };
     });
   });
-  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).not.toBe('running'));
+  await waitFor(async () => expect(['known', 'uncertain']).toContain(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase));
   const row = await Repo.transactions.get(id);
   expect(bridgeOperationOf(row!)?.approvals?.[1]?.replacementReason).toBe(reason);
   expect(bridgeOperationOf(row!)?.approvals?.[1]?.originalTransaction?.nonce).toBe(1);
