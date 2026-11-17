@@ -1,5 +1,6 @@
 import {
   AccountId,
+  FeltArray,
   Note,
   NoteArray,
   NoteAssets,
@@ -253,7 +254,12 @@ export function inspectEpochCollateralRequest(
   const salt = request.feeConversionSalt();
   if (auth && salt) throw new Error('Epoch collateral declares conflicting fee authentication');
   let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-  if (auth) builder = builder.withAuthArg(auth);
+  if (auth) {
+    const preimage = request.adviceMap().get(auth);
+    if (!preimage || preimage.length === 0 || preimage.length % 4 !== 0)
+      throw new Error('Epoch collateral declares invalid authentication preimage');
+    builder = builder.withAuthArgs(new FeltArray(preimage));
+  }
   if (salt) builder = builder.withFeeConversionSalt(salt);
   builder = builder.withBlockNumbers(blocks).extendAdviceMap(request.adviceMap());
   const expected = builder.build();

@@ -25,6 +25,8 @@ export function canonicalRequestBytes(serialized) {
     }
     if (allEmpty) stores.push({ at, count: Number(count), end });
   }
+  // SDK 0.18 omits default nodes; retain every byte and leave validity to request deserialization/comparison.
+  if (stores.length === 0) return Uint8Array.from(bytes);
   if (stores.length !== 1) throw new Error(`The request MerkleStore was not located exactly once (${stores.length})`);
   const store = stores[0];
   if (!store) throw new Error('Missing request MerkleStore');
