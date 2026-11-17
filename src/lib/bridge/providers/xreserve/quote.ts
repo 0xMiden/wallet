@@ -1,5 +1,48 @@
-import type { QuoteRequest, QuoteResult } from 'lib/bridge/core/quote';
+// Adapted from bridge-portal@cb52c470 src/bridge/providers/xreserve/{deposit-quote,cctp-quote}.ts (MIT).
+import { formatUnits } from 'viem';
 
-export async function quoteXReserve(_request: QuoteRequest, _signal: AbortSignal): Promise<QuoteResult | null> {
-  return null;
+import { isBridgeRouteAvailable } from 'lib/bridge/core/provider';
+import type { QuoteRequest, QuoteResult } from 'lib/bridge/core/quote';
+import { configKey, routeMatchesRecovery } from 'lib/bridge/core/routes';
+import { validateTransferAmount } from 'lib/bridge/core/rules';
+import { captureBridgeWalletScope } from 'lib/bridge/operation';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { getUsdcxSourceChain } from 'lib/usdcx/constant';
+import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
+import { buildExecutorBurnIntent, quoteExecutorBurn } from 'lib/usdcx/executor';
+
+import { quoteXReserveWithdrawal } from './withdrawal-quote';
+
+export async function quoteXReserve(request: QuoteRequest, signal: AbortSignal): Promise<QuoteResult | null> {
+  request = structuredClone(request);
+  const originalScope = captureBridgeWalletScope();
+  const { route, amount, midenAccount, evmAddress } = request;
+  const assertCurrent = () => {
+    signal.throwIfAborted();
+    validateTransferAmount(route, amount);
+    const current = getBridgeConfigSnapshot();
+    if (route.provider !== 'xreserve' || !isBridgeRouteAvailable(route) || !routeMatchesRecovery(route) ||
+        current.status !== 'ready' || configKey(originalScope) !== configKey(captureBridgeWalletScope()) ||
+        configKey([current.network, current.config, current.derived]) !==
+          configKey([route.recovery.network, route.recovery.config, route.recovery.derived]))
+      throw new Error('Circle quote terms changed');
+  };
+  assertCurrent();
+  let result: QuoteResult;
+  if (route.mode === 'send') result = await quoteXReserveWithdrawal(request);
+  else {
+    const chain = route.recovery.config.supportedEvmChains[route.source.network];
+    if (!chain) throw new Error('Circle source unavailable');
+    const source = getUsdcxSourceChain(chain.chainId);
+    const recipient = usdcxRemoteRecipientFor(midenAccount);
+    if (source.route === 'xreserve')
+      result = { kind: 'arc-deposit', received: amount.trim(), validity: { kind: 'time', expiresAt: Date.now() + 60000 } };
+    else {
+      const authorization = await quoteExecutorBurn(source, buildExecutorBurnIntent(amount, source, recipient, `0x${evmAddress.slice(2)}`));
+      result = { kind: 'cctp', received: amount.trim(), fee: formatUnits(authorization.feeTotalAmount, 6),
+        validity: { kind: 'provider' }, authorization };
+    }
+  }
+  assertCurrent();
+  return result;
 }
