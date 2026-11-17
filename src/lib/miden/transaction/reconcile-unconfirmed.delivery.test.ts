@@ -777,6 +777,77 @@ describe('an execute landed from its submit evidence owes the private notes its 
     expect(await read()).toMatchObject({ transactionId: hex(2), relayNoteIds: [NOTE], relayRecipientId: RECIPIENT });
     expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
   });
+
+  // A dApp script that creates the private note SIBLING_NOTE only while a state condition holds: one attempt ran while
+  // it failed and stamped NOTE alone, the other created both. NOTE lands in both windows, so the landing binds no id.
+  const stampsOfNote = (a1: Partial<ISubmitEvidence>, a2: Partial<ISubmitEvidence>) =>
+    failedExecute({
+      attemptId: 'a2',
+      submitEvidence: [
+        executeStamp(a1),
+        executeStamp({ capturedAt: NOW - 30, transactionId: hex(3), endedAt: NOW - 20, ...a2, attemptId: 'a2' })
+      ]
+    });
+  const NOTE_ALONE: Partial<ISubmitEvidence> = { outputNoteIds: [NOTE], privateOutputNoteIds: [] };
+  const WITH_SIBLING: Partial<ISubmitEvidence> = {
+    outputNoteIds: [NOTE, SIBLING_NOTE],
+    privateOutputNoteIds: [SIBLING_NOTE]
+  };
+
+  it.each<[string, Partial<ISubmitEvidence>, Partial<ISubmitEvidence>]>([
+    ['the earlier', NOTE_ALONE, WITH_SIBLING],
+    ['the later', WITH_SIBLING, NOTE_ALONE]
+  ])(
+    'two attempts that may have created the landing note with different private notes install neither, %s naming it alone',
+    async (_t, a1, a2) => {
+      await Repo.transactions.put(stampsOfNote(a1, a2));
+      const writes = noteDeliveryWriteCount();
+
+      expect((await land(noteOnChain)).kind).toBe('landed');
+      const row = await read();
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Completed,
+        noteDelivery: 'undelivered',
+        displayMessage: 'Executed - the private note could not be delivered'
+      });
+      expect(row?.transactionId).toBeUndefined();
+      expect(row?.relayNoteIds).toBeUndefined();
+      expect(row?.relayRecipientId).toBeUndefined();
+      expect(noteDeliveryWriteCount()).toBe(writes);
+      expect(await pushesAfterTheFirstWait()).toEqual([]);
+    }
+  );
+
+  // Only the attempt that can have created the landing note speaks for it: one retired before its submit, or whose
+  // window closed before the note's block, cannot void the other's list.
+  it.each<[string, Partial<ISubmitEvidence>]>([
+    ['was retired before its submit', { preSubmitEnd: true }],
+    ['expired before the note', { expirationBlock: 130 }]
+  ])("owes the other attempt's private notes when the one naming the landing note alone %s", async (_t, ended) => {
+    await Repo.transactions.put(stampsOfNote({ ...NOTE_ALONE, ...ended }, WITH_SIBLING));
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [SIBLING_NOTE],
+      relayRecipientId: RECIPIENT,
+      noteDelivery: 'undelivered'
+    });
+    expect(await pushesAfterTheFirstWait()).toEqual([[SIBLING_NOTE, RECIPIENT]]);
+  });
+
+  it('two attempts that may have created the landing note and both prove only public notes land clean', async () => {
+    await Repo.transactions.put(
+      stampsOfNote(NOTE_ALONE, { outputNoteIds: [NOTE, OTHER_NOTE], privateOutputNoteIds: [] })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    const row = await read();
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Executed' });
+    expect(row?.noteDelivery).toBeUndefined();
+    expect(row?.relayNoteIds).toBeUndefined();
+    expect(await pushesAfterTheFirstWait()).toEqual([]);
+  });
 });
 
 // The landed Completed write assigns values instead of mutating the stored row, so it records a target through these.
