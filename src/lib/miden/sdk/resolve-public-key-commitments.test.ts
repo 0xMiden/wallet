@@ -13,6 +13,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Word: { fromHex: (hex: string) => ({ hex }) }
 }));
 
+const unsupportedAuth =
+  "cannot derive public key commitments from account state: the account's auth procedure is not owned by exactly one standard auth component bundled with this SDK (auth components found: none)";
+
 describe('resolvePublicKeyCommitments', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -61,6 +64,50 @@ describe('resolvePublicKeyCommitments', () => {
     const account = { getPublicKeyCommitments: () => [] };
 
     expect(resolvePublicKeyCommitments(account as never, '0x999999')).toEqual([{ hex: '0xabc123' }]);
+  });
+
+  it.each([new Error(unsupportedAuth), unsupportedAuth])(
+    'resolves the Guardian hot signer when the SDK rejects the custom auth component: %s',
+    error => {
+      mockGetSignerCommitments.mockReturnValue(['0xabc123', '0xdef456']);
+      const account = {
+        getPublicKeyCommitments: () => {
+          throw error;
+        }
+      };
+
+      expect(resolvePublicKeyCommitments(account as never)).toEqual([{ hex: '0xabc123' }]);
+    }
+  );
+
+  it('returns [] when neither the SDK nor Guardian can identify the auth component', () => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw new Error('not a guarded-multisig account');
+    });
+    const account = {
+      getPublicKeyCommitments: () => {
+        throw unsupportedAuth;
+      }
+    };
+
+    expect(resolvePublicKeyCommitments(account as never)).toEqual([]);
+  });
+
+  it.each([
+    new WebAssembly.RuntimeError('unreachable'),
+    new Error('recursive use of an object detected'),
+    new Error(
+      'cannot derive public key commitments from account state: the multisig auth component declares 3 approvers but its approver key storage holds 2 entries'
+    )
+  ])('propagates invalid WASM state and malformed account errors: %s', error => {
+    const account = {
+      getPublicKeyCommitments: () => {
+        throw error;
+      }
+    };
+
+    expect(() => resolvePublicKeyCommitments(account as never)).toThrow(error);
+    expect(mockGetSignerCommitments).not.toHaveBeenCalled();
   });
 
   it('returns [] when the interface is empty and the account reports no signers', () => {

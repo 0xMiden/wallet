@@ -479,6 +479,11 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * `__TEST_GUARDIAN_OPERATOR_VIEW__` hook (#1233).
    */
   guardianOperatorView(accountPublicKey: string, endpoint: string): Promise<GuardianOperatorView>;
+  /**
+   * Push a 1-unit public send as a Guardian candidate, abandon it and poll the abandon to its end, through the
+   * E2E-only `__TEST_GUARDIAN_ABANDON_PROBE__` hook. `legacy` is whether the nonce-only request was the one sent.
+   */
+  guardianAbandonProbe(accountPublicKey: string, recipient: string, faucetId: string): Promise<GuardianAbandonProbe>;
   /** Create another HD account through the E2E-only frontend store hook. */
   createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
   /** Create a Guardian wallet through every current extension onboarding screen. */
@@ -633,6 +638,11 @@ export interface GuardianOperatorView {
   released?: boolean;
   error?: string;
 }
+
+/** The outcome of an abandon probe: how the abandon ended, or why the probe could not run. */
+export type GuardianAbandonProbe =
+  | { legacy: boolean; status: 'waiting' | 'abandoned' | 'landed' | 'retained' | 'unexpected'; error?: undefined }
+  | { error: string };
 
 /**
  * In the page: a create's home surface. The new home (Explore) has no stable "Send"/"Receive" text, so this signals on
@@ -1190,6 +1200,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         return await fn(pk, url);
       },
       { pk: accountPublicKey, url: endpoint }
+    );
+  }
+
+  async guardianAbandonProbe(
+    accountPublicKey: string,
+    recipient: string,
+    faucetId: string
+  ): Promise<GuardianAbandonProbe> {
+    return this.page.evaluate(
+      async ({ pk, to, faucet }: { pk: string; to: string; faucet: string }) => {
+        const fn = (
+          globalThis as unknown as {
+            __TEST_GUARDIAN_ABANDON_PROBE__?: (pk: string, to: string, faucet: string) => Promise<GuardianAbandonProbe>;
+          }
+        ).__TEST_GUARDIAN_ABANDON_PROBE__;
+        if (!fn) return { error: '__TEST_GUARDIAN_ABANDON_PROBE__ unavailable (needs MIDEN_E2E_TEST build)' };
+        return await fn(pk, to, faucet);
+      },
+      { pk: accountPublicKey, to: recipient, faucet: faucetId }
     );
   }
 

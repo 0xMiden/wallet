@@ -3163,6 +3163,68 @@ describe('MidenClientInterface', () => {
       ]);
     });
 
+    it.each([
+      ['public key', 'serialize'],
+      ['commitment', 'toHex']
+    ])(
+      'leaves a trapped %s read of the pasted key as the trap, freeing no handle and looking nothing up',
+      async (_read, at) => {
+        setup();
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        const trapAt = (read: string, value: () => unknown) => () => {
+          if (read === at) throw trap;
+          return value();
+        };
+        const frees = { secretKey: jest.fn(), publicKey: jest.fn(), commitment: jest.fn() };
+        jest.doMock('../guardian/hot-key-import', () => ({
+          deserializeHotSecretKey: jest.fn(() => ({
+            publicKey: () => ({
+              serialize: trapAt('serialize', () => new Uint8Array([0, 0x11, 0x22])),
+              toCommitment: () => ({ toHex: trapAt('toHex', () => PASTED_COMMITMENT), free: frees.commitment }),
+              free: frees.publicKey
+            }),
+            free: frees.secretKey
+          }))
+        }));
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+        const lookup = jest.spyOn(client as any, 'recoverAndAdoptByKey');
+
+        await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toBe(trap);
+        expect(frees.commitment).not.toHaveBeenCalled();
+        expect(frees.publicKey).not.toHaveBeenCalled();
+        expect(frees.secretKey).not.toHaveBeenCalled();
+        expect(lookup).not.toHaveBeenCalled();
+      }
+    );
+
+    it('frees the pasted key reads after an ordinary failure of its commitment', async () => {
+      setup();
+      const frees = { publicKey: jest.fn(), commitment: jest.fn() };
+      jest.doMock('../guardian/hot-key-import', () => ({
+        deserializeHotSecretKey: jest.fn(() => ({
+          publicKey: () => ({
+            serialize: () => new Uint8Array([0, 0x11, 0x22]),
+            toCommitment: () => ({
+              toHex: () => {
+                throw new Error('not a commitment');
+              },
+              free: frees.commitment
+            }),
+            free: frees.publicKey
+          })
+        }))
+      }));
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+
+      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
+        'not a commitment'
+      );
+      expect(frees.commitment).toHaveBeenCalledTimes(1);
+      expect(frees.publicKey).toHaveBeenCalledTimes(1);
+    });
+
     it('rejects with no code when no slot of the signer set holds the pasted key', async () => {
       const stubAccount = {};
       setup(membershipOf(['ffff', 'eeee']));

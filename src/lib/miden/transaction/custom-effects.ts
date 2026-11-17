@@ -9,13 +9,15 @@ import {
   type NftAsset,
   type TxAssetView
 } from 'app/confirm/decode';
+import { getMessage } from 'lib/i18n/core';
 import { dryRunPreparedCustomRequest, type CustomDryRunBytes } from 'lib/miden/sdk/custom-dry-run';
 import { accountRefToSdk, canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, type WasmLockHold } from 'lib/miden/sdk/miden-client';
 import { hasSpendingLimits } from 'lib/miden/spending-limits/queue';
 import { spendsDigest } from 'lib/miden/spending-limits/types';
+import { isSummaryFeeUnknownAtDecode } from 'lib/miden-chain/fee-at-decode';
 
-import { CustomTransactionEffectsChangedError } from './constants';
+import { CustomTransactionEffectsChangedError, ProposalFeeUnknownError } from './constants';
 import { executeApprovalOf } from './proposal-effect-guard';
 import type {
   IApprovedCustomEffects,
@@ -242,15 +244,23 @@ export function customEffectsDifference(
  * An unattributable generation spend (`undefined`) is not an empty list. When `spendingLimitConfigured` is set it
  * refuses. The argument defaults to no limit, so a comparison that does not know the policy still matches an
  * uncharged row, whether the stored charge is unset or an empty list.
+ *
+ * `feeScope` is the scope of the fee read the caller made before the dry run. A summary decoded without it, or one
+ * whose fee note cannot be told apart at this decode, is refused as an unknown fee, `ProposalFeeUnknownError`, not as
+ * changed effects. An executed dry run splits on its own header and takes no scope.
  */
 export function assertCustomEffectsApproved(
   approved: IApprovedCustomEffects | undefined,
   dryRun: CustomDryRunResult,
   spentAssetTotals: readonly IConsumedAssetTotal[] | undefined,
-  spendingLimitConfigured = false
+  spendingLimitConfigured = false,
+  feeScope?: string
 ): void {
   if (approved === undefined) {
     throw new CustomTransactionEffectsChangedError('the row has no approved effects');
+  }
+  if (dryRun.summaryBytes && (feeScope === undefined || isSummaryFeeUnknownAtDecode(feeScope))) {
+    throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
   }
   const decoded = decodeCustomEffects(dryRun);
   if (decoded === undefined) {
@@ -309,17 +319,19 @@ export function customEffectsCheckAccess(
  * The caller holds the WASM client lock (see `customEffectsCheckAccess`). The hold is re-checked after the dry run and
  * after the spending-limit read, before the decode, so a trap in the decode reaches the lock. The account closed over
  * by that access is the one whose spending limit decides whether an unattributable generation spend can match an
- * uncharged row.
+ * uncharged row. `feeScope` is passed to `assertCustomEffectsApproved`, whose fee check follows both awaits and
+ * refuses a summary that arrives with no scope.
  */
 export async function verifyPreparedCustomRequest(
   access: CustomEffectsCheckAccess,
   approved: IApprovedCustomEffects | undefined,
-  spentAssetTotals: readonly IConsumedAssetTotal[] | undefined
+  spentAssetTotals: readonly IConsumedAssetTotal[] | undefined,
+  feeScope?: string
 ): Promise<void> {
   access.assertHoldCurrent('before the custom request effects check');
   const dryRun = await access.dryRun();
   access.assertHoldCurrent('after the custom request effects dry run');
   const spendingLimitConfigured = await hasSpendingLimits(access.accountId);
   access.assertHoldCurrent('after the custom request spending-limit read');
-  assertCustomEffectsApproved(approved, dryRun, spentAssetTotals, spendingLimitConfigured);
+  assertCustomEffectsApproved(approved, dryRun, spentAssetTotals, spendingLimitConfigured, feeScope);
 }

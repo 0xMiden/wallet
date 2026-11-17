@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 
 import { summaryToView } from 'app/confirm/decode';
 import { getMessage } from 'lib/i18n/core';
-import { isVerificationBaseFeeKnownAbsent, refreshVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { cacheScope, isVerificationBaseFeeKnownAbsent, refreshVerificationBaseFee } from 'lib/miden-chain/native-asset';
 
 import { ProposalFeeUnknownError } from './constants';
 import { assertCachedViewEffectApproved, effectRefusal, isEffectChecked } from './proposal-effect-guard';
@@ -14,8 +14,8 @@ import { isIndefiniteSubmitOutcomeError, isKilledPipeline } from '../sdk/sdk-err
 /** A keystore signer as the wallet's signing paths take it: hex public key and hex `SigningInputs` in, signature out. */
 export type RawSigner = (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
 
-/** Throws why `transaction`'s write may not sign `signingInputsHex`. */
-async function assertSignable(transaction: ITransaction, signingInputsHex: string): Promise<void> {
+/** Throws why `transaction`'s write may not sign `signingInputsHex`. `feeScope` is the scope of its fee read. */
+async function assertSignable(transaction: ITransaction, signingInputsHex: string, feeScope: string): Promise<void> {
   let inputs: SigningInputs | undefined;
   let summary: TransactionSummary | undefined;
   // Set when a trap is already the pending rejection, so `free` cannot replace it.
@@ -45,7 +45,7 @@ async function assertSignable(transaction: ITransaction, signingInputsHex: strin
     }
     const signed = summary;
     try {
-      await assertCachedViewEffectApproved(transaction, () => summaryToView(signed));
+      await assertCachedViewEffectApproved(transaction, () => summaryToView(signed), feeScope);
     } catch (error) {
       rethrowTrap(error);
       throw error;
@@ -84,8 +84,10 @@ export async function withEffectCheckedSigner<T>(
 ): Promise<T> {
   if (!isEffectChecked(transaction.type)) return run(sign);
   // The fee is read from the chain here, before the write, and the signer reads the cache this read filled: the
-  // signer runs inside the WASM hold, where a network read cannot wait.
+  // signer runs inside the WASM hold, where a network read cannot wait. It refuses as an unknown fee once the cache
+  // has emptied or the endpoint has moved since this read.
   const chainFee = await refreshVerificationBaseFee();
+  const feeScope = cacheScope();
   if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
     throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
   const check: { failed?: { error: unknown } } = {};
@@ -95,7 +97,7 @@ export async function withEffectCheckedSigner<T>(
   const signer: RawSigner = async (publicKey, signingInputs) => {
     refuseAfterFailure();
     try {
-      await assertSignable(transaction, signingInputs);
+      await assertSignable(transaction, signingInputs, feeScope);
     } catch (error) {
       check.failed ??= { error };
       throw error;

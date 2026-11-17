@@ -462,9 +462,9 @@ export interface ISwitchGuardianExtraInputs {
   switchProposalId?: string;
   switchDeltaPushed?: boolean;
   // `switchProposalNonce`: that proposal's nonce. When the node discards the switch, the reconcile
-  // abandons this nonce's candidate on the outgoing guardian before the row fails, through
-  // `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233). Its sibling on
-  // a rotation or a threshold update is `proposalNonce`.
+  // abandons this nonce's candidate, naming `switchProposalId`, on the outgoing guardian before the row
+  // fails, through `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233).
+  // Its siblings on a rotation or a threshold update are `proposalNonce` and `proposalId`.
   switchProposalNonce?: number;
   // `nodeDiscarded`: the node discarded the switch; `cancelTransaction` writes it, `isNodeDiscardedRow` reads it.
   nodeDiscarded?: boolean;
@@ -1274,11 +1274,12 @@ export interface ITransaction {
   attemptId?: string;
   /**
    * The candidate a Guardian attempt's proposal left on its Guardian, written once the proposal exists (#1666): its
-   * Guardian as the service spells it, its nonce, the wall-clock stamp taken before the proposal and the attempt it
-   * belongs to. The in-memory record that abandons a failed write's candidate dies with its process, so the startup
-   * sweep reads this for the attempt a dead process left, and an end from outside the pipeline reads its nonce.
+   * Guardian as the service spells it, its nonce, the id of the proposal, the wall-clock stamp taken before the
+   * proposal and the attempt it belongs to. The in-memory record that abandons a failed write's candidate dies with its
+   * process, so the startup sweep reads this for the attempt a dead process left, and an end from outside the pipeline
+   * reads its nonce. A row kept before the id was written has none.
    */
-  guardianCandidate?: { endpoint: string; nonce: number; proposedAt: number; attemptId: string };
+  guardianCandidate?: { endpoint: string; nonce: number; proposalId?: string; proposedAt: number; attemptId: string };
 }
 
 /**
@@ -1562,8 +1563,10 @@ export class ConsumeTransaction implements ITransaction {
  * `orderId` is strictly output info (the PSWAP lineage id resolved by
  * `completeSwapTransaction`) rather than an input, but it rides here to avoid a
  * Dexie schema change; it is absent until completion, and so are the stamps
- * below. Exported because readers of persisted rows - which predate any of these
- * optional fields - need the same shape without hand-rolling their own copy.
+ * below. A landed failure that did not complete the row holds the order it read
+ * in `landedOrder` instead. Exported because readers of persisted rows - which
+ * predate any of these optional fields - need the same shape without
+ * hand-rolling their own copy.
  */
 export interface ISwapExtraInputs {
   /** Endpoint scope of the vault preflight; absent on legacy orders. */
@@ -1605,6 +1608,22 @@ export interface ISwapExtraInputs {
   recoveredTip?: IRecoveredSwapTip;
   /** The last spent tip a bounded lineage read reached, for the next read to resume from, never for Cancel. */
   recoveredCheckpoint?: IRecoveredSwapCheckpoint;
+  /**
+   * The order a landed failure read, recorded on any row it did not complete, including one a Cancel or the reaper
+   * finalized meanwhile. Only the write that completes the row turns it into `orderId`, `expiresAt` and the row's
+   * output note (`completedSwapFields`); nothing else reads it, so a row carrying it opens no order. A Retry of
+   * attempts proven dead drops it.
+   */
+  landedOrder?: ISwapLandedOrder;
+}
+
+export interface ISwapLandedOrder {
+  /** The PSWAP lineage id, as decimal text. */
+  orderId: string;
+  /** Anchored at landing, when the order note became fillable. */
+  expiresAt: number;
+  /** The order note's id, when the landing read it. */
+  noteId?: string;
 }
 
 export interface IRecoveredSwapCheckpoint {
@@ -2039,7 +2058,8 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // allowlist push needs the self-heal to catch up.
   // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
   // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
-  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
+  // `proposalNonce` / `proposalId`: the landed reconcile abandons this proposal's candidate when the node
+  // discards the write.
   // `mode`: the activation mode the row was queued with. Absent means `replace`.
   extraInputs: {
     mode?: HotKeyActivationMode;
@@ -2049,6 +2069,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
     reRegisterFailed?: boolean;
     guardianEndpoint?: string;
     proposalNonce?: number;
+    proposalId?: string;
     nodeDiscarded?: boolean;
   };
   delegateTransaction?: boolean | undefined;
@@ -2086,8 +2107,15 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
-  extraInputs: { procedure: string; threshold: number; proposalNonce?: number; nodeDiscarded?: boolean };
+  // `proposalNonce` / `proposalId`: the landed reconcile abandons this proposal's candidate when the node
+  // discards the write.
+  extraInputs: {
+    procedure: string;
+    threshold: number;
+    proposalNonce?: number;
+    proposalId?: string;
+    nodeDiscarded?: boolean;
+  };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, procedure: string, threshold: number, delegateTransaction?: boolean) {

@@ -67,7 +67,7 @@ before(async () => {
       dataModule(`
         import * as sdk from ${JSON.stringify(sdkUrl)};
         export const guardianRequestBuilder = async () => new sdk.TransactionRequestBuilder()
-          .withAuthArg(sdk.Word.fromHex('0x${'02'.repeat(32)}')).withBlockNumbers([42]);
+          .withAuthArgs(new sdk.FeltArray([1n, 2n, 3n, 4n].map(n => new sdk.Felt(n)))).withBlockNumbers([42]);
         export const previewTwinSummary = async () => { throw new Error('not used by request fixture tests'); };
       `)
     ]
@@ -174,6 +174,8 @@ test('refuses the fee-salt flag on an authenticated twin request', async () => {
   );
   const built = await api.call('buildCustom', { shape: 'p2id', outputs: [output] });
   const request = sdk.TransactionRequest.deserialize(new Uint8Array(Buffer.from(built.requestB64, 'base64')));
-  assert.equal(request.authArg()?.toHex(), `0x${'02'.repeat(32)}`);
+  const preimage = [1n, 2n, 3n, 4n].map(n => new sdk.Felt(n));
+  assert.equal(request.authArg()?.toHex(), sdk.Poseidon2.hashElements(new sdk.FeltArray(preimage)).toHex());
+  assert.deepEqual(request.adviceMap().get(request.authArg()).map(n => n.asInt()), [1n, 2n, 3n, 4n]);
   assert.deepEqual(request.blockNumbers(), [42]);
 });

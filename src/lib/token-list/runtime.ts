@@ -24,6 +24,8 @@ interface LoadedList {
   logos: Map<string, string> | null;
   priceAssets: Map<string, string> | null;
   faucetsBySymbol: Map<string, string> | null;
+  baskets: Map<string, string[]> | null;
+  decimals: Map<string, number> | null;
 }
 
 const defaults = (): Dependencies => ({
@@ -85,7 +87,9 @@ async function readList(network: string): Promise<LoadedList> {
     ids: bundled?.ids ?? null,
     logos: bundled?.logos ?? null,
     priceAssets: bundled?.priceAssets ?? null,
-    faucetsBySymbol: bundled?.faucetsBySymbol ?? null
+    faucetsBySymbol: bundled?.faucetsBySymbol ?? null,
+    baskets: bundled?.baskets ?? null,
+    decimals: bundled?.decimals ?? null
   };
 }
 
@@ -181,4 +185,19 @@ export async function loadTokenFaucetsBySymbol(network: string): Promise<Map<str
 export function peekTokenPriceAssets(network: string): Map<string, string> | null | undefined {
   if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
   return settled.get(network)?.priceAssets;
+}
+
+/**
+ * The constituents of each basket token in the last loaded list (`TokenList.baskets`), by faucet id as the list spells
+ * it, or undefined before the first load completes. Loaded with the price assets.
+ */
+export function peekTokenBaskets(network: string): Map<string, string[]> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.baskets;
+}
+
+/** Each listed token's decimals (`TokenList.decimals`), by faucet id as the list spells it, or undefined before. */
+export function peekTokenDecimals(network: string): Map<string, number> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.decimals;
 }

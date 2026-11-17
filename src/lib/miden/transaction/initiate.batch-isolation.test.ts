@@ -74,6 +74,7 @@ jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const {
+  ClaimBelowFloorError,
   ClaimCohortRefusedError,
   ClaimInsertRefusedError,
   initiateConsumeNotesTransaction,
@@ -531,6 +532,107 @@ describe('queueConsumeNotes - the row covering each note', () => {
 
     expect(coveringTxIdByNoteId.get('a')).toBe(failed.id);
     expect(committedId).toBe(failed.id);
+  });
+});
+
+describe('auto-consume: the claim floor after the queue filters notes (#2192)', () => {
+  // The floor is 30 times the base fee: 210 units.
+  const BASE_FEE = 7;
+  const BIG = '1000';
+  const DUST = '100';
+
+  /** An auto-consumer's batch call, with isolation on, as the three callers make it. */
+  const autoConsume = (notes: ConsumableNote[], fee: number | null = BASE_FEE) =>
+    queueConsumeNotes(ACCOUNT, notes, false, false, true, fee, 'auto_consume');
+
+  /** A claim of `id` that failed now, so its #215 backoff runs. */
+  const backingOff = async (id: string, amount: string) => {
+    const failed = new ConsumeTransaction(ACCOUNT, [note(id, amount)], false);
+    failed.status = ITransactionStatus.Failed;
+    failed.completedAt = Math.floor(Date.now() / 1000);
+    await Repo.transactions.add(failed);
+    return failed;
+  };
+
+  const queuedRows = async () => (await consumeRows()).filter(row => row.status === ITransactionStatus.Queued);
+
+  it('does not queue a dust note alone when the large note of its batch is in backoff', async () => {
+    const failed = await backingOff('big', BIG);
+
+    const { committedId, coveringTxIdByNoteId } = await autoConsume([note('big', BIG), note('dust', DUST)]);
+
+    expect(await queuedRows()).toHaveLength(0);
+    expect(committedId).toBe(failed.id);
+    expect(coveringTxIdByNoteId.has('dust')).toBe(false);
+  });
+
+  it('does not queue a dust note alone when a live claim covers the large note', async () => {
+    const live = new ConsumeTransaction(ACCOUNT, [note('big', BIG)], false);
+    await Repo.transactions.add(live);
+
+    const { committedId } = await autoConsume([note('big', BIG), note('dust', DUST)]);
+
+    expect((await queuedRows()).map(row => row.id)).toEqual([live.id]);
+    expect(committedId).toBe(live.id);
+  });
+
+  it('queues no row for new dust notes on successive passes while the large note is in backoff', async () => {
+    await backingOff('big', BIG);
+
+    await autoConsume([note('big', BIG), note('dust-1', DUST)]);
+    await autoConsume([note('big', BIG), note('dust-1', DUST), note('dust-2', '50')]);
+
+    expect(await queuedRows()).toHaveLength(0);
+  });
+
+  it('queues the remainder when it is worth the floor by itself', async () => {
+    await backingOff('big', BIG);
+
+    await autoConsume([note('big', BIG), note('a', '150'), note('b', '150')]);
+
+    const queued = await queuedRows();
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toEqual(['a', 'b']);
+  });
+
+  it('refuses a set that is below the floor when no row covers any note', async () => {
+    await expect(autoConsume([note('dust', DUST)])).rejects.toBeInstanceOf(ClaimBelowFloorError);
+    expect(await consumeRows()).toHaveLength(0);
+  });
+
+  it('refuses the per-note fallback for a note below the floor', async () => {
+    await expect(
+      initiateConsumeTransaction(ACCOUNT, note('dust', DUST), false, false, 'auto_consume', undefined, BASE_FEE)
+    ).rejects.toBeInstanceOf(ClaimBelowFloorError);
+    expect(await consumeRows()).toHaveLength(0);
+  });
+
+  it('refuses an auto-consume while the fee is unknown', async () => {
+    await expect(
+      initiateConsumeTransaction(ACCOUNT, note('big', BIG), false, false, 'auto_consume')
+    ).rejects.toBeInstanceOf(ClaimBelowFloorError);
+    expect(await consumeRows()).toHaveLength(0);
+  });
+
+  it('applies a fee that the chain reports after the caller measured its batch', async () => {
+    mockVerificationBaseFee.mockResolvedValue(BASE_FEE);
+
+    await expect(autoConsume([note('dust', DUST)], 0)).rejects.toBeInstanceOf(ClaimBelowFloorError);
+    expect(await consumeRows()).toHaveLength(0);
+  });
+
+  it('queues every note on a chain that charges no fee', async () => {
+    await autoConsume([note('dust', DUST)], 0);
+
+    expect((await queuedRows()).map(row => row.noteIds)).toEqual([['dust']]);
+  });
+
+  it('queues a dust note alone for a user claim', async () => {
+    await backingOff('big', BIG);
+
+    await queueConsumeNotes(ACCOUNT, [note('dust', DUST)], false, true, undefined, undefined, 'claim');
+
+    expect((await queuedRows()).map(row => row.noteIds)).toEqual([['dust']]);
   });
 });
 

@@ -3,6 +3,8 @@ import { parseQuoteFromPath } from '@epoch-protocol/epoch-commons-sdk';
 import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Endpoint, NoteId, RpcClient } from '@miden-sdk/miden-sdk';
+import { createHmac, randomBytes } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 
 import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
 import { isRecord } from '../../../src/lib/update/guards';
@@ -62,6 +64,37 @@ import { fetchMainnetOneClickUsdPrices } from './mainnet-one-click-prices';
 import { exportPublicInputNote } from './swap';
 import { BRIDGE_DEPOSIT_LAYER } from './send-flow-scripts';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
+
+let epochReturnDiagnosticKey: Buffer | undefined;
+
+async function withEpochReturnStage<T>(
+  stage: 'provider-note-readiness' | 'wallet-sync' | 'note-import' | 'note-inspection',
+  checkpointPath: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    try {
+      const message =
+        error instanceof Error ? error.message : typeof error === 'string' ? error : 'non-error rejection';
+      // An unretained process key prevents guessing low-entropy secrets from public fingerprints.
+      epochReturnDiagnosticKey ??= randomBytes(32);
+      writeFileSync(
+        `${checkpointPath}.return-readiness-failure.json`,
+        JSON.stringify({
+          stage,
+          observedAt: new Date().toISOString(),
+          errorSha256: createHmac('sha256', epochReturnDiagnosticKey).update(message).digest('hex')
+        }) + '\n',
+        { mode: 0o600 }
+      );
+    } catch {
+      // Diagnostic I/O must never replace the original claim failure.
+    }
+    throw error;
+  }
+}
 
 async function assertEpochOriginalPortfolio(
   wallet: GuardianAwareWalletPage,
@@ -680,37 +713,52 @@ async function settleEpochReturn(
     saveMainnetEpochCheckpoint(path, state);
   };
   const provider = epochReadOnlyProvider(state.allocatorUrl, state.evm.chainId, account);
-  let noteId: string | undefined;
-  await expect
-    .poll(
-      async () => {
-        if (signal.aborted) throw new Error('Epoch return aborted');
-        const status = await provider.sdk.getIntentStatus(provider.config, account, state.reverseNonce ?? '');
-        if (!Array.isArray(status)) throw new Error('Invalid Epoch return status');
-        const ids = new Set(
-          status
-            .filter(leg => leg.chainId === state.virtualChainId && ['success', 'completed'].includes(leg.status))
-            .map(leg => Reflect.get(leg, 'midenNoteId'))
-            .filter((id): id is string => typeof id === 'string' && isHash(id))
-        );
-        if (ids.size > 1) throw new Error('Ambiguous provider-correlated Epoch return notes');
-        noteId = [...ids][0];
-        return !!noteId;
-      },
-      { timeout: 300_000, intervals: [5000, 10000, 15000] }
-    )
-    .toBe(true);
-  if (!noteId || !isHash(noteId)) throw new Error('Missing exact Epoch return note');
-  await wallet.triggerSync(true);
-  const file = await exportPublicInputNote(wallet, noteId);
-  const bytes = Buffer.from(file, 'hex');
-  const amount = inspectEpochReturnNote(state, noteId, bytes);
   const rpc = new RpcClient(new Endpoint(getEnvironmentConfig().rpcUrl));
-  const notes = await withRpcTimeout(() => rpc.getNotesById([NoteId.fromHex(noteId ?? '')]), 'Epoch return inclusion', {
-    retries: 0
-  });
-  if (notes.length !== 1 || notes[0]?.noteId.toString() !== noteId)
-    throw new Error('Epoch return note is not recorded on the live chain');
+  let discoveredNoteId: string | undefined;
+  await withEpochReturnStage('provider-note-readiness', path, () =>
+    expect
+      .poll(
+        async () => {
+          if (signal.aborted) throw new Error('Epoch return aborted');
+          const status = await provider.sdk.getIntentStatus(provider.config, account, state.reverseNonce ?? '');
+          if (!Array.isArray(status)) throw new Error('Invalid Epoch return status');
+          const ids = new Set(
+            status
+              .filter(leg => leg.chainId === state.virtualChainId && ['success', 'completed'].includes(leg.status))
+              .map(leg => Reflect.get(leg, 'midenNoteId'))
+              .filter((id): id is string => typeof id === 'string' && isHash(id))
+          );
+          if (ids.size > 1) throw new Error('Ambiguous provider-correlated Epoch return notes');
+          const candidate = [...ids][0];
+          if (!candidate) return false;
+          if (discoveredNoteId && candidate !== discoveredNoteId)
+            throw new Error('Epoch return note identity changed while awaiting inclusion');
+          discoveredNoteId = candidate;
+          // Provider success can precede public RPC visibility; import only after the exact note is readable.
+          const notes = await withRpcTimeout(
+            () => rpc.getNotesById([NoteId.fromHex(candidate)]),
+            'Epoch return inclusion',
+            {
+              retries: 0
+            }
+          );
+          if (!notes.length) return false;
+          if (notes.length !== 1 || notes[0]?.noteId.toString() !== candidate)
+            throw new Error('Epoch return note is not recorded on the live chain');
+          return true;
+        },
+        { timeout: 300_000, intervals: [5000, 10000, 15000] }
+      )
+      .toBe(true)
+  );
+  const noteId = discoveredNoteId;
+  if (!noteId || !isHash(noteId)) throw new Error('Missing exact Epoch return note');
+  await withEpochReturnStage('wallet-sync', path, () => wallet.triggerSync(true));
+  const file = await withEpochReturnStage('note-import', path, () => exportPublicInputNote(wallet, noteId));
+  const bytes = Buffer.from(file, 'hex');
+  const amount = await withEpochReturnStage('note-inspection', path, async () =>
+    inspectEpochReturnNote(state, noteId, bytes)
+  );
   state.returnNoteId = noteId;
   await persist();
   const consume = await armMainnetConsumeAuthorization(wallet.page, {

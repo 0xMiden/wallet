@@ -20,6 +20,7 @@ import {
   MultisigService,
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
   ProposalChainSyncError,
+  type AbandonTicket,
   type ProposalSyncPhase
 } from 'lib/miden/guardian';
 import {
@@ -64,6 +65,7 @@ import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import {
+  cacheScope,
   getNativeAssetId,
   isVerificationBaseFeeKnownAbsent,
   refreshVerificationBaseFee
@@ -116,7 +118,7 @@ import {
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwapTransaction,
-  landedSwapOrderId,
+  landedSwapOrder,
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction
 } from './complete';
@@ -138,6 +140,7 @@ import { getAllUncompletedTransactions, getTransactionsInProgress } from './get'
 import {
   type AttemptContext,
   claimBridgeSubmit,
+  completedSwapFields,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   landedTransactionIdFields,
@@ -152,6 +155,7 @@ import {
   recordSubmitCrossing,
   setTransactionStage,
   stampPostSubmitStage,
+  swapOrderExpiresAt,
   updateTransactionStatus
 } from './helper';
 import { assertProposalEffectApproved } from './proposal-effect-guard';
@@ -166,7 +170,7 @@ import {
 } from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
-import { TERMINAL_STATUS_WRITE_ATTEMPTS, TERMINAL_STATUS_WRITE_BACKOFF_MS } from './terminal-write';
+import { writeCommittedCompleted } from './terminal-write';
 import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
@@ -184,6 +188,7 @@ import {
   IConsumeGcPurchaseExtraInputs,
   IRequeueStreak,
   IRequeueStreakArm,
+  type ISwapLandedOrder,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -214,6 +219,8 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  retireWasmClientForCaughtTrap,
+  retireWasmClientForUnheldTrap,
   type WasmClientLockOptions,
   type WasmLockHold,
   withWasmClientLock,
@@ -236,6 +243,7 @@ import {
   isStaleInitialCommitmentError,
   isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
+  landedOrderFacts,
   someInCauseChain,
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
@@ -1185,35 +1193,63 @@ const landedRowFields = (tx: ITransaction, error: unknown) => {
   return { ...landedValueRowFields(tx, landed.privateOutputNotes), ...landedTransactionIdFields(landed) };
 };
 
-/** What a landed failure says about its transaction: the facts an apply-after-submit error carried, or a tail's id. */
+/**
+ * What a landed failure says about its transaction: the facts an apply-after-submit error carried, or a tail's id and
+ * order, in the form `extractLanded` gives the other source's.
+ */
 const landedFactsOf = (error: unknown): LandedWithoutResult => {
   const tail = landedTailErrorIn(error);
-  return tail === undefined ? extractLanded(error) : landedTransactionIdFields(tail);
+  if (tail === undefined) return extractLanded(error);
+  return {
+    ...landedTransactionIdFields({ transactionId: tail.transactionId }),
+    ...landedOrderFacts(tail.orderId, tail.orderNoteId)
+  };
 };
 
 /**
  * Stamp a landed row's transaction id before a result-awaiting arm fails it (#1233), so its receipt
- * still names the transaction. Guard-free like `markMayHaveSubmitted`: the cancel that follows is
- * what makes the row terminal. A failed write is logged, never thrown: the store that just failed the
- * apply can fail this one too, and the cancel is what releases the awaiting caller.
+ * still names the transaction, and hold a swap's order beside it. Guard-free like `markMayHaveSubmitted`:
+ * the cancel that follows is what makes the row terminal, and a Cancel or the reaper that finalizes the
+ * row before its Completed write lands still leaves both. Each fact is recorded without the other, since
+ * they are separate reads. A failed write is logged, never thrown: the store that just failed the apply
+ * can fail this one too, and the cancel is what releases the awaiting caller.
  */
-const recordLandedTransactionId = async (txId: string, error: unknown): Promise<void> => {
-  const { transactionId } = landedFactsOf(error);
-  if (transactionId === undefined) return;
+const recordLandedFacts = async (txId: string, error: unknown): Promise<void> => {
+  const { transactionId, orderId, orderNoteId } = landedFactsOf(error);
+  if (transactionId === undefined && orderId === undefined) return;
+  const landedAt = Math.floor(Date.now() / 1000); // seconds
   try {
     await Repo.transactions.where({ id: txId }).modify(row => {
-      row.transactionId = transactionId;
+      // A row that already holds its own order keeps it: the completion that stamped it read the result.
+      const recordsOrder =
+        orderId !== undefined &&
+        row.type === 'swap' &&
+        row.status !== ITransactionStatus.Completed &&
+        row.extraInputs?.orderId == null;
+      if (transactionId === undefined && !recordsOrder) return false;
+      if (transactionId !== undefined) row.transactionId = transactionId;
+      if (recordsOrder) {
+        const landedOrder: ISwapLandedOrder = {
+          orderId,
+          expiresAt: swapOrderExpiresAt(row.extraInputs, landedAt),
+          ...(orderNoteId === undefined ? {} : { noteId: orderNoteId })
+        };
+        row.extraInputs = { ...row.extraInputs, landedOrder };
+      }
+      return undefined;
     });
   } catch (recordError) {
-    console.warn('Could not record the landed transaction id', { txId, recordError });
+    console.warn('Could not record the landed facts', { txId, recordError });
   }
 };
 
 /**
  * Run a landed row's post-submit tail under `retiringLandedTraps`, and reject with `LandedTailError` for whatever leaves
  * it: the leaf resolved, so the catches record the row as landed instead of failing it, and Retry cannot submit it again
- * (PR #2183). A structural row's tail is left as it is. It settles on the node's verdict itself (a discard fails it, a
- * rotation with no verdict never completes, nothing finalizes after an eviction), and its row offers no Retry.
+ * (PR #2183). A structural row's tail is left as it is once it holds its id. It settles on the node's verdict itself (a
+ * discard fails it, a rotation with no verdict never completes, nothing finalizes after an eviction), and its row offers
+ * no Retry. Its id read comes before any verdict, so that read's failure leaves the tail as `LandedTailError`
+ * (`readTailTransactionId`). A value row's tail reads no id of its own.
  */
 const runLandedTail = async (
   transaction: Pick<ITransaction, 'id' | 'type'>,
@@ -1229,7 +1265,7 @@ const runLandedTail = async (
   } catch (error) {
     throw new LandedTailError(error, {
       transactionId: readLandedTransactionId(transaction.id, result),
-      ...(transaction.type === 'swap' ? { orderId: landedSwapOrderId(transaction.id, result) } : {})
+      ...(transaction.type === 'swap' ? landedSwapOrder(transaction.id, result) : {})
     });
   }
 };
@@ -1260,42 +1296,23 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
  * Write a landed row's Completed verdict from the row as stored, retried as a committed rotation's terminal write is:
  * an IndexedDB abort under contention recurs at once and then clears, and a row left in progress is reaped into Failed,
  * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
- * recorded is kept and a row another writer finalized is left alone. Returns the row as read before the write that
- * landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
+ * recorded and the order the landed record held are kept, and a row another writer finalized is left alone. The
+ * failure's own order facts stand in for a landed record that did not commit. Returns the row as read before the
+ * write that landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
  */
-const writeLandedCompleted = async (txId: string, error: unknown): Promise<ITransaction | undefined> => {
-  for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
-    try {
-      const row = await Repo.transactions.where({ id: txId }).first();
-      if (row === undefined || hasLeftQueue(row)) return undefined;
+const writeLandedCompleted = (txId: string, error: unknown): Promise<ITransaction | undefined> =>
+  writeCommittedCompleted(
+    txId,
+    row => {
       const completedAt = Math.floor(Date.now() / 1000); // seconds
-      const orderId = landedTailErrorIn(error)?.orderId;
-      await updateTransactionStatus(txId, ITransactionStatus.Completed, {
+      return {
         ...landedRowFields(row, error),
         completedAt,
-        ...(row.type === 'swap'
-          ? {
-              extraInputs: {
-                ...row.extraInputs,
-                expiresAt: completedAt + (row.extraInputs.expirySeconds ?? 120),
-                ...(orderId === undefined ? {} : { orderId })
-              }
-            }
-          : {})
-      });
-      return row;
-    } catch (writeError) {
-      console.warn(
-        `Could not record the landed row Completed (attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
-        writeError
-      );
-      if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
-        await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
-      }
-    }
-  }
-  return undefined;
-};
+        ...(row.type === 'swap' ? completedSwapFields(row, completedAt, landedFactsOf(error)) : {})
+      };
+    },
+    'landed'
+  );
 
 /** What a landed arm's log says failed: the leaf's local apply, or a step of the tail after it. */
 const landedFailureText = (error: unknown): string =>
@@ -1312,6 +1329,21 @@ const readLandedTransactionId = (landing: string, result: TransactionResult): st
     // No lock sees this trap: the read runs past submit, outside any hold.
     retireLandedTrap(error, landing, result);
     return undefined;
+  }
+};
+
+/**
+ * The executed transaction's id a structural row's tail asks the node about, read before its commit wait. A read that
+ * throws leaves the tail before any node verdict: the trap is retired once under the row and the read rejects as
+ * `LandedTailError` with no id, which the Guardian catch settles through the structural landed reconcile.
+ */
+const readTailTransactionId = (transaction: Pick<ITransaction, 'id'>, result: TransactionResult): string => {
+  try {
+    return result.executedTransaction().id().toHex();
+  } catch (error) {
+    // No lock sees this trap: the read runs past submit, outside any hold.
+    retireLandedTrap(error, transaction.id, result);
+    throw new LandedTailError(error);
   }
 };
 
@@ -1343,6 +1375,9 @@ const readLandedTransactionId = (landing: string, result: TransactionResult): st
  *   retry instead (#1317), then rethrows that error so the caller fails the row on
  *   the node's verdict. Any other rejection is rethrown without the abandon.
  * `landed` is what the failure said about the write: the id the receipt shows (#1233).
+ * Reached from either landed shape (`settleLandedStructuralRow`). After a tail's failed id read the apply had
+ *   succeeded, but with no id a rotation or threshold update is refused before any completion, and a switch only
+ *   reads the local copy before it completes unconfirmed.
  */
 async function reconcileStructuralApplyFailure(
   tx: ITransaction,
@@ -1361,11 +1396,16 @@ async function reconcileStructuralApplyFailure(
     await requireLandedCommit(tx, guardianProvider, landed);
     // `completeUpdateProcedureThresholdTransaction` minus the fields only a TransactionResult
     // carries, and minus its re-register: the local store still holds the pre-update account.
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...landedTransactionIdFields(landed),
-      displayMessage: 'Account secured',
-      completedAt: Math.floor(Date.now() / 1000) // seconds
-    });
+    // Retried, never thrown: the node confirmed the update, so a failed write must not reach the cancel.
+    await writeCommittedCompleted(
+      tx.id,
+      {
+        ...landedTransactionIdFields(landed),
+        displayMessage: 'Account secured',
+        completedAt: Math.floor(Date.now() / 1000) // seconds
+      },
+      'procedure threshold update'
+    );
     return;
   }
   // A switch that ran the DIRECT fallback (old guardian unreachable) can't
@@ -1426,10 +1466,18 @@ async function reconcileStructuralApplyFailure(
     // The outgoing guardian may hold the executed delta for a nonce the chain will never see, and a
     // later switch meets that candidate as a 409. Not gated on `switchDeltaPushed`: a silent push can
     // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
-    const nonce = (tx as SwitchGuardianTransaction).extraInputs?.switchProposalNonce;
+    const switchInputs = (tx as SwitchGuardianTransaction).extraInputs;
+    const nonce = switchInputs?.switchProposalNonce;
+    const proposalId = switchInputs?.switchProposalId;
     if (isGuardianSwitchDiscardedError(error) && typeof nonce === 'number') {
-      if (service) await abandonDiscardedCandidate(tx.accountId, service, nonce);
-      else flagCandidateForAbandon(tx.accountId, nonce);
+      if (service) {
+        await abandonDiscardedCandidate(
+          tx.accountId,
+          service,
+          nonce,
+          typeof proposalId === 'string' ? proposalId : undefined
+        );
+      } else flagCandidateForAbandon(tx.accountId, nonce);
     }
     throw error;
   }
@@ -1636,20 +1684,46 @@ const requireBridgeSubmitClaim = async (transaction: ITransaction): Promise<void
 };
 
 /**
+ * The status verdict for a structural row whose submit already resolved, from either landed shape: its local apply
+ * failed, or its tail's id read did. The reconcile runs the finalization the happy path would; when it rejects, a
+ * rotation or threshold update fails on the reconcile's verdict error, and a switch only on the node's discard, as the
+ * direct path's discard does (#1233).
+ */
+const settleLandedStructuralRow = async (
+  transaction: Transaction,
+  guardianProvider: GuardianAccountProvider,
+  error: unknown
+): Promise<void> => {
+  try {
+    await reconcileStructuralApplyFailure(transaction, guardianProvider, landedFactsOf(error));
+  } catch (reconcileError) {
+    console.error(`Structural-op landed reconcile failed; cancelling (${landedFailureText(error)})`, reconcileError);
+    await cancelTransactionAfterPipelineStopped(
+      transaction,
+      transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
+        ? reconcileError
+        : landedFailureOf(error),
+      transaction.attemptId
+    );
+  }
+};
+
+/**
  * The only status verdict for a non-structural row whose submit already resolved, shared by the Guardian catch and
- * the loop catch: its local apply failed, or its post-submit tail threw. The landed id is stamped before the row is
- * read, and that stamp is not gated on the row still being queued, so a Cancel or the reaper that finalized it during
- * the tail still leaves the id on the receipt. A missing row and a stored structural row stop after the stamp. A
- * result-awaiting row (an earn deposit, or an Epoch bridged-send) records its collateral note and is failed, so the
- * caller waiting on `resultBytes` stops; one that has already left the queue is not failed again. Every other stored
- * row is Completed. `attemptId` is the attempt the catch picked the row with, which is what the cancel compares.
+ * the loop catch: its local apply failed, or its post-submit tail threw. The landed id and a swap's order are
+ * recorded before the row is read, and that record is not gated on the row still being queued, so a Cancel or the
+ * reaper that finalized it during the tail still leaves the id on the receipt and the order on the row. A missing row
+ * and a stored structural row stop after the record. A result-awaiting row (an earn deposit, or an Epoch
+ * bridged-send) records its collateral note and is failed, so the caller waiting on `resultBytes` stops; one that has
+ * already left the queue is not failed again. Every other stored row is Completed. `attemptId` is the attempt the
+ * catch picked the row with, which is what the cancel compares.
  */
 const settleLandedValueRow = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
-  await recordLandedTransactionId(txId, error);
+  await recordLandedFacts(txId, error);
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (tx === undefined) return;
-  // A structural tail is left to the node's verdict, and an apply-after-submit on one is reconciled by the Guardian
-  // catch before it reaches here. A stored structural row has no status write on this path.
+  // The Guardian catch settles both landed shapes of a structural row before they reach here
+  // (`settleLandedStructuralRow`). A stored structural row has no status write on this path.
   if (STRUCTURAL_GUARDIAN_TYPES.includes(tx.type)) return;
   if (isResultAwaitingRow(tx)) {
     console.warn(
@@ -1767,7 +1841,11 @@ const generateTransactionWithProvider = async (
       // and requeue arm below, each of which would requeue or fail a write the node already holds, and never reaches
       // them.
       if (isLandedTailError(error)) {
-        await settleLandedValueRow(transaction.id, error, transaction.attemptId);
+        if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
+          await settleLandedStructuralRow(transaction, guardianProvider, error);
+        } else {
+          await settleLandedValueRow(transaction.id, error, transaction.attemptId);
+        }
         return;
       }
       // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
@@ -1781,24 +1859,10 @@ const generateTransactionWithProvider = async (
       // error, so a canonicalization refusal here was raised before submit and must take the non-landed arms below.
       // A structural op never ran its completion handler, so the vault hot pointer, the guardian registration or the
       // cached threshold map is un-reconciled. Cancelling would strand the account. Run the finalization the happy
-      // path would, minus a threshold update's re-register (the local store still holds the pre-update account). Its
-      // tail never throws `LandedTailError` (`runLandedTail`), so only the apply-after-submit error reaches this arm.
+      // path would, minus a threshold update's re-register (the local store still holds the pre-update account).
       if (isApplyAfterSubmitError(error)) {
         if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
-          try {
-            await reconcileStructuralApplyFailure(transaction, guardianProvider, landedFactsOf(error));
-          } catch (reconcileError) {
-            console.error('Structural-op landed reconcile failed; cancelling (apply-after-submit)', reconcileError);
-            // A rotation or threshold update fails on the reconcile's verdict error; a switch only on the
-            // node's discard, as the direct path's discard does (#1233).
-            await cancelTransactionAfterPipelineStopped(
-              transaction,
-              transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
-                ? reconcileError
-                : error,
-              transaction.attemptId
-            );
-          }
+          await settleLandedStructuralRow(transaction, guardianProvider, error);
           return;
         }
         await settleLandedValueRow(transaction.id, error, transaction.attemptId);
@@ -2913,7 +2977,8 @@ const runGuardianPipeline = async (
       apply: () => submittedTx.apply(),
       result: executedTx.result,
       readLocalAccount: accountId => midenClient.client.accounts.get(accountId),
-      holdIsCurrent: () => getCurrentWasmLockHold() === hold
+      holdIsCurrent: () => getCurrentWasmLockHold() === hold,
+      retireTrap: cause => retireWasmClientForCaughtTrap(hold, cause)
     });
     return executedTx.result;
   };
@@ -3057,10 +3122,24 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
  * releases the account and serves the post-switch state, which the landed reconcile and the
  * background self-heal adopt from. Best-effort and deadline-bounded like the other outgoing-guardian
  * cleanups: a guardian that is down, or already holds a pending delta, must not cost the switch.
- * True only when the push landed inside its deadline.
+ * The outcome is recorded in memory, as the direct path marks `switchedDirectly`, and completion
+ * persists it with the row's extraInputs: the reconcile adopts only from a guardian that took the
+ * delta inside its deadline, the self-heal re-pushes one that did not, and a discard abandons the
+ * proposal's nonce.
  */
-const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, proposalId: string): Promise<boolean> =>
-  (await service.pushSwitchDeltaBounded(proposalId)) === 'pushed';
+const pushSwitchDeltaToOutgoingGuardian = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal
+): Promise<void> => {
+  const switchDeltaPushed = (await service.pushSwitchDeltaBounded(proposal.id)) === 'pushed';
+  transaction.extraInputs = {
+    ...transaction.extraInputs,
+    switchDeltaPushed,
+    switchProposalId: proposal.id,
+    switchProposalNonce: proposal.nonce
+  };
+};
 
 /**
  * Abandon the candidate a discarded structural write left on its guardian (#1233), deadline-bounded and
@@ -3070,10 +3149,15 @@ const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, propo
  * The record is there to flag: every caller reaches this after the submit resolved, and `recordLeftCandidate`
  * wrote it, with its proposal's stamps, earlier in the same call stack.
  */
-const abandonDiscardedCandidate = async (accountId: string, service: MultisigService, nonce: number): Promise<void> => {
+const abandonDiscardedCandidate = async (
+  accountId: string,
+  service: MultisigService,
+  nonce: number,
+  proposalId: string | undefined
+): Promise<void> => {
   try {
     await withOutgoingGuardianDeadline(
-      () => service.abandonCandidate(nonce),
+      () => service.abandonCandidate(nonce, proposalId),
       'abandoning the discarded candidate on its guardian'
     );
   } catch (abandonError) {
@@ -3125,13 +3209,19 @@ const requireLandedCommit = async (
     throw new Error(`Guardian ${tx.type} ${id} was submitted, but the node has not confirmed it; not completing it.`);
   }
   const nonce = tx.extraInputs?.proposalNonce;
+  const proposalId = tx.extraInputs?.proposalId;
   if (typeof nonce === 'number') {
     try {
       const service = await withOutgoingGuardianDeadline(
         () => buildColdServiceForAccount(tx.accountId, guardianProvider),
         'loading the cold service to abandon a discarded candidate'
       );
-      await abandonDiscardedCandidate(tx.accountId, service, nonce);
+      await abandonDiscardedCandidate(
+        tx.accountId,
+        service,
+        nonce,
+        typeof proposalId === 'string' ? proposalId : undefined
+      );
     } catch (buildError) {
       console.warn(
         `[Guardian] could not build the cold service to abandon the discarded candidate at nonce ${nonce}:`,
@@ -3166,7 +3256,7 @@ const pollLandedCommit = async (
 
 /**
  * The commit wait of a coordinated structural write, settled on the node's verdict (#1233). `service`'s
- * guardian holds a candidate for `nonce` by now: the switch's pushed delta, or the co-sign's for a
+ * guardian holds a candidate for `proposal` by now: the switch's pushed delta, or the co-sign's for a
  * rotation or a threshold update.
  *
  * A wait that fails without the node's own discard asks the node once. Committed: return, and the
@@ -3179,7 +3269,7 @@ const pollLandedCommit = async (
 const waitForStructuralCommit = async (
   id: string,
   service: MultisigService,
-  nonce: number,
+  proposal: Pick<Proposal, 'id' | 'nonce'>,
   type: ITransactionType,
   accountId: string
 ): Promise<void> => {
@@ -3197,7 +3287,7 @@ const waitForStructuralCommit = async (
       return;
     }
     if (landed === undefined) throw waitError;
-    await abandonDiscardedCandidate(accountId, service, nonce);
+    await abandonDiscardedCandidate(accountId, service, proposal.nonce, proposal.id);
     throw new GuardianWriteDiscardedError(`Guardian ${type} ${id} did not land: the node discarded it.`, {
       cause: waitError
     });
@@ -3380,7 +3470,7 @@ const generateDirectSwitchGuardianTransaction = async (
     // asks about the TRANSACTION, not the account: `apply()` has already written
     // the rotation into the local store, so an account read here would only ever
     // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
-    const id = result.executedTransaction().id().toHex();
+    const id = readTailTransactionId(transaction, result);
     const discardedMessage =
       `Direct guardian switch ${id} did not land: the node discarded it. ` +
       'Leaving the stored guardian endpoint untouched.';
@@ -3545,6 +3635,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
   const plain: GuardianCandidate = {
     endpoint: prior.endpoint,
     nonce: prior.nonce,
+    ...(prior.proposalId === undefined ? {} : { proposalId: prior.proposalId }),
     proposedAt: prior.proposedAt,
     proposedAtMono: prior.proposedAtMono
   };
@@ -3555,7 +3646,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
   }
   try {
     await withTimeout(
-      service.abandonCandidate(prior.nonce),
+      service.abandonCandidate(prior.nonce, prior.proposalId),
       PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
       'retrying the abandon of a failed write on its guardian'
     );
@@ -3605,6 +3696,7 @@ const recordLeftCandidate = (
   recordGuardianCandidate(canonicalWalletAccountId(transaction.accountId), {
     endpoint: service.guardianEndpoint,
     nonce: proposal.nonce,
+    proposalId: proposal.id,
     ...proposalStamps,
     ...(attemptId === undefined ? {} : { attemptId })
   });
@@ -3625,6 +3717,7 @@ const persistGuardianCandidate = async (
   const candidate = {
     endpoint: service.guardianEndpoint,
     nonce: proposal.nonce,
+    proposalId: proposal.id,
     proposedAt: proposalStamps.proposedAt,
     attemptId
   };
@@ -3662,12 +3755,13 @@ const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number
 const recordUnabandonedCandidate = (
   accountId: string,
   service: MultisigService,
-  nonce: number,
+  proposal: Pick<Proposal, 'id' | 'nonce'>,
   proposalStamps: ProposalStamps
 ): void =>
   recordGuardianCandidate(canonicalWalletAccountId(accountId), {
     endpoint: service.guardianEndpoint,
-    nonce,
+    nonce: proposal.nonce,
+    proposalId: proposal.id,
     ...proposalStamps,
     abandon: true
   });
@@ -3693,12 +3787,12 @@ const assertProposalEffectBeforeSigning = async (
       // later process's startup sweep must not send it again.
       await forgetPersistedCandidate(transaction, proposal.nonce);
       await withOutgoingGuardianDeadline(
-        () => service.abandonCandidate(proposal.nonce),
+        () => service.abandonCandidate(proposal.nonce, proposal.id),
         'abandoning a guardian candidate whose effect was refused'
       );
     } catch (abandonError) {
       console.error('Failed to abandon a refused Guardian candidate', { nonce: proposal.nonce, error: abandonError });
-      recordUnabandonedCandidate(transaction.accountId, service, proposal.nonce, proposalStamps);
+      recordUnabandonedCandidate(transaction.accountId, service, proposal, proposalStamps);
     }
     throw error;
   }
@@ -3769,9 +3863,10 @@ export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvid
       // keep leaves the candidate on another Guardian than the one this service reaches.
       const record = releasable(accountId, nonce, attemptId);
       if (record === undefined || !sameGuardianEndpoint(record.endpoint, service.guardianEndpoint)) return undefined;
+      let ticket: AbandonTicket;
       try {
-        await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(nonce),
+        ticket = await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(nonce, record.proposalId),
           'abandoning a kept candidate on its guardian'
         );
       } catch (abandonError) {
@@ -3786,7 +3881,7 @@ export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvid
       return {
         status: timeoutMs =>
           withTimeout(
-            service.abandonStatus(nonce),
+            service.abandonStatus(nonce, ticket),
             Math.min(timeoutMs, OUTGOING_GUARDIAN_DEADLINE_MS),
             'reading the release of a kept candidate'
           )
@@ -4341,10 +4436,13 @@ const generateGuardianTransaction = async (
       // fee, so a note within FEE_RESERVE_MULTIPLE of that fee is the fee. Read it before the dry run, and so before
       // a proposal takes a nonce. A null while the read failed is not an answer: refuse here, outside the
       // post-proposal try, so nothing is proposed and no nonce is abandoned. A number, 0 included, and a null the
-      // probe found absent, both continue; both checks then read the cache this filled. The signing check still
-      // refreshes after the candidate exists, and a fresh read returns this same cache.
+      // probe found absent, both continue; both decodes refuse as an unknown fee if the cache empties or the
+      // endpoint moves after this read. The signing check still refreshes after the candidate exists, and a fresh
+      // read returns this same cache.
+      let feeScope: string | undefined;
       if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
         const chainFee = await refreshVerificationBaseFee();
+        feeScope = cacheScope();
         if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) {
           throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
         }
@@ -4374,7 +4472,8 @@ const generateGuardianTransaction = async (
           await verifyPreparedCustomRequest(
             customEffectsCheckAccess(client.client, transaction.accountId, prepared, hold),
             transaction.approvedEffects,
-            transaction.spentAssetTotals
+            transaction.spentAssetTotals,
+            feeScope
           );
           assertWasmHoldCurrent(hold, 'after the custom request effects check');
           return prepared;
@@ -4408,12 +4507,19 @@ const generateGuardianTransaction = async (
           assertCustomEffectsApproved(
             transaction.approvedEffects,
             { summaryBytes: proposalResult.txSummary },
-            transaction.spentAssetTotals
+            transaction.spentAssetTotals,
+            false,
+            feeScope
           );
         } catch (effectsError) {
+          // No hold covers this decode, so a trap retires through `retireWasmClientForUnheldTrap` and leaves the row
+          // id open for that row's later landed readers. Any other refusal is rethrown with no retire.
+          if (effectsError instanceof WebAssembly.RuntimeError) {
+            retireWasmClientForUnheldTrap(effectsError);
+          }
           try {
             await withOutgoingGuardianDeadline(
-              () => service.abandonCandidate(proposalResult.nonce),
+              () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
               'abandoning a custom proposal whose summary differs from the approved effects'
             );
           } catch (abandonError) {
@@ -4421,7 +4527,7 @@ const generateGuardianTransaction = async (
               nonce: proposalResult.nonce,
               error: abandonError
             });
-            recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+            recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
           }
           throw effectsError;
         }
@@ -4520,7 +4626,7 @@ const generateGuardianTransaction = async (
       try {
         await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(proposalResult.nonce),
+          () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
           'abandoning the pending delta on the outgoing guardian'
         );
       } catch (abandonError) {
@@ -4528,7 +4634,7 @@ const generateGuardianTransaction = async (
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+        recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
       }
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
@@ -4811,16 +4917,7 @@ const generateGuardianTransaction = async (
     // local apply then failed (#1233); never after a kill or a pre-submit failure, whose delta the
     // chain may never see.
     if (submitResolved && transaction.type === 'switch-guardian') {
-      const switchDeltaPushed = await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
-      // In memory, as the direct path marks `switchedDirectly`: completion persists them with the row's
-      // extraInputs. The reconcile adopts only from a guardian that took the delta, and the self-heal
-      // re-pushes one that did not.
-      transaction.extraInputs = {
-        ...transaction.extraInputs,
-        switchDeltaPushed,
-        switchProposalId: proposalResult.id,
-        switchProposalNonce: proposalResult.nonce
-      };
+      await pushSwitchDeltaToOutgoingGuardian(transaction, service, proposalResult);
     }
     // In memory too: the landed reconcile runs in this call stack and abandons this nonce's candidate
     // when the node discards the write.
@@ -4828,7 +4925,11 @@ const generateGuardianTransaction = async (
       submitResolved &&
       (transaction.type === 'replace-hot-key' || transaction.type === 'update-procedure-threshold')
     ) {
-      transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
+      transaction.extraInputs = {
+        ...transaction.extraInputs,
+        proposalNonce: proposalResult.nonce,
+        proposalId: proposalResult.id
+      };
     }
     // A Guardian `commitment_mismatch` refused the push before it wrote a candidate, so there is nothing to abandon.
     if (!submitResolved && !keptForVerdict && !isGuardianCommitmentMismatch(error)) {
@@ -4843,7 +4944,7 @@ const generateGuardianTransaction = async (
         // the same loop) down with it, so the row is not even reaped.
         await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(proposalResult.nonce),
+          () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
           'abandoning the guardian candidate after a failed submission'
         );
       } catch (abandonError) {
@@ -4867,7 +4968,7 @@ const generateGuardianTransaction = async (
           inlineSubmitNotReached ||
           (!offscreenDispatched && !isKilledPipeline(error) && !submitStageRecorded)
         ) {
-          recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+          recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
         }
       }
     }
@@ -4929,16 +5030,12 @@ const generateGuardianTransaction = async (
     // routing predicate.
     clearConnectivityIssue('prover');
 
-    // The tx id, re-derived from the (possibly offscreen-round-tripped) result
-    // rather than a separate handle: the offscreen pipeline returns only the
-    // serialized TransactionResult, and `executedTransaction()` survives that
-    // round-trip (slice 5b). Byte-identical to the former
-    // `submittedTransaction.id.toHex()`.
-    const id = result.executedTransaction().id().toHex();
-
     // Before the commit wait, so the outgoing guardian can canonicalize the switch as soon as the
-    // block lands (#1233).
-    if (transaction.type === 'switch-guardian') await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
+    // block lands (#1233), and before the id read, so a switch whose id cannot be read reconciles on
+    // the same facts as one whose apply failed.
+    if (transaction.type === 'switch-guardian') {
+      await pushSwitchDeltaToOutgoingGuardian(transaction, service, proposalResult);
+    }
 
     // For switch-guardian, the new guardian must be seeded with the POST-switch
     // account state. submit() returns after submission, not after inclusion, so
@@ -4957,6 +5054,11 @@ const generateGuardianTransaction = async (
       transaction.type === 'update-procedure-threshold'
     ) {
       await stampPostSubmitStage(transaction.id, 'confirming');
+      // The tx id, re-derived from the (possibly offscreen-round-tripped) result
+      // rather than a separate handle: the offscreen pipeline returns only the
+      // serialized TransactionResult, and `executedTransaction()` survives that
+      // round-trip (slice 5b). Only this wait uses it, so a value row never reads it.
+      const id = readTailTransactionId(transaction, result);
       // Route the commit-wait through the proxy so it polls the SAME client that
       // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
       // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here
@@ -4965,7 +5067,7 @@ const generateGuardianTransaction = async (
       // structural completion below (e.g. leaving replace-hot-key's chain rotation done
       // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
       // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
-      await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type, transaction.accountId);
+      await waitForStructuralCommit(id, service, proposalResult, transaction.type, transaction.accountId);
     }
 
     // Sync the cached hot service so the next consumer sees post-tx state.

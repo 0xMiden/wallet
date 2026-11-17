@@ -71,6 +71,7 @@ import {
 import { SpendingLimitAuthorization, SpendingLimitPriceUnavailableError } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import {
+  ClaimBelowFloorError,
   ClaimFeeContext,
   ClaimFeeRefusedError,
   claimFeeNotes,
@@ -86,7 +87,10 @@ import { getNoteHoldingTransactions } from './get';
 import { hotKeyRotationLockName, isLiveRotationRow } from './rotation-funding';
 import { holdsNotes } from './verdict-rules';
 
-export { ClaimFeeRefusedError } from './claim-fee';
+export { ClaimBelowFloorError, ClaimFeeRefusedError } from './claim-fee';
+
+/** A fee that the chain charges: a known, finite amount above zero. */
+const isChargedFee = (fee: number | null): fee is number => fee !== null && Number.isFinite(fee) && fee > 0;
 
 // A network-only onboarding choice uses canonical endpoints; a developer override does not prove a chain.
 const badgeNetwork = () => (hasCustomEndpointOverride(getActiveOverride()) ? undefined : getEffectiveNetworkName());
@@ -259,7 +263,10 @@ export const initiateConsumeTransaction = async (
   delegateTransaction?: boolean,
   manualRetry?: boolean,
   entryPoint?: ConsumeEntryPoint,
-  canSign?: () => boolean
+  canSign?: () => boolean,
+  // The claim floor's fee, from an auto-consumer's per-note fallback. The queue refuses an auto-consume of a note
+  // that is worth less than the floor by itself (#2192).
+  verificationBaseFee?: number | null
 ): Promise<string> => {
   return initiateConsumeNotesTransaction(
     accountId,
@@ -267,7 +274,7 @@ export const initiateConsumeTransaction = async (
     delegateTransaction,
     manualRetry,
     undefined,
-    undefined,
+    verificationBaseFee,
     entryPoint,
     canSign
   );
@@ -707,6 +714,18 @@ const queueConsumeRows = async (
       ? await readClaimFeeContext(accountId)
       : { vaultFeeAsset: null, nativeAssetId: null, verificationBaseFee: null });
 
+  // The claim floor applies to auto-consume only (#2192). A user claim always queues, and the rotation gate and swap
+  // settlement have their own rules.
+  const unattended = entryPoint === 'auto_consume' && !manualRetry;
+  // The fee this call read is newer than the caller's. Use it when it is a real fee, so a fee that the chain reports
+  // after the caller measured its batch still applies. Without it, the caller's fee applies: 0 on a chain with no
+  // fee, and null (unknown) refuses the claim.
+  const claimFloorFee = isChargedFee(context.verificationBaseFee)
+    ? context.verificationBaseFee
+    : (verificationBaseFee ?? null);
+  // For other callers an unknown fee isolates each candidate, as before.
+  const isolationFee = unattended ? claimFloorFee : (verificationBaseFee ?? 0);
+
   let outgoingPrice: bigint | SpendingLimitPriceUnavailableError | undefined;
   if (outgoing !== undefined && mayWrite && (await hasSpendingLimits(accountId))) {
     outgoingPrice = await resolveOutgoingSpendUsd(outgoing.spends);
@@ -812,7 +831,7 @@ const queueConsumeRows = async (
       // another lap of the #215 backoff. That is bounded (the backoff doubles and the
       // batch total is re-checked each pass) and strictly better than stranding real
       // value forever, whereas isolating it would pay a fee larger than it collects.
-      if (isolateNotesWithFailedBatch && failedBatchRow && isWorthClaiming(note.amount, verificationBaseFee ?? 0)) {
+      if (isolateNotesWithFailedBatch && failedBatchRow && isWorthClaiming(note.amount, isolationFee)) {
         isolate.push(note);
       } else {
         queueable.push(note);
@@ -832,14 +851,34 @@ const queueConsumeRows = async (
     if (
       isolate.length > 0 &&
       queueable.length > 0 &&
-      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), verificationBaseFee ?? 0)
+      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), isolationFee)
     ) {
       queueable.push(...isolate);
       isolate.length = 0;
     }
 
+    // Auto-consume only (#2192). The caller measured its FULL set against one fee. The
+    // loop above then removed each note that a claim covers, a dApp transaction holds or
+    // the #215 backoff parks, and the caller cannot see the backoff. The remainder is the
+    // transaction that pays the fee, so the remainder is measured here, after every filter.
+    //
+    // A remainder below the floor is not queued. Its notes stay pending until more notes
+    // arrive or the user claims them. Without this check, one dust note was claimed alone
+    // for a full fee each time a larger note of its batch was in backoff.
+    //
+    // The isolated notes need no second check: each one passed the floor by itself above.
+    if (
+      unattended &&
+      queueable.length > 0 &&
+      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), claimFloorFee)
+    ) {
+      queueable.length = 0;
+    }
+
     if (queueable.length === 0 && isolate.length === 0) {
-      return { committedId: blockingId!, coveringTxIdByNoteId, feeRefusedNoteIds: [] };
+      // No note was removed, so no row answers for these notes: the whole set is below the floor.
+      if (blockingId === null) throw new ClaimBelowFloorError();
+      return { committedId: blockingId, coveringTxIdByNoteId, feeRefusedNoteIds: [] };
     }
 
     // A cap created after the price probe needs a value before admission. Leave the lock and

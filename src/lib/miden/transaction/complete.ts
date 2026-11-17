@@ -41,12 +41,18 @@ import {
   reportVerifiedLanding,
   setTransactionStage,
   stampPostSubmitStage,
+  swapOrderExpiresAt,
   undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
 import { hotKeyActivationMessage } from './hot-key-rotation-residual';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { TERMINAL_STATUS_WRITE_ATTEMPTS, TERMINAL_STATUS_WRITE_BACKOFF_MS } from './terminal-write';
+import { orderFromSavedRequest } from './pinned-replay-check';
+import {
+  TERMINAL_STATUS_WRITE_ATTEMPTS,
+  TERMINAL_STATUS_WRITE_BACKOFF_MS,
+  writeCommittedCompleted
+} from './terminal-write';
 import { adoptBridgeDeliveries } from '../activity/bridge-in';
 import { feeFieldsFromResult } from '../activity/fee';
 import { splitLandedOutputNotes } from '../activity/fee-notes';
@@ -77,6 +83,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
+import { swapOrderOf } from '../sdk/apply-after-submit';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
@@ -447,52 +454,67 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  // The kernel's fee note is an output note of this transaction too, and the order the
-  // notes come back in is the kernel's business, not ours. Taking index 0 blind means
-  // that on a fee-charging chain the `orderId` below -- the serial number this swap is
-  // tracked by for its entire lineage -- can be read off the FEE note instead of the
-  // PSWAP note, which points settlement at a note that will never be filled.
-  const { userNotes } = splitLandedOutputNotes(result, tx.id);
-  const outputNote = userNotes[0];
-
-  if (!outputNote) {
+  // The kernel's fee note is an output note of this transaction too. The order is the unique public
+  // note whose recipient script is the PSWAP script, so an unset-aside fee note is not the order.
+  const split = splitLandedOutputNotes(result, tx.id);
+  if (split.userNotes.length === 0) {
     throw new Error('Swap Transaction Failed');
   }
-
-  // orderId for tracking the swap note through the lineage
-  const orderId = outputNote.intoFull()?.recipient().serialNum().toFelts()[1]?.asInt();
+  const fromResult = swapOrderOf(split);
+  // Read before the decode below: it waits on the WASM lock and can retire the client, so the write stores
+  // the values read here, not reads of a result whose handles may no longer answer.
+  const feeFields = feeFieldsFromResult(result, tx.id);
+  const transactionId = executedTx.id().toHex();
+  const resultBytes = result.serialize();
+  // The result named no order, so the saved request's one public PSWAP note does. Any order an earlier
+  // attempt's landing held is dropped below, so it does not stand in. Decoded before the status write;
+  // this runs past submit, outside any hold.
+  const fromRequest = fromResult === undefined ? await orderFromSavedRequest(tx.requestBytes) : undefined;
+  const order = fromResult ?? fromRequest;
 
   // TODO: track the created PSWAP note + payback note for richer activity
   // display (offered/requested asset breakdown). For now record the tx as
   // Completed with the output note ids so the swap shows up in history.
   const completedAt = Math.floor(Date.now() / 1000); // seconds
+  // An order an earlier attempt's landed failure held is not this attempt's; the result names the row's own.
+  const { landedOrder: _earlierLanding, ...extraInputs } = tx.extraInputs;
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
+    ...feeFields,
     displayMessage: 'Swapped',
-    transactionId: executedTx.id().toHex(),
-    outputNoteIds: [outputNote.id().toString()],
+    transactionId,
     completedAt,
-    resultBytes: result.serialize(),
+    resultBytes,
     // Stamp the absolute expiry so `reconcileSwapOrderNotes` can expiry-reclaim
     // the unfilled remainder of a partial fill. This is load-bearing: the
     // reconcile gate requires an explicit `expiresAt` (no fallback since the
     // "explicit expiry" review change), and an earlier hot-key-rotation commit
     // accidentally reverted this stamp - leaving `expiresAt` undefined so active
     // orders were never reclaimed (swap-partial-fill lineage stuck `active`).
-    extraInputs: { ...tx.extraInputs, orderId, expiresAt: completedAt + (tx.extraInputs.expirySeconds ?? 120) }
+    // A result that names no single public PSWAP note still completes. The saved request names the order
+    // when the row holds none; otherwise there is no order.
+    ...(order === undefined
+      ? { extraInputs }
+      : {
+          outputNoteIds: [order.orderNoteId],
+          extraInputs: {
+            ...extraInputs,
+            orderId: BigInt(order.orderId),
+            expiresAt: swapOrderExpiresAt(extraInputs, completedAt)
+          }
+        })
   });
 };
 
-/** Read the swap order id again when its tail fails, without replacing the original failure if the result traps. */
-export const landedSwapOrderId = (landing: string, result: TransactionResult): bigint | undefined => {
+/** Read the swap order again when its tail fails, without replacing the original failure if the result traps. */
+export const landedSwapOrder = (
+  landing: string,
+  result: TransactionResult
+): { orderId?: string; orderNoteId?: string } => {
   try {
-    const { userNotes } = splitLandedOutputNotes(result, landing);
-    const outputNote = userNotes[0];
-    if (!outputNote) return undefined;
-    return outputNote.intoFull()?.recipient().serialNum().toFelts()[1]?.asInt();
+    return swapOrderOf(splitLandedOutputNotes(result, landing)) ?? {};
   } catch (error) {
     retireLandedTrap(error, landing, result);
-    return undefined;
+    return {};
   }
 };
 
@@ -547,6 +569,9 @@ export const completeReplaceHotKeyTransaction = async (
   // Read once, before the swap commits the new key locally: a trap here completes without the fields instead of
   // taking the catch's Failed write for a rotation already on chain.
   const resultFields = readTransactionResultFields(result, tx.id);
+  let reRegisterFailed = false;
+  let reRegisterEvicted = false;
+  let storedAccountId = tx.accountId;
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
     if (!newHotPublicKey && !tx.extraInputs.revokedSignerCommitment) {
@@ -560,10 +585,10 @@ export const completeReplaceHotKeyTransaction = async (
     // Re-register on the guardian - REQUIRED, and it must carry the
     // POST-rotation signer set. The guardian's request-auth allowlist
     // (`auth.cosigner_commitments`) is written ONLY by `/configure`
-    // (`registerOnGuardian`); the delta pipeline canonicalizes the state blob
+    // (`configureGuardianAccount`); the delta pipeline canonicalizes the state blob
     // but never touches the allowlist, so without this push every request
     // signed by the NEW hot key 401s ("session expired") forever.
-    // `registerOnGuardian` derives the allowlist from the service's in-memory
+    // Without a fresh read the registration falls back to the service's in-memory
     // `signerCommitments`. `buildColdMultisigService` loads that field from the
     // guardian's stored blob (which can still be pre-rotation), so
     // `reRegisterCurrentStateOnGuardian` re-derives it from the freshly-synced
@@ -587,10 +612,8 @@ export const completeReplaceHotKeyTransaction = async (
     // repair it, but only after SELF_HEAL_AUTH_FAILURE_THRESHOLD consecutive
     // 401s on SYNC ticks plus a 60s cooldown - so a wallet that rotates and
     // immediately transacts stays broken for the whole of that window.
-    let reRegisterFailed = false;
     let reRegisterError: unknown;
     let reRegisterAttempts = 0;
-    let storedAccountId = tx.accountId;
     // The landed reconcile pushes nothing (#1233): the apply failed, so the local store still holds
     // the pre-rotation account and allowlist, and a push landing after canonicalization would put
     // the guardian back on them, so every hot-signed request 401s with no cold self-heal. The
@@ -639,7 +662,7 @@ export const completeReplaceHotKeyTransaction = async (
         }
       }
     }
-    const reRegisterEvicted = isPoisonedPipeline(reRegisterError);
+    reRegisterEvicted = isPoisonedPipeline(reRegisterError);
     if (reRegisterError) {
       reRegisterFailed = true;
       console.error(
@@ -652,12 +675,31 @@ export const completeReplaceHotKeyTransaction = async (
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
+    // A revocation installs no new key, so it has nothing to swap.
     if (newHotPublicKey && guardianProvider.swapHotKey)
       await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
-    // Drop the cached MultisigService - its bound hot signer is now stale.
-    clearGuardianServiceFor(storedAccountId);
+  } catch (error) {
+    retireLandedTrap(error, tx.id, result);
+    console.error('Error completing replace-hot-key transaction:', error);
+    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
+      displayMessage: 'Failed to rotate everyday key',
+      completedAt: Math.floor(Date.now() / 1000),
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return;
+  }
 
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+  // Past the swap the new key is installed and the old one deleted, so nothing below may end the row Failed.
+  // Drop the cached MultisigService - its bound hot signer is now stale.
+  try {
+    clearGuardianServiceFor(storedAccountId);
+  } catch (evictError) {
+    console.warn('Could not evict the cached guardian service (non-fatal):', evictError);
+  }
+
+  await writeCommittedCompleted(
+    tx.id,
+    {
       ...feeFieldsFromResult(result, tx.id),
       displayMessage: tx.extraInputs.revokedSignerCommitment
         ? getMessage('deviceRevoked')
@@ -670,42 +712,33 @@ export const completeReplaceHotKeyTransaction = async (
       // `result` is absent on the landed reconcile path: the rotation is already on chain, and all
       // the reconcile has is the id its failure carried (#1233).
       ...(result ? (resultFields ?? {}) : landedTransactionIdFields(landed))
-    });
+    },
+    'everyday key rotation'
+  );
 
-    // The account now has its new hot signer and the cold signer on-chain (and,
-    // after an add, the other devices' hot signers too), so bring it up to the same
-    // hardening a freshly-created 3-key account has (update_guardian threshold
-    // 2, which the update_signers rotation above can't carry). Best-effort and
-    // idempotent; never affects the rotation's success. After an eviction during
-    // re-register it is skipped rather than rebuilding the service against the
-    // node that just parked: the next guardian sync lap re-runs the check,
-    // because the swap above changed the hot key that sync's once-per-session
-    // gate is keyed on.
-    //
-    // Scoped when it does run. This call sits past the terminal status write.
-    // `ensureGuardianProcedureThresholds` re-throws a WASM client eviction, and
-    // the enclosing catch writes Failed, so an unscoped throw would flip a
-    // rotation that is already on chain and recorded Completed. The eviction is
-    // logged and the row stands.
-    if (!reRegisterEvicted) {
-      try {
-        await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
-      } catch (hardeningError) {
-        console.warn(
-          `[guardian] procedure-threshold hardening did not run after the hot-key rotation for ${tx.accountId}; ` +
-            `the rotation itself is complete and the guardian sync re-attempts the hardening:`,
-          hardeningError
-        );
-      }
+  // The account now has its new hot signer and the cold signer on-chain (and,
+  // after an add, the other devices' hot signers too), so bring it up to the same
+  // hardening a freshly-created 3-key account has (update_guardian threshold
+  // 2, which the update_signers rotation above can't carry). Best-effort and
+  // idempotent; never affects the rotation's success. After an eviction during
+  // re-register it is skipped rather than rebuilding the service against the
+  // node that just parked: the next guardian sync lap re-runs the check,
+  // because the swap above changed the hot key that sync's once-per-session
+  // gate is keyed on.
+  //
+  // Scoped when it does run: `ensureGuardianProcedureThresholds` re-throws a
+  // WASM client eviction, and the rotation is already on chain, so the eviction
+  // is logged and the row stands.
+  if (!reRegisterEvicted) {
+    try {
+      await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+    } catch (hardeningError) {
+      console.warn(
+        `[guardian] procedure-threshold hardening did not run after the hot-key rotation for ${tx.accountId}; ` +
+          `the rotation itself is complete and the guardian sync re-attempts the hardening:`,
+        hardeningError
+      );
     }
-  } catch (error) {
-    retireLandedTrap(error, tx.id, result);
-    console.error('Error completing replace-hot-key transaction:', error);
-    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-      displayMessage: 'Failed to rotate everyday key',
-      completedAt: Math.floor(Date.now() / 1000),
-      error: error instanceof Error ? error.message : String(error)
-    });
   }
 };
 
@@ -718,12 +751,16 @@ export const completeUpdateProcedureThresholdTransaction = async (
 ) => {
   // The update is on chain, so a trap reading the result completes without its fields rather than escaping.
   const resultFields = readTransactionResultFields(result, tx.id);
-  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
-    displayMessage: 'Account secured',
-    completedAt: Math.floor(Date.now() / 1000),
-    ...(resultFields ?? {})
-  });
+  await writeCommittedCompleted(
+    tx.id,
+    {
+      ...feeFieldsFromResult(result, tx.id),
+      displayMessage: 'Account secured',
+      completedAt: Math.floor(Date.now() / 1000),
+      ...(resultFields ?? {})
+    },
+    'procedure threshold update'
+  );
   // The cached service's procedureThresholds are now stale - drop it. The cache is
   // keyed canonically, so the queued id needs no account-list read first.
   clearGuardianServiceFor(tx.accountId);
@@ -846,6 +883,37 @@ export const completeSwitchGuardianTransaction = async (
   let registerFailed = false;
   let localStateNotSaved = false;
   let localStateUnrecoverable = false;
+  // The helper re-reads the stored row only for `hasLeftQueue`. The patch is this
+  // in-memory row: it alone holds `switchDeltaPushed`, `switchProposalId`,
+  // `switchProposalNonce` and a `switchedDirectly` stamp the direct path could
+  // not persist, which `switch-guardian-residual.ts` then reads off the stored row.
+  const writeGuardianSwitchCompleted = () =>
+    writeCommittedCompleted(
+      tx.id,
+      {
+        ...feeFieldsFromResult(result, tx.id),
+        // The Activity list renders this string as the row title, so it is a
+        // claim about the chain, not a log line. "Guardian switched" is one the
+        // unconfirmed path cannot make - and the receipt's recovery copy used to
+        // send the user to Activity to check, where this asserted the opposite.
+        displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
+        completedAt: Math.floor(Date.now() / 1000), // seconds
+        // Preserve the audit fields (updateTransactionStatus Object.assigns the
+        // whole extraInputs) and record which post-commit steps landed.
+        extraInputs: {
+          ...tx.extraInputs,
+          registerFailed,
+          endpointPersistFailed,
+          commitUnconfirmed,
+          localStateNotSaved,
+          localStateUnrecoverable
+        },
+        // On the landed reconcile path there is no local TransactionResult, so the row takes the id
+        // the failure carried, if any (#1233); the switch is on chain either way.
+        ...(resultFields ?? landedTransactionIdFields(landed))
+      },
+      'guardian switch'
+    );
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
     const storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
@@ -993,87 +1061,19 @@ export const completeSwitchGuardianTransaction = async (
       console.warn('Could not evict the cached guardian service (non-fatal):', evictError);
     }
 
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...feeFieldsFromResult(result, tx.id),
-      // The Activity list renders this string as the row title, so it is a
-      // claim about the chain, not a log line. "Guardian switched" is one the
-      // unconfirmed path cannot make - and the receipt's recovery copy used to
-      // send the user to Activity to check, where this asserted the opposite.
-      displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
-      completedAt: Math.floor(Date.now() / 1000), // seconds
-      // Preserve the audit fields (updateTransactionStatus Object.assigns the
-      // whole extraInputs) and record which post-commit steps landed.
-      extraInputs: {
-        ...tx.extraInputs,
-        registerFailed,
-        endpointPersistFailed,
-        commitUnconfirmed,
-        localStateNotSaved,
-        localStateUnrecoverable
-      },
-      // On the landed reconcile path there is no local TransactionResult, so the row takes the id
-      // the failure carried, if any (#1233); the switch is on chain either way.
-      ...(resultFields ?? landedTransactionIdFields(landed))
-    });
+    await writeGuardianSwitchCompleted();
   } catch (error) {
     // Past the commit, Failed is not an honest terminal status: the rotation IS
     // on chain. Every step above records its own outcome instead of throwing, so
-    // reaching here means the status write itself failed - and answering that by
-    // writing the OPPOSITE status would tell the user their rotation failed when
-    // it succeeded, with no Retry available (`switch-guardian` is in no requeue
-    // set). Retry the honest status instead, and leave the row alone if even
-    // that fails: the transaction page's own reaper is a better fallback than a
-    // lie.
-    //
-    // The retry carries the SAME payload as the primary write. An earlier
-    // version dropped `resultFields` here "in case those were the problem",
-    // which stopped being possible once the handle reads were hoisted above the
-    // try - `resultFields` is inert plain data by this point, so omitting it
-    // only cost the row its on-chain transaction id and the receipt's explorer
-    // link.
-    //
-    // RETRIED MORE THAN ONCE, and spaced. A single retry made the honest status
-    // depend on two consecutive IndexedDB writes, and the reachable cause of the
-    // first failure - a transaction abort under contention, a storage hiccup - is
-    // exactly the kind that recurs immediately and then clears. What happens if
-    // both fail is not "the row is left alone": it stays at
-    // `GeneratingTransaction`, and `cancelStuckTransactions` reaps an in-progress
-    // row into FAILED, so the fallback IS the lie this block refuses to write,
-    // just delivered later and with a generic reason. Spacing the attempts costs
-    // nothing on the happy path (it is only reached when a write has already
-    // failed) and removes the single-retry coincidence.
+    // reaching here means something unexpected threw before the Completed write.
+    // That write is `writeCommittedCompleted`, which re-reads each attempt,
+    // returns once the row has left the queue, and never rejects, so a failed
+    // attempt stays inside the helper. The fallback carries the same patch.
     //
     // Except the node's discard (#1233): that switch did not happen, so its caller fails the row.
     if (isGuardianSwitchDiscardedError(error)) throw error;
     console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
-    const completedPayload = {
-      displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
-      completedAt: Math.floor(Date.now() / 1000), // seconds
-      extraInputs: {
-        ...tx.extraInputs,
-        registerFailed,
-        endpointPersistFailed,
-        commitUnconfirmed,
-        localStateNotSaved,
-        localStateUnrecoverable
-      },
-      ...(resultFields ?? landedTransactionIdFields(landed))
-    };
-    for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
-      try {
-        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, completedPayload);
-        return;
-      } catch (retryError) {
-        console.error(
-          `Could not record the completed status for the guardian switch row ` +
-            `(attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
-          retryError
-        );
-        if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
-          await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
-        }
-      }
-    }
+    await writeGuardianSwitchCompleted();
   }
 };
 

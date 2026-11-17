@@ -182,7 +182,8 @@ const Explore: FC = () => {
               isDelegatedProvingEnabled,
               false,
               'auto_consume',
-              isWalletReadyNow
+              isWalletReadyNow,
+              claimFloorBaseFee
             );
           } catch (noteErr) {
             if (noteErr instanceof ClaimFeeRefusedError) {
