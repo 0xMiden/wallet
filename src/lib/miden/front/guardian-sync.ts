@@ -1422,6 +1422,13 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
           return undefined;
         })
       : undefined;
+  if (hotIsCold) {
+    console.warn(
+      `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: the record names its recovery key ` +
+        `as its everyday key, so it has no everyday key to register until its own rotation lands.`
+    );
+    return false;
+  }
   const chainUnread = onChainSigners.length === 0;
   if (chainUnread || !localHot) {
     console.warn(

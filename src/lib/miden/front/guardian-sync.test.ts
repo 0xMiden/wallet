@@ -3306,6 +3306,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     const clock = useFakeClocks(1_000_000);
     storeState.accounts = [{ ...account, hotPublicKey: 'C01D', coldPublicKey: '0xc01d' }] as never;
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xc01d');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     await runUntilPersistent();
     for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS; i++) {
@@ -3315,6 +3316,10 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
     expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalled();
+    // The refusal names its own reason: nothing failed to read.
+    const messages = warn.mock.calls.map(call => String(call[0]));
+    expect(messages.some(message => message.includes('names its recovery key as its everyday key'))).toBe(true);
+    expect(messages.some(message => message.includes('could not read the hot-signer'))).toBe(false);
 
     // A distinct everyday key can still use the unspent budget from slot 2.
     storeState.accounts = [{ ...account, coldPublicKey: '0xc01d' }] as never;
