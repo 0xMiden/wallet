@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 
 import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { bindTransferQuote, type QuoteRequest, type TransferQuote } from 'lib/bridge/core/quote';
@@ -97,6 +97,18 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 );
 const useConsumer = () => ({ bridge: useCommandBridge(), drafts: useCommandDrafts() });
 function quote(request: QuoteRequest, received = '1'): TransferQuote {
+  if (
+    request.route.provider === 'xreserve' &&
+    request.route.mode === 'receive' &&
+    request.route.source.network === 'sepolia'
+  )
+    return bindTransferQuote(request, {
+      kind: 'cctp',
+      received,
+      fee: '0.01',
+      authorization: { signedQuote: '0x1234', feeTotalAmount: 10000n },
+      validity: { kind: 'time', expiresAt: now + 60000 }
+    });
   return bindTransferQuote(request, {
     kind:
       request.route.provider === 'epoch'
@@ -373,8 +385,30 @@ it('shows the exact reviewed native maximum in the actual Command Bridge workben
     target: { value: accounts.evmAddress }
   });
   fireEvent.click(screen.getByText('commandDetails'));
-  expect(screen.getByText('networkFeeMax')).toBeVisible();
-  expect(screen.getByText('0.0003 USDCx')).toBeVisible();
+  const details = screen.getByTestId('command-details');
+  await waitFor(() => expect(within(details).getByText('6 USDCx', { exact: true })).toBeVisible());
+  expect(within(details).getByText('amount', { exact: true })).toBeVisible();
+  expect(within(details).queryByText('commandBridgeSourceTotal')).toBeNull();
+  expect(within(details).getByText('networkFeeMax')).toBeVisible();
+  expect(within(details).getByText('0.0003 USDCx')).toBeVisible();
+
+  fireEvent.click(screen.getByRole('radio', { name: 'bridgeInTitle' }));
+  const incoming = deriveBridgeRoutes(mockSnapshot).find(
+    item => item.provider === 'xreserve' && item.mode === 'receive' && item.source.network === 'sepolia'
+  );
+  if (!incoming) throw new Error('Missing actual CCTP source fixture');
+  fireEvent.click(screen.getByTestId(`command-bridge-route-${incoming.id}`));
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1' } });
+  await waitFor(() => expect(within(details).getByText('1.01 USDC', { exact: true })).toBeVisible());
+  expect(within(details).getByText('commandBridgeSourceTotal')).toBeVisible();
+  expect(within(details).queryByText('networkFeeMax')).toBeNull();
+
+  fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
+  fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '6' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
+    target: { value: accounts.evmAddress }
+  });
   await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
   const form = screen.getByRole('textbox', { name: 'amount' }).closest('form');
   if (!form) throw new Error('Missing real Command Bridge form');
