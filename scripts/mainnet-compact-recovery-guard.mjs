@@ -16,6 +16,10 @@ export const ORIGINAL_COMPACT_RECOVERY = Object.freeze({
   minimumEthUsdMicros: 1824330000n
 });
 
+export async function verifyCompactRecoverySignature() {
+  throw new Error('Original Compact signature verification is not authorized');
+}
+
 export async function broadcastOriginalCompactOnce({
   authorityBytes,
   downloadedBytes,

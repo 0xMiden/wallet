@@ -3,14 +3,16 @@ import { test } from 'node:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { decodeFunctionData } from 'viem';
+import { decodeFunctionData, encodeFunctionData, keccak256 } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { COMPACT_ABI } from '../node_modules/@epoch-protocol/epoch-intents-sdk/dist/abis/compact.js';
 import {
   compactRecoveryIntent,
   assertCompactRecoveryFees,
   acknowledgeCompactRecovery,
   consumeCompactRecoveryAttempt,
-  broadcastOriginalCompactOnce
+  broadcastOriginalCompactOnce,
+  verifyCompactRecoverySignature
 } from '../scripts/mainnet-compact-recovery-guard.mjs';
 const owner = '0xc3B89CeCb0c5C3442A7DBCbBE379351C6bDfF836',
   compact = '0x00000000000000171ede64904551eeDF3C6C9788',
@@ -188,6 +190,39 @@ for (const changed of ['ack', 'signedHash'])
       rmSync(dir, { recursive: true, force: true });
     }
   });
+test('verifies actual signed fields and recovered signer without exporting signed bytes', async () => {
+  const signer = privateKeyToAccount(`0x${'1'.padStart(64, '0')}`);
+  const intent = {
+    chainId: 1,
+    account: signer.address,
+    to: compact,
+    data: encodeFunctionData({ abi: COMPACT_ABI, functionName: 'enableForcedWithdrawal', args: [id] }),
+    nonce: 111,
+    value: 0n,
+    gas: 57134n,
+    maxFeePerGas: 151683785n,
+    maxPriorityFeePerGas: 8981n,
+    type: 'eip1559'
+  };
+  const raw = await signer.signTransaction(intent);
+  let digest;
+  await assert.doesNotReject(async () => {
+    digest = await verifyCompactRecoverySignature(raw, intent);
+  });
+  assert.equal(digest, keccak256(raw));
+  for (const changed of [
+    { account: token },
+    { to: token },
+    { chainId: 42161 },
+    { nonce: 112 },
+    { value: 1n },
+    { data: '0x00' },
+    { gas: 57135n },
+    { maxFeePerGas: 151683786n },
+    { maxPriorityFeePerGas: 8982n }
+  ])
+    await assert.rejects(() => verifyCompactRecoverySignature(raw, { ...intent, ...changed }));
+});
 function fixture(stage = 'enable') {
   const original = {
     checkpointSha256: '77652e5b0590797753f5fe920d79fec252af3411a5b125a663a12d77f60e40a1',
