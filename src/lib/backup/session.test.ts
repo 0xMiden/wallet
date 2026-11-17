@@ -252,6 +252,42 @@ describe('getBackupSession', () => {
   });
 });
 
+describe('a replacement open', () => {
+  // The renewal found a profile the server made again and opens its replacement: a caller that arrives meanwhile
+  // must join that open, not start a second login and scrypt that replaces the first caller's session.
+  it('is shared with a caller that arrives while it runs', async () => {
+    const session = await openSession();
+    await withSessionToken(session, async token => {
+      const response = await fetch('https://wallet-api.test/v1/profile', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return response.status;
+    });
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 3_240_001);
+    const read = vault.syncPublicKey.bind(vault);
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const publicKeyReads = jest.spyOn(vault, 'syncPublicKey').mockImplementationOnce(async () => {
+      await gate;
+      return read();
+    });
+
+    const first = getBackupSession();
+    while (publicKeyReads.mock.calls.length === 0) await new Promise(resolve => setTimeout(resolve, 0));
+    const second = getBackupSession();
+    release();
+    const [a, b] = await Promise.all([first, second]);
+
+    if (!('session' in a) || !('session' in b)) throw new Error('Both callers should get a session');
+    expect(b.session).toBe(a.session);
+    expect(isSessionLive(a.session)).toBe(true);
+    expect(publicKeyReads).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('session liveness', () => {
   it('closes the session on lock, with the reason locked', async () => {
     const session = await openSession();

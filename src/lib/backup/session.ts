@@ -108,8 +108,16 @@ function unlockedVault(): Vault | null {
  * zeroed; the AES key is non-extractable and goes with its last reference.
  */
 export function clearBackupSession(): void {
-  epoch += 1;
+  dropCurrentSession();
   opening = null;
+}
+
+/**
+ * Close the open session and zero its storage key, but keep the open in flight: a renewal that opens the
+ * replacement keeps it under the promise that callers already share, so one arriving meanwhile joins it.
+ */
+function dropCurrentSession(): void {
+  epoch += 1;
   if (current !== null) {
     current.storageKey.fill(0);
     current = null;
@@ -330,7 +338,7 @@ async function renewSession(session: BackupSession, startedAt: number): Promise<
   const response = await authenticate(session.vault, session.publicKey);
   if (!stillCurrent(session.vault, startedAt, session.storageEpoch)) return { unavailable: 'locked' };
   if (response.profileId !== session.profileId || response.salt !== session.salt) {
-    clearBackupSession();
+    dropCurrentSession();
     return openSession(session.vault, epoch);
   }
   applyToken(session, response);
