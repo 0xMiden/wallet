@@ -1,6 +1,5 @@
 import {
-  binanceCandleMs,
-  fetchKlineData as fetchBinanceKlineData,
+  fetchKlineSeries as fetchBinanceKlineSeries,
   fetchTokenPrices as fetchBinancePrices,
   isListedSymbol
 } from './binance';
@@ -78,8 +77,8 @@ export async function fetchTokenPrices(symbols: readonly string[] = []): Promise
 
 /** Use the same provider selection for chart history and current prices, with the candle length of that provider. */
 export async function fetchKlineSeries(symbol: string, timeframe: Timeframe): Promise<KlineSeries> {
-  const points = await fetchBinanceKlineData(symbol, timeframe);
-  if (isListedSymbol(symbol)) return { points, stepMs: binanceCandleMs(timeframe) };
+  const series = await fetchBinanceKlineSeries(symbol, timeframe);
+  if (isListedSymbol(symbol)) return series;
   try {
     const pair = await resolveKrakenMarket(symbol);
     return { points: pair ? await fetchKrakenKlineData(pair, timeframe) : [], stepMs: krakenCandleMs(timeframe) };

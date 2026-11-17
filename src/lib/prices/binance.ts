@@ -365,23 +365,19 @@ const INTERVAL_MS: Record<string, number> = {
   '1d': 24 * 60 * 60_000
 };
 
-/** The length in milliseconds of the candles `fetchKlineData` asks for at the timeframe. */
-export function binanceCandleMs(timeframe: Timeframe): number {
-  const { interval } = timeframe === 'YTD' ? getYtdConfig() : TIMEFRAME_CONFIGS[timeframe];
-  return INTERVAL_MS[interval] ?? Number.NaN;
-}
-
-/** Fetch USD close prices. Return no points if a market or its historical USD rate is unavailable. */
-export async function fetchKlineData(walletSymbol: string, timeframe: Timeframe): Promise<KlinePoint[]> {
+/** Fetch USD close prices and the candle length of the request that asked for them. A failed request has no length. */
+export async function fetchKlineSeries(walletSymbol: string, timeframe: Timeframe): Promise<KlineSeries> {
+  const empty: KlineSeries = { points: [], stepMs: Number.NaN };
   try {
     const direct = walletSymbol === 'USDT' || walletSymbol === 'USDC';
     const market = direct ? null : await resolveMarket(walletSymbol);
-    if (!direct && !market) return [];
+    if (!direct && !market) return empty;
     const binancePair = direct ? `${walletSymbol}USD` : market?.pair;
-    if (!binancePair) return [];
+    if (!binancePair) return empty;
     const params: Record<string, string | number> = { symbol: binancePair };
     const config = timeframe === 'YTD' ? getYtdConfig() : TIMEFRAME_CONFIGS[timeframe];
     Object.assign(params, config);
+    const stepMs = INTERVAL_MS[config.interval] ?? Number.NaN;
     const read = async (symbol: string): Promise<KlinePoint[]> => {
       const { data } = await axios.get<(string | number)[][]>(`${BINANCE_API_BASE}/uiKlines`, {
         params: { ...params, symbol },
@@ -395,17 +391,23 @@ export async function fetchKlineData(walletSymbol: string, timeframe: Timeframe)
           : [];
       });
     };
-    if (!market) return await read(binancePair);
+    if (!market) return { points: await read(binancePair), stepMs };
     const [asset, denominator] = await Promise.all([read(binancePair), read(`${market.denominator}USD`)]);
     const rates = new Map(denominator.map(point => [point.time, point.value]));
-    return asset.flatMap(point => {
+    const points = asset.flatMap(point => {
       const rate = rates.get(point.time);
       if (rate === undefined) return [];
       const value = point.value * rate;
       return Number.isFinite(value) && value > 0 ? [{ time: point.time, value }] : [];
     });
+    return { points, stepMs };
   } catch (error) {
     console.warn('[Binance] Failed to fetch kline data:', error);
-    return [];
+    return empty;
   }
+}
+
+/** Fetch USD close prices. Return no points if a market or its historical USD rate is unavailable. */
+export async function fetchKlineData(walletSymbol: string, timeframe: Timeframe): Promise<KlinePoint[]> {
+  return (await fetchKlineSeries(walletSymbol, timeframe)).points;
 }
