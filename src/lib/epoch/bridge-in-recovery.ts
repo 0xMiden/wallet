@@ -339,14 +339,26 @@ export async function finishLockWithdrawal(ref: CompactLockRef): Promise<string>
 }
 
 /**
+ * Stop the forced withdrawal of the lock of `ref`, then clear its records. Read the status first and send the write
+ * only when a withdrawal is on: The Compact refuses a disable of a lock that has none. A failed status read throws
+ * before any write.
+ */
+async function disableForcedWithdrawalIfOn(sdk: EpochIntentSDK, sponsor: Address, ref: CompactLockRef): Promise<void> {
+  const status = await sdk.getForcedWithdrawalStatus(sponsor, ref.lockId);
+  if (status.status !== 'Disabled') {
+    await sdk.disableForcedWithdrawal(ref.lockId);
+  }
+  await recordWithdrawalStopped(ref);
+}
+
+/**
  * Stop the forced withdrawal of a lock from the sponsor's wallet. While a forced withdrawal is on, the allocator
  * refuses new Fast bridge-ins of the lock's token from that address.
  */
 export async function cancelLockWithdrawal(ref: CompactLockRef): Promise<void> {
-  sponsorOf(ref);
+  const sponsor = sponsorOf(ref);
   const sdk = await connectSponsorSdk(ref, getEpochAllocatorUrl());
-  await sdk.disableForcedWithdrawal(ref.lockId);
-  await recordWithdrawalStopped(ref);
+  await disableForcedWithdrawalIfOn(sdk, sponsor, ref);
 }
 
 /**
@@ -496,11 +508,7 @@ export async function retryLockedDeposit(txId: string): Promise<string> {
   const sdk = await connectSponsorSdk(lock, allocatorUrl);
   // Read and check the balance first: a refusal here must leave a forced withdrawal that is on as it is.
   await readCheckedLockBalance(sdk, sponsor, lock, lock.tokenAddress, BigInt(lock.amount));
-  const status = await sdk.getForcedWithdrawalStatus(sponsor, lock.lockId);
-  if (status.status !== 'Disabled') {
-    await sdk.disableForcedWithdrawal(lock.lockId);
-    await recordWithdrawalStopped(lock);
-  }
+  await disableForcedWithdrawalIfOn(sdk, sponsor, lock);
   const request = await registerCompactAgain(lock, sponsor, allocatorUrl);
   const nonce = await submitWhenRegistered(sdk, request);
   await markEpochLockedDepositReallocated(txId, nonce, allocatorUrl);

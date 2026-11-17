@@ -49,6 +49,9 @@ const renderGate = () =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // A case that fails early must not leave a queued one-time result for the next case.
+  jest.mocked(readCompactLockState).mockReset();
+  jest.mocked(cancelLockWithdrawal).mockReset();
   jest.mocked(readCompactLockConfig).mockResolvedValue({
     chainId: 137,
     compact: TOKEN,
@@ -134,6 +137,82 @@ it('keeps the action available after the wallet rejects the transaction', async 
   expect(mockOnDisabled).not.toHaveBeenCalled();
   fireEvent.click(screen.getByTestId('bridge-withdrawal-disable'));
   expect(await screen.findByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
+});
+
+describe('after a failed cancel the gate reads the status again', () => {
+  it('opens the bridge after a fresh quote when the chain shows the withdrawal is off', async () => {
+    jest
+      .mocked(readCompactLockState)
+      .mockResolvedValueOnce({ withdrawal: { status: 'Enabled' } })
+      .mockResolvedValueOnce({ withdrawal: { status: 'Disabled' } });
+    jest.mocked(cancelLockWithdrawal).mockRejectedValueOnce(new Error('Compact refused the write'));
+    let quote: () => void = () => {};
+    mockOnDisabled.mockReturnValue(
+      new Promise(resolve => {
+        quote = resolve;
+      })
+    );
+    renderGate();
+    fireEvent.click(await screen.findByRole('button', { name: 'bridgeWithdrawalDisable' }));
+
+    await waitFor(() => expect(mockOnDisabled).toHaveBeenCalledTimes(1));
+    expect(readCompactLockState).toHaveBeenCalledTimes(2);
+    expect(readCompactLockState).toHaveBeenLastCalledWith(137, SPONSOR, 42n);
+    expect(screen.queryByRole('button', { name: 'Continue bridge' })).not.toBeInTheDocument();
+    await act(async () => quote());
+
+    expect(screen.getByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
+    expect(requestLockRescan).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the error and the Disable button when the chain shows the withdrawal is still on', async () => {
+    jest.mocked(readCompactLockState).mockResolvedValue({ withdrawal: { status: 'Enabled' } });
+    jest.mocked(cancelLockWithdrawal).mockRejectedValueOnce(new Error('User rejected the request'));
+    renderGate();
+    fireEvent.click(await screen.findByRole('button', { name: 'bridgeWithdrawalDisable' }));
+
+    expect(await screen.findByTestId('bridge-withdrawal-error')).toHaveTextContent('User rejected the request');
+    await waitFor(() => expect(readCompactLockState).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('bridge-withdrawal-disable')).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Continue bridge' })).not.toBeInTheDocument();
+    expect(mockOnDisabled).not.toHaveBeenCalled();
+  });
+
+  it('keeps the error and the Disable button when the second read fails', async () => {
+    jest
+      .mocked(readCompactLockState)
+      .mockResolvedValueOnce({ withdrawal: { status: 'Enabled' } })
+      .mockRejectedValueOnce(new Error('rpc down'));
+    jest.mocked(cancelLockWithdrawal).mockRejectedValueOnce(new Error('User rejected the request'));
+    renderGate();
+    fireEvent.click(await screen.findByRole('button', { name: 'bridgeWithdrawalDisable' }));
+
+    expect(await screen.findByTestId('bridge-withdrawal-error')).toHaveTextContent('User rejected the request');
+    await waitFor(() => expect(readCompactLockState).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('bridge-withdrawal-disable')).toBeEnabled();
+    expect(mockOnDisabled).not.toHaveBeenCalled();
+  });
+
+  it('ignores the result of the second read after unmount', async () => {
+    let finishRecheck: (state: CompactLockState) => void = () => {};
+    jest
+      .mocked(readCompactLockState)
+      .mockResolvedValueOnce({ withdrawal: { status: 'Enabled' } })
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          finishRecheck = resolve;
+        })
+      );
+    jest.mocked(cancelLockWithdrawal).mockRejectedValueOnce(new Error('Compact refused the write'));
+    const view = renderGate();
+    fireEvent.click(await screen.findByRole('button', { name: 'bridgeWithdrawalDisable' }));
+    await waitFor(() => expect(readCompactLockState).toHaveBeenCalledTimes(2));
+
+    view.unmount();
+    await act(async () => finishRecheck({ withdrawal: { status: 'Disabled' } }));
+
+    expect(mockOnDisabled).not.toHaveBeenCalled();
+  });
 });
 
 it('holds an unreadable status and can retry without a wallet transaction', async () => {

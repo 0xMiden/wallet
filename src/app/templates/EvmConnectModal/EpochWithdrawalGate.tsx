@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { isAddress } from 'viem';
+import { type Address, isAddress } from 'viem';
 
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
@@ -30,7 +30,18 @@ interface EpochWithdrawalGateProps {
 type WithdrawalCheck =
   | { status: 'checking' }
   | { status: 'failed' }
-  | { status: 'ready'; lock: CompactLockRef; active: boolean };
+  | { status: 'ready'; lock: CompactLockRef; compact: Address; active: boolean };
+
+/** Whether The Compact now reports no forced withdrawal for `lock`. A failed read gives false: keep the active state. */
+async function chainShowsWithdrawalOff(lock: CompactLockRef): Promise<boolean> {
+  if (!isAddress(lock.sponsorAddress)) return false;
+  try {
+    const state = await readCompactLockState(lock.chainId, lock.sponsorAddress, BigInt(lock.lockId));
+    return state.withdrawal?.status === 'Disabled';
+  } catch {
+    return false;
+  }
+}
 
 /** Check the selected lock before the bridge can submit. Mount a new gate when the lock or sponsor changes. */
 export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
@@ -72,6 +83,7 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
       setCheck({
         status: 'ready',
         lock: { chainId, lockId: lockId.toString(), sponsorAddress },
+        compact: config.compact,
         active: state.withdrawal.status !== 'Disabled'
       });
     };
@@ -89,7 +101,12 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
     setBusy(true);
     setError(undefined);
     try {
-      await cancelLockWithdrawal(check.lock);
+      try {
+        await cancelLockWithdrawal(check.lock);
+      } catch (cause) {
+        // The write can fail after the chain already turned the withdrawal off. Read the status again.
+        if (!(await chainShowsWithdrawalOff(check.lock))) throw cause;
+      }
       requestLockRescan();
       if (!mounted.current) return;
       // A fresh quote must replace any quote refused while withdrawal was active.

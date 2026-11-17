@@ -619,15 +619,49 @@ describe('lock actions (Settings recovery page)', () => {
     expect(sdk.withdrawToken).not.toHaveBeenCalled();
   });
 
-  it('cancels the withdrawal and clears the recorded times', async () => {
-    seedRow({ lockId: LOCK_ID, withdrawEnabledAt: 900, withdrawableAt: 4900 });
-    storage.set(`epoch_forced_withdrawal_v1:11155111:${LOCK_ID}:${SPONSOR}`, { enabledAt: 900 });
+  describe('cancelLockWithdrawal reads the status before it writes', () => {
+    const seedRecordedWithdrawal = () => {
+      seedRow({ lockId: LOCK_ID, withdrawEnabledAt: 900, withdrawableAt: 4900 });
+      storage.set(`epoch_forced_withdrawal_v1:11155111:${LOCK_ID}:${SPONSOR}`, { enabledAt: 900 });
+    };
 
-    await cancelLockWithdrawal(REF);
+    it.each(['Pending', 'Enabled'] as const)(
+      'sends one disable for status %s and clears the recorded times',
+      async status => {
+        seedRecordedWithdrawal();
+        sdk.getForcedWithdrawalStatus.mockResolvedValue({ status, enabledAt: 4900n });
 
-    expect(sdk.disableForcedWithdrawal).toHaveBeenCalledWith(LOCK_ID);
-    expect(lockOf()).toMatchObject({ withdrawEnabledAt: undefined, withdrawableAt: undefined });
-    expect(storedRecord()).toBeNull();
+        await cancelLockWithdrawal(REF);
+
+        expect(sdk.getForcedWithdrawalStatus).toHaveBeenCalledWith(SPONSOR, LOCK_ID);
+        expect(sdk.disableForcedWithdrawal).toHaveBeenCalledTimes(1);
+        expect(sdk.disableForcedWithdrawal).toHaveBeenCalledWith(LOCK_ID);
+        expect(lockOf()).toMatchObject({ withdrawEnabledAt: undefined, withdrawableAt: undefined });
+        expect(storedRecord()).toBeNull();
+      }
+    );
+
+    it('sends no disable when the chain already shows Disabled, and clears the recorded times', async () => {
+      seedRecordedWithdrawal();
+      sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Disabled', enabledAt: 0n });
+
+      await cancelLockWithdrawal(REF);
+
+      expect(sdk.disableForcedWithdrawal).not.toHaveBeenCalled();
+      expect(lockOf()).toMatchObject({ withdrawEnabledAt: undefined, withdrawableAt: undefined });
+      expect(storedRecord()).toBeNull();
+    });
+
+    it('throws and sends nothing when the status cannot be read, and keeps the recorded times', async () => {
+      seedRecordedWithdrawal();
+      sdk.getForcedWithdrawalStatus.mockRejectedValue(new Error('rpc down'));
+
+      await expect(cancelLockWithdrawal(REF)).rejects.toThrow('rpc down');
+
+      expect(sdk.disableForcedWithdrawal).not.toHaveBeenCalled();
+      expect(lockOf()).toMatchObject({ withdrawEnabledAt: 900, withdrawableAt: 4900 });
+      expect(storedRecord()).toEqual({ enabledAt: 900 });
+    });
   });
 
   it('refuses without the sponsor wallet, and for an address that is not one', async () => {
