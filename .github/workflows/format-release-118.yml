@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: 81d6642472938dfaaa51a718b3b642adc0d30ce2
+          ref: e472f79481957e4e90644429e7b2f8ed0747c1a8
           fetch-depth: 3
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -20,9 +20,9 @@ jobs:
       - name: Format only the candidate's changed files with the locked formatter
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 81d6642472938dfaaa51a718b3b642adc0d30ce2
+          test "$(git rev-parse HEAD)" = e472f79481957e4e90644429e7b2f8ed0747c1a8
           npm view prettier@3.8.4 dist.integrity | grep -Fx 'sha512-N2MylSdi48+5N/6S5j+maeHbUSIzzZ5uOcX5Hm4QpV8Dkb1HFjfAKTKX6yNPJQD9AhcT3ifHNB66tWTTJDi11Q=='
-          git diff --diff-filter=AM --name-only 0e4e005b868e1b81e9a16b213330ef70a98d218d HEAD -- '*.ts' '*.tsx' '*.js' > "$RUNNER_TEMP/format-paths"
+          git diff --diff-filter=AM --name-only c54d7b05dfed06be58323ebadc0649d186a05023 HEAD -- '*.ts' '*.tsx' '*.js' > "$RUNNER_TEMP/format-paths"
           xargs -r -d '\n' npx --yes prettier@3.8.4 --write < "$RUNNER_TEMP/format-paths"
           git diff -- > formatting.patch
       - name: Export exact unique edits and independently check reconstruction
