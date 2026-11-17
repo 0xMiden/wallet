@@ -301,10 +301,10 @@ it('keeps original-row lookup passive after departure without a new fee measurem
 
 it('preserves minimum-read fallback without disclosing native RPC error payloads', async () => {
   const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  mockMinimumProof.mockRejectedValueOnce(new Error('private-native-minimum-rpc-placeholder'));
+  mockMinimumProof.mockRejectedValue(new Error('private-native-minimum-rpc-placeholder'));
   const id = await initiateUsdcxBurn(input());
   expect((await Repo.transactions.get(id))?.amount).toBe(6000000n);
-  expect(mockMinimumProof).toHaveBeenCalledTimes(1);
+  expect(mockMinimumProof).toHaveBeenCalledTimes(2);
   expect(warning).toHaveBeenCalled();
   const diagnostics = warning.mock.calls.flat().map(value => (value instanceof Error ? value.message : String(value)));
   expect(diagnostics.join(' ')).not.toContain('private-native-minimum-rpc-placeholder');
