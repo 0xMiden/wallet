@@ -140,7 +140,9 @@ describe.each(['foreground', 'passive'])('%s receipt identity', boundary => {
   ])('refuses $label before classifying an outcome', async ({ receipt }) => {
     (boundary === 'foreground' ? mockWaitForReceipt : mockGetReceipt).mockResolvedValueOnce(receipt);
     const outcome: unknown = await (
-      boundary === 'foreground' ? waitForEvmReceipt(hash, sepolia, true) : readEvmReceiptOutcome(hash, sepolia, () => undefined)
+      boundary === 'foreground'
+        ? waitForEvmReceipt(hash, sepolia, true)
+        : readEvmReceiptOutcome(hash, sepolia, () => undefined)
     ).catch((error: unknown) => error);
     expect(outcome).toBeInstanceOf(Error);
     expect(outcome).not.toBeInstanceOf(EvmTransactionRevertedError);

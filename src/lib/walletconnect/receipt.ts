@@ -31,12 +31,12 @@ function assertReceiptIdentity(hash: Hash, receipt: TransactionReceipt): void {
     throw new Error('EVM receipt identity unavailable');
 }
 
-export async function waitForEvmReceipt(hash: Hash, chain: Chain): Promise<void> {
+export async function waitForEvmReceipt(hash: Hash, chain: Chain, requireExactIdentity = false): Promise<void> {
   const rpcUrl = getChain(chain.id)?.rpcUrl;
   if (!rpcUrl) throw walletRaised(new Error(`${chain.name} RPC is not configured`));
   const client = createPublicClient({ chain, transport: http(rpcUrl) });
   const receipt = await client.waitForTransactionReceipt({ hash, confirmations: 1 });
-  assertReceiptIdentity(hash, receipt);
+  if (requireExactIdentity) assertReceiptIdentity(hash, receipt);
   if (receipt.status !== 'success') throw new EvmTransactionRevertedError(chain.name);
 }
 
@@ -51,7 +51,7 @@ export async function readEvmReceiptOutcome(
   const client = createPublicClient({ chain, transport: http(rpcUrl, { timeout: 10_000, retryCount: 0 }) });
   try {
     const receipt = await client.getTransactionReceipt({ hash });
-    assertReceiptIdentity(hash, receipt);
+    if (verifyReceipt) assertReceiptIdentity(hash, receipt);
     if (receipt.status === 'success') verifyReceipt?.(receipt);
     return receipt.status === 'success' ? 'success' : 'reverted';
   } catch (error) {

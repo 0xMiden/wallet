@@ -109,7 +109,7 @@ export function useCctpExecute(): CctpExecute {
         );
       }
       try {
-        await waitForEvmReceipt(hash, target.chain);
+        await waitForEvmReceipt(hash, target.chain, owned !== undefined);
       } catch (error) {
         if (error instanceof EvmTransactionRevertedError) {
           await updateBridgedReceivePhase(txId, 'delivering', {

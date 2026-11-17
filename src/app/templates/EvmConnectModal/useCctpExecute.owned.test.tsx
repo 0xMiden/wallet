@@ -224,9 +224,11 @@ it.each([false, true])('preserves actual untagged replacement receipt compatibil
     Reflect.deleteProperty(row.extraInputs, 'bridgeOperation');
   });
   native = useNative;
-  jest.mocked(waitForEvmReceipt).mockImplementation(
-    jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
-  );
+  jest
+    .mocked(waitForEvmReceipt)
+    .mockImplementation(
+      jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
+    );
   waitReceiptReader.mockResolvedValue({ transactionHash: retryHash, status: 'success' });
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   const root = renderHook(useCctpExecute);
