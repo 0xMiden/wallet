@@ -1,3 +1,5 @@
+import { closeSync, fsyncSync, openSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { encodeFunctionData, isAddressEqual } from 'viem';
 import { COMPACT_ABI } from '../node_modules/@epoch-protocol/epoch-intents-sdk/dist/abis/compact.js';
 
@@ -129,9 +131,43 @@ export function assertCompactRecoveryFees(transaction, ethUsdMicros, remainingUs
   return maximumCost;
 }
 
-export function acknowledgeCompactRecovery() {
-  throw new Error('Original Compact immutable acknowledgement is not authorized');
+export function acknowledgeCompactRecovery(authorityBytes, downloadedBytes, binding, now) {
+  if (authorityBytes !== downloadedBytes) throw new Error('Original Compact immutable bytes changed');
+  const journal = JSON.parse(authorityBytes);
+  if (
+    journal.version !== 1 ||
+    journal.sourceRunId !== ORIGINAL_COMPACT_RECOVERY.sourceRunId ||
+    journal.checkpointSha256 !== ORIGINAL_COMPACT_RECOVERY.checkpointSha256 ||
+    !/^\d+$/.test(journal.runId) ||
+    journal.runId !== binding.runId ||
+    !/^[0-9a-f]{40}$/.test(journal.sourceSha) ||
+    journal.sourceSha !== binding.sourceSha ||
+    !['enable', 'withdraw', 'disable'].includes(journal.stage) ||
+    journal.stage !== binding.stage ||
+    !/^0x[0-9a-f]{64}$/i.test(journal.signedHash) ||
+    !Number.isSafeInteger(journal.preparedAt) ||
+    journal.preparedAt < 0 ||
+    journal.expiresAt !== journal.preparedAt + 240000 ||
+    !Number.isSafeInteger(now) ||
+    now < journal.preparedAt ||
+    now >= journal.expiresAt
+  )
+    throw new Error('Original Compact immutable acknowledgement is not authorized');
 }
-export function consumeCompactRecoveryAttempt() {
-  throw new Error('Original Compact attempt is not authorized');
+
+export function consumeCompactRecoveryAttempt(path, signedHash) {
+  if (!/^0x[0-9a-f]{64}$/i.test(signedHash)) throw new Error('Original Compact signed hash is missing');
+  const file = openSync(path, 'wx', 0o600);
+  try {
+    writeFileSync(file, `${signedHash}\n`);
+    fsyncSync(file);
+  } finally {
+    closeSync(file);
+  }
+  const directory = openSync(dirname(path), 'r');
+  try {
+    fsyncSync(directory);
+  } finally {
+    closeSync(directory);
+  }
 }
