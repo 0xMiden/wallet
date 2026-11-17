@@ -1,6 +1,6 @@
 import { parseUnits, type Hash } from 'viem';
 
-import { quoteAmounts } from 'lib/bridge/core/quote';
+import { bindTransferQuote, quoteAmounts } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
 import { bridgeOperationOf, type BridgeOperationSnapshot } from 'lib/bridge/operation';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
@@ -51,8 +51,9 @@ function reviewFor(executor: boolean): ReviewedTransfer {
     const token = chain?.bridges.usdcx?.tokens.USDC?.contractAddress;
     if (!token || !review.quote) throw new Error('Missing accepted Arc fixture');
     review.route.source = { kind: 'erc20', network: 'arc-testnet', symbol: 'USDC', decimals: 6, address: token };
-    review.quote = { ...review.quote, kind: 'arc-deposit', received: review.amount };
-    review.quote.request.recovery = structuredClone(review.route.recovery);
+    review.quote = bindTransferQuote({ route: review.route, amount: review.amount, ...accounts }, {
+      kind: 'arc-deposit', received: review.amount, validity: { kind: 'time', expiresAt: now + 60000 }
+    });
   }
   assertReviewedBridge(review, review, now);
   return review;
@@ -73,7 +74,7 @@ async function drive(executor: boolean, afterClaim?: (claimed: BridgeOperationSn
       accountId: accounts.midenAccount, amount: parseUnits(review.amount, 6),
       faucetId: review.route.destination.kind === 'miden' ? review.route.destination.faucetId : '',
       provider: 'usdcx', sourceAddress: accounts.evmAddress, sourceChainId: chainId,
-      sourceAmount: quoteAmounts(review.route, review.quote!).sourceTotal, sourceSymbol: 'USDC', usdcxRoute: source,
+      sourceAmount: quoteAmounts(review.route, review.quote!).sourceTotal, sourceSymbol: 'USDC', usdcxSource: source,
       operation: { operationId: 'circle-owned', review }
     }),
     async (rowId, claimed) => {
