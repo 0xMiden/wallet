@@ -1,7 +1,7 @@
 import { Address, Hash, Hex, getAbiItem, isHash, isHex, toFunctionSignature } from 'viem';
 
 import { parseCircleQuote, parseCircleValidation, type CctpQuoteExpiry } from 'lib/bridge/providers/xreserve/cctp-schema';
-import { postCircleJson } from 'lib/bridge/providers/xreserve/circle-http';
+import { CircleStatusUnavailableError, getCircleJson, postCircleJson } from 'lib/bridge/providers/xreserve/circle-http';
 import type { IUsdcxCctpLeg } from 'lib/miden/db/types';
 
 import type { DepositForBurnWithHookAndFeesArgs } from './executor';
@@ -73,24 +73,14 @@ export async function fetchCctpMessages(
   txHash: Hash,
   { baseUrl, timeoutMs = IRIS_FETCH_TIMEOUT_MS }: FetchCctpMessagesOptions
 ): Promise<CctpMessage[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(
-      `${baseUrl}/v2/messages/${sourceDomain}?transactionHash=${encodeURIComponent(txHash)}`,
-      { signal: controller.signal }
-    );
-    if (response.status === 404) return [];
-    if (!response.ok) {
-      throw new Error(`CCTP message request failed: HTTP ${response.status}`);
-    }
-    const body: object | string | number | boolean | null = await response.json();
-    const list = body && typeof body === 'object' ? Reflect.get(body, 'messages') : undefined;
-    if (!Array.isArray(list)) return [];
-    return list.map(parseMessage).filter((entry): entry is CctpMessage => entry !== undefined);
-  } finally {
-    clearTimeout(timer);
-  }
+  const body = await getCircleJson(`${baseUrl}/v2/messages/${sourceDomain}?transactionHash=${encodeURIComponent(txHash)}`, timeoutMs)
+    .catch(error => {
+      if (error instanceof CircleStatusUnavailableError && error.status === 404) return undefined;
+      throw error;
+    });
+  const list = body && typeof body === 'object' ? Reflect.get(body, 'messages') : undefined;
+  if (!Array.isArray(list)) return [];
+  return list.map(parseMessage).filter((entry): entry is CctpMessage => entry !== undefined);
 }
 
 /**
