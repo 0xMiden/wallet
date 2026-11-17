@@ -242,7 +242,8 @@ export const landedDeliveryTargetValues = (
  * finds it. A stamp that proves no private note leaves the clean label on a row that recorded no delivery. Undefined
  * when the tail recorded which notes it owes, the row names no recipient, so nobody is owed, or the stamp did not read
  * its notes' types. Never the root `outputNoteIds`, which the sweep would read as owed, public notes and all. The
- * caller binds `entry` to an applied landing: an apply that failed left the notes out of the store.
+ * pipeline binds `entry` to an applied landing, since an apply that failed left the notes out of the store; the
+ * reconciler's landing cannot tell the two apart, and the sweep records a note the store never took dead at its push.
  */
 export const landedExecuteDeliveryValues = (
   row: ITransaction,
@@ -297,8 +298,8 @@ async function savedRequestOrder(rowId: string): Promise<SavedRequestOrder> {
 /**
  * The landed write: one rw transaction that re-reads every row of the account, the target's included. If any entry
  * differs from what the judgement read, or the deferral now holds the landing, it writes nothing and the next pass
- * judges again from the fresh rows. One that records a delivery target is a delivery write, counted once it commits,
- * so an idle sweep looks again.
+ * judges again from the fresh rows. One that records a delivery target, or the private notes an execute owes, is a
+ * delivery write, counted once it commits, so an idle sweep looks again.
  */
 async function writeLanding(
   rowId: string,
@@ -314,6 +315,7 @@ async function writeLanding(
   const { decodedBytes, savedOrder } = saved;
   let landed: ITransaction | undefined;
   let addedTarget: string[] | undefined;
+  let addedExecuteNotes = false;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     const fresh = await Repo.transactions.where({ id: rowId }).first();
     if (
@@ -324,11 +326,18 @@ async function writeLanding(
     const freshRows = await accountRowsOf(fresh);
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
+    // An execute whose tail recorded nothing before its row was failed (its realm died after the apply, or its landed
+    // write spent its budget and the reaper failed it) owes the private notes the landing attempt's stamp read. Read
+    // from the row as found, before the landed fields label an execute with a recipient undelivered; such a row never
+    // took the completion's write, so its recipient is the one its request named.
+    const landedStamp = fresh.submitEvidence?.find(entry => entry.attemptId === landing.attemptId);
+    const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
     // A single-key swap saves no request, so its order is the one the landed attempt's stamp recorded.
     applyVerifiedLanding(
       fresh,
       {
         ...verifiedLandingRowFields(fresh),
+        ...executeDelivery,
         ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
         completedAt: fresh.completedAt
       },
@@ -339,9 +348,10 @@ async function writeLanding(
     await Repo.transactions.put(fresh);
     landed = fresh;
     addedTarget = target;
+    addedExecuteNotes = (executeDelivery?.relayNoteIds?.length ?? 0) > 0;
   });
   if (landed === undefined) return false;
-  if (addedTarget !== undefined) countNoteDeliveryWrite();
+  if (addedTarget !== undefined || addedExecuteNotes) countNoteDeliveryWrite();
   reportVerifiedLanding(landed);
   if (landed.type === 'consume') await adoptLandedConsume(landed.id);
   return true;
