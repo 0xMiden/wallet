@@ -503,7 +503,7 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
   function input() {
     const review = reviewedErc20Transfer('agglayer', 'send');
     if (review.route.source.kind !== 'miden') throw new Error('Missing native asset');
-    return { amount: 1000000000000000000n, faucetId: review.route.source.faucetId,
+    return { amount: 100000000n, faucetId: review.route.source.faucetId,
       destinationAddress: `0x${accounts.evmAddress.slice(2)}` satisfies `0x${string}`,
       senderPublicKey: accounts.midenAccount, guardianProvider, destinationChainId: 11155111,
       operation: { operationId: 'native-agglayer-operation', review } };
