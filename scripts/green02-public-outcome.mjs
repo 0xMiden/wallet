@@ -141,6 +141,45 @@ try {
   assert.equal(enableGasUsd, 12268n);
   assert.ok(enableGasUsd <= BigInt(enable.maximumCostUsdMicros) && enableGasUsd <= 100000n);
   const enabledBlock = await client.getBlock({ blockNumber: enabledReceipt.blockNumber });
+  const withdraw = JSON.parse(readFileSync('test-results/withdraw/compact-recovery-withdraw-authority.json', 'utf8'));
+  assert.equal(withdraw.runId, '44067623911');
+  assert.equal(withdraw.sourceSha, '026475b9becfb265e0c739989bdddcf4b4265ee6');
+  assert.equal(withdraw.signedHash, '0x72d2c37bf18113cb12904596669d1f2a2ab9f261e2b2949eadf0c9aba550158c');
+  const [withdrawTx, withdrawReceipt] = await Promise.all([
+    client.getTransaction({ hash: withdraw.signedHash }),
+    client.getTransactionReceipt({ hash: withdraw.signedHash })
+  ]);
+  assert.equal(getAddress(withdrawTx.from), getAddress(epoch.evm.account));
+  assert.equal(getAddress(withdrawTx.to), getAddress(epoch.evm.compact));
+  assert.equal(withdrawTx.nonce, 112);
+  assert.equal(withdrawTx.value, 0n);
+  assert.equal(withdrawTx.input, withdraw.transaction.data);
+  for (const key of ['gas', 'maxFeePerGas', 'maxPriorityFeePerGas'])
+    assert.equal(withdrawTx[key], BigInt(withdraw.transaction[key]));
+  assert.equal(withdrawReceipt.status, 'success');
+  assert.equal(withdrawReceipt.transactionHash, withdraw.signedHash);
+  const withdrawCall = decodeFunctionData({ abi: COMPACT_ABI, data: withdrawTx.input });
+  assert.equal(withdrawCall.functionName, 'forcedWithdrawal');
+  assert.equal(
+    BigInt(withdrawCall.args[0]),
+    (BigInt(epoch.reverseAuthority.lockTag) << 160n) | BigInt(epoch.evm.token)
+  );
+  assert.equal(getAddress(withdrawCall.args[1]), getAddress(epoch.evm.account));
+  assert.equal(BigInt(withdrawCall.args[2]), BigInt(epoch.returnAmount));
+  const transfer = withdrawReceipt.logs.filter(
+    log =>
+      getAddress(log.address) === getAddress(epoch.evm.token) &&
+      log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' &&
+      log.topics[1]?.slice(26).toLowerCase() === epoch.evm.compact.slice(2).toLowerCase() &&
+      log.topics[2]?.slice(26).toLowerCase() === epoch.evm.account.slice(2).toLowerCase() &&
+      BigInt(log.data) === BigInt(epoch.returnAmount)
+  );
+  assert.equal(transfer.length, 1);
+  const withdrawFee = withdrawReceipt.gasUsed * withdrawReceipt.effectiveGasPrice;
+  assert.equal(withdrawFee, 7322832439915n);
+  const withdrawGasUsd = (withdrawFee * BigInt(withdraw.ethUsdMicros) + 10n ** 18n - 1n) / 10n ** 18n;
+  assert.equal(withdrawGasUsd, 13365n);
+  assert.ok(withdrawGasUsd <= BigInt(withdraw.maximumCostUsdMicros));
   const receipts = await Promise.all(
     epoch.transactions.map(entry =>
       Promise.all([
@@ -173,10 +212,11 @@ try {
     client.getTransactionCount({ address: account, blockTag: 'latest' }),
     client.getTransactionCount({ address: account, blockTag: 'pending' })
   ]);
-  assert.equal(latest, 112);
+  assert.equal(latest, 113);
   assert.equal(pending, latest);
-  assert.equal(gas, BigInt(epoch.evm.nativeBalance) - BigInt(epoch.paidEvmFees) - enableFee);
-  assert.equal(token, BigInt(epoch.evm.tokenBalance) + BigInt(epoch.forwardReceived) - BigInt(epoch.returnAmount));
+  assert.equal(gas, BigInt(epoch.evm.nativeBalance) - BigInt(epoch.paidEvmFees) - enableFee - withdrawFee);
+  assert.equal(token, BigInt(epoch.evm.tokenBalance) + BigInt(epoch.forwardReceived));
+  assert.equal(token, 254080030n);
   stage = 'authenticated-original-compact-principal';
   const tokenId = (BigInt(epoch.reverseAuthority.lockTag) << 160n) | BigInt(epoch.evm.token);
   const compact = getAddress(epoch.evm.compact);
@@ -190,20 +230,20 @@ try {
       args: [account, tokenId]
     })
   ]);
-  assert.equal(escrow, BigInt(epoch.returnAmount));
+  assert.equal(escrow, 0n);
   assert.equal(getAddress(lock[0]), getAddress(epoch.evm.token));
   assert.equal(getAddress(lock[1]), getAddress(epoch.evm.allocator));
   assert.equal(Number(lock[2]), 4);
   assert.equal(Number(lock[3]), 0);
   assert.equal(BigInt(lock[4]), BigInt(epoch.reverseAuthority.lockTag));
-  assert.ok(Number(withdrawal[0]) === 1 || Number(withdrawal[0]) === 2);
+  assert.equal(Number(withdrawal[0]), 2);
   assert.equal(withdrawal[1], enabledBlock.timestamp + 3900n);
   assert.equal(withdrawal[1], 1794911867n);
   const deposited = receipts.find((_, i) => epoch.transactions[i].kind === 'deposit');
   assert.ok(deposited);
   const decoded = decodeFunctionData({ abi: COMPACT_ABI, data: deposited.transaction.input });
   assert.equal(decoded.functionName, 'depositERC20AndRegister');
-  assert.equal(BigInt(decoded.args[2]), escrow);
+  assert.equal(BigInt(decoded.args[2]), BigInt(epoch.returnAmount));
   // The primary RPC rejects this historical eth_call; verify the original registration on the measured archive source.
   assert.equal(
     await createPublicClient({
@@ -277,7 +317,8 @@ try {
     ethereumLatestPendingNonce: latest,
     compactTokenId: `0x${tokenId.toString(16)}`,
     compactPrincipal: escrow.toString(),
-    compactPrincipalStillOwnedByOriginalAccount: true,
+    originalCompactPrincipalReturnedToOriginalOwner: true,
+    originalReturnedPrincipal: epoch.returnAmount,
     compactOriginalRegistrationAtOriginalDepositVerified: true,
     originalRegistrationExpiryNeverExtendedOrReissued: true,
     compactResetPeriod: 4,
@@ -286,20 +327,27 @@ try {
     originalMinimumExpiry: epoch.reverseAuthority.minimumExpiry,
     originalMaximumExpiry: epoch.reverseAuthority.maximumExpiry,
     epochAccruedCostExcludingAuthenticatedHeldPrincipalUsdMicros: accrued.toString(),
-    totalAccruedAttemptIncludingEnableUsdMicros: (swapCost + accrued).toString(),
+    totalAccruedAttemptIncludingOwnerRefundUsdMicros: (swapCost + accrued).toString(),
     alreadyBookedOriginalAttemptUsdMicros: '39243',
     newOriginalOwnerEnableGasCostUsdMicros: enableGasUsd.toString(),
     enableHash: enable.signedHash,
     enableFeeWei: enableFee.toString(),
     actualWithdrawableAt: withdrawal[1].toString(),
-    bookOnlyNewEnableGasCostOnce: true,
+    alreadyBookedEnableGasCostUsdMicros: '12272',
+    alreadyBookedAttemptPlusEnableUsdMicros: '51515',
+    newOriginalOwnerWithdrawalGasCostUsdMicros: withdrawGasUsd.toString(),
+    withdrawalHash: withdraw.signedHash,
+    withdrawalFeeWei: withdrawFee.toString(),
+    bookOnlyNewWithdrawalGasCostOnce: true,
+    forcedWithdrawalDisableCleanupRequired: true,
     previousVerifiedSpentUsdMicros: '172369',
     originalTaskCapUsdMicros: '2000000',
     noCostBookedByAudit: true,
     noProfitCredit: true,
     noAuthorityIssued: true,
     noTransactionSent: true,
-    providerPrincipalStillUnresolved: true,
+    providerPrincipalStillUnresolved: false,
+    noFreshPayerBeforeDisableAndCanonicalReconciliation: true,
     notFundedGreen: true,
     privateCompanionRequired: true
   });
