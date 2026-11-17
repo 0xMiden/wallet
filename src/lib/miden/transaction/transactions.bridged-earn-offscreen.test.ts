@@ -38,7 +38,7 @@ import {
   isUnconfirmedFailure
 } from './index';
 import { bridgeProviderOf, isRequeueableTransaction } from './retry';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { ITransaction, ITransactionStatus, type IUsdcxBurn } from '../db/types';
 
 const txStore: Array<Record<string, unknown>> = [];
 
@@ -70,6 +70,9 @@ jest.mock('lib/settings/constants', () => ({}));
 const mockGetVerificationBaseFee = jest.fn(async (): Promise<number | null> => 0);
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => 'rpc-a|testnet',
+  getNativeAssetIdSync: () => 'faucet',
+  getSdkSyncedNativeAssetIdSync: () => 'faucet',
   getVerificationBaseFee: () => mockGetVerificationBaseFee(),
   refreshVerificationBaseFee: () => mockGetVerificationBaseFee(),
   getVerificationBaseFeeSync: () => 0,
@@ -565,6 +568,16 @@ const sendsOut = (amount: bigint) => ({
 // Each provider's row, reviewed to bridge 1000 of `faucet`, with the pre-built request every current row carries and
 // the one note its build recorded: the note `sendsOut(1000n)` creates.
 const builtNote = { approvedOutputNoteIds: ['note:1000'] };
+const reviewedUsdcxBurn: IUsdcxBurn = {
+  noteId: 'note:1000',
+  destinationDomain: 0,
+  phase: 'pending',
+  networkFeeBudget: {
+    faucetId: 'faucet',
+    maxAmount: '0',
+    scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+  }
+};
 const bridgeRows: Array<[string, Record<string, unknown>]> = [
   [
     'agglayer',
@@ -579,7 +592,7 @@ const bridgeRows: Array<[string, Record<string, unknown>]> = [
     {
       requestBytes: new Uint8Array([0xb5]),
       noteType: 'public',
-      extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } },
+      extraInputs: { provider: 'usdcx', usdcxBurn: reviewedUsdcxBurn },
       ...builtNote
     }
   ],
@@ -626,10 +639,17 @@ describe.each([
 
     expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
     // A note carrying another amount is another note, so it is not the one the row was built with either.
-    expect(failure instanceof Error ? failure.message : undefined).toBe(
-      'Refused to sign this bridged-send transaction: 1001 of faucet leaves (approved 1000); ' +
-        'creates a note that was not approved (note:1001)'
-    );
+    const expected =
+      provider === 'usdcx'
+        ? {
+            cause: { message: 'The approved USDCx burn is missing from the fee-bearing transaction' }
+          }
+        : {
+            message:
+              'Refused to sign this bridged-send transaction: 1001 of faucet leaves (approved 1000); ' +
+              'creates a note that was not approved (note:1001)'
+          };
+    expect(failure).toMatchObject(expected);
     expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
     expect(signCallback).not.toHaveBeenCalled();
     expect(mockSubmit).not.toHaveBeenCalled();
@@ -645,13 +665,22 @@ describe.each([
 
       const { failure, row } = await settle(`bs-other-note-${provider}`, {
         ...fields,
-        approvedOutputNoteIds: ['note:built']
+        approvedOutputNoteIds: ['note:built'],
+        ...(provider === 'usdcx'
+          ? { extraInputs: { provider: 'usdcx', usdcxBurn: { ...reviewedUsdcxBurn, noteId: 'note:built' } } }
+          : {})
       });
 
       expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
-      expect(failure instanceof Error ? failure.message : undefined).toBe(
-        'Refused to sign this bridged-send transaction: creates a note that was not approved (note:1000)'
-      );
+      const expected =
+        provider === 'usdcx'
+          ? {
+              cause: { message: 'The approved USDCx burn is missing from the fee-bearing transaction' }
+            }
+          : {
+              message: 'Refused to sign this bridged-send transaction: creates a note that was not approved (note:1000)'
+            };
+      expect(failure).toMatchObject(expected);
       expect(signCallback).not.toHaveBeenCalled();
       expect(mockSubmit).not.toHaveBeenCalled();
       expect(mockComplete.bridged).not.toHaveBeenCalled();
@@ -670,6 +699,26 @@ describe.each([
     expect(signCallback).toHaveBeenCalledWith('0a', 'aa');
     expect(mockSubmit).toHaveBeenCalledTimes(1);
     expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an old USDCx row with no reviewed fee consent before signing or submitting', async () => {
+    const legacyBurn = { ...reviewedUsdcxBurn };
+    Reflect.deleteProperty(legacyBurn, 'networkFeeBudget');
+    mockDeserializeSigningInputs.mockReturnValue(sendsOut(1000n));
+    const { failure, row } = await settle('bs-usdcx-no-budget', {
+      requestBytes: new Uint8Array([0xb5]),
+      extraInputs: { provider: 'usdcx', usdcxBurn: legacyBurn },
+      ...builtNote
+    });
+    expect(failure).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(failure).toMatchObject({
+      cause: { message: 'The USDCx burn has no current reviewed native fee budget' }
+    });
+    expect(signCallback).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.proposalEffectRefused).toBe(true);
   });
 
   // A row queued before its build recorded a note: it fails unsigned, and Retry would be refused the same way.

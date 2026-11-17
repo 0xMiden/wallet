@@ -1278,7 +1278,7 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
+    ...feeFieldsFromResult(result, tx.id, tx),
     displayMessage: tx.extraInputs?.provider === 'usdcx' ? 'USDCx burn submitted' : 'Bridged to EVM',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
