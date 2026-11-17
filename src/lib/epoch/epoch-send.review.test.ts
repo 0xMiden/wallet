@@ -258,6 +258,13 @@ it('keeps account and collateral identifiers out of real note admission diagnost
   expect(JSON.stringify(log.mock.calls)).not.toContain(accounts.midenAccount);
 });
 
+it.each(['outer', 'direct'])('an unadmitted owned Epoch source refuses a missing live reader: %s', async caller => {
+  const outcome = caller === 'outer'
+    ? await bridgeEpochSend({ ...input, checks: undefined }).then(() => 'admitted', () => 'refused')
+    : await createBridgeP2IDENote({ ...directNoteInput(), checks: undefined }).then(result => result.success ? 'admitted' : 'refused', () => 'refused');
+  expect({ outcome, rows: await Repo.transactions.count() }).toEqual({ outcome: 'refused', rows: 0 });
+});
+
 it('admits a same-scope direct owned note with native-captured protected RPC and original review', async () => {
   const result = await createBridgeP2IDENote(directNoteInput());
   expect(result.success).toBe(true);

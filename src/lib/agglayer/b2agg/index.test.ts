@@ -224,15 +224,12 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 }));
 
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
-import { CommandBridge } from 'screens/command/bridge/CommandBridge';
-import { CommandDraftProvider } from 'screens/command/command-drafts';
-import { CommandWorkbench } from 'screens/command/CommandWorkbench';
-import { FlowPresentationProvider, CommandFlowBackProvider } from 'components/flow/FlowPresentation';
-import { navigate } from 'lib/woozie';
-import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 
+import { TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+import { FlowPresentationProvider, CommandFlowBackProvider } from 'components/flow/FlowPresentation';
+import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { runAgglayerSend } from 'lib/bridge/providers/agglayer/flows';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
@@ -243,6 +240,10 @@ import * as Repo from 'lib/miden/repo';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
+import { navigate } from 'lib/woozie';
+import { CommandBridge } from 'screens/command/bridge/CommandBridge';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 import { initiateB2AggBridge } from './index';
 
@@ -702,6 +703,12 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
       expect(mockCreateB2AggNote).toHaveBeenCalledTimes(builds);
     }
   );
+
+  it('an unadmitted owned native source cannot replace the live reader with its stored review', async () => {
+    const original = { ...input(), checks: undefined };
+    await expect(initiateB2AggBridge(original)).rejects.toThrow();
+    expect(await Repo.transactions.count()).toBe(0);
+  });
 
   it.each([false, true])('refuses revoked live consent after request build (Guardian=%s)', async guardian => {
     mockIsGuardian.mockResolvedValue(guardian);
