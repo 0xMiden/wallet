@@ -613,3 +613,98 @@ it.each(['amount', 'review', 'submit'])(
     expect(originalDriveContext?.()).toMatchObject({ amount: '6', accounts: original?.accounts });
   }
 );
+
+it('revokes authority but retains original admitted facts after a rejected public outcome', async () => {
+  // UI outcome characterization; the original DB/source owners determine what actually happened.
+  let originalDriveContext: (() => BridgeReviewContext) | undefined;
+  jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+    originalDriveContext = deps.getContext;
+    deps.onOperation('original-row');
+    return { kind: 'rejected', operationId: 'original-row' };
+  });
+  const { result, rerender } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  const original = result.current.bridge.review;
+  await act(async () => result.current.bridge.submit());
+  expect(result.current.bridge.operationId).toBe('original-row');
+  expect(result.current.bridge.error).toBe(true);
+  expect(result.current.bridge.isSubmitting).toBe(false);
+  expect(result.current.bridge.canReview).toBe(false);
+  expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
+  expect(originalDriveContext).toBeDefined();
+  expect(() => originalDriveContext?.()).toThrow(EpochReviewChangedError);
+  expect(result.current.bridge.review?.amount).toBe('6');
+  expect(result.current.bridge.review?.networkFeeBudget?.maxAmount).toBe('300');
+  expect(result.current.bridge.review).toBe(original);
+  mockFee = { ...mockFee, reserve: 301n };
+  removeCircleWithdrawals();
+  rerender();
+  expect(result.current.bridge.review).toBe(original);
+  expect(result.current.bridge.review?.networkFeeBudget?.maxAmount).toBe('300');
+  await act(async () => result.current.bridge.submit());
+  expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+});
+
+it('still clears review and authority for a rejection without an admitted row', async () => {
+  let originalDriveContext: (() => BridgeReviewContext) | undefined;
+  jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+    originalDriveContext = deps.getContext;
+    return { kind: 'rejected' };
+  });
+  const { result } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  await act(async () => result.current.bridge.submit());
+  expect(result.current.bridge.operationId).toBeUndefined();
+  expect(result.current.bridge.review).toBeUndefined();
+  expect(result.current.bridge.error).toBe(true);
+  expect(result.current.drafts.readDraft('bridge')?.amount).toBe('6');
+  expect(() => originalDriveContext?.()).toThrow(EpochReviewChangedError);
+  await act(async () => result.current.bridge.submit());
+  expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the rejected admitted workbench readonly with original disclosure and original-row status', async () => {
+  jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+    deps.onOperation('original-row');
+    return { kind: 'rejected', operationId: 'original-row' };
+  });
+  const view = () => (
+    <CommandDraftProvider scope={scope}>
+      <CommandWorkbench route={{ kind: 'flow', action: 'bridge' }} container={null}>
+        <CommandBridge />
+      </CommandWorkbench>
+    </CommandDraftProvider>
+  );
+  const { rerender } = render(view());
+  fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
+  const route = deriveBridgeRoutes(mockSnapshot).find(item => item.provider === 'xreserve' && item.mode === 'send');
+  if (!route) throw new Error('Missing enabled Circle source');
+  fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '6' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
+    target: { value: accounts.evmAddress }
+  });
+  fireEvent.click(screen.getByText('commandDetails'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
+  const form = screen.getByRole('textbox', { name: 'amount' }).closest('form');
+  if (!form) throw new Error('Missing original Command form');
+  fireEvent.submit(form);
+  expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled();
+  await act(async () => {
+    fireEvent.submit(form);
+  });
+  expect(screen.getByRole('button', { name: 'commandBridgeViewStatus' })).toHaveAttribute('type', 'button');
+  expect(screen.getByText('bridgeReviewChanged')).toBeVisible();
+  expect(screen.getByText('commandBridgeAdmitted')).toBeVisible();
+  expect(screen.queryByRole('textbox', { name: 'amount' })).toBeNull();
+  mockFee = { ...mockFee, reserve: 301n };
+  removeCircleWithdrawals();
+  rerender(view());
+  expect(screen.getByText('0.0003 USDCx')).toBeVisible();
+  expect(screen.queryByText('0.000301 USDCx')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'confirm' })).toBeNull();
+  fireEvent.submit(form);
+  expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+});
