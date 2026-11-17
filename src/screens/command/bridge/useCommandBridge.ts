@@ -83,6 +83,8 @@ export function useCommandBridge() {
   const [error, setError] = useState(false);
   const [revision, setRevision] = useState(0);
   const pending = useRef(false);
+  // Admission vetoes new UI intent without revoking the original drive's live consent.
+  const admittedRowId = useRef<string>();
   const invalidate = useCallback(() => {
     generation.current++;
     consent.current = undefined;
@@ -93,6 +95,7 @@ export function useCommandBridge() {
     scopeRef.current = scope;
     scopeLifetime.current++;
     normalizedDraft.current = undefined;
+    admittedRowId.current = undefined;
     selected.current = { direction: 'in', route: '', amount: '', externalAccountId: '' };
     setSelection(selected.current);
     invalidate();
@@ -187,7 +190,13 @@ export function useCommandBridge() {
     setQuote(null);
   }
   const change = (next: Partial<CommandDrafts['bridge']>) => {
-    if (!alive.current || scopeLifetime.current !== lifetimeAtRender || locked || pending.current || operationId)
+    if (
+      !alive.current ||
+      scopeLifetime.current !== lifetimeAtRender ||
+      locked ||
+      pending.current ||
+      admittedRowId.current
+    )
       return;
     invalidate();
     setQuote(null);
@@ -278,7 +287,7 @@ export function useCommandBridge() {
     }
   }
   const reviewTransfer = () => {
-    if (!canReview || !current.current || pending.current) return;
+    if (!canReview || !current.current || pending.current || admittedRowId.current) return;
     const captured: ReviewedTransfer = structuredClone({ ...current.current, quote: quote ?? undefined });
     try {
       assertReviewedBridge(captured, current.current, Date.now());
@@ -302,6 +311,7 @@ export function useCommandBridge() {
     }
   }, [review, operationId, invalidate, exit]);
   const connectWallet = async () => {
+    if (admittedRowId.current) return;
     invalidate();
     try {
       if (wallet.useNativeReownWallet) {
@@ -319,7 +329,7 @@ export function useCommandBridge() {
   };
   const switchSource = async () => {
     const captured = current.current;
-    if (!captured || captured.route.mode !== 'receive' || pending.current || operationId) return;
+    if (!captured || captured.route.mode !== 'receive' || pending.current || admittedRowId.current) return;
     invalidate();
     const chain = captured.route.recovery.config.supportedEvmChains[captured.route.source.network];
     if (!chain) return;
@@ -333,7 +343,7 @@ export function useCommandBridge() {
   };
   const submit = async () => {
     const captured = consent.current;
-    if (!captured || captured !== review || pending.current || operationId) return;
+    if (!captured || captured !== review || pending.current || admittedRowId.current) return;
     const originalGeneration = generation.current;
     const originalScope = scopeRef.current;
     const getContext = (): BridgeReviewContext => {
@@ -394,6 +404,7 @@ export function useCommandBridge() {
         },
         onOperation: id => {
           if (alive.current && consent.current === captured) {
+            admittedRowId.current = id;
             setOperationId(id);
             drafts.clearDraft('bridge');
           }
