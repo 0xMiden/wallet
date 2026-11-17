@@ -329,16 +329,19 @@ it('captures verified source MessageSent from the already-awaited burn receipt o
   const source = getUsdcxSourceChain(11155111);
   if (source.route !== 'cctp-executor') throw new Error('Missing CCTP source');
   expect((await Repo.transactions.get(id))?.extraInputs.cctp).toMatchObject({
-    sourceMessage: cctpSourceMessage(source), messageTransmitter: TEST_CCTP_TRANSMITTER
+    sourceMessage: cctpSourceMessage(source).toLowerCase(), messageTransmitter: TEST_CCTP_TRANSMITTER
   });
   expect(adapterRpc.readContract.mock.calls.filter(([args]) => args.functionName === 'localMessageTransmitter')).toHaveLength(1);
 });
-it('refuses a failed transmitter getter before any new source prompt', async () => {
+it.each(['failed', 'zero'])('refuses a %s transmitter getter before any new source prompt', async outcome => {
   const id = await driveAdapter(true, () => {
     adapterAllowance = 0n;
     const read = adapterRpc.readContract.getMockImplementation()!;
     adapterRpc.readContract.mockImplementation(async args => {
-      if (args.functionName === 'localMessageTransmitter') throw new Error('Getter unavailable');
+      if (args.functionName === 'localMessageTransmitter') {
+        if (outcome === 'zero') return '0x0000000000000000000000000000000000000000';
+        throw new Error('Getter unavailable');
+      }
       return read(args);
     });
   });
