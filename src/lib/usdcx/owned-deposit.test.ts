@@ -59,7 +59,8 @@ function reviewFor(executor: boolean): ReviewedTransfer {
   return review;
 }
 
-async function drive(executor: boolean, afterClaim?: (claimed: BridgeOperationSnapshot) => Promise<void>) {
+async function drive(executor: boolean, afterClaim?: (claimed: BridgeOperationSnapshot) => Promise<void>,
+  changed: { amount?: string; recipient?: `0x${string}`; rowId?: string; fee?: bigint } = {}) {
   const review = reviewFor(executor);
   live = structuredClone(review);
   const chainId = executor ? 11155111 : 5042002;
@@ -91,14 +92,14 @@ async function drive(executor: boolean, afterClaim?: (claimed: BridgeOperationSn
           updatePhase: updateBridgedReceivePhase,
           owned: { rowId, operation: claimed, checks: { readCurrent: async () => live, now: () => now } }
         };
-        const recipient = midenAccountHexToXReserveRecipient(accounts.midenAccount);
+        const recipient = changed.recipient ?? midenAccountHexToXReserveRecipient(accounts.midenAccount);
         if (source.route === 'xreserve')
-          await runUsdcxDeposit(rowId, review.amount, recipient, { ...deps, source });
+          await runUsdcxDeposit(changed.rowId ?? rowId, changed.amount ?? review.amount, recipient, { ...deps, source });
         else
-          await runUsdcxExecutorDeposit(rowId, review.amount, recipient, {
+          await runUsdcxExecutorDeposit(changed.rowId ?? rowId, changed.amount ?? review.amount, recipient, {
             ...deps, source, depositor: `0x${accounts.evmAddress.slice(2)}`,
             readBalance: async () => 10000000n,
-            fetchQuote: async () => ({ signedQuote: '0x1234', feeTotalAmount: 1n, expiresAt: now / 1000 + 60 })
+            fetchQuote: async () => ({ signedQuote: '0x1234', feeTotalAmount: changed.fee ?? 1n, expiresAt: now / 1000 + 60 })
           });
         finish(undefined);
       } catch (error) { finish(error); }
@@ -149,6 +150,27 @@ it.each([false, true])('refuses a retired original source revision (executor=%s)
     if (!row) throw new Error('Missing admitted row');
     await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.revision': 'other-revision' });
   });
+  expect(error).toBeInstanceOf(Error);
+  expect(deposit).not.toHaveBeenCalled();
+});
+
+it.each([false, true])('refuses a different actual source amount (executor=%s)', async executor => {
+  const { error } = await drive(executor, undefined, { amount: '2' });
+  expect(error).toBeInstanceOf(Error);
+  expect(deposit).not.toHaveBeenCalled();
+});
+it.each([false, true])('refuses a different actual recipient (executor=%s)', async executor => {
+  const { error } = await drive(executor, undefined, { recipient: `0x${'0'.repeat(64)}` });
+  expect(error).toBeInstanceOf(Error);
+  expect(deposit).not.toHaveBeenCalled();
+});
+it.each([false, true])('refuses a different tracking row (executor=%s)', async executor => {
+  const { error } = await drive(executor, undefined, { rowId: 'not-original-row' });
+  expect(error).toBeInstanceOf(Error);
+  expect(deposit).not.toHaveBeenCalled();
+});
+it('refuses an unreviewed executor fee even when existing allowance covers it', async () => {
+  const { error } = await drive(true, undefined, { fee: 2n });
   expect(error).toBeInstanceOf(Error);
   expect(deposit).not.toHaveBeenCalled();
 });
