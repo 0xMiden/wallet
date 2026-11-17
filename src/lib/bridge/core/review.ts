@@ -19,10 +19,31 @@ export interface BridgeReviewContext {
   networkFeeBudget?: IUsdcxNetworkFeeBudget;
 }
 
+export function isCanonicalUsdcxFeeBudget(
+  budget: IUsdcxNetworkFeeBudget | undefined
+): budget is IUsdcxNetworkFeeBudget {
+  return Boolean(
+    budget &&
+    typeof budget.faucetId === 'string' &&
+    budget.faucetId.trim().length > 0 &&
+    typeof budget.maxAmount === 'string' &&
+    /^(0|[1-9]\d{0,18})$/.test(budget.maxAmount) &&
+    typeof budget.scope === 'string' &&
+    /^[a-f0-9]{64}$/.test(budget.scope)
+  );
+}
+
 /** Call after every asynchronous admission read; a stored review is never fresh signing permission. */
 export function assertReviewedBridge(review: ReviewedTransfer, current: BridgeReviewContext, now: number): void {
   const { route, amount, accounts, quote } = review;
   validateTransferAmount(current.route, current.amount);
+  if (
+    route.provider === 'xreserve' &&
+    route.mode === 'send' &&
+    (!isCanonicalUsdcxFeeBudget(review.networkFeeBudget) ||
+      configKey(review.networkFeeBudget) !== configKey(current.networkFeeBudget))
+  )
+    throw new Error('Bridge native fee requires a new review');
   if (
     route.disabled ||
     !isBridgeRouteAvailable(current.route) ||

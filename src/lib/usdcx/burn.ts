@@ -63,8 +63,8 @@ export async function readUsdcxMinimumBurn(): Promise<bigint> {
     );
     const onChain = proof.getStorageSlotValue(USDCX_MIN_BURN_SLOT)?.toFelts()[0]?.asInt();
     return onChain !== undefined && onChain > USDCX_MIN_BURN ? onChain : USDCX_MIN_BURN;
-  } catch (error) {
-    console.warn('USDCx minimum burn read failed, using the wallet minimum', error);
+  } catch {
+    console.warn('USDCx minimum burn read failed, using the wallet minimum');
     return USDCX_MIN_BURN;
   }
 }
@@ -139,6 +139,7 @@ export async function initiateUsdcxBurn(args: {
       !sameWalletAccountId(route.source.faucetId, faucetId) ||
       !sameWalletAccountId(operation.review.accounts.midenAccount, senderPublicKey) ||
       operation.review.accounts.evmAddress.toLowerCase() !== destinationAddress.toLowerCase() ||
+      configKey(networkFeeBudget) !== configKey(operation.review.networkFeeBudget) ||
       configKey(originalScope) !== configKey(captureBridgeWalletScope()) ||
       current.status !== 'ready' ||
       configKey([current.network, current.config, current.derived]) !==

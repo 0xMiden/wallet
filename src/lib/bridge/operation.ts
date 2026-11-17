@@ -12,7 +12,7 @@ import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
 import { walletBridgeProvider } from './core/provider';
 import { quoteAmounts } from './core/quote';
-import { assertReviewedBridge, type ReviewedTransfer } from './core/review';
+import { assertReviewedBridge, isCanonicalUsdcxFeeBudget, type ReviewedTransfer } from './core/review';
 import { configKey } from './core/routes';
 import { isValidAmount } from './core/rules';
 import { parseBridgeApproval, type BridgeApproval } from './evm/approval';
@@ -130,6 +130,11 @@ function assertRowBinding(row: ITransaction, review: ReviewedTransfer): void {
       send.destinationNetwork !== destinationNetwork
     )
       throw new Error('Bridge operation terms changed');
+    if (
+      route.provider === 'xreserve' &&
+      configKey(send.usdcxBurn?.networkFeeBudget) !== configKey(review.networkFeeBudget)
+    )
+      throw new Error('Bridge native fee binding changed');
   }
   if (route.provider === 'agglayer') {
     const expected = selectAgglayerRecoveryConfig(
@@ -235,6 +240,12 @@ export async function prepareBridgeOperation(
   capturedScope: Pick<AccountScope, 'network' | 'rpcUrl'>
 ): Promise<BridgeOperationSnapshot> {
   if (!input.operationId.trim()) throw new Error('Missing bridge operation identity');
+  if (
+    input.review.route.provider === 'xreserve' &&
+    input.review.route.mode === 'send' &&
+    !isCanonicalUsdcxFeeBudget(input.review.networkFeeBudget)
+  )
+    throw new Error('Missing reviewed native fee budget');
   assertRowBinding(row, input.review);
   const existing = await operationRows(input.operationId);
   if (existing.length) {

@@ -371,12 +371,14 @@ it('shows the exact reviewed native maximum in the actual Command Bridge workben
   fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
     target: { value: accounts.evmAddress }
   });
+  fireEvent.click(screen.getByText('commandDetails'));
+  expect(screen.getByText('networkFeeMax')).toBeVisible();
+  expect(screen.getByText('0.0003 USDCx')).toBeVisible();
   await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
   const form = screen.getByRole('textbox', { name: 'amount' }).closest('form');
   if (!form) throw new Error('Missing real Command Bridge form');
   fireEvent.submit(form);
   expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled();
-  fireEvent.click(screen.getByText('commandDetails'));
   expect(screen.getByText('networkFeeMax')).toBeVisible();
   expect(screen.getByText('0.0003 USDCx')).toBeVisible();
 });

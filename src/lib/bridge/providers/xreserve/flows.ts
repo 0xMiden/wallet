@@ -2,6 +2,7 @@
 import { parseUnits } from 'viem';
 
 import { quoteAmounts } from 'lib/bridge/core/quote';
+import { isCanonicalUsdcxFeeBudget } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
 import { verifyBridgeSubmission, type SubmissionChecks } from 'lib/bridge/core/submission';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
@@ -66,9 +67,15 @@ export async function runXReserveSend(
 ): Promise<string> {
   operation = structuredClone(operation);
   const { review } = operation;
-  const { route, amount, accounts } = review;
+  const { route, amount, accounts, networkFeeBudget } = review;
   const chain = route.recovery.config.supportedEvmChains[route.destination.network];
-  if (route.provider !== 'xreserve' || route.mode !== 'send' || route.source.kind !== 'miden' || !chain)
+  if (
+    route.provider !== 'xreserve' ||
+    route.mode !== 'send' ||
+    route.source.kind !== 'miden' ||
+    !chain ||
+    !isCanonicalUsdcxFeeBudget(networkFeeBudget)
+  )
     throw new Error('Circle send terms changed');
   return initiateUsdcxBurn({
     senderPublicKey: accounts.midenAccount,
@@ -76,6 +83,7 @@ export async function runXReserveSend(
     amount: parseUnits(amount, route.source.decimals),
     destinationAddress: accounts.evmAddress,
     destinationChainId: chain.chainId,
+    networkFeeBudget,
     operation,
     checks
   });
