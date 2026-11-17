@@ -1976,7 +1976,17 @@
   "recoverFundsLocked": "Bloqueado",
   "recoverFundsWithdrawal": "Retirada",
   "recoverFundsWithdrawOff": "Não solicitado",
-  "recoverFundsCancelWithdrawal": "Cancelar saque",
-  "recoverFundsCancelling": "Cancelando…",
-  "recoverFundsWithdrawBlocksBridge": "Enquanto uma retirada estiver solicitada, novas transferências rápidas (bridge-ins) de $token$ a partir de $address$ não podem ser iniciadas. Conclua ou cancele a retirada para realizar a transferência novamente."
+  "recoverFundsCancelWithdrawal": "Desativar saque",
+  "recoverFundsCancelling": "Desativar…",
+  "recoverFundsWithdrawBlocksBridge": "A retirada forçada bloqueia novas transferências rápidas (Fast bridge-ins) de $token$ a partir de $address$. Depois de recuperar seus fundos, desative a retirada para realizar novas transferências.",
+  "bridgeWithdrawalTitle": "Verifique o acesso rápido à ponte",
+  "bridgeWithdrawalChecking": "Verificando o status de retirada deste token e desta carteira.",
+  "bridgeWithdrawalCheckFailed": "Não foi possível verificar o status da retirada. Tente novamente antes de usar a ponte Fast.",
+  "bridgeWithdrawalBody": "A retirada forçada está ativa para $token$ na $network$. Depois de recuperar seus fundos, desative a retirada para fazer a ponte novamente.",
+  "bridgeWithdrawalDisable": "Desativar saque",
+  "bridgeWithdrawalDisabling": "Desativar…",
+  "bridgeWithdrawalEffect": "Isso desativa a retirada forçada para esse bloqueio. Os fundos já recuperados permanecem na sua carteira. Uma nova solicitação de recuperação inicia um novo período de espera. Essa transação exige uma taxa de rede.",
+  "bridgeWithdrawalWalletPrompt": "Abra sua carteira EVM conectada e aprove a transação na $network$. Aguarde aqui pela confirmação.",
+  "bridgeWithdrawalUseCircle": "Use “Circle” em vez disso",
+  "bridgeWithdrawalUseSlow": "Use “Slow bridge” em vez disso"
 }

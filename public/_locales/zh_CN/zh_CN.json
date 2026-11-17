@@ -1983,7 +1983,17 @@
   "recoverFundsLocked": "已锁定",
   "recoverFundsWithdrawal": "提现",
   "recoverFundsWithdrawOff": "未要求",
-  "recoverFundsCancelWithdrawal": "取消提现",
-  "recoverFundsCancelling": "取消……",
-  "recoverFundsWithdrawBlocksBridge": "在提现请求期间，无法从$address$地址发起新的$token$ Fast桥接操作。请完成或取消提现操作后，方可再次进行桥接。"
+  "recoverFundsCancelWithdrawal": "禁用提现功能",
+  "recoverFundsCancelling": "禁用……",
+  "recoverFundsWithdrawBlocksBridge": "强制提现将阻止从$address$地址进行新的$token$快速跨链转入。在您取回资金后，请禁用提现功能以恢复跨链转入。",
+  "bridgeWithdrawalTitle": "查看 Fast Bridge 访问权限",
+  "bridgeWithdrawalChecking": "正在查询该代币和钱包的提现状态。",
+  "bridgeWithdrawalCheckFailed": "无法检查提现状态。请在使用 Fast bridge 之前重试。",
+  "bridgeWithdrawalBody": "$token$在$network$上已启用强制提现。在您取回资金后，请禁用提现功能，以便再次进行跨链转账。",
+  "bridgeWithdrawalDisable": "禁用提现功能",
+  "bridgeWithdrawalDisabling": "禁用……",
+  "bridgeWithdrawalEffect": "这将关闭该锁的强制提现功能。已恢复的资金仍保留在您的钱包中。新的恢复请求将开始新的等待期。此交易需要支付网络手续费。",
+  "bridgeWithdrawalWalletPrompt": "打开您已连接的 EVM 钱包，并在 $network$ 上批准该交易。请在此处等待确认。",
+  "bridgeWithdrawalUseCircle": "请改用 Circle",
+  "bridgeWithdrawalUseSlow": "请改用“Slow bridge”"
 }

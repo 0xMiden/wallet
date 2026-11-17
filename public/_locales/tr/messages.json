@@ -9047,16 +9047,16 @@
     "englishSource": "Not requested"
   },
   "recoverFundsCancelWithdrawal": {
-    "message": "Para çekme işlemini iptal et",
-    "englishSource": "Cancel withdrawal"
+    "message": "Para çekme işlemini devre dışı bırak",
+    "englishSource": "Disable withdrawal"
   },
   "recoverFundsCancelling": {
-    "message": "İptal etme…",
-    "englishSource": "Cancelling…"
+    "message": "Devre dışı bırakma…",
+    "englishSource": "Disabling…"
   },
   "recoverFundsWithdrawBlocksBridge": {
-    "message": "Para çekme talebi varken, $address$ adresinden $token$ tutarındaki yeni Fast köprülemeleri başlatılamaz. Tekrar köprüleme yapmak için para çekme işlemini tamamlayın veya iptal edin.",
-    "englishSource": "While a withdrawal is requested, new Fast bridge-ins of $token$ from $address$ cannot start. Finish or cancel the withdrawal to bridge again.",
+    "message": "Zorunlu para çekme işlemi, $address$ adresinden $token$'ın yeni Fast köprülemelerini engeller. Paranızı geri aldıktan sonra, tekrar köprüleme yapabilmek için para çekme işlemini devre dışı bırakın.",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
     "placeholders": {
       "token": {
         "content": "$1"
@@ -9065,5 +9065,58 @@
         "content": "$2"
       }
     }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Hızlı köprü erişimini kontrol edin",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "Bu token ve cüzdanın para çekme durumunu kontrol etmek.",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "Para çekme durumunu kontrol edilemedi. Fast Bridge'i kullanmadan önce lütfen tekrar deneyin.",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "$network$ ağındaki $token$ için zorunlu para çekme işlemi etkindir. Paranızı geri aldıktan sonra, tekrar köprüye para çekme işlemini devre dışı bırakın.",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "Para çekme işlemini devre dışı bırak",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "Devre dışı bırakma…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "Bu işlem, bu kilit için zorunlu para çekme özelliğini devre dışı bırakır. Halihazırda kurtarılmış olan fonlar cüzdanınızda kalır. Yeni bir kurtarma talebi, yeni bir bekleme süresini başlatır. Bu işlem için ağ ücreti ödenmesi gerekir.",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "Bağlı EVM cüzdanınızı açın ve $network$ üzerindeki işlemi onaylayın. Onay gelene kadar burada bekleyin.",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "Bunun yerine Circle'ı kullanın",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "Bunun yerine \"Slow bridge\" ifadesini kullanın",
+    "englishSource": "Use Slow bridge instead"
   }
 }

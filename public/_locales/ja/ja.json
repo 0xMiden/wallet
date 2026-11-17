@@ -1983,7 +1983,17 @@
   "recoverFundsLocked": "ロック済み",
   "recoverFundsWithdrawal": "出金",
   "recoverFundsWithdrawOff": "要求されていない",
-  "recoverFundsCancelWithdrawal": "出金のキャンセル",
-  "recoverFundsCancelling": "キャンセル…",
-  "recoverFundsWithdrawBlocksBridge": "出金リクエスト中は、$address$からの$token$の新たなFastブリッジインを開始することはできません。再度ブリッジを行うには、出金を完了するかキャンセルしてください。"
+  "recoverFundsCancelWithdrawal": "出金を無効にする",
+  "recoverFundsCancelling": "無効化…",
+  "recoverFundsWithdrawBlocksBridge": "強制引き出しは、$address$からの$token$の新たなFastブリッジインをブロックします。資金を回収した後、再度ブリッジを行うには、引き出し機能を無効にしてください。",
+  "bridgeWithdrawalTitle": "Fast Bridgeへのアクセスを確認",
+  "bridgeWithdrawalChecking": "このトークンおよびウォレットの出金状況を確認しています。",
+  "bridgeWithdrawalCheckFailed": "出金状況を確認できませんでした。Fast Bridge を利用する前に、もう一度お試しください。",
+  "bridgeWithdrawalBody": "$network$上の$token$に対して強制引き出しが有効になっています。資金を回収した後、再度ブリッジを行うには、引き出し機能を無効にしてください。",
+  "bridgeWithdrawalDisable": "出金を無効にする",
+  "bridgeWithdrawalDisabling": "無効化…",
+  "bridgeWithdrawalEffect": "これにより、このロックの強制引き出しが無効になります。すでに復元された資金はウォレットに残ります。新しい復元リクエストを行うと、新たな待機期間が開始されます。この取引にはネットワーク手数料が必要です。",
+  "bridgeWithdrawalWalletPrompt": "接続済みのEVMウォレットを開き、$network$上で取引を承認してください。ここで確認が完了するまでお待ちください。",
+  "bridgeWithdrawalUseCircle": "代わりに「Circle」を使用してください",
+  "bridgeWithdrawalUseSlow": "代わりに「Slow bridge」を使用してください"
 }

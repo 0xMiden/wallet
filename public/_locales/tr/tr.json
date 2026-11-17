@@ -1981,7 +1981,17 @@
   "recoverFundsLocked": "Kilitli",
   "recoverFundsWithdrawal": "Para Çekme",
   "recoverFundsWithdrawOff": "Talep edilmedi",
-  "recoverFundsCancelWithdrawal": "Para çekme işlemini iptal et",
-  "recoverFundsCancelling": "İptal etme…",
-  "recoverFundsWithdrawBlocksBridge": "Para çekme talebi varken, $address$ adresinden $token$ tutarındaki yeni Fast köprülemeleri başlatılamaz. Tekrar köprüleme yapmak için para çekme işlemini tamamlayın veya iptal edin."
+  "recoverFundsCancelWithdrawal": "Para çekme işlemini devre dışı bırak",
+  "recoverFundsCancelling": "Devre dışı bırakma…",
+  "recoverFundsWithdrawBlocksBridge": "Zorunlu para çekme işlemi, $address$ adresinden $token$'ın yeni Fast köprülemelerini engeller. Paranızı geri aldıktan sonra, tekrar köprüleme yapabilmek için para çekme işlemini devre dışı bırakın.",
+  "bridgeWithdrawalTitle": "Hızlı köprü erişimini kontrol edin",
+  "bridgeWithdrawalChecking": "Bu token ve cüzdanın para çekme durumunu kontrol etmek.",
+  "bridgeWithdrawalCheckFailed": "Para çekme durumunu kontrol edilemedi. Fast Bridge'i kullanmadan önce lütfen tekrar deneyin.",
+  "bridgeWithdrawalBody": "$network$ ağındaki $token$ için zorunlu para çekme işlemi etkindir. Paranızı geri aldıktan sonra, tekrar köprüye para çekme işlemini devre dışı bırakın.",
+  "bridgeWithdrawalDisable": "Para çekme işlemini devre dışı bırak",
+  "bridgeWithdrawalDisabling": "Devre dışı bırakma…",
+  "bridgeWithdrawalEffect": "Bu işlem, bu kilit için zorunlu para çekme özelliğini devre dışı bırakır. Halihazırda kurtarılmış olan fonlar cüzdanınızda kalır. Yeni bir kurtarma talebi, yeni bir bekleme süresini başlatır. Bu işlem için ağ ücreti ödenmesi gerekir.",
+  "bridgeWithdrawalWalletPrompt": "Bağlı EVM cüzdanınızı açın ve $network$ üzerindeki işlemi onaylayın. Onay gelene kadar burada bekleyin.",
+  "bridgeWithdrawalUseCircle": "Bunun yerine Circle'ı kullanın",
+  "bridgeWithdrawalUseSlow": "Bunun yerine \"Slow bridge\" ifadesini kullanın"
 }

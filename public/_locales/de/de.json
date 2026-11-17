@@ -1973,7 +1973,17 @@
   "recoverFundsLocked": "Gesperrt",
   "recoverFundsWithdrawal": "Auszahlung",
   "recoverFundsWithdrawOff": "Nicht angefordert",
-  "recoverFundsCancelWithdrawal": "Auszahlung stornieren",
-  "recoverFundsCancelling": "Stornieren…",
-  "recoverFundsWithdrawBlocksBridge": "Solange eine Auszahlung beantragt ist, können keine neuen „Fast“-Bridge-Ins von $token$ von $address$ gestartet werden. Beenden oder stornieren Sie die Auszahlung, um erneut eine Bridge durchzuführen."
+  "recoverFundsCancelWithdrawal": "Auszahlungen deaktivieren",
+  "recoverFundsCancelling": "Deaktivieren…",
+  "recoverFundsWithdrawBlocksBridge": "Eine erzwungene Auszahlung blockiert neue „Fast“-Bridges von $token$ von $address$. Nachdem Sie Ihre Gelder wiedererlangt haben, deaktivieren Sie die Auszahlung, um erneut eine Bridge durchführen zu können.",
+  "bridgeWithdrawalTitle": "Schnellen Zugang zur Fast Bridge prüfen",
+  "bridgeWithdrawalChecking": "Überprüfung des Auszahlungsstatus für diesen Token und diese Wallet.",
+  "bridgeWithdrawalCheckFailed": "Der Auszahlungsstatus konnte nicht überprüft werden. Versuchen Sie es erneut, bevor Sie die Fast Bridge nutzen.",
+  "bridgeWithdrawalBody": "Für $token$ auf $network$ ist eine erzwungene Auszahlung aktiv. Deaktivieren Sie die Auszahlung, nachdem Sie Ihre Gelder wiedererlangt haben, um erneut eine Bridge-Verbindung herzustellen.",
+  "bridgeWithdrawalDisable": "Auszahlungen deaktivieren",
+  "bridgeWithdrawalDisabling": "Deaktivieren…",
+  "bridgeWithdrawalEffect": "Dadurch wird die erzwungene Entnahme für diese Sperre deaktiviert. Bereits wiederhergestellte Guthaben verbleiben in Ihrer Wallet. Eine neue Wiederherstellungsanfrage löst eine neue Wartezeit aus. Für diese Transaktion fällt eine Netzwerkgebühr an.",
+  "bridgeWithdrawalWalletPrompt": "Öffnen Sie Ihre verbundene EVM-Wallet und genehmigen Sie die Transaktion auf $network$. Warten Sie hier auf die Bestätigung.",
+  "bridgeWithdrawalUseCircle": "Verwenden Sie stattdessen „Circle“",
+  "bridgeWithdrawalUseSlow": "Verwenden Sie stattdessen „Slow Bridge“"
 }

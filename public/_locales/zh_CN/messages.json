@@ -9045,16 +9045,16 @@
     "englishSource": "Not requested"
   },
   "recoverFundsCancelWithdrawal": {
-    "message": "取消提现",
-    "englishSource": "Cancel withdrawal"
+    "message": "禁用提现功能",
+    "englishSource": "Disable withdrawal"
   },
   "recoverFundsCancelling": {
-    "message": "取消……",
-    "englishSource": "Cancelling…"
+    "message": "禁用……",
+    "englishSource": "Disabling…"
   },
   "recoverFundsWithdrawBlocksBridge": {
-    "message": "在提现请求期间，无法从$address$地址发起新的$token$ Fast桥接操作。请完成或取消提现操作后，方可再次进行桥接。",
-    "englishSource": "While a withdrawal is requested, new Fast bridge-ins of $token$ from $address$ cannot start. Finish or cancel the withdrawal to bridge again.",
+    "message": "强制提现将阻止从$address$地址进行新的$token$快速跨链转入。在您取回资金后，请禁用提现功能以恢复跨链转入。",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
     "placeholders": {
       "token": {
         "content": "$1"
@@ -9063,5 +9063,58 @@
         "content": "$2"
       }
     }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "查看 Fast Bridge 访问权限",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "正在查询该代币和钱包的提现状态。",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "无法检查提现状态。请在使用 Fast bridge 之前重试。",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "$token$在$network$上已启用强制提现。在您取回资金后，请禁用提现功能，以便再次进行跨链转账。",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "禁用提现功能",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "禁用……",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "这将关闭该锁的强制提现功能。已恢复的资金仍保留在您的钱包中。新的恢复请求将开始新的等待期。此交易需要支付网络手续费。",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "打开您已连接的 EVM 钱包，并在 $network$ 上批准该交易。请在此处等待确认。",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "请改用 Circle",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "请改用“Slow bridge”",
+    "englishSource": "Use Slow bridge instead"
   }
 }

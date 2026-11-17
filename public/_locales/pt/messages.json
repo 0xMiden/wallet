@@ -9052,16 +9052,16 @@
     "englishSource": "Not requested"
   },
   "recoverFundsCancelWithdrawal": {
-    "message": "Cancelar saque",
-    "englishSource": "Cancel withdrawal"
+    "message": "Desativar saque",
+    "englishSource": "Disable withdrawal"
   },
   "recoverFundsCancelling": {
-    "message": "Cancelando…",
-    "englishSource": "Cancelling…"
+    "message": "Desativar…",
+    "englishSource": "Disabling…"
   },
   "recoverFundsWithdrawBlocksBridge": {
-    "message": "Enquanto uma retirada estiver solicitada, novas transferências rápidas (bridge-ins) de $token$ a partir de $address$ não podem ser iniciadas. Conclua ou cancele a retirada para realizar a transferência novamente.",
-    "englishSource": "While a withdrawal is requested, new Fast bridge-ins of $token$ from $address$ cannot start. Finish or cancel the withdrawal to bridge again.",
+    "message": "A retirada forçada bloqueia novas transferências rápidas (Fast bridge-ins) de $token$ a partir de $address$. Depois de recuperar seus fundos, desative a retirada para realizar novas transferências.",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
     "placeholders": {
       "token": {
         "content": "$1"
@@ -9070,5 +9070,58 @@
         "content": "$2"
       }
     }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Verifique o acesso rápido à ponte",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "Verificando o status de retirada deste token e desta carteira.",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "Não foi possível verificar o status da retirada. Tente novamente antes de usar a ponte Fast.",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "A retirada forçada está ativa para $token$ na $network$. Depois de recuperar seus fundos, desative a retirada para fazer a ponte novamente.",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "Desativar saque",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "Desativar…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "Isso desativa a retirada forçada para esse bloqueio. Os fundos já recuperados permanecem na sua carteira. Uma nova solicitação de recuperação inicia um novo período de espera. Essa transação exige uma taxa de rede.",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "Abra sua carteira EVM conectada e aprove a transação na $network$. Aguarde aqui pela confirmação.",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "Use “Circle” em vez disso",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "Use “Slow bridge” em vez disso",
+    "englishSource": "Use Slow bridge instead"
   }
 }

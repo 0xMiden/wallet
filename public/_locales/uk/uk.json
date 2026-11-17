@@ -1981,7 +1981,17 @@
   "recoverFundsLocked": "Заблоковано",
   "recoverFundsWithdrawal": "Виведення коштів",
   "recoverFundsWithdrawOff": "Не запитується",
-  "recoverFundsCancelWithdrawal": "Скасувати виведення коштів",
-  "recoverFundsCancelling": "Скасування…",
-  "recoverFundsWithdrawBlocksBridge": "Поки подано запит на виведення коштів, не можна розпочинати нові операції Fast bridge-in токенів $token$ з адреси $address$. Завершіть або скасуйте виведення коштів, щоб знову здійснити переказ."
+  "recoverFundsCancelWithdrawal": "Вимкнути виведення коштів",
+  "recoverFundsCancelling": "Вимкнення…",
+  "recoverFundsWithdrawBlocksBridge": "Примусове виведення коштів блокує нові швидкі перекази $token$ з $address$. Після відновлення коштів вимкніть виведення, щоб знову мати можливість здійснювати перекази.",
+  "bridgeWithdrawalTitle": "Перевірте швидкий доступ до мосту",
+  "bridgeWithdrawalChecking": "Перевірка статусу виведення цього токена та гаманця.",
+  "bridgeWithdrawalCheckFailed": "Не вдалося перевірити статус виведення коштів. Спробуйте ще раз, перш ніж використовувати Fast bridge.",
+  "bridgeWithdrawalBody": "Примусове виведення коштів активне для $token$ у мережі $network$. Після відновлення коштів вимкніть виведення, щоб знову підключити міст.",
+  "bridgeWithdrawalDisable": "Вимкнути виведення коштів",
+  "bridgeWithdrawalDisabling": "Вимкнення…",
+  "bridgeWithdrawalEffect": "Це вимикає примусове виведення коштів для цього блокування. Кошти, які вже було відновлено, залишаються у вашому гаманці. Новий запит на відновлення запускає новий період очікування. Ця транзакція вимагає сплати мережевої комісії.",
+  "bridgeWithdrawalWalletPrompt": "Відкрийте свій підключений гаманець EVM і затвердіть транзакцію в мережі $network$. Зачекайте тут на підтвердження.",
+  "bridgeWithdrawalUseCircle": "Замість цього використовуйте Circle",
+  "bridgeWithdrawalUseSlow": "Замість цього використовуйте термін «Slow bridge»"
 }

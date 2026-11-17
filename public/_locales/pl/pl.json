@@ -1980,7 +1980,17 @@
   "recoverFundsLocked": "Zablokowane",
   "recoverFundsWithdrawal": "Wypłata",
   "recoverFundsWithdrawOff": "Nie wymagane",
-  "recoverFundsCancelWithdrawal": "Anuluj wypłatę",
-  "recoverFundsCancelling": "Anulowanie…",
-  "recoverFundsWithdrawBlocksBridge": "Podczas gdy trwa wniosek o wypłatę, nie można rozpocząć nowych szybkich transferów $token$ z $address$. Aby ponownie przeprowadzić transfer, należy zakończyć lub anulować wypłatę."
+  "recoverFundsCancelWithdrawal": "Wyłącz wypłaty",
+  "recoverFundsCancelling": "Wyłączanie…",
+  "recoverFundsWithdrawBlocksBridge": "Wymuszona blokada wypłat uniemożliwia nowe szybkie transfery $token$ z $address$. Po odzyskaniu środków wyłącz wypłatę, aby ponownie umożliwić transfer.",
+  "bridgeWithdrawalTitle": "Sprawdź szybki dostęp do mostu",
+  "bridgeWithdrawalChecking": "Sprawdzanie statusu wypłaty dla tego tokenu i portfela.",
+  "bridgeWithdrawalCheckFailed": "Nie udało się sprawdzić statusu wypłaty. Spróbuj ponownie przed skorzystaniem z mostka Fast.",
+  "bridgeWithdrawalBody": "Wymuszona wypłata jest aktywna dla $token$ w sieci $network$. Po odzyskaniu środków wyłącz wypłatę, aby ponownie połączyć się z mostem.",
+  "bridgeWithdrawalDisable": "Wyłącz wypłaty",
+  "bridgeWithdrawalDisabling": "Wyłączanie…",
+  "bridgeWithdrawalEffect": "Spowoduje to wyłączenie wymuszonej wypłaty dla tej blokady. Środki już odzyskane pozostają w Twoim portfelu. Nowe żądanie odzyskania środków rozpoczyna nowy okres oczekiwania. Ta transakcja wymaga uiszczenia opłaty sieciowej.",
+  "bridgeWithdrawalWalletPrompt": "Otwórz połączony portfel EVM i zatwierdź transakcję w sieci $network$. Poczekaj tutaj na potwierdzenie.",
+  "bridgeWithdrawalUseCircle": "Zamiast tego używaj Circle",
+  "bridgeWithdrawalUseSlow": "Zamiast tego używaj terminu „Slow bridge”"
 }

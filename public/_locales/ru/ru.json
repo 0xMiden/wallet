@@ -1979,7 +1979,17 @@
   "recoverFundsLocked": "Заблокирован",
   "recoverFundsWithdrawal": "Вывод средств",
   "recoverFundsWithdrawOff": "Не запрашивается",
-  "recoverFundsCancelWithdrawal": "Отменить вывод средств",
-  "recoverFundsCancelling": "Отмена…",
-  "recoverFundsWithdrawBlocksBridge": "Пока подана заявка на вывод, новые быстрые переводы $token$ с $address$ не могут начаться. Завершите или отмените вывод, чтобы возобновить перевод."
+  "recoverFundsCancelWithdrawal": "Отключить вывод средств",
+  "recoverFundsCancelling": "Отключение…",
+  "recoverFundsWithdrawBlocksBridge": "Принудительный вывод блокирует новые быстрые переводы $token$ с $address$. После восстановления средств отключите вывод, чтобы возобновить перевод.",
+  "bridgeWithdrawalTitle": "Проверить быстрый доступ к мосту",
+  "bridgeWithdrawalChecking": "Проверка статуса вывода данного токена и кошелька.",
+  "bridgeWithdrawalCheckFailed": "Не удалось проверить статус вывода средств. Попытайтесь ещё раз, прежде чем использовать Fast Bridge.",
+  "bridgeWithdrawalBody": "Принудительный вывод средств активен для $token$ в сети $network$. После восстановления средств отключите вывод, чтобы снова подключить мост.",
+  "bridgeWithdrawalDisable": "Отключить вывод средств",
+  "bridgeWithdrawalDisabling": "Отключение…",
+  "bridgeWithdrawalEffect": "Это отключает принудительный вывод средств для данного блокировки. Уже восстановленные средства остаются в вашем кошельке. Новый запрос на восстановление запускает новый период ожидания. Для этой транзакции требуется сетевая комиссия.",
+  "bridgeWithdrawalWalletPrompt": "Откройте свой подключённый кошелек EVM и утвердите транзакцию в сети $network$. Дождитесь подтверждения здесь.",
+  "bridgeWithdrawalUseCircle": "Вместо этого используйте Circle",
+  "bridgeWithdrawalUseSlow": "Вместо этого используйте термин «Slow bridge»"
 }

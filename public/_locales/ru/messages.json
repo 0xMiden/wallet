@@ -9049,16 +9049,16 @@
     "englishSource": "Not requested"
   },
   "recoverFundsCancelWithdrawal": {
-    "message": "Отменить вывод средств",
-    "englishSource": "Cancel withdrawal"
+    "message": "Отключить вывод средств",
+    "englishSource": "Disable withdrawal"
   },
   "recoverFundsCancelling": {
-    "message": "Отмена…",
-    "englishSource": "Cancelling…"
+    "message": "Отключение…",
+    "englishSource": "Disabling…"
   },
   "recoverFundsWithdrawBlocksBridge": {
-    "message": "Пока подана заявка на вывод, новые быстрые переводы $token$ с $address$ не могут начаться. Завершите или отмените вывод, чтобы возобновить перевод.",
-    "englishSource": "While a withdrawal is requested, new Fast bridge-ins of $token$ from $address$ cannot start. Finish or cancel the withdrawal to bridge again.",
+    "message": "Принудительный вывод блокирует новые быстрые переводы $token$ с $address$. После восстановления средств отключите вывод, чтобы возобновить перевод.",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
     "placeholders": {
       "token": {
         "content": "$1"
@@ -9067,5 +9067,58 @@
         "content": "$2"
       }
     }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Проверить быстрый доступ к мосту",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "Проверка статуса вывода данного токена и кошелька.",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "Не удалось проверить статус вывода средств. Попытайтесь ещё раз, прежде чем использовать Fast Bridge.",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "Принудительный вывод средств активен для $token$ в сети $network$. После восстановления средств отключите вывод, чтобы снова подключить мост.",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "Отключить вывод средств",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "Отключение…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "Это отключает принудительный вывод средств для данного блокировки. Уже восстановленные средства остаются в вашем кошельке. Новый запрос на восстановление запускает новый период ожидания. Для этой транзакции требуется сетевая комиссия.",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "Откройте свой подключённый кошелек EVM и утвердите транзакцию в сети $network$. Дождитесь подтверждения здесь.",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "Вместо этого используйте Circle",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "Вместо этого используйте термин «Slow bridge»",
+    "englishSource": "Use Slow bridge instead"
   }
 }

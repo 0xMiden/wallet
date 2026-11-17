@@ -1983,7 +1983,17 @@
   "recoverFundsLocked": "잠김",
   "recoverFundsWithdrawal": "인출",
   "recoverFundsWithdrawOff": "요청되지 않음",
-  "recoverFundsCancelWithdrawal": "인출 취소",
-  "recoverFundsCancelling": "취소…",
-  "recoverFundsWithdrawBlocksBridge": "인출이 요청된 상태에서는 $address$에서 $token$로 새로운 Fast 브리지 인(bridge-in)을 시작할 수 없습니다. 다시 브리지를 하려면 인출을 완료하거나 취소하십시오."
+  "recoverFundsCancelWithdrawal": "출금 비활성화",
+  "recoverFundsCancelling": "비활성화…",
+  "recoverFundsWithdrawBlocksBridge": "강제 인출은 $address$에서 $token$의 새로운 Fast 브리지 인을 차단합니다. 자금을 회수한 후에는 브리지 인출을 다시 비활성화하십시오.",
+  "bridgeWithdrawalTitle": "Fast Bridge 접속 확인",
+  "bridgeWithdrawalChecking": "이 토큰과 지갑의 인출 상태를 확인 중입니다.",
+  "bridgeWithdrawalCheckFailed": "인출 상태를 확인할 수 없습니다. Fast 브릿지를 사용하기 전에 다시 시도해 주십시오.",
+  "bridgeWithdrawalBody": "$network$에서 $token$에 대한 강제 인출이 활성화되었습니다. 자금을 회수한 후에는 브릿지 인출 기능을 다시 비활성화하십시오.",
+  "bridgeWithdrawalDisable": "출금 비활성화",
+  "bridgeWithdrawalDisabling": "비활성화…",
+  "bridgeWithdrawalEffect": "이렇게 하면 해당 잠금에 대한 강제 인출이 해제됩니다. 이미 복구된 자금은 지갑에 그대로 남아 있습니다. 새로운 복구 요청을 하면 새로운 대기 기간이 시작됩니다. 이 거래에는 네트워크 수수료가 필요합니다.",
+  "bridgeWithdrawalWalletPrompt": "연결된 EVM 지갑을 열고 $network$에서 거래를 승인하십시오. 여기서 확인이 완료될 때까지 기다리십시오.",
+  "bridgeWithdrawalUseCircle": "대신 'Circle'을 사용하십시오.",
+  "bridgeWithdrawalUseSlow": "대신 '슬로우 브리지(Slow bridge)'를 사용하십시오."
 }

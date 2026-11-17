@@ -9045,16 +9045,16 @@
     "englishSource": "Not requested"
   },
   "recoverFundsCancelWithdrawal": {
-    "message": "出金のキャンセル",
-    "englishSource": "Cancel withdrawal"
+    "message": "出金を無効にする",
+    "englishSource": "Disable withdrawal"
   },
   "recoverFundsCancelling": {
-    "message": "キャンセル…",
-    "englishSource": "Cancelling…"
+    "message": "無効化…",
+    "englishSource": "Disabling…"
   },
   "recoverFundsWithdrawBlocksBridge": {
-    "message": "出金リクエスト中は、$address$からの$token$の新たなFastブリッジインを開始することはできません。再度ブリッジを行うには、出金を完了するかキャンセルしてください。",
-    "englishSource": "While a withdrawal is requested, new Fast bridge-ins of $token$ from $address$ cannot start. Finish or cancel the withdrawal to bridge again.",
+    "message": "強制引き出しは、$address$からの$token$の新たなFastブリッジインをブロックします。資金を回収した後、再度ブリッジを行うには、引き出し機能を無効にしてください。",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
     "placeholders": {
       "token": {
         "content": "$1"
@@ -9063,5 +9063,58 @@
         "content": "$2"
       }
     }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Fast Bridgeへのアクセスを確認",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "このトークンおよびウォレットの出金状況を確認しています。",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "出金状況を確認できませんでした。Fast Bridge を利用する前に、もう一度お試しください。",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "$network$上の$token$に対して強制引き出しが有効になっています。資金を回収した後、再度ブリッジを行うには、引き出し機能を無効にしてください。",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "出金を無効にする",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "無効化…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "これにより、このロックの強制引き出しが無効になります。すでに復元された資金はウォレットに残ります。新しい復元リクエストを行うと、新たな待機期間が開始されます。この取引にはネットワーク手数料が必要です。",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "接続済みのEVMウォレットを開き、$network$上で取引を承認してください。ここで確認が完了するまでお待ちください。",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "代わりに「Circle」を使用してください",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "代わりに「Slow bridge」を使用してください",
+    "englishSource": "Use Slow bridge instead"
   }
 }
