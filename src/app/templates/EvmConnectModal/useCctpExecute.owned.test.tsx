@@ -155,11 +155,12 @@ it.each(['restored', 'recovered', 'malformed tag', 'caller message'])('refuses %
     expect(nativeWrite).not.toHaveBeenCalled();
   } finally { root.unmount(); }
 });
-it.each(['switch', 'session', 'fees'])('refuses original revision departure during %s before destination signing', async boundary => {
+it.each(['switch', 'session', 'fees', 'wallet RPC'])('refuses original owner or wallet scope departure during %s before destination signing', async boundary => {
   const { id, leg } = await funded();
-  native = boundary !== 'switch';
+  native = boundary !== 'switch' && boundary !== 'wallet RPC';
   const depart = async () => { await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.revision': 'other' }); return {}; };
   if (boundary === 'switch') switchChain.mockImplementationOnce(depart);
+  if (boundary === 'wallet RPC') switchChain.mockImplementationOnce(async () => { jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other.example/private'); });
   if (boundary === 'session') prepare.mockImplementationOnce(depart);
   if (boundary === 'fees') fees.mockImplementationOnce(depart);
   const root = renderHook(useCctpExecute);
