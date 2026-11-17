@@ -26,6 +26,7 @@ const mockQuote = jest.fn();
 const mockSolve = jest.fn();
 const mockSdk = { getTaskData: mockTaskData, getIntentQuote: mockQuote, solveIntent: mockSolve };
 const mockReadSdk = jest.fn();
+const mockNativeAdmission = jest.fn();
 const mockBlock = jest.fn();
 const mockWait = jest.fn();
 let mockSnapshot: BridgeConfigSnapshot;
@@ -42,8 +43,14 @@ jest.mock('./chain', () => ({
 jest.mock('./collateral-note', () => ({ buildEpochCollateralRequestBytes: jest.fn() }));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => true }));
 jest.mock('lib/miden/activity', () => ({
-  initiateBridgedSendTransaction: (...args: unknown[]) =>
-    Reflect.apply(jest.requireActual('lib/miden/transaction/initiate').initiateBridgedSendTransaction, undefined, args),
+  initiateBridgedSendTransaction: (...args: unknown[]) => {
+    mockNativeAdmission(...args);
+    return Reflect.apply(
+      jest.requireActual('lib/miden/transaction/initiate').initiateBridgedSendTransaction,
+      undefined,
+      args
+    );
+  },
   requestSWTransactionProcessing: jest.fn(),
   startBackgroundTransactionProcessing: jest.fn(),
   waitForTransactionCompletion: (id: string) => mockWait(id),
@@ -254,16 +261,12 @@ it.each(['outer', 'direct'])(
 );
 
 it('propagates the exact pre-admission review refusal without initiating or admitting source work', async () => {
-  const initiate = jest.spyOn(
-    jest.requireActual<typeof import('lib/miden/transaction/initiate')>('lib/miden/transaction/initiate'),
-    'initiateBridgedSendTransaction'
-  );
   const outcome: unknown = await createBridgeP2IDENote({
     ...directNoteInput(),
     expectedWalletScope: { network: 'testnet', rpcUrl: 'https://earlier-reviewed-rpc.example/private' }
   }).catch((error: unknown) => error);
   expect(await Repo.transactions.count()).toBe(0);
-  expect(initiate).not.toHaveBeenCalled();
+  expect(mockNativeAdmission).not.toHaveBeenCalled();
   expect(buildEpochCollateralRequestBytes).toHaveBeenCalledTimes(1);
   expect(mockWait).not.toHaveBeenCalled();
   expect(outcome).toBeInstanceOf(EpochReviewChangedError);
@@ -271,10 +274,6 @@ it('propagates the exact pre-admission review refusal without initiating or admi
 });
 
 it('preserves one false SDK result and the same typed pre-owner refusal without another collateral', async () => {
-  const initiate = jest.spyOn(
-    jest.requireActual<typeof import('lib/miden/transaction/initiate')>('lib/miden/transaction/initiate'),
-    'initiateBridgedSendTransaction'
-  );
   jest.mocked(buildEpochCollateralRequestBytes).mockImplementation(async () => {
     noteBuilds++;
     jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://changed-during-build.example/private');
@@ -292,7 +291,7 @@ it('preserves one false SDK result and the same typed pre-owner refusal without 
   });
   const outcome: unknown = await bridgeEpochSend(input).catch((error: unknown) => error);
   expect(await Repo.transactions.count()).toBe(0);
-  expect(initiate).not.toHaveBeenCalled();
+  expect(mockNativeAdmission).not.toHaveBeenCalled();
   expect(mockWait).not.toHaveBeenCalled();
   expect(noteBuilds).toBe(1);
   expect(mockSolve).toHaveBeenCalledTimes(1);
