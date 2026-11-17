@@ -86,7 +86,10 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
 // The bridge account and its L1 network id come from the remote config.
 const mockGetBridgeOut = jest.fn();
-jest.mock('lib/remote-config/values', () => ({ getAgglayerBridgeOut: () => mockGetBridgeOut() }));
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual('lib/remote-config/values'),
+  getAgglayerBridgeOut: () => mockGetBridgeOut()
+}));
 
 // The real exit hash needs the real SDK (exit-hash.real-sdk.test.ts); here it only has to reach the row.
 const mockAgglayerExitTxHash = jest.fn((...args: unknown[]): string => {
@@ -94,6 +97,20 @@ const mockAgglayerExitTxHash = jest.fn((...args: unknown[]): string => {
   return '0xexit';
 });
 jest.mock('./exit-hash', () => ({ agglayerExitTxHash: (...args: unknown[]) => mockAgglayerExitTxHash(...args) }));
+
+jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/miden/activity/notes', () => ({ queueNoteImport: jest.fn() }));
+jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
+jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getActiveOverride: () => null,
+  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveRpcUrl: jest.fn(() => 'https://wallet-rpc.example/private')
+}));
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () => jest.requireActual<typeof import('lib/bridge/testing/fixtures')>('lib/bridge/testing/fixtures').referenceSnapshot('testnet')
+}));
 
 // Effective network is localnet, so a correctly-encoded row id starts `mlcl1`.
 jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
@@ -143,7 +160,13 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 import { TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
 
 import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
+import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
+import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import * as Repo from 'lib/miden/repo';
+import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
 import { initiateB2AggBridge } from './index';
 
@@ -455,5 +478,54 @@ describe('initiateB2AggBridge', () => {
 
     expect(mockCreateB2AggNote).not.toHaveBeenCalled();
     expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('reviewed Agglayer native admission uses the existing queue', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
+    await Repo.transactions.clear();
+    mockFeeAwareBuilder.withOwnOutputNotes.mockReturnValue(mockFeeAwareBuilder);
+    mockFeeAwareBuilder.withExpirationDelta.mockReturnValue(mockFeeAwareBuilder);
+    mockFeeAwareBuilder.build.mockImplementation(() => mockBuiltRequest());
+    mockCreateB2AggNote.mockReturnValue({ note: true });
+    mockAgglayerExitTxHash.mockReturnValue(`0x${'c'.repeat(64)}`);
+    const recovery = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
+    if (!recovery) throw new Error('Missing accepted native route');
+    mockGetBridgeOut.mockReturnValue({ midenBridge: recovery.midenBridgeId, evmNetworkId: recovery.evmNetworkId, recovery });
+    mockInitiateBridgedSendTransaction.mockImplementation((...args: unknown[]) => Reflect.apply(initiateBridgedSendTransaction, undefined, args));
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  function input() {
+    const review = reviewedErc20Transfer('agglayer', 'send');
+    if (review.route.source.kind !== 'miden') throw new Error('Missing native asset');
+    return { amount: 1000000000000000000n, faucetId: review.route.source.faucetId,
+      destinationAddress: `0x${accounts.evmAddress.slice(2)}` satisfies `0x${string}`,
+      senderPublicKey: accounts.midenAccount, guardianProvider, destinationChainId: 11155111,
+      operation: { operationId: 'native-agglayer-operation', review } };
+  }
+
+  it.each([false, true])('coalesces the original reviewed operation through real native admission (Guardian=%s)', async guardian => {
+    mockIsGuardian.mockResolvedValue(guardian);
+    const first = await initiateB2AggBridge(input());
+    const second = await initiateB2AggBridge(input());
+    const row = await Repo.transactions.get(first);
+    expect(row?.extraInputs.bridgeOperation?.operationId).toBe('native-agglayer-operation');
+    expect(second).toBe(first);
+    expect(await Repo.transactions.count()).toBe(1);
+    expect(row?.extraInputs.agglayerExitTxHash).toBe(`0x${'c'.repeat(64)}`);
+    expect(row?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+  });
+
+  it('refuses RPC departure during the native note build instead of admitting under the new RPC', async () => {
+    mockIsGuardian.mockImplementationOnce(async () => {
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example/private');
+      return false;
+    });
+    await expect(initiateB2AggBridge(input())).rejects.toThrow();
+    expect(await Repo.transactions.count()).toBe(0);
   });
 });

@@ -8,6 +8,7 @@ import {
   TransactionRequest
 } from '@miden-sdk/miden-sdk/lazy';
 
+import type { BridgeOperationInput } from 'lib/bridge/operation';
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -90,6 +91,7 @@ export async function initiateB2AggBridge(args: {
   guardianProvider: GuardianAccountProvider;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   destinationChainId?: number;
+  operation?: BridgeOperationInput;
 }): Promise<string> {
   const { amount, faucetId, destinationAddress, senderPublicKey, guardianProvider, spendingLimitAuthorization } = args;
   // Read before the lock: the note addresses the configured bridge, with the L1 bridge's networkID() as its

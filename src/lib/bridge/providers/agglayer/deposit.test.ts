@@ -9,6 +9,7 @@ import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
 import * as Repo from 'lib/miden/repo';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiate';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
 import { submitAgglayerDeposit, type AgglayerClient } from './deposit';
@@ -90,6 +91,7 @@ async function drive(review = reviewedErc20Transfer('agglayer')) {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   jest.spyOn(Date, 'now').mockReturnValue(now);
   await Repo.transactions.clear();
   allowance = 0n;
@@ -147,6 +149,71 @@ it.each([0n, 1n, 2000000000000000000n])('uses allowance %s without max approval,
   expect(signed.at(-1)).toMatchObject({ to: bridgeAddress, value: '0x0' });
   expect(row?.extraInputs.bridgeOperation?.approvals?.map(item => item.amount)).toEqual(current === 0n ? ['1000000000000000000'] : current === 1n ? ['0', '1000000000000000000'] : undefined);
   expect(row?.extraInputs.evmTxHash).toBe(depositHash);
+});
+
+it.each(['native', 'token'])('reserves native gas before a %s wallet prompt', async kind => {
+  rpc.getBalance.mockResolvedValue(0n);
+  const { error, row } = await drive(kind === 'native' ? nativeReview() : reviewedErc20Transfer('agglayer'));
+  expect(signed).toHaveLength(0);
+  expect(error).toBeInstanceOf(Error);
+  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
+});
+
+it('refuses a changed contract decimal scale before ERC20 approval', async () => {
+  const read = rpc.readContract.getMockImplementation()!;
+  rpc.readContract.mockImplementation(async args => args.functionName === 'decimals' ? 6 : read(args));
+  const { error } = await drive();
+  expect(signed).toHaveLength(0);
+  expect(error).toBeInstanceOf(Error);
+});
+
+it.each(['account', 'chain', 'rpc'])('retains the approval but sends no deposit after %s changes during its receipt', async change => {
+  rpc.waitForTransactionReceipt.mockImplementationOnce(async () => {
+    allowance = approvedAmount;
+    if (change === 'rpc') jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other-rpc.example/private');
+    else wallet.mockImplementation(async ({ method }) => method === 'eth_accounts' ? [change === 'account' ? `0x${'9'.repeat(40)}` : accounts.evmAddress] : '0x1');
+    return { status: 'success', transactionHash: approvalHash };
+  });
+  const { error, row } = await drive();
+  expect(signed).toHaveLength(1);
+  expect(error).toBeInstanceOf(Error);
+  expect(row?.extraInputs.bridgeOperation?.approvals?.[0]?.hash).toBe(approvalHash);
+  expect(row?.extraInputs.evmTxHash).toBeUndefined();
+  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
+});
+
+it('refuses a false-return approval without a signature', async () => {
+  rpc.call.mockResolvedValue({ data: `0x${'0'.repeat(64)}` });
+  const { error } = await drive();
+  expect(error).toBeInstanceOf(Error);
+  expect(signed).toHaveLength(0);
+});
+
+it('retains a first approval hash when metadata and receipt RPCs fail, without a deposit or reload replay', async () => {
+  rpc.getTransaction.mockRejectedValue(new Error('RPC unavailable'));
+  rpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Receipt unavailable'));
+  const { id, error, row } = await drive();
+  expect(error).toBeInstanceOf(Error);
+  expect(signed).toHaveLength(1);
+  expect(row?.extraInputs.bridgeOperation?.approvals).toEqual([expect.objectContaining({ hash: approvalHash, amount: '1000000000000000000' })]);
+  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
+  const replay = jest.fn();
+  await createBridgeReceiveReconciler({ getLocks: () => undefined }).startSubmission(async () => id, replay);
+  await Repo.transactions.get(id);
+  expect(replay).not.toHaveBeenCalled();
+});
+
+it('persists the returned original source hash even when the wallet scope leaves during the prompt', async () => {
+  const send = wallet.getMockImplementation()!;
+  wallet.mockImplementation(async args => {
+    const result = await send(args);
+    if (args.method === 'eth_sendTransaction') jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://departed-rpc.example/private');
+    return result;
+  });
+  const { error, row } = await drive(nativeReview());
+  expect(error).toBeUndefined();
+  expect(row?.extraInputs.evmTxHash).toBe(depositHash);
+  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
 });
 
 it('accepts no-return approval and requires its confirmed allowance before bridging', async () => {
