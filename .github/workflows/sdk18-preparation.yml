@@ -39,6 +39,10 @@ jobs:
         run: |
           node scripts/generate-protocol-assertions.mjs --registry /tmp/sdk-registry --check
           node -e 'for (const p of ["miden-sdk","react","miden-wallet-adapter-base","miden-wallet-adapter-miden","miden-wallet-adapter-react","vite-plugin"]) { const x=require("./node_modules/@miden-sdk/"+p+"/package.json"); if(x.version!=="0.18.0") throw Error(p+": "+x.version); console.log(p,x.version); }'
+      - name: Type-check the integrated SDK migration
+        run: yarn ts
+      - name: Verify actual SDK request serialization and signing guards
+        run: yarn test:custom-request
       - name: Verify Guardian integration and SDK auth recognition
         run: |
           yarn jest src/lib/miden/sdk/resolve-public-key-commitments.test.ts src/lib/miden/guardian/index.test.ts src/lib/miden/guardian/account.test.ts src/lib/miden/guardian/configure.test.ts src/lib/miden/guardian/direct-switch.test.ts src/lib/miden/guardian/legacy-abandon.test.ts src/lib/miden/guardian/serialize.test.ts src/lib/miden/front/guardian-sync.test.ts --maxWorkers=2
