@@ -26,21 +26,24 @@ export function usdcxSponsorshipApprovalOf(transaction: ITransaction): UsdcxSpon
     burn.noteId.toLowerCase() !== ids[0]?.toLowerCase() ||
     typeof transaction.faucetId !== 'string' ||
     transaction.faucetId.length === 0
-  ) throw new Error('The USDCx burn has no matching approved note');
+  )
+    throw new Error('The USDCx burn has no matching approved note');
   const budget = burn.networkFeeBudget;
   if (!isCurrentUsdcxFeeBudget(budget)) throw new Error('The USDCx burn has no current reviewed native fee budget');
   return { accountId: transaction.accountId, faucetId: transaction.faucetId, noteId: burn.noteId, budget };
 }
 
-export function isCurrentUsdcxFeeBudget(
-  budget: IUsdcxNetworkFeeBudget | undefined
-): budget is IUsdcxNetworkFeeBudget {
-  return !!budget &&
-    typeof budget.faucetId === 'string' && budget.faucetId.length > 0 &&
-    typeof budget.maxAmount === 'string' && /^(0|[1-9]\d{0,18})$/.test(budget.maxAmount) &&
+export function isCurrentUsdcxFeeBudget(budget: IUsdcxNetworkFeeBudget | undefined): budget is IUsdcxNetworkFeeBudget {
+  return (
+    !!budget &&
+    typeof budget.faucetId === 'string' &&
+    budget.faucetId.length > 0 &&
+    typeof budget.maxAmount === 'string' &&
+    /^(0|[1-9]\d{0,18})$/.test(budget.maxAmount) &&
     budget.scope === currentUsdcxFeeScope() &&
     budget.faucetId === getNativeAssetIdSync() &&
-    budget.faucetId === getSdkSyncedNativeAssetIdSync();
+    budget.faucetId === getSdkSyncedNativeAssetIdSync()
+  );
 }
 
 /** Runs inside the existing decode hold; only one fully bound, budgeted companion is a fee. */
@@ -62,12 +65,15 @@ export function partitionApprovedUsdcxSponsorship<T extends SponsorshipNote>(
     if (note.amounts.length !== 1 || !asset || asset.faucetId !== approval.budget.faucetId || asset.amount <= 0n) {
       return false;
     }
-    const expected = canonicalFeeSponsorshipNoteId({
-      senderAccountId: canonicalWalletAccountId(approval.accountId),
-      targetAccountId: canonicalWalletAccountId(approval.faucetId),
-      featureNoteId: approval.noteId,
-      feeFaucetId: canonicalWalletAccountId(approval.budget.faucetId)
-    }, asset.amount);
+    const expected = canonicalFeeSponsorshipNoteId(
+      {
+        senderAccountId: canonicalWalletAccountId(approval.accountId),
+        targetAccountId: canonicalWalletAccountId(approval.faucetId),
+        featureNoteId: approval.noteId,
+        feeFaucetId: canonicalWalletAccountId(approval.budget.faucetId)
+      },
+      asset.amount
+    );
     return note.id.toLowerCase() === expected.toLowerCase();
   });
   if (candidates.length > 1) throw new Error('The USDCx sponsorship is ambiguous');

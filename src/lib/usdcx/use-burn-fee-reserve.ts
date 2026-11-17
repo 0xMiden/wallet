@@ -72,9 +72,15 @@ export function useBurnFeeReserve(target: BurnFeeReserveTarget | undefined): Bur
       const estimate = await attempt();
       if (disposed) return;
       if (estimate.outcome === 'measured') {
-        setAnswer({ key, state: {
-          status: 'measured', reserve: estimate.reserve, faucetId: estimate.faucetId, scope: estimate.scope
-        } });
+        setAnswer({
+          key,
+          state: {
+            status: 'measured',
+            reserve: estimate.reserve,
+            faucetId: estimate.faucetId,
+            scope: estimate.scope
+          }
+        });
       } else if (estimate.outcome === 'failed' && !retriedFailure) {
         await ask(busyAnswers, true);
       } else if (estimate.outcome === 'busy' && busyAnswers + 1 < MAX_BUSY_ANSWERS) {

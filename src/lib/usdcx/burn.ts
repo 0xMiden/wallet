@@ -99,7 +99,9 @@ export async function initiateUsdcxBurn(args: {
     args;
   const reviewed = args.networkFeeBudget;
   const networkFeeBudget = reviewed && {
-    faucetId: reviewed.faucetId, maxAmount: reviewed.maxAmount, scope: reviewed.scope
+    faucetId: reviewed.faucetId,
+    maxAmount: reviewed.maxAmount,
+    scope: reviewed.scope
   };
   const destination = getUsdcxDestination(destinationChainId);
   // Resolve the native asset so the checks below read a known faucet id.

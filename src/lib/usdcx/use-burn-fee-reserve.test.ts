@@ -10,13 +10,17 @@ jest.mock('lib/miden/front/client', () => ({ useMidenContext: () => ({ estimateU
 let mockSourceScope = 'rpc-a|testnet';
 let mockNative = 'mm1native';
 jest.mock('lib/miden-chain/native-asset', () => ({
-  cacheScope: () => mockSourceScope, getNativeAssetIdSync: () => mockNative
+  cacheScope: () => mockSourceScope,
+  getNativeAssetIdSync: () => mockNative
 }));
 const SCOPE = '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c';
 const TARGET = { accountPublicKey: 'mm1account', destinationChainId: 5042002 };
 const never = () => new Promise<UsdcxBurnFeeEstimate>(() => {});
 const measured = (reserve: bigint): UsdcxBurnFeeEstimate => ({
-  outcome: 'measured', reserve, faucetId: 'mm1native', scope: SCOPE
+  outcome: 'measured',
+  reserve,
+  faucetId: 'mm1native',
+  scope: SCOPE
 });
 const BUSY: UsdcxBurnFeeEstimate = { outcome: 'busy' };
 const FAILED: UsdcxBurnFeeEstimate = { outcome: 'failed' };
@@ -84,7 +88,9 @@ it('reports the measured reserve', async () => {
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 315n, faucetId: 'mm1native', scope: SCOPE }));
+  await waitFor(() =>
+    expect(result.current).toEqual({ status: 'measured', reserve: 315n, faucetId: 'mm1native', scope: SCOPE })
+  );
   expect(mockEstimate).toHaveBeenCalledTimes(1);
 });
 
@@ -93,7 +99,9 @@ it('reports a measured zero as measured, not failed', async () => {
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 0n, faucetId: 'mm1native', scope: SCOPE }));
+  await waitFor(() =>
+    expect(result.current).toEqual({ status: 'measured', reserve: 0n, faucetId: 'mm1native', scope: SCOPE })
+  );
   expect(mockEstimate).toHaveBeenCalledTimes(1);
 });
 
@@ -102,7 +110,9 @@ it('retries a failed estimate once and reports what the retry measured', async (
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 400n, faucetId: 'mm1native', scope: SCOPE }));
+  await waitFor(() =>
+    expect(result.current).toEqual({ status: 'measured', reserve: 400n, faucetId: 'mm1native', scope: SCOPE })
+  );
   expect(mockEstimate).toHaveBeenCalledTimes(2);
   expect(mockEstimate).toHaveBeenNthCalledWith(2, 'mm1account', 5042002);
 });
@@ -204,7 +214,9 @@ it('starts pending for a new chain and drops the answer for the previous one', a
   expect(result.current).toEqual({ status: 'pending', reserve: undefined });
 
   await act(async () => answerFirst(measured(315n)));
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 500n, faucetId: 'mm1native', scope: SCOPE }));
+  await waitFor(() =>
+    expect(result.current).toEqual({ status: 'measured', reserve: 500n, faucetId: 'mm1native', scope: SCOPE })
+  );
   expect(mockEstimate).toHaveBeenLastCalledWith('mm1account', 84532);
 });
 
@@ -214,7 +226,9 @@ it('asks again for the same target only once it changes', async () => {
   const { result, rerender } = renderHook(({ target }) => useBurnFeeReserve(target), {
     initialProps: { target: TARGET }
   });
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 315n, faucetId: 'mm1native', scope: SCOPE }));
+  await waitFor(() =>
+    expect(result.current).toEqual({ status: 'measured', reserve: 315n, faucetId: 'mm1native', scope: SCOPE })
+  );
   rerender({ target: { ...TARGET } });
 
   expect(mockEstimate).toHaveBeenCalledTimes(1);

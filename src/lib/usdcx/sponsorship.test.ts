@@ -4,10 +4,7 @@ import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import { canonicalFeeSponsorshipNoteId } from 'lib/miden/sdk/fee-sponsorship';
 
 import { currentUsdcxFeeScope } from './fee-scope';
-import {
-  partitionApprovedUsdcxSponsorship,
-  usdcxSponsorshipApprovalOf
-} from './sponsorship';
+import { partitionApprovedUsdcxSponsorship, usdcxSponsorshipApprovalOf } from './sponsorship';
 
 let mockScope = 'rpc-a|testnet';
 let mockNative: string | null = 'bech32:usdcx';
@@ -62,12 +59,15 @@ test('fingerprints the complete source scope without storing its RPC URL', () =>
 
 test('excludes only the exact canonical companion and records both native fees', () => {
   expect(partition()).toEqual({ createdNotes: [burn], fee: { ...kernel, amount: 238n } });
-  expect(canonicalFeeSponsorshipNoteId).toHaveBeenCalledWith({
-    senderAccountId: 'acct',
-    targetAccountId: 'hex:usdcx',
-    featureNoteId: 'burn',
-    feeFaucetId: 'hex:usdcx'
-  }, 119n);
+  expect(canonicalFeeSponsorshipNoteId).toHaveBeenCalledWith(
+    {
+      senderAccountId: 'acct',
+      targetAccountId: 'hex:usdcx',
+      featureNoteId: 'burn',
+      feeFaucetId: 'hex:usdcx'
+    },
+    119n
+  );
 });
 
 test('counts sponsorship even without an ordinary verification fee', () => {
@@ -77,7 +77,8 @@ test('counts sponsorship even without an ordinary verification fee', () => {
 
 test('permits a genuinely free burn with a zero cap', () => {
   expect(partitionApprovedUsdcxSponsorship([burn], undefined, usdcxSponsorshipApprovalOf(row('0')))).toEqual({
-    createdNotes: [burn], fee: undefined
+    createdNotes: [burn],
+    fee: undefined
   });
 });
 
@@ -119,7 +120,8 @@ test('does not apply this exception to other transaction types or unapproved not
   expect(usdcxSponsorshipApprovalOf({ ...row(), type: 'send' })).toBeUndefined();
   expect(usdcxSponsorshipApprovalOf({ ...row(), approvedOutputNoteIds: [] })).toBeUndefined();
   expect(partitionApprovedUsdcxSponsorship([burn, sponsor], kernel, undefined)).toEqual({
-    createdNotes: [burn, sponsor], fee: kernel
+    createdNotes: [burn, sponsor],
+    fee: kernel
   });
 });
 
@@ -151,6 +153,8 @@ test('refuses a kernel fee in an asset outside the reviewed native budget', () =
 
 test('propagates a cryptographic WASM trap rather than forgiving the companion', () => {
   const trap = new WebAssembly.RuntimeError('unreachable');
-  jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => { throw trap; });
+  jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => {
+    throw trap;
+  });
   expect(() => partition()).toThrow(trap);
 });

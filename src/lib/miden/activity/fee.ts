@@ -44,8 +44,11 @@ export function feePaidFromResult(
 ): FeePaid | undefined {
   try {
     const { feeNote, userNotes, verificationFeeKnown } = splitLandedOutputNotes(result, landing);
-    const budgetedBurn = transaction?.extraInputs?.provider === 'usdcx' &&
-      transaction.extraInputs.usdcxBurn?.networkFeeBudget !== undefined ? transaction : undefined;
+    const budgetedBurn =
+      transaction?.extraInputs?.provider === 'usdcx' &&
+      transaction.extraInputs.usdcxBurn?.networkFeeBudget !== undefined
+        ? transaction
+        : undefined;
     // A verified companion is not a known TOTAL if the ordinary fee split was ambiguous or trapped.
     if (budgetedBurn && !verificationFeeKnown) return undefined;
     const first = feeNote?.assets()?.fungibleAssets()[0];
@@ -55,7 +58,9 @@ export function feePaidFromResult(
     // native faucet id by string equality, so a hex id missed both, resolved to the
     // unknown-token placeholder (`scaleIsUnknown: true`) and made `hasKnownScale`
     // false -- which meant the receipt's fee row was never rendered at all.
-    const paid = first ? { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) } : undefined;
+    const paid = first
+      ? { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) }
+      : undefined;
     if (!budgetedBurn) return paid;
     const approval = usdcxSponsorshipApprovalOf(budgetedBurn);
     if (!approval) throw new Error('The completed burn has no approved fee context');
@@ -66,7 +71,8 @@ export function feePaidFromResult(
       return {
         id,
         amounts: assets.fungibleAssets().map(asset => ({
-          amount: BigInt(asset.amount()), faucetId: getBech32AddressFromAccountId(asset.faucetId())
+          amount: BigInt(asset.amount()),
+          faucetId: getBech32AddressFromAccountId(asset.faucetId())
         })),
         nfts: assets.nonFungibleAssets()
       };

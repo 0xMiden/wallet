@@ -108,7 +108,9 @@ function view(fee: TxAssetView['fee'], outgoing: TxAssetView['outgoing']): TxAss
 
 const measuredView = () => view({ faucetId: NATIVE, amount: 252n }, [{ faucetId: NATIVE, amount: 1n }]);
 const measured = (reserve: bigint) => ({
-  outcome: 'measured', reserve, faucetId: NATIVE,
+  outcome: 'measured',
+  reserve,
+  faucetId: NATIVE,
   scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
 });
 const BUSY = { outcome: 'busy' };
@@ -172,7 +174,8 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       return { executedBytes: 'executed' };
     });
     await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
-      outcome: 'failed', failure: 'configuration_failed'
+      outcome: 'failed',
+      failure: 'configuration_failed'
     });
     mockSourceScope = 'rpc-a|testnet';
     mockDryRun.mockImplementationOnce(async () => {
@@ -180,15 +183,19 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       return { executedBytes: 'executed' };
     });
     await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
-      outcome: 'failed', failure: 'configuration_failed'
+      outcome: 'failed',
+      failure: 'configuration_failed'
     });
   });
 
   it('does not share an old-source estimate with a new-source caller of the same account and chain', async () => {
     let release = () => {};
-    mockDryRun.mockImplementationOnce(() => new Promise(resolve => {
-      release = () => resolve({ executedBytes: 'executed' });
-    }));
+    mockDryRun.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = () => resolve({ executedBytes: 'executed' });
+        })
+    );
     const first = estimateUsdcxBurnFeeReserve('mm1sender', 1);
     await flush();
     mockSourceScope = 'rpc-b|testnet';
@@ -198,7 +205,8 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     expect(second).not.toBe(first);
     expect(answers[0]).toEqual({ outcome: 'failed', failure: 'configuration_failed' });
     expect(answers[1]).toEqual({
-      ...measured(315n), scope: 'ac86888532e6c070013d6f92d90a251ff6e97b0fac34bb6819db27298ac309f4'
+      ...measured(315n),
+      scope: 'ac86888532e6c070013d6f92d90a251ff6e97b0fac34bb6819db27298ac309f4'
     });
   });
 

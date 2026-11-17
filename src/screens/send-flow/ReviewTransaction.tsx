@@ -176,12 +176,24 @@ export const ReviewTransaction: React.FC = () => {
   const nativeScaleKnown = hasKnownScale(nativeMetadata);
 
   const isUsdcxBurn = isBridge && route === 'usdcx';
-  const burnFee = useBurnFeeReserve(isUsdcxBurn && publicKey && bridgeNetworkObj ? {
-    accountPublicKey: publicKey, destinationChainId: bridgeNetworkObj.chainId
-  } : undefined);
+  const burnFee = useBurnFeeReserve(
+    isUsdcxBurn && publicKey && bridgeNetworkObj
+      ? {
+          accountPublicKey: publicKey,
+          destinationChainId: bridgeNetworkObj.chainId
+        }
+      : undefined
+  );
   const burnNetworkFeeBudget = useMemo<IUsdcxNetworkFeeBudget | undefined>(() => {
-    if (!isUsdcxBurn || !nativeScaleKnown || burnFee.status !== 'measured' ||
-      burnFee.reserve === undefined || !burnFee.faucetId || !burnFee.scope) return undefined;
+    if (
+      !isUsdcxBurn ||
+      !nativeScaleKnown ||
+      burnFee.status !== 'measured' ||
+      burnFee.reserve === undefined ||
+      !burnFee.faucetId ||
+      !burnFee.scope
+    )
+      return undefined;
     return { faucetId: burnFee.faucetId, maxAmount: burnFee.reserve.toString(), scope: burnFee.scope };
   }, [isUsdcxBurn, nativeScaleKnown, burnFee]);
   const burnFeeReady = burnNetworkFeeBudget !== undefined && isCurrentUsdcxFeeBudget(burnNetworkFeeBudget);
@@ -943,8 +955,12 @@ export const ReviewTransaction: React.FC = () => {
                   </DetailRow>
                   <DetailRow label={t('networkFeeMax')} sub={t('usdcxSponsorshipFee', { symbol: nativeSymbol })}>
                     {burnFeeReady && burnNetworkFeeBudget ? (
-                      <TokenAmount amount={BigInt(burnNetworkFeeBudget.maxAmount)} decimals={nativeMetadata.decimals}
-                        symbol={nativeSymbol} formatting="exact" />
+                      <TokenAmount
+                        amount={BigInt(burnNetworkFeeBudget.maxAmount)}
+                        decimals={nativeMetadata.decimals}
+                        symbol={nativeSymbol}
+                        formatting="exact"
+                      />
                     ) : (
                       <span role="status">
                         {t(burnFee.status === 'pending' ? 'usdcxBurnFeeMeasuring' : 'usdcxBurnFeeUnavailable')}

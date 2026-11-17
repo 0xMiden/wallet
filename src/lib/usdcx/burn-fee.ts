@@ -70,7 +70,9 @@ export function estimateUsdcxBurnFeeReserve(
   const key = `${scope}|${getNativeAssetIdSync() ?? ''}|${accountPublicKey}|${destinationChainId}`;
   const running = inFlight.get(key);
   if (running) return running;
-  const estimate = measureBurnFeeReserve(accountPublicKey, destinationChainId, scope).finally(() => inFlight.delete(key));
+  const estimate = measureBurnFeeReserve(accountPublicKey, destinationChainId, scope).finally(() =>
+    inFlight.delete(key)
+  );
   inFlight.set(key, estimate);
   return estimate;
 }
@@ -118,8 +120,10 @@ async function measureBurnFeeReserve(
     // shows less matched the wrong faucet: a failed measurement, not a free burn.
     if (cost < 0n || outgoing < USDCX_BURN_FEE_PROBE_AMOUNT) return { outcome: 'failed', failure: 'probe_mismatch' };
     return {
-      outcome: 'measured', reserve: cost + (cost * USDCX_BURN_FEE_MARGIN_PERCENT + 99n) / 100n,
-      faucetId: nativeFaucetId, scope
+      outcome: 'measured',
+      reserve: cost + (cost * USDCX_BURN_FEE_MARGIN_PERCENT + 99n) / 100n,
+      faucetId: nativeFaucetId,
+      scope
     };
   } catch (err) {
     if (decoding) failure = 'result_decode_failed';

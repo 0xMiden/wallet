@@ -63,7 +63,11 @@ let mockWithinHold = false;
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: jest.fn(async (fn: (hold: object) => unknown) => {
     mockWithinHold = true;
-    try { return await fn({}); } finally { mockWithinHold = false; }
+    try {
+      return await fn({});
+    } finally {
+      mockWithinHold = false;
+    }
   })
 }));
 jest.mock('lib/miden/sdk/fee-sponsorship', () => ({
@@ -373,9 +377,12 @@ describe('bridged-send and earn-deposit', () => {
       () => {
         const tx = new BridgedSendTransaction('acct', 100n, '0xevm', 6, 'usdcx', 'bech32:usdcx', REQUEST, true);
         tx.extraInputs.usdcxBurn = {
-          noteId: BUILT, destinationDomain: 6, phase: 'pending',
+          noteId: BUILT,
+          destinationDomain: 6,
+          phase: 'pending',
           networkFeeBudget: {
-            faucetId: 'bech32:usdcx', maxAmount: '60',
+            faucetId: 'bech32:usdcx',
+            maxAmount: '60',
             scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
           }
         };
@@ -512,10 +519,11 @@ describe('reviewed USDCx network fee budget', () => {
       })
     );
 
-  const sponsored = (companionId = 'sponsorship-note') => summary({
-    removed: [fa('usdcx', 105n)],
-    outputs: [note([fa('usdcx', 100n)], [], BUILT), note([fa('usdcx', 3n)], [], companionId), feeNote(2n)]
-  });
+  const sponsored = (companionId = 'sponsorship-note') =>
+    summary({
+      removed: [fa('usdcx', 105n)],
+      outputs: [note([fa('usdcx', 100n)], [], BUILT), note([fa('usdcx', 3n)], [], companionId), feeNote(2n)]
+    });
 
   it('partitions the canonical companion inside the existing Guardian decode hold', async () => {
     givenSummary(sponsored());
@@ -535,7 +543,9 @@ describe('reviewed USDCx network fee budget', () => {
   it('propagates a sponsorship reconstruction trap through the existing decode hold', async () => {
     const trap = new WebAssembly.RuntimeError('unreachable');
     givenSummary(sponsored());
-    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => { throw trap; });
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => {
+      throw trap;
+    });
     await expect(assertProposalEffectApproved(budgeted('5'), 'sum')).rejects.toBe(trap);
   });
 

@@ -2446,7 +2446,10 @@ describe('USDCx burn fee reserve', () => {
   const NATIVE = 'MIDEN-ID';
   const never = () => new Promise<UsdcxBurnFeeEstimate>(() => {});
   const measured = (reserve: bigint): UsdcxBurnFeeEstimate => ({
-    outcome: 'measured', reserve, faucetId: NATIVE, scope: currentUsdcxFeeScope()
+    outcome: 'measured',
+    reserve,
+    faucetId: NATIVE,
+    scope: currentUsdcxFeeScope()
   });
 
   const openBurn = (step: SendFlowStep, amount = '') => {

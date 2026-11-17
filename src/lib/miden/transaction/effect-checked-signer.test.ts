@@ -185,21 +185,33 @@ it('passes the base signer through untouched for an unchecked type', async () =>
 });
 
 describe('reviewed USDCx signing fee budget', () => {
-  const burn = (maximum = '5') => row({
-    type: 'bridged-send', faucetId: 'bech32:usdcx', amount: 100n,
-    approvedOutputNoteIds: ['burn'],
-    extraInputs: { provider: 'usdcx', usdcxBurn: {
-      noteId: 'burn', destinationDomain: 6, phase: 'pending',
-      networkFeeBudget: {
-        faucetId: 'bech32:usdcx', maxAmount: maximum,
-        scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+  const burn = (maximum = '5') =>
+    row({
+      type: 'bridged-send',
+      faucetId: 'bech32:usdcx',
+      amount: 100n,
+      approvedOutputNoteIds: ['burn'],
+      extraInputs: {
+        provider: 'usdcx',
+        usdcxBurn: {
+          noteId: 'burn',
+          destinationDomain: 6,
+          phase: 'pending',
+          networkFeeBudget: {
+            faucetId: 'bech32:usdcx',
+            maxAmount: maximum,
+            scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+          }
+        }
       }
-    } }
-  });
-  const sponsored = () => summary('acct-a', {
-    removed: [fa('usdcx', 105n)], added: [], inputs: [],
-    outputs: [note([fa('usdcx', 100n)], 'burn'), note([fa('usdcx', 3n)], 'sponsor'), feeNote(2n)]
-  });
+    });
+  const sponsored = () =>
+    summary('acct-a', {
+      removed: [fa('usdcx', 105n)],
+      added: [],
+      inputs: [],
+      outputs: [note([fa('usdcx', 100n)], 'burn'), note([fa('usdcx', 3n)], 'sponsor'), feeNote(2n)]
+    });
 
   it('signs the unchanged principal when both canonical native fees fit the reviewed cap', async () => {
     givenSigning(summaryInputs(sponsored()));
@@ -220,12 +232,16 @@ describe('reviewed USDCx signing fee budget', () => {
   it('preserves a reconstruction trap even when the SDK replaces it with an ordinary callback error', async () => {
     const trap = new WebAssembly.RuntimeError('unreachable');
     givenSigning(summaryInputs(sponsored()));
-    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => { throw trap; });
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => {
+      throw trap;
+    });
     const sign = baseSigner();
-    await expect(withEffectCheckedSigner(burn(), sign, async signer => {
-      await refusalOf(signer, 'aa');
-      throw new Error('SDK callback failed');
-    })).rejects.toBe(trap);
+    await expect(
+      withEffectCheckedSigner(burn(), sign, async signer => {
+        await refusalOf(signer, 'aa');
+        throw new Error('SDK callback failed');
+      })
+    ).rejects.toBe(trap);
     expect(sign).not.toHaveBeenCalled();
   });
 });

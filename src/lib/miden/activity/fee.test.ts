@@ -711,19 +711,32 @@ describe('splitLandedOutputNotes', () => {
 
 describe('reviewed USDCx completed fee total', () => {
   const tx = (maximum = '300'): ITransaction => ({
-    id: 'usdcx-row', type: 'bridged-send', accountId: 'acct', amount: 100n,
-    faucetId: 'bech32-native', approvedOutputNoteIds: ['burn'],
-    status: ITransactionStatus.GeneratingTransaction, initiatedAt: 0, displayIcon: 'DEFAULT',
-    extraInputs: { provider: 'usdcx', usdcxBurn: {
-      noteId: 'burn', destinationDomain: 6, phase: 'pending',
-      networkFeeBudget: {
-        faucetId: 'bech32-native', maxAmount: maximum,
-        scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+    id: 'usdcx-row',
+    type: 'bridged-send',
+    accountId: 'acct',
+    amount: 100n,
+    faucetId: 'bech32-native',
+    approvedOutputNoteIds: ['burn'],
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: 0,
+    displayIcon: 'DEFAULT',
+    extraInputs: {
+      provider: 'usdcx',
+      usdcxBurn: {
+        noteId: 'burn',
+        destinationDomain: 6,
+        phase: 'pending',
+        networkFeeBudget: {
+          faucetId: 'bech32-native',
+          maxAmount: maximum,
+          scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+        }
       }
-    } }
+    }
   });
   const named = (id: string, amount: bigint, tag = 0) => ({
-    ...outputNote(tag, [asset(amount, 'native')]), id: () => ({ toString: () => id })
+    ...outputNote(tag, [asset(amount, 'native')]),
+    id: () => ({ toString: () => id })
   });
   const burn = named('burn', 100n);
   const companion = named('sponsor', 119n);
@@ -736,14 +749,16 @@ describe('reviewed USDCx completed fee total', () => {
 
   it('records the actually paid verification plus canonical sponsorship fee', () => {
     expect(feeFieldsFromResult(result([burn, companion, kernel]), 'total', tx())).toEqual({
-      feeAmount: 238n, feeFaucetId: 'bech32-native'
+      feeAmount: 238n,
+      feeFaucetId: 'bech32-native'
     });
   });
 
   it('records a companion alone only when the kernel fee is known zero', () => {
     mockVerificationBaseFee = 0;
     expect(feePaidFromResult(result([burn, companion]), 'zero-kernel', tx())).toEqual({
-      amount: 119n, faucetId: 'bech32-native'
+      amount: 119n,
+      faucetId: 'bech32-native'
     });
   });
 
@@ -762,16 +777,22 @@ describe('reviewed USDCx completed fee total', () => {
     const retire = jest.fn();
     const restore = installLandedTrapRetirement(retire);
     const execution = result([burn, companion, kernel]);
-    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => { throw trap; });
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => {
+      throw trap;
+    });
     try {
       expect(feeFieldsFromResult(execution, 'total-trap', tx())).toEqual({});
       expect(feeFieldsFromResult(execution, 'total-trap', tx())).toEqual({});
       expect(retire.mock.calls).toEqual([[trap, 'total-trap']]);
-    } finally { restore(); }
+    } finally {
+      restore();
+    }
   });
 
   it('still propagates eviction instead of answering for a stopped pipeline', () => {
-    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => { throw poison; });
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => {
+      throw poison;
+    });
     expect(thrownBy(() => feePaidFromResult(result([burn, companion, kernel]), 'total-evicted', tx()))).toBe(poison);
   });
 });

@@ -602,8 +602,11 @@ describe('processRequest', () => {
 
   it('EstimateUsdcxBurnFeeRequest reaches the estimate action and answers its response', async () => {
     const response = {
-      type: WalletMessageType.EstimateUsdcxBurnFeeResponse, outcome: 'measured', feeReserve: '315',
-      faucetId: 'native', scope: 'source-scope'
+      type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+      outcome: 'measured',
+      feeReserve: '315',
+      faucetId: 'native',
+      scope: 'source-scope'
     };
     Actions.estimateUsdcxBurnFee.mockResolvedValueOnce(response);
     const req = {

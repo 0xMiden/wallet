@@ -104,11 +104,14 @@ export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetVi
   const allowance = allowedOutflow(transaction);
   try {
     const approval = usdcxSponsorshipApprovalOf(transaction);
-    if (approval && view.fee && (
-      view.fee.faucetId !== approval.budget.faucetId ||
-      view.fee.amount < 0n ||
-      view.fee.amount > BigInt(approval.budget.maxAmount)
-    )) return 'the network fee exceeds its reviewed native budget';
+    if (
+      approval &&
+      view.fee &&
+      (view.fee.faucetId !== approval.budget.faucetId ||
+        view.fee.amount < 0n ||
+        view.fee.amount > BigInt(approval.budget.maxAmount))
+    )
+      return 'the network fee exceeds its reviewed native budget';
   } catch (error) {
     if (error instanceof WebAssembly.RuntimeError || isKilledPipeline(error)) throw error;
     return 'the reviewed native fee budget could not be read';
@@ -210,7 +213,11 @@ async function assertDecodedViewApproved(
   } catch (error) {
     // The allowance's own refusal (a pre-built row with no recorded note) is already that error. Any other throw,
     // such as an amount that does not parse, stays the unreadable-amounts refusal.
-    if (error instanceof ProposalEffectRefusedError || error instanceof WebAssembly.RuntimeError || isKilledPipeline(error))
+    if (
+      error instanceof ProposalEffectRefusedError ||
+      error instanceof WebAssembly.RuntimeError ||
+      isKilledPipeline(error)
+    )
       throw error;
     throw effectRefusal(transaction, 'its approved amounts could not be read', error);
   }

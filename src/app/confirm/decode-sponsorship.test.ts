@@ -17,7 +17,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 jest.mock('lib/miden/sdk/nft-asset', () => ({ toNft: jest.fn(), nftKey: jest.fn() }));
 jest.mock('lib/shared/helpers', () => ({ b64ToU8: () => new Uint8Array([1]) }));
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetIdSync: () => 'bech32:native', getVerificationBaseFeeSync: () => 2
+  getNativeAssetIdSync: () => 'bech32:native',
+  getVerificationBaseFeeSync: () => 2
 }));
 jest.mock('lib/miden/sdk/fee-sponsorship', () => ({ canonicalFeeSponsorshipNoteId: jest.fn() }));
 
@@ -29,10 +30,18 @@ const note = (id: string, amount: bigint, tag = 0) => ({
 });
 let mockOutputs: ReturnType<typeof note>[];
 const approval: UsdcxSponsorshipApproval = {
-  accountId: 'bech32:acct', faucetId: 'bech32:native', noteId: 'burn',
+  accountId: 'bech32:acct',
+  faucetId: 'bech32:native',
+  noteId: 'burn',
   budget: { faucetId: 'bech32:native', maxAmount: '5', scope: 'already-validated-source' }
 };
-const caught = (run: () => unknown): unknown => { try { return run(); } catch (error) { return error; } };
+const caught = (run: () => unknown): unknown => {
+  try {
+    return run();
+  } catch (error) {
+    return error;
+  }
+};
 
 beforeEach(() => {
   jest.mocked(canonicalFeeSponsorshipNoteId).mockReset().mockReturnValue('companion');
@@ -42,13 +51,17 @@ beforeEach(() => {
   const storage = { isEmpty: () => true };
   mockSummary = {
     accountDelta: () => ({
-      id: () => 'acct', storage: () => storage,
+      id: () => 'acct',
+      storage: () => storage,
       vault: () => ({ removedFungibleAssets: () => [asset(105n)], addedFungibleAssets: () => [], numAssets: () => 1 })
     }),
-    inputNotes: () => inputs, outputNotes: () => outputs
+    inputNotes: () => inputs,
+    outputNotes: () => outputs
   };
   mockExecuted = {
-    accountId: () => 'acct', inputNotes: () => inputs, outputNotes: () => outputs,
+    accountId: () => 'acct',
+    inputNotes: () => inputs,
+    outputNotes: () => outputs,
     accountPatch: () => ({ storage: () => storage })
   };
 });
@@ -88,7 +101,9 @@ test('both paths reject a combined fee above the reviewed cap', () => {
 
 test('neither path converts a reconstruction trap into approval', () => {
   const trap = new WebAssembly.RuntimeError('unreachable');
-  jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => { throw trap; });
+  jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => {
+    throw trap;
+  });
   expect(caught(() => summaryBytesToView('bytes', approval))).toBe(trap);
   expect(caught(() => executedBytesToView('bytes', approval))).toBe(trap);
 });

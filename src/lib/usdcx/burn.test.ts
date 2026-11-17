@@ -58,7 +58,7 @@ jest.mock('lib/miden-chain/constants', () => ({ getRpcEndpoint: () => 'https://r
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(),
   getNativeAssetIdSync: () => 'mtst1usdcxfaucet',
-  getSdkSyncedNativeAssetIdSync: () => mockNativeVerified ? 'mtst1usdcxfaucet' : null,
+  getSdkSyncedNativeAssetIdSync: () => (mockNativeVerified ? 'mtst1usdcxfaucet' : null),
   cacheScope: () => mockSourceScope
 }));
 jest.mock('./destination-status', () => ({
@@ -130,7 +130,8 @@ describe('initiateUsdcxBurn', () => {
     destinationAddress: '0x1111111111111111111111111111111111111111',
     destinationChainId: 5042002,
     networkFeeBudget: {
-      faucetId: 'mtst1usdcxfaucet', maxAmount: '300',
+      faucetId: 'mtst1usdcxfaucet',
+      maxAmount: '300',
       scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
     }
   };
@@ -171,9 +172,12 @@ describe('initiateUsdcxBurn', () => {
   });
 
   it.each(['', '-1', '0002'])('queues no row for malformed reviewed cap %s', async maxAmount => {
-    await expect(initiateUsdcxBurn({
-      ...args, networkFeeBudget: { ...args.networkFeeBudget, maxAmount }
-    })).rejects.toThrow('usdcxBurnFeeUnavailable');
+    await expect(
+      initiateUsdcxBurn({
+        ...args,
+        networkFeeBudget: { ...args.networkFeeBudget, maxAmount }
+      })
+    ).rejects.toThrow('usdcxBurnFeeUnavailable');
     expect(initiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
 
@@ -194,7 +198,9 @@ describe('initiateUsdcxBurn', () => {
       return { balance: '0', blockNumber: '1' };
     });
     await initiateUsdcxBurn(request);
-    expect(jest.mocked(initiateBridgedSendTransaction).mock.calls[0]?.[12]?.networkFeeBudget).toEqual(args.networkFeeBudget);
+    expect(jest.mocked(initiateBridgedSendTransaction).mock.calls[0]?.[12]?.networkFeeBudget).toEqual(
+      args.networkFeeBudget
+    );
   });
 
   it('queues no row if the source scope changes while the destination snapshot is read', async () => {
