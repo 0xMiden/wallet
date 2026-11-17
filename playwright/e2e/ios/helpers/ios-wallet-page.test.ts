@@ -593,8 +593,7 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
     const root = {
       querySelectorAll: (selector: string) => (selector === 'span' ? spans : []),
       querySelector: (selector: string) => {
-        if (selector === '[data-testid="usdcx-burn-notice"]')
-          return { textContent: enText('usdcxWithdrawalNotice') };
+        if (selector === '[data-testid="usdcx-burn-notice"]') return { textContent: enText('usdcxWithdrawalNotice') };
         if (selector === '[data-testid="usdcx-payout-fee"]')
           return { querySelector: () => ({ textContent: 'Deducted from the payout. Varies with network fees.' }) };
         return null;
