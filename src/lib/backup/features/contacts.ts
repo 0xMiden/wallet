@@ -15,7 +15,7 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { WalletContact } from 'lib/shared/types';
 
 import { plaintextDigest } from '../crypto';
-import { type IncomingEntry, hashedKeyOf, readFeature, uploadEntries } from '../entries';
+import { type IncomingEntry, hashedKeyOf, readFeature, serialLane, uploadEntries } from '../entries';
 import { type BackupSession, assertSessionLive, persistMergeRecords } from '../session';
 
 export const CONTACTS_ENTRY_KEY = 'contacts';
@@ -135,7 +135,7 @@ function sameContacts(a: readonly WalletContact[], b: readonly WalletContact[]):
 /** How many times a merge reads the local list again when a user write changed it under the merge. */
 const MERGE_ATTEMPTS = 3;
 
-let contactsChain: Promise<unknown> = Promise.resolve();
+const contactsLane = serialLane();
 
 /**
  * Read the contacts entry (unless `read` is false), merge it with the local
@@ -147,12 +147,7 @@ let contactsChain: Promise<unknown> = Promise.resolve();
  * drop one a peer added.
  */
 export function syncContacts(session: BackupSession, read: boolean): Promise<boolean> {
-  const run = contactsChain.then(
-    () => syncContactsNow(session, read),
-    () => syncContactsNow(session, read)
-  );
-  contactsChain = run.catch(() => undefined);
-  return run;
+  return contactsLane(() => syncContactsNow(session, read));
 }
 
 async function syncContactsNow(session: BackupSession, read: boolean): Promise<boolean> {

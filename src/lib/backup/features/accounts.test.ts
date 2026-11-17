@@ -221,6 +221,39 @@ describe('syncAccounts', () => {
     expect(JSON.parse(await decryptEntry(session.encKey, stored, DEFAULT_BLOB_CAP)).nlu).toBe(3000);
   });
 
+  // Two syncs overlap: the first holds a snapshot from before the user's rename. Run after the second, it would
+  // mark the old name with a fresh time and upload it over the rename.
+  it("does not upload an older sync's stale name over a newer rename", async () => {
+    const a = device('Main');
+    const session = await use(a);
+    await syncAccounts(session, true);
+    let clock = Date.now() + 1000;
+    jest.spyOn(Date, 'now').mockImplementation(() => (clock += 1000));
+
+    const read = a.vault.fetchAccounts.bind(a.vault);
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const reads = jest.spyOn(a.vault, 'fetchAccounts').mockImplementationOnce(async () => {
+      const snapshot = await read();
+      await gate;
+      return snapshot;
+    });
+    const first = syncAccounts(session, false);
+    while (reads.mock.calls.length === 0) await new Promise(resolve => setTimeout(resolve, 0));
+
+    a.vault.accounts[0] = makeAccount('Savings', 0);
+    const second = syncAccounts(session, false);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release();
+    await Promise.all([first, second]);
+
+    const stored = server.storedEntryOf(session.publicKey, 'accounts', hashedKeyOf(session, 'guardian:0'));
+    if (stored === undefined) throw new Error('No account entry on the server');
+    expect(JSON.parse(await decryptEntry(session.encKey, stored, DEFAULT_BLOB_CAP)).n).toBe('Savings');
+  });
+
   it('keeps the latest rename when both devices renamed', async () => {
     const a = device('Main');
     const b = device('Main');

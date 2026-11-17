@@ -88,17 +88,25 @@ export function hashedKeyOf(session: BackupSession, entryKey: string): string {
   return hashedEntryKey(entryKey, session.storageKey);
 }
 
-let readChain: Promise<unknown> = Promise.resolve();
-let uploadChain: Promise<unknown> = Promise.resolve();
+/**
+ * A serial lane: each task starts after every earlier task of the lane settled,
+ * whatever their outcome, and its caller gets its own result or rejection.
+ */
+export function serialLane(): <T>(task: () => Promise<T>) => Promise<T> {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T>(task: () => Promise<T>): Promise<T> => {
+    const run = tail.then(task, task);
+    tail = run.catch(() => undefined);
+    return run;
+  };
+}
+
+const readLane = serialLane();
+const uploadLane = serialLane();
 
 /** Run `task` after every earlier task of `chain`, whatever their outcome. */
 function enqueue<T>(chain: 'read' | 'upload', task: () => Promise<T>): Promise<T> {
-  const previous = chain === 'read' ? readChain : uploadChain;
-  const run = previous.then(task, task);
-  const settled = run.catch(() => undefined);
-  if (chain === 'read') readChain = settled;
-  else uploadChain = settled;
-  return run;
+  return chain === 'read' ? readLane(task) : uploadLane(task);
 }
 
 export interface ReadFeatureOptions {

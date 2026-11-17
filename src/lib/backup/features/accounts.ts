@@ -16,7 +16,7 @@ import type { AuthScheme, WalletAccount } from 'lib/shared/types';
 import { isRecord } from 'lib/update/guards';
 import { WalletType } from 'screens/onboarding/types';
 
-import { type IncomingEntry, type OutgoingEntry, readFeature, uploadEntries } from '../entries';
+import { type IncomingEntry, type OutgoingEntry, readFeature, serialLane, uploadEntries } from '../entries';
 import { type BackupSession, assertSessionLive, persistMergeRecords } from '../session';
 
 /** The #850 type codes. */
@@ -185,8 +185,19 @@ async function outgoingAccounts(session: BackupSession): Promise<OutgoingEntry[]
   return outgoing;
 }
 
-/** Read the peer entries (unless `read` is false) and upload the changed local ones. */
-export async function syncAccounts(session: BackupSession, read: boolean): Promise<boolean> {
+const accountsLane = serialLane();
+
+/**
+ * Read the peer entries (unless `read` is false) and upload the changed local ones. One sync at a time: a sync
+ * that runs after a newer one would mark its older account snapshot with a fresh rename time and upload it.
+ */
+export function syncAccounts(session: BackupSession, read: boolean): Promise<boolean> {
+  return accountsLane(() => syncAccountsNow(session, read));
+}
+
+async function syncAccountsNow(session: BackupSession, read: boolean): Promise<boolean> {
+  // The task waited in the lane: a lock may have landed.
+  assertSessionLive(session);
   let changed = false;
   // A device that never read the feature must not write over a peer's newer names.
   if (read || session.state.features.accounts.etag === null) {
