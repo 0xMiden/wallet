@@ -40,7 +40,7 @@ export function parseCircleValidation(body: unknown, quote: { signedQuote: Hex; 
   const feeToken = field(body, 'feeToken');
   const fee = field(body, 'feeTotalAmount');
   if (!signedQuoteHex(signature) || signature.toLowerCase() !== quote.signedQuote.toLowerCase() ||
-      !isAddress(feeToken) || feeToken.toLowerCase() !== token.toLowerCase() ||
+      typeof feeToken !== 'string' || !isAddress(feeToken) || feeToken.toLowerCase() !== token.toLowerCase() ||
       !unsignedDecimal(fee) || BigInt(fee) !== quote.feeTotalAmount || field(body, 'nonce') !== '0' ||
       field(body, 'claimable') !== true || field(expiry, 'expired') !== false ||
       !unsignedInteger(seconds) || !Array.isArray(failed) || failed.length !== 0 ||
@@ -58,7 +58,7 @@ export function parseCircleQuote(body: unknown, amount: bigint, token: Address) 
   const issuedAt = field(body, 'issuedAt');
   if (!signedQuoteHex(signedQuote) || !unsignedDecimal(feeTotalAmount))
     throw new Error('Circle quote response is missing the signed quote or the fee');
-  if (!unsignedDecimal(burnAmount) || BigInt(burnAmount) !== amount || !isAddress(feeToken) ||
+  if (!unsignedDecimal(burnAmount) || BigInt(burnAmount) !== amount || typeof feeToken !== 'string' || !isAddress(feeToken) ||
       feeToken.toLowerCase() !== token.toLowerCase())
     throw new Error('Circle quote amount or token changed');
   const expiry = parseCctpExpiry(field(body, 'expiry'));

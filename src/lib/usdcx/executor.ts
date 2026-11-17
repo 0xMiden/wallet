@@ -7,11 +7,11 @@ import {
   Hex,
   isAddress,
   padHex,
-  parseUnits,
   stringToHex,
   toHex
 } from 'viem';
 
+import { parseArcAmount } from 'lib/bridge/providers/xreserve/deposit-terms';
 import type { OwnedUsdcxDeposit } from 'lib/bridge/providers/xreserve/ownership';
 import type { updateBridgedReceivePhase } from 'lib/miden/activity';
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
@@ -23,7 +23,6 @@ import {
   CCTP_EXECUTOR_PAYLOAD_VERSION,
   CCTP_FORWARD_HOOK_NAME,
   CCTP_HOOK_VERSION,
-  CIRCLE_USDC_DECIMALS,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
   UsdcxDomainNotRegisteredError,
@@ -215,7 +214,7 @@ export function buildExecutorBurnIntent(
 ): ExecutorBurnIntent {
   if (!isAddress(recoveryAddress)) throw walletRaised(new Error(`Invalid EVM address: ${recoveryAddress}`));
   return {
-    value: parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
+    value: parseArcAmount(amount),
     destinationCaller: addressToBytes32(source.target.executor),
     hookData: encodeExecutorHookData(source.target, remoteRecipient, recoveryAddress)
   };

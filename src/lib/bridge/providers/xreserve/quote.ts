@@ -11,6 +11,9 @@ import { getUsdcxSourceChain } from 'lib/usdcx/constant';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { buildExecutorBurnIntent, quoteExecutorBurn } from 'lib/usdcx/executor';
 
+import { assertXReserveRouteAvailable } from './deposit-preflight';
+import { parseArcAmount } from './deposit-terms';
+import { xreserveReadClient } from './provider';
 import { quoteXReserveWithdrawal } from './withdrawal-quote';
 
 export async function quoteXReserve(request: QuoteRequest, signal: AbortSignal): Promise<QuoteResult | null> {
@@ -28,6 +31,7 @@ export async function quoteXReserve(request: QuoteRequest, signal: AbortSignal):
       throw new Error('Circle quote terms changed');
   };
   assertCurrent();
+  parseArcAmount(amount);
   let result: QuoteResult;
   if (route.mode === 'send') result = await quoteXReserveWithdrawal(request);
   else {
@@ -35,6 +39,10 @@ export async function quoteXReserve(request: QuoteRequest, signal: AbortSignal):
     if (!chain) throw new Error('Circle source unavailable');
     const source = getUsdcxSourceChain(chain.chainId);
     const recipient = usdcxRemoteRecipientFor(midenAccount);
+    if (route.destination.kind !== 'miden') throw new Error('Circle native destination unavailable');
+    const target = source.route === 'xreserve' ? source : source.target;
+    await assertXReserveRouteAvailable(xreserveReadClient(target.chain.id), source, route.destination.faucetId);
+    assertCurrent();
     if (source.route === 'xreserve')
       result = { kind: 'arc-deposit', received: amount.trim(), validity: { kind: 'time', expiresAt: Date.now() + 60000 } };
     else {

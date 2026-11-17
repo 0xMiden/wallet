@@ -1,10 +1,10 @@
-import { Address, Hash, Hex, parseUnits } from 'viem';
+import { Address, Hash, Hex } from 'viem';
 
+import { parseArcAmount } from 'lib/bridge/providers/xreserve/deposit-terms';
 import type { OwnedUsdcxDeposit } from 'lib/bridge/providers/xreserve/ownership';
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 
 import {
-  CIRCLE_USDC_DECIMALS,
   getUsdcxXReserveSource,
   UsdcxXReserveSource,
   USDCX_DEPOSIT_HOOK_DATA,
@@ -52,7 +52,7 @@ export function buildDepositToRemoteArgs(
   source = getUsdcxXReserveSource(sourceChainId)
 ): DepositToRemoteArgs {
   return [
-    parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
+    parseArcAmount(amount),
     source.midenDomain ?? getUsdcxRemoteDomain(),
     remoteRecipient,
     source.usdc,

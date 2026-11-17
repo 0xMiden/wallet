@@ -21,7 +21,7 @@ export async function runXReserveReceive(
   const existing = await findAdmittedBridgeOperation(operation);
   if (existing) return existing.id;
   const { review } = operation;
-  const { route, quote, accounts, amount } = review;
+  const { route, quote, accounts } = review;
   const chain = route.recovery.config.supportedEvmChains[route.source.network];
   if (route.provider !== 'xreserve' || route.mode !== 'receive' || route.destination.kind !== 'miden' || !chain || !quote)
     throw new Error('Circle receive terms changed');
