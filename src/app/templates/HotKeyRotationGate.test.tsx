@@ -525,6 +525,17 @@ describe('HotKeyRotationGate', () => {
       expect(mockInitiate).not.toHaveBeenCalled();
     });
 
+    it('does not adopt a fee shortfall restored from a backup: it asks this device for its role', async () => {
+      mockTable = [{ ...shortfallRow(), restoredFromBackup: true, extraInputs: { mode: 'replace' } }];
+
+      render(<HotKeyRotationGate />);
+
+      expect(await screen.findByTestId('choose-device-role')).toBeInTheDocument();
+      expect(mockUseTransactionRow).not.toHaveBeenCalledWith('tx-shortfall');
+      expect(screen.queryByTestId('hot-key-rotation-funding')).not.toBeInTheDocument();
+      expect(mockInitiate).not.toHaveBeenCalled();
+    });
+
     it('does not resume the role of a rotation restored from a backup: it asks', async () => {
       mockTable = [
         rotationRow('tx-restored', {

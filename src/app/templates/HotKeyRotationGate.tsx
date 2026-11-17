@@ -182,7 +182,9 @@ const ensureRotationTx = async (
       return;
     }
     const failed = adoptExisting ? await findAdoptableShortfallRow(accountPublicKey) : undefined;
-    if (failed && isActivationRow(failed, accountPublicKey)) {
+    // Only a shortfall this device queued: a revocation is not the activation, and a row restored from a backup
+    // was queued by another device or an earlier wallet.
+    if (failed && isActivationRow(failed, accountPublicKey) && failed.restoredFromBackup !== true) {
       txId = failed.id;
       return;
     }
