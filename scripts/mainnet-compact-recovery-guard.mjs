@@ -1,6 +1,6 @@
 import { closeSync, fsyncSync, openSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { encodeFunctionData, isAddressEqual } from 'viem';
+import { encodeFunctionData, isAddressEqual, keccak256, parseTransaction, recoverTransactionAddress } from 'viem';
 import { COMPACT_ABI } from '../node_modules/@epoch-protocol/epoch-intents-sdk/dist/abis/compact.js';
 
 export const ORIGINAL_COMPACT_RECOVERY = Object.freeze({
@@ -16,8 +16,20 @@ export const ORIGINAL_COMPACT_RECOVERY = Object.freeze({
   minimumEthUsdMicros: 1824330000n
 });
 
-export async function verifyCompactRecoverySignature() {
-  throw new Error('Original Compact signature verification is not authorized');
+export async function verifyCompactRecoverySignature(serializedTransaction, intent) {
+  const decoded = parseTransaction(serializedTransaction);
+  const signer = await recoverTransactionAddress({ serializedTransaction });
+  if (
+    decoded.type !== 'eip1559' ||
+    !isAddressEqual(signer, intent.account) ||
+    !isAddressEqual(decoded.to, intent.to) ||
+    (decoded.value ?? 0n) !== intent.value ||
+    (decoded.maxPriorityFeePerGas ?? 0n) !== intent.maxPriorityFeePerGas ||
+    decoded.accessList?.length ||
+    ['chainId', 'nonce', 'data', 'gas', 'maxFeePerGas'].some(key => decoded[key] !== intent[key])
+  )
+    throw new Error('Original Compact signature or frozen transaction fields changed');
+  return keccak256(serializedTransaction);
 }
 
 export async function broadcastOriginalCompactOnce({
