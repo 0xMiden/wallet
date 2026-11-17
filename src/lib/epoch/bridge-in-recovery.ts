@@ -98,24 +98,30 @@ function assertSponsorWallet(connectedAddress: string | undefined, sponsor: stri
 
 /**
  * The SDK on the connected EVM wallet. Refuse when no wallet is connected or when it is not the sponsor: only the
- * sponsor can register or withdraw the deposit. Move a web wallet to the deposit chain first.
+ * sponsor can register or withdraw the deposit. Move a web wallet to the deposit chain first. The wallet can change
+ * its account while it switches chain, so check the sponsor again after the switch, and bind the SDK to the sponsor.
  */
 export async function connectSponsorSdk(
   lock: Pick<CompactLockRef, 'sponsorAddress' | 'chainId'>,
   allocatorUrl: string
 ): Promise<EpochIntentSDK> {
+  const sponsor = sponsorOf(lock);
   let connection = await getEvmConnection();
-  assertSponsorWallet(connection.address, lock.sponsorAddress);
+  assertSponsorWallet(connection.address, sponsor);
   if (!connection.isNative && connection.chainId !== lock.chainId) {
     await switchWebWalletChain(lock.chainId);
     connection = await getEvmConnection();
+    assertSponsorWallet(connection.address, sponsor);
     if (connection.chainId !== lock.chainId) {
       throw new LockedDepositError('wrongChain', 'Switch the EVM wallet to the network of this deposit.');
     }
   }
-  const sdk = await getEpochSdk({ chainId: lock.chainId, allocatorUrl });
-  if (!sdk) throw new LockedDepositError('walletDisconnected', 'Connect the EVM wallet that made this deposit.');
-  return sdk;
+  const sdk = await getEpochSdk({ chainId: lock.chainId, allocatorUrl, account: sponsor });
+  if (sdk) return sdk;
+  // The SDK getter found no wallet, or another account, at the moment it built the SDK.
+  const { address } = await getEvmConnection();
+  if (address) throw new LockedDepositError('wrongAccount', 'The connected EVM wallet did not make this deposit.');
+  throw new LockedDepositError('walletDisconnected', 'Connect the EVM wallet that made this deposit.');
 }
 
 /** Unix seconds from which the sponsor can withdraw, when The Compact reports a withdrawal in progress. */
@@ -217,7 +223,7 @@ async function recordWithdrawalStopped(ref: CompactLockRef): Promise<void> {
   await clearForcedWithdrawalRecord(ref);
 }
 
-function sponsorOf(ref: CompactLockRef): Address {
+function sponsorOf(ref: Pick<CompactLockRef, 'sponsorAddress'>): Address {
   if (!isAddress(ref.sponsorAddress)) {
     throw new LockedDepositError('notRecoverable', 'This deposit cannot be recovered from this wallet.');
   }

@@ -83,7 +83,7 @@ const sdk = {
   getDepositedBalances: jest.fn(),
   submitAllocation: jest.fn()
 };
-const mockGetEpochSdk = jest.fn(async (_opts: unknown) => sdk);
+const mockGetEpochSdk = jest.fn(async (_opts: unknown): Promise<typeof sdk | null> => sdk);
 jest.mock('./sdk', () => ({ getEpochSdk: (opts: unknown) => mockGetEpochSdk(opts) }));
 
 const mockGetCompactData = jest.fn();
@@ -204,7 +204,11 @@ describe('retryLockedDeposit', () => {
   it('registers the locked amount again with a fresh nonce and continues the bridge', async () => {
     await expect(retryLockedDeposit('row-1')).resolves.toBe('77');
 
-    expect(mockGetEpochSdk).toHaveBeenCalledWith({ chainId: 11155111, allocatorUrl: 'https://allocator.saved' });
+    expect(mockGetEpochSdk).toHaveBeenCalledWith({
+      chainId: 11155111,
+      allocatorUrl: 'https://allocator.saved',
+      account: SPONSOR
+    });
     expect(sdk.disableForcedWithdrawal).not.toHaveBeenCalled();
     expect(mockGetCompactData).toHaveBeenCalledWith(
       expect.objectContaining({ apiBaseUrl: 'https://allocator.saved' }),
@@ -260,6 +264,41 @@ describe('retryLockedDeposit', () => {
     await retryLockedDeposit('row-1');
 
     expect(mockSwitchChain).toHaveBeenCalledWith(11155111);
+  });
+
+  it('refuses when the wallet account changes while it switches to the deposit chain', async () => {
+    mockConnection
+      .mockResolvedValueOnce({ address: SPONSOR, isNative: false, chainId: 1 })
+      .mockResolvedValue({ address: '0x00000000000000000000000000000000000000bb', isNative: false, chainId: 11155111 });
+
+    await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'wrongAccount' });
+
+    expect(mockSwitchChain).toHaveBeenCalledWith(11155111);
+    expect(mockGetEpochSdk).not.toHaveBeenCalled();
+    expect(sdk.disableForcedWithdrawal).not.toHaveBeenCalled();
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(rows.get('row-1')?.extraInputs.phase).toBe('failed');
+  });
+
+  it('binds the SDK to the sponsor, and refuses when the SDK finds another account connected', async () => {
+    await retryLockedDeposit('row-1');
+    expect(mockGetEpochSdk).toHaveBeenCalledWith(expect.objectContaining({ account: SPONSOR }));
+
+    // The wallet account changed between the check and the SDK build: the SDK getter answers null.
+    seedRow();
+    mockGetEpochSdk.mockResolvedValueOnce(null);
+    mockConnection
+      .mockResolvedValueOnce({ address: SPONSOR, isNative: true })
+      .mockResolvedValueOnce({ address: '0x00000000000000000000000000000000000000bb', isNative: true });
+    await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'wrongAccount' });
+
+    // The wallet disconnected in that window.
+    seedRow();
+    mockGetEpochSdk.mockResolvedValueOnce(null);
+    mockConnection
+      .mockResolvedValueOnce({ address: SPONSOR, isNative: true })
+      .mockResolvedValueOnce({ isNative: true });
+    await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'walletDisconnected' });
   });
 
   it('refuses when the lock no longer holds the deposit or the compact names another lock', async () => {
@@ -396,7 +435,11 @@ describe('lock actions (Settings recovery page)', () => {
     await expect(startLockWithdrawal(REF)).resolves.toBe(4900);
 
     expect(sdk.initateDepositWithdrawal).toHaveBeenCalledWith(LOCK_ID);
-    expect(mockGetEpochSdk).toHaveBeenCalledWith({ chainId: 11155111, allocatorUrl: 'https://allocator.document' });
+    expect(mockGetEpochSdk).toHaveBeenCalledWith({
+      chainId: 11155111,
+      allocatorUrl: 'https://allocator.document',
+      account: SPONSOR
+    });
     expect(storedRecord()).toEqual({ enabledAt: 1000, withdrawableAt: 4900 });
   });
 
