@@ -40,6 +40,22 @@ export function guardianHistoryActionKey(type: ITransactionType, reclaimed = fal
   }
 }
 
+/** What a recovered row's title reads from the row. */
+export interface RecoveredActionFacts {
+  reclaimed?: boolean;
+  hotKeyAdded?: boolean;
+  revokedSignerCommitment?: string;
+}
+
+/**
+ * The title key of a recovered row, the one rule every surface uses: a revocation reads as a revoked device, else
+ * the action of its type, with an added device told apart from a replaced one.
+ */
+export function guardianRecoveredActionKey(type: ITransactionType, facts: RecoveredActionFacts): string {
+  if (facts.revokedSignerCommitment) return 'deviceRevoked';
+  return guardianHistoryActionKey(type, facts.reclaimed, facts.hotKeyAdded);
+}
+
 /** Render-time labels: recovery stores evidence, not a fabricated transaction narrative. */
 export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) => string): string {
   if (entry.message === 'Transaction failed') {
@@ -47,7 +63,9 @@ export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) =
   }
   if (entry.revokedSignerCommitment) return t('deviceRevoked');
   if (entry.guardianRecovered) {
-    return t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed, entry.hotKeyAdded));
+    return t(
+      guardianRecoveredActionKey(entry.txType, { reclaimed: entry.guardianReclaimed, hotKeyAdded: entry.hotKeyAdded })
+    );
   }
   if (entry.txType === 'switch-guardian' && entry.guardianSwitchVerdict) {
     const key = rotationRowTitleKey(entry.guardianSwitchVerdict);

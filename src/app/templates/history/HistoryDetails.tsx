@@ -83,7 +83,7 @@ import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
-import { guardianHistoryActionKey, guardianHistoryIcon } from './guardianHistoryLabels';
+import { guardianHistoryIcon, guardianRecoveredActionKey } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
@@ -446,7 +446,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
           message: tx.recovered
-            ? t(guardianHistoryActionKey(tx.type, tx.recovery?.reclaimed, hotKeyExtra?.mode === 'add'))
+            ? t(
+                guardianRecoveredActionKey(tx.type, {
+                  reclaimed: tx.recovery?.reclaimed,
+                  hotKeyAdded: hotKeyExtra?.mode === 'add',
+                  revokedSignerCommitment: hotKeyExtra?.revokedSignerCommitment
+                })
+              )
             : (tx.displayMessage ?? ''),
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,

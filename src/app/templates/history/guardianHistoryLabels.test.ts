@@ -1,6 +1,11 @@
 import type { ITransactionIcon, ITransactionType } from 'lib/miden/db/types';
 
-import { guardianHistoryActionKey, guardianHistoryIcon, historyEntryActionTitle } from './guardianHistoryLabels';
+import {
+  guardianHistoryActionKey,
+  guardianHistoryIcon,
+  guardianRecoveredActionKey,
+  historyEntryActionTitle
+} from './guardianHistoryLabels';
 import { HistoryEntryType, type IHistoryEntry } from './IHistoryEntry';
 
 // The fake `t` returns the key in brackets, so each assertion names the i18n key that the title uses.
@@ -123,5 +128,21 @@ describe('historyEntryActionTitle', () => {
   it('labels a live replace row without a message as "device replaced"', () => {
     const live = entry({ txType: 'replace-hot-key' });
     expect(historyEntryActionTitle(live, t)).toBe('[guardianHistoryDeviceReplaced]');
+  });
+});
+
+describe('guardianRecoveredActionKey', () => {
+  const commitment = `0x${'ab'.repeat(32)}`;
+
+  it('names a revocation, before the add flag', () => {
+    expect(
+      guardianRecoveredActionKey('replace-hot-key', { hotKeyAdded: true, revokedSignerCommitment: commitment })
+    ).toBe('deviceRevoked');
+  });
+
+  it('names an added device, a replaced device and a reclaimed consume', () => {
+    expect(guardianRecoveredActionKey('replace-hot-key', { hotKeyAdded: true })).toBe('guardianHistoryDeviceAdded');
+    expect(guardianRecoveredActionKey('replace-hot-key', {})).toBe('guardianHistoryDeviceReplaced');
+    expect(guardianRecoveredActionKey('consume', { reclaimed: true })).toBe('reclaimed');
   });
 });
