@@ -370,7 +370,7 @@ it.each(['hash', 'transmitter', 'duplicate log', 'source sender', 'source amount
   expect(row?.extraInputs.phase).toBe('submitting');
   expect(signed).toHaveLength(1);
 });
-async function prepareOwnedStatus(change: 'immutable amount' | 'ambiguous' | 'proof' | 'arc nonce' | 'arc deposit' | 'arc handler' | 'none') {
+async function prepareOwnedStatus(change: 'immutable amount' | 'ambiguous' | 'proof' | 'arc nonce' | 'arc deposit' | 'arc handler' | 'none', beforeStatus?: () => void) {
   const id = await driveAdapter(true);
   await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('delivering'));
   const source = getUsdcxSourceChain(11155111);
@@ -387,6 +387,7 @@ async function prepareOwnedStatus(change: 'immutable amount' | 'ambiguous' | 'pr
   receiptReader.mockResolvedValue(cctpArcReceipt(source,
     change === 'arc nonce' ? { nonce: `0x${'9'.repeat(64)}` } : change === 'arc deposit' ? { depositAmount: 1000002n } :
       change === 'arc handler' ? { handler: TEST_CCTP_TRANSMITTER } : {}));
+  beforeStatus?.();
   const reconciler = createBridgeReceiveReconciler({ getLocks: () => undefined });
   await reconciler.reconcile();
   await reconciler.reconcile();
@@ -396,6 +397,23 @@ it('accepts source placeholder nonce -> unique attested nonce -> same Arc Execut
   const { row } = await prepareOwnedStatus('none');
   expect(row?.extraInputs.phase).toBe('ready');
   expect(row?.extraInputs.cctp?.executeTxHash).toBe(FORWARD_HASH);
+});
+it('continues passive funded status after UI RPC departure and quote expiry without fresh source permission', async () => {
+  const { row } = await prepareOwnedStatus('none', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(now + 120000);
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other.example/private');
+  });
+  expect(row?.extraInputs.phase).toBe('ready');
+  expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
+  expect(signed).toHaveLength(1);
+});
+it('does not fail or rearm known funded ownership merely because source proof metadata is missing after restart', async () => {
+  const { row } = await prepareOwnedStatus('proof', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(now + 8 * 24 * 60 * 60 * 1000);
+  });
+  expect(row?.extraInputs.phase).toBe('delivering');
+  expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
+  expect(signed).toHaveLength(1);
 });
 it.each(['ambiguous', 'proof', 'immutable amount', 'arc nonce', 'arc deposit', 'arc handler'])('keeps an owned CCTP %s mismatch proof-pending, not ready or a fresh source', async change => {
   const { row } = await prepareOwnedStatus(change === 'ambiguous' ? 'ambiguous' : change === 'proof' ? 'proof' :
