@@ -158,7 +158,7 @@ async function drive(review = reviewedErc20Transfer('agglayer'), operationId = '
 }
 
 beforeEach(async () => {
-  jest.clearAllMocks();
+  jest.resetAllMocks();
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   jest.spyOn(Date, 'now').mockReturnValue(now);
   await Repo.transactions.clear();
