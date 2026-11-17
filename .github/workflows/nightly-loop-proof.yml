@@ -1,0 +1,36 @@
+name: Epoch safe solve-failure diagnostics regression proof
+on:
+  push:
+    branches: [wiktor/epoch-solve-failure-diagnostics-proof]
+permissions:
+  contents: read
+concurrency:
+  group: epoch-solve-diagnostic-proof-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  safe-diagnostic-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 16
+      - name: Preserve current application and dependency source
+        run: |
+          git merge-base --is-ancestor 675cc723e32cf13c6a247936fd10876c788c18fe HEAD
+          git diff --exit-code 675cc723e32cf13c6a247936fd10876c788c18fe HEAD -- package.json yarn.lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Safe diagnostics, exact artifact allowlist and existing readonly recovery contracts
+        run: yarn jest scripts/mainnet-epoch-diagnostics.test.ts scripts/mainnet-swap-workflow.test.ts scripts/mainnet-epoch-readonly-completion.test.ts --maxWorkers=2 --watch=false
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install browser for synthetic non-funded handle smoke only
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+      - name: Real browser error-handle smoke without wallet, RPC, signer or payment
+        run: E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-diagnostic-browser" yarn playwright test mainnet-epoch-diagnostics.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0
