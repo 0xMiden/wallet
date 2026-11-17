@@ -304,6 +304,8 @@ it('preserves minimum-read fallback without disclosing native RPC error payloads
   mockMinimumProof.mockRejectedValueOnce(new Error('private-native-minimum-rpc-placeholder'));
   const id = await initiateUsdcxBurn(input());
   expect((await Repo.transactions.get(id))?.amount).toBe(6000000n);
+  expect(mockMinimumProof).toHaveBeenCalledTimes(1);
+  expect(warning).toHaveBeenCalled();
   const diagnostics = warning.mock.calls.flat().map(value => (value instanceof Error ? value.message : String(value)));
   expect(diagnostics.join(' ')).not.toContain('private-native-minimum-rpc-placeholder');
 });
