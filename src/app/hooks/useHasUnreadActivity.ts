@@ -6,8 +6,10 @@ import { historyEntryUnreadKey, pendingNoteUnreadKey } from 'app/templates/histo
 import { suppressLinkedConsumes } from 'app/templates/history/History';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import {
+  ClaimEvidenceLookup,
   compareCompletedHistory,
   CompletedHistoryCursor,
+  createClaimEvidenceLookup,
   getCompletedTransactionsPage,
   getUncompletedTransactions,
   historyCursorOf
@@ -39,7 +41,7 @@ const toRecentRow = (row: ITransaction, timestamp: number): RecentRow => ({
   timestamp
 });
 
-async function readRecentCompletedRows(address: string): Promise<RecentRow[]> {
+async function readRecentCompletedRows(address: string, lookup: ClaimEvidenceLookup): Promise<RecentRow[]> {
   const recent: RecentCompletedRow[] = [];
   let cursor: CompletedHistoryCursor | null = null;
   for (;;) {
@@ -49,7 +51,7 @@ async function readRecentCompletedRows(address: string): Promise<RecentRow[]> {
       limit: RECENT_ROWS,
       cursor
     });
-    const visible = await suppressLinkedConsumes(page.transactions);
+    const visible = await suppressLinkedConsumes(page.transactions, lookup);
     for (const row of page.transactions) {
       const order = historyCursorOf(row);
       const boundary = recent[RECENT_ROWS - 1];
@@ -77,9 +79,10 @@ async function readRecentCompletedRows(address: string): Promise<RecentRow[]> {
  * high-water mark it falls on.
  */
 async function readRecentRows(address: string): Promise<RecentRow[]> {
+  const lookup = createClaimEvidenceLookup();
   const [uncompleted, completed] = await Promise.all([
-    getUncompletedTransactions(address).then(suppressLinkedConsumes),
-    readRecentCompletedRows(address)
+    getUncompletedTransactions(address).then(rows => suppressLinkedConsumes(rows, lookup)),
+    readRecentCompletedRows(address, lookup)
   ]);
   return [...uncompleted.map(row => toRecentRow(row, row.initiatedAt)), ...completed];
 }

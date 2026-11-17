@@ -294,6 +294,50 @@ describe('useHasUnreadActivity - the account feed rows', () => {
     setRead(txKey('a-read'), ...completed.slice(1).map(row => txKey(row.id)));
     expect((await renderUnread()).current).toBe(false);
   });
+
+  it('looks up each claim note once across suppressed pages', async () => {
+    const failed = Array.from({ length: 150 }, (_, i) =>
+      tx(`failed-${i}`, {
+        type: 'consume',
+        status: ITransactionStatus.Failed,
+        noteId: 'claimed-note',
+        completedAt: 500 + i
+      })
+    );
+    const visible = Array.from({ length: 50 }, (_, i) => tx(`visible-${i}`, { completedAt: 200 + i }));
+    await transactions.bulkAdd([
+      ...failed,
+      ...visible,
+      tx('claim', { type: 'consume', noteId: 'other-note', noteIds: ['other-note', 'claimed-note'], completedAt: 1 })
+    ]);
+    setRead(...visible.map(row => txKey(row.id)));
+    const where = jest.spyOn(transactions, 'where');
+    try {
+      expect((await renderUnread()).current).toBe(false);
+      expect(where.mock.calls.filter(([index]) => typeof index === 'string' && index === 'noteId')).toHaveLength(1);
+      expect(where.mock.calls.filter(([index]) => typeof index === 'string' && index === 'noteIds')).toHaveLength(1);
+    } finally {
+      where.mockRestore();
+    }
+  });
+
+  it('checks claim evidence again when a new claim changes the visible window', async () => {
+    const failed = Array.from({ length: 150 }, (_, i) =>
+      tx(`failed-${i}`, {
+        type: 'consume',
+        status: ITransactionStatus.Failed,
+        noteId: 'claimed-note',
+        completedAt: 500 + i
+      })
+    );
+    const visible = Array.from({ length: 49 }, (_, i) => tx(`visible-${i}`, { completedAt: 200 + i }));
+    await transactions.bulkAdd([...failed, ...visible, tx('older-unread', { completedAt: 100 })]);
+    setRead(...[...failed, ...visible].map(row => txKey(row.id)));
+    const result = await renderUnread();
+    expect(result.current).toBe(false);
+    await transactions.add(tx('claim', { type: 'consume', noteId: 'claimed-note', completedAt: 1 }));
+    await waitFor(() => expect(result.current).toBe(true));
+  });
 });
 
 describe('useHasUnreadActivity - transfers the claim check found unavailable', () => {

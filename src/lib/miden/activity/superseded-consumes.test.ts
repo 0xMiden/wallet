@@ -1,7 +1,9 @@
+import { Collection } from 'dexie';
+
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { transactions } from 'lib/miden/repo';
 
-import { supersededFailedConsumeIds } from './superseded-consumes';
+import { createClaimEvidenceLookup, supersededFailedConsumeIds } from './superseded-consumes';
 
 const A = 'account-a';
 const B = 'account-b';
@@ -50,6 +52,86 @@ afterAll(async () => {
 });
 
 describe('supersededFailedConsumeIds (#771)', () => {
+  it('does not materialize failed claim history in indexed results', async () => {
+    const failed = Array.from({ length: 150 }, (_, i) => row(`failed-${i}`, { noteId: 'n1' }));
+    await transactions.bulkAdd([...failed, completedClaim('done', ['n1'])]);
+    const toArray = transactions.toCollection().toArray;
+    const lengths: number[] = [];
+    jest.spyOn(transactions.db.Collection.prototype, 'toArray').mockImplementation(function <T>(
+      this: Collection<ITransaction, string>,
+      callback?: (rows: ITransaction[]) => T
+    ) {
+      return toArray.call(this, (rows: ITransaction[]) => {
+        lengths.push(rows.length);
+        return callback ? callback(rows) : rows;
+      });
+    });
+    expect(await supersededFailedConsumeIds(failed.slice(0, 1))).toEqual(new Set(['failed-0']));
+    expect(lengths.length).toBeGreaterThan(0);
+    expect(lengths.every(length => length <= 1)).toBe(true);
+  });
+
+  it('shares claim evidence across batches and concurrent requests with account suffixes', async () => {
+    await transactions.add(completedClaim('done', ['n0', 'n1']));
+    const lookup = createClaimEvidenceLookup();
+    const where = jest.spyOn(transactions, 'where');
+    const pending = lookup(A, 'n1');
+    expect(lookup(`${A}_x`, 'n1')).toBe(pending);
+    expect(
+      await Promise.all([
+        supersededFailedConsumeIds([row('first', { noteId: 'n1' })], lookup),
+        supersededFailedConsumeIds([row('second', { accountId: `${A}_y`, noteId: 'n1' })], lookup)
+      ])
+    ).toEqual([new Set(['first']), new Set(['second'])]);
+    expect(await supersededFailedConsumeIds([row('third', { noteId: 'n1' })], lookup)).toEqual(new Set(['third']));
+    expect(where.mock.calls.filter(([index]) => typeof index === 'string' && index === 'noteId')).toHaveLength(1);
+    expect(where.mock.calls.filter(([index]) => typeof index === 'string' && index === 'noteIds')).toHaveLength(1);
+  });
+
+  it('caches negative evidence across batches and keeps accounts and notes separate', async () => {
+    await transactions.add(completedClaim('done', ['n1'], { accountId: B }));
+    const lookup = createClaimEvidenceLookup();
+    const where = jest.spyOn(transactions, 'where');
+    expect(await supersededFailedConsumeIds([row('first', { noteId: 'n1' })], lookup)).toEqual(new Set());
+    expect(await supersededFailedConsumeIds([row('second', { accountId: `${A}_x`, noteId: 'n1' })], lookup)).toEqual(
+      new Set()
+    );
+    expect(where.mock.calls.filter(([index]) => typeof index === 'string' && index === 'noteId')).toHaveLength(1);
+    expect(where.mock.calls.filter(([index]) => typeof index === 'string' && index === 'noteIds')).toHaveLength(1);
+    expect(await lookup(B, 'n1')).toBe(true);
+    expect(await lookup(B, 'n2')).toBe(false);
+  });
+
+  it('uses fresh default evidence after a completed claim is inserted', async () => {
+    const failed = row('attempt', { noteId: 'n1' });
+    expect(await supersededFailedConsumeIds([failed])).toEqual(new Set());
+    await transactions.add(completedClaim('done', ['n1']));
+    expect(await supersededFailedConsumeIds([failed])).toEqual(new Set(['attempt']));
+  });
+
+  it('does not match empty accounts or share their negative evidence with suffixed accounts', async () => {
+    await transactions.bulkAdd([
+      completedClaim('empty', ['n1'], { accountId: '' }),
+      completedClaim('suffixed', ['n2'], { accountId: '_x' })
+    ]);
+    const lookup = createClaimEvidenceLookup();
+    const empty = lookup('', 'n1');
+    expect(lookup('', 'n1')).toBe(empty);
+    expect(await empty).toBe(false);
+    expect(await lookup('', 'n2')).toBe(false);
+    expect(await lookup('_y', 'n2')).toBe(true);
+    expect(await lookup('', 'n2')).toBe(false);
+  });
+
+  it('uses noteIds before noteId when checking claim membership', async () => {
+    await transactions.bulkAdd([
+      completedClaim('different-batch', ['n2'], { noteId: 'n1' }),
+      completedClaim('empty-batch', [], { noteId: 'n1' })
+    ]);
+    expect(await supersededFailedConsumeIds([row('attempt', { noteId: 'n1' })])).toEqual(new Set());
+    expect(await supersededFailedConsumeIds([row('covered', { noteId: 'n2' })])).toEqual(new Set(['covered']));
+  });
+
   it('hides a failed claim of a note this account later claimed, found in the database, not the batch', async () => {
     await transactions.add(completedClaim('done', ['n1']));
     const failed = row('attempt', { noteId: 'n1' });
