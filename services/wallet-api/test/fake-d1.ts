@@ -1,6 +1,8 @@
 // An in-memory fake of the D1 binding for the unit tests.
 // It runs only the SQL statements that the Worker sends. It finds each statement by its exact text.
 // It models the tables of migrations/0001_init.sql. An unknown statement throws, so a changed query fails the tests.
+// Its guards (salt, generation, capacity, nonce expiry) are a JavaScript copy of the SQL. sql-guards.test.ts runs
+// the production statements on a real SQLite, so a guard removed from the SQL fails there.
 import { bytesToHex, hexToBytes } from '../src/encoding';
 import {
   DELETE_ENTRIES_OF_GENERATION,
