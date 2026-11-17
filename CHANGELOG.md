@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.18.0 (TBD)
+## 1.18.0 (2026-11-17)
 
 - [CHANGE][all] Upgrade the Miden web, React and wallet adapter SDKs to 0.18.0 and the Rust client and CLI to 0.18.2, with matching native proving dependencies.
 
