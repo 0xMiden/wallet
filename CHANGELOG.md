@@ -17,6 +17,8 @@
 - [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
 - [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
 - [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
+- [FIX][ci] Check signed 1Click execution economics against the shared nightly loss allowance when the direct NEAR endpoint has no configured application fees or explicit fee policy. Public wallet settings are unchanged.
+
 - [FIX][ci] Observe an early NEAR quote-response rejection while the nightly waits for Review, preserving the original error on await without changing requests, amounts, timeouts or authorization.
 
 - [FIX][all] A Fast bridge-in whose deposit landed in The Compact while Epoch refused its allocation now reads Deposit locked, and its Activity details let the depositing EVM wallet retry the bridge over the locked balance or withdraw the whole lock back after the lock's reset period; Settings > Advanced > Recover locked bridge funds scans The Compact for every Fast bridge-in address and the connected EVM wallet and offers the same withdraw, cancel and retry per lock; the Fast bridge-in flow lets the EVM wallet disable a forced withdrawal and continues with a fresh quote after confirmation (#2120).
