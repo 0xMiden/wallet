@@ -1,7 +1,7 @@
 name: Original Epoch returned-owner cancellation contract qualification
 on:
   push:
-    branches: [wiktor/green02-epoch-owner-refund-retire]
+    branches: [wiktor/green02-epoch-owner-refund-verify]
 permissions:
   contents: read
   actions: read
@@ -19,7 +19,7 @@ jobs:
       - name: Bind isolated changes to actual post-disable audit source
         run: |
           git merge-base --is-ancestor 9937b4d7872e90b90d1aa8c323b08846b74f13fc HEAD
-          test "$(git diff --name-only 9937b4d7872e90b90d1aa8c323b08846b74f13fc HEAD)" = "$(printf '%s\n' .github/workflows/e2e-mainnet-nightly.yml .github/workflows/nightly-loop-proof.yml docs/superpowers/plans/2026-11-17-original-epoch-owner-refund-retirement.md docs/superpowers/specs/2026-11-17-original-epoch-owner-refund-retirement.md scripts/retire-original-epoch-owner-refund.mjs test/epoch-owner-refund-retirement.node.test.mjs)"
+          test "$(git diff --name-only 9937b4d7872e90b90d1aa8c323b08846b74f13fc HEAD)" = "$(printf '%s\n' .github/workflows/e2e-mainnet-nightly.yml .github/workflows/nightly-loop-proof.yml docs/superpowers/plans/2026-11-17-original-epoch-owner-refund-retirement.md docs/superpowers/specs/2026-11-17-original-epoch-owner-refund-retirement.md scripts/retire-original-epoch-owner-refund.mjs scripts/verify-original-epoch-owner-refund.mjs test/epoch-owner-refund-retirement.node.test.mjs)"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22

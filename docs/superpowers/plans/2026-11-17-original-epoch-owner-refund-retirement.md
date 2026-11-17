@@ -39,10 +39,10 @@
 **Files:** Isolated .github/workflows/e2e-mainnet-nightly.yml overlay, existing independent public/private readers unchanged.
 **Interfaces:** Consume Task1 builder. Publish only mainnet-swap-final-RUN/mainnet-epoch-final-RUN/mainnet-1click-final-RUN and sanitized recovery-only audit evidence.
 
-- [ ] Configure push trigger only for a distinct canonical-once ref, original shared concurrency, read-only permissions, no EVM signing secret/executor or fresh provider stages. Retain auxiliary unit qualification on its own branch only.
-- [ ] Bind original producer and all financial first-attempt run/source/authority hashes as in the already successful9937 audit. Bind current official producer frontier before execution. Run the existing actual SDK018 public and PRIVATE auditors against untouched original copies.
-- [ ] After actual audits pass, run the builder, validate with existing loader, preserve original swap/NEAR bytes and original Epoch authorities. Require normal cancelled shape and recoveryOnly=true; no native/funded-complete claim.
-- [ ] Freeze source after internal complete-source review and same-source unit qualification. Consume a distinct nonfinancial once marker, push the frozen canonical ref once, monitor exact run/SHA at30s. Expected: canonical artifacts and actual audit pass, zero transactions/signatures/new fees. Preserve the existing recovery-only convention: only final Report recovery-only coverage deliberately fails, so an official no-spend retirement cannot masquerade as funded green.
+- [x] Configure push trigger only for a distinct canonical-once ref, original shared concurrency, read-only permissions, no EVM signing secret/executor or fresh provider stages. Retain auxiliary unit qualification on its own branch only.
+- [x] Bind original producer and all financial first-attempt run/source/authority hashes as in the already successful9937 audit. Bind current official producer frontier before execution. Run the existing actual SDK018 public and PRIVATE auditors against untouched original copies.
+- [x] After actual audits pass, run the builder, validate with existing loader, preserve original swap/NEAR bytes and original Epoch authorities. Require normal cancelled shape and recoveryOnly=true; no native/funded-complete claim.
+- [x] Freeze source after internal complete-source review and same-source unit qualification. Consume a distinct nonfinancial once marker, push the frozen canonical ref once, monitor exact run/SHA at30s. Expected: canonical artifacts and actual audit pass, zero transactions/signatures/new fees. Preserve the existing recovery-only convention: only final Report recovery-only coverage deliberately fails, so an official no-spend retirement cannot masquerade as funded green.
 
 ### Task 3: Independently verify canonical retirement and resume campaign
 
