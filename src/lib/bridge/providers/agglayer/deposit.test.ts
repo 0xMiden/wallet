@@ -1,4 +1,5 @@
 // Adapted from bridge-portal@cb52c470 src/bridge/providers/agglayer/deposit.test.ts (MIT).
+import { waitFor } from '@testing-library/react';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, parseUnits, type EIP1193Provider, type Hash, type Hex } from 'viem';
 
 import { AGGLAYER_BRIDGE_ABI } from 'lib/agglayer/constant';
@@ -13,6 +14,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
 import { submitAgglayerDeposit, type AgglayerClient } from './deposit';
+import { runAgglayerReceive } from './flows';
 
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: async (fn: () => unknown) => fn() }));
@@ -129,6 +131,23 @@ beforeEach(async () => {
   });
 });
 afterEach(() => jest.restoreAllMocks());
+
+it('admits a reviewed receive through the provider and existing wrapper once, including duplicate requests', async () => {
+  const review = reviewedErc20Transfer('agglayer');
+  const route = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
+  if (!route || review.route.source.kind !== 'erc20') throw new Error('Missing accepted provider fixture');
+  bridgeAddress = route.contractAddress;
+  tokenAddress = `0x${review.route.source.address.slice(2)}`;
+  approvedAmount = 1000000000000000000n;
+  const operation = { operationId: 'provider-receive', review };
+  const deps = { client: rpc, provider, checks: { readCurrent: async () => structuredClone(review), verifyBalanceCap: async () => undefined, now: () => now } };
+  const first = await runAgglayerReceive(operation, deps);
+  const duplicate = await runAgglayerReceive(operation, deps);
+  expect(duplicate).toBe(first);
+  await waitFor(async () => expect((await Repo.transactions.get(first))?.extraInputs.evmTxHash).toBe(depositHash));
+  expect(await Repo.transactions.count()).toBe(1);
+  expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(1);
+});
 
 it('bridges native value exactly once without token approval and saves the original source hash', async () => {
   const { error, row } = await drive(nativeReview());
