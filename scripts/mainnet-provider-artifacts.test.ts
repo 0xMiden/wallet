@@ -2,7 +2,8 @@
 import {
   chooseSwapCheckpoint,
   swapStepAttempted,
-  knownUnspentEpochPreAuthorization
+  knownUnspentEpochPreAuthorization,
+  knownUnspentNearPreAuthorization
 } from './mainnet-swap-artifacts.mjs';
 
 const baseline = 42966766471;
@@ -115,6 +116,208 @@ describe('known failed Epoch pre-authorization', () => {
   it('does not recognize a live original window or invalid observation time', () => {
     for (const time of [Date.parse('2026-11-14T17:24:34.674Z'), NaN])
       expect(knownUnspentEpochPreAuthorization(digest, run(), originalJobs(), time)).toBe(false);
+  });
+});
+
+describe('known unsigned NEAR quote reconciliation', () => {
+  const digest = 'd2283bdd2372696ebe109c6b31ce5190ac7b29be07901e2ede142ba8c1f18524';
+  const now = Date.parse('2026-11-16T18:30:00Z');
+  const run = () => ({
+    id: 43811169447,
+    repository: { id: 853430876 },
+    workflow_id: 391951744,
+    head_sha: '7fccdbfc371cdefc542b45af51de192032a8d415',
+    head_branch: 'main',
+    event: 'schedule',
+    run_attempt: 1,
+    status: 'completed',
+    conclusion: 'failure'
+  });
+  const audit = () => ({
+    id: 43925502671,
+    repository: { id: 853430876 },
+    workflow_id: 415130600,
+    head_sha: '748558a9438ecbbaf73639c4c4b81c303609a068',
+    head_branch: 'wiktor/mainnet-438111-audit',
+    event: 'push',
+    run_attempt: 1,
+    status: 'completed',
+    conclusion: 'success'
+  });
+  const auditJobs = () => ({
+    jobs: ['public-sdk', 'private-inventory'].map(name => ({ name, status: 'completed', conclusion: 'success' }))
+  });
+  const originalJobs = () => ({
+    jobs: [
+      {
+        name: 'Chrome mainnet round trip',
+        status: 'completed',
+        conclusion: 'failure',
+        steps: [
+          ['Prepare mainnet NEAR loop', 'success'],
+          ['Upload native NEAR read-only preflight', 'success'],
+          ['Run mainnet near forward', 'success'],
+          ['Upload NEAR native forward authority', 'failure'],
+          ['Wait for mainnet NEAR forward', 'skipped'],
+          ['Run mainnet near reverse', 'skipped'],
+          ['Upload NEAR reverse authority', 'skipped'],
+          ['Upload mainnet near signed EVM 1', 'skipped'],
+          ['Upload mainnet near signed EVM 1', 'skipped'],
+          ['Upload mainnet near native return claim', 'skipped'],
+          ['Upload mainnet near native return claim', 'skipped'],
+          ['Authorize original near return claim', 'skipped'],
+          ['Authorize original near refund', 'skipped'],
+          ['Wait for mainnet NEAR return', 'skipped']
+        ].map(([name, conclusion]) => ({ name, status: 'completed', conclusion }))
+      }
+    ]
+  });
+  const freshDigest = 'a4546b4126ba6c81bc19272117d60ac904eedcea65add3ed7ff7d990817d2b12';
+  const freshNow = Date.parse('2026-11-17T03:00:00Z');
+  const freshRun = () => ({
+    ...run(),
+    id: 43999834254,
+    head_sha: 'c3b9997f069267a02a8e1715f691d0187982e23d',
+    head_branch: 'wiktor/nightly-main-green-01',
+    event: 'workflow_dispatch'
+  });
+  const freshAudit = () => ({
+    ...audit(),
+    id: 44005625246,
+    head_sha: 'cca4608ecc222693a9f04124c671f06b48cd850f',
+    head_branch: 'wiktor/nightly-green-01-outcome'
+  });
+  it('recognizes only the exact independently audited unsigned attempt01 after its original windows expire', () => {
+    expect(
+      knownUnspentNearPreAuthorization(freshDigest, freshRun(), originalJobs(), freshAudit(), auditJobs(), freshNow)
+    ).toBe(true);
+  });
+  it.each([
+    { id: 43999834255 },
+    { repository: { id: 1 } },
+    { head_sha: 'a'.repeat(40) },
+    { head_branch: 'main' },
+    { event: 'schedule' },
+    { run_attempt: 2 }
+  ])('rejects changed attempt01 producer provenance %j', changed => {
+    expect(
+      knownUnspentNearPreAuthorization(
+        freshDigest,
+        { ...freshRun(), ...changed },
+        originalJobs(),
+        freshAudit(),
+        auditJobs(),
+        freshNow
+      )
+    ).toBe(false);
+  });
+  it('never mixes the two known source/audit/checkpoint bindings or accepts the still-live original window', () => {
+    for (const [digestValue, original, reviewed] of [
+      [digest, freshRun(), freshAudit()],
+      [freshDigest, run(), freshAudit()],
+      [freshDigest, freshRun(), audit()]
+    ]) {
+      expect(
+        knownUnspentNearPreAuthorization(digestValue, original, originalJobs(), reviewed, auditJobs(), freshNow)
+      ).toBe(false);
+    }
+    expect(
+      knownUnspentNearPreAuthorization(
+        freshDigest,
+        freshRun(),
+        originalJobs(),
+        freshAudit(),
+        auditJobs(),
+        Date.parse('2026-11-17T02:20:00Z')
+      )
+    ).toBe(false);
+  });
+  it('rejects an incomplete new independent audit or evidence of later provider execution', () => {
+    const changedAudit = auditJobs();
+    changedAudit.jobs[1]!.conclusion = 'failure';
+    expect(
+      knownUnspentNearPreAuthorization(freshDigest, freshRun(), originalJobs(), freshAudit(), changedAudit, freshNow)
+    ).toBe(false);
+    const changedOriginal = originalJobs();
+    changedOriginal.jobs[0]!.steps[4]!.conclusion = 'success';
+    expect(
+      knownUnspentNearPreAuthorization(freshDigest, freshRun(), changedOriginal, freshAudit(), auditJobs(), freshNow)
+    ).toBe(false);
+  });
+  it('recognizes the exact expired quote only after both independent audits and failed pre-release native gate', () => {
+    expect(knownUnspentNearPreAuthorization(digest, run(), originalJobs(), audit(), auditJobs(), now)).toBe(true);
+  });
+  it.each([
+    { id: 43811169448 },
+    { repository: { id: 1 } },
+    { workflow_id: 1 },
+    { head_sha: 'a'.repeat(40) },
+    { head_branch: 'feature' },
+    { event: 'workflow_dispatch' },
+    { run_attempt: 2 },
+    { status: 'in_progress' },
+    { conclusion: 'cancelled' }
+  ])('rejects changed scheduled provenance %j', changed => {
+    expect(
+      knownUnspentNearPreAuthorization(digest, { ...run(), ...changed }, originalJobs(), audit(), auditJobs(), now)
+    ).toBe(false);
+  });
+  it.each([
+    { id: 1 },
+    { repository: { id: 1 } },
+    { workflow_id: 1 },
+    { head_sha: 'a'.repeat(40) },
+    { head_branch: 'main' },
+    { event: 'workflow_dispatch' },
+    { run_attempt: 2 },
+    { status: 'in_progress' },
+    { conclusion: 'failure' }
+  ])('rejects changed audit provenance %j', changed => {
+    expect(
+      knownUnspentNearPreAuthorization(digest, run(), originalJobs(), { ...audit(), ...changed }, auditJobs(), now)
+    ).toBe(false);
+  });
+  it('rejects changed raw bytes, live time, missing audit or duplicate audit jobs', () => {
+    expect(knownUnspentNearPreAuthorization('a'.repeat(64), run(), originalJobs(), audit(), auditJobs(), now)).toBe(
+      false
+    );
+    expect(
+      knownUnspentNearPreAuthorization(
+        digest,
+        run(),
+        originalJobs(),
+        audit(),
+        auditJobs(),
+        Date.parse('2026-11-16T05:54:00.166Z')
+      )
+    ).toBe(false);
+    expect(knownUnspentNearPreAuthorization(digest, run(), originalJobs(), audit(), { jobs: [] }, now)).toBe(false);
+    expect(
+      knownUnspentNearPreAuthorization(
+        digest,
+        run(),
+        originalJobs(),
+        audit(),
+        { jobs: [...auditJobs().jobs, ...auditJobs().jobs] },
+        now
+      )
+    ).toBe(false);
+    const failed = auditJobs();
+    failed.jobs[1]!.conclusion = 'failure';
+    expect(knownUnspentNearPreAuthorization(digest, run(), originalJobs(), audit(), failed, now)).toBe(false);
+  });
+  it.each([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])('rejects changed original stage %i', index => {
+    const changed = originalJobs();
+    changed.jobs[0]!.steps[index]!.conclusion = index < 3 ? 'failure' : 'success';
+    expect(knownUnspentNearPreAuthorization(digest, run(), changed, audit(), auditJobs(), now)).toBe(false);
+  });
+  it('rejects missing or duplicate downstream occurrences', () => {
+    const missing = originalJobs();
+    missing.jobs[0]!.steps.pop();
+    expect(knownUnspentNearPreAuthorization(digest, run(), missing, audit(), auditJobs(), now)).toBe(false);
+    const duplicate = originalJobs();
+    duplicate.jobs[0]!.steps.push({ ...duplicate.jobs[0]!.steps[7]! });
+    expect(knownUnspentNearPreAuthorization(digest, run(), duplicate, audit(), auditJobs(), now)).toBe(false);
   });
 });
 

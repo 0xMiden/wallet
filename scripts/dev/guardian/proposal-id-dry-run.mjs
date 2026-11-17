@@ -416,7 +416,7 @@ const probe = async (name, build) => {
       notes.push(`sign/prepare failed: ${errorText(error)}`);
     }
     try {
-      const abandon = await multisig.abandonCandidate(proposal.nonce);
+      const abandon = await multisig.abandonCandidate(proposal.nonce, proposal.id);
       notes.push(`abandonCandidate(${proposal.nonce}) -> ${JSON.stringify(abandon)}`);
     } catch (error) {
       notes.push(`abandonCandidate(${proposal.nonce}) refused: ${errorText(error)}`);
