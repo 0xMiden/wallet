@@ -407,6 +407,13 @@ async function reconcileUsdcxExecutorRow(
       return;
     }
   }
+  const manual = leg.executeAttempt;
+  if (original && leg.message && leg.attestation && manual?.phase === 'known' && isHash(manual.hash) &&
+      ![leg.revertedExecuteTxHash, leg.stalledExecuteTxHash].some(hash => hash?.toLowerCase() === manual.hash?.toLowerCase())) {
+    await updateBridgedReceivePhase(row.id, 'delivering', { cctp: { sourceDomain: leg.sourceDomain, executeTxHash: manual.hash } },
+      undefined, { onlyIfNoExecuteHash: true });
+    return;
+  }
   if (leg.attestation && !leg.forwarded) return;
   const attested = original ? await fetchOwnedAttestedCctpMessage(row, source, original) :
     await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
