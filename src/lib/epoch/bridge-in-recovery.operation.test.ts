@@ -1,6 +1,7 @@
 import { parseUnits } from 'viem';
 
 import { accounts, now } from 'lib/bridge/testing/fixtures';
+import type { ReviewedTransfer } from 'lib/bridge/core/review';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import { BridgedReceiveTransaction, ITransactionStatus, type ITransaction, type IEpochLockedDeposit } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -34,14 +35,9 @@ jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.f
 jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: async () => null, putToStorage: async () => undefined }));
 
-const review = reviewedErc20Transfer('epoch');
-if (review.route.source.kind !== 'erc20' || review.route.destination.kind !== 'miden') throw new Error('Missing accepted owned receive');
-const TOKEN = review.route.source.address;
-const LOCK: IEpochLockedDeposit = {
-  sponsorAddress: accounts.evmAddress, chainId: 11155111,
-  lockId: ((1n << 160n) | BigInt(TOKEN)).toString(), tokenAddress: TOKEN, isNative: false,
-  amount: '1000000000000000000', taskTypeString: 'original-task', intentData: { tokenInAmount: '0' }, lockedAt: 1
-};
+let review: ReviewedTransfer;
+let TOKEN: string;
+let LOCK: IEpochLockedDeposit;
 function row(id: string): ITransaction {
   const destination = review.route.destination;
   if (destination.kind !== 'miden') throw new Error('Missing native destination');
@@ -58,6 +54,14 @@ function owned(id: string): ITransaction {
 }
 beforeEach(async () => {
   jest.clearAllMocks();
+review = reviewedErc20Transfer('epoch');
+if (review.route.source.kind !== 'erc20' || review.route.destination.kind !== 'miden') throw new Error('Missing accepted owned receive');
+TOKEN = review.route.source.address;
+LOCK = {
+  sponsorAddress: accounts.evmAddress, chainId: 11155111,
+  lockId: ((1n << 160n) | BigInt(TOKEN)).toString(), tokenAddress: TOKEN, isNative: false,
+  amount: '1000000000000000000', taskTypeString: 'original-task', intentData: { tokenInAmount: '0' }, lockedAt: 1
+};
   jest.spyOn(Date, 'now').mockReturnValue(now);
   await Repo.transactions.clear();
   mockStatus.mockResolvedValue({ status: 'Enabled', enabledAt: 0n });
