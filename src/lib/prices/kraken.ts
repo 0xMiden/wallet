@@ -194,6 +194,12 @@ const HISTORY_CONFIGS: Record<Exclude<Timeframe, 'YTD'>, { interval: number; sec
   '1M': { interval: 240, seconds: 30 * 24 * 60 * 60 }
 };
 
+/** The length in milliseconds of the candles `fetchKrakenKlineData` asks for at the timeframe. */
+export function krakenCandleMs(timeframe: Timeframe): number {
+  const minutes = timeframe === 'YTD' ? 1440 : HISTORY_CONFIGS[timeframe].interval;
+  return minutes * 60_000;
+}
+
 /** Fetch direct USD close prices within the requested time range. */
 export async function fetchKrakenKlineData(pair: string, timeframe: Timeframe): Promise<KlinePoint[]> {
   const now = Math.floor(Date.now() / 1000);

@@ -17,6 +17,8 @@ export type TokenList = {
   baskets: Map<string, string[]>;
   /** Each token's decimals as the list writes them. */
   decimals: Map<string, number>;
+  /** Each token's symbol as the list writes it, so a token the user does not hold can still be named. */
+  symbols: Map<string, string>;
 };
 
 const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
@@ -51,6 +53,7 @@ export function parseTokenList(value: unknown, network: string): TokenList | nul
   const priceAssets = new Map<string, string>();
   const faucetsBySymbol = new Map<string, string>();
   const decimals = new Map<string, number>();
+  const symbols = new Map<string, string>();
   const declaredBaskets = new Map<string, string[]>();
   // A symbol two tokens share names neither: which one it means is not the list's to say.
   const sharedSymbols = new Set<string>();
@@ -72,6 +75,7 @@ export function parseTokenList(value: unknown, network: string): TokenList | nul
       const constituents = 'basket' in token ? readConstituents(token.basket) : undefined;
       if (constituents !== undefined) declaredBaskets.set(faucetId, constituents);
       if (typeof symbol === 'string' && symbol.length > 0) {
+        if (/^[A-Za-z0-9.]{1,20}$/.test(symbol)) symbols.set(faucetId, symbol);
         if (faucetsBySymbol.has(symbol)) sharedSymbols.add(symbol);
         faucetsBySymbol.set(symbol, faucetId);
       }
@@ -88,5 +92,5 @@ export function parseTokenList(value: unknown, network: string): TokenList | nul
     const usable = constituents.every(id => id !== faucetId && priced(id) && !declaredBaskets.has(id));
     if (usable && priced(faucetId)) baskets.set(faucetId, constituents);
   }
-  return { ids, logos, priceAssets, faucetsBySymbol, baskets, decimals };
+  return { ids, logos, priceAssets, faucetsBySymbol, baskets, decimals, symbols };
 }

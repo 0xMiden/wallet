@@ -8,12 +8,15 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { readWithOwnRpcClient } from 'lib/usdcx/rpc-client';
 
-import { isNominalQuote, quotedPrice, type TokenPriceInfo, type TokenPrices } from './binance';
+import { basketChange24h } from './basket';
+import { isNominalQuote, quotedPrice, type BasketComponent, type TokenPriceInfo, type TokenPrices } from './binance';
 
 /** One token a basket holds, as the token list names it. */
 export interface BasketConstituent {
   /** As the token list spells it, which is what the vault read is given. */
   faucetId: string;
+  /** The token list's symbol for the token, to name it in the basket's composition. */
+  symbol: string;
   priceSymbol: string;
   decimals: number;
 }
@@ -46,7 +49,8 @@ export function basketPriceSources(
   baskets: ReadonlyMap<string, readonly string[]> | null | undefined,
   assets: ReadonlyMap<string, string>,
   decimals: ReadonlyMap<string, number> | null | undefined,
-  unmarketed: (symbol: string) => boolean
+  unmarketed: (symbol: string) => boolean,
+  symbols?: ReadonlyMap<string, string> | null
 ): BasketSource[] {
   const sources: BasketSource[] = [];
   for (const [listedId, listedConstituents] of baskets ?? []) {
@@ -62,7 +66,8 @@ export function basketPriceSources(
       const places = decimals?.get(id);
       if (seen.has(canonical) || constituentSymbol === undefined || places === undefined) break;
       seen.add(canonical);
-      constituents.push({ faucetId: id, priceSymbol: constituentSymbol, decimals: places });
+      const symbol = symbols?.get(id) ?? constituentSymbol;
+      constituents.push({ faucetId: id, symbol, priceSymbol: constituentSymbol, decimals: places });
     }
     if (constituents.length === listedConstituents.length) {
       sources.push({ faucetId: listedId, priceSymbol, constituents });
@@ -175,8 +180,26 @@ export function basketNav(source: BasketSource, vault: BasketVault, prices: Toke
 }
 
 /**
+ * Each constituent's share of the basket's value, largest first, or undefined when the vault holds no value. The shares
+ * sum to 1.
+ */
+export function basketComposition(source: BasketSource, values: readonly number[]): BasketComponent[] | undefined {
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (!(total > 0) || !Number.isFinite(total)) return undefined;
+  return source.constituents
+    .map((c, i) => ({
+      faucetId: c.faucetId,
+      symbol: c.symbol,
+      priceSymbol: c.priceSymbol,
+      weight: (values[i] ?? 0) / total
+    }))
+    .sort((a, b) => b.weight - a.weight);
+}
+
+/**
  * One quote per basket whose vault was read and whose constituents are all priced, keyed by price asset. A quote
- * carries no 24h move. A basket that fails is left out, so its token stays unpriced as before.
+ * carries the basket's composition and the 24h move its constituents give it (`basketChange24h`), or no move while
+ * any constituent has no market quote. A basket that fails is left out, so its token stays unpriced as before.
  */
 export async function fetchBasketPrices(
   sources: readonly BasketSource[],
@@ -190,13 +213,18 @@ export async function fetchBasketPrices(
       try {
         const vault = await readVault(source);
         const price = basketNav(source, vault, prices);
+        const values = basketHoldingValues(source, vault, prices);
+        const composition = values && basketComposition(source, values);
         if (price !== undefined) {
+          const move = composition ? basketChange24h(composition, prices) : undefined;
+          const percentageChange24h = move ?? 0;
           quotes[source.priceSymbol] = {
             price,
-            change24h: 0,
-            percentageChange24h: 0,
+            change24h: price - price / (1 + percentageChange24h / 100),
+            percentageChange24h,
             observedAt: now(),
-            source: 'basket'
+            source: 'basket',
+            ...(composition ? { composition } : {})
           };
         }
       } catch {
