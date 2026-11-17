@@ -1,3 +1,7 @@
+import { isExtensionServiceWorkerSender, type MessageSenderLike } from 'lib/intercom/sender';
+import { getTestAuthorizationStorage } from 'lib/miden/sdk/test-authorization-storage';
+import { isRecord } from 'lib/update/guards';
+
 import {
   installFetchInstrumentation,
   OFFSCREEN_FETCH_FAULTS_KEY,
@@ -48,19 +52,41 @@ function apply(value: unknown): void {
 export async function restoreOffscreenFetchFaults(): Promise<void> {
   let changed = false;
   let latest: unknown;
-  const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
-    if (area !== 'local' || !(OFFSCREEN_FETCH_FAULTS_KEY in changes)) return;
+  const onChanged = (
+    message: unknown,
+    sender: MessageSenderLike,
+    sendResponse: (response: unknown) => void
+  ): boolean => {
+    if (
+      !isRecord(message) ||
+      message.target !== 'offscreen-fetch-faults' ||
+      message.type !== OFFSCREEN_FETCH_FAULTS_KEY
+    )
+      return false;
+    const workerPath = chrome.runtime.getManifest().background?.service_worker;
+    if (
+      !isExtensionServiceWorkerSender(sender, chrome.runtime.id) &&
+      !(
+        typeof workerPath === 'string' &&
+        sender?.id === chrome.runtime.id &&
+        sender.tab === undefined &&
+        sender.url === chrome.runtime.getURL(workerPath)
+      )
+    )
+      return false;
     changed = true;
-    latest = changes[OFFSCREEN_FETCH_FAULTS_KEY].newValue;
+    latest = message.value;
     apply(latest);
+    sendResponse({ ok: true });
+    return false;
   };
-  // Subscribe before reading so a clear/rearm cannot lose to an older startup snapshot.
-  chrome.storage.onChanged.addListener(onChanged);
+  // Offscreen has runtime only. Subscribe before the SW read so a newer clear/rearm wins.
+  chrome.runtime.onMessage.addListener(onChanged);
   try {
-    const stored = await chrome.storage.local.get(OFFSCREEN_FETCH_FAULTS_KEY);
+    const stored = await getTestAuthorizationStorage(OFFSCREEN_FETCH_FAULTS_KEY);
     apply(changed ? latest : stored[OFFSCREEN_FETCH_FAULTS_KEY]);
   } catch (error) {
-    chrome.storage.onChanged.removeListener(onChanged);
+    chrome.runtime.onMessage.removeListener(onChanged);
     throw error;
   }
 }

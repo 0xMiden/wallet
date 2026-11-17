@@ -1,4 +1,6 @@
 /** @jest-environment node */
+import type { MessageSenderLike } from 'lib/intercom/sender';
+
 import { restoreOffscreenFetchFaults } from './e2e-fetch-faults';
 
 const KEY = '__miden_e2e_offscreen_fetch_faults';
@@ -9,7 +11,12 @@ const originalFetch = globalThis.fetch;
 const originalE2eFlag = process.env.MIDEN_E2E_TEST;
 let get: jest.Mock<Promise<Record<string, unknown>>, []>;
 let nativeFetch: jest.Mock<Promise<Response>, []>;
-let changed: ((changes: Record<string, { newValue?: unknown }>, area: string) => void) | undefined;
+let changed:
+  | ((message: unknown, sender: MessageSenderLike, sendResponse: (response: unknown) => void) => boolean)
+  | undefined;
+const workerSender = { id: 'runtime-only', url: 'chrome-extension://runtime-only/background.js' };
+const notify = (value: unknown, sender: MessageSenderLike = workerSender) =>
+  changed?.({ target: 'offscreen-fetch-faults', type: KEY, value }, sender, () => {});
 let log: jest.SpyInstance;
 
 beforeEach(() => {
@@ -19,11 +26,25 @@ beforeEach(() => {
   globalThis.fetch = nativeFetch;
   changed = undefined;
   Reflect.set(globalThis, 'chrome', {
-    storage: {
-      local: { get },
-      onChanged: {
+    runtime: {
+      id: 'runtime-only',
+      getURL: (path: string) => `chrome-extension://runtime-only/${path}`,
+      getManifest: () => ({ background: { service_worker: 'background.js' } }),
+      onMessage: {
         addListener: (listener: typeof changed) => (changed = listener),
         removeListener: () => (changed = undefined)
+      },
+      sendMessage: async (message: Record<string, unknown>) => {
+        if (
+          message.target !== 'sw' ||
+          message.type !== 'OFFSCREEN_TEST_AUTHORIZATION_STORAGE' ||
+          message.operation !== 'get' ||
+          !Array.isArray(message.keys) ||
+          message.keys.length !== 1 ||
+          message.keys[0] !== KEY
+        )
+          throw new Error('Unexpected offscreen runtime request');
+        return { ok: true, value: await get() };
       }
     }
   });
@@ -82,9 +103,9 @@ it('clears and rearms the same wrapper without resetting accumulated hits', asyn
   await restoreOffscreenFetchFaults();
   const wrapped = globalThis.fetch;
   void fetch(URL_SYNC);
-  changed?.({ [KEY]: {} }, 'local');
+  notify(undefined);
   expect((await fetch(URL_SYNC)).status).toBe(200);
-  changed?.({ [KEY]: { newValue: [{ ...wire[0], mode: 'status500' }] } }, 'local');
+  notify([{ ...wire[0], mode: 'status500' }]);
   expect((await fetch(URL_SYNC)).status).toBe(500);
   expect(globalThis.fetch).toBe(wrapped);
   expect(Reflect.get(globalThis, '__E2E_NET_FAULT_HITS')).toEqual({ discovery: 2 });
@@ -94,7 +115,7 @@ it('does not resurrect an old snapshot after a clear during the initial storage 
   let resolveRead: ((value: Record<string, unknown>) => void) | undefined;
   get.mockReturnValue(new Promise(resolve => (resolveRead = resolve)));
   const ready = restoreOffscreenFetchFaults();
-  changed?.({ [KEY]: {} }, 'local');
+  notify(undefined);
   resolveRead?.({ [KEY]: wire });
   await ready;
   expect((await fetch(URL_SYNC)).status).toBe(200);
@@ -104,17 +125,37 @@ it('keeps a newer rearm instead of the older startup snapshot', async () => {
   let resolveRead: ((value: Record<string, unknown>) => void) | undefined;
   get.mockReturnValue(new Promise(resolve => (resolveRead = resolve)));
   const ready = restoreOffscreenFetchFaults();
-  changed?.({ [KEY]: { newValue: [{ ...wire[0], mode: 'status500' }] } }, 'local');
+  notify([{ ...wire[0], mode: 'status500' }]);
   resolveRead?.({ [KEY]: wire });
   await ready;
   expect((await fetch(URL_SYNC)).status).toBe(500);
 });
 
-it('ignores unrelated storage keys and storage areas', async () => {
+it('ignores unrelated runtime messages', async () => {
   get.mockResolvedValue({ [KEY]: wire });
   await restoreOffscreenFetchFaults();
-  changed?.({ other: {} }, 'local');
-  changed?.({ [KEY]: {} }, 'sync');
+  changed?.({ other: true }, workerSender, () => {});
+  changed?.({ target: 'elsewhere', type: KEY }, workerSender, () => {});
+  void fetch(URL_SYNC);
+  expect(nativeFetch).not.toHaveBeenCalled();
+  expect(Reflect.get(globalThis, '__E2E_NET_FAULT_HITS')).toEqual({ discovery: 1 });
+});
+
+it.each([
+  ['foreign extension', { id: 'foreign', url: workerSender.url }],
+  ['content script', { ...workerSender, tab: {} }],
+  ['own popup', { id: 'runtime-only', url: 'chrome-extension://runtime-only/popup.html' }],
+  ['missing sender identity', {}]
+])('ignores policy updates from %s', async (_label, sender) => {
+  await restoreOffscreenFetchFaults();
+  notify(wire, sender);
+  expect(globalThis.fetch).toBe(nativeFetch);
+  expect((await fetch(URL_SYNC)).status).toBe(200);
+});
+
+it('accepts the authenticated worker sender when Chrome omits its URL', async () => {
+  await restoreOffscreenFetchFaults();
+  notify(wire, { id: 'runtime-only' });
   void fetch(URL_SYNC);
   expect(nativeFetch).not.toHaveBeenCalled();
   expect(Reflect.get(globalThis, '__E2E_NET_FAULT_HITS')).toEqual({ discovery: 1 });

@@ -402,6 +402,10 @@ export function installOffscreenFaultRealm(
       async ({ key, wire }) => {
         if (wire.length) await chrome.storage.local.set({ [key]: wire });
         else await chrome.storage.local.remove(key);
+        // Missing documents restore from storage later; existing ones receive runtime-only updates.
+        void chrome.runtime
+          .sendMessage({ target: 'offscreen-fetch-faults', type: key, value: wire.length ? wire : undefined })
+          .catch(() => {});
       },
       { key: OFFSCREEN_FETCH_FAULTS_KEY, wire }
     );

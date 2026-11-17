@@ -11,8 +11,8 @@ const KEY = '__miden_e2e_offscreen_fetch_faults';
 const URL_OFFSCREEN = 'chrome-extension://inert-fixture/offscreen.html';
 const URL_SYNC = 'http://localhost:57291/miden.node.v1.NodeService/SyncNotes';
 const wire = [{ id: 'discovery', host: ':57291', path: 'NodeService/Sync', mode: 'hang' }];
-const bootstrap = () =>
-  transformSync(readFileSync(resolve(__dirname, '../src/offscreen/e2e-fetch-faults.ts'), 'utf8'), {
+const compile = file =>
+  transformSync(readFileSync(resolve(__dirname, '..', file), 'utf8'), {
     jsc: { parser: { syntax: 'typescript' }, target: 'es2022' },
     module: { type: 'commonjs' }
   }).code;
@@ -25,23 +25,43 @@ function fixture() {
   const set = jest.fn(async values => {
     Object.assign(stored, values);
     events.push('persist');
-    for (const listener of listeners) listener({ [KEY]: { newValue: values[KEY] } }, 'local');
+
   });
   const remove = jest.fn(async key => {
     delete stored[key];
     events.push('remove');
-    for (const listener of listeners) listener({ [key]: {} }, 'local');
+
   });
   const chrome = {
     storage: {
-      local: { set, remove, get: async () => structuredClone(stored) },
-      onChanged: {
-        addListener: listener => listeners.add(listener),
-        removeListener: listener => listeners.delete(listener)
+      local: { set, remove, get: async () => structuredClone(stored) }
+    },
+    runtime: {
+      sendMessage: async message => {
+        for (const listener of listeners) {
+          listener(message, { id: 'inert-fixture', url: 'chrome-extension://inert-fixture/background.js' }, () => {});
+        }
+        return { ok: true };
       }
     }
   };
   const workerRealm = vm.createContext({ chrome });
+  const documentRuntime = {
+    id: 'inert-fixture',
+    getURL: path => `chrome-extension://inert-fixture/${path}`,
+    getManifest: () => ({ background: { service_worker: 'background.js' } }),
+    onMessage: {
+      addListener: listener => listeners.add(listener),
+      removeListener: listener => listeners.delete(listener)
+    },
+    sendMessage: async message => {
+      if (
+        message.target !== 'sw' || message.type !== 'OFFSCREEN_TEST_AUTHORIZATION_STORAGE' ||
+        message.operation !== 'get' || message.keys?.length !== 1 || message.keys[0] !== KEY
+      ) throw new Error('Unexpected offscreen read relay request');
+      return { ok: true, value: await chrome.storage.local.get(message.keys) };
+    }
+  };
   const newDocument = () => {
     const nativeFetch = jest.fn(async () => new Response('inert'));
     return vm.createContext({
@@ -52,7 +72,8 @@ function fixture() {
       Request,
       Headers,
       performance,
-      chrome,
+      chrome: { runtime: documentRuntime },
+      process: { env: { MIDEN_E2E_TEST: 'true' } },
       console: { log: jest.fn() },
       location: { href: URL_OFFSCREEN }
     });
@@ -111,18 +132,28 @@ function fixture() {
       targetId += '-next';
       listeners.clear();
       doc = newDocument();
-      doc.exports = {};
-      // Only module loading and Chrome/CDP are faked. Both algorithms execute unchanged in the fresh realm.
-      doc.require = path => {
-        if (path !== '../../playwright/e2e/harness/fetch-instrumentation') throw new Error(`unexpected import ${path}`);
-        return {
-          OFFSCREEN_FETCH_FAULTS_KEY: KEY,
-          SW_FETCH_LOG_PREFIX: '[E2E_NET] ',
-          installFetchInstrumentation: vm.runInContext(`(${installFetchInstrumentation.toString()})`, doc)
+      // Execute the actual bootstrap and relay in a runtime-only realm; mock external Chrome/CDP only.
+      const load = file => {
+        const exports = {};
+        const imported = name => {
+          if (name.endsWith('/fetch-instrumentation')) return {
+            OFFSCREEN_FETCH_FAULTS_KEY: KEY,
+            SW_FETCH_LOG_PREFIX: '[E2E_NET] ',
+            installFetchInstrumentation: vm.runInContext(`(${installFetchInstrumentation.toString()})`, doc)
+          };
+          if (name === 'lib/miden/sdk/test-authorization-storage') return load('src/lib/miden/sdk/test-authorization-storage.ts');
+          if (name === 'lib/intercom/sender') return require('../src/lib/intercom/sender');
+          if (name === 'lib/update/guards' || name === '../../update/guards') return require('../src/lib/update/guards');
+          if (name === '../back/offscreen-codec') return require('../src/lib/miden/back/offscreen-codec');
+          if (name === '../../platform/storage-adapter') return {
+            getStorageProvider: () => { throw new Error('Offscreen cannot use storage directly'); }
+          };
+          throw new Error(`unexpected import ${name}`);
         };
+        vm.runInContext(`(function(exports, require) { ${compile(file)} })`, doc)(exports, imported);
+        return exports;
       };
-      vm.runInContext(bootstrap(), doc);
-      await doc.exports.restoreOffscreenFetchFaults();
+      await load('src/offscreen/e2e-fetch-faults.ts').restoreOffscreenFetchFaults();
       return targetId;
     }
   };
