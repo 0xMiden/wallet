@@ -14,6 +14,7 @@ import * as Repo from 'lib/miden/repo';
 import {
   cancelLockWithdrawal,
   finishLockWithdrawal,
+  LockedDepositError,
   lockedDepositsOnLock,
   markEpochLockedDepositReallocated,
   patchLockedDepositsOnLock,
@@ -257,6 +258,27 @@ it('conflicting row provider cannot hide a positively bound original Epoch sourc
   await expect(finishLockWithdrawal(LOCK)).rejects.toThrow();
   expect(mockWithdraw).not.toHaveBeenCalled();
 });
+
+it.each(['conflicting', 'missing'])(
+  'an exact shared lock stays protected with a malformed operation and %s provider',
+  async provider => {
+    const value = owned('protected');
+    value.extraInputs = { ...value.extraInputs, provider: 'agglayer', bridgeOperation: { malformed: true } };
+    if (provider === 'missing') Reflect.deleteProperty(value.extraInputs, 'provider');
+    await Repo.transactions.bulkPut([value, row('legacy')]);
+    const before = await Repo.transactions.get(value.id);
+    expect(before?.extraInputs?.epochLockedDeposit).toEqual(LOCK);
+    const outcome = await finishLockWithdrawal(LOCK).then(
+      () => 'withdrawn',
+      error => (error instanceof LockedDepositError ? error.reason : 'unexpected-refusal')
+    );
+    expect(await Repo.transactions.get(value.id)).toEqual(before);
+    expect(outcome).toBe('notRecoverable');
+    expect(mockSdk).not.toHaveBeenCalled();
+    expect(mockWithdraw).not.toHaveBeenCalled();
+    expect((await Repo.transactions.get('legacy'))?.extraInputs?.epochLockedDeposit?.withdrawTxHash).toBeUndefined();
+  }
+);
 
 it('late protected insertion during status preparation refuses the first withdrawal prompt', async () => {
   mockStatus.mockImplementationOnce(async () => {

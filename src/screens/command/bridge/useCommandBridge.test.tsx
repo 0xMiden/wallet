@@ -11,6 +11,7 @@ import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
 import { switchWebWalletChain } from 'lib/epoch/client';
 import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
@@ -24,7 +25,6 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 let mockSnapshot: BridgeConfigSnapshot;
 let mockLocked = false;
 let mockRpc = 'https://wallet-rpc.example/private';
-let mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
 let mockAddress = accounts.evmAddress;
 let mockFee: BurnFeeReserve;
 let mockNativeCorroborated = true;
@@ -94,7 +94,7 @@ jest.mock('lib/store', () => ({
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveNetworkName: () => mockNetwork,
+  getEffectiveNetworkName: jest.fn(() => 'testnet'),
   getEffectiveRpcUrl: () => mockRpc
 }));
 
@@ -138,7 +138,7 @@ beforeEach(() => {
   mockSnapshot = referenceSnapshot('testnet');
   mockLocked = false;
   mockRpc = scope.rpcUrl;
-  mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   mockState.currentAccount.publicKey = accounts.midenAccount;
   mockAddress = accounts.evmAddress;
   mockFee = {
@@ -551,7 +551,7 @@ it.each(['rpc', 'network'])(
     jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
       observed.before = deps.getContext();
       if (changed === 'rpc') mockRpc = 'https://changed-source-rpc.example';
-      else mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
+      else jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
       try {
         observed.returned = deps.getContext();
       } catch (error) {
