@@ -20,11 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 2
+          fetch-depth: 16
       - name: Bind unchanged qualified application and held-only diagnostic scope
         run: |
-          test "$(git rev-parse HEAD^)" = c3b9997f069267a02a8e1715f691d0187982e23d
-          test "$(git diff --name-only HEAD^ HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-held-readonly.spec.ts)"
+          git merge-base --is-ancestor c3b9997f069267a02a8e1715f691d0187982e23d HEAD
+          test "$(git diff --name-only c3b9997f069267a02a8e1715f691d0187982e23d HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-held-readonly.spec.ts)"
           ! grep -E 'releaseMainnetSendAuthorization|awaitMainnetLoopAuthorization' playwright/e2e/tests/mainnet/near-held-readonly.spec.ts
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
