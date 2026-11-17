@@ -1,7 +1,7 @@
 name: Fresh original recovery readiness audit - NO payment or funded green
 on:
   push:
-    branches: [wiktor/green03-original-readiness-refresh-once]
+    branches: [wiktor/green03-original-post2210-readiness-once]
 permissions:
   contents: read
   actions: read
@@ -23,7 +23,7 @@ jobs:
         run: |
           test "$GITHUB_EVENT_NAME" = push
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green03-original-readiness-refresh-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green03-original-post2210-readiness-once
           git merge-base --is-ancestor 775f30df7ab450165d82f0f2ddd9ff1742431585 HEAD
           test "$(git diff --name-only 775f30df7ab450165d82f0f2ddd9ff1742431585 HEAD)" = "$(printf '%s\n' .github/workflows/e2e-mainnet-nightly.yml .github/workflows/nightly-loop-proof.yml docs/superpowers/plans/2026-11-17-original-epoch-owner-refund-retirement.md docs/superpowers/specs/2026-11-17-original-epoch-owner-refund-retirement.md playwright/e2e/tests/mainnet/green02-private-outcome.spec.ts scripts/green02-public-outcome.mjs scripts/mainnet-compact-owner-recovery.mjs scripts/mainnet-compact-recovery-guard.mjs scripts/retire-original-epoch-owner-refund.mjs scripts/verify-original-epoch-owner-refund.mjs test/compact-owner-recovery.node.test.mjs test/epoch-owner-refund-retirement.node.test.mjs)"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -62,9 +62,10 @@ jobs:
           gh api repos/0xMiden/wallet/actions/runs/44055319371 > "$RUNNER_TEMP/enable.json"
           gh api repos/0xMiden/wallet/actions/runs/44067623911 > "$RUNNER_TEMP/withdraw.json"
           gh api repos/0xMiden/wallet/actions/runs/44071758997 > "$RUNNER_TEMP/disable.json"
+          test "$(gh api repos/0xMiden/wallet/branches/main --jq .commit.sha)" = 88f65e0d395ecacec4172052f16b7ca88bc62937
           gh api 'repos/0xMiden/wallet/actions/workflows/e2e-mainnet-nightly.yml/runs?per_page=5' > "$RUNNER_TEMP/frontier.json"
           node <<'NODE'
-          const a=require('node:assert/strict'),fs=require('node:fs'),crypto=require('node:crypto'),read=n=>JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${n}.json`));const p=read('producer'),e=read('enable'),w=read('withdraw'),d=read('disable'),f=read('frontier').workflow_runs;a.equal(f[0].id,Number(process.env.GITHUB_RUN_ID));a.equal(f.find(r=>String(r.id)!==process.env.GITHUB_RUN_ID)?.id,44126541096);a.equal(p.workflow_id,391951744);a.equal(p.head_sha,'775f30df7ab450165d82f0f2ddd9ff1742431585');a.equal(p.run_attempt,1);a.equal(p.conclusion,'failure');a.equal(e.head_sha,'09070f46e3b302d87dfdb15bd31772a8733941da');a.equal(w.head_sha,'026475b9becfb265e0c739989bdddcf4b4265ee6');a.equal(d.head_sha,'7c6f41bda3e82759349796d8011fb36aed56eaa0');for(const r of[e,w,d]){a.equal(r.run_attempt,1);a.equal(r.conclusion,'success');a.equal(r.event,'push');}a.equal(w.head_branch,'wiktor/green02-compact-withdraw-once');a.equal(d.head_branch,'wiktor/green02-compact-disable-once');
+          const a=require('node:assert/strict'),fs=require('node:fs'),crypto=require('node:crypto'),read=n=>JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${n}.json`));const p=read('producer'),e=read('enable'),w=read('withdraw'),d=read('disable'),f=read('frontier').workflow_runs;a.equal(f[0].id,Number(process.env.GITHUB_RUN_ID));a.equal(f.find(r=>String(r.id)!==process.env.GITHUB_RUN_ID)?.id,44178517805);a.equal(p.workflow_id,391951744);a.equal(p.head_sha,'775f30df7ab450165d82f0f2ddd9ff1742431585');a.equal(p.run_attempt,1);a.equal(p.conclusion,'failure');a.equal(e.head_sha,'09070f46e3b302d87dfdb15bd31772a8733941da');a.equal(w.head_sha,'026475b9becfb265e0c739989bdddcf4b4265ee6');a.equal(d.head_sha,'7c6f41bda3e82759349796d8011fb36aed56eaa0');for(const r of[e,w,d]){a.equal(r.run_attempt,1);a.equal(r.conclusion,'success');a.equal(r.event,'push');}a.equal(w.head_branch,'wiktor/green02-compact-withdraw-once');a.equal(d.head_branch,'wiktor/green02-compact-disable-once');
           for(const [path,digest]of[['test-results/enable/compact-recovery-enable-authority.json','3bd825c51b868b3129fb3afd84e416cc7d35c742b4e2f376539d81b0f1f8e4a4'],['test-results/withdraw/compact-recovery-withdraw-authority.json','087550abab7094fb719a62a5f1c9a693f5ce53cd4cb16eaae384232fb587d7e1'],['test-results/disable/compact-recovery-disable-authority.json','b2cbd9e1a2930e6a6b9eb180da2bf709f0585675232fb2d1875bcf08158d8f50']])a.equal(crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex'),digest);
           const roles={'mainnet-swap-final':'swap','mainnet-epoch-final':'epoch','mainnet-1click-final':'near','mainnet-epoch-forward-sdk-authorized':'epoch-forward','mainnet-swap-forward-sdk-authorized':'forward-create','mainnet-swap-reverse-sdk-authorized':'reverse-create','mainnet-swap-forward-claim-sdk-authorized':'forward-claim','mainnet-swap-reverse-claim-sdk-authorized':'reverse-claim','mainnet-nightly':'public'};for(const[name,role]of Object.entries(roles))fs.cpSync(`test-results/evidence/${name}-44034323631`,`test-results/${role}`,{recursive:true});
           NODE
