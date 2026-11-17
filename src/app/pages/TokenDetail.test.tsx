@@ -167,6 +167,11 @@ jest.mock('lib/prices', () => ({
   quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice,
   fetchKlineData: (...args: unknown[]) => mockFetchKlineData(...args)
 }));
+// A basket's chart loads each token's candles with their length, straight from the feed.
+const mockFetchKlineSeries = jest.fn();
+jest.mock('lib/prices/feed', () => ({
+  fetchKlineSeries: (...args: unknown[]) => mockFetchKlineSeries(...args)
+}));
 
 // The figures under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
@@ -411,6 +416,7 @@ function configure(o: Overrides = {}) {
     o.explorerUrl === null ? undefined : (o.explorerUrl ?? `https://testnet.midenscan.com/account/${TOKEN_ID}`)
   );
   mockFetchKlineData.mockResolvedValue([]);
+  mockFetchKlineSeries.mockResolvedValue({ points: [], stepMs: 300_000 });
   const data = o.klineLoading
     ? undefined
     : o.klineData === undefined
@@ -535,8 +541,8 @@ describe('TokenDetail', () => {
     expect(screen.getByTestId('token-detail-price')).toBeInTheDocument();
     // Every token up 1% moves the basket 1%.
     expect(screen.getByTestId('token-detail-price-change')).toHaveTextContent('tokenDetailChange24h_+1.0');
-    expect(mockFetchKlineData).toHaveBeenCalledWith('BTC', '1D');
-    expect(mockFetchKlineData).toHaveBeenCalledWith('SOL', '1D');
+    expect(mockFetchKlineSeries).toHaveBeenCalledWith('BTC', '1D');
+    expect(mockFetchKlineSeries).toHaveBeenCalledWith('SOL', '1D');
 
     const composition = screen.getByTestId('token-detail-composition');
     expect(within(composition).getByText('basketComposition')).toBeInTheDocument();

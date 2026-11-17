@@ -1,5 +1,5 @@
 import * as binance from './binance';
-import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket, usdMarketPending } from './feed';
+import { fetchKlineData, fetchKlineSeries, fetchTokenPrices, hasNoUsdMarket, usdMarketPending } from './feed';
 import * as kraken from './kraken';
 
 jest.mock('./binance');
@@ -87,6 +87,23 @@ it('uses Kraken direct USD history when Binance has no market', async () => {
   fallback.fetchKrakenKlineData.mockResolvedValueOnce([{ time: 1, value: 0.9999 }]);
   expect(await fetchKlineData('HISTORY', '1D')).toEqual([{ time: 1, value: 0.9999 }]);
   expect(fallback.fetchKrakenKlineData).toHaveBeenCalledWith('HISTORYUSD', '1D');
+});
+
+it('gives the candle length of the provider that served the history', async () => {
+  primary.binanceCandleMs.mockReturnValue(21_600_000);
+  fallback.krakenCandleMs.mockReturnValue(14_400_000);
+  primary.fetchKlineData.mockResolvedValueOnce([{ time: 1, value: 2 }]);
+  expect(await fetchKlineSeries('SOL', '1M')).toEqual({ points: [{ time: 1, value: 2 }], stepMs: 21_600_000 });
+  expect(primary.binanceCandleMs).toHaveBeenCalledWith('1M');
+
+  primary.isListedSymbol.mockReturnValue(false);
+  fallback.findKrakenUsdMarket.mockResolvedValueOnce('HISTORYUSD');
+  fallback.fetchKrakenKlineData.mockResolvedValueOnce([{ time: 3, value: 0.5 }]);
+  expect(await fetchKlineSeries('HISTORY', '1M')).toEqual({ points: [{ time: 3, value: 0.5 }], stepMs: 14_400_000 });
+  expect(fallback.krakenCandleMs).toHaveBeenCalledWith('1M');
+
+  fallback.findKrakenUsdMarket.mockRejectedValueOnce(new Error('rate limit'));
+  expect(await fetchKlineSeries('HISTORYRETRY', '1M')).toEqual({ points: [], stepMs: 14_400_000 });
 });
 
 it('keeps Binance history and does not mask a failed Binance history request with another provider', async () => {

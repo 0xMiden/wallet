@@ -1,4 +1,11 @@
-import { isNominalQuote, quotedPrice, type BasketComponent, type KlinePoint, type TokenPrices } from './binance';
+import {
+  isNominalQuote,
+  quotedPrice,
+  type BasketComponent,
+  type KlinePoint,
+  type KlineSeries,
+  type TokenPrices
+} from './binance';
 import { isFixedQuote } from './fixed';
 
 /**
@@ -35,17 +42,21 @@ export function basketChange24h(composition: readonly BasketComponent[], prices:
 }
 
 /**
- * The basket's price line: at each time all of its tokens have a candle for, the basket's price scaled from `price`
- * (its current price) by the value its holdings had then relative to their value at the last shared candle. Empty
- * when any token has no candles or they share no time.
+ * The basket's price line: at each candle close all of its tokens share, the basket's price scaled from `price` (its
+ * current price) by the value its holdings had then relative to their value at the last shared candle close. A candle
+ * closes one declared step after it opens, so candles of different lengths pair only where they end together. Empty
+ * when any token has no candles, any step is not a finite positive number, or they share no candle close.
  */
 export function basketKlines(
   composition: readonly BasketComponent[],
-  candles: readonly (readonly KlinePoint[])[],
+  candles: readonly KlineSeries[],
   price: number
 ): KlinePoint[] {
   if (composition.length === 0 || candles.length !== composition.length || !(price > 0)) return [];
-  const series = candles.map(points => new Map(points.filter(p => p.value > 0).map(p => [p.time, p.value])));
+  if (!candles.every(({ stepMs }) => Number.isFinite(stepMs) && stepMs > 0)) return [];
+  const series = candles.map(
+    ({ points, stepMs }) => new Map(points.filter(p => p.value > 0).map(p => [p.time + stepMs, p.value]))
+  );
   const [first] = series;
   if (!first) return [];
   const times = Array.from(first.keys())
@@ -53,7 +64,7 @@ export function basketKlines(
     .sort((a, b) => a - b);
   const last = times[times.length - 1];
   if (last === undefined) return [];
-  // Each token's candles divided by its value at the last shared time: the factor its value has moved by since then.
+  // Each token's candles divided by its value at the last shared close: the factor its value has moved by since then.
   const relative = series.map(s => {
     const end = s.get(last) ?? 0;
     return (time: number) => (s.get(time) ?? 0) / end;

@@ -326,6 +326,12 @@ export interface KlinePoint {
   value: number;
 }
 
+/** Candles with the length the provider asked for: points can be missing, so the length is never read from them. */
+export interface KlineSeries {
+  points: KlinePoint[];
+  stepMs: number;
+}
+
 const TIMEFRAME_CONFIGS: Record<Exclude<Timeframe, 'YTD'>, { interval: string; limit: number }> = {
   '1H': { interval: '1m', limit: 60 },
   '1D': { interval: '5m', limit: 288 },
@@ -348,6 +354,21 @@ function getYtdConfig(): { interval: string; limit: number; startTime: number } 
     default:
       return { interval: '1d', limit: Math.min(days, 1000), startTime };
   }
+}
+
+const INTERVAL_MS: Record<string, number> = {
+  '1m': 60_000,
+  '5m': 5 * 60_000,
+  '1h': 60 * 60_000,
+  '6h': 6 * 60 * 60_000,
+  '12h': 12 * 60 * 60_000,
+  '1d': 24 * 60 * 60_000
+};
+
+/** The length in milliseconds of the candles `fetchKlineData` asks for at the timeframe. */
+export function binanceCandleMs(timeframe: Timeframe): number {
+  const { interval } = timeframe === 'YTD' ? getYtdConfig() : TIMEFRAME_CONFIGS[timeframe];
+  return INTERVAL_MS[interval] ?? Number.NaN;
 }
 
 /** Fetch USD close prices. Return no points if a market or its historical USD rate is unavailable. */

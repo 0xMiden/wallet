@@ -44,6 +44,7 @@ import type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrice
 import { basketChange24h, basketKlines } from 'lib/prices/basket';
 import { isBasketQuote } from 'lib/prices/basket-nav';
 import { isNominalQuote } from 'lib/prices/binance';
+import { fetchKlineSeries } from 'lib/prices/feed';
 import { isFixedQuote } from 'lib/prices/fixed';
 import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -307,7 +308,7 @@ const BasketPriceChart: FC<{
         load: async timeframe =>
           basketKlines(
             composition,
-            await Promise.all(composition.map(c => fetchKlineData(c.priceSymbol, timeframe))),
+            await Promise.all(composition.map(c => fetchKlineSeries(c.priceSymbol, timeframe))),
             priceInfo.price
           )
       }}

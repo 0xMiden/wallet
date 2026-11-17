@@ -1,5 +1,5 @@
 import { basketChange24h, basketKlines } from './basket';
-import type { BasketComponent, TokenPrices } from './binance';
+import type { BasketComponent, KlinePoint, KlineSeries, TokenPrices } from './binance';
 
 jest.mock('./fixed', () => ({ isFixedQuote: () => false, fixedQuote: () => undefined }));
 jest.mock('./unquoted-default', () => ({ hasUnquotedDefaultPrice: () => false }));
@@ -39,27 +39,65 @@ describe('basketChange24h', () => {
 
 describe('basketKlines', () => {
   const mix = [component('BTC', 0.6), component('ETH', 0.4)];
+  const series = (stepMs: number, points: KlinePoint[]): KlineSeries => ({ points, stepMs });
 
-  it("scales the basket's price by its holdings' value at each shared time", () => {
-    const btc = [
+  it("scales the basket's price by its holdings' value at each shared candle close", () => {
+    const btc = series(1, [
       { time: 1, value: 50 },
       { time: 2, value: 100 }
-    ];
-    const eth = [
+    ]);
+    const eth = series(1, [
       { time: 1, value: 20 },
       { time: 2, value: 10 },
       { time: 3, value: 11 }
-    ];
-    // Time 2 is the last time both share: there the line is today's price.
+    ]);
+    // The candle closing at 3 is the last both share: there the line is today's price.
     expect(basketKlines(mix, [btc, eth], 2)).toEqual([
-      { time: 1, value: 2 * (0.6 * 0.5 + 0.4 * 2) },
-      { time: 2, value: 2 }
+      { time: 2, value: 2 * (0.6 * 0.5 + 0.4 * 2) },
+      { time: 3, value: 2 }
     ]);
   });
 
-  it('draws no line when a token has none or they share no time', () => {
-    expect(basketKlines(mix, [[{ time: 1, value: 1 }], []], 2)).toEqual([]);
-    expect(basketKlines(mix, [[{ time: 1, value: 1 }], [{ time: 2, value: 1 }]], 2)).toEqual([]);
-    expect(basketKlines(mix, [[{ time: 1, value: 1 }]], 2)).toEqual([]);
+  it('draws no line when a token has none or they share no candle close', () => {
+    const one = series(1, [{ time: 1, value: 1 }]);
+    expect(basketKlines(mix, [one, series(1, [])], 2)).toEqual([]);
+    expect(basketKlines(mix, [one, series(1, [{ time: 2, value: 1 }])], 2)).toEqual([]);
+    expect(basketKlines(mix, [one], 2)).toEqual([]);
+  });
+
+  it('pairs candles by close instant, not by open time', () => {
+    const long = series(6, [{ time: 0, value: 1 }]);
+    const short = series(4, [{ time: 0, value: 1 }]);
+    // Both candles open at 0 but close at 6 and 4, so they are not one moment.
+    expect(basketKlines(mix, [long, short], 2)).toEqual([]);
+    const aligned = series(4, [
+      { time: 2, value: 1 },
+      { time: 6, value: 3 }
+    ]);
+    // Only the close at 6 is shared: the long candle opened at 0 and the short one at 2.
+    expect(basketKlines(mix, [long, aligned], 2)).toEqual([{ time: 6, value: 2 }]);
+  });
+
+  it('keeps a sparse series on its declared step', () => {
+    const sparse = series(6, [
+      { time: 0, value: 1 },
+      { time: 12, value: 2 }
+    ]);
+    const full = series(6, [
+      { time: 0, value: 1 },
+      { time: 6, value: 1 },
+      { time: 12, value: 2 }
+    ]);
+    expect(basketKlines(mix, [sparse, full], 2)).toEqual([
+      { time: 6, value: 2 * (0.6 * 0.5 + 0.4 * 0.5) },
+      { time: 18, value: 2 }
+    ]);
+  });
+
+  it('draws no line when a candle length is not a finite positive number', () => {
+    const points = [{ time: 1, value: 1 }];
+    for (const stepMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(basketKlines(mix, [series(stepMs, points), series(1, points)], 2)).toEqual([]);
+    }
   });
 });
