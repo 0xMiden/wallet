@@ -300,6 +300,8 @@ async function withdrawWholeLock(
   const status = await sdk.getForcedWithdrawalStatus(sponsor, ref.lockId);
   switch (status.status) {
     case 'Disabled':
+      // The chain decides: remove a recorded withdrawal that is off on chain, so the row can start one again.
+      await recordWithdrawalStopped(ref);
       throw new LockedDepositError('withdrawalNotStarted', 'Start the withdrawal first.');
     case 'Pending':
       await recordWithdrawalStarted(ref, withdrawableAtOf(status));
