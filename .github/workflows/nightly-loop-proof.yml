@@ -1,7 +1,7 @@
 name: Current qualified SDK0.18 held-only readiness - NO release or payment
 on:
   push:
-    branches: [wiktor/green03-current-held-once]
+    branches: [wiktor/green03-current-held-diagnostic-once]
 permissions:
   contents: read
   actions: read
@@ -25,9 +25,9 @@ jobs:
         run: |
           test "$GITHUB_EVENT_NAME" = push
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green03-current-held-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green03-current-held-diagnostic-once
           git merge-base --is-ancestor 3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c HEAD
-          test "$(git diff --name-only 3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-held-readonly.spec.ts)"
+          test "$(git diff --name-only 3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-held-readonly.spec.ts scripts/held-review-failure.test.ts scripts/held-review-failure.ts)"
           ! grep -E 'releaseMainnetSendAuthorization|awaitMainnetLoopAuthorization' playwright/e2e/tests/mainnet/near-held-readonly.spec.ts
       - name: Require merged main and all original15 actual checks on qualified source
         env:
@@ -47,6 +47,10 @@ jobs:
       - uses: ./.github/actions/inject-linked-web-sdk-pr
       - uses: ./.github/actions/inject-linked-guardian-pr
       - uses: ./.github/actions/yarn-install
+      - name: Verify finite failure metadata and existing mainnet contracts and types
+        run: |
+          yarn jest scripts/held-review-failure.test.ts scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
+          yarn ts
       - name: Verify accepted independent outcome audit identity
         env:
           GH_TOKEN: ${{ github.token }}
