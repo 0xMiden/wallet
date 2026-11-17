@@ -3832,6 +3832,37 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(noteDeliveryWriteCount()).toBe(writes);
   });
 
+  // The offscreen leaf resolves only after its apply, so a tail that fails after it leaves the notes its gate recorded
+  // in the store, owed as after a serialize trap.
+  it('send: a tail that fails after a resolved offscreen leaf owes the notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(await gate({ transactionId: appliedSendTxId, outputNoteIds: [appliedSendNote] })).toBe(true);
+      return makeResult();
+    });
+    mockComplete.send.mockRejectedValueOnce(new Error('the completion failed'));
+    arrange('tail-failed-private-send', privateSend);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('tail-failed-private-send', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockComplete.send).toHaveBeenCalledTimes(1);
+    const finalRow = txStore.find(r => r.id === 'tail-failed-private-send')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [appliedSendNote],
+      noteDelivery: 'undelivered'
+    });
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+  });
+
   it('execute: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     // Raised before the offscreen leaf's submit call, so the leaf tags it (Task 8) and the catch abandons at once (#1081).

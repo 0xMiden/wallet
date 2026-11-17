@@ -1649,6 +1649,49 @@ describe('a throw after the leaf resolved', () => {
     expect(row.transactionId).toBe('landed-id');
   });
 
+  // The leaf resolves only after its apply, so the store holds the notes its 'submitting' stamp named even when the
+  // result's first read traps, and the landed write records them for the sweep.
+  it('a loop private send whose result traps at its first read owes the note its submitting stamp named', async () => {
+    const id = 'tx-tail-send-first-read-trap';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SEND'
+    });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const result = {
+      executedTransaction: () => {
+        throw trap;
+      },
+      serialize: () => new Uint8Array([])
+    };
+    const sendTransaction = jest.fn(
+      async (_tx: unknown, onStage?: (stage: string, detail?: { evidence?: unknown }) => Promise<void>) => {
+        await onStage?.('submitting', { evidence: { transactionId: `0x${'cd'.repeat(32)}`, outputNoteIds: [owed] } });
+        return result;
+      }
+    );
+    try {
+      await runLoopAgainst({ sendTransaction });
+    } finally {
+      restore();
+    }
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(retire.mock.calls).toEqual([[trap, id]]);
+    expect(txStore.find(stored => stored.id === id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [owed],
+      noteDelivery: 'undelivered'
+    });
+  });
+
   it('a loop epoch bridged-send that is already Failed still records the landed id', async () => {
     const id = 'tx-tail-epoch-already-failed';
     queuedRow(id, {

@@ -1603,6 +1603,48 @@ describe('landed tail catches', () => {
     expect(sendPrivateNote).toHaveBeenCalledTimes(1);
   });
 
+  // The fallback id read throws as the kept one did, so only a record built from the kept values names the note.
+  it('a private send whose every id read throws records the note it owes before its relay, and a failed relay keeps it owed', async () => {
+    const rowId = 'tx-send-id-reads-throw';
+    txStore.push({
+      id: rowId,
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const trap = new WebAssembly.RuntimeError('id');
+    const sdk = require('../sdk/miden-client');
+    const originalGetMidenClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      waitForTransactionCommit: jest.fn(async () => undefined),
+      sendPrivateNote: jest.fn(async () => {
+        throw new Error('transport down');
+      })
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { completeSendTransaction } = require('./index');
+      await expect(
+        completeSendTransaction(
+          txStore[0],
+          sendResult([userNote({ id: () => ({ toString: () => '0xsent' }) })], () => {
+            throw trap;
+          })
+        )
+      ).rejects.toBe(trap);
+    } finally {
+      sdk.getMidenClient = originalGetMidenClient;
+      warn.mockRestore();
+      error.mockRestore();
+    }
+
+    expect(txStore[0]).toMatchObject({ outputNoteIds: ['0xsent'], noteDelivery: 'undelivered' });
+  });
+
   it.each([
     ['serialize', 'rhk-serialize-trap'],
     ['the transaction id', 'rhk-id-trap']
@@ -1911,6 +1953,34 @@ describe('landed tail catches', () => {
       expect(retire).toHaveBeenCalledTimes(1);
       expect(retire).toHaveBeenCalledWith(trap, 'tx-cct-relay-trap');
       expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    });
+
+    // The fallback id read throws as the kept one did, and so does each interpretation, which reads the id too: only a
+    // record built from the kept values names the notes and their recipient.
+    it('records which notes it owes and to whom before its relays when every id read throws', async () => {
+      const trap = new WebAssembly.RuntimeError('id');
+      const interpret = jest.requireMock('../activity/helpers').interpretTransactionResult as jest.Mock;
+      const failedInterpretation = () => {
+        throw trap;
+      };
+      interpret.mockImplementationOnce(failedInterpretation).mockImplementationOnce(failedInterpretation);
+      sendPrivateNote.mockRejectedValueOnce(new Error('transport down'));
+
+      await expect(
+        run(
+          'tx-cct-id-reads-throw',
+          customResult([privateNote({ valid: true })], () => {
+            throw trap;
+          })
+        )
+      ).rejects.toBe(trap);
+
+      expect(sendPrivateNote).toHaveBeenCalledTimes(1);
+      expect(txStore[0]).toMatchObject({
+        relayNoteIds: ['0xnote'],
+        relayRecipientId: 'acc-2',
+        noteDelivery: 'undelivered'
+      });
     });
 
     it('retires a trap from the undelivered record when no note can be relayed', async () => {

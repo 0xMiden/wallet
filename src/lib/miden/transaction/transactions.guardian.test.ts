@@ -16,6 +16,7 @@ import { NoteScript, NoteType, TransactionProver, TransactionRequest } from '@mi
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import { getMessage } from 'lib/i18n/core';
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import {
   GUARDIAN_CANDIDATE_HOLD_MS,
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
@@ -69,7 +70,12 @@ import {
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
-import { completeVerifiedLandedTransaction, setTransactionStage } from './helper';
+import {
+  completeVerifiedLandedTransaction,
+  noteDeliveryWriteCount,
+  setTransactionStage,
+  storedNoteIds
+} from './helper';
 import {
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
@@ -92,6 +98,7 @@ import {
   requeueFailedTransaction,
   SESSION_STARTED_AT
 } from './index';
+import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from './note-delivery-sweep';
 import { isRequeueableTransaction } from './retry';
 import { keptCandidateHoldUntil } from './verdict-rules';
 import { getConnectivityState, resetConnectivityState } from '../activity/connectivity-state';
@@ -16240,6 +16247,218 @@ describe('generateTransaction - Guardian routing', () => {
       } finally {
         warn.mockRestore();
       }
+    });
+
+    // A landed row's delivery records come from what its tail read before its waits, and an applied leaf leaves its
+    // notes in the store under the ids its landing stamp named, so a note still owed after a failed read is the sweep's.
+    describe('a delivery record survives a failed result read', () => {
+      const OWED_NOTE = `0x${'5e'.repeat(32)}`;
+      // Reads answer until the leaf's apply, its last await, resolves; from then the `trapping` read throws `trap`. The
+      // landing stamp names the notes in `stamped`, or none when it is left out.
+      const armedResult = ({
+        notes,
+        stamped,
+        trapping
+      }: {
+        notes: object[];
+        stamped?: string[];
+        trapping: 'id' | 'executedTransaction';
+      }) => {
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        let armed = false;
+        const reads = { executedTransaction: 0 };
+        const executed = {
+          id: () => {
+            if (armed && trapping === 'id') throw trap;
+            return { toHex: () => 'exec-tx-hash' };
+          },
+          outputNotes: () => ({ notes: () => notes }),
+          inputNotes: () => ({ notes: () => [] }),
+          ...(stamped === undefined
+            ? {}
+            : { userOutputNotes: () => stamped.map(id => ({ id: () => ({ toString: () => id }) })) })
+        };
+        const result = {
+          executedTransaction: () => {
+            reads.executedTransaction++;
+            if (armed && trapping === 'executedTransaction') throw trap;
+            return executed;
+          },
+          serialize: () => new Uint8Array([9, 9, 9])
+        };
+        const apply = jest.fn(async () => {
+          armed = true;
+        });
+        return { trap, result, apply, reads };
+      };
+      // The row's client: its relay of the tail's note handle fails, and the sweep pushes and reads receipts on it.
+      const sweepClient = (result: object, apply: jest.Mock) => ({
+        client: makeClientApi(result as never, apply),
+        sendPrivateNote: jest.fn(async (_note: unknown, _recipient: string) => {
+          throw new Error('transport down');
+        }),
+        relayPrivateNoteById: jest.fn(async (_noteId: string, _recipient: string) => {}),
+        isOutputNoteConsumed: jest.fn(async (_noteId: string) => false)
+      });
+      // One sweep pass at `atSeconds` over the rows the store holds, as copies, as Dexie hands them out.
+      const sweepAt = async (atSeconds: number) => {
+        const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+        const realWhere = where.getMockImplementation()!;
+        where.mockImplementation((query: string | { id: string }) =>
+          typeof query === 'string'
+            ? {
+                anyOf: (states: string[]) => ({
+                  toArray: async () => txStore.filter(r => states.includes(String(r.noteDelivery))).map(r => ({ ...r }))
+                })
+              }
+            : realWhere(query)
+        );
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(atSeconds * 1000);
+        try {
+          __resetNoteDeliverySweepForTests();
+          await sweepNoteDeliveries();
+        } finally {
+          clock.mockRestore();
+          where.mockImplementation(realWhere);
+        }
+      };
+      const executeRow = (id: string) => ({
+        id,
+        type: 'execute',
+        accountId: 'guardian-acc',
+        requestBytes: new Uint8Array([4, 4]),
+        secondaryAccountId: 'recipient'
+      });
+      const executeProposal = () => ({ createCustomProposal: jest.fn(async () => ({ id: 'prop-execute' })) });
+      const silence = () => {
+        const spies = (['warn', 'error', 'info'] as const).map(level =>
+          jest.spyOn(console, level).mockImplementation(() => {})
+        );
+        return () => spies.forEach(spy => spy.mockRestore());
+      };
+
+      beforeEach(() => {
+        __resetSyncFuseStateForTests();
+        __resetNoteDeliverySweepForTests();
+      });
+
+      it('a Guardian private send whose every id read fails after its apply records the note it owes, so after a failed relay the sweep pushes it by id', async () => {
+        const restore = installLandedTrapRetirement(jest.fn());
+        // Its stamp names no note, so only the tail's own record can name it.
+        const { result, apply } = armedResult({ notes: [fixtureNote(OWED_NOTE, NoteType.Private)], trapping: 'id' });
+        const client = sweepClient(result, apply);
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            sendRow('guardian-send-id-reads-fail', 'private'),
+            { result, replace: () => {}, log: [] },
+            sendProposal(),
+            client
+          );
+
+          expect(client.sendPrivateNote).toHaveBeenCalledTimes(1);
+          expect(row).toMatchObject({
+            status: ITransactionStatus.Completed,
+            outputNoteIds: [OWED_NOTE],
+            noteDelivery: 'undelivered'
+          });
+          const landing = Math.floor(Date.now() / 1000);
+          await sweepAt(landing);
+          await sweepAt(landing + 10 * 60);
+          expect(client.relayPrivateNoteById.mock.calls).toEqual([[OWED_NOTE, 'recipient']]);
+        } finally {
+          quiet();
+          restore();
+        }
+      });
+
+      it('a Guardian execute whose every id read fails after its apply records its private note and recipient, so after a failed relay the sweep pushes it by id', async () => {
+        const restore = installLandedTrapRetirement(jest.fn());
+        const { result, apply } = armedResult({ notes: [fixtureNote(OWED_NOTE, NoteType.Private)], trapping: 'id' });
+        const client = sweepClient(result, apply);
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            executeRow('guardian-execute-id-reads-fail'),
+            { result, replace: () => {}, log: [] },
+            executeProposal(),
+            client
+          );
+
+          expect(client.sendPrivateNote).toHaveBeenCalledTimes(1);
+          expect(row).toMatchObject({
+            status: ITransactionStatus.Completed,
+            relayNoteIds: [OWED_NOTE],
+            relayRecipientId: 'recipient',
+            noteDelivery: 'undelivered'
+          });
+          const landing = Math.floor(Date.now() / 1000);
+          await sweepAt(landing);
+          await sweepAt(landing + 10 * 60);
+          expect(client.relayPrivateNoteById.mock.calls).toEqual([[OWED_NOTE, 'recipient']]);
+        } finally {
+          quiet();
+          restore();
+        }
+      });
+
+      it('a Guardian private send whose result traps at its first read owes the note its landing stamp named, which the sweep pushes by id and marks relayed only once a push resolves', async () => {
+        const txId = 'guardian-send-first-read-owes';
+        const retire = jest.fn();
+        const restore = installLandedTrapRetirement(retire);
+        const { trap, result, apply, reads } = armedResult({
+          notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
+          stamped: [OWED_NOTE],
+          trapping: 'executedTransaction'
+        });
+        const client = sweepClient(result, apply);
+        client.relayPrivateNoteById.mockRejectedValueOnce(new Error('output note has no inclusion proof'));
+        const writes = noteDeliveryWriteCount();
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            sendRow(txId, 'private'),
+            { result, replace: () => {}, log: [] },
+            sendProposal(),
+            client
+          );
+
+          expect(retire.mock.calls).toEqual([[trap, txId]]);
+          expect(row).toMatchObject({
+            status: ITransactionStatus.Completed,
+            outputNoteIds: [OWED_NOTE],
+            noteDelivery: 'undelivered'
+          });
+          expect(noteDeliveryWriteCount()).toBe(writes + 1);
+          // No relay reads the trapped result's note handle, and the hold is released.
+          expect(client.sendPrivateNote).not.toHaveBeenCalled();
+          expect(currentHold).toBeNull();
+
+          const landing = Math.floor(Date.now() / 1000);
+          await sweepAt(landing);
+          expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+          await sweepAt(landing + 10 * 60);
+          expect(row.noteDelivery).toBe('undelivered');
+          expect(storedNoteIds(row.relayAckedNoteIds)).toEqual([]);
+          await sweepAt(landing + 30 * 60);
+          expect(client.relayPrivateNoteById.mock.calls).toEqual([
+            [OWED_NOTE, 'recipient'],
+            [OWED_NOTE, 'recipient']
+          ]);
+          expect(row).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [OWED_NOTE] });
+
+          // The tail forgot its read, so a later completion of the same result reads it afresh.
+          const before = reads.executedTransaction;
+          await expect(completeSendTransaction(row as never, result as never)).rejects.toBe(trap);
+          expect(reads.executedTransaction).toBe(before + 1);
+        } finally {
+          quiet();
+          restore();
+        }
+      });
     });
   });
 });
