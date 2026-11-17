@@ -577,3 +577,35 @@ it.each(['rpc', 'network'])(
     expect(observed.error).toBeInstanceOf(EpochReviewChangedError);
   }
 );
+
+it.each(['amount', 'review', 'submit'])(
+  'a retained pre-admission %s callback cannot edit or resubmit the original admitted review',
+  async callback => {
+    // This observes UI entry guards, not mocked execution authority; real queue/CAS controls stay in owner suites.
+    jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+      deps.onOperation('original-row');
+      return { kind: 'started', operationId: 'original-row' };
+    });
+    const { result } = composeCircle();
+    await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+    const retainedReview = result.current.bridge.reviewTransfer;
+    act(() => retainedReview());
+    const original = result.current.bridge.review;
+    expect(original).toBeDefined();
+    const retainedAmount = result.current.bridge.setAmount;
+    const retainedSubmit = result.current.bridge.submit;
+    await act(async () => retainedSubmit());
+    expect(result.current.bridge.operationId).toBe('original-row');
+    await act(async () => {
+      if (callback === 'amount') retainedAmount('99');
+      else if (callback === 'review') retainedReview();
+      else await retainedSubmit();
+    });
+    expect(result.current.bridge.review).toBe(original);
+    expect(result.current.bridge.amount).toBe('6');
+    expect(result.current.bridge.operationId).toBe('original-row');
+    expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
+    expect(result.current.bridge.canReview).toBe(false);
+    expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+  }
+);
