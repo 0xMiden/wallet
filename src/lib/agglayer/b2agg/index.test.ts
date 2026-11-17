@@ -166,6 +166,7 @@ import { TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/
 import { runAgglayerSend } from 'lib/bridge/providers/agglayer/flows';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
+import { submitReviewedBridge } from 'lib/bridge/wallet-submit';
 import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
@@ -548,6 +549,30 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
     expect(row?.extraInputs.agglayerExitTxHash).toBe(`0x${'c'.repeat(64)}`);
     expect(row?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
     expect(await Repo.transactions.count()).toBe(1);
+  });
+
+  it.each([false, true])('public Command admission returns the original row, not its correlation, across same-consent calls (Guardian=%s)', async guardian => {
+    mockIsGuardian.mockResolvedValue(guardian);
+    const review = input().operation.review;
+    const observed = jest.fn();
+    const deps = {
+      guardianProvider,
+      signTransaction: async () => new Uint8Array(),
+      getContext: () => review,
+      getEvmWallet: async () => undefined,
+      onOperation: observed
+    };
+    const results = await Promise.all([submitReviewedBridge(review, deps), submitReviewedBridge(review, deps)]);
+    const rows = await Repo.transactions.toArray();
+    expect(rows).toHaveLength(1);
+    expect(results).toEqual([{ kind: 'started', operationId: rows[0].id }, { kind: 'started', operationId: rows[0].id }]);
+    expect(rows[0].extraInputs.bridgeOperation?.operationId).not.toBe(rows[0].id);
+    expect(observed).toHaveBeenCalledWith(rows[0].id);
+    const before = rows[0];
+    const builds = mockCreateB2AggNote.mock.calls.length;
+    await submitReviewedBridge(review, deps);
+    expect(await Repo.transactions.get(before.id)).toEqual(before);
+    expect(mockCreateB2AggNote).toHaveBeenCalledTimes(builds);
   });
 
   it.each([false, true])('refuses revoked live consent after request build (Guardian=%s)', async guardian => {
