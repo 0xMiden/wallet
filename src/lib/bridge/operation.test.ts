@@ -218,6 +218,17 @@ it('hands the real non-Epoch CAS winner its captured rotated revision without a 
   expect(await claimBridgeSourceAttempt(original.operationId, original.revision)).toBe('already-running');
 });
 
+it('enriches a saved approval hash with its verified own call, preserving facts on omitted repeats', async () => {
+  const { id, operation, approval, transaction } = await claimedApprovalFixture();
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction })).toBe(true);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);
+  expect((await snapshot(id)).approvals).toEqual([{ ...approval, transaction }]);
+  const original = await snapshot(id);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction: { ...transaction, nonce: 99 } })).toBe(false);
+  expect(await snapshot(id)).toEqual(original);
+});
+
 it('atomically coalesces only the same reviewed operation and generates its revision at admission', async () => {
   const ids = await Promise.all([admit(), admit()]);
   expect(ids[0]).toBe(ids[1]);
@@ -578,7 +589,7 @@ it('drives exactly once after the actual source claim commits in the original un
   expect(settlement.result).toBe('claimed');
   expect(settlement.transactionActive).toBe(false);
   expect(drive).toHaveBeenCalledTimes(1);
-  expect(drive).toHaveBeenCalledWith(id);
+  expect(drive).toHaveBeenCalledWith(id, await snapshot(id));
   expect((await snapshot(id)).sourceAttempt).toEqual({ phase: 'running' });
 });
 
