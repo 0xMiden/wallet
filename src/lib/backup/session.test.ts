@@ -360,6 +360,29 @@ describe('merge records', () => {
     expect(JSON.parse(vault.mergeRecords ?? '{}').contactsBase).toBeNull();
   });
 
+  // The vault encrypts under its own key into storage the next wallet shares: an old wallet's write would leave
+  // records the new wallet cannot decrypt, and every later session open would fail.
+  it.each([
+    ['a storage wipe', () => onBackupStorageCleared()],
+    ['another vault', () => setActiveVault(new FakeVault(PHRASE_A))],
+    ['a lock', () => setActiveVault(null)]
+  ])('writes nothing after %s', async (_name, change) => {
+    const session = await openSession();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const save = jest.spyOn(vault, 'saveBackupMergeRecords');
+    change();
+    await persistMergeRecords(session);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('still writes for a closed session of the same wallet, as the profile delete does', async () => {
+    const session = await openSession();
+    const save = jest.spyOn(vault, 'saveBackupMergeRecords');
+    clearBackupSession();
+    await persistMergeRecords(session);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
   it('logs a failed write and does not throw', async () => {
     const session = await openSession();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});

@@ -259,8 +259,17 @@ async function loadMergeRecords(vault: Vault, publicKey: string): Promise<Backup
   return records !== null && records.publicKey === publicKey ? records : emptyMergeRecords(publicKey);
 }
 
-/** Write the merge records of `session` through its vault. A failed write is logged; the next change writes again. */
+/**
+ * Write the merge records of `session` through its vault. A failed write is logged; the next change writes again.
+ * Only for the wallet the session belongs to: after a wipe, another vault or a lock, the old vault's ciphertext
+ * would land in storage the next wallet shares and could not be decrypted there. A closed session of the same
+ * wallet still writes, as the profile delete does after it closed its session.
+ */
 export async function persistMergeRecords(session: BackupSession): Promise<void> {
+  if (session.storageEpoch !== backupStorageEpoch() || unlockedVault() !== session.vault) {
+    console.warn('[backup] the merge records of a wallet that is gone were not saved');
+    return;
+  }
   try {
     await session.vault.saveBackupMergeRecords(session.merge);
   } catch (error) {
