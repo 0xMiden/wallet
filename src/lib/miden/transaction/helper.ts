@@ -709,9 +709,10 @@ export const completedSwapFields = (
  * A post-submit tail can throw after its relay ran (PR #2183), so a 'relayed' or 'confirmed' the row records is kept
  * under the clean label whenever no positive count says the relay could not have run.
  *
- * None of these rows is ever re-pushed: an apply that failed left the output notes out of this client's
- * store, so `sendPrivateOutput` has nothing to resend, and the row carries no note id to resend by. The
- * delivery sweep leaves such a row inert.
+ * A row whose apply failed is never re-pushed: the output notes never reached the store, so
+ * `sendPrivateOutput` has nothing to resend, and the row carries no note id to resend by. A row whose apply
+ * completed (its tail failed, or the offscreen result did not serialize) keeps the notes its tail recorded,
+ * and a send also owes those its landing stamp named (`writeLandedCompleted`), which the sweep re-pushes by id.
  */
 export const landedValueRowFields = (
   tx: Pick<

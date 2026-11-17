@@ -1202,8 +1202,8 @@ async function requeueWithWake(
 }
 
 /**
- * The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. The row
- * owes notes no client store holds, so the delivery sweep leaves it inert (see `landedValueRowFields`).
+ * The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. Which notes
+ * it owes, if any, is what its tail recorded or `appliedDeliveryValues` adds (see `landedValueRowFields`).
  */
 const landedRowFields = (tx: ITransaction, error: unknown) => {
   const landed = landedFactsOf(error);
@@ -1212,14 +1212,16 @@ const landedRowFields = (tx: ITransaction, error: unknown) => {
 
 /**
  * What a landed failure says about its transaction: the facts an apply-after-submit error carried, or a tail's id and
- * order, in the form `extractLanded` gives the other source's.
+ * order, in the form `extractLanded` gives the other source's. A tail is `applied`: it runs only on a result its leaf
+ * returned, and every leaf returns one only after its local apply resolved.
  */
 const landedFactsOf = (error: unknown): LandedWithoutResult => {
   const tail = landedTailErrorIn(error);
   if (tail === undefined) return extractLanded(error);
   return {
     ...landedTransactionIdFields({ transactionId: tail.transactionId }),
-    ...landedOrderFacts(tail.orderId, tail.orderNoteId)
+    ...landedOrderFacts(tail.orderId, tail.orderNoteId),
+    applied: true
   };
 };
 
@@ -1362,10 +1364,10 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
 };
 
 /**
- * The delivery target of a landed row whose local apply completed before its failure (`applied`, a trap serializing
- * the offscreen result): the store holds the notes, so a private send owes the ones the landing attempt's 'submitting'
- * stamp recorded, as a reconciler landing bound to that transaction would. `completed` is the row with its landed
- * fields. None after an apply that failed, which left the notes out of the store.
+ * The delivery target of a landed row whose local apply completed before its failure (`applied`: a tail that failed,
+ * or a trap serializing the offscreen result): the store holds the notes, so a private send owes the ones the landing
+ * attempt's 'submitting' stamp recorded, as a reconciler landing bound to that transaction would. `completed` is the row
+ * with its landed fields. None after an apply that failed, which left the notes out of the store.
  */
 const appliedDeliveryValues = (completed: ITransaction, error: unknown, attemptId: string | undefined) => {
   if (landedFactsOf(error).applied !== true || attemptId === undefined) return undefined;
