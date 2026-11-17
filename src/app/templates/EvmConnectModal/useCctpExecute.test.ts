@@ -1,13 +1,18 @@
 import { renderHook } from '@testing-library/react';
 
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
+import { BridgedReceiveTransaction } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import { getUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { useCctpExecute } from './useCctpExecute';
 
-jest.mock('lib/miden/repo', () => ({ transactions: { get: async () => undefined } }));
+jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/miden/activity/notes', () => ({ queueNoteImport: jest.fn() }));
+jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
+jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
 
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
@@ -43,9 +48,16 @@ jest.mock('lib/walletconnect/receipt', () => ({
 
 const leg = { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' };
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
   mockNativeAvailable = false;
+  await Repo.transactions.clear();
+  const row = new BridgedReceiveTransaction('0x387149ae66116cf114eebd60bb7381', 1500000n,
+    '0x4cbdcaffe75f0a317482224dae6436', 'usdcx', '0x1111111111111111111111111111111111111111', '1.5', 'USDC');
+  row.id = 'row';
+  row.extraInputs = { ...row.extraInputs, phase: 'delivering', sourceChainId: 84532,
+    usdcxSource: getUsdcxExecutorSource(84532), cctp: structuredClone(leg) };
+  await Repo.transactions.add(row);
 });
 
 // The order is recorded by both mocks and asserted after the call: an expect inside the receipt mock would throw
