@@ -796,6 +796,7 @@ jobs:
             test-results/mainnet-swap-claim-failure.json
             test-results/mainnet-epoch-summary.json
             test-results/mainnet-epoch-state/roundtrip.json.return-readiness-failure.json
+            test-results/mainnet-epoch-state/roundtrip.json.return-solve-failure.json
             test-results/mainnet-near-summary.json
             test-results/mainnet-epoch-recovery.json
             test-results/mainnet-near-recovery.json
