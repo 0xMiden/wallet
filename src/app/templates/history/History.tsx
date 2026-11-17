@@ -5,6 +5,7 @@ import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
+  ClaimEvidenceLookup,
   getUncompletedTransactions,
   isCancellableTransaction,
   isUserCancelledTransaction,
@@ -1242,10 +1243,13 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * fetches and the tab's unread mark (`useHasUnreadActivity`) reads through
  * this as well, so neither shows or counts a row this feed hides.
  */
-export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
+export async function suppressLinkedConsumes<T extends ITransaction>(
+  transactions: T[],
+  lookup?: ClaimEvidenceLookup
+): Promise<T[]> {
   const [linked, superseded] = await Promise.all([
     suppressedLinkedConsumeIds(transactions),
-    supersededFailedConsumeIds(transactions)
+    supersededFailedConsumeIds(transactions, lookup)
   ]);
   return transactions.filter(tx => !linked.has(tx.id) && !superseded.has(tx.id));
 }
