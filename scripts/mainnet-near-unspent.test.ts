@@ -101,124 +101,127 @@ function fixture() {
   state.forwardQuote = { ...quote, quoteHash: hashOneClickQuote(status.quoteResponse) };
   return { state, status };
 }
-beforeEach(() => {
-  jest.clearAllMocks();
-  jest.useFakeTimers().setSystemTime(new Date('2026-11-16T18:30:00Z'));
-  process.env.E2E_NETWORK = 'mainnet';
-  process.env.GITHUB_RUN_ID = '43930000000';
-  process.env.GITHUB_RUN_ATTEMPT = '1';
-  process.env.MAINNET_NEAR_FORWARD_ATTEMPTED = 'true';
-  process.env.MAINNET_NEAR_PREAUTH_UNSPENT = 'true';
-  process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR = 'existing-original-secret';
-  const { state, status } = fixture();
-  mockState.mockReturnValue(state);
-  mockStatus.mockResolvedValue(status);
-  jest.mocked(wallet.getAccountAddress).mockResolvedValue(state.account);
-  mockVault.mockResolvedValue(BigInt(state.native.balance));
-  mockClient.getChainId.mockResolvedValue(state.evm.chainId);
-  mockClient.getBalance.mockResolvedValue(BigInt(state.evm.nativeBalance));
-  mockClient.readContract.mockResolvedValue(BigInt(state.evm.tokenBalance));
-  mockClient.getTransactionCount.mockResolvedValue(84);
-});
-afterEach(() => {
-  process.env = { ...env };
-  jest.useRealTimers();
-});
-function noFunding() {
-  expect(mockGrant).not.toHaveBeenCalled();
-  expect(mockSubmit).not.toHaveBeenCalled();
-}
-it('reconciles the known expired unsigned quote after live checks, retains every authority field and forces recovery-only', async () => {
-  const state = mockState();
-  const original = structuredClone(state);
-  await expect(recover()).resolves.toBeUndefined();
-  expect(mockRestore).toHaveBeenCalledTimes(1);
-  expect(mockStatus).toHaveBeenCalledTimes(1);
-  expect(mockSave).toHaveBeenCalledWith(expect.any(String), {
-    ...original,
-    phase: 'unspent',
-    updatedAt: new Date().toISOString()
+describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s', sourceRunId => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-17T03:00:00Z'));
+    process.env.E2E_NETWORK = 'mainnet';
+    process.env.GITHUB_RUN_ID = '43930000000';
+    process.env.GITHUB_RUN_ATTEMPT = '1';
+    process.env.MAINNET_NEAR_FORWARD_ATTEMPTED = 'true';
+    process.env.MAINNET_NEAR_PREAUTH_UNSPENT = 'true';
+    process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR = 'existing-original-secret';
+    const { state, status } = fixture();
+    state.sourceRunId = state.authorizationRunId = sourceRunId;
+    mockState.mockReturnValue(state);
+    mockStatus.mockResolvedValue(status);
+    jest.mocked(wallet.getAccountAddress).mockResolvedValue(state.account);
+    mockVault.mockResolvedValue(BigInt(state.native.balance));
+    mockClient.getChainId.mockResolvedValue(state.evm.chainId);
+    mockClient.getBalance.mockResolvedValue(BigInt(state.evm.nativeBalance));
+    mockClient.readContract.mockResolvedValue(BigInt(state.evm.tokenBalance));
+    mockClient.getTransactionCount.mockResolvedValue(84);
   });
-  expect(mockWrite).toHaveBeenCalledWith(
-    'test-results/mainnet-near-recovery.json',
-    expect.stringContaining('"recoveryOnly":true')
+  afterEach(() => {
+    process.env = { ...env };
+    jest.useRealTimers();
+  });
+  function noFunding() {
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+  }
+  it('reconciles the known expired unsigned quote after live checks, retains every authority field and forces recovery-only', async () => {
+    const state = mockState();
+    const original = structuredClone(state);
+    await expect(recover()).resolves.toBeUndefined();
+    expect(mockRestore).toHaveBeenCalledTimes(1);
+    expect(mockStatus).toHaveBeenCalledTimes(1);
+    expect(mockSave).toHaveBeenCalledWith(expect.any(String), {
+      ...original,
+      phase: 'unspent',
+      updatedAt: new Date().toISOString()
+    });
+    expect(mockWrite).toHaveBeenCalledWith(
+      'test-results/mainnet-near-recovery.json',
+      expect.stringContaining('"recoveryOnly":true')
+    );
+    noFunding();
+  });
+  it('passes the canonical hex faucet required by the real 1Click client configuration boundary', async () => {
+    await expect(recover()).resolves.toBeUndefined();
+    expect(mockStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        midenAssets: [{ assetId: mockState().nativeAssetId, faucetId: mockState().native.hex, decimals: 6 }]
+      }),
+      expect.any(String),
+      undefined,
+      undefined,
+      expect.any(Function)
+    );
+  });
+  it('binds original signed terms rather than unsigned per-request correlation metadata', async () => {
+    const status = await mockStatus();
+    status.quoteResponse.correlationId = 'new-status-request-trace';
+    mockStatus.mockClear();
+    await expect(recover()).resolves.toBeUndefined();
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    noFunding();
+  });
+  it.each(['false', '', undefined])(
+    'does not infer an unspent state without exact official provenance: %s',
+    async verified => {
+      if (verified === undefined) delete process.env.MAINNET_NEAR_PREAUTH_UNSPENT;
+      else process.env.MAINNET_NEAR_PREAUTH_UNSPENT = verified;
+      await expect(recover()).rejects.toThrow();
+      expect(mockSave).not.toHaveBeenCalled();
+      noFunding();
+    }
   );
-  noFunding();
-});
-it('passes the canonical hex faucet required by the real 1Click client configuration boundary', async () => {
-  await expect(recover()).resolves.toBeUndefined();
-  expect(mockStatus).toHaveBeenCalledWith(
-    expect.objectContaining({
-      midenAssets: [{ assetId: mockState().nativeAssetId, faucetId: mockState().native.hex, decimals: 6 }]
-    }),
-    expect.any(String),
-    undefined,
-    undefined,
-    expect.any(Function)
-  );
-});
-it('binds original signed terms rather than unsigned per-request correlation metadata', async () => {
-  const status = await mockStatus();
-  status.quoteResponse.correlationId = 'new-status-request-trace';
-  mockStatus.mockClear();
-  await expect(recover()).resolves.toBeUndefined();
-  expect(mockSave).toHaveBeenCalledTimes(1);
-  noFunding();
-});
-it.each(['false', '', undefined])(
-  'does not infer an unspent state without exact official provenance: %s',
-  async verified => {
-    if (verified === undefined) delete process.env.MAINNET_NEAR_PREAUTH_UNSPENT;
-    else process.env.MAINNET_NEAR_PREAUTH_UNSPENT = verified;
+  it.each([
+    'native',
+    'token',
+    'gas',
+    'pending-nonce',
+    'chain',
+    'guardian',
+    'provider',
+    'quote',
+    'deposit-reference',
+    'deposited',
+    'live-quote',
+    'live-price',
+    'wrong-source',
+    'fees',
+    'send-authority',
+    'forward-tx',
+    'return-note',
+    'consume-authority'
+  ])('retains the original checkpoint on changed or unknown %s', async changed => {
+    const state = mockState();
+    const status = await mockStatus();
+    if (changed === 'native') mockVault.mockResolvedValue(1n);
+    if (changed === 'token') mockClient.readContract.mockResolvedValue(1n);
+    if (changed === 'gas') mockClient.getBalance.mockResolvedValue(1n);
+    if (changed === 'pending-nonce') mockClient.getTransactionCount.mockResolvedValueOnce(84).mockResolvedValueOnce(85);
+    if (changed === 'chain') mockClient.getChainId.mockResolvedValue(1);
+    if (changed === 'guardian') jest.mocked(wallet.getAccountAddress).mockResolvedValue('different');
+    if (changed === 'provider') status.status = 'PROCESSING';
+    if (changed === 'quote') status.quoteResponse.quote.amountOut = '999999';
+    if (changed === 'deposit-reference') status.quoteResponse.quote.depositAddress = 'different';
+    if (changed === 'deposited') status.swapDetails.depositedAmount = '1';
+    if (changed === 'live-quote') state.forwardQuote!.deadline = new Date(Date.now() + 60_000).toISOString();
+    if (changed === 'live-price') state.pricedAt = new Date().toISOString();
+    if (changed === 'wrong-source') state.sourceRunId = '43811169448';
+    if (changed === 'fees') state.paidMidenFees = '1';
+    if (changed === 'send-authority') Reflect.set(state, 'sendAuthority', { noteId: `0x${'1'.repeat(64)}` });
+    if (changed === 'forward-tx') state.forwardMidenTxId = `0x${'1'.repeat(64)}`;
+    if (changed === 'return-note') state.returnNoteId = `0x${'1'.repeat(64)}`;
+    if (changed === 'consume-authority') Reflect.set(state, 'consumeAuthority', { nonce: 'retained' });
+    mockStatus.mockClear();
+    const original = JSON.stringify(state);
     await expect(recover()).rejects.toThrow();
+    expect(JSON.stringify(state)).toBe(original);
     expect(mockSave).not.toHaveBeenCalled();
     noFunding();
-  }
-);
-it.each([
-  'native',
-  'token',
-  'gas',
-  'pending-nonce',
-  'chain',
-  'guardian',
-  'provider',
-  'quote',
-  'deposit-reference',
-  'deposited',
-  'live-quote',
-  'live-price',
-  'wrong-source',
-  'fees',
-  'send-authority',
-  'forward-tx',
-  'return-note',
-  'consume-authority'
-])('retains the original checkpoint on changed or unknown %s', async changed => {
-  const state = mockState();
-  const status = await mockStatus();
-  if (changed === 'native') mockVault.mockResolvedValue(1n);
-  if (changed === 'token') mockClient.readContract.mockResolvedValue(1n);
-  if (changed === 'gas') mockClient.getBalance.mockResolvedValue(1n);
-  if (changed === 'pending-nonce') mockClient.getTransactionCount.mockResolvedValueOnce(84).mockResolvedValueOnce(85);
-  if (changed === 'chain') mockClient.getChainId.mockResolvedValue(1);
-  if (changed === 'guardian') jest.mocked(wallet.getAccountAddress).mockResolvedValue('different');
-  if (changed === 'provider') status.status = 'PROCESSING';
-  if (changed === 'quote') status.quoteResponse.quote.amountOut = '999999';
-  if (changed === 'deposit-reference') status.quoteResponse.quote.depositAddress = 'different';
-  if (changed === 'deposited') status.swapDetails.depositedAmount = '1';
-  if (changed === 'live-quote') state.forwardQuote!.deadline = '2026-11-16T18:31:00Z';
-  if (changed === 'live-price') state.pricedAt = new Date().toISOString();
-  if (changed === 'wrong-source') state.sourceRunId = '43811169448';
-  if (changed === 'fees') state.paidMidenFees = '1';
-  if (changed === 'send-authority') Reflect.set(state, 'sendAuthority', { noteId: `0x${'1'.repeat(64)}` });
-  if (changed === 'forward-tx') state.forwardMidenTxId = `0x${'1'.repeat(64)}`;
-  if (changed === 'return-note') state.returnNoteId = `0x${'1'.repeat(64)}`;
-  if (changed === 'consume-authority') Reflect.set(state, 'consumeAuthority', { nonce: 'retained' });
-  mockStatus.mockClear();
-  const original = JSON.stringify(state);
-  await expect(recover()).rejects.toThrow();
-  expect(JSON.stringify(state)).toBe(original);
-  expect(mockSave).not.toHaveBeenCalled();
-  noFunding();
+  });
 });
