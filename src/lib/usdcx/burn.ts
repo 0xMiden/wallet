@@ -21,6 +21,7 @@ import {
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
 import type { SubmissionChecks } from 'lib/bridge/core/submission';
+import { quoteXReserveWithdrawal } from 'lib/bridge/providers/xreserve/withdrawal-quote';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { parseUnits } from 'viem';
@@ -145,6 +146,12 @@ export async function initiateUsdcxBurn(args: {
     undefined,
     destination.usdc
   );
+  if (operation) {
+    const { review } = operation;
+    const fresh = await quoteXReserveWithdrawal({ route: review.route, amount: review.amount, ...review.accounts });
+    if (!review.quote || fresh.received !== review.quote.received || fresh.fee !== review.quote.fee)
+      throw new Error('Circle withdrawal estimate changed');
+  }
   await assertCurrent();
   return initiateBridgedSendTransaction(
     senderPublicKey,
