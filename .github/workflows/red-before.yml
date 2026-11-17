@@ -1,4 +1,5 @@
 name: Red-before tests
+run-name: Red-before (${{ inputs.expect }}) ${{ inputs.sha }}
 
 # Runs named Jest test files at one exact commit and checks the outcome against
 # what the caller expects. It exists so a regression test pushed in its own
@@ -7,24 +8,35 @@ name: Red-before tests
 # pull_request, cancels in progress and keeps no Jest JSON).
 #
 # The job passes only when the observed result matches `expect`:
-#   red   - at least one selected test failed, and every suite loaded;
-#   green - at least one selected test passed, none failed, every suite loaded.
-# A suite that fails to load reports zero failing tests, so it is never read as
-# red. The Jest JSON is uploaded for every run.
+#   red   - Jest exited 1 with at least one failed test (and, with `failing`,
+#           exactly those tests failed);
+#   green - Jest exited 0 with at least one passed test and none failed;
+# and, either way, every requested file ran as a suite, nothing else ran, and
+# every suite loaded. A kill or timeout gives no verdict. The Jest JSON and log
+# are uploaded for every run.
+#
+# Dispatch it on the branch that holds the commit, never on the default branch:
+# the tested commit's code runs here (install scripts, Jest config and tests),
+# and a run on a branch can write only that branch's Actions cache.
 
 on:
   workflow_dispatch:
     inputs:
       sha:
-        description: Full 40-character commit SHA to test (must be reachable on origin)
+        description: Full 40-character commit SHA, an ancestor of (or equal to) the dispatched branch
         required: true
         type: string
       tests:
-        description: Space-separated test files, relative to the repository root
+        description: Space-separated test files, relative to the repository root, on one line
         required: true
         type: string
       pattern:
         description: Optional Jest -t name pattern
+        required: false
+        default: ''
+        type: string
+      failing:
+        description: Optional full names of the tests that must fail, separated by ' | ' (red only)
         required: false
         default: ''
         type: string
@@ -54,18 +66,41 @@ jobs:
           SHA: ${{ inputs.sha }}
           TESTS: ${{ inputs.tests }}
           PATTERN: ${{ inputs.pattern }}
+          FAILING: ${{ inputs.failing }}
           EXPECT: ${{ inputs.expect }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full lowercase 40-character SHA"; exit 1; }
           [[ "$EXPECT" == red || "$EXPECT" == green ]] || { echo "::error::expect must be red or green"; exit 1; }
+          [[ "$REF_TYPE" == branch && "$REF_NAME" != "$DEFAULT_BRANCH" && "$REF_NAME" =~ ^[A-Za-z0-9._/-]+$ && "$REF_NAME" != *..* ]] \
+            || { echo "::error::dispatch on the branch that holds the commit, not on $DEFAULT_BRANCH or a tag"; exit 1; }
+          for v in "$TESTS" "$PATTERN" "$FAILING"; do
+            [[ "$v" != *$'\n'* && "$v" != *$'\r'* ]] || { echo "::error::tests, pattern and failing must each be one line"; exit 1; }
+          done
           read -ra files <<< "$TESTS"
           (( ${#files[@]} > 0 && ${#files[@]} <= 20 )) || { echo "::error::give 1-20 test files"; exit 1; }
           for f in "${files[@]}"; do
-            [[ "$f" =~ ^(src|test|scripts|playwright)/[A-Za-z0-9_./@-]+\.test\.(ts|tsx|js|jsx|mjs|cjs)$ && "$f" != *..* ]] \
+            [[ "$f" =~ ^(src|test|scripts|packages)/[A-Za-z0-9_./@-]+\.test\.(ts|tsx|js)$ && "$f" != *..* ]] \
               || { echo "::error::not an allowed test path: $f"; exit 1; }
           done
-          [[ "$PATTERN" != *$'\n'* && ${#PATTERN} -le 500 ]] || { echo "::error::pattern must be one line, at most 500 characters"; exit 1; }
+          (( ${#PATTERN} <= 500 && ${#FAILING} <= 4000 )) || { echo "::error::pattern or failing is too long"; exit 1; }
+          [[ -z "$FAILING" || "$EXPECT" == red ]] || { echo "::error::failing applies to expect=red only"; exit 1; }
+
+      # Before any of the commit's code runs: the commit must be on this
+      # repository's dispatched branch, which rules out fork and pull refs.
+      - name: Confirm the commit is on the dispatched branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ inputs.sha }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$SHA...$REF_NAME" --jq .status)
+          [[ "$status" == ahead || "$status" == identical ]] \
+            || { echo "::error::$SHA is not on $REF_NAME (compare status: $status)"; exit 1; }
 
       - name: Check out the tested commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -90,7 +125,6 @@ jobs:
         with:
           node-version: 22
 
-      # The tested commit's own package.json and yarn.lock decide the install.
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
@@ -101,39 +135,73 @@ jobs:
         run: |
           set -uo pipefail
           read -ra files <<< "$TESTS"
-          args=(--ci --maxWorkers=2 --json --outputFile="$RUNNER_TEMP/jest.json")
-          [[ -n "$PATTERN" ]] && args+=(-t "$PATTERN")
+          # --runTestsByPath: positional paths are exact, not regexes that can
+          # match a neighbouring file.
+          args=(--ci --maxWorkers=2 --runTestsByPath --json --outputFile="$RUNNER_TEMP/jest.json")
+          if [[ -n "$PATTERN" ]]; then args+=(-t "$PATTERN"); fi
+          # The default run shell is `bash -e`: a failing test exits Jest 1,
+          # which must not end this step before its exit code is recorded.
+          set +e
           yarn jest "${args[@]}" "${files[@]}" 2>&1 | tee "$RUNNER_TEMP/jest.log"
-          echo "jest exit ${PIPESTATUS[0]}" | tee -a "$RUNNER_TEMP/jest.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          echo "${codes[0]}" > "$RUNNER_TEMP/jest-exit"
+          echo "jest exit ${codes[0]}, tee exit ${codes[1]}" | tee -a "$RUNNER_TEMP/jest.log"
+          [[ "${codes[1]}" == 0 ]] || { echo "::error::could not write the Jest log"; exit 1; }
 
       - name: Check the outcome
         env:
           EXPECT: ${{ inputs.expect }}
           SHA: ${{ inputs.sha }}
+          TESTS: ${{ inputs.tests }}
+          FAILING: ${{ inputs.failing }}
         run: |
           set -euo pipefail
           node - <<'EOF'
           const fs = require('fs');
-          const path = `${process.env.RUNNER_TEMP}/jest.json`;
+          const path = require('path');
+          const temp = process.env.RUNNER_TEMP;
           const out = (line) => fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
-          if (!fs.existsSync(path)) {
-            out('No Jest JSON was written: the run is invalid.');
+          const rel = (f) => path.relative(process.cwd(), f);
+          const exitPath = `${temp}/jest-exit`;
+          const jestExit = fs.existsSync(exitPath) ? Number(fs.readFileSync(exitPath, 'utf8').trim()) : NaN;
+          if (!Number.isInteger(jestExit) || !fs.existsSync(`${temp}/jest.json`)) {
+            out('No Jest exit code or JSON was recorded: the run is invalid.');
             process.exit(1);
           }
-          const r = JSON.parse(fs.readFileSync(path, 'utf8'));
-          const failing = r.testResults.flatMap((suite) =>
+          const r = JSON.parse(fs.readFileSync(`${temp}/jest.json`, 'utf8'));
+          const loadErrors = r.numRuntimeErrorTestSuites;
+          // Every requested file must have run as a suite, and nothing else.
+          const requested = new Set(process.env.TESTS.split(/\s+/).filter(Boolean).map((f) => path.resolve(f)));
+          const ran = new Set(r.testResults.map((suite) => suite.name));
+          const missing = [...requested].filter((f) => !ran.has(f));
+          const extra = [...ran].filter((f) => !requested.has(f));
+          const failed = r.testResults.flatMap((suite) =>
             suite.assertionResults
               .filter((a) => a.status === 'failed')
-              .map((a) => `${suite.name.replace(`${process.cwd()}/`, '')} :: ${a.fullName}`)
+              .map((a) => ({ suite: rel(suite.name), name: a.fullName, why: firstLine(a.failureMessages) }))
           );
-          const loadErrors = r.numRuntimeErrorTestSuites;
+          function firstLine(messages) {
+            const text = (messages && messages[0]) || '';
+            return text.replace(/\u001b\[[0-9;]*m/g, '').split('\n').find((l) => l.trim()) || '';
+          }
           out(`Expect: ${process.env.EXPECT} at ${process.env.SHA}`);
-          out(`Passed ${r.numPassedTests}, failed ${r.numFailedTests}, skipped ${r.numPendingTests}, total ${r.numTotalTests}, suites that failed to load ${loadErrors}`);
-          for (const name of failing) out(`- failed: ${name}`);
+          out(`Jest exit ${jestExit}. Passed ${r.numPassedTests}, failed ${r.numFailedTests}, skipped ${r.numPendingTests}, total ${r.numTotalTests}, suites that failed to load ${loadErrors}`);
+          for (const f of missing) out(`- requested but did not run: ${rel(f)}`);
+          for (const f of extra) out(`- ran but not requested: ${rel(f)}`);
+          for (const f of failed) out(`- failed: ${f.suite} :: ${f.name} :: ${f.why}`);
+          // With `failing`, the failed set must be exactly the named tests.
+          const named = process.env.FAILING.split(' | ').map((s) => s.trim()).filter(Boolean);
+          const failedNames = new Set(failed.map((f) => f.name));
+          const namedMatch =
+            named.length === 0 || (named.length === failedNames.size && named.every((n) => failedNames.has(n)));
+          if (!namedMatch) out('The failed tests are not exactly the ones named in `failing`.');
+          // Jest exits 1 for failing tests and 0 for a clean run; any other code
+          // (a kill, a timeout) leaves no verdict even beside a JSON that names failures.
           let ok;
-          if (loadErrors > 0) ok = false;
-          else if (process.env.EXPECT === 'red') ok = r.numFailedTests > 0;
-          else ok = r.numFailedTests === 0 && r.numPassedTests > 0;
+          if (loadErrors > 0 || missing.length > 0 || extra.length > 0) ok = false;
+          else if (process.env.EXPECT === 'red') ok = jestExit === 1 && r.numFailedTests > 0 && namedMatch;
+          else ok = jestExit === 0 && r.numFailedTests === 0 && r.numPassedTests > 0;
           out(ok ? 'Outcome matches the expectation.' : 'Outcome does NOT match the expectation.');
           process.exit(ok ? 0 : 1);
           EOF
@@ -146,5 +214,6 @@ jobs:
           path: |
             ${{ runner.temp }}/jest.json
             ${{ runner.temp }}/jest.log
+            ${{ runner.temp }}/jest-exit
           if-no-files-found: warn
           retention-days: 30
