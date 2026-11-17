@@ -614,6 +614,75 @@ it('retains the winning row on an interrupted completion read without retrying c
   expect(noteBuilds).toBe(1);
 });
 
+it.each([new EpochReviewChangedError(), new Error('Completion read interrupted')])(
+  'retains known original intent facts through the outer SDK rejection after owner interruption: %s',
+  async interruption => {
+    const nativeHash = `0x${'a1'.repeat(32)}`;
+    const evmHash = `0x${'b2'.repeat(32)}`;
+    let ownedTxId: string | undefined;
+    input.onRowCreated = id => {
+      ownedTxId = id;
+    };
+    mockWait.mockImplementationOnce(async (id: string) => {
+      await Repo.transactions.update(id, {
+        status: ITransactionStatus.Completed,
+        transactionId: nativeHash,
+        outputNoteIds: ['original-built-note'],
+        'extraInputs.intentNonce': 'retained-original-nonce',
+        'extraInputs.evmTxHash': evmHash
+      });
+      throw interruption;
+    });
+    mockSolve.mockImplementation(async (params: SolveIntentParams) => {
+      if (!params.createMidenP2IDENote) throw new Error('Missing real collateral callback');
+      callback = params.createMidenP2IDENote;
+      expect(await createNote()).toEqual({ success: false });
+      expect(await createNote()).toEqual({ success: false });
+      throw new Error('SDK rejected original collateral');
+    });
+    await expect(bridgeEpochSend(input)).rejects.toThrow('SDK rejected original collateral');
+    const rows = await Repo.transactions.toArray();
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row?.id).toBe(ownedTxId);
+    expect(row?.transactionId).toBe(nativeHash);
+    expect(row?.extraInputs.bridgeOperation?.review).toEqual(input.operation?.review);
+    expect(row?.approvedOutputNoteIds).toEqual(['original-built-note']);
+    expect(row?.outputNoteIds).toEqual(['original-built-note']);
+    expect(row?.extraInputs.epochCollateralRequestBytes).toEqual(new Uint8Array([81, 82]));
+    expect(noteBuilds).toBe(1);
+    expect(mockWait).toHaveBeenCalledTimes(1);
+    expect(mockSolve).toHaveBeenCalledTimes(1);
+    expect({ nonce: row?.extraInputs.intentNonce, evmHash: row?.extraInputs.evmTxHash }).toEqual({
+      nonce: 'retained-original-nonce',
+      evmHash
+    });
+  }
+);
+
+it('persists genuinely returned solve facts over earlier intent metadata on the original owned row', async () => {
+  const nativeHash = `0x${'c3'.repeat(32)}`;
+  mockWait.mockImplementationOnce(async (id: string) => {
+    await Repo.transactions.update(id, {
+      status: ITransactionStatus.Completed,
+      transactionId: nativeHash,
+      outputNoteIds: ['original-built-note'],
+      'extraInputs.intentNonce': 'earlier-intent-nonce',
+      'extraInputs.evmTxHash': `0x${'d4'.repeat(32)}`
+    });
+    return { txHash: nativeHash };
+  });
+  const result = await bridgeEpochSend(input);
+  const row = await Repo.transactions.get(result.txId!);
+  expect(await Repo.transactions.count()).toBe(1);
+  expect(row?.transactionId).toBe(nativeHash);
+  expect(row?.extraInputs.intentNonce).toBe('original-nonce');
+  expect(row?.extraInputs.evmTxHash).toBe('original-solve-hash');
+  expect(row?.approvedOutputNoteIds).toEqual(['original-built-note']);
+  expect(noteBuilds).toBe(1);
+  expect(mockSolve).toHaveBeenCalledTimes(1);
+});
+
 it('preserves the original source result and nonce even if navigation throws at row exposure', async () => {
   const navigationError = new Error('view unmounted');
   input.onRowCreated = () => {
