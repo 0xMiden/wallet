@@ -18,7 +18,14 @@ import {
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 
-import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
+import { assertReviewedBridge } from 'lib/bridge/core/review';
+import { configKey } from 'lib/bridge/core/routes';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
+import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { parseUnits } from 'viem';
+
+import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { soleOwnOutputNoteId } from 'lib/miden/sdk/own-output-request';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
@@ -91,13 +98,41 @@ export async function initiateUsdcxBurn(args: {
   destinationAddress: string;
   destinationChainId: number;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
+  operation?: BridgeOperationInput;
+  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }): Promise<string> {
   const { senderPublicKey, faucetId, amount, destinationAddress, destinationChainId, spendingLimitAuthorization } =
     args;
+  const operation = args.operation && structuredClone(args.operation);
+  const originalScope = captureBridgeWalletScope();
+  if (operation) {
+    const existing = await findAdmittedBridgeOperation(operation);
+    if (existing) return existing.id;
+  }
+  const assertCurrent = async () => {
+    if (!operation) return;
+    if (!args.checks) throw new Error('Circle live review unavailable');
+    const live = await args.checks.readCurrent();
+    const { route } = operation.review;
+    const current = getBridgeConfigSnapshot();
+    const chain = route.recovery.config.supportedEvmChains[route.destination.network];
+    if (route.provider !== 'xreserve' || route.mode !== 'send' || route.source.kind !== 'miden' ||
+        chain?.chainId !== destinationChainId || parseUnits(operation.review.amount, route.source.decimals) !== amount ||
+        !sameWalletAccountId(route.source.faucetId, faucetId) ||
+        !sameWalletAccountId(operation.review.accounts.midenAccount, senderPublicKey) ||
+        operation.review.accounts.evmAddress.toLowerCase() !== destinationAddress.toLowerCase() ||
+        configKey(originalScope) !== configKey(captureBridgeWalletScope()) || current.status !== 'ready' ||
+        configKey([current.network, current.config, current.derived]) !==
+          configKey([route.recovery.network, route.recovery.config, route.recovery.derived]))
+      throw new Error('Circle burn review changed');
+    assertReviewedBridge(operation.review, live, args.checks.now());
+  };
+  await assertCurrent();
   const destination = getUsdcxDestination(destinationChainId);
   // Resolve the native asset so the checks below read a known faucet id.
   await getNativeAssetId();
   validateUsdcxWithdrawal(faucetId, destinationChainId, amount, await readUsdcxMinimumBurn());
+  await assertCurrent();
   const { domain } = destination;
   const built = {
     ...buildUsdcxBurnRequest(senderPublicKey, amount, destinationAddress, domain),
@@ -110,6 +145,7 @@ export async function initiateUsdcxBurn(args: {
     undefined,
     destination.usdc
   );
+  await assertCurrent();
   return initiateBridgedSendTransaction(
     senderPublicKey,
     amount,
@@ -130,6 +166,9 @@ export async function initiateUsdcxBurn(args: {
       destinationBalanceBefore,
       destinationUsdc: destination.usdc,
       payoutFeeAllowance: destination.payoutFeeAllowance.toString()
-    }
+    },
+    undefined,
+    undefined,
+    operation
   );
 }
