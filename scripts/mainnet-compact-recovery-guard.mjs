@@ -5,6 +5,7 @@ import { COMPACT_ABI } from '../node_modules/@epoch-protocol/epoch-intents-sdk/d
 
 export const ORIGINAL_COMPACT_RECOVERY = Object.freeze({
   sourceRunId: '44034323631',
+  retiredEnableSignedHash: '0x80d725e68e6d14509bcac442a4d80da7afd2e6d6c5bce09a8c8f9350c9d31a4a',
   checkpointSha256: '77652e5b0590797753f5fe920d79fec252af3411a5b125a663a12d77f60e40a1',
   owner: '0xc3B89CeCb0c5C3442A7DBCbBE379351C6bDfF836',
   compact: '0x00000000000000171ede64904551eeDF3C6C9788',
@@ -177,6 +178,7 @@ export function acknowledgeCompactRecovery(authorityBytes, downloadedBytes, bind
     !['enable', 'withdraw', 'disable'].includes(journal.stage) ||
     journal.stage !== binding.stage ||
     !/^0x[0-9a-f]{64}$/i.test(journal.signedHash) ||
+    journal.signedHash.toLowerCase() === ORIGINAL_COMPACT_RECOVERY.retiredEnableSignedHash ||
     !Number.isSafeInteger(journal.preparedAt) ||
     journal.preparedAt < 0 ||
     journal.expiresAt !== journal.preparedAt + 240000 ||

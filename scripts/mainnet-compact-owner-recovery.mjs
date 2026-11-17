@@ -175,7 +175,7 @@ try {
     notFundedGreen: true
   });
   site = 'prior-held-grant-outcome';
-  const priorHeldHash = '0x80d725e68e6d14509bcac442a4d80da7afd2e6d6c5bce09a8c8f9350c9d31a4a';
+  const priorHeldHash = c.retiredEnableSignedHash;
   assert.ok(live.blockTimestamp * 1000n >= 1794906404239n);
   const priorOutcome = await Promise.all([
     client.request({ method: 'eth_getTransactionByHash', params: [priorHeldHash] }),
@@ -205,6 +205,7 @@ try {
     const preparedAt = Date.now();
     const serializedTransaction = await signer.signTransaction(transaction);
     const signedHash = await verifyCompactRecoverySignature(serializedTransaction, transaction);
+    assert.notEqual(signedHash.toLowerCase(), c.retiredEnableSignedHash);
     Object.assign(report, {
       status: 'signed-held',
       signatureCreated: true,
