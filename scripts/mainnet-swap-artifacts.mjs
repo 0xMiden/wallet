@@ -58,29 +58,30 @@ export function knownUnspentEpochPreAuthorization(checkpointDigest, run, jobs, n
 
 export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, audit, auditJobs, now = Date.now()) {
   // The pinned native gate persists its SDK request before upload, then releases it only after immutable ACK.
+  const attempt01 = checkpointDigest === 'a4546b4126ba6c81bc19272117d60ac904eedcea65add3ed7ff7d990817d2b12';
   if (
-    checkpointDigest !== 'd2283bdd2372696ebe109c6b31ce5190ac7b29be07901e2ede142ba8c1f18524' ||
+    (!attempt01 && checkpointDigest !== 'd2283bdd2372696ebe109c6b31ce5190ac7b29be07901e2ede142ba8c1f18524') ||
     !Number.isSafeInteger(now) ||
-    now <= Date.parse('2026-11-16T05:57:46.601Z') ||
+    now <= Date.parse(attempt01 ? '2026-11-17T02:21:33.561Z' : '2026-11-16T05:57:46.601Z') ||
     !Array.isArray(jobs?.jobs) ||
     !Array.isArray(auditJobs?.jobs)
   )
     return false;
   const scheduled = {
-    id: 43811169447,
+    id: attempt01 ? 43999834254 : 43811169447,
     workflow_id: 391951744,
-    head_sha: '7fccdbfc371cdefc542b45af51de192032a8d415',
-    head_branch: 'main',
-    event: 'schedule',
+    head_sha: attempt01 ? 'c3b9997f069267a02a8e1715f691d0187982e23d' : '7fccdbfc371cdefc542b45af51de192032a8d415',
+    head_branch: attempt01 ? 'wiktor/nightly-main-green-01' : 'main',
+    event: attempt01 ? 'workflow_dispatch' : 'schedule',
     run_attempt: 1,
     status: 'completed',
     conclusion: 'failure'
   };
   const reviewed = {
-    id: 43925502671,
+    id: attempt01 ? 44005625246 : 43925502671,
     workflow_id: 415130600,
-    head_sha: '748558a9438ecbbaf73639c4c4b81c303609a068',
-    head_branch: 'wiktor/mainnet-438111-audit',
+    head_sha: attempt01 ? 'cca4608ecc222693a9f04124c671f06b48cd850f' : '748558a9438ecbbaf73639c4c4b81c303609a068',
+    head_branch: attempt01 ? 'wiktor/nightly-green-01-outcome' : 'wiktor/mainnet-438111-audit',
     event: 'push',
     run_attempt: 1,
     status: 'completed',
@@ -368,9 +369,10 @@ async function main() {
       output(`${leg}_attempted`, swapStepAttempted(jobs, leg, provider));
       if (provider === 'near' && leg === 'forward') {
         let verified = false;
-        if (id === '43811169447') {
-          const audit = await github('actions/runs/43925502671');
-          const auditJobs = await github('actions/runs/43925502671/jobs?per_page=100');
+        const auditRunId = { 43811169447: '43925502671', 43999834254: '44005625246' }[id];
+        if (auditRunId) {
+          const audit = await github(`actions/runs/${auditRunId}`);
+          const auditJobs = await github(`actions/runs/${auditRunId}/jobs?per_page=100`);
           verified = knownUnspentNearPreAuthorization(
             createHash('sha256').update(checkpoint).digest('hex'),
             run,

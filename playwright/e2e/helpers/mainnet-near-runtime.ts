@@ -88,7 +88,11 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
     throw new Error('Native NEAR requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH);
   if (mode === 'recover') {
-    if (process.env.MAINNET_NEAR_PREAUTH_UNSPENT === 'true' && previous?.sourceRunId === '43811169447') {
+    if (
+      process.env.MAINNET_NEAR_PREAUTH_UNSPENT === 'true' &&
+      previous &&
+      ['43811169447', '43999834254'].includes(previous.sourceRunId)
+    ) {
       const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
       if (!keyPair) throw new Error('Original Guardian is required for live NEAR unspent verification');
       await restoreMainnetLoopGuardian(wallet, keyPair);
@@ -969,7 +973,7 @@ export async function verifyUnstartedNearForward(
   const quote = state.forwardQuote;
   const windowEnd = Math.max(Date.parse(state.createdAt), Date.parse(state.pricedAt)) + 600_000;
   if (
-    state.sourceRunId !== '43811169447' ||
+    !['43811169447', '43999834254'].includes(state.sourceRunId) ||
     state.authorizationRunId !== state.sourceRunId ||
     state.phase !== 'forward-authorized' ||
     !quote ||

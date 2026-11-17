@@ -162,7 +162,7 @@ if (helperAvailable) {
     const error = new Error('Invalid proposal: bound block mismatch');
     let readAccountId;
     let createdNonce;
-    let abandonedNonce;
+    let abandonArgs;
     const client = {
       accounts: {
         get: async accountId => {
@@ -173,8 +173,8 @@ if (helperAvailable) {
     };
     const multisig = {
       account: { nonce: () => ({ asInt: () => 5n }) },
-      abandonCandidate: async nonce => {
-        abandonedNonce = nonce;
+      abandonCandidate: async (...args) => {
+        abandonArgs = args;
       }
     };
 
@@ -193,7 +193,8 @@ if (helperAvailable) {
 
     assert.equal(readAccountId, 'account-id');
     assert.equal(createdNonce, 41);
-    assert.equal(abandonedNonce, 41);
+    // No proposal id: the nonce-only request, which Guardians 0.18 and 0.19 both accept.
+    assert.deepEqual(abandonArgs, [41, undefined]);
   });
 
   test('logs a failed abandon and rethrows the verification error', async () => {
