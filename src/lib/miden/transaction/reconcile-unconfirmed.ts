@@ -243,8 +243,8 @@ export const landedDeliveryTargetValues = (
  * when the tail recorded which notes it owes, the row names no recipient, so nobody is owed, or the stamp did not read
  * its notes' types. Never the root `outputNoteIds`, which the sweep would read as owed, public notes and all. The
  * pipeline binds `entry` to an applied landing, since an apply that failed left the notes out of the store; the
- * reconciler's landing and Retry's pinned one cannot tell the two apart, and the sweep records a note the store never
- * took dead at its push.
+ * reconciler's landing and Retry's two (on its pinned note, on the transaction the node verified) cannot tell the two
+ * apart, and the sweep records a note the store never took dead at its push.
  */
 export const landedExecuteDeliveryValues = (
   row: ITransaction,

@@ -51,6 +51,7 @@ import {
   IBridgeProvider,
   IBridgedSendExtraInputs,
   ICON_BY_TYPE,
+  ISubmitEvidence,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -437,10 +438,16 @@ const planRequeue = async (
       // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
       // relays a private send's note, and with no delivery recorded that relay never ran, so the
       // note the verified transaction's attempt recorded becomes the delivery target by the
-      // reconciler's rule for a bound landing (#1473).
+      // reconciler's rule for a bound landing (#1473). An execute whose tail recorded nothing owes
+      // the private notes that attempt's stamp read, as at the reconciler's landing.
       const completedAt = Math.floor(Date.now() / 1000);
       const verifiedId = tx.transactionId;
+      const ofVerified = (entry: ISubmitEvidence): boolean =>
+        verifiedId !== undefined &&
+        entry.transactionId !== undefined &&
+        normalizeHex(entry.transactionId) === normalizeHex(verifiedId);
       let target: string[] | undefined;
+      let owesNotes = false;
       // A swap that holds no order opens the one its saved request names. Decoded before the write, which
       // cannot await the lock, and passed only while the fresh row still holds those bytes. A single-key swap saves no
       // request, so its order is the one the verified transaction's attempt recorded on its stamp.
@@ -452,24 +459,23 @@ const planRequeue = async (
       // complete and the guard's only success path never once worked.
       await completeVerifiedLandedTransaction(tx.id, fresh => {
         // `fresh` is the row this write stores. The landing is applied to it here, not returned, so the target is
-        // recorded on the completed row and nothing assigned after it can overwrite a replaced target's relabel.
+        // recorded on the completed row and nothing assigned after it can overwrite a replaced target's relabel. An
+        // execute's notes are read from the row as found, before the landed fields label one with a recipient
+        // undelivered.
+        const landedStamp = fresh.submitEvidence?.find(ofVerified);
+        const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
         applyVerifiedLanding(
           fresh,
-          { ...verifiedLandingRowFields(fresh), completedAt },
+          { ...verifiedLandingRowFields(fresh), ...executeDelivery, completedAt },
           (sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined) ??
-            submittedSwapOrder(
-              fresh.submitEvidence,
-              entry =>
-                verifiedId !== undefined &&
-                entry.transactionId !== undefined &&
-                normalizeHex(entry.transactionId) === normalizeHex(verifiedId)
-            )
+            submittedSwapOrder(fresh.submitEvidence, ofVerified)
         );
         target =
           verifiedId === undefined ? undefined : recordLandedDeliveryTarget(fresh, { boundTransactionId: verifiedId });
+        owesNotes = (executeDelivery?.relayNoteIds?.length ?? 0) > 0;
         return {};
       });
-      if (target !== undefined) countNoteDeliveryWrite();
+      if (target !== undefined || owesNotes) countNoteDeliveryWrite();
       return undefined;
     }
     // Not provably landed. For a row that executed, `'unknown'` means "we could
