@@ -157,6 +157,7 @@ export function installOffscreenFaultRealm(
   let liveTargetId: string | undefined;
   let liveHits = 0;
   let deadHits = 0;
+  let counterEpoch = 0;
 
   let armedWire: FetchFaultWire[] = [];
   let watcher: ReturnType<typeof setInterval> | undefined;
@@ -349,6 +350,7 @@ export function installOffscreenFaultRealm(
    * the whole window drops out rather than hanging the caller.
    */
   const syncRealm = async (attempts: number, arm = false): Promise<RealmReport | undefined> => {
+    const epoch = counterEpoch;
     const targetId = await resolveTarget();
     if (!targetId) {
       debug('no offscreen document exists yet (created lazily on the first dispatched op)');
@@ -359,6 +361,7 @@ export function installOffscreenFaultRealm(
         await evaluateInDoc(targetId, arm ? installAndArmExpression(armedWire) : readExpression())
       );
       if (report) {
+        if (epoch !== counterEpoch) return undefined;
         sample(targetId, report.hits);
         return report;
       }
@@ -415,19 +418,22 @@ export function installOffscreenFaultRealm(
     },
 
     async hits(): Promise<number> {
+      const epoch = counterEpoch;
       const targetId = await resolveTarget();
       if (targetId) {
         const report = parseReport(await evaluateInDoc(targetId, readExpression()));
         // A realm that cannot be evaluated keeps its last sampled count (the
         // watcher refreshes it every WATCH_INTERVAL_MS) instead of throwing or
         // reporting zero — the same best-effort contract as the other realms.
-        if (report) sample(targetId, report.hits);
+        if (report && epoch === counterEpoch) sample(targetId, report.hits);
       }
       return deadHits + liveHits;
     },
 
     async clear(): Promise<void> {
       await persist([]);
+      // A read started before clear must not recreate old hit evidence afterwards.
+      counterEpoch++;
       armedWire = [];
       stopWatching();
       const targetId = await resolveTarget();

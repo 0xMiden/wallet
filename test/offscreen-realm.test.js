@@ -11,10 +11,11 @@ const KEY = '__miden_e2e_offscreen_fetch_faults';
 const URL_OFFSCREEN = 'chrome-extension://inert-fixture/offscreen.html';
 const URL_SYNC = 'http://localhost:57291/miden.node.v1.NodeService/SyncNotes';
 const wire = [{ id: 'discovery', host: ':57291', path: 'NodeService/Sync', mode: 'hang' }];
-const bootstrap = () => transformSync(readFileSync(resolve(__dirname, '../src/offscreen/e2e-fetch-faults.ts'), 'utf8'), {
-  jsc: { parser: { syntax: 'typescript' }, target: 'es2022' },
-  module: { type: 'commonjs' }
-}).code;
+const bootstrap = () =>
+  transformSync(readFileSync(resolve(__dirname, '../src/offscreen/e2e-fetch-faults.ts'), 'utf8'), {
+    jsc: { parser: { syntax: 'typescript' }, target: 'es2022' },
+    module: { type: 'commonjs' }
+  }).code;
 
 function fixture() {
   const stored = {};
@@ -34,15 +35,24 @@ function fixture() {
   const chrome = {
     storage: {
       local: { set, remove, get: async () => structuredClone(stored) },
-      onChanged: { addListener: listener => listeners.add(listener), removeListener: listener => listeners.delete(listener) }
+      onChanged: {
+        addListener: listener => listeners.add(listener),
+        removeListener: listener => listeners.delete(listener)
+      }
     }
   };
   const workerRealm = vm.createContext({ chrome });
   const newDocument = () => {
     const nativeFetch = jest.fn(async () => new Response('inert'));
     return vm.createContext({
-      fetch: nativeFetch, nativeFetch,
-      URL, Response, Request, Headers, performance, chrome,
+      fetch: nativeFetch,
+      nativeFetch,
+      URL,
+      Response,
+      Request,
+      Headers,
+      performance,
+      chrome,
       console: { log: jest.fn() },
       location: { href: URL_OFFSCREEN }
     });
@@ -83,9 +93,18 @@ function fixture() {
     () => worker
   );
   return {
-    controls, stored, events, set, evaluations,
-    get doc() { return doc; },
-    holdNextEvaluation: () => new Promise(resolve => { hold = resolve; }),
+    controls,
+    stored,
+    events,
+    set,
+    evaluations,
+    get doc() {
+      return doc;
+    },
+    holdNextEvaluation: () =>
+      new Promise(resolve => {
+        hold = resolve;
+      }),
     releaseEvaluation: () => release(),
     async replace() {
       session.emit('Target.detachedFromTarget', { sessionId: targetId });
@@ -150,7 +169,9 @@ test('blocks replacement discovery before the next watcher tick and removes poli
     const replacement = await f.replace();
     const native = f.doc.fetch;
     let settled = false;
-    void f.doc.fetch(URL_SYNC).then(() => { settled = true; });
+    void f.doc.fetch(URL_SYNC).then(() => {
+      settled = true;
+    });
     await Promise.resolve();
     expect(settled).toBe(false);
     expect(f.doc.nativeFetch).not.toHaveBeenCalled();
@@ -163,6 +184,25 @@ test('blocks replacement discovery before the next watcher tick and removes poli
     expect(f.doc.__e2e_fetch_wrapped).toBeUndefined();
     expect((await f.doc.fetch(URL_SYNC)).status).toBe(200);
     expect(f.doc.fetch).not.toBe(native);
+  } finally {
+    await f.controls.clear();
+    jest.clearAllTimers();
+  }
+});
+
+test('does not bank a late watcher sample into the next generation after clear', async () => {
+  jest.useFakeTimers({ now: 0 });
+  const f = fixture();
+  try {
+    await f.controls.arm(wire);
+    void f.doc.fetch(URL_SYNC);
+    const held = f.holdNextEvaluation();
+    await jest.advanceTimersByTimeAsync(500);
+    await held;
+    await f.controls.clear();
+    f.releaseEvaluation();
+    await f.replace();
+    expect(await f.controls.hits()).toBe(0);
   } finally {
     await f.controls.clear();
     jest.clearAllTimers();
