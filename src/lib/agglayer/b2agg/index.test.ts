@@ -628,7 +628,7 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
   });
 
   it.each([false, true])(
-    'actual Command form Enter admits once, stays visible and opens only the original row (Guardian=%s)',
+    'actual Command native form submit admits once, stays visible and opens only the original row (Guardian=%s)',
     async guardian => {
       mockIsGuardian.mockResolvedValue(guardian);
       render(

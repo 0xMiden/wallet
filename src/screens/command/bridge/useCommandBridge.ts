@@ -46,6 +46,10 @@ export function useCommandBridge() {
   const { chainId } = useAppKitNetwork();
   const { disconnect } = useDisconnect();
   const exit = useBackWithFallback();
+  const clearDraft = drafts.clearDraft;
+  useEffect(() => {
+    if (locked) clearDraft('bridge');
+  }, [locked, clearDraft]);
   const scope = configKey([account?.publicKey, getEffectiveNetworkName(), getEffectiveRpcUrl(), locked]);
   const [selection, setSelection] = useState<CommandDrafts['bridge']>(
     () =>

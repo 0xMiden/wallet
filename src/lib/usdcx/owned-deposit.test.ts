@@ -364,17 +364,11 @@ it.each([
       },
       received
     );
-    await waitFor(async () => {
-      const operation = bridgeOperationOf((await Repo.transactions.get(id))!);
-      const refused = jest
-        .mocked(console.error)
-        .mock.calls.some(call =>
-          call.some(value => value instanceof Error && value.message === 'Circle source terms changed')
-        );
-      expect(Boolean(operation?.sourceAttempt?.hash) || refused).toBe(true);
-    });
+    await waitFor(() => expect(console.error).toHaveBeenCalledWith('[bridge-receive] deposit submission failed'));
+    const row = await Repo.transactions.get(id);
+    expect(bridgeOperationOf(row!)?.sourceAttempt).toEqual({ phase: 'running' });
     expect(signed).toHaveLength(0);
-    expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBeUndefined();
+    expect(row?.extraInputs.evmTxHash).toBeUndefined();
   }
 );
 
