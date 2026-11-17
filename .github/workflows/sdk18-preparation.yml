@@ -39,6 +39,8 @@ jobs:
         run: |
           node scripts/generate-protocol-assertions.mjs --registry /tmp/sdk-registry --check
           node -e 'for (const p of ["miden-sdk","react","miden-wallet-adapter-base","miden-wallet-adapter-miden","miden-wallet-adapter-react","vite-plugin"]) { const x=require("./node_modules/@miden-sdk/"+p+"/package.json"); if(x.version!=="0.18.0") throw Error(p+": "+x.version); console.log(p,x.version); }'
+      - name: Verify discarded rotation retains the exact candidate identity
+        run: yarn jest src/lib/miden/transaction/transactions.guardian.test.ts --maxWorkers=2 -t 'a commit wait that times out on a rotation the node discarded'
       - name: Type-check the integrated SDK migration
         run: yarn ts
       - name: Verify actual SDK request serialization and signing guards
