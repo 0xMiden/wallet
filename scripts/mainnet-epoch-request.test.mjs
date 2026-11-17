@@ -382,7 +382,7 @@ test('authorizes the Guardian consume reference without inventing a standalone e
   assert.equal(mainnetConsumeRequestHash(input.bytes, true), expected);
 });
 
-test('checks every non-authentication field of an actual Guardian consume request', async () => {
+test('checks every non-authentication field and the exact mainnet fee-policy expiry of a final Guardian consume request', async () => {
   const input = returnFile();
   const note = sdk.NoteFile.deserialize(input.bytes).note();
   const build = () =>
@@ -398,7 +398,7 @@ test('checks every non-authentication field of an actual Guardian consume reques
     'function',
     'Missing Guardian consume SDK inspection'
   );
-  const signed = guardianBytes(build());
+  const signed = guardianBytes(build().withExpirationDelta(20));
   assert.equal(
     await nativeRequests.inspectTestMainnetGuardianConsumeRequest(scope, signed, note),
     createHash('sha256').update(canonicalRequestBytes(signed)).digest('hex')
@@ -406,17 +406,20 @@ test('checks every non-authentication field of an actual Guardian consume reques
   await assert.rejects(() =>
     nativeRequests.inspectTestMainnetGuardianConsumeRequest(
       scope,
-      guardianBytes(build().withOwnOutputNotes(new sdk.NoteArray([note]))),
+      guardianBytes(
+        build()
+          .withExpirationDelta(20)
+          .withOwnOutputNotes(new sdk.NoteArray([note]))
+      ),
       note
     )
   );
-  await assert.rejects(() =>
-    nativeRequests.inspectTestMainnetGuardianConsumeRequest(
-      scope,
-      guardianBytes(build().withExpirationDelta(600)),
-      note
-    )
-  );
+  for (const delta of [undefined, 19, 21, 180, 600]) {
+    const changed = delta === undefined ? build() : build().withExpirationDelta(delta);
+    await assert.rejects(() =>
+      nativeRequests.inspectTestMainnetGuardianConsumeRequest(scope, guardianBytes(changed), note)
+    );
+  }
 });
 
 test('canonicalizes actual request bytes in a browser without a Node Buffer global', () => {
@@ -476,6 +479,28 @@ test('does not refund before the live reclaim height or without the original ins
   assert.throws(() => inspectEpochRefundNote({ ...input.snapshot, forwardAuthority: undefined }, input.bytes, 7200));
   assert.throws(() =>
     inspectEpochRefundNote({ ...input.snapshot, forwardNoteId: `0x${'a'.repeat(64)}` }, input.bytes, 7200)
+  );
+});
+
+test('copies SDK 0.18 Epoch auth preimage and refuses inconsistent transported advice', () => {
+  const input = request();
+  const note = sdk.TransactionRequest.deserialize(input.bytes).expectedOutputOwnNotes()[0];
+  const bytes = guardianBytes(new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([note])));
+  assert.deepEqual(inspectEpochCollateralRequest(input.state, bytes, review), {
+    noteId: input.noteId,
+    reclaimHeight: 7200
+  });
+  const original = sdk.TransactionRequest.deserialize(bytes);
+  const values = original.adviceMap().get(original.authArg());
+  values[0] = new sdk.Felt(999n);
+  const advice = new sdk.AdviceMap();
+  advice.insert(original.authArg(), new sdk.FeltArray(values));
+  const corrupted = sdk.TransactionRequest.deserialize(original.extendAdviceMap(advice).serialize());
+  assert.equal(corrupted.authArg().toHex(), original.authArg().toHex());
+  assert.equal(corrupted.adviceMap().get(corrupted.authArg())[0].asInt(), 999n);
+  assert.throws(
+    () => inspectEpochCollateralRequest(input.state, corrupted.serialize(), review),
+    /undeclared execution/
   );
 });
 

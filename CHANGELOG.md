@@ -1,6 +1,17 @@
 # Changelog
 
-## 1.17.12 (TBD)
+## 1.18.1 (TBD)
+
+- [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
+
+## 1.18.0 (2026-11-17)
+
+- [CHANGE][all] Upgrade the Miden web, React and wallet adapter SDKs to 0.18.0 and the Rust client and CLI to 0.18.2, with matching native proving dependencies.
+- [FIX][ci] Recognize the next exactly pinned, independently audited unsigned NEAR nightly checkpoint for recovery-only no-spend reconciliation without replaying its expired quote or relaxing SDK upload and inventory checks.
+
+- [FIX][ci] Wait for the exact Epoch return note on the public chain before wallet import and retain sanitized return-readiness failures without exposing private logs or changing claim authorization.
+
+- [FIX][ci] Reconcile the independently audited, expired unsigned NEAR nightly quote only after exact original run/gate provenance, unchanged holdings and unused provider status with canonical hex faucet IDs and normalized tracing metadata, retaining signature and exact quote verification; keep reconciliation recovery-only and retain all SDK upload safeguards.
 
 - [FIX][ci] Match USDCx payout and fee display assertions to the wallet's adaptive rounding while retaining exact on-chain payout verification.
 
@@ -14,6 +25,7 @@
 - [CHANGE][all] Show distinct token names and an expandable full Faucet ID with copy feedback on token details.
 - [FEATURE][all] Home hides dust tokens, those worth less than a tenth of a cent, behind a Hide dust tokens switch in General Settings that is on by default; the native token always stays listed.
 - [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
+- [CHANGE][all] Guardian accounts use the 0.19.0-rc.2 Guardian clients for the Miden 0.18 protocol line.
 - [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
 - [FIX][all] Use shared adaptive amount displays across wallet screens, retain exact approval values and number animations, and prevent long bridge amounts from overlapping the transfer arrow (#2114).
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).
