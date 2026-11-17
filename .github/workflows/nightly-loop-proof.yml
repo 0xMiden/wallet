@@ -1,7 +1,7 @@
-name: Original Compact disabled cleanup independent SDK018 public and private audit
+name: Original Epoch returned-owner cancellation contract qualification
 on:
   push:
-    branches: [wiktor/green02-compact-disabled-audit]
+    branches: [wiktor/green02-epoch-owner-refund-retire]
 permissions:
   contents: read
   actions: read
@@ -9,99 +9,41 @@ concurrency:
   group: e2e-mainnet-nightly
   cancel-in-progress: false
 jobs:
-  disabled-phase-audit:
+  owner-refund-retirement-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      E2E_NETWORK: mainnet
-      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 24
-      - name: Bind original SDK018 application and exact independent audit overlays
+          fetch-depth: 3
+      - name: Bind isolated changes to actual post-disable audit source
         run: |
-          git merge-base --is-ancestor 775f30df7ab450165d82f0f2ddd9ff1742431585 HEAD
-          test "$(git diff --name-only 775f30df7ab450165d82f0f2ddd9ff1742431585 HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/green02-private-outcome.spec.ts scripts/green02-public-outcome.mjs scripts/mainnet-compact-owner-recovery.mjs scripts/mainnet-compact-recovery-guard.mjs test/compact-owner-recovery.node.test.mjs)"
+          git merge-base --is-ancestor 9937b4d7872e90b90d1aa8c323b08846b74f13fc HEAD
+          test "$(git diff --name-only 9937b4d7872e90b90d1aa8c323b08846b74f13fc HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml docs/superpowers/plans/2026-11-17-original-epoch-owner-refund-retirement.md docs/superpowers/specs/2026-11-17-original-epoch-owner-refund-retirement.md scripts/retire-original-epoch-owner-refund.mjs test/epoch-owner-refund-retirement.node.test.mjs)"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Original case signature and budget guards remain intact
-        run: node --test test/compact-owner-recovery.node.test.mjs
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           run-id: 44034323631
           github-token: ${{ github.token }}
-          pattern: mainnet-*-44034323631
-          path: test-results/evidence
+          name: mainnet-epoch-final-44034323631
+          path: test-results/epoch
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          run-id: 44055319371
+          run-id: 44073655271
           github-token: ${{ github.token }}
-          name: original-compact-enable-authority-44055319371
-          path: test-results/enable
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          run-id: 44067623911
-          github-token: ${{ github.token }}
-          name: original-compact-withdraw-authority-44067623911
-          path: test-results/withdraw
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          run-id: 44071758997
-          github-token: ${{ github.token }}
-          name: original-compact-disable-authority-44071758997
-          path: test-results/disable
-      - name: Bind original producer and all three actual owner-only phases and immutable authority bytes
+          name: original-compact-disabled-phase-independent-audit
+          path: test-results
+      - name: Bind original checkpoint and actual audited fixture provenance only
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api repos/0xMiden/wallet/actions/runs/44034323631 > "$RUNNER_TEMP/producer.json"
-          gh api repos/0xMiden/wallet/actions/runs/44055319371 > "$RUNNER_TEMP/enable.json"
-          gh api repos/0xMiden/wallet/actions/runs/44067623911 > "$RUNNER_TEMP/withdraw.json"
-          gh api repos/0xMiden/wallet/actions/runs/44071758997 > "$RUNNER_TEMP/disable.json"
+          gh api repos/0xMiden/wallet/actions/runs/44073655271 > "$RUNNER_TEMP/audit.json"
           node <<'NODE'
-          const assert=require('node:assert/strict'),fs=require('node:fs'),crypto=require('node:crypto');const read=n=>JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${n}.json`));const p=read('producer'),e=read('enable'),w=read('withdraw'),d=read('disable');assert.equal(p.head_sha,'775f30df7ab450165d82f0f2ddd9ff1742431585');assert.equal(p.run_attempt,1);assert.equal(p.conclusion,'failure');assert.equal(e.head_sha,'09070f46e3b302d87dfdb15bd31772a8733941da');assert.equal(w.head_sha,'026475b9becfb265e0c739989bdddcf4b4265ee6');assert.equal(d.head_sha,'7c6f41bda3e82759349796d8011fb36aed56eaa0');for(const r of[e,w,d]){assert.equal(r.run_attempt,1);assert.equal(r.conclusion,'success');assert.equal(r.event,'push');}assert.equal(w.head_branch,'wiktor/green02-compact-withdraw-once');assert.equal(d.head_branch,'wiktor/green02-compact-disable-once');
-          for(const [path,hash]of[['test-results/enable/compact-recovery-enable-authority.json','3bd825c51b868b3129fb3afd84e416cc7d35c742b4e2f376539d81b0f1f8e4a4'],['test-results/withdraw/compact-recovery-withdraw-authority.json','087550abab7094fb719a62a5f1c9a693f5ce53cd4cb16eaae384232fb587d7e1'],['test-results/disable/compact-recovery-disable-authority.json','b2cbd9e1a2930e6a6b9eb180da2bf709f0585675232fb2d1875bcf08158d8f50']])assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex'),hash);
-          const roles={'mainnet-swap-final':'swap','mainnet-epoch-final':'epoch','mainnet-1click-final':'near','mainnet-epoch-forward-sdk-authorized':'epoch-forward','mainnet-swap-forward-sdk-authorized':'forward-create','mainnet-swap-reverse-sdk-authorized':'reverse-create','mainnet-swap-forward-claim-sdk-authorized':'forward-claim','mainnet-swap-reverse-claim-sdk-authorized':'reverse-claim','mainnet-nightly':'public'};for(const[name,role]of Object.entries(roles))fs.cpSync(`test-results/evidence/${name}-44034323631`,`test-results/${role}`,{recursive:true});
+          const a=require('node:assert/strict'),fs=require('node:fs'),crypto=require('node:crypto');const p=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/producer.json')),r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/audit.json'));a.equal(p.head_sha,'775f30df7ab450165d82f0f2ddd9ff1742431585');a.equal(p.run_attempt,1);a.equal(p.conclusion,'failure');a.equal(r.head_sha,'9937b4d7872e90b90d1aa8c323b08846b74f13fc');a.equal(r.run_attempt,1);a.equal(r.conclusion,'success');a.equal(crypto.createHash('sha256').update(fs.readFileSync('test-results/epoch/roundtrip.json')).digest('hex'),'77652e5b0590797753f5fe920d79fec252af3411a5b125a663a12d77f60e40a1');
           NODE
-      - name: Original production read-only SDK018 bootstrap
-        run: |
-          node --input-type=module <<'NODE'
-          import {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import YAML from 'yaml';const doc=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8')),step=doc.jobs['mainnet-nightly'].steps.find(s=>s.name==='Build read-only Epoch SDK');if(!step?.run)throw new Error('Missing original read-only SDK bootstrap');execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
-          NODE
-      - name: Independent original public SDK018 settlement and owner return with disabled empty lock
-        run: |
-          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
-          yarn esbuild playwright/e2e/helpers/mainnet-epoch-evm.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-evm.mjs
-          yarn esbuild playwright/e2e/helpers/mainnet-epoch-provider.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-provider.mjs
-          yarn esbuild playwright/e2e/helpers/mainnet-loop-budget.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-loop-budget.mjs
-          node scripts/green02-public-outcome.mjs
-      - uses: ./.github/actions/install-miden-client-cli
-      - uses: ./.github/actions/apt-drop-unused-repos
-      - run: npx playwright install --with-deps chromium
-      - uses: ./.github/actions/start-eligibility-fixture
-      - run: yarn test:e2e:blockchain:build
-        env:
-          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
-      - name: Actual original PRIVATE SDK018 holdings after disable with consume blocked and no policy
-        env:
-          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
-          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
-        run: |
-          umask 077
-          code=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/green02-disabled-private" xvfb-run -a yarn playwright test green02-private-outcome.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/green02-disabled-private.log" 2>&1 || code=$?
-          node --input-type=module <<'NODE'
-          import {existsSync,readFileSync} from 'node:fs';for(const path of ['test-results/green02-private-status.json','test-results/green02-private-outcome.json'])if(existsSync(path))console.log(JSON.stringify(JSON.parse(readFileSync(path,'utf8'))));
-          NODE
-          exit "$code"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: original-compact-disabled-phase-independent-audit
-          path: |
-            test-results/green02-public-outcome.json
-            test-results/green02-private-status.json
-            test-results/green02-private-outcome.json
+      - name: Original financial guard contracts and exact-case cancelled checkpoint behavior
+        run: node --test test/compact-owner-recovery.node.test.mjs test/epoch-owner-refund-retirement.node.test.mjs
