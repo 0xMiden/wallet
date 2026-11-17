@@ -4,6 +4,7 @@ import { bindTransferQuote, quoteAmounts } from 'lib/bridge/core/quote';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { circleSnapshot, reviewedOwnedCircleTransfer } from 'lib/bridge/testing/circle-fixtures';
 import { accounts, native, now } from 'lib/bridge/testing/fixtures';
+import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -81,6 +82,23 @@ function respond(executor: boolean) {
   fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => body });
   return input;
 }
+it.each([false, true])(
+  'the real wallet transport resolves native Circle quote APIs without portal-relative URLs (executor=%s)',
+  async executor => {
+    const input = respond(executor);
+    const result = await quoteBridgeTransfer(input, new AbortController().signal);
+    expect(result?.kind).toBe(executor ? 'cctp' : 'arc-deposit');
+    expect(result?.received).toBe('6.000001');
+    expect(result?.request).toEqual({
+      amount: '6.000001',
+      ...accounts,
+      routeId: input.route.id,
+      recovery: input.route.recovery
+    });
+    expect(fetchMock.mock.calls.every(([url]) => typeof url === 'string' && url.startsWith('https://'))).toBe(true);
+  }
+);
+
 it.each([false, true])('quotes bound Circle received output and additional fee (executor=%s)', async executor => {
   const input = respond(executor);
   const result = await quoteXReserve(input, new AbortController().signal);

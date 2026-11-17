@@ -107,7 +107,8 @@ export async function initiateB2AggBridge(args: {
   }
   const assertReviewCurrent = async () => {
     if (!operation) return;
-    const live = args.checks ? await args.checks.readCurrent() : operation.review;
+    if (!args.checks) throw new Error('Agglayer live review unavailable');
+    const live = await args.checks.readCurrent();
     const route = operation.review.route;
     const current = getBridgeConfigSnapshot();
     if (
@@ -119,7 +120,7 @@ export async function initiateB2AggBridge(args: {
         configKey([route.recovery.network, route.recovery.config, route.recovery.derived])
     )
       throw new Error('Agglayer bridge review changed');
-    assertReviewedBridge(operation.review, live, args.checks?.now() ?? Date.now());
+    assertReviewedBridge(operation.review, live, args.checks.now());
   };
   await assertReviewCurrent();
   // Read before the lock: the note addresses the configured bridge, with the L1 bridge's networkID() as its

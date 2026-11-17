@@ -2,9 +2,9 @@ import { CollateralType, type SolveIntentParams } from '@epoch-protocol/epoch-in
 import { formatUnits, parseUnits } from 'viem';
 
 import type { QuoteValidity } from 'lib/bridge/core/quote';
-import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
 import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
@@ -255,8 +255,10 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     }
   };
   const assertLive = async () => {
-    if (args.operation && args.checks)
+    if (args.operation) {
+      if (!args.checks) throw new EpochReviewChangedError();
       assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
+    }
     assertCurrent();
   };
   await assertLive();

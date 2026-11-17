@@ -140,6 +140,7 @@ function noteInput(): CreateBridgeP2IDENoteArgs {
     destinationNetwork: 11155111,
     allocatorUrl: review.route.recovery.config['bridge-providers'].epoch.allocatorUrl,
     operation: { operationId: 'guardian-collateral', review },
+    checks: { readCurrent: async () => review, now: () => now },
     reviewedOutput: {
       minimumOutputBaseUnits: '1000000000000000000',
       outputTokenAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',

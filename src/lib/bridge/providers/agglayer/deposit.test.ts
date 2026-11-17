@@ -14,15 +14,10 @@ import {
   type Hex
 } from 'viem';
 
-import { AGGLAYER_BRIDGE_ABI } from 'lib/agglayer/constant';
-import { CommandBridge } from 'screens/command/bridge/CommandBridge';
-import { CommandDraftProvider } from 'screens/command/command-drafts';
-import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import { FlowPresentationProvider, CommandFlowBackProvider } from 'components/flow/FlowPresentation';
-import { navigate } from 'lib/woozie';
-import { deriveBridgeRoutes } from 'lib/bridge/catalog';
-import { NativeReown, type ReownPlugin } from 'lib/walletconnect/native';
+import { AGGLAYER_BRIDGE_ABI } from 'lib/agglayer/constant';
 import { fetchDeposits } from 'lib/agglayer/status';
+import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
 import type { SourceRpcTransaction } from 'lib/bridge/evm/source-transaction';
 import { bridgeOperationOf, type BridgeOperationSnapshot } from 'lib/bridge/operation';
@@ -38,7 +33,12 @@ import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiat
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
+import { NativeReown, type ReownPlugin } from 'lib/walletconnect/native';
 import { readEvmReceiptOutcome } from 'lib/walletconnect/receipt';
+import { navigate } from 'lib/woozie';
+import { CommandBridge } from 'screens/command/bridge/CommandBridge';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 import { submitAgglayerDeposit, type AgglayerClient } from './deposit';
 import { runAgglayerReceive } from './flows';
@@ -268,6 +268,8 @@ beforeEach(async () => {
   jest.spyOn(Date, 'now').mockReturnValue(now);
   await Repo.transactions.clear();
   mockNative = false;
+  mockWalletState.currentAccount.publicKey = accounts.midenAccount;
+  mockWalletState.tokenPricesStatus = 'ready';
   jest.mocked(NativeReown.getState).mockResolvedValue({
     configured: true,
     connected: true,
@@ -415,7 +417,7 @@ it.each([false, true])(
     await waitFor(async () => expect((await Repo.transactions.get(row.id))?.extraInputs.evmTxHash).toBe(depositHash));
     expect(signed).toHaveLength(2);
     expect(screen.getByTestId('command-bridge')).toBeVisible();
-    if (native) expect(mockNativeSend).toHaveBeenCalledTimes(2);
+    expect(mockNativeSend).toHaveBeenCalledTimes(native ? 2 : 0);
     fireEvent.submit(form);
     expect(signed).toHaveLength(2);
     expect(await Repo.transactions.count()).toBe(1);
@@ -449,6 +451,33 @@ it('explicit minimize before a later prompt refuses fresh spending and reopen do
   reopened.unmount();
 });
 
+it.each(['cap', 'miden-account'])(
+  'live %s departure after admission refuses the later real source prompt',
+  async change => {
+    let release: (value: { data: Hex }) => void = () => undefined;
+    rpc.call.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        })
+    );
+    const { form } = await renderReceive();
+    fireEvent.submit(form);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commandBridgeViewStatus' })).toBeVisible());
+    await waitFor(() => expect(rpc.call).toHaveBeenCalledTimes(1));
+    const row = (await Repo.transactions.toArray())[0];
+    if (!row) throw new Error('Missing admitted row');
+    if (change === 'cap') mockWalletState.tokenPricesStatus = 'error';
+    else mockWalletState.currentAccount.publicKey = '0x287149ae66116cf114eebd60bb7381';
+    release({ data: '0x' });
+    await waitFor(async () =>
+      expect((await Repo.transactions.get(row.id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain')
+    );
+    expect(signed).toHaveLength(0);
+    expect(await Repo.transactions.count()).toBe(1);
+  }
+);
+
 it('the original receive driver never discloses raw external wallet failures from the real Command path', async () => {
   const log = jest.spyOn(console, 'error').mockImplementation(() => {});
   rpc.call.mockRejectedValueOnce(new Error('private-wallet-payload-placeholder'));
@@ -458,7 +487,7 @@ it('the original receive driver never discloses raw external wallet failures fro
     expect((await Repo.transactions.toArray())[0]?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain')
   );
   await waitFor(() => expect(log).toHaveBeenCalled());
-  const diagnostics = log.mock.calls.flat().map(value => value instanceof Error ? value.message : String(value));
+  const diagnostics = log.mock.calls.flat().map(value => (value instanceof Error ? value.message : String(value)));
   expect(diagnostics.join(' ')).not.toContain('private-wallet-payload-placeholder');
   expect(signed).toHaveLength(0);
   expect(await Repo.transactions.count()).toBe(1);

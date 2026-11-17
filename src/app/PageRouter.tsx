@@ -28,6 +28,7 @@ import { isExtension } from 'lib/platform';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import * as Woozie from 'lib/woozie';
+import { CommandBridge } from 'screens/command/bridge/CommandBridge';
 import { resolveCommandRoute } from 'screens/command/command-routes';
 import { CommandShell } from 'screens/command/CommandShell';
 import { ADDRESS_BOOK_PATH } from 'screens/contacts/contact-paths';
@@ -307,7 +308,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     '/bridge/deposit',
     onlyReady((_params, ctx) =>
       ctx.command ? (
-        <BridgeDeposit />
+        <CommandBridge />
       ) : (
         <FullScreenPage>
           <BridgeDeposit />

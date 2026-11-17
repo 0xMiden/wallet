@@ -595,7 +595,8 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
       senderPublicKey: accounts.midenAccount,
       guardianProvider,
       destinationChainId: 11155111,
-      operation: { operationId: 'native-agglayer-operation', review }
+      operation: { operationId: 'native-agglayer-operation', review },
+      checks: { readCurrent: async () => review, now: () => now }
     };
   }
 
@@ -616,7 +617,8 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
 
   it('adapts the reviewed provider send into the native queue with its exact Miden source scale', async () => {
     mockIsGuardian.mockResolvedValue(false);
-    const id = await runAgglayerSend(input().operation, { guardianProvider });
+    const original = input();
+    const id = await runAgglayerSend(original.operation, { guardianProvider, checks: original.checks });
     const row = await Repo.transactions.get(id);
     expect(row?.amount).toBe(100000000n);
     expect(row?.extraInputs.bridgeOperation?.operationId).toBe('native-agglayer-operation');

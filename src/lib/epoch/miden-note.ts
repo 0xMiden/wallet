@@ -131,8 +131,10 @@ export async function createBridgeP2IDENote(
           ? captureBridgeWalletScope()
           : undefined
         : { ...args.expectedWalletScope };
-    if (args.operation && args.checks)
+    if (args.operation) {
+      if (!args.checks) throw new EpochReviewChangedError();
       assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
+    }
     const {
       requestBytes,
       reclaimHeight,

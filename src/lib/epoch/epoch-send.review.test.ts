@@ -150,6 +150,7 @@ beforeEach(async () => {
     destinationChainId: chain.chainId,
     senderPublicKey: accounts.midenAccount,
     operation: { operationId: 'reviewed-epoch-send', review },
+    checks: { readCurrent: async () => input.operation!.review, now: () => now },
     deps: {
       signTransaction: jest.fn(),
       guardianProvider: {
@@ -211,6 +212,7 @@ function directNoteInput(): CreateBridgeP2IDENoteArgs {
     destinationNetwork: input.destinationChainId!,
     allocatorUrl: operation.review.route.recovery.config['bridge-providers'].epoch.allocatorUrl,
     operation,
+    checks: input.checks,
     reviewedOutput: {
       minimumOutputBaseUnits: '1000000000000000000',
       outputTokenAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
@@ -259,9 +261,16 @@ it('keeps account and collateral identifiers out of real note admission diagnost
 });
 
 it.each(['outer', 'direct'])('an unadmitted owned Epoch source refuses a missing live reader: %s', async caller => {
-  const outcome = caller === 'outer'
-    ? await bridgeEpochSend({ ...input, checks: undefined }).then(() => 'admitted', () => 'refused')
-    : await createBridgeP2IDENote({ ...directNoteInput(), checks: undefined }).then(result => result.success ? 'admitted' : 'refused', () => 'refused');
+  const outcome =
+    caller === 'outer'
+      ? await bridgeEpochSend({ ...input, checks: undefined }).then(
+          () => 'admitted',
+          () => 'refused'
+        )
+      : await createBridgeP2IDENote({ ...directNoteInput(), checks: undefined }).then(
+          result => (result.success ? 'admitted' : 'refused'),
+          () => 'refused'
+        );
   expect({ outcome, rows: await Repo.transactions.count() }).toEqual({ outcome: 'refused', rows: 0 });
 });
 
@@ -366,7 +375,7 @@ it('preserves configured native EVM output identity through the Command send ada
     destinationChainId: route.recovery.config.supportedEvmChains[route.destination.network]!.chainId,
     operation: { operationId: 'native-output-send', review }
   };
-  const result = await runEpochSend(input.operation!, input.deps);
+  const result = await runEpochSend(input.operation!, { ...input.deps, checks: input.checks });
   const row = await Repo.transactions.get(result.txId!);
   expect(row?.extraInputs.epochReviewedOutput).toEqual({
     minimumOutputBaseUnits: '1000000000000000000',
@@ -389,7 +398,7 @@ it('quotes the supported Command Miden-source direction without invented expiry 
 it('runs Command through the existing owned collateral controller, never an EVM source signature', async () => {
   const operation = input.operation;
   if (!operation) throw new Error('Missing accepted Command operation');
-  const result = await runEpochSend(operation, input.deps);
+  const result = await runEpochSend(operation, { ...input.deps, checks: input.checks });
   const row = await Repo.transactions.get(result.txId!);
   expect(row?.extraInputs.bridgeOperation?.operationId).toBe('reviewed-epoch-send');
   expect(row?.extraInputs.intentNonce).toBe('original-nonce');

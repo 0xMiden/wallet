@@ -661,8 +661,8 @@ export function createBridgeReceiveReconciler({
             }
           }
           await drive(txId);
-        } catch (error) {
-          console.error('[bridge-receive] deposit submission failed', error);
+        } catch {
+          console.error('[bridge-receive] deposit submission failed');
         }
       };
 

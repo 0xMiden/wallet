@@ -7,22 +7,22 @@ import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { sameAsset } from 'lib/bridge/core/assets';
+import type { TransferQuote } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type BridgeReviewContext, type ReviewedTransfer } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
 import { validateTransferAmount } from 'lib/bridge/core/rules';
-import type { TransferQuote } from 'lib/bridge/core/quote';
 import { submitReviewedBridge, walletBridgeBalanceCap } from 'lib/bridge/wallet-submit';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
 import { buildEpochWalletClient, getEvmConnection, switchWebWalletChain } from 'lib/epoch/client';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { EpochReviewChangedError } from 'lib/epoch/review-error';
-import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { WalletStatus } from 'lib/shared/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { useWalletStore } from 'lib/store';
 import { useQuoteClock } from 'lib/prices/use-quote-clock';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { WalletStatus } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 import { ensureNativeSessionChain } from 'lib/walletconnect/native';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
@@ -58,6 +58,7 @@ export function useCommandBridge() {
   );
   const selected = useRef(selection);
   const scopeRef = useRef(scope);
+  const scopeLifetime = useRef(0);
   const generation = useRef(0);
   const alive = useRef(true);
   const consent = useRef<ReviewedTransfer>();
@@ -77,17 +78,18 @@ export function useCommandBridge() {
   }, []);
   if (scopeRef.current !== scope) {
     scopeRef.current = scope;
+    scopeLifetime.current++;
     selected.current = { direction: 'in', route: '', amount: '', externalAccountId: '' };
     setSelection(selected.current);
     invalidate();
     setQuote(null);
     setOperationId(undefined);
   }
+  const lifetimeAtRender = scopeLifetime.current;
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
-      generation.current++;
       consent.current = undefined;
     };
   }, []);
@@ -124,7 +126,8 @@ export function useCommandBridge() {
     setQuote(null);
   }
   const change = (next: Partial<CommandDrafts['bridge']>) => {
-    if (pending.current || operationId) return;
+    if (!alive.current || scopeLifetime.current !== lifetimeAtRender || locked || pending.current || operationId)
+      return;
     invalidate();
     setQuote(null);
     selected.current = { ...selected.current, ...next };
