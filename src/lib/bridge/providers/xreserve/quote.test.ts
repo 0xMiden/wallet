@@ -122,6 +122,16 @@ it('refuses a paused executor or handler before quoting CCTP', async () => {
   );
   await expect(quoteXReserve(input, new AbortController().signal)).rejects.toThrow();
 });
+it('does not expose private RPC or request bytes when the live quote preflight fails', async () => {
+  const input = respond(false);
+  const privateData = 'https://private-rpc.example/?key=secret quote-request-bytes';
+  read.mockRejectedValueOnce(new Error(privateData));
+  const error: unknown = await quoteXReserve(input, new AbortController().signal).catch(cause => cause);
+  expect(error).toBeInstanceOf(Error);
+  expect(String(error)).not.toContain(privateData);
+  expect(error).not.toHaveProperty('cause');
+});
+
 it('does not offer a new owned CCTP capability without the published underlying messenger', async () => {
   const input = respond(true);
   const deposit = input.route.recovery.config.supportedEvmChains.sepolia?.bridges.usdcx?.deposit;
