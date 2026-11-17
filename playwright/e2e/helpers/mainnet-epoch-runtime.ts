@@ -21,6 +21,7 @@ import {
   type EpochForwardAuthority
 } from './mainnet-epoch-checkpoint';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
+import { observeEpochSolveFailure } from './mainnet-epoch-diagnostics';
 import {
   inspectEpochCollateralRequest,
   inspectEpochForwardQuote,
@@ -649,6 +650,7 @@ export async function runEpochReverse(
       }
     }
   });
+  const stopSolveFailure = observeEpochSolveFailure(wallet.page, path);
   try {
     await wallet.page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/bridge/deposit`);
     await counterparty.start();
@@ -693,6 +695,7 @@ export async function runEpochReverse(
     await persist();
     throw error;
   } finally {
+    stopSolveFailure();
     await counterparty.stop();
   }
 }
