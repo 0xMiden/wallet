@@ -210,7 +210,8 @@ export async function createBridgeP2IDENote(
     console.log('[epoch] bridge note created', { noteId, txHash: result.txHash });
     return { success: true, noteId, txId };
   } catch (err) {
-    if (spendingLimitAssessmentFromError(err) !== undefined) throw err;
+    if (spendingLimitAssessmentFromError(err) !== undefined || (!ownedTxId && err instanceof EpochReviewChangedError))
+      throw err;
     console.error('[epoch] createBridgeP2IDENote threw', err);
     return ownedTxId ? { success: false, txId: ownedTxId } : { success: false };
   }
