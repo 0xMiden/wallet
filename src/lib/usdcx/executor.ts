@@ -16,7 +16,7 @@ import type { OwnedUsdcxDeposit } from 'lib/bridge/providers/xreserve/ownership'
 import type { updateBridgedReceivePhase } from 'lib/miden/activity';
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
-import { CctpBurnQuote, fetchCctpBurnQuote } from './cctp';
+import { CctpBurnQuote, fetchCctpBurnQuote, validateCctpBurnQuote } from './cctp';
 import type { UsdcxExecutorSource, UsdcxExecutorTarget } from './constant';
 import {
   CCTP_EXECUTOR_HOOK_NAME,
@@ -361,10 +361,12 @@ export async function runUsdcxExecutorDeposit(
     }
   }
 
+  const burnArgs = buildDepositForBurnWithHookAndFeesArgs(source, intent, quote, depositor);
+  const deadline = original ? await validateCctpBurnQuote(source.domain, source.irisApi, burnArgs, quote) : undefined;
   await assertCurrent();
-  const burnHash = await signer.depositForBurnWithHookAndFees(
-    buildDepositForBurnWithHookAndFeesArgs(source, intent, quote, depositor)
-  );
+  if (deadline !== undefined && performance.now() >= deadline)
+    throw new UsdcxForwardQuoteUnavailableError('the reviewed quote expires before the burn can be signed');
+  const burnHash = await signer.depositForBurnWithHookAndFees(burnArgs);
   if (original && ownership) await ownership.recordUsdcxDepositHash(original, burnHash);
   await updatePhase(trackingTxId, 'submitting', {
     evmTxHash: burnHash,

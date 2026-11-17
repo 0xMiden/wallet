@@ -172,6 +172,9 @@ describe('fetchCctpBurnQuote', () => {
     fetchMock.mockResolvedValue(
       okResponse({
         signedQuote: '0x0102',
+        burnAmount: '4000000',
+        feeToken: options.feeToken,
+        issuedAt: 1791583910,
         feeTotalAmount: '31908',
         expiry: { mode: 'TIMESTAMP', expiresAt: 1791584030 }
       })
@@ -180,7 +183,9 @@ describe('fetchCctpBurnQuote', () => {
     await expect(fetchCctpBurnQuote(3, 26, options)).resolves.toEqual({
       signedQuote: '0x0102',
       feeTotalAmount: 31_908n,
-      expiresAt: 1791584030
+      expiresAt: 1791584030,
+      issuedAt: 1791583910,
+      expiry: { mode: 'TIMESTAMP', expiresAt: 1791584030 }
     });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${BASE_URL}/v2/quote/burn/usdc/3/26`);
@@ -196,7 +201,9 @@ describe('fetchCctpBurnQuote', () => {
   });
 
   it('asks for the forward fee only when fast is off', async () => {
-    fetchMock.mockResolvedValue(okResponse({ signedQuote: '0x0102', feeTotalAmount: '31388' }));
+    fetchMock.mockResolvedValue(okResponse({ signedQuote: '0x0102', feeTotalAmount: '31388',
+      burnAmount: '4000000', feeToken: options.feeToken, issuedAt: 1791583910,
+      expiry: { mode: 'TIMESTAMP', expiresAt: 1791584030 } }));
 
     await fetchCctpBurnQuote(3, 26, { ...options, fast: false });
 
@@ -205,7 +212,7 @@ describe('fetchCctpBurnQuote', () => {
     ]);
   });
 
-  it("surfaces Circle's refusal with its error code", async () => {
+  it('reports a Circle refusal without raw upstream text or codes', async () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 422,
@@ -215,7 +222,7 @@ describe('fetchCctpBurnQuote', () => {
     const error: unknown = await fetchCctpBurnQuote(3, 26, options).catch(caught => caught);
 
     expect(error).toBeInstanceOf(CctpQuoteRefusedError);
-    expect(error).toMatchObject({ errorCode: 'UNSUPPORTED_WORKFLOW', message: 'Handler is not configured for ARC' });
+    expect(error).toMatchObject({ errorCode: 'UNAVAILABLE', message: 'Circle quote unavailable' });
   });
 
   it('rejects a response without a signed quote', async () => {

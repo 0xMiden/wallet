@@ -1,6 +1,11 @@
-import { Address, Hash, Hex, isHash, isHex } from 'viem';
+import { Address, Hash, Hex, getAbiItem, isHash, isHex, toFunctionSignature } from 'viem';
 
+import { parseCircleQuote, parseCircleValidation, type CctpQuoteExpiry } from 'lib/bridge/providers/xreserve/cctp-schema';
+import { postCircleJson } from 'lib/bridge/providers/xreserve/circle-http';
 import type { IUsdcxCctpLeg } from 'lib/miden/db/types';
+
+import type { DepositForBurnWithHookAndFeesArgs } from './executor';
+import { TOKEN_MESSENGER_WITH_FEES_ABI } from './protocol';
 
 // Circle's API can accept the socket and then stay silent. Bound every request
 // so a poll tick fails and retries instead of hanging the status screen.
@@ -145,6 +150,8 @@ export interface CctpBurnQuote {
   feeTotalAmount: bigint;
   /** Unix seconds the quote stops being accepted, when Iris states one. About two minutes from issue. */
   expiresAt?: number;
+  issuedAt?: number;
+  expiry?: CctpQuoteExpiry;
 }
 
 export interface FetchCctpBurnQuoteOptions extends FetchCctpMessagesOptions {
@@ -170,12 +177,6 @@ export class CctpQuoteRefusedError extends Error {
   }
 }
 
-function readExpiry(value: unknown): number | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const expiresAt = Reflect.get(value, 'expiresAt');
-  return typeof expiresAt === 'number' && Number.isFinite(expiresAt) ? expiresAt : undefined;
-}
-
 /**
  * Ask Circle to price a burn through the fee entry point: a forward fee for executing the message on the
  * destination, and the fast-transfer fee when asked. The quote is bound to every value sent here and expires
@@ -194,34 +195,30 @@ export async function fetchCctpBurnQuote(
     fast
   }: FetchCctpBurnQuoteOptions
 ): Promise<CctpBurnQuote> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const requests: object[] = [{ type: 'FORWARD', params: { destinationCaller, hookData } }];
-    if (fast) requests.unshift({ type: 'PRE_FINALITY' });
-    const response = await fetch(`${baseUrl}/v2/quote/burn/usdc/${sourceDomain}/${destinationDomain}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ amount: amount.toString(), feeToken, requests }),
-      signal: controller.signal
-    });
-    const body: object | string | number | boolean | null = await response.json().catch(() => null);
-    const read = (key: string): unknown => (body && typeof body === 'object' ? Reflect.get(body, key) : undefined);
-    if (!response.ok) {
-      const errorCode = read('errorCode');
-      const error = read('error');
-      throw new CctpQuoteRefusedError(
-        typeof errorCode === 'string' ? errorCode : `HTTP_${response.status}`,
-        typeof error === 'string' ? error : `CCTP quote request failed: HTTP ${response.status}`
-      );
-    }
-    const signedQuote = read('signedQuote');
-    const feeTotalAmount = read('feeTotalAmount');
-    if (!isHex(signedQuote) || typeof feeTotalAmount !== 'string' || !/^\d+$/.test(feeTotalAmount)) {
-      throw new Error('CCTP quote response is missing the signed quote or the fee');
-    }
-    return { signedQuote, feeTotalAmount: BigInt(feeTotalAmount), expiresAt: readExpiry(read('expiry')) };
-  } finally {
-    clearTimeout(timer);
-  }
+  const requests: object[] = [{ type: 'FORWARD', params: { destinationCaller, hookData } }];
+  if (fast) requests.unshift({ type: 'PRE_FINALITY' });
+  const body = await postCircleJson(
+    `${baseUrl}/v2/quote/burn/usdc/${sourceDomain}/${destinationDomain}`,
+    { amount: amount.toString(), feeToken, requests },
+    timeoutMs
+  ).catch(() => {
+    throw new CctpQuoteRefusedError('UNAVAILABLE', 'Circle quote unavailable');
+  });
+  return parseCircleQuote(body, amount, feeToken);
+}
+
+/** The source-chain tip, not a device clock or block estimate, grants a bounded signing window. */
+export async function validateCctpBurnQuote(
+  sourceDomain: number, baseUrl: string, args: DepositForBurnWithHookAndFeesArgs, quote: CctpBurnQuote
+): Promise<number> {
+  const started = performance.now();
+  const method = getAbiItem({ abi: TOKEN_MESSENGER_WITH_FEES_ABI, name: 'depositForBurnWithHookAndFees' });
+  const body = await postCircleJson(`${baseUrl}/v2/quote/validate/usdc/${sourceDomain}`, {
+    abiSignature: toFunctionSignature(method),
+    args: [args[0].toString(), String(args[1]), args[2], args[3], args[4], args[5],
+      [args[6].signedQuote, args[6].refundAddress]]
+  });
+  const seconds = parseCircleValidation(body, quote, args[3]);
+  // Circle Bridge Kit requires more than 30 seconds against the source-chain tip.
+  return started + (seconds - 30) * 1000;
 }
