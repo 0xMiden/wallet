@@ -1,3 +1,5 @@
+import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+
 import {
   normalizeHex,
   parseSubmitEvidence,
@@ -8,6 +10,10 @@ import {
 
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
 const word = (value: string) => ({ toHex: () => value });
+const note = (id: string, noteType: NoteType = NoteType.Public) => ({
+  id: () => ({ toString: () => id }),
+  metadata: () => ({ noteType: () => noteType })
+});
 const header = (commitment: string, nonce: bigint) => ({
   to_commitment: () => word(commitment),
   nonce: () => ({ asInt: () => nonce })
@@ -18,7 +24,7 @@ const result = (overrides: Partial<ReturnType<EvidenceResult['executedTransactio
     id: () => word(hex(1)),
     initialAccountHeader: () => header(hex(2), 4n),
     finalAccountHeader: () => header(hex(3), 5n),
-    userOutputNotes: () => [{ id: () => ({ toString: () => hex(9) }) }],
+    userOutputNotes: () => [note(hex(9))],
     ...overrides
   })
 });
@@ -39,6 +45,7 @@ describe('readSubmitEvidence (#1081)', () => {
       finalCommitment: hex(3),
       initialNonce: '4',
       outputNoteIds: [hex(9)],
+      privateOutputNoteIds: [],
       nullifiers: [hex(7)],
       refBlock: 100,
       refBlockCommitment: hex(6),
@@ -70,7 +77,7 @@ describe('readSubmitEvidence (#1081)', () => {
     {
       field: "the result's final account header",
       arrange: (trap: WebAssembly.RuntimeError) => {
-        const userOutputNotes = jest.fn(() => [{ id: () => ({ toString: () => hex(9) }) }]);
+        const userOutputNotes = jest.fn(() => [note(hex(9))]);
         const nullifiers = jest.fn(() => [word(hex(7))]);
         return {
           result: result({
@@ -129,6 +136,38 @@ describe('readSubmitEvidence (#1081)', () => {
     expect(unreadable.outputNoteIds).toBeUndefined();
   });
 
+  // A landed execute that kept no read of its result owes these to its recipient, so they come off the same notes.
+  it('records the private user output notes apart from outputNoteIds, from one read of the notes', () => {
+    const userOutputNotes = jest.fn(() => [note(hex(0xa1)), note(hex(0xa2), NoteType.Private), note(hex(0xa3))]);
+
+    const evidence = readSubmitEvidence(result({ userOutputNotes }), proof(), () => true);
+
+    expect(evidence.outputNoteIds).toEqual([hex(0xa1), hex(0xa2), hex(0xa3)]);
+    expect(evidence.privateOutputNoteIds).toEqual([hex(0xa2)]);
+    expect(userOutputNotes).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a trap reading a note's type leave as itself, before any proof field is read", () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const nullifiers = jest.fn(() => [word(hex(7))]);
+    const trapping = {
+      ...note(hex(0xa2)),
+      metadata: () => {
+        throw trap;
+      }
+    };
+
+    let caught: unknown;
+    try {
+      readSubmitEvidence(result({ userOutputNotes: () => [trapping] }), proof({ nullifiers }), () => true);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBe(trap);
+    expect(nullifiers).not.toHaveBeenCalled();
+  });
+
   it('keeps an expiration only inside the range a delta can produce', () => {
     expect(
       readSubmitEvidence(result(), proof({ expirationBlockNumber: () => 100 }), () => true).expirationBlock
@@ -155,7 +194,7 @@ describe('readSubmitEvidence (#1081)', () => {
         id: () => word(upper(0xa1)),
         initialAccountHeader: () => header(upper(0xa2), 4n),
         finalAccountHeader: () => header(upper(0xa3), 5n),
-        userOutputNotes: () => [{ id: () => ({ toString: () => upper(0xb9) }) }]
+        userOutputNotes: () => [note(upper(0xb9), NoteType.Private)]
       }),
       proof({ nullifiers: () => [word(upper(0xc7))], refBlockCommitment: () => word(upper(0xd6)) }),
       () => true
@@ -164,6 +203,7 @@ describe('readSubmitEvidence (#1081)', () => {
     expect(evidence.initialCommitment).toBe(hex(0xa2));
     expect(evidence.finalCommitment).toBe(hex(0xa3));
     expect(evidence.outputNoteIds).toEqual([hex(0xb9)]);
+    expect(evidence.privateOutputNoteIds).toEqual([hex(0xb9)]);
     expect(evidence.nullifiers).toEqual([hex(0xc7)]);
     expect(evidence.refBlockCommitment).toBe(hex(0xd6));
   });
@@ -244,6 +284,18 @@ describe('parseSubmitEvidence (#1081)', () => {
     ['a short note id', { orderId: '42', orderNoteId: '0x12' }]
   ])('drops %s and keeps the rest of the evidence', (_label, order) => {
     expect(parseSubmitEvidence({ ...valid, ...order })).toEqual(valid);
+  });
+
+  // Read with outputNoteIds off the same notes, so a list that is not part of them is not that read.
+  it('keeps privateOutputNoteIds that are part of outputNoteIds, lower-cased, and a known empty one', () => {
+    const outputNoteIds = [hex(9), hex(0xab)];
+    const privateNote = hex(0xab).toUpperCase().replace('0X', '0x');
+    expect(parseSubmitEvidence({ ...valid, outputNoteIds, privateOutputNoteIds: [privateNote] })).toEqual({
+      ...valid,
+      outputNoteIds,
+      privateOutputNoteIds: [hex(0xab)]
+    });
+    expect(parseSubmitEvidence({ ...valid, privateOutputNoteIds: [] })).toEqual({ ...valid, privateOutputNoteIds: [] });
   });
 
   it('normalizeHex lower-cases', () => {

@@ -1,6 +1,8 @@
 // What an attempt's leaf reads off its executed and proven transaction immediately before it submits (#1081), and
 // the service worker's parser for the copy that crosses the offscreen bus. Synchronous and total but for a trap: each
 // field is read in its own try, and an unreadable field is left out, which only keeps the entry from being provable.
+import type { NoteType } from '@miden-sdk/miden-sdk/lazy';
+
 import { landedOrderFacts } from './sdk-error-code';
 import { isWasmTrap } from './wasm-handle';
 import type { SubmitEvidenceFields } from '../db/types';
@@ -27,7 +29,7 @@ export interface EvidenceResult {
     id(): { toHex(): string };
     initialAccountHeader(): EvidenceHeader;
     finalAccountHeader(): EvidenceHeader;
-    userOutputNotes(): { id(): { toString(): string } }[];
+    userOutputNotes(): { id(): { toString(): string }; metadata(): { noteType(): NoteType } }[];
   };
 }
 

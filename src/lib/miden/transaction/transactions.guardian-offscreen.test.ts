@@ -3832,6 +3832,47 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(noteDeliveryWriteCount()).toBe(writes);
   });
 
+  // An execute's gate also recorded which of its notes are private: those, not its public ones, are what the
+  // recipient its row names is owed.
+  const appliedExecuteNote = `0x${'7a'.repeat(32)}`;
+  const privateExecute = { type: 'execute', requestBytes: new Uint8Array([2, 2]), secondaryAccountId: 'recipient' };
+
+  it('execute: a landed reply after a serialize trap that followed the apply owes the private notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate(
+      {
+        transactionId: appliedSendTxId,
+        outputNoteIds: [appliedExecuteNote, appliedSendNote],
+        privateOutputNoteIds: [appliedSendNote]
+      },
+      { applied: true }
+    );
+    const { service } = arrange('serialize-trap-private-execute', privateExecute);
+    const writes = noteDeliveryWriteCount();
+    const landing = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      buildTx('serialize-trap-private-execute', privateExecute) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'serialize-trap-private-execute')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [appliedSendNote],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(finalRow.relayAttempts).toBeUndefined();
+    expect(finalRow.nextRelayAt).toBeUndefined();
+    expect(finalRow.completedAt).toBeGreaterThanOrEqual(landing);
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+  });
+
   // The offscreen leaf resolves only after its apply, so a tail that fails after it leaves the notes its gate recorded
   // in the store, owed as after a serialize trap.
   it('send: a tail that fails after a resolved offscreen leaf owes the notes its gate recorded', async () => {

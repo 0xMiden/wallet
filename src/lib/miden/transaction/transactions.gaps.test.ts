@@ -1692,6 +1692,57 @@ describe('a throw after the leaf resolved', () => {
     });
   });
 
+  // The same holds for an execute, whose stamp also names which of its notes are private: those are what its row's
+  // recipient is owed, and the sweep re-pushes them by id.
+  it("a loop execute whose result traps at its first read owes the private notes its submitting stamp named to its row's recipient", async () => {
+    const id = 'tx-tail-execute-first-read-trap';
+    queuedExecute(id, { secondaryAccountId: 'recipient' });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const publicNote = `0x${'7a'.repeat(32)}`;
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const result = {
+      executedTransaction: () => {
+        throw trap;
+      },
+      serialize: () => new Uint8Array([])
+    };
+    const newTransaction = jest.fn(
+      async (
+        _accountId: unknown,
+        _requestBytes: unknown,
+        _delegate: unknown,
+        onStage?: (stage: string, detail?: { evidence?: unknown }) => Promise<void>
+      ) => {
+        await onStage?.('submitting', {
+          evidence: {
+            transactionId: `0x${'cd'.repeat(32)}`,
+            outputNoteIds: [publicNote, owed],
+            privateOutputNoteIds: [owed]
+          }
+        });
+        return result;
+      }
+    );
+    try {
+      await runLoopAgainst({ newTransaction });
+    } finally {
+      restore();
+    }
+
+    expect(newTransaction).toHaveBeenCalledTimes(1);
+    expect(retire.mock.calls).toEqual([[trap, id]]);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [owed],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(row.outputNoteIds).toBeUndefined();
+  });
+
   it('a loop epoch bridged-send that is already Failed still records the landed id', async () => {
     const id = 'tx-tail-epoch-already-failed';
     queuedRow(id, {

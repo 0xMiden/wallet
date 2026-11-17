@@ -77,6 +77,7 @@ import {
   storedNoteIds
 } from './helper';
 import {
+  completeCustomTransaction,
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwitchGuardianTransaction,
@@ -16253,15 +16254,19 @@ describe('generateTransaction - Guardian routing', () => {
     // notes in the store under the ids its landing stamp named, so a note still owed after a failed read is the sweep's.
     describe('a delivery record survives a failed result read', () => {
       const OWED_NOTE = `0x${'5e'.repeat(32)}`;
+      const PUBLIC_NOTE = `0x${'7a'.repeat(32)}`;
       // Reads answer until the leaf's apply, its last await, resolves; from then the `trapping` read throws `trap`. The
-      // landing stamp names the notes in `stamped`, or none when it is left out.
+      // landing stamp names the notes in `stamped`, or none when it is left out, and reads their types only when
+      // `privateStamped` names which of them are private.
       const armedResult = ({
         notes,
         stamped,
+        privateStamped,
         trapping
       }: {
         notes: object[];
         stamped?: string[];
+        privateStamped?: string[];
         trapping: 'id' | 'executedTransaction';
       }) => {
         const trap = new WebAssembly.RuntimeError('unreachable');
@@ -16276,7 +16281,19 @@ describe('generateTransaction - Guardian routing', () => {
           inputNotes: () => ({ notes: () => [] }),
           ...(stamped === undefined
             ? {}
-            : { userOutputNotes: () => stamped.map(id => ({ id: () => ({ toString: () => id }) })) })
+            : {
+                userOutputNotes: () =>
+                  stamped.map(id => ({
+                    id: () => ({ toString: () => id }),
+                    ...(privateStamped === undefined
+                      ? {}
+                      : {
+                          metadata: () => ({
+                            noteType: () => (privateStamped.includes(id) ? NoteType.Private : NoteType.Public)
+                          })
+                        })
+                  }))
+              })
         };
         const result = {
           executedTransaction: () => {
@@ -16454,6 +16471,103 @@ describe('generateTransaction - Guardian routing', () => {
           const before = reads.executedTransaction;
           await expect(completeSendTransaction(row as never, result as never)).rejects.toBe(trap);
           expect(reads.executedTransaction).toBe(before + 1);
+        } finally {
+          quiet();
+          restore();
+        }
+      });
+
+      // The stamp read the private notes off the executed transaction the leaf then submitted and applied, so an execute
+      // whose result traps at the tail's first read still owes exactly those, to the recipient its row names.
+      it("a Guardian execute whose result traps at its first read owes the private notes its landing stamp named to its row's recipient, and a due sweep pushes only those", async () => {
+        const txId = 'guardian-execute-first-read-owes';
+        const retire = jest.fn();
+        const restore = installLandedTrapRetirement(retire);
+        const { trap, result, apply, reads } = armedResult({
+          notes: [fixtureNote(PUBLIC_NOTE, NoteType.Public), fixtureNote(OWED_NOTE, NoteType.Private)],
+          stamped: [PUBLIC_NOTE, OWED_NOTE],
+          privateStamped: [OWED_NOTE],
+          trapping: 'executedTransaction'
+        });
+        const client = sweepClient(result, apply);
+        client.relayPrivateNoteById.mockRejectedValueOnce(new Error('output note has no inclusion proof'));
+        const writes = noteDeliveryWriteCount();
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            executeRow(txId),
+            { result, replace: () => {}, log: [] },
+            executeProposal(),
+            client
+          );
+
+          expect(retire.mock.calls).toEqual([[trap, txId]]);
+          expect(row).toMatchObject({
+            status: ITransactionStatus.Completed,
+            relayNoteIds: [OWED_NOTE],
+            relayRecipientId: 'recipient',
+            noteDelivery: 'undelivered',
+            displayMessage: 'Executed - a private note could not be delivered'
+          });
+          // The root would make the sweep owe the public note too.
+          expect(row.outputNoteIds).toBeUndefined();
+          expect(noteDeliveryWriteCount()).toBe(writes + 1);
+          expect(client.sendPrivateNote).not.toHaveBeenCalled();
+          expect(currentHold).toBeNull();
+
+          const landing = Math.floor(Date.now() / 1000);
+          await sweepAt(landing);
+          expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+          await sweepAt(landing + 10 * 60);
+          expect(row.noteDelivery).toBe('undelivered');
+          expect(storedNoteIds(row.relayAckedNoteIds)).toEqual([]);
+          await sweepAt(landing + 30 * 60);
+          expect(client.relayPrivateNoteById.mock.calls).toEqual([
+            [OWED_NOTE, 'recipient'],
+            [OWED_NOTE, 'recipient']
+          ]);
+          expect(row).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [OWED_NOTE] });
+
+          // The tail forgot its read, so a later completion of the same result reads it afresh.
+          const before = reads.executedTransaction;
+          await expect(completeCustomTransaction(row as never, result as never)).rejects.toBe(trap);
+          expect(reads.executedTransaction).toBe(before + 1);
+        } finally {
+          quiet();
+          restore();
+        }
+      });
+
+      it('a Guardian execute whose result traps at its first read owes nothing when its landing stamp proves only public notes, and reads Executed', async () => {
+        const restore = installLandedTrapRetirement(jest.fn());
+        const { result, apply } = armedResult({
+          notes: [fixtureNote(PUBLIC_NOTE, NoteType.Public)],
+          stamped: [PUBLIC_NOTE],
+          privateStamped: [],
+          trapping: 'executedTransaction'
+        });
+        const client = sweepClient(result, apply);
+        const writes = noteDeliveryWriteCount();
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            executeRow('guardian-execute-first-read-public'),
+            { result, replace: () => {}, log: [] },
+            executeProposal(),
+            client
+          );
+
+          expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Executed' });
+          expect(row.noteDelivery).toBeUndefined();
+          expect(row.relayNoteIds).toBeUndefined();
+          expect(row.outputNoteIds).toBeUndefined();
+          expect(noteDeliveryWriteCount()).toBe(writes);
+          const landing = Math.floor(Date.now() / 1000);
+          await sweepAt(landing);
+          await sweepAt(landing + 10 * 60);
+          expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
         } finally {
           quiet();
           restore();

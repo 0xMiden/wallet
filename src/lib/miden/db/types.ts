@@ -87,6 +87,9 @@ export interface ISubmitEvidence {
   finalCommitment?: string;
   initialNonce?: string; // decimal
   outputNoteIds?: string[]; // user output notes; [] when known empty
+  // The private ones among `outputNoteIds`, read with them off the same notes; [] when known none. An applied execute's
+  // landing that kept no read of its result owes these to the row's recipient.
+  privateOutputNoteIds?: string[];
   nullifiers?: string[]; // [] when known empty
   refBlock?: number;
   refBlockCommitment?: string; // the network identity
@@ -122,6 +125,7 @@ export type SubmitEvidenceFields = Pick<
   | 'finalCommitment'
   | 'initialNonce'
   | 'outputNoteIds'
+  | 'privateOutputNoteIds'
   | 'nullifiers'
   | 'refBlock'
   | 'refBlockCommitment'
