@@ -5,16 +5,22 @@ import { useClaimCheckInvalidNoteIds } from 'app/hooks/useClaimNotes';
 import { historyEntryUnreadKey, pendingNoteUnreadKey } from 'app/templates/history/activityUnread';
 import { suppressLinkedConsumes } from 'app/templates/history/History';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
-import { CompletedHistoryCursor, getCompletedTransactionsPage, getUncompletedTransactions } from 'lib/miden/activity';
+import {
+  compareCompletedHistory,
+  CompletedHistoryCursor,
+  getCompletedTransactionsPage,
+  getUncompletedTransactions,
+  historyCursorOf
+} from 'lib/miden/activity';
 import { ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
 import { useManuallyClaimableNotes } from 'lib/miden/front/auto-managed-notes';
 import { isActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 
 /**
- * How many of the account's completed and failed rows count.
+ * How many of the account's completed, failed and unconfirmed rows count.
  *
- * Read completed history in batches until this many visible rows are found.
+ * Keep this many visible rows in History order, including ties across raw pages.
  * Every queued or running row counts, regardless of its age.
  */
 const RECENT_ROWS = 50;
@@ -24,15 +30,19 @@ interface RecentRow {
   timestamp: number;
 }
 
+interface RecentCompletedRow extends RecentRow {
+  order: CompletedHistoryCursor;
+}
+
 const toRecentRow = (row: ITransaction, timestamp: number): RecentRow => ({
   id: historyEntryUnreadKey({ key: row.id, txId: row.id }),
   timestamp
 });
 
 async function readRecentCompletedRows(address: string): Promise<RecentRow[]> {
-  const recent: RecentRow[] = [];
+  const recent: RecentCompletedRow[] = [];
   let cursor: CompletedHistoryCursor | null = null;
-  while (recent.length < RECENT_ROWS) {
+  for (;;) {
     const page = await getCompletedTransactionsPage({
       accountId: address,
       includeFailed: true,
@@ -40,9 +50,19 @@ async function readRecentCompletedRows(address: string): Promise<RecentRow[]> {
       cursor
     });
     const visible = await suppressLinkedConsumes(page.transactions);
-    recent.push(
-      ...visible.slice(0, RECENT_ROWS - recent.length).map(row => toRecentRow(row, row.completedAt ?? row.initiatedAt))
-    );
+    for (const row of page.transactions) {
+      const order = historyCursorOf(row);
+      const boundary = recent[RECENT_ROWS - 1];
+      // Page order differs within a timestamp, so finish every tie at the window boundary.
+      if (boundary && order.effectiveTimestamp < boundary.order.effectiveTimestamp) {
+        return recent;
+      }
+      if (!visible.includes(row)) continue;
+      const candidate = { ...toRecentRow(row, row.completedAt ?? row.initiatedAt), order };
+      const index = recent.findIndex(other => compareCompletedHistory(candidate.order, other.order) > 0);
+      recent.splice(index === -1 ? recent.length : index, 0, candidate);
+      if (recent.length > RECENT_ROWS) recent.pop();
+    }
     if (!page.hasMore || page.nextCursor === null) break;
     cursor = page.nextCursor;
   }

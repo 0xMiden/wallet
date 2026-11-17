@@ -265,6 +265,35 @@ describe('useHasUnreadActivity - the account feed rows', () => {
     await transactions.add(tx('new', { completedAt: 500 }));
     await waitFor(() => expect(result.current).toBe(true));
   });
+
+  it.each([ITransactionStatus.Failed, ITransactionStatus.Unconfirmed])(
+    'keeps the unread status-ranked row at a timestamp boundary (%s)',
+    async status => {
+      const read = Array.from({ length: 50 }, (_, i) => tx(`z-${String(i).padStart(3, '0')}`, { completedAt: 500 }));
+      await transactions.bulkAdd([...read, tx('a-unread', { status, completedAt: 500 })]);
+      setRead(...read.map(row => txKey(row.id)));
+      expect((await renderUnread()).current).toBe(true);
+    }
+  );
+
+  it('keeps the newest initiated failure at a timestamp boundary', async () => {
+    const read = Array.from({ length: 50 }, (_, i) =>
+      tx(`z-${String(i).padStart(3, '0')}`, { status: ITransactionStatus.Failed, completedAt: 500 })
+    );
+    await transactions.bulkAdd([
+      ...read,
+      tx('a-unread', { status: ITransactionStatus.Failed, initiatedAt: 200, completedAt: 500 })
+    ]);
+    setRead(...read.map(row => txKey(row.id)));
+    expect((await renderUnread()).current).toBe(true);
+  });
+
+  it('excludes the lower-ranked row outside the tied recent window', async () => {
+    const completed = Array.from({ length: 50 }, (_, i) => tx(`z-${String(i).padStart(3, '0')}`, { completedAt: 500 }));
+    await transactions.bulkAdd([...completed, tx('a-read', { status: ITransactionStatus.Failed, completedAt: 500 })]);
+    setRead(txKey('a-read'), ...completed.slice(1).map(row => txKey(row.id)));
+    expect((await renderUnread()).current).toBe(false);
+  });
 });
 
 describe('useHasUnreadActivity - transfers the claim check found unavailable', () => {
