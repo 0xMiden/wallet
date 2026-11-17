@@ -1,0 +1,62 @@
+name: Format frozen release 1.18 candidate
+on:
+  push:
+    branches: [ci/release-118-format]
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: fa4f1567b0a5cdb52b48cb9b0fed964e3080b47b
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Format only the candidate's changed files with the locked formatter
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = fa4f1567b0a5cdb52b48cb9b0fed964e3080b47b
+          npm view prettier@3.8.4 dist.integrity | grep -Fx 'sha512-N2MylSdi48+5N/6S5j+maeHbUSIzzZ5uOcX5Hm4QpV8Dkb1HFjfAKTKX6yNPJQD9AhcT3ifHNB66tWTTJDi11Q=='
+          git diff-tree --no-commit-id --diff-filter=AM --name-only -r HEAD > "$RUNNER_TEMP/format-paths"
+          xargs -r -d '\n' npx --yes prettier@3.8.4 --write < "$RUNNER_TEMP/format-paths"
+          git diff -- > formatting.patch
+      - name: Export exact unique edits and independently check reconstruction
+        run: |
+          python3 - <<'PY'
+          import difflib, hashlib, json, pathlib, subprocess
+          base = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          paths = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          files = []
+          for path in paths:
+              before = subprocess.check_output(['git', 'show', f'HEAD:{path}'], text=True)
+              after = pathlib.Path(path).read_text()
+              a, b = before.splitlines(True), after.splitlines(True)
+              for context in range(2, 21):
+                  groups = list(difflib.SequenceMatcher(None, a, b, autojunk=False).get_grouped_opcodes(context))
+                  edits = [{'oldText': ''.join(a[g[0][1]:g[-1][2]]), 'newText': ''.join(b[g[0][3]:g[-1][4]])} for g in groups]
+                  if all(e['oldText'] and before.count(e['oldText']) == 1 for e in edits):
+                      break
+              else:
+                  raise AssertionError(f'nonunique formatting context: {path}')
+              rebuilt = before
+              for e in reversed(edits):
+                  rebuilt = rebuilt.replace(e['oldText'], e['newText'], 1)
+              assert rebuilt == after, path
+              files.append({'path': path, 'edits': edits, 'sha256': hashlib.sha256(after.encode()).hexdigest()})
+          assert files, 'formatter produced no patch'
+          pathlib.Path('formatting-edits.json').write_text(json.dumps({'base': base, 'files': files}, indent=2) + '\n')
+          print(f'Exact formatter patch: {len(files)} files; reconstruction assertions passed')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-118-format-patch
+          path: |
+            formatting.patch
+            formatting-edits.json
+          if-no-files-found: error
+          retention-days: 7
