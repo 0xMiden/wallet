@@ -43,7 +43,7 @@ export interface AgglayerDeposit {
    */
   claim_tx_hash?: string;
   metadata: string;
-  ready_for_claim: boolean;
+  ready_for_claim?: boolean;
   /** Newer bridge indexers expose the same terminal signal under this name. */
   ready_to_claim?: boolean;
   /** Some deployments expose finality separately from claim readiness. */

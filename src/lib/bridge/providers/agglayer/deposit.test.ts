@@ -187,8 +187,10 @@ beforeEach(async () => {
   rpc.waitForTransactionReceipt.mockImplementation(async ({ hash }) => {
     const tx = sourceTransactions.get(hash);
     if (!tx) throw new Error('Unmodelled receipt');
-    const decoded = decodeFunctionData({ abi: erc20Abi, data: tx.input });
-    if (decoded.functionName === 'approve') allowance = decoded.args[1];
+    if (tx.input.startsWith('0x095ea7b3')) {
+      const decoded = decodeFunctionData({ abi: erc20Abi, data: tx.input });
+      if (decoded.functionName === 'approve') allowance = decoded.args[1];
+    }
     return { status: 'success', transactionHash: hash };
   });
   wallet.mockImplementation(async ({ method, params }) => {
@@ -294,7 +296,8 @@ it('allows a distinct fresh operation after independently verified mined cancell
   rpc.waitForTransactionReceipt.mockImplementationOnce(async ({ onReplaced }) => {
     const original = sourceTransactions.get(resetHash);
     if (!original) throw new Error('Missing original reset');
-    const replacement = { ...original, hash: `0x${'e'.repeat(64)}`, to: accounts.evmAddress, input: '0x', value: 0n };
+    const replacement: SourceRpcTransaction = { ...original, hash: `0x${'e'.repeat(64)}`, to: `0x${accounts.evmAddress.slice(2)}`, input: '0x', value: 0n };
+    sourceTransactions.set(replacement.hash, replacement);
     onReplaced({ reason: 'cancelled', transaction: replacement });
     return { status: 'success', transactionHash: replacement.hash };
   });
@@ -307,6 +310,10 @@ it('allows a distinct fresh operation after independently verified mined cancell
   expect(original?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
   expect(original?.extraInputs.bridgeOperation?.approvals?.[1]?.replacementReason).toBe('cancelled');
   expect(original?.extraInputs.evmTxHash).toBeUndefined();
+  const later = await drive(reviewAmount('1'), 'another-fresh-operation');
+  expect(later.error).toBeUndefined();
+  expect(later.row?.extraInputs.evmTxHash).toBe(`0x${'d'.repeat(64)}`);
+  expect((await Repo.transactions.get(old.id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
 });
 
 it('keeps a verified non-reducing approval sufficient-allowance fast path for a separately reviewed operation', async () => {
@@ -538,6 +545,31 @@ it.each(['account', 'chain', 'rpc'])(
   }
 );
 
+it.each(['revision', 'operation', 'review'])('does not adopt a changed %s after an asynchronous gas estimate or demote its owner', async changed => {
+  rpc.estimateGas.mockImplementationOnce(async () => {
+    const row = (await Repo.transactions.toArray())[0];
+    if (!row) throw new Error('Missing claimed row');
+    if (changed === 'revision') await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.revision': 'another-owner' });
+    if (changed === 'operation') await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.operationId': 'another-operation' });
+    if (changed === 'review') await Repo.transactions.update(row.id, { 'extraInputs.bridgeOperation.review.amount': '2' });
+    return 100000n;
+  });
+  const { error, row } = await drive();
+  expect(error).toBeInstanceOf(Error);
+  expect(signed).toHaveLength(0);
+  expect(row?.extraInputs.phase).toBe('submitting');
+  expect(row?.extraInputs.evmTxHash).toBeUndefined();
+  if (changed === 'revision' || changed === 'operation') expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('running');
+});
+
+it.each([0n, -1n])('keeps the exact native deposit plus buffered gas reserve boundary (offset=%s)', async offset => {
+  rpc.getBalance.mockResolvedValue(1000000000012000000n + offset);
+  const { error } = await drive(nativeReview());
+  expect(signed).toHaveLength(offset === 0n ? 1 : 0);
+  if (offset === 0n) expect(error).toBeUndefined();
+  else expect(error).toBeInstanceOf(Error);
+});
+
 it('refuses a false-return approval without a signature', async () => {
   rpc.call.mockResolvedValue({ data: `0x${'0'.repeat(64)}` });
   const { error } = await drive();
@@ -739,7 +771,7 @@ it('recovers an approval cancellation through the existing tracker after departu
   expect(signed).toHaveLength(1);
 });
 
-it.each(['valid', 'recipient', 'token', 'network', 'amount'])(
+it.each(['valid', 'recipient', 'token', 'network', 'amount', 'finality-false', 'finality-only', 'contradictory', 'claimed'])(
   'separates source receipt from exact %s destination observation and local consumption',
   async field => {
     const { id, error } = await drive();
@@ -755,15 +787,17 @@ it.each(['valid', 'recipient', 'token', 'network', 'amount'])(
       deposit_cnt: 42,
       network_id: 0,
       tx_hash: depositHash,
-      claim_tx_hash: '',
+      claim_tx_hash: field === 'claimed' ? `0x${'e'.repeat(64)}` : '',
       metadata: '0x',
-      ready_for_claim: true,
+      ready_for_claim: field === 'finality-only' ? undefined : field === 'finality-false' || field === 'claimed' ? false : true,
+      ready_to_claim: field === 'contradictory' ? false : undefined,
+      finalized: field === 'finality-false' || field === 'finality-only',
       global_index: '42'
     };
     jest.mocked(fetchDeposits).mockResolvedValueOnce([deposit]);
     await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
     const row = await Repo.transactions.get(id);
-    expect(row?.extraInputs.phase).toBe(field === 'valid' ? 'ready' : 'delivering');
+    expect(row?.extraInputs.phase).toBe(field === 'valid' || field === 'claimed' ? 'ready' : 'delivering');
     expect(row?.extraInputs.phase).not.toBe('received');
     expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
   }

@@ -241,6 +241,31 @@ it('enriches a saved approval hash with its verified own call, preserving facts 
   expect(await snapshot(id)).toEqual(original);
 });
 
+it('refuses conflicting approval base facts and invented original lineage without changing the known hash', async () => {
+  const { id, operation, approval, transaction } = await claimedApprovalFixture();
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);
+  const before = await snapshot(id);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, amount: '2' })).toBe(false);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, spender: `0x${'9'.repeat(40)}` })).toBe(false);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction, originalTransaction: { ...transaction, hash: `0x${'8'.repeat(64)}` }, replacementReason: 'repriced' })).toBe(false);
+  expect(await snapshot(id)).toEqual(before);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction })).toBe(true);
+  const verified = await snapshot(id);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction: { ...transaction, nonce: 12 } })).toBe(false);
+  expect(await snapshot(id)).toEqual(verified);
+});
+
+it.each(['restored', 'recovered', 'stale'])('does not enrich approval history for a %s owner', async kind => {
+  const { id, operation, approval, transaction } = await claimedApprovalFixture();
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);
+  if (kind === 'restored') await Repo.transactions.update(id, { restoredFromBackup: true });
+  if (kind === 'recovered') await Repo.transactions.update(id, { recovered: true });
+  if (kind === 'stale') await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.revision': 'another-revision' });
+  const before = await Repo.transactions.get(id);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction })).toBe(false);
+  expect(await Repo.transactions.get(id)).toEqual(before);
+});
+
 it('atomically coalesces only the same reviewed operation and generates its revision at admission', async () => {
   const ids = await Promise.all([admit(), admit()]);
   expect(ids[0]).toBe(ids[1]);

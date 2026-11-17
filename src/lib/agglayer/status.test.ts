@@ -32,13 +32,19 @@ const deposit = (overrides: Record<string, unknown>) =>
 describe('isAgglayerDepositReady', () => {
   it.each([
     { ready_for_claim: true },
-    { ready_to_claim: true },
-    { finalized: true },
-    { finalised: true },
-    { status: 'READY_TO_CLAIM' },
-    { status: 'finalised' }
-  ])('accepts a terminal AggLayer signal: %p', signal => {
+    { ready_for_claim: undefined, ready_to_claim: true },
+    { ready_for_claim: undefined, status: 'READY_TO_CLAIM' }
+  ])('accepts an explicit destination-ready signal: %p', signal => {
     expect(isAgglayerDepositReady(deposit(signal))).toBe(true);
+  });
+
+  it.each([
+    { finalized: true }, { finalised: true }, { status: 'finalized' }, { status: 'finalised' },
+    { ready_for_claim: undefined, finalized: true }, { ready_for_claim: undefined, status: 'finalized' },
+    { ready_for_claim: true, ready_to_claim: false }, { ready_for_claim: false, ready_to_claim: true },
+    { ready_for_claim: false, status: 'READY_TO_CLAIM' }
+  ])('does not promote source finality or contradictory readiness: %p', signal => {
+    expect(isAgglayerDepositReady(deposit(signal))).toBe(false);
   });
 
   it.each(['ready_for_claim', 'ready_to_claim', 'finalized', 'finalised'])(
