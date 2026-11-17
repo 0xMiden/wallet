@@ -61,7 +61,8 @@ export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) =
   if (entry.message === 'Transaction failed') {
     return t('transactionFailedNotificationTitle');
   }
-  if (entry.revokedSignerCommitment) return t('deviceRevoked');
+  // Only a revocation that took effect: a cancelled or unconfirmed one keeps its own message.
+  if (entry.revokedSignerCommitment && !entry.isCancelled && !entry.isUnconfirmed) return t('deviceRevoked');
   if (entry.guardianRecovered) {
     return t(
       guardianRecoveredActionKey(entry.txType, { reclaimed: entry.guardianReclaimed, hotKeyAdded: entry.hotKeyAdded })

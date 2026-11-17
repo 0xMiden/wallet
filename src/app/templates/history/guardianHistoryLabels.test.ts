@@ -73,6 +73,24 @@ describe('guardianHistoryActionKey', () => {
 });
 
 describe('historyEntryActionTitle', () => {
+  const revoked = { txType: 'replace-hot-key' as const, revokedSignerCommitment: `0x${'ab'.repeat(32)}` };
+
+  it('titles a revocation that took effect as a revoked device', () => {
+    expect(historyEntryActionTitle(entry({ ...revoked, message: 'Revoke device' }), t)).toBe('[deviceRevoked]');
+  });
+
+  it('keeps the stored message of a cancelled revocation: no device was revoked', () => {
+    expect(historyEntryActionTitle(entry({ ...revoked, message: 'Cancelled', isCancelled: true }), t)).toBe(
+      'Cancelled'
+    );
+  });
+
+  it('keeps the stored message of a revocation whose outcome is not known yet', () => {
+    expect(historyEntryActionTitle(entry({ ...revoked, message: 'Revoke device', isUnconfirmed: true }), t)).toBe(
+      'Revoke device'
+    );
+  });
+
   it('shows the failed title for a failed row, before every other rule', () => {
     const failed = entry({
       message: 'Transaction failed',
