@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { useAppKitNetwork, useDisconnect } from '@reown/appkit/react';
 import { isAddress } from 'viem';
@@ -9,7 +9,7 @@ import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { sameAsset } from 'lib/bridge/core/assets';
 import type { TransferQuote } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type BridgeReviewContext, type ReviewedTransfer } from 'lib/bridge/core/review';
-import { configKey } from 'lib/bridge/core/routes';
+import { configKey, type BridgeRoute } from 'lib/bridge/core/routes';
 import { validateTransferAmount } from 'lib/bridge/core/rules';
 import { submitReviewedBridge, walletBridgeBalanceCap } from 'lib/bridge/wallet-submit';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
@@ -17,23 +17,31 @@ import { buildEpochWalletClient, getEvmConnection, switchWebWalletChain } from '
 import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { isCurrentUsdcxFeeBudget } from 'lib/usdcx/sponsorship';
+import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { ensureNativeSessionChain } from 'lib/walletconnect/native';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
 import { type CommandDrafts, useCommandDrafts } from '../command-drafts';
+
+function defaultBridgeRoute(routes: readonly BridgeRoute[]): BridgeRoute | undefined {
+  return routes.find(item => !(item.provider === 'epoch' && item.mode === 'receive')) ?? routes[0];
+}
 
 export function useCommandBridge() {
   const drafts = useCommandDrafts();
   const account = useWalletStore(state => state.currentAccount);
   const { locked, signTransaction } = useMidenContext();
   const snapshot = useBridgeConfigSnapshot();
-  useNativeFeeFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const metadata = useAllTokensBaseMetadata();
   useAllBalances(account?.publicKey ?? '', metadata);
   // Subscribe through the existing balance/price owners; submission rereads these same authoritative snapshots.
@@ -61,6 +69,7 @@ export function useCommandBridge() {
       }
   );
   const selected = useRef(selection);
+  const normalizedDraft = useRef<CommandDrafts['bridge']>();
   const scopeRef = useRef(scope);
   const scopeLifetime = useRef(0);
   const generation = useRef(0);
@@ -83,6 +92,7 @@ export function useCommandBridge() {
   if (scopeRef.current !== scope) {
     scopeRef.current = scope;
     scopeLifetime.current++;
+    normalizedDraft.current = undefined;
     selected.current = { direction: 'in', route: '', amount: '', externalAccountId: '' };
     setSelection(selected.current);
     invalidate();
@@ -100,17 +110,59 @@ export function useCommandBridge() {
   const routes = locked
     ? []
     : deriveBridgeRoutes(snapshot).filter(route => route.mode === (selection.direction === 'in' ? 'receive' : 'send'));
-  const route =
-    routes.find(item => item.id === selection.route) ??
-    routes.find(item => !(item.provider === 'epoch' && item.mode === 'receive')) ??
-    routes[0];
+  const selectedRoute = routes.find(item => item.id === selection.route);
+  const route = selectedRoute ?? (pending.current || operationId ? undefined : defaultBridgeRoute(routes));
+  if (
+    !locked &&
+    !pending.current &&
+    !operationId &&
+    (selection.route || selection.amount) &&
+    selection.route !== route?.id
+  ) {
+    selected.current = {
+      direction: selection.direction,
+      route: route?.id ?? '',
+      amount: '',
+      externalAccountId: selection.externalAccountId
+    };
+    normalizedDraft.current = selected.current;
+    setSelection(selected.current);
+    invalidate();
+    setQuote(null);
+  }
+  // Clear input before fallback quoting; update the shared draft only after this render commits.
+  useLayoutEffect(() => {
+    const draft = normalizedDraft.current;
+    normalizedDraft.current = undefined;
+    if (draft && alive.current && !locked && !pending.current && !operationId) drafts.writeDraft('bridge', draft);
+  });
+  const isCircleSend = route?.provider === 'xreserve' && route.mode === 'send';
+  const feeChain = isCircleSend ? route.recovery.config.supportedEvmChains[route.destination.network] : undefined;
+  const burnFee = useBurnFeeReserve(
+    isCircleSend && account && feeChain
+      ? { accountPublicKey: account.publicKey, destinationChainId: feeChain.chainId }
+      : undefined
+  );
+  const nativeMetadata = resolveDisplayMetadata(nativeFaucetId ?? undefined, metadata, nativeFaucetId);
+  const measuredFeeBudget =
+    isCircleSend &&
+    hasKnownScale(nativeMetadata) &&
+    burnFee.status === 'measured' &&
+    burnFee.reserve !== undefined &&
+    burnFee.faucetId &&
+    burnFee.scope
+      ? { faucetId: burnFee.faucetId, maxAmount: burnFee.reserve.toString(), scope: burnFee.scope }
+      : undefined;
+  const networkFeeBudget =
+    measuredFeeBudget && isCurrentUsdcxFeeBudget(measuredFeeBudget) ? measuredFeeBudget : undefined;
   const externalAccountId = selection.direction === 'in' ? (wallet.address ?? '') : selection.externalAccountId;
   const context: BridgeReviewContext | undefined =
     route && account && !locked
       ? {
           route,
           amount: selection.amount,
-          accounts: { midenAccount: account.publicKey, evmAddress: externalAccountId }
+          accounts: { midenAccount: account.publicKey, evmAddress: externalAccountId },
+          ...(networkFeeBudget ? { networkFeeBudget } : {})
         }
       : undefined;
   const current = useRef(context);
@@ -118,6 +170,7 @@ export function useCommandBridge() {
   const material = configKey([
     scope,
     route,
+    networkFeeBudget,
     externalAccountId,
     wallet.connected,
     chainId,
@@ -126,7 +179,11 @@ export function useCommandBridge() {
   const materialRef = useRef(material);
   if (materialRef.current !== material) {
     materialRef.current = material;
-    invalidate();
+    if (operationId) {
+      // Keep the admitted review as readonly facts while revoking any unspent fresh permission.
+      generation.current++;
+      consent.current = undefined;
+    } else invalidate();
     setQuote(null);
   }
   const change = (next: Partial<CommandDrafts['bridge']>) => {
@@ -134,15 +191,32 @@ export function useCommandBridge() {
       return;
     invalidate();
     setQuote(null);
-    selected.current = { ...selected.current, ...next };
+    const updated = { ...selected.current, ...next };
+    const available = deriveBridgeRoutes(getBridgeConfigSnapshot()).filter(item =>
+      updated.direction === 'in' ? item.mode === 'receive' : item.mode === 'send'
+    );
+    const chosen = available.find(item => item.id === updated.route);
+    if (updated.route && !chosen) updated.amount = '';
+    updated.route = chosen?.id ?? defaultBridgeRoute(available)?.id ?? '';
+    normalizedDraft.current = undefined;
+    selected.current = {
+      direction: updated.direction,
+      route: updated.route,
+      amount: updated.amount,
+      externalAccountId: updated.externalAccountId
+    };
     setSelection(selected.current);
     drafts.writeDraft('bridge', selected.current);
     setRevision(value => value + 1);
   };
   const selectRoute = (id: string) => {
-    const next = routes.find(item => item.id === id);
+    const available = deriveBridgeRoutes(getBridgeConfigSnapshot()).filter(item =>
+      selected.current.direction === 'in' ? item.mode === 'receive' : item.mode === 'send'
+    );
+    const previous = available.find(item => item.id === selected.current.route);
+    const next = available.find(item => item.id === id);
     if (!next) return;
-    change({ route: id, amount: route && sameAsset(route.source, next.source) ? selected.current.amount : '' });
+    change({ route: id, amount: previous && sameAsset(previous.source, next.source) ? selected.current.amount : '' });
   };
   const sourceChain = route && route.recovery.config.supportedEvmChains[route.source.network]?.chainId;
   const sourceReady =
@@ -274,7 +348,17 @@ export function useCommandBridge() {
         !live ||
         !latestRoute ||
         state.status === WalletStatus.Locked ||
-        state.currentAccount?.publicKey !== live.accounts.midenAccount
+        state.currentAccount?.publicKey !== live.accounts.midenAccount ||
+        (latestRoute.provider === 'xreserve' &&
+          latestRoute.mode === 'send' &&
+          (!isCurrentUsdcxFeeBudget(live.networkFeeBudget) ||
+            !hasKnownScale(
+              resolveDisplayMetadata(
+                live.networkFeeBudget.faucetId,
+                state.assetsMetadata,
+                live.networkFeeBudget.faucetId
+              )
+            )))
       )
         throw new EpochReviewChangedError();
       return { ...live, route: latestRoute };
@@ -334,7 +418,9 @@ export function useCommandBridge() {
     sourceReady,
     connected: wallet.connected,
     environment: getEffectiveNetworkName(),
-    setAmount: (amount: string) => change({ amount, route: route?.id ?? '' }),
+    burnFee,
+    networkFeeBudget,
+    setAmount: (amount: string) => change({ amount }),
     setExternalAccountId: (externalAccountId: string) => change({ externalAccountId }),
     setDirection: (direction: 'in' | 'out') => change({ direction, route: '', amount: '' }),
     selectRoute,

@@ -14,6 +14,7 @@ import { TextField } from 'components/ui/TextField';
 import { TokenAmount } from 'components/ui/TokenAmount';
 import { quoteAmounts } from 'lib/bridge/core/quote';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 
@@ -24,7 +25,13 @@ export function CommandBridge(): React.ReactElement {
   const bridge = useCommandBridge();
   const formId = useId();
   useRegisterCommandFlowBack(bridge.back);
-  const route = bridge.route;
+  const route = bridge.operationId ? (bridge.review?.route ?? bridge.route) : bridge.route;
+  const isCircleSend = route?.provider === 'xreserve' && route.mode === 'send';
+  const networkFeeBudget = bridge.review?.networkFeeBudget ?? bridge.networkFeeBudget;
+  useUserVisibleError(
+    isCircleSend && !bridge.operationId && bridge.burnFee.status === 'failed' ? 'usdcxBurnFeeUnavailable' : null,
+    'review'
+  );
   const quote = bridge.review?.quote ?? bridge.quote;
   const amounts = route && quote ? quoteAmounts(route, quote) : undefined;
   const locked = bridge.isSubmitting || Boolean(bridge.operationId);
@@ -55,8 +62,24 @@ export function CommandBridge(): React.ReactElement {
       <DetailRow label={t('commandBridgeEnvironment')}>{bridge.environment}</DetailRow>
       <DetailRow label={t('commandBridgeProvider')}>{t(`commandBridgeProvider_${route.provider}`)}</DetailRow>
       {amounts && (
-        <DetailRow label={t('commandBridgeSourceTotal')}>
+        <DetailRow label={t(isCircleSend ? 'amount' : 'commandBridgeSourceTotal')}>
           <TokenAmount amount={amounts.sourceTotal} symbol={route.source.symbol} formatting="exact" />
+        </DetailRow>
+      )}
+      {isCircleSend && (
+        <DetailRow label={t('networkFeeMax')} sub={t('usdcxSponsorshipFee', { symbol: route.source.symbol })}>
+          {networkFeeBudget ? (
+            <TokenAmount
+              amount={BigInt(networkFeeBudget.maxAmount)}
+              decimals={route.source.decimals}
+              symbol={route.source.symbol}
+              formatting="exact"
+            />
+          ) : (
+            <span role="status">
+              {t(bridge.burnFee.status === 'pending' ? 'usdcxBurnFeeMeasuring' : 'usdcxBurnFeeUnavailable')}
+            </span>
+          )}
         </DetailRow>
       )}
       {amounts?.fee !== undefined && (

@@ -19,6 +19,7 @@ export interface BridgeReviewContext {
   networkFeeBudget?: IUsdcxNetworkFeeBudget;
 }
 
+/** Shape only; the original burn owner checks the current source and SDK-corroborated native identity. */
 export function isCanonicalUsdcxFeeBudget(
   budget: IUsdcxNetworkFeeBudget | undefined
 ): budget is IUsdcxNetworkFeeBudget {

@@ -85,6 +85,9 @@ jest.mock('@reown/appkit/react', () => ({
 }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => null }));
+jest.mock('lib/usdcx/use-burn-fee-reserve', () => ({
+  useBurnFeeReserve: () => ({ status: 'pending' })
+}));
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({ locked: false, signTransaction: jest.fn() }),
   useAllBalances: () => ({}),
