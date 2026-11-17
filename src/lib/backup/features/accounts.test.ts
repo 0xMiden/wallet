@@ -2,7 +2,7 @@ import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { accountsUpdated } from 'lib/miden/back/store';
 import { WalletType } from 'screens/onboarding/types';
 
-import { encryptEntry } from '../crypto';
+import { DEFAULT_BLOB_CAP, decryptEntry, encryptEntry } from '../crypto';
 import { hashedKeyOf } from '../entries';
 import { type BackupSession, BackupSessionClosedError, clearBackupSession, getBackupSession } from '../session';
 import { onBackupStorageCleared } from '../state';
@@ -196,6 +196,29 @@ describe('syncAccounts', () => {
     expect(accountsUpdated).toHaveBeenCalled();
     expect(sessionB.merge.accountNames['guardian:0']).toEqual({ name: 'Savings', nlu: renamedAt });
     expect(JSON.parse(b.vault.mergeRecords ?? '{}').accountNames['guardian:0'].nlu).toBe(renamedAt);
+  });
+
+  // The same name with a newer rename time: no rename to make, but the time is the latest decision about the name.
+  it('takes the newer rename time of a peer entry with the same name, and uploads it', async () => {
+    const a = device('Main');
+    const session = await use(a);
+    await syncAccounts(session, true);
+    expect(session.merge.accountNames['guardian:0']?.nlu).toBe(0);
+
+    const key = hashedKeyOf(session, 'guardian:0');
+    const peer = await encryptEntry(
+      session.encKey,
+      JSON.stringify({ ...ENTRY, n: 'Main', nlu: 3000 }),
+      session.kdfParams
+    );
+    server.insertEntry(session.publicKey, 'accounts', key, peer);
+    await syncAccounts(session, true);
+
+    expect(session.merge.accountNames['guardian:0']).toEqual({ name: 'Main', nlu: 3000 });
+    expect(accountsUpdated).not.toHaveBeenCalled();
+    const stored = server.storedEntryOf(session.publicKey, 'accounts', key);
+    if (stored === undefined) throw new Error('No account entry on the server');
+    expect(JSON.parse(await decryptEntry(session.encKey, stored, DEFAULT_BLOB_CAP)).nlu).toBe(3000);
   });
 
   it('keeps the latest rename when both devices renamed', async () => {

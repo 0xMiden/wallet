@@ -148,7 +148,14 @@ async function applyAccountEntries(session: BackupSession, entries: readonly Inc
       if (local === undefined) continue;
       const key = accountEntryKey(remote.t, remote.i);
       const mark = nameMarkOf(session, key, local.name);
-      if (remote.n === local.name || remote.nlu < mark.nlu || !ACCOUNT_NAME_PATTERN.test(remote.n)) continue;
+      if (remote.nlu < mark.nlu || !ACCOUNT_NAME_PATTERN.test(remote.n)) continue;
+      if (remote.n === local.name) {
+        // Nothing to rename, but the newer time is the latest decision about this name: an upload of the
+        // older one would let an older conflicting rename win on a peer.
+        mark.name = remote.n;
+        mark.nlu = remote.nlu;
+        continue;
+      }
       try {
         const updated = await session.vault.editAccountName(local.publicKey, remote.n);
         accountsUpdated(updated);
