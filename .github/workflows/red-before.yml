@@ -132,12 +132,36 @@ jobs:
       # The linked web-sdk and Guardian PRs of the branch's open pull request, as
       # pr.yml builds them, so a red-before run tests what that PR's CI tests.
       - name: Inject linked web-sdk PR
+        id: inject-sdk
         uses: ./.github/actions/inject-linked-web-sdk-pr
       - name: Inject linked guardian PR
+        id: inject-guardian
         uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
+
+      # What this run actually tested against: whether either linked PR was
+      # injected (and at which head), whether package.json or yarn.lock now differ
+      # from the tested commit, and the installed SDK versions.
+      - name: Record the dependency context
+        env:
+          SDK_PATCHED: ${{ steps.inject-sdk.outputs.patched }}
+          SDK_PR: ${{ steps.inject-sdk.outputs.web_sdk_repo }}#${{ steps.inject-sdk.outputs.web_sdk_pr }}
+          SDK_HEAD: ${{ steps.inject-sdk.outputs.web_sdk_head_sha }}
+          GUARDIAN_PATCHED: ${{ steps.inject-guardian.outputs.patched }}
+          GUARDIAN_PR: ${{ steps.inject-guardian.outputs.guardian_repo }}#${{ steps.inject-guardian.outputs.guardian_pr }}
+          GUARDIAN_HEAD: ${{ steps.inject-guardian.outputs.guardian_head_sha }}
+        run: |
+          set -euo pipefail
+          version() { node -p "JSON.parse(require('fs').readFileSync('node_modules/$1/package.json', 'utf8')).version" 2>/dev/null || echo missing; }
+          changed=$(git status --porcelain -- package.json yarn.lock | awk '{print $2}' | tr '\n' ' ')
+          {
+            echo "Linked web-sdk PR injected: ${SDK_PATCHED:-false}${SDK_HEAD:+ ($SDK_PR at $SDK_HEAD)}"
+            echo "Linked Guardian PR injected: ${GUARDIAN_PATCHED:-false}${GUARDIAN_HEAD:+ ($GUARDIAN_PR at $GUARDIAN_HEAD)}"
+            echo "Changed from the tested commit after install: ${changed:-none}"
+            echo "@miden-sdk/miden-sdk $(version @miden-sdk/miden-sdk), @openzeppelin/guardian-client $(version @openzeppelin/guardian-client)"
+          } | tee "$RUNNER_TEMP/dependency-context.txt" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run the selected tests
         env:
@@ -226,5 +250,6 @@ jobs:
             ${{ runner.temp }}/jest.json
             ${{ runner.temp }}/jest.log
             ${{ runner.temp }}/jest-exit
+            ${{ runner.temp }}/dependency-context.txt
           if-no-files-found: warn
           retention-days: 30
