@@ -33,6 +33,7 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }))
 jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: async (fn: () => unknown) => fn() }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
 jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
+jest.mock('lib/remote-config/values', () => ({ ...jest.requireActual('lib/remote-config/values'), getEpochAllocatorUrl: () => 'https://allocator.example' }));
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: async () => null, putToStorage: async () => undefined }));
 
 let review: ReviewedTransfer;
