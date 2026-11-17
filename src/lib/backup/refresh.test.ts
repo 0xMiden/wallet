@@ -291,6 +291,44 @@ describe('Guardian adoption re-reads', () => {
     expect(readHistory).toHaveBeenCalledTimes(5);
   });
 
+  it('schedules nothing for an older adoption whose read ends after a newer adoption', async () => {
+    jest.useFakeTimers();
+    let finishFirst: (changed: boolean) => void = () => {};
+    jest.mocked(readHistory).mockImplementationOnce(
+      () =>
+        new Promise<boolean>(resolve => {
+          finishFirst = resolve;
+        })
+    );
+    const older = runBackupRefresh('guardian-adopt');
+    await jest.advanceTimersByTimeAsync(0);
+    jest.mocked(readHistory).mockResolvedValueOnce(true);
+    await expect(runBackupRefresh('guardian-adopt')).resolves.toBe('updated');
+    finishFirst(false);
+    await expect(older).resolves.toBe('unchanged');
+
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(readHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it('schedules nothing for a held read that ends after a lock', async () => {
+    jest.useFakeTimers();
+    let finish: (changed: boolean) => void = () => {};
+    await runBackupRefresh('guardian-adopt');
+    jest.mocked(readHistory).mockImplementationOnce(
+      () =>
+        new Promise<boolean>(resolve => {
+          finish = resolve;
+        })
+    );
+    await jest.advanceTimersByTimeAsync(10_000);
+    expect(readHistory).toHaveBeenCalledTimes(2);
+    onBackupLock();
+    finish(false);
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(readHistory).toHaveBeenCalledTimes(2);
+  });
+
   it('stops the pending re-reads and drops the keys on lock', async () => {
     jest.useFakeTimers();
     await runBackupRefresh('guardian-adopt');

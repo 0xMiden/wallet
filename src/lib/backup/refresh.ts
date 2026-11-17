@@ -126,6 +126,17 @@ export function refreshContacts(): Promise<BackupRefreshOutcome> {
 }
 
 let guardianReread: { timer: ReturnType<typeof setTimeout>; step: number } | null = null;
+/**
+ * The adoption that owns the re-read schedule. A new adoption, a lock and a profile delete move it on, so a
+ * read of an earlier one that ends late (an older adoption, a held re-read) schedules nothing.
+ */
+let guardianGeneration = 0;
+
+/** Stop the pending re-read and disown every read still in flight. */
+function stopGuardianRereads(): void {
+  guardianGeneration += 1;
+  cancelGuardianReread();
+}
 
 function cancelGuardianReread(): void {
   if (guardianReread !== null) {
@@ -134,15 +145,16 @@ function cancelGuardianReread(): void {
   }
 }
 
-/** Schedule re-read `step` of a Guardian adoption, or stop after the last one. */
-function scheduleGuardianReread(step: number): void {
+/** Schedule re-read `step` of the adoption `generation`, or stop after the last one. */
+function scheduleGuardianReread(step: number, generation: number): void {
+  if (generation !== guardianGeneration) return;
   cancelGuardianReread();
   const delay = GUARDIAN_REREAD_DELAYS_MS[step];
   if (delay === undefined) return;
   const timer = setTimeout(() => {
     guardianReread = null;
     readHistoryOnce('guardian adoption re-read').then(outcome => {
-      if (outcome === 'unchanged') scheduleGuardianReread(step + 1);
+      if (outcome === 'unchanged') scheduleGuardianReread(step + 1, generation);
     });
   }, delay);
   guardianReread = { timer, step };
@@ -167,9 +179,10 @@ export async function refreshHistory(reason: HistoryRefreshReason): Promise<Back
       return readHistoryOnce('history refresh');
     case 'guardian-adopt': {
       // A new adoption restarts the re-read schedule; it never stacks a second one.
-      cancelGuardianReread();
+      stopGuardianRereads();
+      const generation = guardianGeneration;
       const outcome = await readHistoryOnce('history refresh after a Guardian adoption');
-      if (outcome === 'unchanged') scheduleGuardianReread(0);
+      if (outcome === 'unchanged') scheduleGuardianReread(0, generation);
       return outcome;
     }
   }
@@ -213,7 +226,7 @@ export async function deleteBackupProfile(): Promise<BackupRefreshOutcome> {
     await withSessionToken(opened.session, token => deleteProfile(token));
     // A lock or a wipe during the delete: the local records are no longer this session's to clear.
     if (!isSessionLive(opened.session)) return 'locked';
-    cancelGuardianReread();
+    stopGuardianRereads();
     clearBackupSession();
     // The contacts base described the deleted profile's list; the name marks are local facts and stay.
     opened.session.merge.contactsBase = null;
@@ -229,6 +242,6 @@ export async function deleteBackupProfile(): Promise<BackupRefreshOutcome> {
 
 /** Drop the session keys and stop the pending Guardian re-reads, on lock. */
 export function onBackupLock(): void {
-  cancelGuardianReread();
+  stopGuardianRereads();
   clearBackupSession();
 }
