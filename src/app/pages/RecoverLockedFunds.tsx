@@ -90,7 +90,7 @@ const AddressSection: FC<{ scan: AddressLockScan; connected: boolean }> = ({ sca
         </ListGroup>
       )}
       {failed.map(({ chainId, symbols }) => (
-        <ErrorLine key={chainId} role="note" data-testid="recover-funds-unknown">
+        <ErrorLine key={chainId} role="note" errorId="raw_bridge_balance_failed" data-testid="recover-funds-unknown">
           {t('recoverFundsCouldNotCheck', { network: networkName(chainId), tokens: symbols.join(', ') })}
         </ErrorLine>
       ))}
@@ -149,7 +149,7 @@ const RecoverLockedFunds: FC = () => {
       }
     >
       <SubPageSection description={t('recoverFundsDescription')}>
-        <ErrorLine>{pickerError}</ErrorLine>
+        <ErrorLine errorId="raw_bridge_connect_failed">{pickerError}</ErrorLine>
       </SubPageSection>
       {results === undefined && <ScanSkeleton />}
       {results !== undefined && results.length === 0 && (

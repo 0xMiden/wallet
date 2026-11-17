@@ -35,7 +35,8 @@ jest.mock('lib/walletconnect/config', () => ({
   getChain: () => ({ name: 'Sepolia' })
 }));
 jest.mock('lib/walletconnect/signing-error', () => ({
-  nativeSigningErrorMessage: (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
+  nativeSigningErrorMessage: (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)),
+  nativeSigningErrorId: () => undefined
 }));
 
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));

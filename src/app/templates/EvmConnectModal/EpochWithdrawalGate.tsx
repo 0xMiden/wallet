@@ -13,7 +13,7 @@ import { cancelLockWithdrawal, type CompactLockRef } from 'lib/epoch/bridge-in-r
 import { requestLockRescan } from 'lib/epoch/lock-scan-refresh';
 import { getChain } from 'lib/walletconnect/config';
 
-import { lockedDepositErrorText } from './locked-deposit-error-text';
+import { lockedDepositErrorDisplay, type LockedDepositErrorDisplay } from './locked-deposit-error-text';
 import { shortenAddress } from './shared';
 
 interface EpochWithdrawalGateProps {
@@ -58,7 +58,7 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
   const [check, setCheck] = useState<WithdrawalCheck>({ status: 'checking' });
   const [generation, setGeneration] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<LockedDepositErrorDisplay>();
   const running = useRef(false);
   const mounted = useRef(false);
   const network = getChain(chainId)?.name ?? String(chainId);
@@ -114,7 +114,7 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
       if (mounted.current) setCheck({ ...check, active: false });
     } catch (cause) {
       if (mounted.current) {
-        setError(lockedDepositErrorText(cause, t, { network, address: shortenAddress(sponsorAddress) }));
+        setError(lockedDepositErrorDisplay(cause, t, { network, address: shortenAddress(sponsorAddress) }));
       }
     } finally {
       running.current = false;
@@ -168,7 +168,8 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
       }
     >
       <SectionHeader size="lg">{t('bridgeWithdrawalTitle')}</SectionHeader>
-      <Notice tone={failed ? 'warning' : 'neutral'} role="status" data-testid="bridge-withdrawal-notice">
+      {/* This notice is never an error display: its tone is warning or neutral, so it has no error id. */}
+      <Notice tone={failed ? 'warning' : 'neutral'} errorId={null} role="status" data-testid="bridge-withdrawal-notice">
         {copy.body}
       </Notice>
       {check.status === 'ready' && (
@@ -176,8 +177,8 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
           {t(busy ? 'bridgeWithdrawalWalletPrompt' : 'bridgeWithdrawalEffect', { network })}
         </Notice>
       )}
-      <ErrorLine className="mt-4" data-testid="bridge-withdrawal-error">
-        {error}
+      <ErrorLine className="mt-4" errorId={error?.id ?? null} data-testid="bridge-withdrawal-error">
+        {error?.text}
       </ErrorLine>
     </HomeGroupPaneBody>
   );

@@ -16,7 +16,14 @@ jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: j
 const mockNavigate = jest.fn();
 jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(...args) }));
 jest.mock('lib/walletconnect/config', () => ({ getChain: () => ({ name: 'Sepolia' }) }));
-jest.mock('lib/walletconnect/signing-error', () => ({ nativeSigningErrorMessage: () => 'failed' }));
+jest.mock('lib/walletconnect/signing-error', () => ({
+  nativeSigningErrorMessage: () => 'failed',
+  nativeSigningErrorId: () => undefined
+}));
+const mockReportError = jest.fn();
+jest.mock('lib/telemetry/use-user-visible-error', () => ({
+  useUserVisibleError: (...args: unknown[]) => mockReportError(...args)
+}));
 const mockConnection: { address: string | undefined; connected: boolean } = { address: undefined, connected: false };
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({ useEvmWalletConnection: () => mockConnection }));
 const mockOpenPicker = jest.fn();
@@ -154,10 +161,13 @@ describe('EpochLockedDepositAction', () => {
         jest.mocked(retryLockedDeposit).mockRejectedValueOnce(new Error('Wallet refused'));
         render(sponsorRow(LOCK));
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(mockReportError).not.toHaveBeenCalledWith('raw_bridge_deposit_failed', 'inline');
 
         fireEvent.click(screen.getByTestId('epoch-deposit-retry'));
 
         expect(await screen.findByRole('alert')).toHaveTextContent('failed');
+        // The alert paragraph is reported under the id of a failed bridge deposit recovery.
+        expect(mockReportError).toHaveBeenCalledWith('raw_bridge_deposit_failed', 'inline');
         expect(screen.getByTestId('epoch-deposit-retry')).toBeEnabled();
       } finally {
         consoleError.mockRestore();

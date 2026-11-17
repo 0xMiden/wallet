@@ -24,7 +24,7 @@ jest.mock('lib/epoch/bridge-in-lock-scan', () => ({
 jest.mock('lib/epoch/bridge-in-recovery', () => ({ cancelLockWithdrawal: jest.fn() }));
 jest.mock('lib/epoch/lock-scan-refresh', () => ({ requestLockRescan: jest.fn() }));
 jest.mock('./locked-deposit-error-text', () => ({
-  lockedDepositErrorText: (cause: Error) => cause.message
+  lockedDepositErrorDisplay: (cause: Error) => ({ text: cause.message, id: 'raw_bridge_deposit_failed' })
 }));
 
 const SPONSOR = '0x00000000000000000000000000000000000000AA';

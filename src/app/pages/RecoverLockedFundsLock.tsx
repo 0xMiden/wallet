@@ -5,7 +5,11 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useNowSec } from 'app/hooks/useNowSec';
 import { Icon, IconName } from 'app/icons/v2';
-import { lockedDepositErrorText } from 'app/templates/EvmConnectModal/locked-deposit-error-text';
+import {
+  EVM_WALLET_PICKER_ERROR_ID,
+  lockedDepositErrorDisplay,
+  type LockedDepositErrorDisplay
+} from 'app/templates/EvmConnectModal/locked-deposit-error-text';
 import { shortenAddress } from 'app/templates/EvmConnectModal/shared';
 import { Button, ButtonVariant } from 'components/Button';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
@@ -120,7 +124,7 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
   const bridgeConfig = useBridgeConfigSnapshot();
   const [state, setState] = useState<LockPageState>({ loaded: false, chain: {}, local: {} });
   const [busy, setBusy] = useState<LockAction>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<LockedDepositErrorDisplay>();
 
   const network = getChain(lock.chainId)?.name ?? String(lock.chainId);
   const sponsor = shortenAddress(lock.sponsorAddress);
@@ -175,7 +179,7 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
         await operation();
       } catch (cause) {
         console.error(`[RecoverLockedFundsLock] ${action} failed`, cause);
-        setError(lockedDepositErrorText(cause, t, { network, address: sponsor }));
+        setError(lockedDepositErrorDisplay(cause, t, { network, address: sponsor }));
       } finally {
         setBusy(undefined);
         requestLockRescan();
@@ -325,13 +329,17 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
           data-testid="recover-funds-lock-empty"
         />
       )}
+      {/* This notice is never an error display: its tone is warning or neutral, so it has no error id. */}
       <Notice
         tone={withdrawalOn ? 'warning' : 'neutral'}
+        errorId={null}
         icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
       >
         {t('recoverFundsWithdrawBlocksBridge', { token: tokenSymbol, address: sponsor })}
       </Notice>
-      <ErrorLine data-testid="recover-funds-lock-error">{error ?? pickerError}</ErrorLine>
+      <ErrorLine errorId={error?.id ?? EVM_WALLET_PICKER_ERROR_ID} data-testid="recover-funds-lock-error">
+        {error?.text ?? pickerError}
+      </ErrorLine>
     </SubPageLayout>
   );
 };

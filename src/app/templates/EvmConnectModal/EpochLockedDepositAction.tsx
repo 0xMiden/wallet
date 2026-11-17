@@ -24,12 +24,17 @@ import {
 import { requestLockRescan } from 'lib/epoch/lock-scan-refresh';
 import type { IEpochLockedDeposit } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { getChain } from 'lib/walletconnect/config';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { useEvmWalletPicker } from 'lib/walletconnect/useEvmWalletPicker';
 import { navigate } from 'lib/woozie';
 
-import { lockedDepositErrorText } from './locked-deposit-error-text';
+import {
+  EVM_WALLET_PICKER_ERROR_ID,
+  lockedDepositErrorDisplay,
+  type LockedDepositErrorDisplay
+} from './locked-deposit-error-text';
 import { shortenAddress } from './shared';
 
 export interface EpochLockedDepositActionProps {
@@ -59,7 +64,10 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
   const { address, connected } = useEvmWalletConnection();
   const { openWalletPicker, error: pickerError } = useEvmWalletPicker();
   const [busy, setBusy] = useState<RecoveryAction>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<LockedDepositErrorDisplay>();
+  // The error line below is a plain alert paragraph, so this component reports it. A withdrawn row shows no error line.
+  const shownError = error ?? (pickerError ? { text: pickerError, id: EVM_WALLET_PICKER_ERROR_ID } : undefined);
+  useUserVisibleError(state === 'withdrawn' ? null : shownError?.id, 'inline');
   const network = getChain(lock.chainId)?.name ?? String(lock.chainId);
   const sponsor = shortenAddress(lock.sponsorAddress);
   const withdrawableAt = lock.withdrawableAt;
@@ -78,7 +86,7 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
         await operation();
       } catch (cause) {
         console.error(`[EpochLockedDepositAction] ${action} failed`, cause);
-        setError(lockedDepositErrorText(cause, t, { network, address: sponsor }));
+        setError(lockedDepositErrorDisplay(cause, t, { network, address: sponsor }));
       } finally {
         setBusy(undefined);
         requestLockRescan();
@@ -166,9 +174,9 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
       <TextAction className="self-center" onClick={handleOpenLockPage} data-testid="epoch-deposit-open-recovery">
         {t('recoverFundsOpenLock')}
       </TextAction>
-      {(error ?? pickerError) && (
+      {shownError && (
         <p role="alert" className="text-center text-sm text-negative-ink wrap-anywhere select-text">
-          {error ?? pickerError}
+          {shownError.text}
         </p>
       )}
     </div>
