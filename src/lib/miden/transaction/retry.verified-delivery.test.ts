@@ -50,8 +50,9 @@ jest.mock('../back/miden-client-proxy', () => ({
 const NOW = Math.floor(Date.now() / 1000);
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
 const HEADER = hex(1);
-const LANDED_TX = hex(2);
-const OTHER_TX = hex(3);
+// Ids with hex letters, so a spelling in another case differs.
+const LANDED_TX = hex(0xfeed2);
+const OTHER_TX = hex(0xfeed3);
 const INITIAL = hex(10);
 const FINAL = hex(11);
 const OWED = hex(0xabc20);
