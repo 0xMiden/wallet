@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.17.12 (TBD)
+## 1.17.12 (2026-11-17)
 
 - [FIX][ci] Reconcile the independently audited, expired unsigned NEAR nightly quote only after exact original run/gate provenance, unchanged holdings and unused provider status with canonical hex faucet IDs and normalized tracing metadata, retaining signature and exact quote verification; keep reconciliation recovery-only and retain all SDK upload safeguards.
 
