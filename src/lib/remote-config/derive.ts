@@ -2,7 +2,6 @@ import {
   AccountId,
   type AccountProof,
   AccountStorageRequirements,
-  BasicFungibleFaucetComponent,
   Endpoint,
   RpcClient,
   SlotAndKeys
@@ -11,6 +10,7 @@ import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { earnMarketForVault, type EarnVaultInfo, earnVaultTakesDeposits, readEarnVaults } from 'lib/epoch/pools-read';
+import { fetchFaucetProof, readFaucetProofMetadata } from 'lib/miden/metadata/faucet-proof';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -455,19 +455,17 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
   }
   await ensureSdkWasmReady();
   const rpc = new RpcClient(new Endpoint(rpcUrl));
-  const fetched = await readAccount(faucetId, 'bridge config faucet', () =>
-    rpc.getAccountDetails(AccountId.fromHex(faucetId))
+  const proof = await readAccount(faucetId, 'bridge config faucet', () =>
+    fetchFaucetProof(rpc, AccountId.fromHex(faucetId))
   );
-  const account = fetched.account();
-  if (!account) throw new NotAFaucetError(`${faucetId} has no public state`);
-  let faucet: BasicFungibleFaucetComponent;
+  if (!proof.accountHeader()) throw new NotAFaucetError(`${faucetId} has no public state`);
   try {
-    faucet = BasicFungibleFaucetComponent.fromAccountStorage(account.storage());
+    const { symbol, decimals } = readFaucetProofMetadata(proof);
+    return { symbol, decimals };
   } catch (err) {
     if (err instanceof WebAssembly.RuntimeError) throw err;
     throw new NotAFaucetError(`${faucetId} is not a basic fungible faucet: ${errorMessage(err)}`);
   }
-  return { symbol: faucet.symbol().toString(), decimals: faucet.decimals() };
 }
 
 // One read per faucet per derivation: the Earn probe and the swap registry can name the same faucet.

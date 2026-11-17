@@ -14,6 +14,7 @@ import {
   MORPHO_UNIBTC_USDC,
   poolsPage
 } from 'lib/epoch/testing/pools-fixtures';
+import { FAUCET_PROOF_WORDS } from 'lib/miden/metadata/faucet-proof.fixtures';
 import { TEST_SWAP_PAIRS_RESPONSE } from 'lib/miden/swap/testing/registry';
 import type { JsonFetch, JsonResponse } from 'lib/remote-json';
 import { getChain } from 'lib/walletconnect/config';
@@ -34,12 +35,11 @@ let { deriveBridgeConfig, readMidenFaucetMetadata, NotDeployedError, NotAFaucetE
   jest.requireActual<typeof import('./derive')>('./derive');
 
 const mockGetAccountDetails = jest.fn();
-const mockFromAccountStorage = jest.fn();
+const mockGetAccountProof = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   AccountId: { fromHex: (id: string) => ({ id }) },
-  BasicFungibleFaucetComponent: { fromAccountStorage: (storage: unknown) => mockFromAccountStorage(storage) },
   Endpoint: jest.fn((url: string) => ({ url })),
-  RpcClient: jest.fn(() => ({ getAccountDetails: mockGetAccountDetails }))
+  RpcClient: jest.fn(() => ({ getAccountDetails: mockGetAccountDetails, getAccountProof: mockGetAccountProof }))
 }));
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => 'https://rpc.effective.example' }));
@@ -291,7 +291,7 @@ beforeEach(async () => {
   ({ deriveBridgeConfig, readMidenFaucetMetadata, NotDeployedError, NotAFaucetError } = await import('./derive'));
   jest.clearAllMocks();
   mockGetAccountDetails.mockReset();
-  mockFromAccountStorage.mockReset();
+  mockGetAccountProof.mockReset();
   mockPublicClient.getCode.mockReset();
   mockPublicClient.readContract.mockReset();
 });
@@ -1418,50 +1418,65 @@ describe('deriveBridgeConfig default I/O', () => {
     }
   };
 
-  it('exports verified faucet metadata reads for feature-specific asset catalogs', async () => {
-    const storage = { slots: 'verified faucet storage' };
-    mockGetAccountDetails.mockResolvedValue({ account: () => ({ storage: () => storage }) });
-    mockFromAccountStorage.mockReturnValue({ symbol: () => ({ toString: () => 'USDC' }), decimals: () => 6 });
+  function faucetProof() {
+    return {
+      accountHeader: () => ({}),
+      getStorageSlotValue: (slot: string) => {
+        const word = FAUCET_PROOF_WORDS[slot];
+        return word ? { toU64s: () => word } : undefined;
+      }
+    };
+  }
+
+  it('uses the selected RPC and proofs when full account reads cannot load a large map', async () => {
+    mockGetAccountDetails.mockRejectedValue(new Error('storage map too large'));
+    mockGetAccountProof.mockResolvedValue(faucetProof());
     await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).resolves.toEqual({
-      symbol: 'USDC',
-      decimals: 6
+      symbol: 'TEST',
+      decimals: 8
     });
     expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').Endpoint).toHaveBeenCalledWith(RPC);
-    expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
+    expect(mockGetAccountProof).toHaveBeenCalledWith({ id: '0x537c15a622074e91188aa894456c52' });
+    expect(mockGetAccountDetails).not.toHaveBeenCalled();
     await expect(readMidenFaucetMetadata('not-a-faucet', RPC)).rejects.toThrow('Invalid Miden faucet metadata request');
   });
 
-  it('reads the Miden USDC faucet over the effective RPC', async () => {
-    const storage = { slots: 'faucet storage' };
-    mockGetAccountDetails.mockResolvedValue({ account: () => ({ storage: () => storage }) });
-    mockFromAccountStorage.mockReturnValue({ symbol: () => ({ toString: () => 'USDC' }), decimals: () => 6 });
+  it('reads the Miden faucet over the effective RPC', async () => {
+    mockGetAccountProof.mockResolvedValue(faucetProof());
     const derived = await deriveBridgeConfig(faucetOnly);
-    expect(derived.epoch.midenUsdcFaucet).toEqual({ state: 'ok', value: { symbol: 'USDC', decimals: 6 } });
+    expect(derived.epoch.midenUsdcFaucet).toEqual({ state: 'ok', value: { symbol: 'TEST', decimals: 8 } });
     expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').Endpoint).toHaveBeenCalledWith(
       'https://rpc.effective.example'
     );
-    expect(mockGetAccountDetails).toHaveBeenCalledWith({ id: '0x537c15a622074e91188aa894456c52' });
-    expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
-    expect(derived.derivedAt).toEqual(expect.any(Number));
+    expect(mockGetAccountDetails).not.toHaveBeenCalled();
   });
 
-  it('tells a missing faucet from a failed read', async () => {
-    mockGetAccountDetails.mockRejectedValue(
-      new Error(
-        'failed to get account details: grpc request failed for get_account: invalid request parameters: ' +
-          `code: 'Client specified an invalid argument', ` +
-          'message: "account 0x537c15a622074e91188aa894456c52 not found at block 693233"'
-      )
+  it('tells a missing faucet from unavailable public state', async () => {
+    mockGetAccountProof.mockRejectedValue(
+      new Error('account 0x537c15a622074e91188aa894456c52 not found at block 693233')
     );
     expect((await deriveBridgeConfig(faucetOnly)).epoch.midenUsdcFaucet).toEqual({ state: 'absent' });
-    mockGetAccountDetails.mockResolvedValue({ account: () => undefined });
+    mockGetAccountProof.mockResolvedValue({ accountHeader: () => undefined });
     expect((await deriveBridgeConfig(faucetOnly)).epoch.midenUsdcFaucet).toEqual({
       state: 'error',
       message: '0x537c15a622074e91188aa894456c52 has no public state'
     });
   });
 
-  it('reads a listed faucet that is private, or whose storage is not a fungible faucet, as no faucet', async () => {
+  it.each([
+    ['missing slots', undefined],
+    ['invalid decimals', [1000n, 1000000n, 13n, 8765514n]]
+  ])('rejects %s instead of returning display metadata', async (_label, word) => {
+    mockGetAccountProof.mockResolvedValue({
+      accountHeader: () => ({}),
+      getStorageSlotValue: () => (word ? { toU64s: () => word } : undefined)
+    });
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toBeInstanceOf(
+      NotAFaucetError
+    );
+  });
+
+  it('filters private and invalid faucets but preserves WASM failures', async () => {
     const [imiden, ieth] = TEST_SWAP_PAIRS_RESPONSE.tokens;
     const pairsUrl = 'https://quotes.example/v2/pairs';
     const solverOnly: BridgeConfig = {
@@ -1470,14 +1485,16 @@ describe('deriveBridgeConfig default I/O', () => {
       'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
       swap: { etaUrl: 'https://quotes.example' }
     };
-    mockGetAccountDetails.mockImplementation(async ({ id }: { id: string }) => ({
-      account: () => (id === imiden!.faucetId ? undefined : { storage: () => id })
-    }));
-    const refusing = (trap: Error) => (storage: string) => {
-      if (storage === ieth!.faucetId) throw trap;
-      return { symbol: () => ({ toString: () => 'X' }), decimals: () => 8 };
-    };
-    mockFromAccountStorage.mockImplementation(refusing(new Error('storage slot not found')));
+    const refusing =
+      (trap: Error) =>
+      async ({ id }: { id: string }) => ({
+        accountHeader: () => (id === imiden!.faucetId ? undefined : {}),
+        getStorageSlotValue: (slot: string) => {
+          if (id === ieth!.faucetId) throw trap;
+          return faucetProof().getStorageSlotValue(slot);
+        }
+      });
+    mockGetAccountProof.mockImplementation(refusing(new Error('storage slot not found')));
     const solver = parseSwapPairs(TEST_SWAP_PAIRS_RESPONSE)!;
     const kept = new Set([imiden!.faucetId, ieth!.faucetId]);
     const pairs = async () =>
@@ -1490,8 +1507,7 @@ describe('deriveBridgeConfig default I/O', () => {
         pairs: solver.pairs.filter(pair => pair.faucetIds.every(faucetId => !kept.has(faucetId)))
       }
     });
-    // A trap is not a refusal: it fails the read rather than costing one listing.
-    mockFromAccountStorage.mockImplementation(refusing(new WebAssembly.RuntimeError('unreachable')));
+    mockGetAccountProof.mockImplementation(refusing(new WebAssembly.RuntimeError('unreachable')));
     expect(await pairs()).toEqual({ state: 'error', message: 'unreachable' });
   });
 
