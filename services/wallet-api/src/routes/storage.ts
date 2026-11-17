@@ -65,8 +65,14 @@ export async function readFeature(context: RequestContext, feature: Feature): Pr
   const metadata = resultAt(results, 1).results.map(parseMetadataRow);
   const etag = await featureEtag(saltHex, metadata);
   if (ifNoneMatch(context.request)?.has(etag)) return notModified(etag);
-  const pageResult = await featureEntriesStatement(db, profileId, feature, page).all();
-  const rows = pageResult.results.map(row => entryView(parseEntryRow(row)));
+  // The page batch checks the generation again: a profile deleted, or made
+  // again, between the two reads must not hand its entries to this token.
+  const pageResults = await db.batch([
+    profileStatement(db, profileId),
+    featureEntriesStatement(db, profileId, feature, page)
+  ]);
+  saltHexOf(resultAt(pageResults, 0), principal);
+  const rows = resultAt(pageResults, 1).results.map(row => entryView(parseEntryRow(row)));
   const entries: EntryView[] = rows.slice(0, page.limit);
   const last = entries[entries.length - 1];
   const next = rows.length > page.limit && last !== undefined ? last.hashedKey : null;

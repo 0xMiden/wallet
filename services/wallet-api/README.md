@@ -48,7 +48,7 @@ The login message is `miden-sync:login:<nonce>:<publicKey>`. The signature is a 
 
 ## Profile generation
 
-A profile has a generation: 16 random bytes that the login writes when it creates the profile row. The access token carries it in the `gen` claim. Every authenticated route compares the token's generation with the profile's, and a write carries the comparison inside its SQL: the entry upsert's guard, the salt update's `WHERE`, and both delete statements. So a token issued before `DELETE /v1/profile` gets `401` on the profile a later login makes again, and it cannot write ciphertext of the old salt into the new backup or delete it. The check and the write are one database operation, so a delete that lands between the token check and the batch refuses the batch too.
+A profile has a generation: 16 random bytes that the login writes when it creates the profile row. The access token carries it in the `gen` claim. Every authenticated route compares the token's generation with the profile's, and a write carries the comparison inside its SQL: the entry upsert's guard, the salt update's `WHERE`, and both delete statements. So a token issued before `DELETE /v1/profile` gets `401` on the profile a later login makes again, and it cannot write ciphertext of the old salt into the new backup or delete it. The check and the write are one database operation, so a delete that lands between the token check and the batch refuses the batch too. A feature read checks the generation in the batch that reads its page as well as in the batch that reads its ETag, so a profile deleted or made again between the two never hands its entries to the old token.
 
 ## Rate limits
 

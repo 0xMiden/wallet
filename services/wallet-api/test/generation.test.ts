@@ -17,6 +17,8 @@ import {
   wireEntry
 } from './harness';
 import type { Harness, Session } from './harness';
+import { FEATURE_METADATA_SQL } from './fake-d1';
+import type { FakeD1 } from './fake-d1';
 import { verifyToken } from '../src/token';
 
 const PROFILE_GONE = { error: 'unauthorized', message: 'The profile does not exist. Log in again.' };
@@ -30,6 +32,40 @@ async function remadeProfile(harness: Harness): Promise<{ old: Session; fresh: S
   expect(deleted.status).toBe(204);
   const fresh = await logIn(harness, privateKey(1));
   return { old, fresh };
+}
+
+/** The fake database, with a hook that runs once, right after the first feature metadata batch. */
+class HookedD1 implements D1Database {
+  constructor(
+    private readonly inner: FakeD1,
+    private hook: (() => Promise<void>) | null
+  ) {}
+
+  prepare(query: string): D1PreparedStatement {
+    return this.inner.prepare(query);
+  }
+
+  async batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+    const results = await this.inner.batch<T>(statements);
+    const hook = this.hook;
+    if (hook !== null && this.inner.batches.at(-1)?.includes(FEATURE_METADATA_SQL) === true) {
+      this.hook = null;
+      await hook();
+    }
+    return results;
+  }
+
+  exec(): Promise<D1ExecResult> {
+    return this.inner.exec();
+  }
+
+  withSession(): D1DatabaseSession {
+    return this.inner.withSession();
+  }
+
+  dump(): Promise<ArrayBuffer> {
+    return this.inner.dump();
+  }
 }
 
 async function expectProfileGone(response: Response): Promise<void> {
@@ -113,6 +149,36 @@ describe('generation binding', () => {
     expect((await putEntry(harness, fresh, 'accounts', hashedKey(1))).status).toBe(200);
     await expectProfileGone(await putEntry(harness, old, 'accounts', hashedKey(1)));
     expect(harness.db.entriesOf(fresh.profileId, 'accounts')).toMatchObject([{ revision: 1 }]);
+  });
+
+  it('refuses a feature page when the profile is made again after the read checked its generation', async () => {
+    const harness = createHarness();
+    const old = await readyProfile(harness);
+    expect((await putEntry(harness, old, 'accounts', hashedKey(1))).status).toBe(200);
+    const made: { session: Session | null } = { session: null };
+    harness.env.DB = new HookedD1(harness.db, async () => {
+      expect((await send(harness, '/v1/profile', { method: 'DELETE', token: old.token })).status).toBe(204);
+      const session = await logIn(harness, privateKey(1));
+      expect((await setSalt(harness, session, OTHER_SALT)).status).toBe(200);
+      expect((await putEntry(harness, session, 'accounts', hashedKey(2), wireEntry(28, 9))).status).toBe(200);
+      made.session = session;
+    });
+    await expectProfileGone(await send(harness, '/v1/storage/accounts', { token: old.token }));
+    const fresh = made.session;
+    if (fresh === null) throw new Error('The hook did not run');
+    const read = await send(harness, '/v1/storage/accounts', { token: fresh.token });
+    expect(read.status).toBe(200);
+    await expect(bodyOf(read)).resolves.toMatchObject({ entries: [{ hashedKey: hashedKey(2) }] });
+  });
+
+  it('refuses a feature page when the profile is deleted after the read checked its generation', async () => {
+    const harness = createHarness();
+    const old = await readyProfile(harness);
+    expect((await putEntry(harness, old, 'history', hashedKey(1))).status).toBe(200);
+    harness.env.DB = new HookedD1(harness.db, async () => {
+      expect((await send(harness, '/v1/profile', { method: 'DELETE', token: old.token })).status).toBe(204);
+    });
+    await expectProfileGone(await send(harness, '/v1/storage/history', { token: old.token }));
   });
 
   it('refuses a salt set with a token of the deleted generation and keeps the salt NULL', async () => {
