@@ -61,7 +61,7 @@ jobs:
     # runs in this job, and only a run on another branch is kept out of the
     # default branch's Actions cache scope. The Validate step repeats the check
     # with an error message.
-    if: github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
+    if: github.ref_type == 'branch' && github.event.repository.default_branch != '' && github.ref_name != github.event.repository.default_branch
     runs-on: ubuntu-latest
     # A linked web-sdk PR is built from source first (linked-pr-injection.test.ts).
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 30 }}
@@ -83,7 +83,7 @@ jobs:
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full lowercase 40-character SHA"; exit 1; }
           [[ "$EXPECT" == red || "$EXPECT" == green ]] || { echo "::error::expect must be red or green"; exit 1; }
-          [[ "$REF_TYPE" == branch && "$REF_NAME" != "$DEFAULT_BRANCH" && "$REF_NAME" =~ ^[A-Za-z0-9._/-]+$ && "$REF_NAME" != *..* ]] \
+          [[ "$REF_TYPE" == branch && -n "$DEFAULT_BRANCH" && "$REF_NAME" != "$DEFAULT_BRANCH" && "$REF_NAME" =~ ^[A-Za-z0-9._/-]+$ && "$REF_NAME" != *..* ]] \
             || { echo "::error::dispatch on the branch that holds the commit, not on $DEFAULT_BRANCH or a tag"; exit 1; }
           for v in "$TESTS" "$PATTERN" "$FAILING"; do
             [[ "$v" != *$'\n'* && "$v" != *$'\r'* ]] || { echo "::error::tests, pattern and failing must each be one line"; exit 1; }
