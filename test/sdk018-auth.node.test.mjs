@@ -25,7 +25,13 @@ test('SDK 0.18 copies the actual authentication preimage and preserves blocks an
   advice.insert(sdk.Word.fromHex(`0x${'01'.repeat(32)}`), new sdk.FeltArray([new sdk.Felt(17n)]));
   const original = transported(authenticated().extendAdviceMap(advice));
   const copied = withTestGuardianAuthentication(builder(), original).build();
-  assert.deepEqual(copied.adviceMap().get(copied.authArg()).map(n => n.asInt()), values().map(n => n.asInt()));
+  assert.deepEqual(
+    copied
+      .adviceMap()
+      .get(copied.authArg())
+      .map(n => n.asInt()),
+    values().map(n => n.asInt())
+  );
   assert.deepEqual(copied.blockNumbers(), [321]);
   assert.deepEqual(canonicalRequestBytes(copied.serialize()), canonicalRequestBytes(original.serialize()));
 });
@@ -57,13 +63,14 @@ test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data
     faucetId: '0xe69e6ca6e39df1b10c1e5399399feb',
     amount: '1010000'
   };
-  const note = sdk.Note.createP2IDNote(
+  const template = sdk.Note.createP2IDNote(
     sdk.AccountId.fromHex(scope.accountId),
     sdk.AccountId.fromHex(scope.recipientId),
     new sdk.NoteAssets([new sdk.FungibleAsset(sdk.AccountId.fromHex(scope.faucetId), BigInt(scope.amount))]),
     sdk.NoteType.Public,
     new sdk.NoteAttachment()
   );
+  const note = new sdk.Note(template.assets(), template.metadata(), template.recipient());
   const original = builder()
     .withOwnOutputNotes(new sdk.NoteArray([note]))
     .withAuthArgs(new sdk.FeltArray(values()))

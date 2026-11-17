@@ -5,6 +5,7 @@ import {
   AccountId,
   Address,
   Felt,
+  FeltArray,
   FungibleAsset,
   Note,
   NoteAndArgs,
@@ -46,12 +47,13 @@ function fixture(change = {}) {
   );
   if (!change.guardian || change.expiration !== undefined)
     builder = builder.withExpirationDelta(change.expiration ?? 600);
-  if (change.guardian) builder = builder.withBlockNumbers([321]);
+  if (change.guardian)
+    builder = builder
+      .withBlockNumbers([321])
+      .withAuthArgs(new FeltArray([321n, 501n, 0n, 0n, 1n, 2n, 3n, 4n, 0n, 1n, 1n, 0n].map(value => new Felt(value))));
   if (change.input) builder = builder.withInputNotes(new NoteAndArgsArray([new NoteAndArgs(note, null)]));
   if (change.salt) builder = builder.withFeeConversionSalt(Word.fromHex(`0x${'0'.repeat(63)}1`));
-  let request = builder.build();
-  if (change.guardian)
-    request = request.withAuthArgs([321n, 501n, 0n, 0n, 1n, 2n, 3n, 4n, 0n, 1n, 1n, 0n].map(value => new Felt(value)));
+  const request = builder.build();
   return { scope, noteId: note.id().toString(), bytes: Uint8Array.from(request.serialize()) };
 }
 test('inspects the actual serialized SDK send, preserving its live random serial but nothing outside the exact native route', () => {
@@ -68,7 +70,7 @@ test('accepts the installed Guardian SDK public P2ID builder with exactly zero a
   const client = {
     feeAwareTransactionRequestBuilder: async () =>
       new TransactionRequestBuilder()
-        .withAuthArg(authenticated.authArg())
+        .withAuthArgs(new FeltArray(authenticated.adviceMap().get(authenticated.authArg())))
         .withBlockNumbers(authenticated.blockNumbers())
         .extendAdviceMap(authenticated.adviceMap())
   };

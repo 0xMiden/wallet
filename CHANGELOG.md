@@ -1,10 +1,12 @@
 # Changelog
 
+## 1.18.1 (TBD)
+
+- [FIX][ci] Check Guardian native sends against the installed SDK's exact public P2ID note shape, retaining strict route, attachment, request, signature and upload safeguards; run real unsigned SDK conformance in the canonical harness.
+
 ## 1.18.0 (2026-11-17)
 
 - [CHANGE][all] Upgrade the Miden web, React and wallet adapter SDKs to 0.18.0 and the Rust client and CLI to 0.18.2, with matching native proving dependencies.
-
-- [FIX][ci] Check Guardian native sends against the installed SDK's exact public P2ID note shape, retaining strict route, attachment, request, signature and upload safeguards; run real unsigned SDK conformance in the canonical harness.
 - [FIX][ci] Recognize the next exactly pinned, independently audited unsigned NEAR nightly checkpoint for recovery-only no-spend reconciliation without replaying its expired quote or relaxing SDK upload and inventory checks.
 
 - [FIX][ci] Wait for the exact Epoch return note on the public chain before wallet import and retain sanitized return-readiness failures without exposing private logs or changing claim authorization.
