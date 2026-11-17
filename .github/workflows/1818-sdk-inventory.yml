@@ -319,7 +319,20 @@ jobs:
           def phase(name):
               os.write(3, ('1818 SDK inventory phase: ' + name + chr(10)).encode('ascii'))
 
+          def installed_table(output):
+              installed = {}
+              for line in output.splitlines():
+                  columns = [field.strip() for field in line.split('|')]
+                  if len(columns) < 4 or columns[0] == 'Path':
+                      continue
+                  if all(column and set(column) == {'-'} for column in columns):
+                      continue
+                  check(columns[0] not in installed)
+                  installed[columns[0]] = columns[1]
+              return installed
+
           phase('preflight')
+          check(installed_table('Path | Version | Description | Location\n---- | ------- | ----------- | --------\nplatform-tools | 37.0.1 | Android SDK Platform-Tools | platform-tools') == {'platform-tools': '37.0.1'})
           root = Path(sys.argv[1])
           sdk = root / 'sdk'
           sdk.mkdir()
@@ -384,13 +397,12 @@ jobs:
           # Run only the installed-package listing, with no network or inherited SDK home.
           env = ['env', '-i', f'HOME={home}', f'ANDROID_USER_HOME={home}', f'ANDROID_HOME={sdk}', f'ANDROID_SDK_ROOT={sdk}', 'PATH=/usr/bin:/bin', f'JAVA_HOME={os.environ["JAVA_HOME_17_X64"]}']
           identity = ['setpriv', '--reuid', str(os.getuid()), '--regid', str(os.getgid()), '--clear-groups', '--no-new-privs']
-          result = subprocess.run(['sudo', '-n', 'unshare', '--net', '--', *identity, *env, str(sdk / 'cmdline-tools/16.0/bin/sdkmanager'), '--sdk_root=' + str(sdk), '--list_installed'], stdout=subprocess.PIPE, text=True, check=True, timeout=120)
-          installed = {}
-          for line in result.stdout.splitlines():
-              columns = [field.strip() for field in line.split('|')]
-              if len(columns) >= 4 and columns[0] != 'Path':
-                  check(columns[0] not in installed)
-                  installed[columns[0]] = columns[1]
+          result = subprocess.run(['sudo', '-n', 'unshare', '--net', '--', *identity, *env, str(sdk / 'cmdline-tools/16.0/bin/sdkmanager'), '--sdk_root=' + str(sdk), '--list_installed'], stdout=subprocess.PIPE, text=True, timeout=120)
+          phase(f'offline-command-exit-{result.returncode}')
+          check(result.returncode == 0)
+          installed = installed_table(result.stdout)
+          matches = ''.join('1' if installed.get(pkg) == rev else '0' for pkg, rev, *_ in PACKAGES)
+          phase(f'offline-table-rows-{len(installed)}-pin-matches-{matches}')
           check(installed == {pkg: rev for pkg, rev, *_ in PACKAGES})
           check(not (sdk / 'licenses').exists())
           PY
