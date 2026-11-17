@@ -1,4 +1,4 @@
-name: Independent historical-authority and fixed SDK018 readiness
+name: Final merged-tree pre-funding dual SDK readiness
 on:
   push:
     branches: [wiktor/green01-fixed-sdk018-readiness]
@@ -41,6 +41,17 @@ jobs:
           github-token: ${{ github.token }}
           pattern: mainnet-*-final-44014690598
           path: test-results/recovery-evidence
+      - name: Bind qualified and merged trees plus the current producer frontier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/0xMiden/wallet/git/commits/775f30df7ab450165d82f0f2ddd9ff1742431585 > "$RUNNER_TEMP/qualified.json"
+          gh api repos/0xMiden/wallet/git/commits/6d7b52e163d11d6883ccc03fc19a37612a2290c2 > "$RUNNER_TEMP/merged.json"
+          gh api repos/0xMiden/wallet/branches/main > "$RUNNER_TEMP/current-main.json"
+          gh api 'repos/0xMiden/wallet/actions/workflows/e2e-mainnet-nightly.yml/runs?per_page=1' > "$RUNNER_TEMP/latest-producer.json"
+          node <<'NODE'
+          const assert=require('node:assert/strict'),fs=require('node:fs');const load=name=>JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${name}.json`));const qualified=load('qualified'),merged=load('merged'),main=load('current-main'),latest=load('latest-producer').workflow_runs[0];assert.equal(qualified.sha,'775f30df7ab450165d82f0f2ddd9ff1742431585');assert.equal(merged.sha,'6d7b52e163d11d6883ccc03fc19a37612a2290c2');assert.equal(qualified.tree.sha,'57ba7af5212ab0b6042cde42c20a6699ee3ff4d3');assert.equal(merged.tree.sha,qualified.tree.sha);assert.equal(merged.verification.verified,true);assert.equal(main.commit.sha,merged.sha);assert.equal(latest.id,44025142736);assert.equal(latest.status,'completed');assert.equal(latest.conclusion,'cancelled');
+          NODE
       - name: Verify intervening scheduled safety-stop reached no payment authority
         env:
           GH_TOKEN: ${{ github.token }}
