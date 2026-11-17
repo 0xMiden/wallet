@@ -1,6 +1,7 @@
 import { BaseContract, BrowserProvider, ContractTransactionResponse, Overrides } from 'ethers';
 import { EIP1193Provider, toHex } from 'viem';
 
+import { getMessage } from 'lib/i18n';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
@@ -68,8 +69,8 @@ export const claimAgglayerDeposit = async ({
 }): Promise<ContractTransactionResponse> => {
   const deposit = { ...originalDeposit };
   const route = originalRoute && { ...originalRoute };
-  if (isAgglayerDepositClaimed(deposit) || !isAgglayerDepositReady(deposit))
-    throw new Error('Agglayer exit is not available for a manual claim');
+  if (isAgglayerDepositClaimed(deposit)) throw new Error(getMessage('claimed'));
+  if (!isAgglayerDepositReady(deposit)) throw new Error(getMessage('claimPending'));
   // A row saved before its route was is from DEFAULT_CHAIN_ID, the chain ensureL1Chain defaults to.
   const l1Bridge = route?.contractAddress ?? getAgglayerL1Bridge(DEFAULT_CHAIN_ID);
   await ensureL1Chain(provider, route?.chainId);
@@ -85,7 +86,7 @@ export const claimAgglayerDeposit = async ({
     accounts[0].toLowerCase() !== deposit.dest_addr.toLowerCase() ||
     Number(chainId) !== (route?.chainId ?? DEFAULT_CHAIN_ID)
   )
-    throw new Error('Agglayer claim wallet or destination chain changed');
+    throw new Error(getMessage('connectDestinationWalletToClaim'));
   const agglayerContract = BaseContract.from<AgglayerBridgeContract>(l1Bridge, AGGLAYER_BRIDGE_ABI, signer);
 
   return agglayerContract.claimAsset(
