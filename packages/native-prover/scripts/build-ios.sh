@@ -94,7 +94,7 @@ done
 for slice in "${SLICES[@]}"; do
   dir="${slice##*:}"
   cp "$STAGING/$dir.a" "$XCFRAMEWORK/$dir/libmiden_mobile_prover.a"
-  size=$(stat -f%z "$XCFRAMEWORK/$dir/libmiden_mobile_prover.a")
+  size=$(wc -c < "$XCFRAMEWORK/$dir/libmiden_mobile_prover.a")
   printf "  %-22s %.1f MB\n" "$dir" "$(echo "$size" | awk '{print $1/1048576}')"
   if [ "$size" -gt 104857600 ]; then
     echo "Error: $dir is over GitHub's 100 MB file limit and cannot be pushed." >&2

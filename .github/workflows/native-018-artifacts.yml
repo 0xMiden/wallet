@@ -9,7 +9,7 @@ permissions:
   contents: read
 concurrency:
   group: native-018-artifacts
-  cancel-in-progress: true
+  cancel-in-progress: false
 env:
   WEB_SDK_SHA: be0ea7ce47d72cd52ad1867c2eb13c74b8fdce13
 jobs:
