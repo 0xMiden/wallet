@@ -6,12 +6,14 @@ const URL_SYNC = 'http://localhost:57291/miden.node.v1.NodeService/SyncNotes';
 const wire = [{ id: 'discovery', host: ':57291', path: 'NodeService/Sync', mode: 'hang' }];
 const originalChrome = globalThis.chrome;
 const originalFetch = globalThis.fetch;
+const originalE2eFlag = process.env.MIDEN_E2E_TEST;
 let get: jest.Mock<Promise<Record<string, unknown>>, []>;
 let nativeFetch: jest.Mock<Promise<Response>, []>;
 let changed: ((changes: Record<string, { newValue?: unknown }>, area: string) => void) | undefined;
 let log: jest.SpyInstance;
 
 beforeEach(() => {
+  process.env.MIDEN_E2E_TEST = 'true';
   get = jest.fn().mockResolvedValue({});
   nativeFetch = jest.fn(async () => new Response('inert'));
   globalThis.fetch = nativeFetch;
@@ -29,12 +31,32 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalE2eFlag === undefined) delete process.env.MIDEN_E2E_TEST;
+  else process.env.MIDEN_E2E_TEST = originalE2eFlag;
   globalThis.fetch = originalFetch;
   Reflect.set(globalThis, 'chrome', originalChrome);
   for (const key of ['__e2e_fetch_wrapped', '__E2E_NET_FAULTS', '__E2E_NET_FAULT_HITS']) {
     Reflect.deleteProperty(globalThis, key);
   }
   log.mockRestore();
+});
+
+it('restores an empty policy in a runtime-only offscreen document', async () => {
+  Reflect.set(globalThis, 'chrome', {
+    runtime: {
+      id: 'runtime-only',
+      getURL: (path: string) => `chrome-extension://runtime-only/${path}`,
+      getManifest: () => ({ background: { service_worker: 'background.js' } }),
+      onMessage: { addListener: jest.fn(), removeListener: jest.fn() },
+      sendMessage: async () => ({ ok: true, value: {} })
+    }
+  });
+  const result = await restoreOffscreenFetchFaults().then(
+    () => 'ready',
+    () => 'startup failed'
+  );
+  expect(result).toBe('ready');
+  expect(globalThis.fetch).toBe(nativeFetch);
 });
 
 it('leaves startup fetch untouched when no policy was persisted', async () => {
