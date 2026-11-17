@@ -26,6 +26,8 @@ export function lockedDepositErrorText(
       return t('epochDepositErrorNotDue');
     case 'depositMissing':
       return t('epochDepositErrorMissing');
+    case 'balanceUnreadable':
+      return t('recoverFundsCouldNotCheckShort');
     case 'lockMismatch':
       return t('epochDepositErrorLockMismatch');
     case 'notRecoverable':

@@ -406,6 +406,140 @@ describe('withdrawal', () => {
   });
 });
 
+describe('the lock balance decides before a withdrawal or a retry changes anything', () => {
+  const RECORD_KEY = `epoch_forced_withdrawal_v1:11155111:42:${SPONSOR}`;
+  const ACTIVE = [
+    ['Pending', { status: 'Pending', enabledAt: 990n }],
+    ['Enabled', { status: 'Enabled', enabledAt: 990n }]
+  ] as const;
+  const seedActiveWithdrawal = (): void => {
+    seedRow({ withdrawEnabledAt: 900, withdrawableAt: 990 });
+    storage.set(RECORD_KEY, { enabledAt: 900, withdrawableAt: 990 });
+  };
+  const expectNothingChanged = (): void => {
+    expect(sdk.disableForcedWithdrawal).not.toHaveBeenCalled();
+    expect(sdk.withdrawToken).not.toHaveBeenCalled();
+    expect(mockGetCompactData).not.toHaveBeenCalled();
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(sdk.submitAllocation).not.toHaveBeenCalled();
+    expect(lockOf()).toMatchObject({ withdrawEnabledAt: 900, withdrawableAt: 990 });
+    expect(lockOf()?.emptiedAt).toBeUndefined();
+    expect(lockOf()?.withdrawnAt).toBeUndefined();
+    expect(rows.get('row-1')?.extraInputs.phase).toBe('failed');
+    expect(storage.get(RECORD_KEY)).toEqual({ enabledAt: 900, withdrawableAt: 990 });
+  };
+
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    seedActiveWithdrawal();
+  });
+
+  it('refuses a withdrawal with balanceUnreadable when the read fails, and changes nothing', async () => {
+    sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Enabled', enabledAt: 990n });
+    sdk.getDepositedBalances.mockRejectedValue(new Error('rpc down'));
+
+    await expect(finishLockedDepositWithdrawal('row-1')).rejects.toMatchObject({ reason: 'balanceUnreadable' });
+
+    expectNothingChanged();
+  });
+
+  it.each(ACTIVE)(
+    'refuses a retry with balanceUnreadable, %s withdrawal, and changes nothing',
+    async (_name, status) => {
+      sdk.getForcedWithdrawalStatus.mockResolvedValue(status);
+      sdk.getDepositedBalances.mockRejectedValue(new Error('rpc down'));
+
+      await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'balanceUnreadable' });
+
+      expectNothingChanged();
+    }
+  );
+
+  it('keeps a withdrawal that is on when the balance is of another lock, for a withdrawal and for a retry', async () => {
+    sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Enabled', enabledAt: 990n });
+    sdk.getDepositedBalances.mockResolvedValue([
+      { depositId: '43', symbol: '', balance: '0', decimals: 0, withdrawStatus: 'Enabled' }
+    ]);
+
+    await expect(finishLockedDepositWithdrawal('row-1')).rejects.toMatchObject({ reason: 'depositMissing' });
+    expectNothingChanged();
+    await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'depositMissing' });
+    expectNothingChanged();
+  });
+
+  it.each(ACTIVE)(
+    'keeps a %s withdrawal when the lock holds less than the deposit, and sends no disable',
+    async (_name, status) => {
+      sdk.getForcedWithdrawalStatus.mockResolvedValue(status);
+      lockBalance('10');
+
+      await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'depositMissing' });
+
+      expectNothingChanged();
+    }
+  );
+
+  it('still stops the withdrawal before it registers when the balance covers the deposit', async () => {
+    sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Pending', enabledAt: 990n });
+
+    await expect(retryLockedDeposit('row-1')).resolves.toBe('77');
+
+    const [disabledAt] = sdk.disableForcedWithdrawal.mock.invocationCallOrder;
+    const [registeredAt] = mockWriteContract.mock.invocationCallOrder;
+    expect(disabledAt).toBeLessThan(registeredAt ?? 0);
+    expect(storage.get(RECORD_KEY)).toBeNull();
+  });
+
+  describe('an empty lock', () => {
+    const addSecondRow = (): void => {
+      const first = rows.get('row-1');
+      if (first === undefined) return;
+      rows.set('row-2', {
+        ...first,
+        id: 'row-2',
+        extraInputs: { ...first.extraInputs, epochLockedDeposit: { ...LOCK, withdrawEnabledAt: 900 } }
+      });
+    };
+    const emptied = (id: string) => rows.get(id)?.extraInputs.epochLockedDeposit;
+
+    it('moves every locked row of the lock out of Deposit locked on a zero balance in a withdrawal', async () => {
+      addSecondRow();
+      sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Enabled', enabledAt: 990n });
+      lockBalance('0');
+
+      await expect(finishLockedDepositWithdrawal('row-1')).rejects.toMatchObject({ reason: 'depositMissing' });
+
+      for (const id of ['row-1', 'row-2']) {
+        expect(emptied(id)).toMatchObject({ emptiedAt: 1000 });
+        expect(emptied(id)?.withdrawnAt).toBeUndefined();
+        expect(emptied(id)?.withdrawTxHash).toBeUndefined();
+        expect(emptied(id)?.withdrawnAmount).toBeUndefined();
+      }
+      expect(storage.get(RECORD_KEY)).toBeNull();
+      expect(sdk.withdrawToken).not.toHaveBeenCalled();
+      // The row is no longer a locked deposit, so a second call is refused up front.
+      await expect(finishLockedDepositWithdrawal('row-1')).rejects.toMatchObject({ reason: 'notRecoverable' });
+    });
+
+    it.each(ACTIVE)(
+      'does the same for a retry with a %s withdrawal, with no disable and no register',
+      async (_n, status) => {
+        sdk.getForcedWithdrawalStatus.mockResolvedValue(status);
+        lockBalance('0');
+
+        await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'depositMissing' });
+
+        expect(lockOf()).toMatchObject({ emptiedAt: 1000 });
+        expect(lockOf()?.withdrawnAt).toBeUndefined();
+        expect(storage.get(RECORD_KEY)).toBeNull();
+        expect(sdk.disableForcedWithdrawal).not.toHaveBeenCalled();
+        expect(mockWriteContract).not.toHaveBeenCalled();
+        await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'notRecoverable' });
+      }
+    );
+  });
+});
+
 describe('sponsorWalletRefusal', () => {
   it('names why the connected wallet cannot sign for the sponsor', () => {
     expect(sponsorWalletRefusal(undefined, SPONSOR)).toBe('walletDisconnected');

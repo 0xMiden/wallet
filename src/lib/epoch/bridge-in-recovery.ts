@@ -38,6 +38,7 @@ export type LockedDepositErrorReason =
   | 'withdrawalNotStarted'
   | 'withdrawalNotDue'
   | 'depositMissing'
+  | 'balanceUnreadable'
   | 'lockMismatch';
 
 export class LockedDepositError extends Error {
@@ -139,7 +140,7 @@ export function withdrawableAtOf(result: GetForcedWithdrawalStatusResult): numbe
 type LockedDepositPatch = Partial<
   Pick<
     IEpochLockedDeposit,
-    'withdrawEnabledAt' | 'withdrawableAt' | 'withdrawTxHash' | 'withdrawnAmount' | 'withdrawnAt'
+    'withdrawEnabledAt' | 'withdrawableAt' | 'withdrawTxHash' | 'withdrawnAmount' | 'withdrawnAt' | 'emptiedAt'
   >
 >;
 
@@ -223,6 +224,46 @@ async function recordWithdrawalStopped(ref: CompactLockRef): Promise<void> {
   await clearForcedWithdrawalRecord(ref);
 }
 
+/**
+ * Record that the wallet read the lock of `ref` empty, with no withdrawal of its own on record. Every locked row of
+ * the lock leaves Deposit locked. This claims nothing about where the funds went, so no withdrawal field is set.
+ */
+async function recordLockEmpty(ref: CompactLockRef): Promise<void> {
+  const emptiedAt = nowSec();
+  await patchLockedDepositsOnLock(ref, () => ({ emptiedAt }));
+  await clearForcedWithdrawalRecord(ref);
+}
+
+/**
+ * Read the lock balance of the sponsor and check it before anything changes. A failed read refuses as
+ * `balanceUnreadable`, which is retryable and writes nothing. The balance of another lock, and a balance below
+ * `minimum`, refuse as `depositMissing` and write nothing. A zero balance of the right lock is the chain's answer:
+ * mark its rows empty, then refuse as `depositMissing`.
+ */
+async function readCheckedLockBalance(
+  sdk: EpochIntentSDK,
+  sponsor: Address,
+  ref: CompactLockRef,
+  tokenAddress: string,
+  minimum: bigint
+): Promise<bigint> {
+  const balance = await readCompactLockBalance(sdk, sponsor, tokenAddress);
+  if (balance === undefined) {
+    throw new LockedDepositError('balanceUnreadable', 'The lock balance could not be read. Try again.');
+  }
+  if (balance.lockId !== ref.lockId) {
+    throw new LockedDepositError('depositMissing', 'The Compact no longer holds this deposit.');
+  }
+  if (balance.balance === 0n) {
+    await recordLockEmpty(ref);
+    throw new LockedDepositError('depositMissing', 'The Compact no longer holds this deposit.');
+  }
+  if (balance.balance < minimum) {
+    throw new LockedDepositError('depositMissing', 'The Compact no longer holds this deposit.');
+  }
+  return balance.balance;
+}
+
 function sponsorOf(ref: Pick<CompactLockRef, 'sponsorAddress'>): Address {
   if (!isAddress(ref.sponsorAddress)) {
     throw new LockedDepositError('notRecoverable', 'This deposit cannot be recovered from this wallet.');
@@ -267,14 +308,11 @@ async function withdrawWholeLock(
     default:
       break;
   }
-  const balance = await readCompactLockBalance(sdk, sponsor, tokenAddress);
-  if (balance === undefined || balance.lockId !== ref.lockId || balance.balance <= 0n) {
-    throw new LockedDepositError('depositMissing', 'The Compact no longer holds this deposit.');
-  }
-  const result = await sdk.withdrawToken(ref.lockId, sponsor, balance.balance.toString());
+  const amount = await readCheckedLockBalance(sdk, sponsor, ref, tokenAddress, 1n);
+  const result = await sdk.withdrawToken(ref.lockId, sponsor, amount.toString());
   await patchLockedDepositsOnLock(ref, () => ({
     withdrawTxHash: result.transactionHash,
-    withdrawnAmount: balance.balance.toString(),
+    withdrawnAmount: amount.toString(),
     withdrawnAt: nowSec()
   }));
   await clearForcedWithdrawalRecord(ref);
@@ -454,14 +492,12 @@ export async function retryLockedDeposit(txId: string): Promise<string> {
   const { inputs, lock, sponsor } = await readLockedDeposit(txId);
   const allocatorUrl = inputs.epochAllocatorUrl ?? getEpochAllocatorUrl();
   const sdk = await connectSponsorSdk(lock, allocatorUrl);
+  // Read and check the balance first: a refusal here must leave a forced withdrawal that is on as it is.
+  await readCheckedLockBalance(sdk, sponsor, lock, lock.tokenAddress, BigInt(lock.amount));
   const status = await sdk.getForcedWithdrawalStatus(sponsor, lock.lockId);
   if (status.status !== 'Disabled') {
     await sdk.disableForcedWithdrawal(lock.lockId);
     await recordWithdrawalStopped(lock);
-  }
-  const balance = await readCompactLockBalance(sdk, sponsor, lock.tokenAddress);
-  if (balance === undefined || balance.lockId !== lock.lockId || balance.balance < BigInt(lock.amount)) {
-    throw new LockedDepositError('depositMissing', 'The Compact no longer holds this deposit.');
   }
   const request = await registerCompactAgain(lock, sponsor, allocatorUrl);
   const nonce = await submitWhenRegistered(sdk, request);

@@ -93,6 +93,11 @@ describe('epochLockedDepositState', () => {
     expect(epochLockedDepositState(LOCK, 'failed', true)).toBeUndefined();
     expect(epochLockedDepositState({ ...LOCK, withdrawnAt: 2 }, 'failed', true)).toBeUndefined();
   });
+
+  it('reads nothing for a failed row whose lock was read empty, and keeps withdrawn first', () => {
+    expect(epochLockedDepositState({ ...LOCK, emptiedAt: 3 }, 'failed', false)).toBeUndefined();
+    expect(epochLockedDepositState({ ...LOCK, emptiedAt: 3, withdrawnAt: 2 }, 'failed', false)).toBe('withdrawn');
+  });
 });
 
 describe('withdrawal countdown', () => {

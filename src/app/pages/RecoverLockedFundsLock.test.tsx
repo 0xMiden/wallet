@@ -198,6 +198,18 @@ describe('RecoverLockedFundsLock', () => {
     expect(mockRetry).toHaveBeenCalledWith('row-1');
   });
 
+  it('shows the could-not-check text when the balance read behind Withdraw failed', async () => {
+    const { LockedDepositError } = jest.requireMock('lib/epoch/bridge-in-recovery');
+    mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Enabled', withdrawableAt: 900 } });
+    mockFinish.mockRejectedValue(new LockedDepositError('balanceUnreadable', 'unreadable'));
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await renderLock();
+
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+
+    expect(screen.getByTestId('recover-funds-lock-error')).toHaveTextContent('recoverFundsCouldNotCheckShort');
+  });
+
   it('asks for the sponsor wallet when none is connected', async () => {
     mockConnection.connected = false;
     mockConnection.address = undefined;

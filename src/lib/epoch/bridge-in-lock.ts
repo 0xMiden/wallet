@@ -52,7 +52,8 @@ export type EpochLockedDepositState = 'locked' | 'withdrawn';
 
 /**
  * The state of a locked Epoch deposit. A row restored from a backup has no state: its contents come from the file,
- * so the wallet never acts on them.
+ * so the wallet never acts on them. A row whose lock the wallet read empty (`emptiedAt`) has no state either: it is a
+ * plain failed bridge-in with no recovery action.
  */
 export function epochLockedDepositState(
   lock: IEpochLockedDeposit | undefined,
@@ -61,6 +62,7 @@ export function epochLockedDepositState(
 ): EpochLockedDepositState | undefined {
   if (lock === undefined || restoredFromBackup) return undefined;
   if (lock.withdrawnAt !== undefined) return 'withdrawn';
+  if (lock.emptiedAt !== undefined) return undefined;
   if (phase === 'failed' && lock.reallocatedAt === undefined) return 'locked';
   return undefined;
 }

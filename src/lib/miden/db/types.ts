@@ -255,6 +255,12 @@ export interface IEpochLockedDeposit {
   withdrawnAmount?: string;
   /** Unix seconds at which the deposit went back to the sponsor. Final. */
   withdrawnAt?: number;
+  /**
+   * Unix seconds at which the wallet read the lock empty with no withdrawal of its own on record. It says nothing about
+   * where the funds went. `withdrawnAt`, `withdrawTxHash` and `withdrawnAmount` stay for a withdrawal that this wallet
+   * sent.
+   */
+  emptiedAt?: number;
   /** Unix seconds at which a retry registered the deposit again. The row then continues as a normal bridge-in. */
   reallocatedAt?: number;
 }
