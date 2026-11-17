@@ -14,7 +14,7 @@ export const ORIGINAL_COMPACT_RECOVERY = Object.freeze({
   lockTag: '0x407c50057d83bedfcde2fb0c',
   amount: 980858n,
   remainingUsdMicros: 1788388n,
-  minimumEthUsdMicros: 1824330000n
+  minimumEthUsdMicros: 1824980000n
 });
 
 export async function verifyCompactRecoverySignature(serializedTransaction, intent) {

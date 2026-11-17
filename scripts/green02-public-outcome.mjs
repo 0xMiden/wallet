@@ -209,7 +209,8 @@ try {
       address: compact,
       abi: COMPACT_ABI,
       functionName: 'isRegistered',
-      args: [account, decoded.args[3], decoded.args[4]]
+      args: [account, decoded.args[3], decoded.args[4]],
+      blockNumber: deposited.receipt.blockNumber
     }),
     true
   );
@@ -273,7 +274,8 @@ try {
     compactTokenId: `0x${tokenId.toString(16)}`,
     compactPrincipal: escrow.toString(),
     compactPrincipalStillOwnedByOriginalAccount: true,
-    compactOriginalRegistrationActive: true,
+    compactOriginalRegistrationAtOriginalDepositVerified: true,
+    originalRegistrationExpiryNeverExtendedOrReissued: true,
     compactResetPeriod: 4,
     compactForcedWithdrawalStatus: Number(withdrawal[0]),
     originalIntentStatusEmpty: true,
