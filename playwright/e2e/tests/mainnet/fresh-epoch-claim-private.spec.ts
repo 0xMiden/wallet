@@ -11,7 +11,8 @@ import {loadMainnetNearCheckpoint} from '../../helpers/mainnet-near-checkpoint';
 import {restoreMainnetLoopGuardian} from '../../helpers/mainnet-loop-wallet';
 import {realizedMainnetLoopLoss} from '../../helpers/mainnet-loop-budget';
 import {createMainnetOneClickOriginFetcher} from '../../helpers/mainnet-one-click-origin';
-import {fetchOneClickStatus,hashOneClickQuote} from '../../../../src/lib/one-click/client';
+import {fetchOneClickStatus} from '../../../../src/lib/one-click/client';
+import {hashOneClickQuote} from '../../../../src/lib/one-click/signature';
 
 const paths=['test-results/final/roundtrip.json','test-results/fresh/roundtrip.json','test-results/near/roundtrip.json'];
 const hashes=()=>paths.map(p=>createHash('sha256').update(readFileSync(p)).digest('hex'));
