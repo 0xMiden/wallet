@@ -25,8 +25,10 @@ import {
   claimNoteIds,
   describeRotationFailure,
   GateRow,
+  isActivationRow,
   isBelowBaseFee,
   resolveRotationGateView,
+  resumableActivationMode,
   RotationFailureRow,
   RotationGateViewInput,
   rotationFundingMinimum
@@ -490,5 +492,30 @@ describe('isUnconfirmedFailureReason', () => {
     WALLET_REASONS.forEach(reason => expect(isUnconfirmedFailureReason(reason)).toBe(false));
     expect(isUnconfirmedFailureReason(GUARDIAN_UNREACHABLE_ERROR)).toBe(false);
     expect(isUnconfirmedFailureReason('')).toBe(false);
+  });
+});
+
+describe('activation rows (review A1, A3)', () => {
+  const commitment = `0x${'ab'.repeat(32)}`;
+  const row = (extra: Partial<ITransaction> = {}) => ({
+    type: 'replace-hot-key' as const,
+    accountId: 'account-1',
+    status: ITransactionStatus.Failed,
+    initiatedAt: 100,
+    ...extra
+  });
+
+  it('counts a replace-hot-key row of the account that is not a revocation', () => {
+    expect(isActivationRow(row({ extraInputs: { mode: 'add' } }), 'account-1')).toBe(true);
+    expect(isActivationRow(row(), 'account-1')).toBe(true);
+    expect(isActivationRow(row({ extraInputs: { revokedSignerCommitment: commitment } }), 'account-1')).toBe(false);
+    expect(isActivationRow(row(), 'account-2')).toBe(false);
+    expect(isActivationRow({ ...row(), type: 'consume' }, 'account-1')).toBe(false);
+  });
+
+  it('resumes no role from a row restored from a backup, and the newest local row otherwise', () => {
+    const restored = row({ initiatedAt: 200, restoredFromBackup: true, extraInputs: { mode: 'replace' } });
+    expect(resumableActivationMode([restored])).toBeNull();
+    expect(resumableActivationMode([row({ extraInputs: { mode: 'add' } }), restored])).toBe('add');
   });
 });

@@ -29,7 +29,6 @@ import {
   hotKeyRotationLockName,
   isLiveRotationFundingRow,
   isLiveRotationRow,
-  isRotationRow,
   newestRow,
   selectRotationFundingNotes
 } from 'lib/miden/transaction/rotation-funding';
@@ -56,6 +55,7 @@ import {
 import {
   activationModeOf,
   describeRotationFailure,
+  isActivationRow,
   isBelowBaseFee,
   resolveRotationGateView,
   resumableActivationMode,
@@ -166,23 +166,29 @@ const ensureRotationTx = async (
           });
       });
     }
-    const existing = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).first();
+    // A live device revocation is never the activation: the gate waits for it, so no activation is queued beside
+    // a signer change already in flight.
+    const live = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).toArray();
+    const existing = live.find(r => isActivationRow(r, accountPublicKey));
     if (existing) {
       txId = existing.id;
       return;
     }
-    if (await Repo.transactions.filter(r => isLiveRotationFundingRow(r, accountPublicKey)).first()) {
+    if (
+      live.length > 0 ||
+      (await Repo.transactions.filter(r => isLiveRotationFundingRow(r, accountPublicKey)).first())
+    ) {
       deferred = true;
       return;
     }
     const failed = adoptExisting ? await findAdoptableShortfallRow(accountPublicKey) : undefined;
-    if (failed) {
+    if (failed && isActivationRow(failed, accountPublicKey)) {
       txId = failed.id;
       return;
     }
     const activationMode =
       mode ??
-      resumableActivationMode(await Repo.transactions.filter(r => isRotationRow(r, accountPublicKey)).toArray());
+      resumableActivationMode(await Repo.transactions.filter(r => isActivationRow(r, accountPublicKey)).toArray());
     if (activationMode === null) return;
     txId = await initiateReplaceHotKeyTransaction(
       accountPublicKey,

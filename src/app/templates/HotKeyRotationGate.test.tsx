@@ -478,6 +478,70 @@ describe('HotKeyRotationGate', () => {
     expect(mockInitiate).not.toHaveBeenCalled();
   });
 
+  describe('device revocations and restored rows (review A1, A3)', () => {
+    const revokeRow = (id: string, extra: Partial<TableRow> = {}): TableRow =>
+      rotationRow(id, { extraInputs: { revokedSignerCommitment: `0x${'ab'.repeat(32)}` }, ...extra });
+
+    it('does not resume a role from a failed revocation: it asks', async () => {
+      mockTable = [revokeRow('tx-revoke', { status: ITransactionStatus.Failed, error: 'guardian unreachable' })];
+
+      render(<HotKeyRotationGate />);
+
+      expect(await screen.findByTestId('choose-device-role')).toBeInTheDocument();
+      expect(mockInitiate).not.toHaveBeenCalled();
+    });
+
+    it('does not track a live revocation as the activation, and starts the chosen role only once it settles', async () => {
+      mockTable = [revokeRow('tx-revoke')];
+
+      render(<HotKeyRotationGate />);
+
+      expect(await screen.findByTestId('choose-device-role')).toBeInTheDocument();
+      expect(mockUseTransactionRow).not.toHaveBeenCalledWith('tx-revoke');
+      await chooseRole('device-role-main');
+      await publishTable();
+      expect(mockInitiate).not.toHaveBeenCalled();
+
+      mockTable = [revokeRow('tx-revoke', { status: ITransactionStatus.Failed, error: 'guardian unreachable' })];
+      await publishTable();
+
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'replace');
+    });
+
+    it('does not adopt a revocation that failed for want of its fee as the activation: it asks', async () => {
+      mockTable = [
+        revokeRow('tx-revoke-shortfall', {
+          status: ITransactionStatus.Failed,
+          completedAt: 150,
+          error: 'assertion failed with error code: 644413868907058392'
+        })
+      ];
+
+      render(<HotKeyRotationGate />);
+
+      expect(await screen.findByTestId('choose-device-role')).toBeInTheDocument();
+      expect(mockUseTransactionRow).not.toHaveBeenCalledWith('tx-revoke-shortfall');
+      expect(mockInitiate).not.toHaveBeenCalled();
+    });
+
+    it('does not resume the role of a rotation restored from a backup: it asks', async () => {
+      mockTable = [
+        rotationRow('tx-restored', {
+          status: ITransactionStatus.Failed,
+          error: 'guardian unreachable',
+          restoredFromBackup: true,
+          extraInputs: { mode: 'replace' }
+        })
+      ];
+
+      render(<HotKeyRotationGate />);
+
+      expect(await screen.findByTestId('choose-device-role')).toBeInTheDocument();
+      expect(mockInitiate).not.toHaveBeenCalled();
+    });
+  });
+
   it('swallows mobile back from the overlay tier while it blocks', async () => {
     render(<HotKeyRotationGate />);
 

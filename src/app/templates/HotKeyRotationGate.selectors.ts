@@ -63,7 +63,18 @@ export const claimNoteIds = (row: GateRow): string[] => row.noteIds ?? [];
 
 /** A rotation row as the device-role choice reads it. */
 export type RotationModeRow = Pick<ITransaction, 'status' | 'initiatedAt' | 'queuedSeq'> &
-  Partial<Pick<ITransaction, 'extraInputs'>>;
+  Partial<Pick<ITransaction, 'extraInputs' | 'restoredFromBackup'>>;
+
+/**
+ * An everyday-key activation row of the account: a `replace-hot-key` row that is not a device revocation. A
+ * revocation shares the row type but carries `revokedSignerCommitment` and no mode, and its completion installs no
+ * key, so the gate never adopts it, tracks it or resumes a role from it.
+ */
+export const isActivationRow = (
+  row: Pick<ITransaction, 'type' | 'accountId'> & Partial<Pick<ITransaction, 'extraInputs'>>,
+  accountPublicKey: string
+): boolean =>
+  row.type === 'replace-hot-key' && row.accountId === accountPublicKey && !row.extraInputs?.revokedSignerCommitment;
 
 /** The mode a rotation row was queued with. A row without a mode is from before the field existed: a replace. */
 export const activationModeOf = (row: RotationModeRow): HotKeyActivationMode => {
@@ -78,10 +89,11 @@ export const activationModeOf = (row: RotationModeRow): HotKeyActivationMode => 
 /**
  * The role the user chose for the account's last rotation, while that rotation did not complete (it is live or
  * failed), else `null`. A reload or a second surface continues with this role and does not ask again. A completed
- * rotation finished its activation, so a new flag (another device took the account over) asks again.
+ * rotation finished its activation, so a new flag (another device took the account over) asks again. A row restored
+ * from a backup was queued by another device or an earlier wallet, so its role is not this activation's choice.
  */
 export const resumableActivationMode = (rotationRows: readonly RotationModeRow[]): HotKeyActivationMode | null => {
-  const newest = newestRow(rotationRows);
+  const newest = newestRow(rotationRows.filter(row => row.restoredFromBackup !== true));
   if (newest === undefined || newest.status === ITransactionStatus.Completed) return null;
   return activationModeOf(newest);
 };
