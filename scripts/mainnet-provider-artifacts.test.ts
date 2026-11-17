@@ -172,6 +172,78 @@ describe('known unsigned NEAR quote reconciliation', () => {
       }
     ]
   });
+  const freshDigest = 'a4546b4126ba6c81bc19272117d60ac904eedcea65add3ed7ff7d990817d2b12';
+  const freshNow = Date.parse('2026-11-17T03:00:00Z');
+  const freshRun = () => ({
+    ...run(),
+    id: 43999834254,
+    head_sha: 'c3b9997f069267a02a8e1715f691d0187982e23d',
+    head_branch: 'wiktor/nightly-main-green-01',
+    event: 'workflow_dispatch'
+  });
+  const freshAudit = () => ({
+    ...audit(),
+    id: 44005625246,
+    head_sha: 'cca4608ecc222693a9f04124c671f06b48cd850f',
+    head_branch: 'wiktor/nightly-green-01-outcome'
+  });
+  it('recognizes only the exact independently audited unsigned attempt01 after its original windows expire', () => {
+    expect(
+      knownUnspentNearPreAuthorization(freshDigest, freshRun(), originalJobs(), freshAudit(), auditJobs(), freshNow)
+    ).toBe(true);
+  });
+  it.each([
+    { id: 43999834255 },
+    { repository: { id: 1 } },
+    { head_sha: 'a'.repeat(40) },
+    { head_branch: 'main' },
+    { event: 'schedule' },
+    { run_attempt: 2 }
+  ])('rejects changed attempt01 producer provenance %j', changed => {
+    expect(
+      knownUnspentNearPreAuthorization(
+        freshDigest,
+        { ...freshRun(), ...changed },
+        originalJobs(),
+        freshAudit(),
+        auditJobs(),
+        freshNow
+      )
+    ).toBe(false);
+  });
+  it('never mixes the two known source/audit/checkpoint bindings or accepts the still-live original window', () => {
+    for (const [digestValue, original, reviewed] of [
+      [digest, freshRun(), freshAudit()],
+      [freshDigest, run(), freshAudit()],
+      [freshDigest, freshRun(), audit()]
+    ]) {
+      expect(
+        knownUnspentNearPreAuthorization(digestValue, original, originalJobs(), reviewed, auditJobs(), freshNow)
+      ).toBe(false);
+    }
+    expect(
+      knownUnspentNearPreAuthorization(
+        freshDigest,
+        freshRun(),
+        originalJobs(),
+        freshAudit(),
+        auditJobs(),
+        Date.parse('2026-11-17T02:20:00Z')
+      )
+    ).toBe(false);
+  });
+  it('rejects an incomplete new independent audit or evidence of later provider execution', () => {
+    const changedAudit = auditJobs();
+    changedAudit.jobs[1]!.conclusion = 'failure';
+    expect(
+      knownUnspentNearPreAuthorization(freshDigest, freshRun(), originalJobs(), freshAudit(), changedAudit, freshNow)
+    ).toBe(false);
+    const changedOriginal = originalJobs();
+    changedOriginal.jobs[0]!.steps[4]!.conclusion = 'success';
+    expect(
+      knownUnspentNearPreAuthorization(freshDigest, freshRun(), changedOriginal, freshAudit(), auditJobs(), freshNow)
+    ).toBe(false);
+  });
   it('recognizes the exact expired quote only after both independent audits and failed pre-release native gate', () => {
     expect(knownUnspentNearPreAuthorization(digest, run(), originalJobs(), audit(), auditJobs(), now)).toBe(true);
   });
