@@ -184,6 +184,33 @@ describe('RecoveryPhraseKeepPrompt', () => {
     );
   });
 
+  it('a failed Keep with no message does not report a failed removal', async () => {
+    mockStored.set(RECOVERY_PHRASE_KEEP_PROMPT_STORAGE_KEY, 'acc-1');
+    mockPutToStorage.mockRejectedValueOnce(new Error(''));
+    render(<RecoveryPhraseKeepPrompt />);
+
+    fireEvent.click(await screen.findByTestId('recovery-phrase-keep-keep'));
+
+    await waitFor(() =>
+      expect(mockAlert).toHaveBeenCalledWith(expect.objectContaining({ title: 'error', children: 'smthWentWrong' }))
+    );
+    expect(mockRemoveSeedPhrase).not.toHaveBeenCalled();
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('a removal that succeeded and a flag write that failed does not report a failed removal', async () => {
+    mockStored.set(RECOVERY_PHRASE_KEEP_PROMPT_STORAGE_KEY, 'acc-1');
+    mockPutToStorage.mockRejectedValueOnce(new Error(''));
+    render(<RecoveryPhraseKeepPrompt />);
+
+    fireEvent.click(await screen.findByTestId('recovery-phrase-keep-remove'));
+
+    await waitFor(() =>
+      expect(mockAlert).toHaveBeenCalledWith(expect.objectContaining({ title: 'error', children: 'smthWentWrong' }))
+    );
+    expect(mockRemoveSeedPhrase).toHaveBeenCalledTimes(1);
+  });
+
   // The first tap holds the answer until its write ends, so a second tap does not remove the phrase two times.
   it('runs the removal once when Remove is tapped twice while it runs', async () => {
     mockStored.set(RECOVERY_PHRASE_KEEP_PROMPT_STORAGE_KEY, 'acc-1');

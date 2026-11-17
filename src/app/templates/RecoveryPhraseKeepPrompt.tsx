@@ -80,15 +80,21 @@ const RecoveryPhraseKeepSheet: FC<SheetProps> = ({ accountPublicKey, seedPhraseS
     async (removePhrase: boolean) => {
       if (inFlight.current) return;
       inFlight.current = true;
+      // Only a failure of the removal itself reads as a failed removal; a failed flag write is a generic error.
+      let removalFailed = false;
       try {
         if (removePhrase) {
           // The removal runs first: a failure keeps the prompt armed, so the question comes back.
-          await removeSeedPhrase(undefined);
+          await removeSeedPhrase(undefined).catch(error => {
+            removalFailed = true;
+            throw error;
+          });
         }
         await clearRecoveryPhraseKeepPrompt();
       } catch (error) {
         console.warn('[RecoveryPhraseKeepPrompt] the answer did not apply:', error);
-        const message = error instanceof Error && error.message ? error.message : t('seedRemovalFailed');
+        const fallback = removalFailed ? t('seedRemovalFailed') : t('smthWentWrong');
+        const message = error instanceof Error && error.message ? error.message : fallback;
         await alert({ errorId: null, title: t('error'), children: message });
       } finally {
         inFlight.current = false;
