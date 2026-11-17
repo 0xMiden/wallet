@@ -69,7 +69,7 @@ function nativeReview(): ReviewedTransfer {
   } };
 }
 
-async function drive(review = reviewedErc20Transfer('agglayer')) {
+async function drive(review = reviewedErc20Transfer('agglayer'), operationId = 'agglayer-operation') {
   assertReviewedBridge(review, structuredClone(review), now);
   const route = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
   if (!route || review.route.destination.kind !== 'miden') throw new Error('Missing accepted Agglayer route');
@@ -84,7 +84,7 @@ async function drive(review = reviewedErc20Transfer('agglayer')) {
     accountId: accounts.midenAccount, amount: parseUnits('1', review.route.destination.decimals),
     faucetId: review.route.destination.faucetId, provider: 'agglayer', sourceAddress: accounts.evmAddress,
     sourceChainId: route.chainId, sourceAmount: review.amount, sourceSymbol: review.route.source.symbol,
-    agglayerRoute: route, operation: { operationId: 'agglayer-operation', review },
+    agglayerRoute: route, operation: { operationId, review },
     agglayerDelivery: review.route.source.kind === 'erc20' ? { originToken: `0x${review.route.source.address.slice(2)}`, faucetId: review.route.destination.faucetId, scale: 10 } : undefined
   }), async (rowId, claimed) => {
     captured = claimed;
@@ -131,7 +131,7 @@ beforeEach(async () => {
     if (method !== 'eth_sendTransaction') throw new Error('Unexpected wallet method');
     const tx = params[0];
     signed.push(tx);
-    if (tx.to.toLowerCase() === bridgeAddress.toLowerCase()) return depositHash;
+    if (tx.to.toLowerCase() === bridgeAddress.toLowerCase()) return signed.filter(item => item.to === bridgeAddress).length === 1 ? depositHash : `0x${'d'.repeat(64)}`;
     if (tx.to.toLowerCase() !== tokenAddress.toLowerCase()) throw new Error('Wrong signing target');
     const decoded = decodeFunctionData({ abi: erc20Abi, data: tx.data });
     if (decoded.functionName !== 'approve' || decoded.args[0].toLowerCase() !== bridgeAddress.toLowerCase()) throw new Error('Wrong approval call');
@@ -287,6 +287,19 @@ it.each(['faucet', 'recipient', 'amount', 'malformed', 'restored', 'recovered', 
   const match = await takeAgglayerBridgeInInfo({ accountId: change === 'recipient' ? '0x1111111111111111111111111111' : accounts.midenAccount, senderAccountId: change === 'faucet' ? '0x7c6d1dc7fb7045913d524bbef017f5' : '0xb41aed8db850a3d140fc2079216c60', amount: change === 'amount' ? 99999999n : 100000000n });
   expect(match).toBeUndefined();
   expect((await Repo.transactions.get(id))?.extraInputs.phase).not.toBe('received');
+});
+
+it('does not invent the oldest owned recipient-and-amount identity for two different funded operations', async () => {
+  const first = await drive();
+  expect(first.error).toBeUndefined();
+  expect(await takeAgglayerBridgeInInfo({ accountId: accounts.midenAccount, senderAccountId: '0xb41aed8db850a3d140fc2079216c60', amount: 100000000n })).toMatchObject({ bridgeReceiveTxId: first.id });
+  const second = await drive(reviewedErc20Transfer('agglayer'), 'another-owned-operation');
+  expect(second.error).toBeUndefined();
+  expect(second.id).not.toBe(first.id);
+  expect(second.row?.extraInputs.evmTxHash).toBe(`0x${'d'.repeat(64)}`);
+  expect(await takeAgglayerBridgeInInfo({ accountId: accounts.midenAccount, senderAccountId: '0xb41aed8db850a3d140fc2079216c60', amount: 100000000n })).toBeUndefined();
+  expect((await Repo.transactions.get(first.id))?.extraInputs.phase).not.toBe('received');
+  expect((await Repo.transactions.get(second.id))?.extraInputs.phase).not.toBe('received');
 });
 
 it('retains the untagged legacy source-unit scaling contract', async () => {
