@@ -83,7 +83,7 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
     }
   }
 }));
-jest.mock('lib/platform', () => ({ isExtension: () => true }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => true }));
 // The bridge account and its L1 network id come from the remote config.
 const mockGetBridgeOut = jest.fn();
 jest.mock('lib/remote-config/values', () => ({

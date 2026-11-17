@@ -12,7 +12,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.mocked(getBridgeConfigSnapshot).mockReturnValue(referenceSnapshot('testnet'));
-  jest.mocked(createPublicClient).mockReturnValue(Object.assign(jest.requireActual('viem').createPublicClient({ transport: jest.requireActual('viem').http() }), { readContract: read }));
+  jest.mocked(createPublicClient).mockReturnValue(Object.assign(jest.requireActual('viem').createPublicClient({ transport: jest.requireActual('viem').http('https://rpc.example') }), { readContract: read }));
   read.mockResolvedValue(false);
 });
 afterEach(() => jest.restoreAllMocks());
