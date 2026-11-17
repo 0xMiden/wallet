@@ -1,7 +1,7 @@
-name: Original Compact owner-only disable cleanup readiness and guarded one-shot
+name: Original Compact disabled cleanup independent SDK018 public and private audit
 on:
   push:
-    branches: [wiktor/green02-compact-disable, wiktor/green02-compact-disable-once]
+    branches: [wiktor/green02-compact-disabled-audit]
 permissions:
   contents: read
   actions: read
@@ -9,13 +9,12 @@ concurrency:
   group: e2e-mainnet-nightly
   cancel-in-progress: false
 jobs:
-  withdrawn-phase-audit:
+  disabled-phase-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       E2E_NETWORK: mainnet
       MIDEN_E2E_MAINNET_NIGHTLY: 'true'
-      COMPACT_RECOVERY_STAGE: disable
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -30,23 +29,6 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - name: Original case signature and budget guards remain intact
         run: node --test test/compact-owner-recovery.node.test.mjs
-      - name: Create nonfinancial exact-ID archive-layout fixture
-        run: |
-          mkdir -p test-results/compact-layout-source
-          printf '%s\n' 'No authority or signing: original immutable-ID layout canary' > test-results/compact-layout-source/canary.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        id: layout-canary
-        with:
-          name: compact-layout-canary-${{ github.run_id }}
-          path: test-results/compact-layout-source/canary.txt
-          if-no-files-found: error
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          artifact-ids: ${{ steps.layout-canary.outputs.artifact-id }}
-          merge-multiple: true
-          path: test-results/compact-layout-downloaded
-      - name: Verify exact immutable-ID flat ACK bytes before original account access
-        run: cmp test-results/compact-layout-source/canary.txt test-results/compact-layout-downloaded/canary.txt
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           run-id: 44034323631
@@ -65,16 +47,23 @@ jobs:
           github-token: ${{ github.token }}
           name: original-compact-withdraw-authority-44067623911
           path: test-results/withdraw
-      - name: Bind original producer and both actual owner-only financial phases and immutable ACK bytes
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 44071758997
+          github-token: ${{ github.token }}
+          name: original-compact-disable-authority-44071758997
+          path: test-results/disable
+      - name: Bind original producer and all three actual owner-only phases and immutable authority bytes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api repos/0xMiden/wallet/actions/runs/44034323631 > "$RUNNER_TEMP/producer.json"
           gh api repos/0xMiden/wallet/actions/runs/44055319371 > "$RUNNER_TEMP/enable.json"
           gh api repos/0xMiden/wallet/actions/runs/44067623911 > "$RUNNER_TEMP/withdraw.json"
+          gh api repos/0xMiden/wallet/actions/runs/44071758997 > "$RUNNER_TEMP/disable.json"
           node <<'NODE'
-          const assert=require('node:assert/strict'),fs=require('node:fs'),crypto=require('node:crypto');const read=n=>JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${n}.json`));const p=read('producer'),e=read('enable'),w=read('withdraw');assert.equal(p.head_sha,'775f30df7ab450165d82f0f2ddd9ff1742431585');assert.equal(p.run_attempt,1);assert.equal(p.conclusion,'failure');assert.equal(e.head_sha,'09070f46e3b302d87dfdb15bd31772a8733941da');assert.equal(w.head_sha,'026475b9becfb265e0c739989bdddcf4b4265ee6');for(const r of[e,w]){assert.equal(r.run_attempt,1);assert.equal(r.conclusion,'success');}assert.equal(w.head_branch,'wiktor/green02-compact-withdraw-once');
-          for(const [path,hash]of[['test-results/enable/compact-recovery-enable-authority.json','3bd825c51b868b3129fb3afd84e416cc7d35c742b4e2f376539d81b0f1f8e4a4'],['test-results/withdraw/compact-recovery-withdraw-authority.json','087550abab7094fb719a62a5f1c9a693f5ce53cd4cb16eaae384232fb587d7e1']])assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex'),hash);
+          const assert=require('node:assert/strict'),fs=require('node:fs'),crypto=require('node:crypto');const read=n=>JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${n}.json`));const p=read('producer'),e=read('enable'),w=read('withdraw'),d=read('disable');assert.equal(p.head_sha,'775f30df7ab450165d82f0f2ddd9ff1742431585');assert.equal(p.run_attempt,1);assert.equal(p.conclusion,'failure');assert.equal(e.head_sha,'09070f46e3b302d87dfdb15bd31772a8733941da');assert.equal(w.head_sha,'026475b9becfb265e0c739989bdddcf4b4265ee6');assert.equal(d.head_sha,'7c6f41bda3e82759349796d8011fb36aed56eaa0');for(const r of[e,w,d]){assert.equal(r.run_attempt,1);assert.equal(r.conclusion,'success');assert.equal(r.event,'push');}assert.equal(w.head_branch,'wiktor/green02-compact-withdraw-once');assert.equal(d.head_branch,'wiktor/green02-compact-disable-once');
+          for(const [path,hash]of[['test-results/enable/compact-recovery-enable-authority.json','3bd825c51b868b3129fb3afd84e416cc7d35c742b4e2f376539d81b0f1f8e4a4'],['test-results/withdraw/compact-recovery-withdraw-authority.json','087550abab7094fb719a62a5f1c9a693f5ce53cd4cb16eaae384232fb587d7e1'],['test-results/disable/compact-recovery-disable-authority.json','b2cbd9e1a2930e6a6b9eb180da2bf709f0585675232fb2d1875bcf08158d8f50']])assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex'),hash);
           const roles={'mainnet-swap-final':'swap','mainnet-epoch-final':'epoch','mainnet-1click-final':'near','mainnet-epoch-forward-sdk-authorized':'epoch-forward','mainnet-swap-forward-sdk-authorized':'forward-create','mainnet-swap-reverse-sdk-authorized':'reverse-create','mainnet-swap-forward-claim-sdk-authorized':'forward-claim','mainnet-swap-reverse-claim-sdk-authorized':'reverse-claim','mainnet-nightly':'public'};for(const[name,role]of Object.entries(roles))fs.cpSync(`test-results/evidence/${name}-44034323631`,`test-results/${role}`,{recursive:true});
           NODE
       - name: Original production read-only SDK018 bootstrap
@@ -82,7 +71,7 @@ jobs:
           node --input-type=module <<'NODE'
           import {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import YAML from 'yaml';const doc=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8')),step=doc.jobs['mainnet-nightly'].steps.find(s=>s.name==='Build read-only Epoch SDK');if(!step?.run)throw new Error('Missing original read-only SDK bootstrap');execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
           NODE
-      - name: Independent public SDK018 settlement, exact owner USDC transfer and only new withdrawal gas cost
+      - name: Independent original public SDK018 settlement and owner return with disabled empty lock
         run: |
           yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-evm.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-evm.mjs
@@ -96,85 +85,23 @@ jobs:
       - run: yarn test:e2e:blockchain:build
         env:
           WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
-      - name: Actual original PRIVATE SDK018 holdings after owner refund, consume blocked and no policy
+      - name: Actual original PRIVATE SDK018 holdings after disable with consume blocked and no policy
         env:
           E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
           WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
         run: |
           umask 077
           code=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/green02-withdrawn-private" xvfb-run -a yarn playwright test green02-private-outcome.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/green02-withdrawn-private.log" 2>&1 || code=$?
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/green02-disabled-private" xvfb-run -a yarn playwright test green02-private-outcome.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/green02-disabled-private.log" 2>&1 || code=$?
           node --input-type=module <<'NODE'
           import {existsSync,readFileSync} from 'node:fs';for(const path of ['test-results/green02-private-status.json','test-results/green02-private-outcome.json'])if(existsSync(path))console.log(JSON.stringify(JSON.parse(readFileSync(path,'utf8'))));
           NODE
           exit "$code"
-      - name: No-key original empty-lock disable cleanup simulation and capped fresh gas
-        run: |
-          yarn esbuild playwright/e2e/helpers/mainnet-one-click-prices.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-compact-prices.mjs
-          node scripts/mainnet-compact-owner-recovery.mjs
-      - name: Require no-key empty-lock cleanup readiness and original frontier before signing-key access
-        if: github.ref == 'refs/heads/wiktor/green02-compact-disable-once'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          node -e 'const d=JSON.parse(require("node:fs").readFileSync("test-results/compact-owner-recovery-readonly.json"));const a=require("node:assert/strict");a.equal(d.status,"readonly-ready");a.equal(d.actualOriginalOwnerDisableSimulationPassed,true);a.equal(d.currentEscrow,"0");a.equal(d.currentOriginalOwnerUsdc,"254080030");a.equal(d.originalRemainingUsdMicros,"1762751");a.equal(d.ownerPrivateKeyLoaded,false);a.equal(d.signatureCreated,false);a.equal(d.broadcast,false)'
-          gh api 'repos/0xMiden/wallet/actions/workflows/e2e-mainnet-nightly.yml/runs?per_page=5' > "$RUNNER_TEMP/producer-frontier.json"
-          node -e 'const d=JSON.parse(require("node:fs").readFileSync(process.env.RUNNER_TEMP+"/producer-frontier.json"));require("node:assert/strict").equal(d.workflow_runs[0].id,44034323631)'
-      - name: Hold one original empty-lock disable signature in memory pending immutable ACK
-        if: github.ref == 'refs/heads/wiktor/green02-compact-disable-once'
-        env:
-          COMPACT_OWNER_RECOVERY_EXECUTE: 'true'
-          E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
-        run: |
-          umask 077
-          node scripts/mainnet-compact-owner-recovery.mjs > "$RUNNER_TEMP/compact-disable-private.log" 2>&1 &
-          echo "$!" > "$RUNNER_TEMP/compact-disable.pid"
-          for _ in $(seq 1 120); do
-            test -f test-results/compact-recovery-disable-authority.json && break
-            kill -0 "$(cat "$RUNNER_TEMP/compact-disable.pid")" || exit 1
-            sleep 1
-          done
-          test -f test-results/compact-recovery-disable-authority.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: github.ref == 'refs/heads/wiktor/green02-compact-disable-once'
-        id: disable-authority
-        with:
-          name: original-compact-disable-authority-${{ github.run_id }}
-          path: test-results/compact-recovery-disable-authority.json
-          if-no-files-found: error
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: github.ref == 'refs/heads/wiktor/green02-compact-disable-once'
-        with:
-          artifact-ids: ${{ steps.disable-authority.outputs.artifact-id }}
-          merge-multiple: true
-          path: test-results/compact-ack
-      - name: ACK only exact immutable disable journal and observe one-shot result
-        if: github.ref == 'refs/heads/wiktor/green02-compact-disable-once'
-        run: |
-          cmp test-results/compact-recovery-disable-authority.json test-results/compact-ack/compact-recovery-disable-authority.json
-          touch test-results/compact-ack/ready
-          for _ in $(seq 1 240); do
-            test -f test-results/compact-recovery-disable.exit.json && break
-            kill -0 "$(cat "$RUNNER_TEMP/compact-disable.pid")" || exit 1
-            sleep 1
-          done
-          test -f test-results/compact-recovery-disable.exit.json
-          node -e 'const d=JSON.parse(require("node:fs").readFileSync("test-results/compact-recovery-disable.exit.json"));process.exit(d.exitCode)'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always() && github.ref == 'refs/heads/wiktor/green02-compact-disable-once'
-        with:
-          name: original-compact-disable-outcome-${{ github.run_id }}
-          path: |
-            test-results/compact-recovery-disable-authority.json
-            test-results/compact-recovery-disable.broadcast.once
-            test-results/compact-owner-recovery-result.json
-            test-results/compact-recovery-disable.exit.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: original-compact-disable-readiness
+          name: original-compact-disabled-phase-independent-audit
           path: |
-            test-results/compact-owner-recovery-readonly.json
             test-results/green02-public-outcome.json
             test-results/green02-private-status.json
             test-results/green02-private-outcome.json

@@ -180,6 +180,38 @@ try {
   const withdrawGasUsd = (withdrawFee * BigInt(withdraw.ethUsdMicros) + 10n ** 18n - 1n) / 10n ** 18n;
   assert.equal(withdrawGasUsd, 13365n);
   assert.ok(withdrawGasUsd <= BigInt(withdraw.maximumCostUsdMicros));
+  const disableBytes = readFileSync('test-results/disable/compact-recovery-disable-authority.json');
+  assert.equal(
+    createHash('sha256').update(disableBytes).digest('hex'),
+    'b2cbd9e1a2930e6a6b9eb180da2bf709f0585675232fb2d1875bcf08158d8f50'
+  );
+  const disable = JSON.parse(disableBytes.toString());
+  assert.equal(disable.runId, '44071758997');
+  assert.equal(disable.sourceSha, '7c6f41bda3e82759349796d8011fb36aed56eaa0');
+  assert.equal(disable.signedHash, '0xcae904b38b4711d20e136d0c741be01fd8504184065460ab0caa363f91a66a8d');
+  assert.equal(disable.originalRemainingUsdMicros, '1762751');
+  const [disableTx, disableReceipt] = await Promise.all([
+    client.getTransaction({ hash: disable.signedHash }),
+    client.getTransactionReceipt({ hash: disable.signedHash })
+  ]);
+  assert.equal(getAddress(disableTx.from), getAddress(epoch.evm.account));
+  assert.equal(getAddress(disableTx.to), getAddress(epoch.evm.compact));
+  assert.equal(disableTx.nonce, 113);
+  assert.equal(disableTx.value, 0n);
+  assert.equal(disableTx.input, disable.transaction.data);
+  for (const key of ['gas', 'maxFeePerGas', 'maxPriorityFeePerGas'])
+    assert.equal(disableTx[key], BigInt(disable.transaction[key]));
+  assert.equal(disableReceipt.status, 'success');
+  assert.equal(disableReceipt.transactionHash, disable.signedHash);
+  const disableCall = decodeFunctionData({ abi: COMPACT_ABI, data: disableTx.input });
+  assert.equal(disableCall.functionName, 'disableForcedWithdrawal');
+  assert.equal(BigInt(disableCall.args[0]), (BigInt(epoch.reverseAuthority.lockTag) << 160n) | BigInt(epoch.evm.token));
+  const disableFee = disableReceipt.gasUsed * disableReceipt.effectiveGasPrice;
+  assert.equal(disableFee, 3377746180430n);
+  assert.equal(BigInt(disable.ethUsdMicros), BigInt(epoch.reverseAuthority.valuation.gasUsdMicros));
+  const disableGasUsd = (disableFee * BigInt(disable.ethUsdMicros) + 10n ** 18n - 1n) / 10n ** 18n;
+  assert.equal(disableGasUsd, 6165n);
+  assert.ok(disableGasUsd <= BigInt(disable.maximumCostUsdMicros) && disableGasUsd <= 100000n);
   const receipts = await Promise.all(
     epoch.transactions.map(entry =>
       Promise.all([
@@ -212,9 +244,9 @@ try {
     client.getTransactionCount({ address: account, blockTag: 'latest' }),
     client.getTransactionCount({ address: account, blockTag: 'pending' })
   ]);
-  assert.equal(latest, 113);
+  assert.equal(latest, 114);
   assert.equal(pending, latest);
-  assert.equal(gas, BigInt(epoch.evm.nativeBalance) - BigInt(epoch.paidEvmFees) - enableFee - withdrawFee);
+  assert.equal(gas, BigInt(epoch.evm.nativeBalance) - BigInt(epoch.paidEvmFees) - enableFee - withdrawFee - disableFee);
   assert.equal(token, BigInt(epoch.evm.tokenBalance) + BigInt(epoch.forwardReceived));
   assert.equal(token, 254080030n);
   stage = 'authenticated-original-compact-principal';
@@ -236,9 +268,9 @@ try {
   assert.equal(Number(lock[2]), 4);
   assert.equal(Number(lock[3]), 0);
   assert.equal(BigInt(lock[4]), BigInt(epoch.reverseAuthority.lockTag));
-  assert.equal(Number(withdrawal[0]), 2);
-  assert.equal(withdrawal[1], enabledBlock.timestamp + 3900n);
-  assert.equal(withdrawal[1], 1794911867n);
+  assert.equal(enabledBlock.timestamp + 3900n, 1794911867n);
+  assert.equal(Number(withdrawal[0]), 0);
+  assert.equal(withdrawal[1], 0n);
   const deposited = receipts.find((_, i) => epoch.transactions[i].kind === 'deposit');
   assert.ok(deposited);
   const decoded = decodeFunctionData({ abi: COMPACT_ABI, data: deposited.transaction.input });
@@ -338,8 +370,14 @@ try {
     newOriginalOwnerWithdrawalGasCostUsdMicros: withdrawGasUsd.toString(),
     withdrawalHash: withdraw.signedHash,
     withdrawalFeeWei: withdrawFee.toString(),
-    bookOnlyNewWithdrawalGasCostOnce: true,
-    forcedWithdrawalDisableCleanupRequired: true,
+    bookOnlyNewWithdrawalGasCostOnce: false,
+    alreadyBookedAttemptPlusEnablePlusWithdrawalUsdMicros: '64880',
+    newOriginalOwnerDisableGasCostUsdMicros: disableGasUsd.toString(),
+    disableHash: disable.signedHash,
+    disableFeeWei: disableFee.toString(),
+    forcedWithdrawalDisabled: true,
+    bookOnlyNewDisableGasCostOnce: true,
+    forcedWithdrawalDisableCleanupRequired: false,
     previousVerifiedSpentUsdMicros: '172369',
     originalTaskCapUsdMicros: '2000000',
     noCostBookedByAudit: true,
