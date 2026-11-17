@@ -18,6 +18,8 @@ import { bumpWasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
 import { captureCrash } from 'lib/telemetry/crash';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
+import { cancelStuckTransactions, MAX_WAIT_BEFORE_CANCEL } from './cancel';
+import { noteDeliveryWriteCount } from './helper';
 import {
   completeCustomTransaction,
   generateTransaction,
@@ -33,6 +35,7 @@ import {
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from './note-delivery-sweep';
 import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
@@ -1741,6 +1744,120 @@ describe('a throw after the leaf resolved', () => {
       noteDelivery: 'undelivered'
     });
     expect(row.outputNoteIds).toBeUndefined();
+  });
+
+  // One delivery sweep pass at `atSeconds` over the stored rows, handed out as copies as Dexie does, so it reads nothing
+  // the pipeline kept in memory, as after a restart.
+  const sweepStoredRowsAt = async (atSeconds: number, client: Record<string, unknown>) => {
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    where.mockImplementation((query: string | { id: string }) =>
+      typeof query === 'string'
+        ? {
+            anyOf: (states: unknown[]) => ({
+              toArray: async () =>
+                txStore.filter(stored => states.includes(stored[query])).map(stored => ({ ...stored }))
+            })
+          }
+        : realWhere(query)
+    );
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => client;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(atSeconds * 1000);
+    try {
+      __resetNoteDeliverySweepForTests();
+      await sweepNoteDeliveries();
+    } finally {
+      clock.mockRestore();
+      sdk.getMidenClient = origGetClient;
+      where.mockImplementation(realWhere);
+    }
+  };
+
+  // The reaper fails a row past its wait and walks away while its pipeline runs on (#1081), so the leaf still stamps its
+  // crossing, submits and applies, and the landed write leaves the reaped row as it is. The private notes its stamp
+  // proved are still owed, recorded beside what the reaper wrote, which stays as it is.
+  it("a loop execute the reaper failed mid-write whose result traps at its first read stays Failed and owes its stamp's private notes, which the sweep pushes", async () => {
+    const id = 'tx-tail-execute-reaped-first-read-trap';
+    queuedExecute(id, { secondaryAccountId: 'recipient' });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const publicNote = `0x${'7a'.repeat(32)}`;
+    const restore = installLandedTrapRetirement(jest.fn());
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let reaped: Record<string, unknown> | undefined;
+    const newTransaction = jest.fn(
+      async (
+        _accountId: unknown,
+        _requestBytes: unknown,
+        _delegate: unknown,
+        onStage?: (stage: string, detail?: { evidence?: unknown }) => Promise<void>
+      ) => {
+        // The write has run past the reaper's wait by the time it reaches its submit.
+        const late = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + (MAX_WAIT_BEFORE_CANCEL + 1) * 1000);
+        try {
+          await cancelStuckTransactions();
+        } finally {
+          late.mockRestore();
+        }
+        reaped = { ...txStore.find(stored => stored.id === id) };
+        await onStage?.('submitting', {
+          evidence: {
+            transactionId: `0x${'cd'.repeat(32)}`,
+            outputNoteIds: [publicNote, owed],
+            privateOutputNoteIds: [owed]
+          }
+        });
+        return {
+          executedTransaction: () => {
+            throw trap;
+          },
+          serialize: () => new Uint8Array([])
+        };
+      }
+    );
+    const writes = noteDeliveryWriteCount();
+    try {
+      await runLoopAgainst({ newTransaction });
+    } finally {
+      restore();
+    }
+    const reapedFields = (stored: Record<string, unknown> | undefined) => ({
+      status: stored?.status,
+      transactionId: stored?.transactionId,
+      error: stored?.error,
+      displayMessage: stored?.displayMessage,
+      displayIcon: stored?.displayIcon,
+      completedAt: stored?.completedAt,
+      outputNoteIds: stored?.outputNoteIds
+    });
+
+    expect(newTransaction).toHaveBeenCalledTimes(1);
+    expect(reaped?.status).toBe(ITransactionStatus.Failed);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({ relayNoteIds: [owed], relayRecipientId: 'recipient', noteDelivery: 'undelivered' });
+    expect(reapedFields(row)).toEqual(reapedFields(reaped));
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+
+    const client = {
+      relayPrivateNoteById: jest
+        .fn(async (_noteId: string, _recipient: string) => {})
+        .mockRejectedValueOnce(new Error('output note has no inclusion proof')),
+      isOutputNoteConsumed: jest.fn(async (_noteId: string) => false)
+    };
+    const reapedAt = Number(row.completedAt);
+    await sweepStoredRowsAt(reapedAt, client);
+    expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+    await sweepStoredRowsAt(reapedAt + 10 * 60, client);
+    expect(row.noteDelivery).toBe('undelivered');
+    expect(row.relayAckedNoteIds ?? []).toEqual([]);
+    await sweepStoredRowsAt(reapedAt + 30 * 60, client);
+    expect(client.relayPrivateNoteById.mock.calls).toEqual([
+      [owed, 'recipient'],
+      [owed, 'recipient']
+    ]);
+    expect(row).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [owed] });
+    expect(reapedFields(row)).toEqual(reapedFields(reaped));
   });
 
   // Offscreen, the stamp that names those notes crossed fire-and-forget, so an IndexedDB abort on its one write left a

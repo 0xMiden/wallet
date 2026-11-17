@@ -16827,6 +16827,206 @@ describe('generateTransaction - Guardian routing', () => {
           restore();
         }
       });
+
+      // A Cancel fails the row and walks away while its pipeline runs on (#1081), so the leaf still stamps its
+      // crossing, submits and applies, and the landed write leaves the finalized row as it is. The private notes the
+      // landing stamp proved are still owed, recorded as a cancelled pipeline's own relay records them: only the
+      // delivery, never the status, error, label, completedAt or root the Cancel left.
+      describe('an execute a Cancel failed mid-leaf', () => {
+        const cancelledAtProposal = (txId: string) => {
+          const finalized: { row?: Row } = {};
+          const proposal = {
+            createCustomProposal: jest.fn(async () => {
+              await cancelTransactionById(txId, USER_CANCELLED_TRANSACTION_REASON);
+              finalized.row = { ...txStore.find(r => r.id === txId)! };
+              return { id: 'prop-execute' };
+            })
+          };
+          return { proposal, finalized };
+        };
+        const cancelledFields = (row: Row | undefined) => ({
+          status: row?.status,
+          error: row?.error,
+          displayMessage: row?.displayMessage,
+          displayIcon: row?.displayIcon,
+          completedAt: row?.completedAt,
+          outputNoteIds: row?.outputNoteIds
+        });
+
+        it("stays Failed when its result traps at its first read, and owes its landing stamp's private notes to its row's recipient, which the sweep pushes from the stored row", async () => {
+          const txId = 'guardian-execute-cancelled-first-read';
+          const restore = installLandedTrapRetirement(jest.fn());
+          const { result, apply } = armedResult({
+            notes: [fixtureNote(PUBLIC_NOTE, NoteType.Public), fixtureNote(OWED_NOTE, NoteType.Private)],
+            stamped: [PUBLIC_NOTE, OWED_NOTE],
+            privateStamped: [OWED_NOTE],
+            trapping: 'executedTransaction'
+          });
+          const client = sweepClient(result, apply);
+          client.relayPrivateNoteById.mockRejectedValueOnce(new Error('output note has no inclusion proof'));
+          const { proposal, finalized } = cancelledAtProposal(txId);
+          const writes = noteDeliveryWriteCount();
+          const quiet = silence();
+
+          try {
+            const { row } = await runGuardianValueRow(
+              executeRow(txId),
+              { result, replace: () => {}, log: [] },
+              proposal,
+              client
+            );
+
+            expect(finalized.row?.status).toBe(ITransactionStatus.Failed);
+            expect(apply).toHaveBeenCalledTimes(1);
+            const cancelled = cancelledFields(finalized.row);
+            const transactionId = row.transactionId;
+            expect(row).toMatchObject({
+              relayNoteIds: [OWED_NOTE],
+              relayRecipientId: 'recipient',
+              noteDelivery: 'undelivered'
+            });
+            expect(cancelledFields(row)).toEqual(cancelled);
+            expect(noteDeliveryWriteCount()).toBe(writes + 1);
+
+            // The sweep reads only the stored row, as after a restart.
+            const landing = Math.floor(Date.now() / 1000);
+            await sweepAt(landing);
+            expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+            await sweepAt(landing + 10 * 60);
+            expect(row.noteDelivery).toBe('undelivered');
+            expect(storedNoteIds(row.relayAckedNoteIds)).toEqual([]);
+            await sweepAt(landing + 30 * 60);
+            expect(client.relayPrivateNoteById.mock.calls).toEqual([
+              [OWED_NOTE, 'recipient'],
+              [OWED_NOTE, 'recipient']
+            ]);
+            expect(row).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [OWED_NOTE] });
+            expect(cancelledFields(row)).toEqual(cancelled);
+            expect(row.transactionId).toBe(transactionId);
+          } finally {
+            quiet();
+            restore();
+          }
+        });
+
+        it('owes none of its stamped private notes when its apply failed after the submit', async () => {
+          const txId = 'guardian-execute-cancelled-apply-fails';
+          const { result } = armedResult({
+            notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
+            stamped: [OWED_NOTE],
+            privateStamped: [OWED_NOTE],
+            trapping: 'executedTransaction'
+          });
+          const client = sweepClient(
+            result,
+            jest.fn(async () => {
+              throw new Error(STORE_APPLY_ERROR_MESSAGE);
+            })
+          );
+          const { proposal, finalized } = cancelledAtProposal(txId);
+          const writes = noteDeliveryWriteCount();
+          const quiet = silence();
+
+          try {
+            const { row } = await runGuardianValueRow(
+              executeRow(txId),
+              { result, replace: () => {}, log: [] },
+              proposal,
+              client
+            );
+
+            expect(row.submitEvidence).toEqual([expect.objectContaining({ privateOutputNoteIds: [OWED_NOTE] })]);
+            expect(row.relayNoteIds).toBeUndefined();
+            expect(row.relayRecipientId).toBeUndefined();
+            expect(row.noteDelivery).toBeUndefined();
+            expect(cancelledFields(row)).toEqual(cancelledFields(finalized.row));
+            expect(noteDeliveryWriteCount()).toBe(writes);
+            const landing = Math.floor(Date.now() / 1000);
+            await sweepAt(landing);
+            await sweepAt(landing + 10 * 60);
+            expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+          } finally {
+            quiet();
+          }
+        });
+
+        it('owes nothing and keeps its Failed label when its landing stamp proves only public notes', async () => {
+          const txId = 'guardian-execute-cancelled-public';
+          const restore = installLandedTrapRetirement(jest.fn());
+          const { result, apply } = armedResult({
+            notes: [fixtureNote(PUBLIC_NOTE, NoteType.Public)],
+            stamped: [PUBLIC_NOTE],
+            privateStamped: [],
+            trapping: 'executedTransaction'
+          });
+          const client = sweepClient(result, apply);
+          const { proposal, finalized } = cancelledAtProposal(txId);
+          const writes = noteDeliveryWriteCount();
+          const quiet = silence();
+
+          try {
+            const { row } = await runGuardianValueRow(
+              executeRow(txId),
+              { result, replace: () => {}, log: [] },
+              proposal,
+              client
+            );
+
+            expect(apply).toHaveBeenCalledTimes(1);
+            expect(row.relayNoteIds).toBeUndefined();
+            expect(row.relayRecipientId).toBeUndefined();
+            expect(row.noteDelivery).toBeUndefined();
+            expect(cancelledFields(row)).toEqual(cancelledFields(finalized.row));
+            expect(noteDeliveryWriteCount()).toBe(writes);
+            const landing = Math.floor(Date.now() / 1000);
+            await sweepAt(landing);
+            await sweepAt(landing + 10 * 60);
+            expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+          } finally {
+            quiet();
+            restore();
+          }
+        });
+
+        // The stamp names another note as private, so an overwrite would show as that note owed.
+        it('keeps the notes its tail recorded before failing', async () => {
+          const txId = 'guardian-execute-cancelled-tail-recorded';
+          const restore = installLandedTrapRetirement(jest.fn());
+          const { result, apply } = armedResult({
+            notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
+            stamped: [PUBLIC_NOTE],
+            privateStamped: [PUBLIC_NOTE],
+            trapping: 'id'
+          });
+          const client = sweepClient(result, apply);
+          const { proposal, finalized } = cancelledAtProposal(txId);
+          const quiet = silence();
+
+          try {
+            const { row } = await runGuardianValueRow(
+              executeRow(txId),
+              { result, replace: () => {}, log: [] },
+              proposal,
+              client
+            );
+
+            expect(client.sendPrivateNote).toHaveBeenCalledTimes(1);
+            expect(row).toMatchObject({
+              relayNoteIds: [OWED_NOTE],
+              relayRecipientId: 'recipient',
+              noteDelivery: 'undelivered'
+            });
+            expect(cancelledFields(row)).toEqual(cancelledFields(finalized.row));
+            const landing = Math.floor(Date.now() / 1000);
+            await sweepAt(landing);
+            await sweepAt(landing + 10 * 60);
+            expect(client.relayPrivateNoteById.mock.calls).toEqual([[OWED_NOTE, 'recipient']]);
+          } finally {
+            quiet();
+            restore();
+          }
+        });
+      });
     });
   });
 });
