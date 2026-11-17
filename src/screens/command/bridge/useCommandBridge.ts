@@ -339,12 +339,19 @@ export function useCommandBridge() {
     const getContext = (): BridgeReviewContext => {
       const live = current.current;
       const state = useWalletStore.getState();
+      const latestScope = configKey([
+        state.currentAccount?.publicKey,
+        getEffectiveNetworkName(),
+        getEffectiveRpcUrl(),
+        state.status === WalletStatus.Locked
+      ]);
       const latestRoute = live && deriveBridgeRoutes(getBridgeConfigSnapshot()).find(item => item.id === live.route.id);
       if (
         !alive.current ||
         consent.current !== captured ||
         originalGeneration !== generation.current ||
         scopeRef.current !== originalScope ||
+        latestScope !== originalScope ||
         !live ||
         !latestRoute ||
         state.status === WalletStatus.Locked ||
