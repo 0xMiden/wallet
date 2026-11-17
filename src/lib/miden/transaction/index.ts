@@ -1390,14 +1390,51 @@ const appliedDeliveryValues = (
 };
 
 /**
+ * Record the private notes an applied execute owes on a row that a Cancel or the reaper finalized while its pipeline
+ * ran on: neither stops the pipeline, so the leaf submitted and applied, and the landed write, which leaves a finalized
+ * row alone, recorded none. Unguarded on terminal status, as a cancelled pipeline's own relay record is
+ * (`recordNoteDelivery`), and bound to the landing attempt's stamp as `appliedDeliveryValues` binds it. It writes only
+ * the owed notes, their recipient and 'undelivered', with the relay schedule cleared, so the sweep pushes them from the
+ * completedAt the finalizing write stamped. That write's status, error, label, completedAt and root stay. Logged,
+ * never thrown, as the landed record is.
+ */
+const recordFinalizedExecuteDelivery = async (
+  txId: string,
+  error: unknown,
+  attemptId: string | undefined
+): Promise<void> => {
+  let wrote = false;
+  try {
+    await Repo.transactions.where({ id: txId }).modify(row => {
+      if (!hasLeftQueue(row)) return false;
+      // Only an execute's values name `relayNoteIds`; a send's target, which Retry records, is not taken here.
+      const owed = appliedDeliveryValues(row, row, error, attemptId);
+      if (owed === undefined || !('relayNoteIds' in owed) || !owed.relayNoteIds?.length) return false;
+      row.relayNoteIds = owed.relayNoteIds;
+      row.relayRecipientId = owed.relayRecipientId;
+      row.noteDelivery = 'undelivered';
+      delete row.relayAttempts;
+      delete row.nextRelayAt;
+      delete row.relayRetriesStopped;
+      wrote = true;
+      return undefined;
+    });
+  } catch (recordError) {
+    console.warn('Could not record the private notes a finalized execute owes', { txId, recordError });
+    return;
+  }
+  if (wrote) countNoteDeliveryWrite();
+};
+
+/**
  * Write a landed row's Completed verdict from the row as stored, retried as a committed rotation's terminal write is:
  * an IndexedDB abort under contention recurs at once and then clears, and a row left in progress is reaped into Failed,
  * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
- * recorded and the order the landed record held are kept, and a row another writer finalized is left alone. The
- * failure's own order facts, else the order the landing attempt's stamp recorded, stand in for a landed record that
- * did not commit, and an applied send's or execute's delivery target is recorded in the same write. Returns the row as
- * read before the write that landed, whose stage is still the one the tail stopped at, or undefined when no write
- * landed.
+ * recorded and the order the landed record held are kept, and a row another writer finalized keeps what that write
+ * left, gaining only the private notes an applied execute owes (`recordFinalizedExecuteDelivery`). The failure's own
+ * order facts, else the order the landing attempt's stamp recorded, stand in for a landed record that did not commit,
+ * and an applied send's or execute's delivery target is recorded in the same write. Returns the row as read before the
+ * write that landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
  */
 const writeLandedCompleted = async (
   txId: string,
@@ -1422,8 +1459,12 @@ const writeLandedCompleted = async (
     },
     'landed'
   );
+  if (written === undefined) {
+    await recordFinalizedExecuteDelivery(txId, error, attemptId);
+    return undefined;
+  }
   // A recorded target is a delivery write, so an idle sweep looks again; an execute that owes no note records none.
-  if (written !== undefined && delivery !== undefined && ('outputNoteIds' in delivery || 'relayNoteIds' in delivery)) {
+  if (delivery !== undefined && ('outputNoteIds' in delivery || 'relayNoteIds' in delivery)) {
     countNoteDeliveryWrite();
   }
   return written;
@@ -1855,7 +1896,8 @@ const settleLandedValueRow = async (txId: string, error: unknown, attemptId: str
   }
   console.warn(`A submit landed but ${landedFailureText(error)} - marking Completed; sync will reconcile:`, error);
   // From the stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there. A row that
-  // has left the queue is left as it is, including the id stamped above.
+  // has left the queue keeps what its finalizing write left, the id stamped above included; an applied execute gains
+  // only the private notes it owes.
   const written = await writeLandedCompleted(txId, error, attemptId);
   if (written) reportLandedTail(written, error);
   if (tx.type === 'consume') await adoptLandedConsume(tx.id);
