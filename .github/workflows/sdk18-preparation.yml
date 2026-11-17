@@ -7,7 +7,7 @@ permissions:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -48,6 +48,8 @@ jobs:
       - name: Verify Guardian integration and SDK auth recognition
         run: |
           yarn jest src/lib/miden/sdk/resolve-public-key-commitments.test.ts src/lib/miden/guardian/index.test.ts src/lib/miden/guardian/account.test.ts src/lib/miden/guardian/configure.test.ts src/lib/miden/guardian/direct-switch.test.ts src/lib/miden/guardian/legacy-abandon.test.ts src/lib/miden/guardian/serialize.test.ts src/lib/miden/front/guardian-sync.test.ts --maxWorkers=2
+      - name: Run the complete migrated unit suite
+        run: yarn test --maxWorkers=2
       - name: Preserve exact generated files
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
