@@ -124,18 +124,40 @@ export function inspectTestMainnetSendRequest(
         if (at < 0) throw new Error('Diagnostic request layout unavailable');
         return at;
       };
+      // SDK usize collections use vint64; MerkleStore alone retains its fixed u64 node count.
+      const countSize = (bytes: Uint8Array, at: number) => {
+        if (at < 0 || at >= bytes.length) throw new Error('Diagnostic request layout unavailable');
+        let size = 1;
+        while (size <= 8 && ((bytes[at] >> (size - 1)) & 1) === 0) size++;
+        if (at + size > bytes.length) throw new Error('Diagnostic request layout unavailable');
+        return size;
+      };
       const count = (bytes: Uint8Array, at: number) => {
-        if (at < 0 || at + 8 > bytes.length) throw new Error('Diagnostic request layout unavailable');
-        const value = Number(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(at, true));
+        const size = countSize(bytes, at);
+        let raw = 0n;
+        for (let index = size - 1; index >= (size === 9 ? 1 : 0); index--)
+          raw = (raw << 8n) | BigInt(bytes[at + index]);
+        const value = Number(size === 9 ? raw : raw >> BigInt(size));
         if (!Number.isSafeInteger(value) || value > bytes.length)
           throw new Error('Diagnostic request layout unavailable');
         return value;
       };
+      const check128 = new Uint8Array(129);
+      check128.set([2, 2]);
+      if (count(Uint8Array.of(1), 0) !== 0 || count(Uint8Array.of(3), 0) !== 1 || count(check128, 0) !== 128)
+        throw new Error('Diagnostic request layout unavailable');
+      const storeEnd = (bytes: Uint8Array, at: number) => {
+        if (at + 8 > bytes.length) throw new Error('Diagnostic request layout unavailable');
+        const nodes = Number(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(at, true));
+        if (!Number.isSafeInteger(nodes) || nodes > bytes.length / 96)
+          throw new Error('Diagnostic request layout unavailable');
+        return at + 8 + nodes * 96;
+      };
       const adviceEnd = (bytes: Uint8Array, start: number) => {
-        let at = start + 8;
+        let at = start + countSize(bytes, start);
         for (let left = count(bytes, start); left > 0; left--) {
           at += 32;
-          at += 8 + count(bytes, at) * 8;
+          at += countSize(bytes, at) + count(bytes, at) * 8;
           if (at > bytes.length) throw new Error('Diagnostic request layout unavailable');
         }
         return at;
@@ -151,18 +173,18 @@ export function inspectTestMainnetSendRequest(
         e = nextE;
       };
       section('advice', adviceEnd(actualBytes, a), adviceEnd(expectedBytes, e));
-      section('merkle', a + 8 + count(actualBytes, a) * 96, e + 8 + count(expectedBytes, e) * 96);
+      section('merkle', storeEnd(actualBytes, a), storeEnd(expectedBytes, e));
       if (count(actualBytes, a) || count(expectedBytes, e)) {
         differences.push('foreign');
       } else {
-        section('foreign', a + 8, e + 8);
+        section('foreign', a + countSize(actualBytes, a), e + countSize(expectedBytes, e));
         section('expiration', a + 1 + (actualBytes[a] === 1 ? 2 : 0), e + 1 + (expectedBytes[e] === 1 ? 2 : 0));
         section('ignore-inputs', a + 1, e + 1);
         for (const code of ['script', 'auth', 'fee-salt'])
           section(code, a + 1 + (actualBytes[a] === 1 ? 32 : 0), e + 1 + (expectedBytes[e] === 1 ? 32 : 0));
         if (count(actualBytes, a) || count(expectedBytes, e)) differences.push('network-scripts');
         else {
-          section('network-scripts', a + 8, e + 8);
+          section('network-scripts', a + countSize(actualBytes, a), e + countSize(expectedBytes, e));
           if (actualBytes[a] || expectedBytes[e]) differences.push('account-upgrade');
           else section('account-upgrade', a + 1, e + 1);
           if (a !== actualBytes.length || e !== expectedBytes.length) differences.push('layout-unknown');
