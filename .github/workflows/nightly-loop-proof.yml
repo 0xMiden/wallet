@@ -30,6 +30,25 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - name: Original principal refund, immutable ACK and one-shot broadcast contracts
         run: node --test test/compact-owner-recovery.node.test.mjs
+      - name: Create nonfinancial immutable archive-layout fixture
+        run: |
+          mkdir -p test-results/compact-layout-source
+          printf '%s\n' 'Archive layout canary only: no key, signature, authority or transaction' > test-results/compact-layout-source/canary.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: layout-canary
+        with:
+          name: compact-layout-canary-${{ github.run_id }}
+          path: test-results/compact-layout-source/canary.txt
+          if-no-files-found: error
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.layout-canary.outputs.artifact-id }}
+          path: test-results/compact-layout-downloaded
+      - name: Assert actual immutable-ID download recovers exact bytes at flat ACK path
+        run: |
+          node <<'NODE'
+          const assert=require('node:assert/strict'),fs=require('node:fs');const path='test-results/compact-layout-downloaded/canary.txt';assert.ok(fs.existsSync(path),'Immutable-ID download must recover the flat ACK path before releasing any signature');assert.equal(fs.readFileSync(path,'utf8'),fs.readFileSync('test-results/compact-layout-source/canary.txt','utf8'));
+          NODE
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           run-id: 44034323631
