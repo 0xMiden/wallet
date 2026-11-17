@@ -151,3 +151,6 @@ export type { ErrorDetailsProps } from './ErrorDetails';
 export { CodeInput } from './CodeInput';
 export type { CodeInputProps } from './CodeInput';
 export { SeedPhraseGrid } from './SeedPhraseGrid';
+
+export { TokenAmount, UsdAmount } from './TokenAmount';
+export type { TokenAmountProps, UsdAmountProps } from './TokenAmount';

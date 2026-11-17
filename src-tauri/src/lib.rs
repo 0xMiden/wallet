@@ -31,6 +31,23 @@ fn focus_main_window(webview: tauri::Webview, app: tauri::AppHandle) -> Result<(
     }
 }
 
+/// Exclude the main wallet window from screen capture and recording, or lift the exclusion.
+///
+/// Used while a recovery phrase is on screen so capture tools see a blank window.
+#[tauri::command]
+fn set_content_protection(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    ensure_wallet_webview(&webview)?;
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_content_protected(enabled).map_err(|e| e.to_string())
+    } else {
+        Err("Main window not found".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
@@ -83,6 +100,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             js_log,
             focus_main_window,
+            set_content_protection,
             secure_storage::generate_hardware_key,
             secure_storage::encrypt_with_hardware_key,
             secure_storage::decrypt_with_hardware_key,

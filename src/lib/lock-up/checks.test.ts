@@ -33,7 +33,7 @@ jest.mock('webextension-polyfill', () => ({
 
 const mockRequest = jest.fn();
 
-jest.mock('lib/miden/front', () => ({
+jest.mock('lib/miden/front/client', () => ({
   __esModule: true,
   request: (...args: unknown[]) => mockRequest(...args),
   // Mirrors the real assertResponse: throws on a falsy argument.

@@ -34,11 +34,16 @@ async function buildSdk(address: `0x${string}`, apiBaseUrl: string, chainOverrid
  *
  * Caches one instance per (address, flow) so repeated calls in a single
  * session don't rebuild. Resets via `resetEpochSdk()` (called on WC disconnect).
+ *
+ * `account` is the EVM address that the caller verified and expects to sign. When it is given and the connected
+ * address is another one (the comparison ignores letter case), return null and leave every cache as it is. When it
+ * matches, build the SDK for that account.
  */
 export async function getEpochSdk(opts?: {
   forMidenFlow?: boolean;
   chainId?: number;
   allocatorUrl?: string;
+  account?: `0x${string}`;
 }): Promise<EpochIntentSDK | null> {
   const { address } = await getEvmConnection();
   if (!address) {
@@ -48,6 +53,7 @@ export async function getEpochSdk(opts?: {
     midenCache = null;
     return null;
   }
+  if (opts?.account !== undefined && opts.account.toLowerCase() !== address.toLowerCase()) return null;
   await initBridgeConfig();
   const apiBaseUrl = opts?.allocatorUrl ?? getEpochAllocatorUrl();
   const chainId = opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : (opts?.chainId ?? sepolia.id);
@@ -55,7 +61,7 @@ export async function getEpochSdk(opts?: {
   if (slot && slot.address === address && slot.chainId === chainId && slot.apiBaseUrl === apiBaseUrl) {
     return slot.sdk;
   }
-  const sdk = await buildSdk(address as `0x${string}`, apiBaseUrl, chainId);
+  const sdk = await buildSdk(opts?.account ?? (address as `0x${string}`), apiBaseUrl, chainId);
   const entry: SdkCache = { address, chainId, apiBaseUrl, sdk };
   if (opts?.forMidenFlow) {
     midenCache = entry;

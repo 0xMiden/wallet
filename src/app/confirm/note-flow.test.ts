@@ -44,6 +44,14 @@ const output = (id: string, full?: ReturnType<typeof note>) => ({
   assets: () => undefined,
   intoFull: () => full
 });
+const thrownBy = (run: () => unknown): unknown => {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+};
 
 it('lists zero inputs and every output, including the fee note', () => {
   const tx = {
@@ -108,6 +116,26 @@ it('retains an unavailable-detail placeholder when a note accessor fails', () =>
   expect(noteFlowFromTransaction(tx as any).inputs).toEqual([
     expect.objectContaining({ id: 'opaque', kind: 'unknown', assets: undefined })
   ]);
+});
+
+it('rethrows a trap from a note accessor as that same object', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  const tx = {
+    inputNotes: () => ({
+      numNotes: () => 1,
+      notes: () => [
+        {
+          id: () => ({ toString: () => 'n' }),
+          note: () => {
+            throw trap;
+          }
+        }
+      ]
+    }),
+    userNotes: [],
+    feeNote: undefined
+  };
+  expect(thrownBy(() => noteFlowFromTransaction(tx as never))).toBe(trap);
 });
 
 it('reads either authoritative dry-run shape and leaves absent summaries unknown', () => {
@@ -252,4 +280,26 @@ it('leaves the kind unknown when the standard-note name cannot be read', () => {
     feeNote: undefined
   };
   expect(noteFlowFromTransaction(tx as any).outputs[0]).toMatchObject({ id: 'broken', kind: 'unknown' });
+});
+
+it('rethrows a trap from the standard-note name as that same object', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  const broken = note('broken', 'tx-root');
+  const script = broken.script();
+  const tx = {
+    inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+    userNotes: [
+      output('broken', {
+        ...broken,
+        script: () => ({
+          ...script,
+          standardNoteName: () => {
+            throw trap;
+          }
+        })
+      })
+    ],
+    feeNote: undefined
+  };
+  expect(thrownBy(() => noteFlowFromTransaction(tx as never))).toBe(trap);
 });

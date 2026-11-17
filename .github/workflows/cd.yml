@@ -26,10 +26,10 @@ jobs:
 
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
 
       - name: Use Node 22
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3
         with:
           node-version: 22
 
@@ -41,7 +41,7 @@ jobs:
         uses: ./.github/actions/yarn-install
 
       - name: Build chrome
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: build:chrome
 
@@ -56,7 +56,7 @@ jobs:
           mv dist/chrome.zip output/chrome.zip
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: miden-wallet-build
           path: output/chrome.zip

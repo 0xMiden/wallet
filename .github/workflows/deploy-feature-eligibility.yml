@@ -40,10 +40,10 @@ jobs:
     outputs:
       endpoint: ${{ steps.readiness.outputs.endpoint }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - name: Resolve deployment source
@@ -58,7 +58,7 @@ jobs:
 
       - name: Require a published release
         if: steps.source.outputs.mode == 'published-release'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         with:
@@ -70,7 +70,7 @@ jobs:
             });
             if (release.draft || !release.published_at) throw new Error('A published release tag is required');
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ steps.source.outputs.ref }}
       - name: Resolve deployment revision

@@ -26,6 +26,15 @@ import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
 const G = globalThis as any;
+const originalE2eFlag = process.env.MIDEN_E2E_TEST;
+const mockRestoreFetchFaults = jest.fn<Promise<void>, []>();
+jest.mock('./e2e-fetch-faults', () => ({ restoreOffscreenFetchFaults: () => mockRestoreFetchFaults() }), {
+  virtual: true
+});
+const mockAssertGuardianAuthorization = jest.fn(async (..._args: unknown[]) => undefined);
+jest.mock('../lib/miden/sdk/test-guardian-authorization', () => ({
+  assertTestGuardianRequestAuthorization: (...args: unknown[]) => mockAssertGuardianAuthorization(...args)
+}));
 
 // This spec has no static import/export, so without a module marker TS treats it
 // as a global script and its top-level helpers (logSpy/flush/loadModule/…) collide
@@ -367,6 +376,9 @@ jest.mock('./prove-worker-client', () => ({
 // What a service worker on the build's own network sends with every call (#1482).
 const SW_ENDPOINTS = { override: null, feeFaucetId: undefined };
 
+// The forward channel accepts this extension's service worker, which arrives with an id and neither a url nor a tab.
+const EXTENSION_ID = 'this-extension';
+
 let capturedListener: Listener | undefined;
 let logSpy: jest.SpyInstance;
 let warnSpy: jest.SpyInstance;
@@ -664,13 +676,21 @@ function installChromeMock() {
   capturedListener = undefined;
   G.chrome = {
     runtime: {
+      id: EXTENSION_ID,
+      getURL: (path: string) => `chrome-extension://${EXTENSION_ID}/${path}`,
       // The Guardian leaf submits only once the service worker opens its submit gate (#1644).
       sendMessage: jest.fn((m?: { type?: string }) =>
         Promise.resolve(m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined)
       ),
       onMessage: {
         addListener: jest.fn((l: Listener) => {
-          capturedListener = l;
+          // Existing calls pass `{}`. A sender with no id, url, or tab is the worker fixture, so those calls still
+          // reach the handler. An explicit sender, including a missing one, is left as the caller passed it.
+          capturedListener = (msg, sender, sendResponse) => {
+            const bare =
+              sender != null && sender.id === undefined && sender.url === undefined && sender.tab === undefined;
+            return l(msg, bare ? { id: EXTENSION_ID } : sender, sendResponse);
+          };
         })
       }
     }
@@ -717,6 +737,8 @@ async function loadModule(opts: { coi?: boolean; hwc?: number | undefined } = {}
 
 beforeEach(() => {
   resetControl();
+  mockAssertGuardianAuthorization.mockReset().mockResolvedValue(undefined);
+  mockRestoreFetchFaults.mockReset().mockResolvedValue(undefined);
   mockProveTransport.prove.mockClear();
   mockProveTransport.prewarm.mockClear();
   mockProveTransport.ctorCount = 0;
@@ -729,6 +751,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalE2eFlag === undefined) delete process.env.MIDEN_E2E_TEST;
+  else process.env.MIDEN_E2E_TEST = originalE2eFlag;
   logSpy.mockRestore();
   warnSpy.mockRestore();
   errorSpy.mockRestore();
@@ -736,6 +760,39 @@ afterEach(() => {
 });
 
 describe('offscreen/main — startup / init()', () => {
+  it('waits for restored E2E faults before starting WASM', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    let release: (() => void) | undefined;
+    mockRestoreFetchFaults.mockReturnValue(new Promise<void>(resolve => (release = resolve)));
+    try {
+      await loadModule();
+      expect(G.__off.getWasmOrThrow).not.toHaveBeenCalled();
+      release?.();
+      await flush();
+      expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
+      expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+    } finally {
+      release?.();
+      await flush();
+    }
+  });
+
+  it('does not start WASM or signal ready after an E2E fault-policy read failure', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    mockRestoreFetchFaults.mockRejectedValue(new Error('fault-policy read unavailable'));
+    await loadModule();
+    expect(G.__off.getWasmOrThrow).not.toHaveBeenCalled();
+    expect(G.chrome.runtime.sendMessage).not.toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+  });
+
+  it('does not gate ordinary startup on E2E fault storage', async () => {
+    process.env.MIDEN_E2E_TEST = 'false';
+    mockRestoreFetchFaults.mockRejectedValue(new Error('must not read fault storage'));
+    await loadModule();
+    expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
+    expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+  });
+
   it('boots the rayon pool and signals OFFSCREEN_READY (COI on, MT build, hwc known)', async () => {
     await loadModule({ coi: true, hwc: 8 });
 
@@ -917,6 +974,70 @@ describe('offscreen/main — onMessage listener guard clauses', () => {
     expect(ret).toBe(false);
     await flush();
     expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('answers OFFSCREEN_CALL from the service worker and from an extension page', async () => {
+    await loadModule();
+    const call = (opId: string) => ({
+      target: 'offscreen',
+      type: 'OFFSCREEN_CALL',
+      op_id: opId,
+      method: 'getAccount',
+      argsB64: [encodeArg('mtst1qqaccount')],
+      deadline_ms: 1000,
+      endpoints: SW_ENDPOINTS
+    });
+
+    const workerResponse = jest.fn();
+    expect(capturedListener!(call('op-worker'), { id: G.chrome.runtime.id }, workerResponse)).toBe(true);
+    await flush();
+    expect(workerResponse).toHaveBeenCalled();
+
+    const pageResponse = jest.fn();
+    expect(
+      capturedListener!(
+        call('op-page'),
+        { id: G.chrome.runtime.id, url: G.chrome.runtime.getURL('popup.html'), tab: { id: 4 } },
+        pageResponse
+      )
+    ).toBe(true);
+    await flush();
+    expect(pageResponse).toHaveBeenCalled();
+  });
+
+  it('refuses a content script, a foreign id, and a missing sender for every offscreen op', async () => {
+    await loadModule();
+    const requests = [
+      {
+        target: 'offscreen',
+        type: 'OFFSCREEN_CALL',
+        op_id: 'op-refused',
+        method: 'getAccount',
+        argsB64: [encodeArg('mtst1qqaccount')],
+        deadline_ms: 1000,
+        endpoints: SW_ENDPOINTS
+      },
+      {
+        target: 'offscreen',
+        type: 'OFFSCREEN_PROVE',
+        txResultB64: Buffer.from([9]).toString('base64'),
+        proverDescriptor: null
+      },
+      { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', endpoints: SW_ENDPOINTS }
+    ];
+    const senders = [
+      { id: G.chrome.runtime.id, url: 'https://dapp.example/', tab: { id: 3 } },
+      { id: 'some-other-extension-id' },
+      undefined
+    ];
+    for (const sender of senders) {
+      for (const request of requests) {
+        const sendResponse = jest.fn();
+        expect(capturedListener!(request, sender, sendResponse)).toBe(false);
+        await flush();
+        expect(sendResponse).not.toHaveBeenCalled();
+      }
+    }
   });
 });
 
@@ -3138,7 +3259,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     it.each([
       ['an execution failure', () => new Error('the kernel assertion failed')],
-      ['a trap', () => new WebAssembly.RuntimeError('unreachable')]
+      ['a trap', () => new WebAssembly.RuntimeError('failed to generate signature')]
     ])('reports %s as it stands, with no local retry', async (_kind, failure) => {
       await loadModule();
       const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
@@ -3941,6 +4062,38 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 
   // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
+  it('guardianPipeline refuses before execute when the exact signed authority is missing or expired', async () => {
+    mockAssertGuardianAuthorization.mockRejectedValue(new Error('Guardian signed authority expired'));
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'guardian-actual-byte-gate',
+        method: 'guardianPipeline',
+        argsB64: [
+          encodeArg('mtst1qguardian'),
+          encodeArg(new Uint8Array([1, 2, 3, 4])),
+          encodeArg(false),
+          encodeArg(null),
+          encodeArg(undefined),
+          encodeArg(false),
+          encodeArg('send')
+        ]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+    expect(sendResponse.mock.calls[0]?.[0]).toMatchObject({
+      ok: false,
+      errorBeforeSubmit: true,
+      error: expect.stringContaining('Guardian signed authority expired')
+    });
+    expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitted).not.toBe(true);
+  });
+
   it('guardianPipeline sends only closed observations from the exact executed request on rejection', async () => {
     await loadModule();
     const original = new Error('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH private 0xabcdef');
@@ -5183,6 +5336,27 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
     expect(reply).not.toHaveProperty('errorTransactionId');
     expect(reply).not.toHaveProperty('errorPrivateOutputNotes');
+  });
+
+  it('guardianPipeline: a landed failure replies with its order id as a JSON-safe string', async () => {
+    await loadModule();
+    const { ApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    G.__off.guardianExecuteRequest = jest.fn(async () => {
+      throw new ApplyAfterSubmitError(new Error('QuotaExceededError'), {
+        transactionId: '0xlanded',
+        orderId: '42',
+        orderNoteId
+      });
+    });
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    const reply = sendResponse.mock.calls[0][0];
+    expect(reply.errorLanded).toEqual({ transactionId: '0xlanded', orderId: '42', orderNoteId });
+    expect(() => JSON.stringify(reply)).not.toThrow();
   });
 
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {

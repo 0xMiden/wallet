@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import useVerificationBaseFee, { useClaimFloorBaseFee } from 'app/hooks/useVerificationBaseFee';
 import { useOnboardingFinishing } from 'app/onboarding-finish';
 import { Button, ButtonVariant } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
@@ -226,12 +226,15 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const { rotationRows, fundingRows, loaded: rowsLoaded } = useRotationGateRows(accountPublicKey);
   const feeFaucetId = useNativeFeeFaucetId();
   const baseFee = useVerificationBaseFee();
+  // The funding claim runs unattended, so it is judged against the claim floor's fee, which waits while the fee is
+  // unknown; the minimum and the shortfall stay on the chain's fee.
+  const claimFloorBaseFee = useClaimFloorBaseFee();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balances, isLoading: balancesLoading } = useAllBalances(accountPublicKey, allTokensBaseMetadata);
   const { data: claimableNotes, isFallback } = useClaimableNotes(accountPublicKey);
   const selection = useMemo(
-    () => selectRotationFundingNotes({ data: claimableNotes, isFallback }, feeFaucetId, baseFee),
-    [claimableNotes, isFallback, feeFaucetId, baseFee]
+    () => selectRotationFundingNotes({ data: claimableNotes, isFallback }, feeFaucetId, claimFloorBaseFee),
+    [claimableNotes, isFallback, feeFaucetId, claimFloorBaseFee]
   );
   // While the rotation waits for funds, the pending-note scan is what finds transfers sent before the recovery.
   // The gate mounts only for the current account.
@@ -367,7 +370,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     listLive: !isFallback && claimableNotes !== undefined && feeFaucetId !== null,
     selection,
     feeFaucetId,
-    baseFee,
+    baseFee: claimFloorBaseFee,
     fundingRows,
     rowsLoaded,
     onFunded

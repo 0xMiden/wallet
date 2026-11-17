@@ -32,17 +32,21 @@ import {
   resolveGuardianEndpoint
 } from './account';
 import { readGuardianAuthFacts, withGuardianAuthFacts, type GuardianAuthFacts } from './auth-facts';
+import { configureGuardianAccount, ecdsaCosigners, type GuardianRegistration } from './configure';
+import { waitForStateOnChain } from './direct-switch';
 import {
   GuardianProbeTimeoutError,
   isGuardianAccountAlreadyRegistered,
   OUTGOING_GUARDIAN_DEADLINE_MS,
   withTimeout
 } from './discover';
+import { abandonCandidateByNonce, guardianPredatesProposalAbandon, legacyAbandonStatus } from './legacy-abandon';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import {
   GUARDIAN_RETRY_MAX_ATTEMPTS,
   guardianRegisterBackoffMs,
   isGuardianPendingConflict,
+  isGuardianStateNotOnChain,
   NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
 } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -64,6 +68,8 @@ import {
   errorMessageParts,
   isGuardianCanonicalizationError,
   isPipelineKillLink,
+  isWasmTrap,
+  readWasmHandle,
   someInCauseChain
 } from '../sdk/sdk-error-code';
 import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
@@ -215,7 +221,7 @@ const SYNC_RETRY_DELAY_MS = 1000;
 // so wait a bounded window (~30s = 30 × SYNC_RETRY_DELAY_MS) before the
 // last-resort re-register.
 // NOTE: this now equals MAX_SYNC_RETRIES, so the last-resort re-register fires
-// at the same point as the full nonce-retry ceiling — the earlier "self-heal
+// at the same point as the full nonce-retry ceiling - the earlier "self-heal
 // sooner than the ceiling" property is gone. If that property is still wanted,
 // set this strictly below MAX_SYNC_RETRIES (guardian-owner call).
 const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
@@ -225,8 +231,8 @@ const GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG
 
 /**
  * Per-attempt ceiling on the two POST-COMMIT round-trips to the NEW guardian in
- * {@link MultisigService.finalizeGuardianSwitch} — its `GET /pubkey` and each
- * `registerOnGuardian` attempt.
+ * {@link MultisigService.finalizeGuardianSwitch} - its `GET /pubkey` and each
+ * `/configure` attempt.
  *
  * `GuardianHttpClient` passes no `AbortSignal` (the reason
  * `withOutgoingGuardianDeadline` exists for the arms that talk to the OUTGOING
@@ -269,9 +275,21 @@ export const GUARDIAN_CANDIDATE_HOLD_MS = 1_080_000;
 /** Where the delta a previous write left stands: still a `candidate`, `settled`, or `unknown`. */
 export type PriorCandidateState = 'candidate' | 'settled' | 'unknown';
 
+/**
+ * What `MultisigService.abandonCandidate` hands the status poll of that abandon: the commitment of the abandoned delta
+ * when the Guardian named one (0.19 does, 0.18 does not), and whether the abandon was the nonce-only request.
+ */
+export interface AbandonTicket {
+  commitment?: string;
+  legacy: boolean;
+}
+
 /** The Guardian holds no delta at that nonce. Duck-typed like the other Guardian error checks. */
 const isGuardianDeltaNotFound = (err: unknown): boolean =>
   typeof err === 'object' && err !== null && 'code' in err && err.code === 'delta_not_found';
+
+const isGuardianAuthenticationFailed = (err: unknown): boolean =>
+  typeof err === 'object' && err !== null && 'code' in err && err.code === 'authentication_failed';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -290,6 +308,11 @@ export class MultisigService {
   // could otherwise drive `syncState()` concurrently and clobber `syncRetryCount`.
   private syncInFlight: Promise<void> | null = null;
   private switchProposalId?: string;
+  /**
+   * The Guardian client this account registers on: the one `load` signed, until `finalizeGuardianSwitch` moves it to
+   * the new operator. `client.guardianClient` stays on the old one.
+   */
+  private registrationGuardian: GuardianHttpClient;
   /** The signer facts a Guardian authentication refusal is reported with, read when the service was built. */
   authFacts?: GuardianAuthFacts;
 
@@ -302,6 +325,7 @@ export class MultisigService {
     this.multisig = multisig;
     this.client = client;
     this.guardianEndpoint = guardianEndpoint;
+    this.registrationGuardian = client.guardianClient;
   }
 
   /** {@link withProposalStep}, also naming this service's signer facts on a Guardian authentication refusal. */
@@ -346,7 +370,7 @@ export class MultisigService {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
 
       // `load` drives the shared WASM web-client, so it must be serialized with
-      // every other client operation via the global mutex — and the client is
+      // every other client operation via the global mutex - and the client is
       // RESOLVED inside the same hold: resolving it outside left a window where
       // a recovery replaced the singleton between the resolve and the lock, so
       // this caller drove a client that no longer existed (issue #775; the same
@@ -362,8 +386,8 @@ export class MultisigService {
         // The build above is an await, and on the #777 path it is the long one: this
         // initializer is reachable from the unattended guardian sync loop, whose whole
         // problem is a client that parks on a node that never answers. If the hold was
-        // evicted while it ran, the mutex is already somebody else's and `load()` below —
-        // a WASM call on that borrowed client — is the double borrow the lock exists to
+        // evicted while it ran, the mutex is already somebody else's and `load()` below -
+        // a WASM call on that borrowed client - is the double borrow the lock exists to
         // prevent. Strictly pre-write, so failing here costs a retry and nothing else.
         if (getCurrentWasmLockHold() !== hold) {
           throw new WasmClientPoisonedError(
@@ -397,7 +421,7 @@ export class MultisigService {
   /**
    * Build a transient cold-bound MultisigService for ops that must be cold-signed
    * (switch_guardian co-sign and replace_hot_key). The cold commitment is read
-   * from on-chain storage via getSignerDetailsFromAccount(_, true) — order
+   * from on-chain storage via getSignerDetailsFromAccount(_, true) - order
    * convention `[hot, cold]` is preserved across rotations because
    * createReplaceHotKeyProposal uses an in-place swap target list.
    *
@@ -415,7 +439,7 @@ export class MultisigService {
     lockOptions?: WasmClientLockOptions
   ): Promise<MultisigService> {
     if (!walletAccount.coldPublicKey) {
-      throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
+      throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey - re-create the wallet`);
     }
     // UNDER A HOLD. `getSignerDetailsFromAccount` walks the account's storage
     // maps, so it is a WASM call and not a field read - and every one of this
@@ -526,7 +550,7 @@ export class MultisigService {
    *
    * Ids go through `accountRefToSdk`, not the bech32-only parser: faucet ids in
    * particular reach the wallet in both hex and bech32 form, and the sibling
-   * recallable-send path already accepts both — a hex id that the recallable
+   * recallable-send path already accepts both - a hex id that the recallable
    * path sends fine would throw here.
    */
   async createSendProposal(
@@ -571,7 +595,7 @@ export class MultisigService {
    * The account's loaded on-chain auth structure: overall threshold, signer
    * commitments, and per-procedure thresholds. Used by the E2E harness to
    * assert the 3-key shape (e.g. that `update_guardian` is hardened to 2 and
-   * the signer set is `[hot, cold]`) — properties the balance-only checks miss.
+   * the signer set is `[hot, cold]`) - properties the balance-only checks miss.
    */
   getAuthInfo(): { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> } {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -602,23 +626,31 @@ export class MultisigService {
     );
   }
 
-  async signAndExecuteProposal(id: string): Promise<void> {
-    await this.signProposal(id);
-    await withWasmClientLock(() => this.multisig.executeProposal(id));
-  }
-
   /**
    * Create a custom transaction proposal from a serialized transaction request.
    * This is used for 'execute' type transactions.
    *
    * `proposalType` is a free-form label that @openzeppelin/miden-multisig-client
    * validates as lowercase snake_case (`[a-z0-9_]`) and rejects if it collides
-   * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
+   * with a built-in type - so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
     return await this.withChainSyncedHold('custom proposal', (hold, client) =>
       this.proposeCheckedCustomRequest(hold, client, requestBytes, proposalType, 'custom proposal')
     );
+  }
+
+  /** The account's next nonce, read from the store in `hold`: the Guardian accepts a proposal only at that nonce. */
+  private async nextProposalNonce(hold: WasmLockHold, client: MidenClient, label: string): Promise<number> {
+    const storeAccount = await client.accounts.get(this.accountId);
+    assertWasmHoldCurrent(hold, `${label}: after reading the proposal nonce account`);
+    const nonceAccount = storeAccount ?? this.multisig.account;
+    assertWasmHoldCurrent(hold, `${label}: before reading the proposal nonce`);
+    const nonceValue = BigInt(nonceAccount.nonce().asInt()) + 1n;
+    if (nonceValue > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error('Guardian proposal nonce is too large to represent safely');
+    }
+    return Number(nonceValue);
   }
 
   /**
@@ -661,15 +693,7 @@ export class MultisigService {
         requestBytes,
         label
       );
-      const storeAccount = await client.accounts.get(this.accountId);
-      assertWasmHoldCurrent(hold, `${label}: after reading the proposal nonce account`);
-      const nonceAccount = storeAccount ?? this.multisig.account;
-      assertWasmHoldCurrent(hold, `${label}: before reading the proposal nonce`);
-      const nonceValue = BigInt(nonceAccount.nonce().asInt()) + 1n;
-      if (nonceValue > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new Error('Guardian proposal nonce is too large to represent safely');
-      }
-      const nonce = Number(nonceValue);
+      const nonce = await this.nextProposalNonce(hold, client, label);
       assertWasmHoldCurrent(hold, `${label}: before creating the proposal`);
       const metadata: ProposalMetadata = {
         boundBlockNum,
@@ -679,48 +703,63 @@ export class MultisigService {
         requiredSignatures: this.multisig.getEffectiveThreshold('custom')
       };
 
-      try {
-        const proposal = await this.multisig.createProposal(nonce, summaryBase64, metadata);
-        await this.requireProposalIdIsCommitment(proposal, commitmentHex, hold);
-        return proposal;
-      } catch (error) {
-        if (isPostPushProposalVerificationFailure(error)) {
-          await this.abandonMismatchCandidate(nonce, hold);
-        }
-        throw error;
-      }
+      return this.createCheckedProposal(hold, nonce, summaryBase64, metadata, commitmentHex);
     });
   }
 
   /**
-   * `assertProposalIdIsCommitment`, and on a mismatch release the delta the Guardian holds for `proposal` before the
-   * `ProposalIdMismatchError` goes to the caller. Nothing was signed or submitted, so the abandon is safe. It is best
-   * effort and bounded by OUTGOING_GUARDIAN_DEADLINE_MS: a failed abandon is logged, and the mismatch error is thrown in
-   * all cases. The abandon makes no WASM call, so a held caller yields the shared client lock while awaiting it.
+   * `createProposal` at `nonce` in `hold`, which it needs because it reads the client store first, and the id check
+   * before any signature. A post-push failure abandons `nonce` under `commitmentHex`, the id the proposal should have:
+   * the throw returns none. An id mismatch is abandoned once, inside `requireProposalIdIsCommitment`.
+   */
+  private async createCheckedProposal(
+    hold: WasmLockHold,
+    nonce: number,
+    summaryBase64: string,
+    metadata: ProposalMetadata,
+    commitmentHex: string
+  ): Promise<Proposal> {
+    try {
+      const proposal = await this.multisig.createProposal(nonce, summaryBase64, metadata);
+      await this.requireProposalIdIsCommitment(proposal, commitmentHex, hold);
+      return proposal;
+    } catch (error) {
+      if (isPostPushProposalVerificationFailure(error)) {
+        await this.abandonMismatchCandidate(nonce, commitmentHex, hold);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * `assertProposalIdIsCommitment`, and on a mismatch release the delta the Guardian holds for `proposal`, naming the id
+   * the Guardian returned for it, before the `ProposalIdMismatchError` goes to the caller. Nothing was signed or
+   * submitted, so the abandon is safe. It is best effort and bounded by OUTGOING_GUARDIAN_DEADLINE_MS: a failed abandon
+   * is logged, and the mismatch error is thrown in all cases. The abandon makes no WASM call, so the caller yields the
+   * shared client lock while awaiting it.
    */
   private async requireProposalIdIsCommitment(
     proposal: Proposal,
     expectedCommitmentHex: string,
-    hold?: WasmLockHold
+    hold: WasmLockHold
   ): Promise<void> {
     try {
       assertProposalIdIsCommitment(proposal, expectedCommitmentHex);
     } catch (mismatch) {
-      await this.abandonMismatchCandidate(proposal.nonce, hold);
+      await this.abandonMismatchCandidate(proposal.nonce, proposal.id, hold);
       throw mismatch;
     }
   }
 
-  private async abandonMismatchCandidate(nonce: number, hold?: WasmLockHold): Promise<void> {
+  private async abandonMismatchCandidate(nonce: number, proposalId: string, hold: WasmLockHold): Promise<void> {
     const abandon = () =>
       withTimeout(
-        this.abandonCandidate(nonce),
+        this.abandonCandidate(nonce, proposalId),
         OUTGOING_GUARDIAN_DEADLINE_MS,
         'abandoning a candidate after proposal verification failed'
       );
     try {
-      if (hold !== undefined) await yieldWasmClientLock(abandon, hold);
-      else await abandon();
+      await yieldWasmClientLock(abandon, hold);
     } catch (abandonError) {
       console.warn(
         `[Guardian] could not abandon the candidate at nonce ${nonce} after proposal verification failed:`,
@@ -731,8 +770,9 @@ export class MultisigService {
 
   /**
    * The summary commitment of `requestBytes`, executed once at the tip on `client` in `hold`, plus the base64 payload
-   * and bound block read from that same summary. The WASM objects are freed only while the hold is still this flow's:
-   * after an eviction they belong to an abandoned flow.
+   * and bound block read from that same summary. The commitment word is read with `readWasmHandle`. `summary` and
+   * `request` are freed only while the hold is still this flow's and no trap was recorded: after an eviction they
+   * belong to an abandoned flow.
    */
   private async summaryCommitmentOf(
     hold: WasmLockHold,
@@ -742,23 +782,23 @@ export class MultisigService {
   ): Promise<{ commitmentHex: string; summaryBase64: string; boundBlockNum: number }> {
     const request = TransactionRequest.deserialize(requestBytes);
     let summary: Awaited<ReturnType<typeof executeForSummaryAtTip>> | undefined;
+    let trapped = false;
     try {
       summary = await executeForSummaryAtTip(client, this.accountId, request);
       assertWasmHoldCurrent(hold, `${label}: after the summary execution`);
-      const commitment = summary.toCommitment();
-      let commitmentHex: string;
-      try {
-        commitmentHex = normalizeProposalHexWord(commitment.toHex());
-      } finally {
-        commitment.free();
-      }
+      const commitmentHex = readWasmHandle(summary.toCommitment(), commitment =>
+        normalizeProposalHexWord(commitment.toHex())
+      );
       // Commitment, then the payload, then the bound block: the same two serializations `deriveProposalSummary` does,
       // after the commitment this id check compares. A layout error here is still before the push.
       const summaryBase64 = u8ToB64(summary.serialize());
       const boundBlockNum = summaryBoundBlockNum(summary);
       return { commitmentHex, summaryBase64, boundBlockNum };
+    } catch (error) {
+      trapped = isWasmTrap(error);
+      throw error;
     } finally {
-      if (getCurrentWasmLockHold() === hold) {
+      if (!trapped && getCurrentWasmLockHold() === hold) {
         summary?.free();
         request.free();
       }
@@ -907,17 +947,52 @@ export class MultisigService {
    * check, and a finalized abandon releases the account onto stale state. The one
    * exception is a submit the node then discarded: that transaction is no longer in
    * the mempool and never lands, and the Guardian still refuses the abandon if it did.
+   *
+   * `proposalId` names the proposal that left the candidate, undefined for a record kept before records carried it.
+   * With one the SDK sends the proposal-bound request. A Guardian before 0.19 refuses it with `authentication_failed`
+   * (it verifies a body without `proposal_id`), so that refusal alone, from a Guardian whose status reports such a
+   * version, retries once with the nonce-only request, signed by this service's request signer. A record without an
+   * id sends the nonce-only request directly, so a service built without a request signer refuses it.
    */
-  async abandonCandidate(nonce: number): Promise<void> {
-    await this.multisig.abandonCandidate(nonce);
+  async abandonCandidate(nonce: number, proposalId: string | undefined): Promise<AbandonTicket> {
+    if (proposalId !== undefined) {
+      try {
+        const { commitment } = await this.multisig.abandonCandidate(nonce, proposalId);
+        return { commitment, legacy: false };
+      } catch (error) {
+        if (
+          !isGuardianAuthenticationFailed(error) ||
+          !(await guardianPredatesProposalAbandon(this.registrationGuardian))
+        ) {
+          throw error;
+        }
+      }
+    }
+    return this.abandonCandidateByNonce(nonce);
+  }
+
+  private async abandonCandidateByNonce(nonce: number): Promise<AbandonTicket> {
+    if (this.requestSigner === undefined) {
+      throw new Error(`No request signer to abandon the candidate at nonce ${nonce} on ${this.guardianEndpoint}`);
+    }
+    const { commitment } = await abandonCandidateByNonce(
+      this.guardianEndpoint,
+      this.requestSigner,
+      this.accountId,
+      nonce
+    );
+    return { commitment, legacy: true };
   }
 
   /**
    * Where an abandon asked for with `abandonCandidate` stands (#1081): `'waiting'` while the Guardian's quarantine
-   * runs, `'abandoned'` once it released the account, `'landed'` if the transaction landed after all.
+   * runs, `'abandoned'` once it released the account, `'landed'` if the transaction landed after all. `ticket` is what
+   * that abandon returned. A 0.18 Guardian names no commitment, so the status of the delta it holds at the nonce
+   * answers, mapped as the 0.18.1 client did (`legacyAbandonStatus`).
    */
-  async abandonStatus(nonce: number): Promise<AbandonStatus> {
-    return this.multisig.abandonStatus(nonce);
+  async abandonStatus(nonce: number, ticket: AbandonTicket): Promise<AbandonStatus> {
+    if (ticket.commitment !== undefined) return this.multisig.abandonStatus(nonce, ticket.commitment);
+    return legacyAbandonStatus(this.registrationGuardian, this.accountId, nonce);
   }
 
   /**
@@ -1028,7 +1103,7 @@ export class MultisigService {
   }
 
   /**
-   * Import the GUARDIAN's stored state into the local client — once, no retries,
+   * Import the GUARDIAN's stored state into the local client - once, no retries,
    * and NO re-register fallback.
    *
    * `sync()` is the wrong tool when the caller is still deciding whether to push:
@@ -1108,7 +1183,7 @@ export class MultisigService {
 
         // Auth rejections (401 / authentication_failed / signer_not_authorized)
         // are NOT self-healed here: never push local state to a guardian that
-        // just refused our signer — if our binding is the stale side, the
+        // just refused our signer - if our binding is the stale side, the
         // caller-level cache eviction (guardian-sync) rebuilds it; if the
         // guardian is the stale side, that's an operator/registration problem
         // to surface, not overwrite. Rethrow like any other error.
@@ -1153,7 +1228,7 @@ export class MultisigService {
               console.warn(
                 'Guardian still lagging after canonicalization window; re-registering current state as a last resort'
               );
-              await this.reRegisterCurrentStateOnGuardian(undefined, GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS);
+              await this.reRegisterCurrentStateOnGuardian(undefined, GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS, true);
               continue;
             } catch (realignError) {
               // AN EVICTION IS NOT "non-fatal", AND IT IS NOT ABOUT THE GUARDIAN.
@@ -1242,9 +1317,9 @@ export class MultisigService {
    * convenience wrappers (those compute different target lists). At execution
    * time, multisig.ts's buildTransactionRequestFromMetadata treats all three
    * `update_signers` variants identically and uses metadata.targetSignerCommitments
-   * directly — so labeling this as 'add_signer' is cosmetic.
+   * directly - so labeling this as 'add_signer' is cosmetic.
    *
-   * Sign + submit this proposal with a cold-bound MultisigService — replacing
+   * Sign + submit this proposal with a cold-bound MultisigService - replacing
    * the hot key cannot itself require the hot key (recovery-friendly). Default
    * threshold for update_signers is 1, so cold alone satisfies it.
    *
@@ -1261,7 +1336,7 @@ export class MultisigService {
     // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
-    const { summaryBase64, summaryCommitmentHex, saltHex, boundBlockNum } = await withWasmClientLock(
+    const proposal = await withWasmClientLock(
       async hold => {
         const webClient = (await getMidenClient()).client;
         // An eviction ABANDONS this callback rather than cancelling it, so every
@@ -1293,47 +1368,30 @@ export class MultisigService {
         // `summary` and `salt` are borrows of the client's RefCell, so touching them
         // past an eviction IS the double borrow.
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
-        const commitment = summary.toCommitment();
-        let summaryCommitmentHex: string;
-        try {
-          summaryCommitmentHex = normalizeProposalHexWord(commitment.toHex());
-        } finally {
-          commitment.free();
-        }
-        return {
-          summaryBase64: u8ToB64(summary.serialize()),
-          summaryCommitmentHex,
-          saltHex: salt.toHex(),
-          boundBlockNum
+        const summaryCommitmentHex = readWasmHandle(summary.toCommitment(), commitment =>
+          normalizeProposalHexWord(commitment.toHex())
+        );
+        const summaryBase64 = u8ToB64(summary.serialize());
+        const saltHex = salt.toHex();
+        const nonce = await this.nextProposalNonce(hold, webClient, 'replace-hot-key');
+        assertWasmHoldCurrent(hold, 'replace-hot-key: before creating the proposal');
+        const metadata: ProposalMetadata = {
+          proposalType: 'add_signer',
+          targetThreshold,
+          targetSignerCommitments,
+          saltHex,
+          boundBlockNum,
+          requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
+          description: 'Replace device (hot) signer'
         };
+
+        return this.proposalStep(
+          'proposal_create',
+          () => this.createCheckedProposal(hold, nonce, summaryBase64, metadata, summaryCommitmentHex),
+          'replace-hot-key'
+        );
       },
       { label: 'replace-hot-key-build' }
-    );
-    const metadata: ProposalMetadata = {
-      proposalType: 'add_signer',
-      targetThreshold,
-      targetSignerCommitments,
-      saltHex,
-      boundBlockNum,
-      requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
-      description: 'Replace device (hot) signer'
-    };
-
-    // The id of the proposal must be the commitment of the summary this device derived and sent, before any signature.
-    const proposal = await this.proposalStep(
-      'proposal_create',
-      async () => {
-        const nonce = Date.now();
-        try {
-          const created = await this.multisig.createProposal(nonce, summaryBase64, metadata);
-          await this.requireProposalIdIsCommitment(created, summaryCommitmentHex);
-          return created;
-        } catch (error) {
-          if (isPostPushProposalVerificationFailure(error)) await this.abandonMismatchCandidate(nonce);
-          throw error;
-        }
-      },
-      'replace-hot-key'
     );
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;
@@ -1415,8 +1473,8 @@ export class MultisigService {
    * Post-submit finalization for a switch-guardian proposal. Mirrors the
    * block that upstream's `multisig.executeProposal` runs when it detects
    * a `switch_guardian` metadata type. Must be called AFTER the on-chain
-   * switch lands — `client.load(...)` against the new guardian will fail
-   * until `registerOnGuardian` succeeds.
+   * switch lands - `client.load(...)` against the new guardian will fail
+   * until the account is registered there.
    *
    * By the time this runs the on-chain guardian has already been switched, so
    * the old guardian no longer has authority over the account. Registration on
@@ -1430,11 +1488,15 @@ export class MultisigService {
     const recorded = this.recordCommittedGuardianSwitch();
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
-      const updatedStateBase64 = await withWasmClientLock(async hold => {
+      const signer = this.requestSigner;
+      if (signer === undefined) {
+        throw new Error(`No request signer to register account ${this.accountId} on ${newGuardianEndpoint}`);
+      }
+      const { registration, stateCommitment } = await withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
         // The sync is the canonical parking await (a node that never answers),
         // and an eviction during it hands the mutex to a successor without
-        // stopping this callback — the account read below would then be an
+        // stopping this callback - the account read below would then be an
         // unmutexed call into a client somebody else is inside. Pre-registration,
         // so failing here just re-runs the (retried) finalize.
         assertWasmHoldCurrent(hold, 'finalize-switch: after the state sync');
@@ -1445,8 +1507,21 @@ export class MultisigService {
         // serialize() reads through the Account's borrow of the client's
         // RefCell, so the read await needs its own re-check.
         assertWasmHoldCurrent(hold, 'finalize-switch: after the account read');
-        return u8ToB64(account.serialize());
+        // The allowlist the new operator installs comes from the same post-switch account as the
+        // state, never the cached config, and a short or non-ECDSA read refuses before any POST.
+        const signerCommitments = ecdsaCosigners(AccountInspector.fromAccount(account));
+        return {
+          registration: { accountIdHex: this.accountId, stateBase64: u8ToB64(account.serialize()), signerCommitments },
+          // The commitment of those bytes, which the node has to hold before a 0.19 Guardian stores them.
+          stateCommitment: account.to_commitment().toHex()
+        };
       });
+
+      // Past the hold, so no WASM lock is held while the node is read. A miss registers anyway: a 0.18 Guardian
+      // accepts the state, and a 0.19 refusal leaves `registerFailed` for the self-heal.
+      if (!(await waitForStateOnChain(this.accountId, stateCommitment))) {
+        console.warn('[Guardian] the node did not show the switched state within its wait; registering anyway');
+      }
 
       registerGuardianOrigin(newGuardianEndpoint);
       const nextGuardian = new GuardianHttpClient(newGuardianEndpoint);
@@ -1464,9 +1539,13 @@ export class MultisigService {
       const commitment = assertGuardianKeyCommitment(pubkeyResponse?.commitment, newGuardianEndpoint);
 
       this.multisig.setGuardianClient(nextGuardian);
+      // `/configure` authenticates, so the client it posts on carries this service's signer, whatever else
+      // `setGuardianClient` does with it.
+      nextGuardian.setSigner(signer);
+      this.registrationGuardian = nextGuardian;
       this.multisig.guardianPublicKey = commitment;
       this.guardianEndpoint = newGuardianEndpoint;
-      await this.registerOnGuardianWithRetry(updatedStateBase64);
+      await this.registerOnGuardianWithRetry(this.registrationGuardian, registration);
     } catch (error) {
       console.error('Error finalizing guardian switch:', error);
       throw error;
@@ -1500,12 +1579,19 @@ export class MultisigService {
     }
   }
 
-  private async registerOnGuardianWithRetry(stateBase64: string): Promise<void> {
+  // Never through `multisig.registerOnGuardian`, which reads the WASM client store first from multisig-client 0.19.
+  // `stopAtStateNotOnChain`: a caller whose next lap asks again ends at the first `state_not_on_chain`, which stored
+  // nothing.
+  private async registerOnGuardianWithRetry(
+    guardian: GuardianHttpClient,
+    registration: GuardianRegistration,
+    stopAtStateNotOnChain = false
+  ): Promise<void> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= GUARDIAN_RETRY_MAX_ATTEMPTS; attempt++) {
       try {
         await withTimeout(
-          this.multisig.registerOnGuardian(stateBase64),
+          configureGuardianAccount(guardian, registration),
           POST_COMMIT_GUARDIAN_TIMEOUT_MS,
           'New guardian registration'
         );
@@ -1513,7 +1599,7 @@ export class MultisigService {
       } catch (error) {
         // The operator already holds the account: the goal state, so it must not
         // be retried into a failure. Newly reachable now that an attempt can
-        // TIME OUT — a `/configure` the server applied and answered too late
+        // TIME OUT - a `/configure` the server applied and answered too late
         // leaves the account registered, and the next attempt says so. Reporting
         // `registerFailed` for that arms a self-heal against a state that needs
         // no healing. (Not proof the held state is the state THIS rotation
@@ -1523,9 +1609,10 @@ export class MultisigService {
           return;
         }
         lastError = error;
-        console.warn(`registerOnGuardian failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
+        console.warn(`Guardian registration failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
+        if (stopAtStateNotOnChain && isGuardianStateNotOnChain(error)) break;
         if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
-          // #619 — on a 429 this honours the guardian's own Retry-After instead
+          // #619 - on a 429 this honours the guardian's own Retry-After instead
           // of the blind exponential backoff (which just earns another 429).
           await delay(guardianRegisterBackoffMs(error, attempt));
         }
@@ -1544,14 +1631,14 @@ export class MultisigService {
    * but never updates the guardian. Without this push, the guardian's `getState`
    * keeps serving the pre-rotation blob, so the next `multisig.syncState` sees
    * guardian-commitment != on-chain-commitment and throws on
-   * `ensureSafeToOverwriteLocalState` every ~3s tick — permanently, until a full
+   * `ensureSafeToOverwriteLocalState` every ~3s tick - permanently, until a full
    * reinstall re-registers the account. Mirrors `finalizeGuardianSwitch`'s
    * registration step but keeps the same guardian endpoint. Idempotent: if the
    * guardian already has this state, re-registering is a no-op.
    *
    * Called explicitly by those completion handlers, and as the Stage-2 last resort
    * in `runSync` once a lagging guardian fails to canonicalize within the retry
-   * window (NOT on the first sign of lag — see `runSync`).
+   * window (NOT on the first sign of lag - see `runSync`).
    *
    * Pushes only when the local account is the on-chain state; otherwise it refuses
    * with `GuardianReRegisterRefusedError` and writes nothing (#1233).
@@ -1574,14 +1661,18 @@ export class MultisigService {
    * stage-2 last resort, which the ~3 s guardian sync drives - left on the default
    * five-minute backstop that was a frozen wallet per lap, and unlabelled the eviction
    * record could not say which of the loop's holds it was.
+   *
+   * `stopAtStateNotOnChain` is for those cadence callers too: their next lap asks
+   * again, so the push ends at a Guardian's first `state_not_on_chain`.
    */
   async reRegisterCurrentStateOnGuardian(
     onBeforeRegister?: (signerCommitments: readonly string[]) => void,
-    lockOptions?: WasmClientLockOptions
+    lockOptions?: WasmClientLockOptions,
+    stopAtStateNotOnChain = false
   ): Promise<void> {
-    const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
+    const { stateBase64, signerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
-      // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
+      // Reachable from the BACKGROUND runSync stage-2 last resort - exactly the
       // unattended loop whose failure mode is a sync parked on a dead node, i.e.
       // the population the watchdog eviction exists for. An abandoned callback
       // must not carry on into the reads below (each a borrow of a client a
@@ -1605,20 +1696,18 @@ export class MultisigService {
         throw new Error(`Account ${this.accountId} is missing from local client`);
       }
       // The inspector walks account storage and serialize() reads through the
-      // same RefCell — both are borrows, so the read await gets its own re-check.
+      // same RefCell - both are borrows, so the read await gets its own re-check.
       assertWasmHoldCurrent(hold, 're-register: after the account read');
-      // #619 gap (3): derive the guardian allowlist (`auth.cosigner_commitments`,
-      // written by registerOnGuardian from `multisig.signerCommitments`) from the
-      // SAME freshly-synced on-chain account as the state blob — NOT the cached
+      // #619 gap (3): derive the guardian allowlist (`auth.cosigner_commitments`)
+      // from the SAME freshly-synced on-chain account as the state blob, not the cached
       // `multisig.signerCommitments`, which `client.load` set from the guardian's
-      // stored blob and can still be the PRE-rotation [old-hot, cold]. Deriving
-      // it here via `AccountInspector.fromAccount` is byte-identical to that
-      // load-time derivation (same by-key reader), so there is no allowlist-format
-      // drift; it just uses the fresh source. Without this, a re-register after a
-      // hot-key rotation could re-push the old hot key and re-arm the permanent
-      // 401 this method exists to prevent.
-      const freshSignerCommitments = AccountInspector.fromAccount(account).signerCommitments;
-      return { updatedStateBase64: u8ToB64(account.serialize()), freshSignerCommitments };
+      // stored blob and can still be the PRE-rotation [old-hot, cold]. Without this, a
+      // re-register after a hot-key rotation could re-push the old hot key and re-arm
+      // the permanent 401 this method exists to prevent. The inspector skips what it
+      // cannot read, so a short or non-ECDSA read refuses here, before any POST: the
+      // cached set is no fallback, since the server refuses a set that is not the chain's.
+      const signerCommitments = ecdsaCosigners(AccountInspector.fromAccount(account));
+      return { stateBase64: u8ToB64(account.serialize()), signerCommitments };
       // Bounded and labelled BY THE CALLER, because both callers are on the ~3s
       // guardian cadence: `runSync`'s stage-2 last resort and the cold
       // re-register self-heal. This was the one hold left in the file on the
@@ -1627,19 +1716,15 @@ export class MultisigService {
       // flows had parked. The sibling holds here already make this argument for
       // themselves (`guardian-adopt`, `guardian-sync`).
     }, lockOptions);
-    // Guard against a truncated read: AccountInspector.fromAccount swallows
-    // per-slot storage-read failures (skips the slot, no throw), so a partial
-    // read could yield an empty set. NEVER overwrite a good cached allowlist with
-    // an empty one and push that to the guardian — that would re-arm the very
-    // 401 this method prevents. On an empty derive, keep the cached set (the
-    // guardian-sync 401 self-heal covers any residual staleness).
-    if (freshSignerCommitments.length > 0) {
-      this.multisig.signerCommitments = freshSignerCommitments;
-    }
+    this.multisig.signerCommitments = signerCommitments;
     // The POST is now unavoidable from the caller's point of view: past this line a
     // `/configure` may land even if the retry loop then throws or is torn down.
-    onBeforeRegister?.(freshSignerCommitments);
-    await this.registerOnGuardianWithRetry(updatedStateBase64);
+    onBeforeRegister?.(signerCommitments);
+    await this.registerOnGuardianWithRetry(
+      this.registrationGuardian,
+      { accountIdHex: this.accountId, stateBase64, signerCommitments },
+      stopAtStateNotOnChain
+    );
   }
 }
 

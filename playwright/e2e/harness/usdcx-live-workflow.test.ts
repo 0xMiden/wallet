@@ -31,7 +31,7 @@ describe('E2E USDCx Bridge-IN (live) workflow', () => {
     const steps = stepsOf(job);
     const guard = steps.indexOf(`- name: ${name}`);
     expect(guard).toBeGreaterThan(-1);
-    expect(guard).toBeLessThan(steps.indexOf('- uses: actions/checkout@v4'));
+    expect(guard).toBeLessThan(steps.indexOf('- uses: actions/checkout@'));
     const body = steps.slice(guard, steps.indexOf('\n      - ', guard + 1));
     expect(body).toMatch(/if \[ -z "\$USDCX_LIVE_EVM_PRIVATE_KEY" \]; then[\s\S]*::error[\s\S]*exit 1/);
   });

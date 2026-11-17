@@ -4,12 +4,13 @@ import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber, AssetListItem, Pill, Sparkline } from 'components/ui';
-import { adaptiveFormatterFor } from 'lib/i18n/numbers';
+import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { isBasketQuote } from 'lib/prices/basket-nav';
 import { isNominalQuote, listedFiatValue } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
@@ -87,8 +88,9 @@ export const AssetRow: FC<AssetRowProps> = ({
   // Only a feed quote has a 24h move. The nominal rate is a dollar figure with no market behind it,
   // so it has no direction to colour anything by, like no quote at all.
   // A fixed quote (USDCX at $1) keeps its row's line and pill: a flat grey line and a grey
-  // +0.00%, since its move is always zero.
-  const feedQuote = quote && !isNominalQuote(quote) ? quote : undefined;
+  // +0.00%, since its move is always zero. A basket's net asset value has no market behind it either, so no
+  // pill and a flat grey line.
+  const feedQuote = quote && !isNominalQuote(quote) && !isBasketQuote(quote) ? quote : undefined;
   const direction: 'positive' | 'negative' | 'neutral' | null = feedQuote
     ? Math.abs(feedQuote.percentageChange24h) < FLAT_MOVE_PERCENT
       ? 'neutral'
@@ -96,11 +98,8 @@ export const AssetRow: FC<AssetRowProps> = ({
         ? 'positive'
         : 'negative'
     : null;
-  // Each figure's precision is pinned to the value it is heading for, so a quantity does not
-  // change how many decimals it shows on the way there (`adaptiveFormatterFor`).
+  // TokenAmount keeps the final precision during each animation.
   const fiatValue = quote ? listedFiatValue(tokenPrices, priceSymbol, balance, scaleIsKnown) : undefined;
-  const formatQuantity = adaptiveFormatterFor(balance);
-  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
   const priceStatus = !scaleIsKnown
     ? t('assetValueUnknownScale')
     : !quote
@@ -114,7 +113,7 @@ export const AssetRow: FC<AssetRowProps> = ({
         : undefined;
 
   // An empty symbol is the hook's "fetch nothing".
-  const points = useTokenSparkline(sparkline && !isFixedQuote(quote) ? priceSymbol : '', '1D');
+  const points = useTokenSparkline(sparkline && !isFixedQuote(quote) && !isBasketQuote(quote) ? priceSymbol : '', '1D');
   const hasRealPoints = points.length > 1;
   // Keyed on the hook's array so a re-render with the same series keeps Sparkline's path memo.
   const sparkPoints = useMemo(
@@ -138,7 +137,18 @@ export const AssetRow: FC<AssetRowProps> = ({
       icon={<TokenLogo faucetId={asset.tokenId} />}
       name={name}
       amount={
-        scaleIsKnown ? <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${unit}`} /> : unit
+        scaleIsKnown ? (
+          <TokenAmount
+            amount={balance}
+            symbol={unit}
+            animated
+            rounding="down"
+            trimTrailingZeros={false}
+            minimumFractionDigits={2}
+          />
+        ) : (
+          unit
+        )
       }
       chart={
         sparkline ? (
@@ -155,11 +165,7 @@ export const AssetRow: FC<AssetRowProps> = ({
           />
         ) : undefined
       }
-      price={
-        fiatValue !== undefined ? (
-          <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
-        ) : undefined
-      }
+      price={fiatValue !== undefined ? <UsdAmount amount={fiatValue} animated grouping={false} /> : undefined}
       priceStatus={priceStatus}
       delta={
         feedQuote && direction

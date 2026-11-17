@@ -14,6 +14,7 @@ import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCar
 import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { quoteEarnWithdrawal, type EarnWithdrawalQuote } from 'lib/epoch/earn-withdraw-quote';
 import { withdrawalAmount, withdrawalAmountError } from 'lib/epoch/withdraw-amount';
@@ -396,7 +397,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
                     />
                   }
                 >
-                  {amount} {withdrawSymbol}
+                  <TokenAmount amount={amount} symbol={withdrawSymbol} formatting="exact" />
                 </DetailRow>
                 {quote && expectedReceipt && minimumReceipt && (
                   <>

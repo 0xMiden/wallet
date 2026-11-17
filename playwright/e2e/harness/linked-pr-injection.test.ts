@@ -109,7 +109,12 @@ const jobs = (file: string, text: string): Job[] => {
 
 const keyOf = (step: Step, key: string): string | undefined =>
   step.lines.map(line => new RegExp(`^${key}:\\s*(.*?)\\s*$`).exec(line)?.[1]).find(value => value !== undefined);
-const usesOf = (step: Step): string | undefined => keyOf(step, 'uses')?.replace(/^['"]|['"]$/g, '');
+const usesOf = (step: Step): string | undefined =>
+  keyOf(step, 'uses')
+    ?.replace(/\s+#.*$/, '')
+    .replace(/^['"]|['"]$/g, '');
+/** The action a step runs, without the commit it is pinned to (action-pins.test.ts holds every pin to a SHA). */
+const actionOf = (step: Step): string | undefined => usesOf(step)?.replace(/@[^@]*$/, '');
 /** The wallet's dependency install: the shared retrying action, or `yarn install` in a run script. */
 const installs = (step: Step): boolean =>
   usesOf(step) === './.github/actions/yarn-install' ||
@@ -284,7 +289,7 @@ const immutableStoreWorkflow = (file: string, text: string): boolean => {
   const checkedOut = (job: Job, path: string | undefined, ref: string): boolean =>
     job.steps.some(
       step =>
-        usesOf(step) === 'actions/checkout@v4' &&
+        actionOf(step) === 'actions/checkout' &&
         keyOf(step, 'path') === path &&
         keyOf(step, 'ref') === ref &&
         keyOf(step, 'persist-credentials') === 'false'
@@ -306,7 +311,7 @@ const immutableStoreWorkflow = (file: string, text: string): boolean => {
     coordinator.keys['if'] !==
       "${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.platform == 'all' }}" ||
     !checkedOut(coordinator, undefined, '${{ github.workflow_sha }}') ||
-    coordinator.steps.filter(step => usesOf(step) === 'actions/checkout@v4').length !== 1 ||
+    coordinator.steps.filter(step => actionOf(step) === 'actions/checkout').length !== 1 ||
     coordinator.steps.some(step => installs(step) || [WEB_SDK, GUARDIAN].includes(usesOf(step) ?? '')) ||
     !coordinatorLines.includes(
       "import { validateBuildRequest } from './scripts/store-publishing/create-receipt.mjs';"
@@ -371,8 +376,8 @@ const technicalScreenshotWorkflow = (file: string, text: string): boolean => {
   const environment = /^    env:\n([\s\S]*?)^    steps:/m.exec(text)?.[1];
   if (environment !== "      CI: 'true'\n      CARGO_BUILD_JOBS: '2'\n      RAYON_NUM_THREADS: '2'\n      VIPS_CONCURRENCY: '2'\n      UV_THREADPOOL_SIZE: '2'\n") return false;
   const expected = [
-    ['uses: actions/checkout@v4', 'with:', 'persist-credentials: false'],
-    ['uses: actions/setup-node@v4', 'with:', 'node-version: 22', 'cache: yarn'],
+    ['uses: actions/checkout', 'with:', 'persist-credentials: false'],
+    ['uses: actions/setup-node', 'with:', 'node-version: 22', 'cache: yarn'],
     ['run: >-', 'node --test --test-concurrency=2', 'scripts/store-listing/screenshots.test.mjs',
       'scripts/store-publishing/screenshots.test.mjs', 'scripts/store-publishing/cli.test.mjs',
       'scripts/store-publishing/publish-plan.test.mjs'],
@@ -382,7 +387,11 @@ const technicalScreenshotWorkflow = (file: string, text: string): boolean => {
     ['run: yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand']
   ];
   return job.steps.length === expected.length && job.steps.every((step, index) =>
-    JSON.stringify(step.lines.filter(line => !line.startsWith('name:'))) === JSON.stringify(expected[index])
+    JSON.stringify(
+      step.lines
+        .filter(line => !line.startsWith('name:'))
+        .map(line => line.replace(/^uses: ([^@\s]+)@\S+(\s+#.*)?$/, 'uses: $1'))
+    ) === JSON.stringify(expected[index])
   );
 };
 
@@ -585,7 +594,8 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-usdcx.yml chrome-usdcx-arc: push 210, dispatch 240',
       'e2e-usdcx.yml chrome-usdcx-l2: push 325, dispatch 355',
       'pr-e2e-earn.yml earn-e2e: push 120, dispatch 270',
-      'pr-e2e-swap.yml swap-e2e: push 120, dispatch 270'
+      'pr-e2e-swap.yml swap-e2e: push 120, dispatch 270',
+      'red-before.yml run: push 30, dispatch 60'
     ]);
   });
 

@@ -20,6 +20,7 @@ import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
 import { ARCADE_COINS_PATH } from 'lib/arcade';
 import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
+import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
@@ -49,6 +50,8 @@ import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
+import { RECOVER_FUNDS_PATH } from './pages/recover-funds-paths';
+import RecoverLockedFundsLock from './pages/RecoverLockedFundsLock';
 import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
@@ -225,6 +228,17 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(() => (
       <FullScreenPage entrance="slide">
         <DeveloperSettings readOnly />
+      </FullScreenPage>
+    ))
+  ],
+  // One lock of the "Recover locked bridge funds" settings page (the `recover-funds` tab), with its sponsor in the
+  // `address` query. Three segments, so the generic `/settings/:tabSlug?` route below cannot match it. It slides over
+  // the list, which stays mounted beneath it and scans again after an action here.
+  [
+    `${RECOVER_FUNDS_PATH}/:chainId/:lockId`,
+    onlyReady(({ chainId, lockId }) => (
+      <FullScreenPage key={`recover-funds-${chainId ?? ''}-${lockId ?? ''}`} entrance="slide">
+        <RecoverLockedFundsLock chainId={chainId} lockId={lockId} />
       </FullScreenPage>
     ))
   ],
@@ -528,13 +542,19 @@ const PageRouter: FC = () => {
   // The banner follows the router's own root view (not locked, hydrated, ready, and not holding for
   // onboarding to finish) and stays off the onboarding and recovery routes.
   const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
-  const layered = !walletOpen ? (
-    page
-  ) : (
-    <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
-      {page}
-    </MobilePageLayers>
-  );
+  const lockPending = backgroundLockPending.useValue();
+  // The full cover is `BackgroundLockCover` in App. Dropping the pages here unmounts them, which parks the foreground
+  // dApp and hides its native window, which a DOM cover cannot do.
+  const layered =
+    lockPending && ctx.ready ? (
+      <RootSuspenseFallback data-testid="wallet-pages-parked" />
+    ) : !walletOpen ? (
+      page
+    ) : (
+      <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
+        {page}
+      </MobilePageLayers>
+    );
 
   // The mainnet countdown sits above every page of the open wallet, over the layer stack and so
   // over Home's action bar, and never over Unlock or onboarding. The layer stack fills the height

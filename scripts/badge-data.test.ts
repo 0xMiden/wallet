@@ -326,7 +326,7 @@ describe('badge workflows', () => {
     expect(reader).toEqual(['badge-data']);
     expect(jobText('coverage-badge.yml', 'badge-data')).not.toMatch(/: write$/m);
     expect(stepBlocks(jobText('coverage-badge.yml', 'badge-data'))[0]).toMatch(
-      /uses: actions\/checkout@v4\n\s*with:\n\s*persist-credentials: false$/
+      /uses: actions\/checkout@\S+(?: #.*)?\n\s*with:\n\s*persist-credentials: false$/
     );
     expect(writers).toEqual(['coverage-badge']);
     const publish = jobText('coverage-badge.yml', 'coverage-badge');
@@ -334,7 +334,7 @@ describe('badge workflows', () => {
     expect(publish).toMatch(/^ {4}needs: badge-data$/m);
     expect(publish.match(/^\s*if: .*$/gm)).toEqual(["    if: needs.badge-data.outputs.ready == 'true'"]);
     expect(publish).not.toContain('steps.');
-    expect(stepBlocks(publish)[0]).toMatch(/^\s*- uses: actions\/checkout@v4$/m);
+    expect(stepBlocks(publish)[0]).toMatch(/^\s*- uses: actions\/checkout@\S+(?: #.*)?$/m);
     expect(stepBlocks(publish)[0]).not.toContain('persist-credentials');
     for (const name of ['PCT', 'COUNT']) {
       const values = publish.match(new RegExp(`^\\s*${name}: .*$`, 'gm'));

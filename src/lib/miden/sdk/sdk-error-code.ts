@@ -18,7 +18,11 @@
 // realm- and cycle-safe.
 
 import { isWasmClientPoisonedError } from './wasm-client-poison';
+import { isWasmTrap, readWasmHandle } from './wasm-handle';
 import { isOperationAbortedError } from '../back/offscreen-codec';
+
+// Re-exported for existing callers; the import-free module lets the account recipe's node harness load them alone.
+export { isWasmTrap, readWasmHandle };
 
 /**
  * Pulls a stable SDK error code off a thrown value, if present.
@@ -209,6 +213,18 @@ export function pipelineKillIn(err: unknown): unknown {
     }
   }
   return undefined;
+}
+
+/**
+ * The first line of a catch inside a WASM hold that falls back on an ordinary failure. The lock retires a poisoned
+ * client only when a `WebAssembly.RuntimeError` reaches it, so a trap is thrown as that same object. A caught kill must
+ * not read as the catch's verdict on the request, so it is thrown as the link {@link pipelineKillIn} finds. Returns
+ * for anything else, a terminated client under an apply-after-submit error included: that write landed.
+ */
+export function rethrowTrapOrKill(error: unknown): void {
+  if (isWasmTrap(error)) throw error;
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) throw kill;
 }
 
 /**
@@ -410,15 +426,22 @@ export function isSubmitCrossingUnrecorded(err: unknown): boolean {
 
 /**
  * What a landed write's failure knows about its transaction (#1233): the executed transaction's id, how
- * many private user output notes it produced and its final account commitment, each only when it could
- * be read. One object from the throw to the row, on both realms, so no layer can carry one fact and drop
- * the other.
+ * many private user output notes it produced, its final account commitment and the swap order its public
+ * first user output note opens, each only when it could be read. One object from the throw to the row, on
+ * both realms, so no layer can carry one fact and drop the other.
  */
 export interface LandedTransaction {
   transactionId?: string;
   privateOutputNotes?: number;
   /** The executed transaction's final account commitment, which the node's account commitment equals once it commits. */
   finalAccountCommitment?: string;
+  /**
+   * The PSWAP lineage id, felt 1 of the order note's serial, as a decimal string: the facts cross chrome.runtime
+   * messaging, which is JSON-only and carries no bigint.
+   */
+  orderId?: string;
+  /** The id of the note `orderId` was read off, in lower case. */
+  orderNoteId?: string;
 }
 
 /**
@@ -443,10 +466,26 @@ export class ApplyAfterSubmitError extends Error {
   }
 }
 
+const DECIMAL = /^(0|[1-9][0-9]{0,19})$/;
+/** The Miden field modulus, 2^64 - 2^32 + 1: a felt's integer value is below it. */
+const FIELD_MODULUS = 0xffffffff00000001n;
+const NOTE_ID = /^0x[0-9a-f]{64}$/i;
+
+/** A swap order's landed facts in the only shapes kept: a canonical decimal felt and a note id, in lower case. */
+export function landedOrderFacts(
+  orderId: unknown,
+  orderNoteId: unknown
+): Pick<LandedTransaction, 'orderId' | 'orderNoteId'> {
+  return {
+    ...(typeof orderId === 'string' && DECIMAL.test(orderId) && BigInt(orderId) < FIELD_MODULUS ? { orderId } : {}),
+    ...(typeof orderNoteId === 'string' && NOTE_ID.test(orderNoteId) ? { orderNoteId: orderNoteId.toLowerCase() } : {})
+  };
+}
+
 /**
  * The landed facts off this realm's `ApplyAfterSubmitError` or off the rejection the service worker
- * rebuilds from an offscreen reply, keeping only a string id, a non-negative integer count and a string
- * final commitment.
+ * rebuilds from an offscreen reply, keeping only a string id, a non-negative integer count, a string
+ * final commitment, a canonical decimal felt as the order id and a note-id-shaped order note id.
  */
 export function extractLanded(err: unknown): LandedTransaction {
   const landed = readGuarded(err, 'landed');
@@ -458,7 +497,8 @@ export function extractLanded(err: unknown): LandedTransaction {
     ...(typeof privateOutputNotes === 'number' && Number.isInteger(privateOutputNotes) && privateOutputNotes >= 0
       ? { privateOutputNotes }
       : {}),
-    ...(typeof finalAccountCommitment === 'string' ? { finalAccountCommitment } : {})
+    ...(typeof finalAccountCommitment === 'string' ? { finalAccountCommitment } : {}),
+    ...landedOrderFacts(readGuarded(landed, 'orderId'), readGuarded(landed, 'orderNoteId'))
   };
 }
 

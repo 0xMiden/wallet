@@ -1069,6 +1069,25 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('preserves the platform enrollment token returned by the worker', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.PlatformUnlockResponse,
+        result: { action: 'begin', enrollmentId: 'token' }
+      });
+      await expect(
+        useWalletStore.getState().platformUnlock({ action: 'begin', expectedCredentialId: null })
+      ).resolves.toEqual({ action: 'begin', enrollmentId: 'token' });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.PlatformUnlockRequest,
+        command: { action: 'begin', expectedCredentialId: null }
+      });
+    });
+
+    it('does not mistake another message response for platform unlock completion', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.UnlockResponse });
+      await expect(useWalletStore.getState().platformUnlock({ action: 'state' })).rejects.toThrow('Invalid response');
+    });
+
     it('unlock throws on invalid response', async () => {
       mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
 
@@ -1202,18 +1221,6 @@ describe('useWalletStore', () => {
   });
 
   describe('Signing actions', () => {
-    it('signData returns signature', async () => {
-      mockRequest.mockResolvedValueOnce({
-        type: WalletMessageType.SignDataResponse,
-        signature: 'sig123'
-      });
-
-      const { signData } = useWalletStore.getState();
-      const result = await signData('pk1', 'data-to-sign');
-
-      expect(result).toBe('sig123');
-    });
-
     it('signTransaction returns Uint8Array from hex', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SignTransactionResponse,
@@ -1657,12 +1664,16 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '9007199254740993'
+        feeReserve: '9007199254740993',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
 
       await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
         outcome: 'measured',
-        reserve: 9007199254740993n
+        reserve: 9007199254740993n,
+        faucetId: 'native',
+        scope: 'source-scope'
       });
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
@@ -1675,12 +1686,16 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '0'
+        feeReserve: '0',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
 
       await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
         outcome: 'measured',
-        reserve: 0n
+        reserve: 0n,
+        faucetId: 'native',
+        scope: 'source-scope'
       });
     });
 
@@ -2314,15 +2329,6 @@ describe('useWalletStore', () => {
   });
 
   describe('signing actions', () => {
-    it('signData returns signature', async () => {
-      mockRequest.mockResolvedValueOnce({
-        type: WalletMessageType.SignDataResponse,
-        signature: 'sig-base64'
-      });
-      const sig = await useWalletStore.getState().signData('pk', 'inputs');
-      expect(sig).toBe('sig-base64');
-    });
-
     it('signTransaction returns signature as Uint8Array from hex', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SignTransactionResponse,

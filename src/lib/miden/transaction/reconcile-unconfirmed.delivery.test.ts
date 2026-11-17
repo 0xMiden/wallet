@@ -199,9 +199,13 @@ const landWhileTheRelayWaits = async (row: ITransaction, noteId: string) => {
     reached.resolve();
     await relay.promise;
   });
-  await landWhileWaiting(completeSendTransaction(sendOf(row), sentNote(noteId)), reached.promise, () =>
-    relay.resolve()
+  // The row landed under the completion, so its terminal write is refused and leaves the tail, whose landed arm leaves
+  // a row another writer finalized as it is.
+  const completion = completeSendTransaction(sendOf(row), sentNote(noteId)).then(
+    () => Promise.reject(new Error('the terminal write on the landed row was not refused')),
+    (error: unknown) => expect(String(error)).toMatch(/finalized/)
   );
+  await landWhileWaiting(completion, reached.promise, () => relay.resolve());
 };
 
 beforeEach(async () => {

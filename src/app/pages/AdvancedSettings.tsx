@@ -16,6 +16,8 @@ import { setNominalUnquotedPriceSetting, useNominalUnquotedPrice } from 'lib/set
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
+import { RECOVER_FUNDS_PATH } from './recover-funds-paths';
+
 const AdvancedSettings: FC = () => {
   const { t } = useTranslation();
   const walletAccount = useAccount();
@@ -87,6 +89,12 @@ const AdvancedSettings: FC = () => {
               data-testid="advanced-export-account-file"
             />
           )}
+          <ListRow
+            title={t('recoverLockedFunds')}
+            onClick={() => navigate(RECOVER_FUNDS_PATH)}
+            chevron
+            data-testid="advanced-recover-locked-funds"
+          />
         </ListGroup>
       </SubPageSection>
 
