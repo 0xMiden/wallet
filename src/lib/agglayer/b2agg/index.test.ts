@@ -131,6 +131,7 @@ const mockCreateB2AggNote = jest.fn((...args: unknown[]): unknown => {
 });
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
   // `randomFeeSalt` builds the declared fee-conversion salt from these; it used to run
   // inside the (mocked-away) fee-auth helper, so the SDK mock never needed them.
   Felt: jest.fn((v: any) => ({ v })),
