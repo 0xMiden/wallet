@@ -155,9 +155,9 @@ for (const [name, headers] of [
   ['omits Access-Control-Allow-Headers', { 'Access-Control-Allow-Headers': null }],
   ['does not allow if-none-match', { 'Access-Control-Allow-Headers': 'authorization, content-type' }],
   ['does not allow authorization', { 'Access-Control-Allow-Headers': 'content-type, if-none-match' }],
-  ['allows only a lookalike header', { 'Access-Control-Allow-Headers': 'x-authorization, if-none-match' }],
+  ['allows only a lookalike header', { 'Access-Control-Allow-Headers': 'x-authorization, content-type, if-none-match' }],
   ['omits Access-Control-Allow-Methods', { 'Access-Control-Allow-Methods': null }],
-  ['does not allow GET', { 'Access-Control-Allow-Methods': 'POST, PUT' }],
+  ['does not allow GET', { 'Access-Control-Allow-Methods': 'POST, PUT, DELETE' }],
   ['allows only a lookalike method', { 'Access-Control-Allow-Methods': 'GETS, POST, PUT, DELETE' }],
   ['does not allow PUT', { 'Access-Control-Allow-Methods': 'GET, POST, DELETE' }],
   ['does not allow content-type', { 'Access-Control-Allow-Headers': 'authorization, if-none-match' }]
