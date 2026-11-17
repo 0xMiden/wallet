@@ -17026,6 +17026,97 @@ describe('generateTransaction - Guardian routing', () => {
             restore();
           }
         });
+
+        // A stored schedule that no recorded note owns (`importDb` fills these from a file) is not the owed notes' own.
+        it('clears a relay schedule its row held before the owed notes were recorded', async () => {
+          const txId = 'guardian-execute-cancelled-stale-schedule';
+          const restore = installLandedTrapRetirement(jest.fn());
+          const { result, apply } = armedResult({
+            notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
+            stamped: [OWED_NOTE],
+            privateStamped: [OWED_NOTE],
+            trapping: 'executedTransaction'
+          });
+          const client = sweepClient(result, apply);
+          const { proposal } = cancelledAtProposal(txId);
+          const landing = Math.floor(Date.now() / 1000);
+          const quiet = silence();
+
+          try {
+            const { row } = await runGuardianValueRow(
+              { ...executeRow(txId), relayAttempts: 99, nextRelayAt: landing + 365 * 86400, relayRetriesStopped: true },
+              { result, replace: () => {}, log: [] },
+              proposal,
+              client
+            );
+
+            expect(row).toMatchObject({ relayNoteIds: [OWED_NOTE], noteDelivery: 'undelivered' });
+            expect(row.relayAttempts).toBeUndefined();
+            expect(row.relayRetriesStopped).toBeUndefined();
+            await sweepAt(landing);
+            await sweepAt(landing + 10 * 60);
+            expect(client.relayPrivateNoteById.mock.calls).toEqual([[OWED_NOTE, 'recipient']]);
+          } finally {
+            quiet();
+            restore();
+          }
+        });
+      });
+
+      // Every write that would complete the row fails, so the landed write spends its budget and leaves the row in
+      // progress for the reaper; only a row another writer finalized takes the owed notes outside that write.
+      it('a Guardian execute whose landed write spent its budget owes none of its stamped notes while it is still in progress', async () => {
+        const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+        const realWhere = where.getMockImplementation()!;
+        where.mockImplementation((query: { id: string }) => {
+          const real = realWhere(query);
+          return {
+            ...real,
+            modify: async (fn: (row: Row) => unknown) => {
+              const stored = txStore.find(r => r.id === query.id);
+              if (stored) {
+                const after: Row = {
+                  ...stored,
+                  stageTimestamps: { ...(stored.stageTimestamps as object | undefined) }
+                };
+                fn(after);
+                if (stored.status !== ITransactionStatus.Completed && after.status === ITransactionStatus.Completed) {
+                  throw new Error('dexie write failed');
+                }
+              }
+              return real.modify(fn);
+            }
+          };
+        });
+        const restore = installLandedTrapRetirement(jest.fn());
+        const { result, apply } = armedResult({
+          notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
+          stamped: [OWED_NOTE],
+          privateStamped: [OWED_NOTE],
+          trapping: 'executedTransaction'
+        });
+        const client = sweepClient(result, apply);
+        const writes = noteDeliveryWriteCount();
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            executeRow('guardian-execute-landed-write-spent'),
+            { result, replace: () => {}, log: [] },
+            executeProposal(),
+            client
+          );
+
+          expect(apply).toHaveBeenCalledTimes(1);
+          expect(row.status).toBe(ITransactionStatus.GeneratingTransaction);
+          expect(row.relayNoteIds).toBeUndefined();
+          expect(row.noteDelivery).toBeUndefined();
+          expect(noteDeliveryWriteCount()).toBe(writes);
+        } finally {
+          quiet();
+          restore();
+          where.mockImplementation(realWhere);
+        }
       });
     });
   });

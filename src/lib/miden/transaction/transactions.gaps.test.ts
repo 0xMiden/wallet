@@ -1765,10 +1765,12 @@ describe('a throw after the leaf resolved', () => {
     const origGetClient = sdk.getMidenClient;
     sdk.getMidenClient = async () => client;
     const clock = jest.spyOn(Date, 'now').mockReturnValue(atSeconds * 1000);
+    const quiet = (['warn', 'info'] as const).map(level => jest.spyOn(console, level).mockImplementation(() => {}));
     try {
       __resetNoteDeliverySweepForTests();
       await sweepNoteDeliveries();
     } finally {
+      quiet.forEach(spy => spy.mockRestore());
       clock.mockRestore();
       sdk.getMidenClient = origGetClient;
       where.mockImplementation(realWhere);
