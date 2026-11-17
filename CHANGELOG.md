@@ -3,6 +3,7 @@
 ## 1.18.1 (TBD)
 
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
+- [FIX][all] A private note from a dApp transaction that went through is still retried for delivery when the app was closed, or the wallet could not save the outcome, before it recorded the note, once the wallet finds the transaction on the network.
 
 ## 1.18.0 (2026-11-17)
 
