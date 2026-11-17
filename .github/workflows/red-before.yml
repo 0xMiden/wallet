@@ -1,0 +1,150 @@
+name: Red-before tests
+
+# Runs named Jest test files at one exact commit and checks the outcome against
+# what the caller expects. It exists so a regression test pushed in its own
+# commit can be shown failing in CI before its fix lands, without pushing every
+# historical commit through the whole PR workflow set (pr.yml runs only on
+# pull_request, cancels in progress and keeps no Jest JSON).
+#
+# The job passes only when the observed result matches `expect`:
+#   red   - at least one selected test failed, and every suite loaded;
+#   green - at least one selected test passed, none failed, every suite loaded.
+# A suite that fails to load reports zero failing tests, so it is never read as
+# red. The Jest JSON is uploaded for every run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full 40-character commit SHA to test (must be reachable on origin)
+        required: true
+        type: string
+      tests:
+        description: Space-separated test files, relative to the repository root
+        required: true
+        type: string
+      pattern:
+        description: Optional Jest -t name pattern
+        required: false
+        default: ''
+        type: string
+      expect:
+        description: The outcome that counts as a pass
+        required: true
+        default: red
+        type: choice
+        options:
+          - red
+          - green
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: Red-before (${{ inputs.expect }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Inputs reach the shell only through env, never through ${{ }} in run:,
+      # so a crafted value cannot inject commands.
+      - name: Validate inputs
+        id: validate
+        env:
+          SHA: ${{ inputs.sha }}
+          TESTS: ${{ inputs.tests }}
+          PATTERN: ${{ inputs.pattern }}
+          EXPECT: ${{ inputs.expect }}
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full lowercase 40-character SHA"; exit 1; }
+          [[ "$EXPECT" == red || "$EXPECT" == green ]] || { echo "::error::expect must be red or green"; exit 1; }
+          read -ra files <<< "$TESTS"
+          (( ${#files[@]} > 0 && ${#files[@]} <= 20 )) || { echo "::error::give 1-20 test files"; exit 1; }
+          for f in "${files[@]}"; do
+            [[ "$f" =~ ^(src|test|scripts|playwright)/[A-Za-z0-9_./@-]+\.test\.(ts|tsx|js|jsx|mjs|cjs)$ && "$f" != *..* ]] \
+              || { echo "::error::not an allowed test path: $f"; exit 1; }
+          done
+          [[ "$PATTERN" != *$'\n'* && ${#PATTERN} -le 500 ]] || { echo "::error::pattern must be one line, at most 500 characters"; exit 1; }
+
+      - name: Check out the tested commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Confirm the checked-out commit
+        env:
+          SHA: ${{ inputs.sha }}
+          TESTS: ${{ inputs.tests }}
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          [[ "$head" == "$SHA" ]] || { echo "::error::checked out $head, expected $SHA"; exit 1; }
+          read -ra files <<< "$TESTS"
+          for f in "${files[@]}"; do [[ -f "$f" ]] || { echo "::error::$f does not exist at $SHA"; exit 1; }; done
+          echo "Tested commit: $head" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Use Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      # The tested commit's own package.json and yarn.lock decide the install.
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
+
+      - name: Run the selected tests
+        env:
+          TESTS: ${{ inputs.tests }}
+          PATTERN: ${{ inputs.pattern }}
+        run: |
+          set -uo pipefail
+          read -ra files <<< "$TESTS"
+          args=(--ci --maxWorkers=2 --json --outputFile="$RUNNER_TEMP/jest.json")
+          [[ -n "$PATTERN" ]] && args+=(-t "$PATTERN")
+          yarn jest "${args[@]}" "${files[@]}" 2>&1 | tee "$RUNNER_TEMP/jest.log"
+          echo "jest exit ${PIPESTATUS[0]}" | tee -a "$RUNNER_TEMP/jest.log"
+
+      - name: Check the outcome
+        env:
+          EXPECT: ${{ inputs.expect }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          node - <<'EOF'
+          const fs = require('fs');
+          const path = `${process.env.RUNNER_TEMP}/jest.json`;
+          const out = (line) => fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
+          if (!fs.existsSync(path)) {
+            out('No Jest JSON was written: the run is invalid.');
+            process.exit(1);
+          }
+          const r = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const failing = r.testResults.flatMap((suite) =>
+            suite.assertionResults
+              .filter((a) => a.status === 'failed')
+              .map((a) => `${suite.name.replace(`${process.cwd()}/`, '')} :: ${a.fullName}`)
+          );
+          const loadErrors = r.numRuntimeErrorTestSuites;
+          out(`Expect: ${process.env.EXPECT} at ${process.env.SHA}`);
+          out(`Passed ${r.numPassedTests}, failed ${r.numFailedTests}, skipped ${r.numPendingTests}, total ${r.numTotalTests}, suites that failed to load ${loadErrors}`);
+          for (const name of failing) out(`- failed: ${name}`);
+          let ok;
+          if (loadErrors > 0) ok = false;
+          else if (process.env.EXPECT === 'red') ok = r.numFailedTests > 0;
+          else ok = r.numFailedTests === 0 && r.numPassedTests > 0;
+          out(ok ? 'Outcome matches the expectation.' : 'Outcome does NOT match the expectation.');
+          process.exit(ok ? 0 : 1);
+          EOF
+
+      - name: Upload the Jest results
+        if: always() && steps.validate.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: red-before-${{ inputs.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/jest.json
+            ${{ runner.temp }}/jest.log
+          if-no-files-found: warn
+          retention-days: 30

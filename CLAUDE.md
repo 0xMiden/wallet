@@ -394,6 +394,10 @@ once with `pnpm dlx lefthook install` if you want the guard.
 
 Mirrors web-sdk's `Client PR: #N` pattern (`.github/actions/inject-linked-client-pr`).
 
+## Red-before runs in CI
+
+PR Tests (`pr.yml`) runs only on `pull_request` and cancels in progress, so it cannot show an older commit of a branch failing once the branch has moved on, and it keeps no Jest JSON. `red-before.yml` can: `gh workflow run red-before.yml --repo 0xMiden/wallet --ref main -f sha=<full sha> -f tests='<test files>' -f pattern='<optional -t>' -f expect=red`. It checks out that exact commit, installs from that commit's lockfile, runs only the named test files and passes only when the outcome matches `expect`; a suite that fails to load never counts as red. The commit must be reachable on origin, so push the branch first. The run uploads its Jest JSON and log.
+
 ## CI gotcha: a push to `main` does not always create its workflow runs
 
 Seen 2026-08-14: merge commit `9b84c493b` landed on `main` and GitHub created
