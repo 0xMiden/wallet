@@ -45,8 +45,8 @@ function fixture(change = {}) {
         : [note]
     )
   );
-  if (!change.guardian || change.expiration !== undefined)
-    builder = builder.withExpirationDelta(change.expiration ?? 600);
+  if (change.expiration !== null)
+    builder = builder.withExpirationDelta(change.expiration ?? (change.guardian ? 20 : 600));
   if (change.guardian)
     builder = builder
       .withBlockNumbers([321])
@@ -64,7 +64,7 @@ test('inspects the SDK Guardian auth layout without treating its auth advice as 
   const input = fixture({ guardian: true });
   assert.equal(inspectTestMainnetSendRequest(input.scope, input.bytes, true), input.noteId);
 });
-test('accepts the installed Guardian SDK public P2ID builder with exactly zero attachments', async () => {
+test('accepts the installed Guardian SDK final P2ID shape with zero attachments and the exact mainnet fee-policy expiry', async () => {
   const input = fixture({ guardian: true });
   const authenticated = TransactionRequest.deserialize(input.bytes);
   const client = {
@@ -80,7 +80,7 @@ test('accepts the installed Guardian SDK public P2ID builder with exactly zero a
     input.scope.recipientId,
     input.scope.faucetId,
     BigInt(input.scope.amount),
-    { salt: Word.fromHex(`0x${'0'.repeat(63)}1`), noteType: NoteType.Public }
+    { salt: Word.fromHex(`0x${'0'.repeat(63)}1`), noteType: NoteType.Public, transactionExpirationDelta: 20 }
   );
   const note = request.expectedOutputOwnNotes()[0];
   assert.ok(note);
@@ -100,6 +100,9 @@ for (const [name, change] of [
   ['another output', { extraOutput: true }],
   ['another input', { input: true }],
   ['overpaying principal', { amount: 1_010_001n }],
+  ['missing final mainnet fee-policy expiry', { expiration: null }],
+  ['shortened final mainnet fee-policy expiry', { expiration: 19 }],
+  ['extended final mainnet fee-policy expiry', { expiration: 21 }],
   ['unreviewed transaction expiry', { expiration: 600 }]
 ])
   test(`Guardian send rejects ${name} despite valid authentication layout`, () => {

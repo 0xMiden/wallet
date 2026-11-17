@@ -75,6 +75,7 @@ test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data
     .withOwnOutputNotes(new sdk.NoteArray([note]))
     .withAuthArgs(new sdk.FeltArray(values()))
     .withBlockNumbers([321])
+    .withExpirationDelta(20)
     .build();
   assert.equal(inspectTestMainnetSendRequest(scope, original.serialize(), true), note.id().toString());
   const wrong = values();
@@ -87,7 +88,7 @@ test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data
   assert.throws(() => inspectTestMainnetSendRequest(scope, corrupted.serialize(), true), /differ from the exact/);
 
   const bytes = original.serialize();
-  const entriesEnd = bytes.length - 40; // Eight trailing fields plus the present auth Word.
+  const entriesEnd = bytes.length - 42; // Eight trailing fields, the auth Word and exact u16 fee-policy expiry.
   assert.equal(new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(entriesEnd - 8, true), 0n);
   const expanded = new Uint8Array(bytes.length + 96);
   expanded.set(bytes.subarray(0, entriesEnd));
