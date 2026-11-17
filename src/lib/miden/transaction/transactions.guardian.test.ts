@@ -51,7 +51,13 @@ import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { _resetDiagnosticLogLimitsForTest } from 'lib/telemetry/diagnostic-log';
 import { WalletType } from 'screens/onboarding/types';
 
-import { cancelStaleQueuedTransactions, cancelTransactionById, MAX_QUEUED_AGE } from './cancel';
+import {
+  cancelStaleQueuedTransactions,
+  cancelStuckTransactions,
+  cancelTransactionById,
+  MAX_QUEUED_AGE,
+  MAX_WAIT_BEFORE_CANCEL
+} from './cancel';
 import {
   CLAIM_VAULT_SHORTFALL_ERROR,
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
@@ -68,6 +74,7 @@ import {
   SUBMIT_CROSSING_UNRECORDED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
+  TRANSACTION_STUCK_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
@@ -101,6 +108,8 @@ import {
   SESSION_STARTED_AT
 } from './index';
 import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from './note-delivery-sweep';
+import type { NodeReads } from './reconcile-reads';
+import { judgeAndWrite } from './reconcile-unconfirmed';
 import { isRequeueableTransaction } from './retry';
 import { keptCandidateHoldUntil } from './verdict-rules';
 import { getConnectivityState, resetConnectivityState } from '../activity/connectivity-state';
@@ -17257,6 +17266,239 @@ describe('generateTransaction - Guardian routing', () => {
           restore();
           where.mockImplementation(realWhere);
         }
+      });
+
+      // A store outage spanning the landed write's budget leaves the row in progress with nothing recorded, and the
+      // reaper fails it. Only the reconciler's landing on node evidence, from the stored row alone, can still owe the
+      // private notes the landing attempt's stamp read.
+      describe('an applied execute the reaper failed after its landed write spent its budget', () => {
+        const INITIAL = `0x${'1a'.repeat(32)}`;
+        const FINAL = `0x${'1b'.repeat(32)}`;
+        const REF_COMMITMENT = `0x${'1c'.repeat(32)}`;
+        const header = (commitment: string, nonce: bigint) => ({
+          to_commitment: () => ({ toHex: () => commitment }),
+          nonce: () => ({ asInt: () => nonce })
+        });
+        // The stamp holds every field a node verdict reads; the proof names no expiration.
+        const provable = (armed: ReturnType<typeof armedResult>) => {
+          const executedTransaction = armed.result.executedTransaction;
+          return {
+            ...armed,
+            result: {
+              ...armed.result,
+              executedTransaction: () => ({
+                ...executedTransaction(),
+                initialAccountHeader: () => header(INITIAL, 5n),
+                finalAccountHeader: () => header(FINAL, 6n)
+              })
+            }
+          };
+        };
+        const provenClient = (result: object, apply: jest.Mock) => {
+          const client = sweepClient(result, apply);
+          client.client.transactions.prove.mockImplementation(
+            async () =>
+              ({
+                nullifiers: () => [],
+                refBlockNumber: () => 100,
+                refBlockCommitment: () => ({ toHex: () => REF_COMMITMENT }),
+                expirationBlockNumber: () => 100
+              }) as never
+          );
+          return client;
+        };
+        // Every note the stamp names is on chain after its reference block, created by this account.
+        const nodeHolding: NodeReads = {
+          blockCommitment: async () => REF_COMMITMENT,
+          account: async () => ({ ok: true, state: { blockNum: 150, commitment: FINAL } }),
+          noteInclusions: async (ids, _timeoutMs, sender) =>
+            new Map(sender === 'guardian-acc' ? ids.map((id): [string, number] => [id, 140]) : []),
+          nullifierHeight: async () => null
+        };
+        const overrideRow = (txId: string, fields: (real: Record<string, unknown>) => Record<string, unknown>) => {
+          const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+          const realWhere = where.getMockImplementation()!;
+          where.mockImplementation((query: { id: string }) => {
+            const real = realWhere(query);
+            return query.id === txId ? { ...real, ...fields(real) } : real;
+          });
+          return () => where.mockImplementation(realWhere);
+        };
+        const failCompletedWritesOf = (txId: string) =>
+          overrideRow(txId, real => ({
+            modify: async (fn: (row: Row) => unknown) => {
+              const stored = txStore.find(r => r.id === txId)!;
+              const after: Row = { ...stored, stageTimestamps: { ...(stored.stageTimestamps as object | undefined) } };
+              fn(after);
+              if (stored.status !== ITransactionStatus.Completed && after.status === ITransactionStatus.Completed) {
+                throw new Error('IndexedDB transaction aborted');
+              }
+              return (real.modify as (fn: (row: Row) => unknown) => Promise<unknown>)(fn);
+            }
+          }));
+        // The reaper past its wait, then, a minute later, the reconciler's landing on the node's evidence. The repo
+        // the landing writes through stores the row it is handed.
+        const reapThenLand = async (txId: string) => {
+          const repo = jest.requireMock('lib/miden/repo').transactions as Record<string, unknown>;
+          const reapedAt = Math.floor(Date.now() / 1000) + MAX_WAIT_BEFORE_CANCEL + 60;
+          const clock = jest.spyOn(Date, 'now').mockReturnValue(reapedAt * 1000);
+          repo.put = async (row: Row) => {
+            txStore.splice(
+              txStore.findIndex(r => r.id === row.id),
+              1,
+              row
+            );
+          };
+          try {
+            await cancelStuckTransactions();
+            const reaped = { ...txStore.find(r => r.id === txId)! };
+            const writesAfterReap = noteDeliveryWriteCount();
+            clock.mockReturnValue((reapedAt + 60) * 1000);
+            const outcome = await judgeAndWrite(txId, { node: nodeHolding, nowSec: reapedAt + 60, cadenceMs: 3_000 });
+            return { reaped, writesAfterReap, outcome, landedAt: reapedAt + 60 };
+          } finally {
+            delete repo.put;
+            clock.mockRestore();
+          }
+        };
+        const stampedExecute = () =>
+          provable(
+            armedResult({
+              notes: [fixtureNote(PUBLIC_NOTE, NoteType.Public), fixtureNote(OWED_NOTE, NoteType.Private)],
+              stamped: [PUBLIC_NOTE, OWED_NOTE],
+              privateStamped: [OWED_NOTE],
+              trapping: 'executedTransaction'
+            })
+          );
+        const warned = (text: string) =>
+          (console.warn as unknown as jest.Mock).mock.calls.some(([message]) => String(message).includes(text));
+
+        it.each<[string, (txId: string, outage: { on: boolean }) => () => void, string]>([
+          [
+            'four failed reads of the row',
+            (txId, outage) =>
+              overrideRow(txId, real => ({
+                first: async () => {
+                  if (outage.on) throw new Error('IndexedDB read failed');
+                  return (real.first as () => Promise<unknown>)();
+                }
+              })),
+            `Could not read the landed row (attempt ${TERMINAL_STATUS_WRITE_ATTEMPTS}/${TERMINAL_STATUS_WRITE_ATTEMPTS})`
+          ],
+          [
+            'four failed Completed writes',
+            txId => failCompletedWritesOf(txId),
+            `Could not record the completed status for the landed row (attempt ${TERMINAL_STATUS_WRITE_ATTEMPTS}/${TERMINAL_STATUS_WRITE_ATTEMPTS})`
+          ]
+        ])(
+          "owes its landing stamp's private notes to its row's recipient once the reconciler lands it, after %s",
+          async (_case, failStore, spent) => {
+            const txId = 'guardian-execute-reaped-after-budget';
+            const restore = installLandedTrapRetirement(jest.fn());
+            const { result, apply } = stampedExecute();
+            const outage = { on: false };
+            const client = provenClient(
+              result,
+              jest.fn(async () => {
+                await apply();
+                outage.on = true;
+              })
+            );
+            const endOutage = failStore(txId, outage);
+            const writes = noteDeliveryWriteCount();
+            const quiet = silence();
+
+            try {
+              const { row: settled } = await runGuardianValueRow(
+                executeRow(txId),
+                { result, replace: () => {}, log: [] },
+                executeProposal(),
+                client
+              );
+              expect(warned(spent)).toBe(true);
+              expect(settled.status).toBe(ITransactionStatus.GeneratingTransaction);
+              outage.on = false;
+              endOutage();
+
+              const { reaped, writesAfterReap, outcome, landedAt } = await reapThenLand(txId);
+
+              expect(apply).toHaveBeenCalledTimes(1);
+              expect(reaped).toMatchObject({ status: ITransactionStatus.Failed, error: TRANSACTION_STUCK_ERROR });
+              expect(reaped.relayNoteIds).toBeUndefined();
+              expect(reaped.noteDelivery).toBeUndefined();
+              expect(writesAfterReap).toBe(writes);
+              expect(outcome.kind).toBe('landed');
+              // The sweep reads only the stored row, as after a restart.
+              const row = txStore.find(r => r.id === txId)!;
+              expect(row).toMatchObject({
+                status: ITransactionStatus.Completed,
+                transactionId: 'exec-tx-hash',
+                relayNoteIds: [OWED_NOTE],
+                relayRecipientId: 'recipient',
+                noteDelivery: 'undelivered',
+                displayMessage: 'Executed - a private note could not be delivered',
+                completedAt: reaped.completedAt
+              });
+              expect(row.error).toBeUndefined();
+              expect(row.outputNoteIds).toBeUndefined();
+              expect(noteDeliveryWriteCount()).toBe(writes + 1);
+
+              await sweepAt(landedAt);
+              expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+              await sweepAt(landedAt + 10 * 60);
+              expect(client.relayPrivateNoteById.mock.calls).toEqual([[OWED_NOTE, 'recipient']]);
+              expect(row).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [OWED_NOTE] });
+              // No second payment: one submit, and the landed row offers no Retry.
+              expect(client.client.transactions.submitProven).toHaveBeenCalledTimes(1);
+              expect(isRequeueableTransaction(row as never)).toBe(false);
+            } finally {
+              quiet();
+              restore();
+              endOutage();
+            }
+          }
+        );
+
+        // The landing cannot tell an apply that failed from one that ran, so it owes the stamp's private notes either
+        // way; a note the store never took cannot be relayed, and the sweep records it dead after its first push.
+        it('owes its stamped private notes when its apply failed, and the sweep records them dead after one push', async () => {
+          const txId = 'guardian-execute-reaped-apply-failed';
+          const { result } = stampedExecute();
+          const client = provenClient(
+            result,
+            jest.fn(async () => {
+              throw new Error(STORE_APPLY_ERROR_MESSAGE);
+            })
+          );
+          client.relayPrivateNoteById.mockRejectedValue(new Error('No output note found for the given id'));
+          const endOutage = failCompletedWritesOf(txId);
+          const quiet = silence();
+
+          try {
+            await runGuardianValueRow(
+              executeRow(txId),
+              { result, replace: () => {}, log: [] },
+              executeProposal(),
+              client
+            );
+            endOutage();
+            const { outcome, landedAt } = await reapThenLand(txId);
+
+            expect(outcome.kind).toBe('landed');
+            const row = txStore.find(r => r.id === txId)!;
+            expect(row).toMatchObject({ status: ITransactionStatus.Completed, relayNoteIds: [OWED_NOTE] });
+            await sweepAt(landedAt);
+            await sweepAt(landedAt + 10 * 60);
+            await sweepAt(landedAt + 60 * 60);
+            expect(client.relayPrivateNoteById.mock.calls).toEqual([[OWED_NOTE, 'recipient']]);
+            expect(row).toMatchObject({ noteDelivery: 'undelivered', relayDeadNoteIds: [OWED_NOTE] });
+            expect(client.client.transactions.submitProven).toHaveBeenCalledTimes(1);
+            expect(isRequeueableTransaction(row as never)).toBe(false);
+          } finally {
+            quiet();
+            endOutage();
+          }
+        });
       });
     });
   });
