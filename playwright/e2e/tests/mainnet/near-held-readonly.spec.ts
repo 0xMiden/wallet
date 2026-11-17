@@ -19,7 +19,7 @@ const hash=()=>createHash('sha256').update(readFileSync(checkpoint)).digest('hex
 const expectedHash='a4546b4126ba6c81bc19272117d60ac904eedcea65add3ed7ff7d990817d2b12';
 const key='e2e_mainnet_send_authorization',hmacKey=randomBytes(32);
 const fingerprint=(value:string)=>createHmac('sha256',hmacKey).update(value).digest('hex');
-const publicSources=['src/screens/swap-flow/OneClickFlow.tsx','src/lib/one-click/client.ts','src/lib/one-click/tracking.ts','src/lib/miden/transaction/initiate.ts','src/lib/miden/sdk/test-send-authorization.ts'];
+const publicSources=['src/screens/swap-flow/OneClickFlow.tsx','src/lib/one-click/client.ts','src/lib/one-click/tracking.ts',...readdirSync('src/lib/miden',{recursive:true}).filter((path):path is string=>typeof path==='string'&&path.endsWith('.ts')&&!path.includes('.test.')).map(path=>`src/lib/miden/${path}`)];
 const catalog=publicSources.flatMap(path=>{const source=readFileSync(path,'utf8');return [...source.matchAll(/throw new Error\(\s*(['"])([^'"\n]{4,180})\1\s*\)/g)].map(m=>({literal:m[2]!,site:`${path}:${source.slice(0,m.index).split('\n').length}`}));});
 const classify=(message:string)=>catalog.filter(entry=>message.includes(entry.literal)).map(entry=>entry.site);
 assert.ok(catalog.length>10);assert.deepEqual(classify('private payload not in the public error catalog'),[]);
@@ -46,7 +46,7 @@ test('observe original-source native NEAR boundaries with mandatory SDK hold and
    const rows=await readTransactionRows(walletB.page);const sends=rows.filter(row=>row.type==='send'&&row.accountId&&canonicalMainnetLoopFaucet(row.accountId)===state.accountHex);
    const challengeVisible=await walletB.page.locator(SPENDING_LIMIT_CHALLENGE).isVisible();
    if(challengeVisible&&!report.actualChallengeAuthenticated){report.challengeBeforeAuthentication={visible:true,sendRowCount:sends.length,sdkPolicyStatus:policy.status};await authenticateSpendingLimitChallenge(walletB.page);report.actualChallengeAuthenticated=true;}
-   report.rows=sends.map(row=>({status:row.status,started:row.processingStartedAt!==undefined,hasTransactionId:!!row.transactionId,hasPaidFee:row.feeAmount!==undefined&&row.feeAmount!=='0',publicErrorSites:classify(`${row.error??''}\n${row.rawError??''}`),errorFingerprint:row.error||row.rawError?fingerprint(`${row.error??''}\n${row.rawError??''}`):undefined}));
+   report.rows=sends.map(row=>({status:row.status,stage:['syncing','sending','creating-proposal','signing-proposal','signing-locally','proving','submitting','confirming','completed'].includes(row.stage??'')?row.stage:'unavailable',started:row.processingStartedAt!==undefined,hasTransactionId:!!row.transactionId,hasPaidFee:row.feeAmount!==undefined&&row.feeAmount!=='0',publicErrorSites:classify(`${row.error??''}\n${row.rawError??''}`),errorFingerprint:row.error||row.rawError?fingerprint(`${row.error??''}\n${row.rawError??''}`):undefined}));
    assert.ok(sends.every(row=>!row.transactionId&&(!row.feeAmount||row.feeAmount==='0')),'Held diagnostic unexpectedly acquired an on-chain receipt');
    if(!releasedQueue&&sends.some(row=>row.status===TxStatus.Queued)){assert.equal(sends.length,1);await releaseQueueBlocker(walletB.page,blocker);releasedQueue=true;}
    if(policy.status==='waiting'||sends.some(row=>row.status===TxStatus.Failed))break;
