@@ -56,6 +56,16 @@ it('renders one active workbench and navigates via the five dock destinations', 
   expect(screen.queryByText('Real send controller')).not.toBeInTheDocument();
 });
 
+it('offers the existing account history as recent actions on the dashboard', () => {
+  render(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  expect(screen.getByTestId('command-portfolio')).toHaveTextContent('Live wallet portfolio');
+  expect(screen.getByRole('heading', { name: 'commandRecentActions' })).toBeInTheDocument();
+});
+
 it('places the active Send review footer in the workbench footer and clears it on route replacement', () => {
   const { rerender } = render(
     <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
