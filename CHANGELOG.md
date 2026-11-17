@@ -2,6 +2,8 @@
 
 ## 1.17.12 (2026-11-17)
 
+- [FIX][ci] Wait for the exact Epoch return note on the public chain before wallet import and retain sanitized return-readiness failures without exposing private logs or changing claim authorization.
+
 - [FIX][ci] Reconcile the independently audited, expired unsigned NEAR nightly quote only after exact original run/gate provenance, unchanged holdings and unused provider status with canonical hex faucet IDs and normalized tracing metadata, retaining signature and exact quote verification; keep reconciliation recovery-only and retain all SDK upload safeguards.
 
 - [FIX][all] Auto-consume measures a claim against its fee floor again after it removes the notes that another claim covers or that wait for a retry, so a small payment is no longer claimed alone at a loss (#2192).

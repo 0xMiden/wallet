@@ -24,6 +24,15 @@ function step(name: string): Record<string, unknown> {
 }
 
 describe('funded nightly swap workflow', () => {
+  it('retains the fixed sanitized Epoch readiness sidecar without uploading private worker logs', () => {
+    const summaries = step('Upload public summaries');
+    expect(summaries.if).toBe('always()');
+    const paths = String(object(summaries.with).path);
+    expect(paths.split('\n')).toContain(
+      'test-results/mainnet-epoch-state/roundtrip.json.return-readiness-failure.json'
+    );
+    expect(paths).not.toMatch(/epoch-reverse\.log|RUNNER_TEMP|epoch-reverse-results|mainnet-epoch-state\/\*/);
+  });
   it('binds known unsigned NEAR reconciliation only to official artifact provenance without relabelling attempted funding', () => {
     expect(object(step('Recover prior mainnet NEAR').env)).toMatchObject({
       MAINNET_NEAR_FORWARD_ATTEMPTED: '${{ steps.near-attempts.outputs.forward_attempted }}',
