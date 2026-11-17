@@ -1,7 +1,7 @@
-name: Independent historical-authority and current-stack readiness
+name: Independent historical-authority and fixed SDK018 readiness
 on:
   push:
-    branches: [wiktor/green01-reconciled-readiness]
+    branches: [wiktor/green01-fixed-sdk018-readiness]
 permissions:
   contents: read
   actions: read
@@ -41,6 +41,21 @@ jobs:
           github-token: ${{ github.token }}
           pattern: mainnet-*-final-44014690598
           path: test-results/recovery-evidence
+      - name: Verify intervening scheduled safety-stop reached no payment authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/0xMiden/wallet/actions/runs/44025142736 > "$RUNNER_TEMP/safety-run.json"
+          gh api repos/0xMiden/wallet/actions/runs/44025142736/jobs > "$RUNNER_TEMP/safety-jobs.json"
+          node <<'NODE'
+          const assert=require('node:assert/strict'),fs=require('node:fs');const run=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/safety-run.json`)),jobs=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/safety-jobs.json`));assert.equal(run.head_sha,'3a3463e69db938291e9b6358914f0784d2b90f0e');assert.equal(run.status,'completed');assert.equal(run.conclusion,'cancelled');const job=jobs.jobs.find(j=>j.id===133844266244);assert.ok(job);const fresh=job.steps.filter(s=>s.number>=57&&s.number<=92);assert.equal(fresh.length,36);assert.ok(fresh.every(s=>s.conclusion==='skipped'));for(const number of [32,35,37,38,41,42,43,44,45,46,47,50,51,52,53,54])assert.equal(job.steps.find(s=>s.number===number)?.conclusion,'skipped');for(const number of [93,94,95])assert.equal(job.steps.find(s=>s.number===number)?.conclusion,'success');
+          NODE
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 44025142736
+          github-token: ${{ github.token }}
+          pattern: mainnet-*-final-44025142736
+          path: test-results/safety-stop-evidence
       - name: Bind immutable original SDK snapshots and canonically reconciled checkpoints
         run: |
           node <<'NODE'
@@ -48,6 +63,7 @@ jobs:
           const roles={'mainnet-swap-final':'fresh','mainnet-epoch-final':'final','mainnet-1click-final':'original-near','mainnet-epoch-return-authorized':'claim','mainnet-epoch-forward-sdk-authorized':'epoch-forward-sdk','mainnet-epoch-reverse-signed-1':'evm1','mainnet-epoch-reverse-signed-2':'evm2','mainnet-swap-forward-sdk-authorized':'forward-create','mainnet-swap-reverse-sdk-authorized':'reverse-create','mainnet-swap-forward-claim-sdk-authorized':'forward-claim','mainnet-swap-reverse-claim-sdk-authorized':'reverse-claim','mainnet-nightly':'fresh-public'};
           for(const [name,role] of Object.entries(roles))fs.cpSync(`test-results/evidence/${name}-43999834254`,`test-results/${role}`,{recursive:true});
           for(const [name,role] of Object.entries({'mainnet-swap-final':'fresh','mainnet-epoch-final':'final','mainnet-1click-final':'near'}))fs.cpSync(`test-results/recovery-evidence/${name}-44014690598`,`test-results/${role}`,{recursive:true});
+          for(const name of ['mainnet-swap-final','mainnet-epoch-final','mainnet-1click-final'])if(!fs.readFileSync(`test-results/recovery-evidence/${name}-44014690598/roundtrip.json`).equals(fs.readFileSync(`test-results/safety-stop-evidence/${name}-44025142736/roundtrip.json`)))throw new Error('Intervening safety-stop changed an original checkpoint');
           NODE
       - name: Exact production read-only SDK bootstrap
         run: |
@@ -82,10 +98,10 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: a16827fa7525ceb4bd7fc6a5f91b18d51ed60f97
+          ref: 775f30df7ab450165d82f0f2ddd9ff1742431585
       - name: Bind current SDK application and only its read-only private audit overlay
         run: |
-          test "$(git rev-parse HEAD)" = a16827fa7525ceb4bd7fc6a5f91b18d51ed60f97
+          test "$(git rev-parse HEAD)" = 775f30df7ab450165d82f0f2ddd9ff1742431585
           git fetch origin "$GITHUB_SHA" --depth=1
           git show "$GITHUB_SHA:playwright/e2e/tests/mainnet/fresh-epoch-claim-private.spec.ts" > playwright/e2e/tests/mainnet/fresh-epoch-claim-private.spec.ts
           test "$(git status --porcelain --untracked-files=all)" = '?? playwright/e2e/tests/mainnet/fresh-epoch-claim-private.spec.ts'
