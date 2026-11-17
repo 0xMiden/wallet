@@ -92,9 +92,9 @@ describe('EpochLockedDepositAction', () => {
     beforeEach(() => {
       mockConnection.address = SPONSOR.toLowerCase();
       mockConnection.connected = true;
-      jest.mocked(retryLockedDeposit).mockResolvedValue(undefined);
+      jest.mocked(retryLockedDeposit).mockResolvedValue('77');
       jest.mocked(startLockedDepositWithdrawal).mockResolvedValue(undefined);
-      jest.mocked(finishLockedDepositWithdrawal).mockResolvedValue(undefined);
+      jest.mocked(finishLockedDepositWithdrawal).mockResolvedValue('0xwithdraw');
     });
 
     it('retries the row that was clicked', async () => {
