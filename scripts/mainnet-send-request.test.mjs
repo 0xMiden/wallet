@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { buildP2idTransactionRequest } from '@openzeppelin/miden-multisig-client';
 import {
   AccountId,
   Address,
@@ -12,6 +13,7 @@ import {
   NoteAssets,
   NoteAttachment,
   NoteType,
+  TransactionRequest,
   TransactionRequestBuilder,
   Word
 } from '@miden-sdk/miden-sdk';
@@ -31,9 +33,10 @@ function fixture(change = {}) {
     new FungibleAsset(AccountId.fromHex(change.faucet ?? scope.faucetId), change.amount ?? 1_010_000n)
   ]);
   const privacy = change.private ? NoteType.Private : NoteType.Public;
-  const note = change.reclaim
+  let note = change.reclaim
     ? Note.createP2IDENote(sender, recipient, assets, 7200, null, privacy, new NoteAttachment())
     : Note.createP2IDNote(sender, recipient, assets, privacy, new NoteAttachment());
+  if (change.guardian && !change.attachment) note = new Note(note.assets(), note.metadata(), note.recipient());
   let builder = new TransactionRequestBuilder().withOwnOutputNotes(
     new NoteArray(
       change.extraOutput
@@ -55,11 +58,43 @@ test('inspects the actual serialized SDK send, preserving its live random serial
   const input = fixture();
   assert.equal(inspectTestMainnetSendRequest(input.scope, input.bytes), input.noteId);
 });
-test('inspects the real SDK Guardian auth layout without treating its auth advice as a standalone request', () => {
+test('inspects the SDK Guardian auth layout without treating its auth advice as a standalone request', () => {
   const input = fixture({ guardian: true });
   assert.equal(inspectTestMainnetSendRequest(input.scope, input.bytes, true), input.noteId);
 });
+test('accepts the installed Guardian SDK public P2ID builder with exactly zero attachments', async () => {
+  const input = fixture({ guardian: true });
+  const authenticated = TransactionRequest.deserialize(input.bytes);
+  const client = {
+    feeAwareTransactionRequestBuilder: async () =>
+      new TransactionRequestBuilder()
+        .withAuthArg(authenticated.authArg())
+        .withBlockNumbers(authenticated.blockNumbers())
+        .extendAdviceMap(authenticated.adviceMap())
+  };
+  const { request } = await buildP2idTransactionRequest(
+    client,
+    input.scope.accountId,
+    input.scope.recipientId,
+    input.scope.faucetId,
+    BigInt(input.scope.amount),
+    { salt: Word.fromHex(`0x${'0'.repeat(63)}1`), noteType: NoteType.Public }
+  );
+  const note = request.expectedOutputOwnNotes()[0];
+  assert.ok(note);
+  assert.equal(note.attachments().length, 0);
+  assert.equal(
+    inspectTestMainnetSendRequest(input.scope, Uint8Array.from(request.serialize()), true),
+    note.id().toString()
+  );
+});
 for (const [name, change] of [
+  ['another recipient', { recipient: actorId() }],
+  ['another faucet', { faucet: '0x5cb79d29507d3ad17bb6dc60279e89' }],
+  ['underpaying principal', { amount: 1_009_999n }],
+  ['private origin collateral', { private: true }],
+  ['reclaimable collateral', { reclaim: true }],
+  ['an added attachment', { attachment: true }],
   ['another output', { extraOutput: true }],
   ['another input', { input: true }],
   ['overpaying principal', { amount: 1_010_001n }],

@@ -2,6 +2,8 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][ci] Check Guardian native sends against the installed SDK's exact public P2ID note shape, retaining strict route, attachment, request, signature and upload safeguards; run real unsigned SDK conformance in the canonical harness.
+
 - [FIX][ci] Wait for the exact Epoch return note on the public chain before wallet import and retain sanitized return-readiness failures without exposing private logs or changing claim authorization.
 
 - [FIX][ci] Reconcile the independently audited, expired unsigned NEAR nightly quote only after exact original run/gate provenance, unchanged holdings and unused provider status with canonical hex faucet IDs and normalized tracing metadata, retaining signature and exact quote verification; keep reconciliation recovery-only and retain all SDK upload safeguards.
