@@ -102,9 +102,20 @@ it('does not manually claim an exit the bridge already auto-claimed', async () =
 });
 
 it('does not adopt a mutated saved chain while its original proof is being read', async () => {
-  const route: AgglayerRecoveryConfig = { chainId: 11155111, contractAddress: '0x00000000000000000000000000000000000000b2', midenBridgeId: '0x187cabbc404359d16be94954ca9879', indexerUrl: 'https://saved-indexer.example/api', rollupId: 86, evmNetworkId: 0 };
+  const route: AgglayerRecoveryConfig = {
+    chainId: 11155111,
+    contractAddress: '0x00000000000000000000000000000000000000b2',
+    midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+    indexerUrl: 'https://saved-indexer.example/api',
+    rollupId: 86,
+    evmNetworkId: 0
+  };
   const proof = { main_exit_root: '0xmain', rollup_exit_root: '0xrollup', merkle_proof: [], rollup_merkle_proof: [] };
-  jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => { route.chainId = 1; onChains('0x1'); return proof; });
+  jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => {
+    route.chainId = 1;
+    onChains('0x1');
+    return proof;
+  });
   await expect(claimAgglayerDeposit({ deposit: { ...DEPOSIT }, provider, route })).rejects.toThrow();
   expect(mockClaimAsset).not.toHaveBeenCalled();
 });
@@ -113,7 +124,11 @@ it('keeps the original exit amount and global index across its proof await', asy
   jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
   const original = { ...DEPOSIT };
   const proof = { main_exit_root: '0xmain', rollup_exit_root: '0xrollup', merkle_proof: [], rollup_merkle_proof: [] };
-  jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => { original.amount = '999'; original.global_index = '999'; return proof; });
+  jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => {
+    original.amount = '999';
+    original.global_index = '999';
+    return proof;
+  });
   await claimAgglayerDeposit({ deposit: original, provider });
   expect(mockClaimAsset).toHaveBeenCalledTimes(1);
   expect(mockClaimAsset.mock.calls[0]?.[2]).toBe(365072220160n);

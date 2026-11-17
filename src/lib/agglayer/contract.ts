@@ -58,14 +58,16 @@ const ensureL1Chain = async (provider: EIP1193Provider, chainId = DEFAULT_CHAIN_
 // fixed-size SMT proof arrays, and submit `claimAsset` from the connected EVM
 // wallet (which must be the deposit's destination address).
 export const claimAgglayerDeposit = async ({
-  deposit,
+  deposit: originalDeposit,
   provider,
-  route
+  route: originalRoute
 }: {
   deposit: AgglayerDeposit;
   provider: EIP1193Provider;
   route?: AgglayerRecoveryConfig;
 }): Promise<ContractTransactionResponse> => {
+  const deposit = { ...originalDeposit };
+  const route = originalRoute && { ...originalRoute };
   if (isAgglayerDepositClaimed(deposit) || !isAgglayerDepositReady(deposit))
     throw new Error('Agglayer exit is not available for a manual claim');
   // A row saved before its route was is from DEFAULT_CHAIN_ID, the chain ensureL1Chain defaults to.

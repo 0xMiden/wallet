@@ -145,7 +145,13 @@ async function drive(review = reviewedErc20Transfer('agglayer'), operationId = '
         return;
       }
       try {
-        await submitAgglayerDeposit({ rowId, operation: captured, provider, client: rpc, checks: { readCurrent: async () => structuredClone(review), now: () => now } });
+        await submitAgglayerDeposit({
+          rowId,
+          operation: captured,
+          provider,
+          client: rpc,
+          checks: { readCurrent: async () => structuredClone(review), now: () => now }
+        });
         complete();
       } catch (error) {
         complete(error);
@@ -384,60 +390,117 @@ it('does not let a pending approval by a different EVM account interfere with th
   expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(1);
 });
 
-it.each(['account', 'amount', 'route'])('checks the actual live %s context again after approval without losing original approval facts', async change => {
-  const review = reviewAmount('1');
-  let current = structuredClone(review);
-  const route = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
-  if (!route || review.route.source.kind !== 'erc20') throw new Error('Missing live context fixture');
-  bridgeAddress = route.contractAddress; tokenAddress = `0x${review.route.source.address.slice(2)}`; approvedAmount = 1000000000000000000n;
-  const receipt = rpc.waitForTransactionReceipt.getMockImplementation()!;
-  rpc.waitForTransactionReceipt.mockImplementationOnce(async args => {
-    const result = await receipt(args);
-    if (change === 'account') current.accounts.midenAccount = '0x1111111111111111111111111111';
-    if (change === 'amount') current.amount = '2';
-    if (change === 'route') current = { ...current, route: testRoute() };
-    return result;
-  });
-  const id = await runAgglayerReceive({ operationId: 'live-context', review }, { client: rpc, provider, checks: { readCurrent: async () => structuredClone(current), verifyBalanceCap: async () => undefined, now: () => now } });
-  await waitFor(async () => expect(['known', 'uncertain']).toContain((await Repo.transactions.get(id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase));
-  const row = await Repo.transactions.get(id);
-  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
-  expect(row?.extraInputs.bridgeOperation?.approvals?.[0]?.hash).toBe(approvalHash);
-  expect(row?.extraInputs.bridgeOperation?.review.accounts.midenAccount).toBe(accounts.midenAccount);
-  expect(row?.extraInputs.evmTxHash).toBeUndefined();
-  expect(signed).toHaveLength(1);
-});
-
-it.each(['unchanged', 'account', 'rpc'])('rechecks original guards after the live reader itself parks (departure=%s)', async departure => {
-  const review = reviewAmount('1');
-  const current = structuredClone(review);
-  const route = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
-  if (!route || review.route.source.kind !== 'erc20') throw new Error('Missing live reader fixture');
-  bridgeAddress = route.contractAddress; tokenAddress = `0x${review.route.source.address.slice(2)}`; approvedAmount = 1000000000000000000n;
-  let approved = false;
-  let entered: () => void = () => undefined;
-  let release: () => void = () => undefined;
-  const waiting = new Promise<void>(resolve => { entered = resolve; });
-  const released = new Promise<void>(resolve => { release = resolve; });
-  const receipt = rpc.waitForTransactionReceipt.getMockImplementation()!;
-  rpc.waitForTransactionReceipt.mockImplementationOnce(async args => { const result = await receipt(args); approved = true; return result; });
-  const id = await runAgglayerReceive({ operationId: 'late-live-reader', review }, { client: rpc, provider, checks: {
-    readCurrent: async () => { if (approved) { entered(); await released; } return structuredClone(current); },
-    verifyBalanceCap: async () => undefined, now: () => now
-  } });
-  const settled = waitFor(async () => expect(['known', 'uncertain']).toContain((await Repo.transactions.get(id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase));
-  try {
-    expect(await Promise.race([waiting.then(() => true), settled.then(() => false)])).toBe(true);
-    expect(signed).toHaveLength(1);
-    if (departure === 'account') current.accounts.midenAccount = '0x1111111111111111111111111111';
-    if (departure === 'rpc') jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://departed-rpc.example/private');
-    release(); await settled;
+it.each(['account', 'amount', 'route'])(
+  'checks the actual live %s context again after approval without losing original approval facts',
+  async change => {
+    const review = reviewAmount('1');
+    let current = structuredClone(review);
+    const route = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
+    if (!route || review.route.source.kind !== 'erc20') throw new Error('Missing live context fixture');
+    bridgeAddress = route.contractAddress;
+    tokenAddress = `0x${review.route.source.address.slice(2)}`;
+    approvedAmount = 1000000000000000000n;
+    const receipt = rpc.waitForTransactionReceipt.getMockImplementation()!;
+    rpc.waitForTransactionReceipt.mockImplementationOnce(async args => {
+      const result = await receipt(args);
+      if (change === 'account') current.accounts.midenAccount = '0x1111111111111111111111111111';
+      if (change === 'amount') current.amount = '2';
+      if (change === 'route') current = { ...current, route: testRoute() };
+      return result;
+    });
+    const id = await runAgglayerReceive(
+      { operationId: 'live-context', review },
+      {
+        client: rpc,
+        provider,
+        checks: {
+          readCurrent: async () => structuredClone(current),
+          verifyBalanceCap: async () => undefined,
+          now: () => now
+        }
+      }
+    );
+    await waitFor(async () =>
+      expect(['known', 'uncertain']).toContain(
+        (await Repo.transactions.get(id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase
+      )
+    );
     const row = await Repo.transactions.get(id);
-    expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe(departure === 'unchanged' ? 'known' : 'uncertain');
+    expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
     expect(row?.extraInputs.bridgeOperation?.approvals?.[0]?.hash).toBe(approvalHash);
-    expect(signed).toHaveLength(departure === 'unchanged' ? 2 : 1);
-  } finally { release(); await settled; }
-});
+    expect(row?.extraInputs.bridgeOperation?.review.accounts.midenAccount).toBe(accounts.midenAccount);
+    expect(row?.extraInputs.evmTxHash).toBeUndefined();
+    expect(signed).toHaveLength(1);
+  }
+);
+
+it.each(['unchanged', 'account', 'rpc'])(
+  'rechecks original guards after the live reader itself parks (departure=%s)',
+  async departure => {
+    const review = reviewAmount('1');
+    const current = structuredClone(review);
+    const route = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
+    if (!route || review.route.source.kind !== 'erc20') throw new Error('Missing live reader fixture');
+    bridgeAddress = route.contractAddress;
+    tokenAddress = `0x${review.route.source.address.slice(2)}`;
+    approvedAmount = 1000000000000000000n;
+    let approved = false;
+    let entered: () => void = () => undefined;
+    let release: () => void = () => undefined;
+    const waiting = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const receipt = rpc.waitForTransactionReceipt.getMockImplementation()!;
+    rpc.waitForTransactionReceipt.mockImplementationOnce(async args => {
+      const result = await receipt(args);
+      approved = true;
+      return result;
+    });
+    const id = await runAgglayerReceive(
+      { operationId: 'late-live-reader', review },
+      {
+        client: rpc,
+        provider,
+        checks: {
+          readCurrent: async () => {
+            if (approved) {
+              entered();
+              await released;
+            }
+            return structuredClone(current);
+          },
+          verifyBalanceCap: async () => undefined,
+          now: () => now
+        }
+      }
+    );
+    const settled = waitFor(async () =>
+      expect(['known', 'uncertain']).toContain(
+        (await Repo.transactions.get(id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase
+      )
+    );
+    try {
+      expect(await Promise.race([waiting.then(() => true), settled.then(() => false)])).toBe(true);
+      expect(signed).toHaveLength(1);
+      if (departure === 'account') current.accounts.midenAccount = '0x1111111111111111111111111111';
+      if (departure === 'rpc') jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://departed-rpc.example/private');
+      release();
+      await settled;
+      const row = await Repo.transactions.get(id);
+      expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe(
+        departure === 'unchanged' ? 'known' : 'uncertain'
+      );
+      expect(row?.extraInputs.bridgeOperation?.approvals?.[0]?.hash).toBe(approvalHash);
+      expect(signed).toHaveLength(departure === 'unchanged' ? 2 : 1);
+    } finally {
+      release();
+      await settled;
+    }
+  }
+);
 
 it('admits a reviewed receive through the provider and existing wrapper once, including duplicate requests', async () => {
   const review = reviewedErc20Transfer('agglayer');
@@ -914,20 +977,39 @@ it.each([
   expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
 });
 
-it.each(['receipt-unavailable', 'receipt-pending', 'all-unavailable'])('keeps exact destination evidence independent of %s source reads', async observation => {
-  const { id, error } = await drive();
-  expect(error).toBeUndefined();
-  const deposit = { leaf_type: 0, orig_net: 0, orig_addr: tokenAddress, amount: '1000000000000000000', dest_net: 73, dest_addr: '0x00000000387149ae66116cf114eebd60bb738100', block_num: '1', deposit_cnt: 42, network_id: 0, tx_hash: depositHash, claim_tx_hash: '', metadata: '0x', ready_for_claim: true, global_index: '42' };
-  if (observation === 'receipt-pending') jest.mocked(readEvmReceiptOutcome).mockResolvedValueOnce('pending');
-  else jest.mocked(readEvmReceiptOutcome).mockRejectedValueOnce(new Error('Receipt RPC unavailable'));
-  if (observation === 'all-unavailable') jest.mocked(fetchDeposits).mockRejectedValueOnce(new Error('Indexer unavailable'));
-  else jest.mocked(fetchDeposits).mockResolvedValueOnce([deposit]);
-  await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
-  const row = await Repo.transactions.get(id);
-  expect(row?.extraInputs.phase).toBe(observation === 'all-unavailable' ? 'submitting' : 'ready');
-  expect(row?.extraInputs.phase).not.toBe('received');
-  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
-});
+it.each(['receipt-unavailable', 'receipt-pending', 'all-unavailable'])(
+  'keeps exact destination evidence independent of %s source reads',
+  async observation => {
+    const { id, error } = await drive();
+    expect(error).toBeUndefined();
+    const deposit = {
+      leaf_type: 0,
+      orig_net: 0,
+      orig_addr: tokenAddress,
+      amount: '1000000000000000000',
+      dest_net: 73,
+      dest_addr: '0x00000000387149ae66116cf114eebd60bb738100',
+      block_num: '1',
+      deposit_cnt: 42,
+      network_id: 0,
+      tx_hash: depositHash,
+      claim_tx_hash: '',
+      metadata: '0x',
+      ready_for_claim: true,
+      global_index: '42'
+    };
+    if (observation === 'receipt-pending') jest.mocked(readEvmReceiptOutcome).mockResolvedValueOnce('pending');
+    else jest.mocked(readEvmReceiptOutcome).mockRejectedValueOnce(new Error('Receipt RPC unavailable'));
+    if (observation === 'all-unavailable')
+      jest.mocked(fetchDeposits).mockRejectedValueOnce(new Error('Indexer unavailable'));
+    else jest.mocked(fetchDeposits).mockResolvedValueOnce([deposit]);
+    await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
+    const row = await Repo.transactions.get(id);
+    expect(row?.extraInputs.phase).toBe(observation === 'all-unavailable' ? 'submitting' : 'ready');
+    expect(row?.extraInputs.phase).not.toBe('received');
+    expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
+  }
+);
 
 it('accepts no-return approval and requires its confirmed allowance before bridging', async () => {
   const { error, row } = await drive();
