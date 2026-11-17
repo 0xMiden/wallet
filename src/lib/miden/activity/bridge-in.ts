@@ -1,4 +1,8 @@
+import { isHash } from 'viem';
+
 import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import { routeMatchesRecovery } from 'lib/bridge/core/routes';
+import { bridgeOperationOf, findAdmittedBridgeOperation, hasBridgeOperation } from 'lib/bridge/operation';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
@@ -421,7 +425,7 @@ export async function takeAgglayerBridgeInInfo(args: {
       // rewrites that row to `received` and makes the real consume hide beneath
       // it in history, so an honest receive would be filed under, and titled by,
       // whatever the backup's author wrote.
-      if (tx.restoredFromBackup) return false;
+      if (tx.restoredFromBackup || tx.recovered) return false;
       const inputs = tx.extraInputs as IBridgedReceiveExtraInputs | undefined;
       return !(
         inputs?.provider !== 'agglayer' ||
@@ -434,16 +438,35 @@ export async function takeAgglayerBridgeInInfo(args: {
     })
     .toArray();
   const live = await readLiveRegistries(snapshot, open);
-  const matches = open.filter(tx => {
-    const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
-    const delivery = deliveryOf(snapshot, inputs, live);
-    return (
-      delivery !== undefined &&
-      tx.amount !== undefined &&
-      agglayerDeliveredAmount(tx.amount, delivery.scale) === args.amount &&
-      sentBy(delivery.faucet)
-    );
-  });
+  const matches: ITransaction[] = [];
+  for (const tx of open) {
+    const inputs: IBridgedReceiveExtraInputs = tx.extraInputs;
+    let delivery = deliveryOf(snapshot, inputs, live);
+    let amount = tx.amount !== undefined && delivery ? agglayerDeliveredAmount(tx.amount, delivery.scale) : undefined;
+    if (hasBridgeOperation(tx)) {
+      try {
+        const operation = bridgeOperationOf(tx);
+        const route = operation?.review.route;
+        const source = operation?.sourceAttempt;
+        if (!operation || !route || route.mode !== 'receive' || route.provider !== 'agglayer' || route.destination.kind !== 'miden' || !routeMatchesRecovery(route) ||
+          source?.phase !== 'known' || typeof source.hash !== 'string' || !isHash(source.hash) ||
+          !inputs.evmTxHash || noteIdKey(inputs.evmTxHash) !== noteIdKey(source.hash)) continue;
+        const original = await findAdmittedBridgeOperation(operation);
+        if (!original || original.id !== tx.id || bridgeOperationOf(original)?.revision !== operation.revision) continue;
+        const saved = { ...route.recovery, status: 'ready', lastFetch: null } satisfies BridgeConfigSnapshot;
+        delivery = deliveryOf(saved, inputs);
+        const chainId = inputs.agglayerRoute?.chainId;
+        const token = route.source.kind === 'erc20' ? route.source.address : '0x0000000000000000000000000000000000000000';
+        const registered = selectAgglayerRegistryToken(saved, token, chainId, inputs.agglayerRoute?.evmNetworkId);
+        if (!delivery || !registered || !compareAccountIds(delivery.faucet, route.destination.faucetId) ||
+          !compareAccountIds(registered.midenFaucetId, delivery.faucet) || registered.scale !== delivery.scale ||
+          (route.source.kind === 'erc20' && inputs.agglayerDelivery?.originToken.toLowerCase() !== token.toLowerCase())) continue;
+        // Owned admission stores destination base units; only legacy rows store source units to rescale.
+        amount = original.amount;
+      } catch { continue; }
+    }
+    if (delivery && amount === args.amount && sentBy(delivery.faucet)) matches.push(tx);
+  }
   matches.sort((a, b) => a.initiatedAt - b.initiatedAt);
   const match = matches[0];
   if (!match) return undefined;
