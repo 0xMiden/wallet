@@ -47,3 +47,7 @@ jobs:
           NODE
       - name: Original financial guard contracts and exact-case cancelled checkpoint behavior
         run: node --test test/compact-owner-recovery.node.test.mjs test/epoch-owner-refund-retirement.node.test.mjs
+      - name: Existing loader and writer smoke on audited unit fixtures only, no canonical publication
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-epoch-checkpoint.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-checkpoint.mjs
+          node scripts/retire-original-epoch-owner-refund.mjs
