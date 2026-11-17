@@ -39,10 +39,28 @@ jest.mock('lib/remote-config/runtime', () => ({
 
 const sourceHash: Hash = `0x${'c'.repeat(64)}`;
 const approvalHash: Hash = `0x${'a'.repeat(64)}`;
+const fetchMock = jest.fn();
+const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+beforeAll(() => Object.defineProperty(globalThis, 'fetch', { configurable: true, value: fetchMock }));
+afterAll(() => {
+  if (fetchDescriptor) Object.defineProperty(globalThis, 'fetch', fetchDescriptor);
+  else Reflect.deleteProperty(globalThis, 'fetch');
+});
 const approve = jest.fn(async () => approvalHash);
 const deposit = jest.fn(async () => sourceHash);
 let duringAllowance: () => Promise<void>;
 let live: ReviewedTransfer;
+let validationPatch: Record<string, unknown>;
+let afterValidation: () => void;
+function validationResponse() {
+  const token = live.route.source.kind === 'erc20' ? live.route.source.address : '';
+  return {
+    signedQuote: '0x1234', feeToken: token, feeTotalAmount: '1', nonce: '0', claimable: true,
+    expiry: { mode: 'TIMESTAMP', expiresAt: now / 1000 + 60, expired: false, secondsRemaining: 60 },
+    failedChecks: [], items: [{ type: 'FORWARD', argsMatch: true }, { type: 'PRE_FINALITY', argsMatch: true }],
+    ...validationPatch
+  };
+}
 
 function reviewFor(executor: boolean): ReviewedTransfer {
   const review = reviewedCircleTransfer();
@@ -121,6 +139,13 @@ beforeEach(async () => {
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   duringAllowance = async () => undefined;
+  validationPatch = {};
+  afterValidation = () => undefined;
+  fetchMock.mockImplementation(async () => {
+    const body = validationResponse();
+    afterValidation();
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  });
   await Repo.transactions.clear();
 });
 afterEach(() => jest.restoreAllMocks());
@@ -190,6 +215,38 @@ it('refuses a substituted signed executor authorization', async () => {
 });
 it('refuses an unreviewed executor fee even when existing allowance covers it', async () => {
   const { error } = await drive(true, undefined, { fee: 2n });
+  expect(error).toBeInstanceOf(Error);
+  expect(deposit).not.toHaveBeenCalled();
+});
+
+it('verifies the exact canonical burn against Circle before an owned executor source prompt', async () => {
+  const { error } = await drive(true);
+  expect(error).toBeUndefined();
+  expect(deposit).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/v2/quote/validate/usdc/0'), expect.objectContaining({ method: 'POST' }));
+});
+
+it.each([
+  ['rejected', { claimable: false, failedChecks: ['INVALID_AMOUNT'] }],
+  ['signature', { signedQuote: '0xabcd' }],
+  ['token', { feeToken: '0x2222222222222222222222222222222222222222' }],
+  ['fee', { feeTotalAmount: '2' }],
+  ['nonce', { nonce: '1' }],
+  ['wrong hook', { items: [{ type: 'FORWARD', argsMatch: false }, { type: 'PRE_FINALITY', argsMatch: true }] }],
+  ['missing service', { items: [{ type: 'FORWARD', argsMatch: true }, { type: 'FORWARD', argsMatch: true }] }],
+  ['inconsistent', { failedChecks: ['QUOTE_EXPIRED'] }],
+  ['expired', { claimable: false, failedChecks: ['QUOTE_EXPIRED'], expiry: { mode: 'TIMESTAMP', expiresAt: now / 1000, expired: true, secondsRemaining: 0 } }],
+  ['no headroom', { expiry: { mode: 'TIMESTAMP', expiresAt: now / 1000 + 29, expired: false, secondsRemaining: 29 } }]
+])('refuses %s validation before the actual owned burn', async (_, patch) => {
+  validationPatch = patch;
+  const { error } = await drive(true);
+  expect(error).toBeInstanceOf(Error);
+  expect(deposit).not.toHaveBeenCalled();
+});
+
+it('refuses live review departure during Circle validation', async () => {
+  afterValidation = () => { live.amount = '9'; };
+  const { error } = await drive(true);
   expect(error).toBeInstanceOf(Error);
   expect(deposit).not.toHaveBeenCalled();
 });
