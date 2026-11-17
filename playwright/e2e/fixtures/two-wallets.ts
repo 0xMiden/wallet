@@ -377,23 +377,30 @@ async function launchWalletInstance(
     // Replacing unpacked files alone can leave the previous worker running against the new assets.
     for (const page of context.pages()) invalidatedPages.add(page);
     const previousWorker = serviceWorker;
-    const workerClosed = new Promise<void>(resolve => previousWorker.once('close', () => resolve()));
-    const replacement = context.waitForEvent('serviceworker', {
-      predicate: worker => worker !== previousWorker && worker.url() === previousWorker.url(),
-      timeout: 60_000
-    });
-    await Promise.all([
-      Promise.race([workerClosed, replacement.then(() => undefined)]),
-      previousWorker.evaluate(() => {
-        setTimeout(() => chrome.runtime.reload(), 0);
-      })
-    ]);
-    // A fresh page wakes a dormant MV3 worker; pages from before the reload are invalidated.
-    const updatedPage = await context.newPage();
-    await updatedPage.goto(new URL('fullpage.html', previousWorker.url()).toString(), {
-      waitUntil: 'domcontentloaded'
-    });
-    serviceWorker = await replacement;
+    const browser = context.browser();
+    if (!browser) throw new Error('An upgrade requires its persistent browser context');
+    const debug = await browser.newBrowserCDPSession();
+    try {
+      [serviceWorker] = await Promise.all([
+        context.waitForEvent('serviceworker', {
+          predicate: worker => worker !== previousWorker && worker.url() === previousWorker.url(),
+          timeout: 60_000
+        }),
+        (async () => {
+          // CDP marks this owned unpacked load so Chrome's developer-mode policy does not disable it.
+          const loaded = await debug.send('Extensions.loadUnpacked', { path: path.resolve(extensionPath) });
+          if (loaded.id !== new URL(previousWorker.url()).host) {
+            throw new Error('The upgrade changed extension identity');
+          }
+          const updatedPage = await context.newPage();
+          await updatedPage.goto(new URL('fullpage.html', previousWorker.url()).toString(), {
+            waitUntil: 'domcontentloaded'
+          });
+        })()
+      ]);
+    } finally {
+      await debug.detach().catch(() => {});
+    }
   }
   const extensionId = new URL(serviceWorker.url()).host;
 

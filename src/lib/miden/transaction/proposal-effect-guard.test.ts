@@ -483,7 +483,7 @@ describe('reviewed USDCx network fee budget', () => {
     return tx;
   };
   const paid = () =>
-    summaryToView(
+    viewOf(
       summary({
         removed: [fa('usdcx', 102n)],
         outputs: [note([fa('usdcx', 100n)], [], BUILT), feeNote(2n)]
