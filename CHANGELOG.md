@@ -11,7 +11,7 @@
 - [FIX][all] A private note from a send or a dApp transaction that went through is still retried for delivery when the wallet cannot read the transaction's id, or anything of its result, back afterwards, however many notes the transaction created; a dApp transaction that created no private note then no longer says one could not be delivered.
 - [FIX][chrome] A send, swap or dApp transaction from a single-key account is sent only once the extension has recorded what it is about to send, so a private note from one that went through is still retried for delivery, and a swap keeps its order, when the extension cannot read its result back; when that record cannot be written, nothing is sent.
 - [FIX][all] A private note from a dApp transaction that went through after it was cancelled, by you or because it took too long, is still retried for delivery when the wallet cannot read the transaction's result back.
-- [FIX][all] A private note from a dApp transaction that went through is still retried for delivery when the app was closed, or the wallet could not save the outcome, before it recorded the note, once the wallet finds the transaction on the network.
+- [FIX][all] A private note from a dApp transaction that went through is still retried for delivery when the app was closed, or the wallet could not save the outcome, before it recorded the note, once the wallet finds the transaction on the network or Retry anyway finds a note it created there.
 
 ## 1.18.0 (2026-11-17)
 
