@@ -527,7 +527,7 @@ function spikeAnswer(js: string, overrides: SpikeOverrides = {}): unknown {
   if (js.includes('function row(')) {
     return {
       network: 'Arc Testnet',
-      networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
+      networkFee: '0.000289 USDCXPaid in USDCX, including faucet execution sponsorship',
       fee: enText('usdcxPayoutFeeVaries'),
       notice: enText('usdcxWithdrawalNotice')
     };
@@ -696,7 +696,7 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
       if (js.includes('function row(')) {
         return {
           network: BASE_SEPOLIA_PAYOUT.networkName,
-          networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
+          networkFee: '0.000289 USDCXPaid in USDCX, including faucet execution sponsorship',
           fee: rows.fee,
           notice: enText('usdcxWithdrawalNotice')
         };
