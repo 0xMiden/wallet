@@ -186,14 +186,13 @@ describe('scoped first Epoch solve failure observer', () => {
   });
 
   it('diagnostic I/O never throws into the original operation', async () => {
-    const source = new EventEmitter(),
-      stop = observeEpochSolveFailure(source, checkpoint);
-    jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {
-      throw new Error(privateMarker);
-    });
+    const source = new EventEmitter();
+    const blockedPath = join(checkpoint, 'child.json');
+    const stop = observeEpochSolveFailure(source, blockedPath);
     expect(() => source.emit('console', message(prefix))).not.toThrow();
     await flush();
-    expect(fs.existsSync(target)).toBe(false);
+    expect(fs.existsSync(`${blockedPath}.return-solve-failure.json`)).toBe(false);
+    expect(fs.readFileSync(checkpoint, 'utf8')).toBe('{"original":"unchanged"}');
     expect(() => stop()).not.toThrow();
   });
 
