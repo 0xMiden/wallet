@@ -44,7 +44,7 @@ import {
   withWasmClientLock,
   type WasmClientLockOptions
 } from '../sdk/miden-client';
-import { isKilledPipeline } from '../sdk/sdk-error-code';
+import { isKilledPipeline, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { syncBeforeVerdict } from '../sync-lock';
 
@@ -321,10 +321,12 @@ const ecdsaSignatureAdviceEntry = (
 /**
  * The commitment of one of this device's keys, or undefined when the key does
  * not derive. A key that does not derive says nothing about the pairing, so the
- * caller falls back to the slot convention instead of refusing.
+ * caller falls back to the slot convention instead of refusing. A trap or a kill
+ * is not "does not derive": it leaves as itself.
  */
 const deriveDeviceCommitment = (publicKeyHex: string, role: 'hot' | 'cold'): Promise<string | undefined> =>
   commitmentFromPublicKeyHex(publicKeyHex).catch(deriveError => {
+    rethrowTrapOrKill(deriveError);
     console.warn(
       `Could not derive a commitment from this device's ${role} key; continuing on the account's own signer read:`,
       deriveError
@@ -337,7 +339,7 @@ const deriveDeviceCommitment = (publicKeyHex: string, role: 'hot' | 'cold'): Pro
  * commitment matches the derived device commitment, in ANY position, else
  * undefined. Only when the device key did not derive does this read the slot by
  * the creation convention (`[hot, cold]`), which breaks after a membership
- * change and is kept only as that fallback.
+ * change and is kept only as that fallback for a two-signer set.
  */
 const ownSignerOf = async (
   account: Account,
@@ -346,6 +348,14 @@ const ownSignerOf = async (
   cold: boolean
 ): Promise<string | undefined> => {
   if (deviceCommitment === undefined) {
+    // The convention holds only for the creation pair. With another device's key in
+    // the set, slot 0 can be that device's, so refuse rather than sign under it.
+    if (signers.length > 2) {
+      throw new Error(
+        `This device's ${cold ? 'cold' : 'hot'} key does not derive, so it cannot tell which on-chain signer ` +
+          'is its own in a set that holds more than one device'
+      );
+    }
     return (await getSignerDetailsFromAccount(account, cold)).commitment;
   }
   const own = signers.find(signer => sameCommitment(signer, deviceCommitment));

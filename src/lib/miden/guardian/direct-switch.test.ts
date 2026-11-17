@@ -728,6 +728,33 @@ describe('createDirectSwitchGuardianRequest', () => {
     ).resolves.toBeDefined();
   });
 
+  // A trap is not "this key does not derive": it leaves as itself, before any slot guess or signature.
+  it('rejects with a trap from the device key derivation instead of guessing a slot', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(trap);
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toBe(trap);
+    expect(mockGetSignerDetails).not.toHaveBeenCalled();
+    expect(signWord).not.toHaveBeenCalled();
+  });
+
+  // With more than one everyday key, slot 0 can be another device's. A key that does not
+  // derive cannot say which slot is this device's, so the switch refuses before signing.
+  it('refuses instead of guessing a slot when the device key does not derive on a multi-device set', async () => {
+    mockGetSignerCommitments.mockReturnValue(['0xotherdevicehot', '0xcoldcommitment', '0xhotcommitment']);
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(new Error('unexpected public key length'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('cannot tell which on-chain signer');
+    expect(mockGetSignerDetails).not.toHaveBeenCalled();
+    expect(mockedMultisigClient.buildUpdateGuardianTransactionRequest).not.toHaveBeenCalled();
+    expect(signWord).not.toHaveBeenCalled();
+  });
+
   // A key this wallet cannot parse is an encoding it does not know, not a lie —
   // and this path is the last exit from a dead operator, so "I could not check"
   // must not become "you may not leave".
