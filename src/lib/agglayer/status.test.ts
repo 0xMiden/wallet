@@ -42,7 +42,8 @@ describe('isAgglayerDepositReady', () => {
   });
 
   it.each(['ready_for_claim', 'ready_to_claim', 'finalized', 'finalised'])(
-    'does not treat a string %s as protocol readiness', field => {
+    'does not treat a string %s as protocol readiness',
+    field => {
       expect(isAgglayerDepositReady(deposit({ [field]: 'false' }))).toBe(false);
     }
   );

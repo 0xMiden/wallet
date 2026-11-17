@@ -3,13 +3,16 @@ import { isHash } from 'viem';
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
 import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { walletBridgeProvider } from 'lib/bridge/core/provider';
+import { configKey } from 'lib/bridge/core/routes';
 import {
   assertBridgeOperationCurrent,
   bridgeOperationOf,
   claimBridgeSourceAttempt,
+  findAdmittedBridgeOperation,
   hasBridgeOperation,
   type BridgeOperationSnapshot
 } from 'lib/bridge/operation';
+import { matchesAgglayerReceiveDeposit } from 'lib/bridge/providers/agglayer/agglayer-status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
@@ -85,6 +88,26 @@ async function reconcileAgglayerRow(
   inputs: IBridgedReceiveExtraInputs,
   orphanCheck: BridgeOrphanCheck
 ): Promise<void> {
+  const operation = bridgeOperationOf(row);
+  const originalStillBound = async () => {
+    if (!hasBridgeOperation(row)) return true;
+    if (
+      !operation ||
+      operation.sourceAttempt?.phase !== 'known' ||
+      typeof operation.sourceAttempt.hash !== 'string' ||
+      !isHash(operation.sourceAttempt.hash) ||
+      operation.sourceAttempt.hash !== inputs.evmTxHash
+    )
+      return false;
+    const original = await findAdmittedBridgeOperation(operation).catch(() => undefined);
+    const recorded = original && bridgeOperationOf(original);
+    return (
+      original?.id === row.id &&
+      recorded?.revision === operation.revision &&
+      configKey(recorded.walletScope) === configKey(operation.walletScope)
+    );
+  };
+  if (!(await originalStillBound())) return;
   if (!inputs.evmTxHash) {
     if (inputs.phase === 'submitting') {
       await updateBridgedReceivePhase(row.id, 'failed', {
@@ -112,7 +135,7 @@ async function reconcileAgglayerRow(
       console.warn('[bridge-receive] AggLayer receipt read failed', row.id, error);
       return;
     }
-    if (outcome === 'pending') return;
+    if (outcome === 'pending' || !(await originalStillBound())) return;
     if (outcome === 'reverted') {
       const revert = new EvmTransactionRevertedError(chain.name);
       await updateBridgedReceivePhase(row.id, 'failed', {
@@ -126,8 +149,15 @@ async function reconcileAgglayerRow(
 
   try {
     const deposits = await fetchDeposits(midenAddrToEvmAddr(row.accountId), undefined, inputs.agglayerRoute);
-    const deposit = deposits.find(candidate => sameHash(candidate.tx_hash, inputs.evmTxHash!));
-    if (deposit && isAgglayerDepositReady(deposit)) {
+    const deposit = deposits.find(
+      candidate =>
+        sameHash(candidate.tx_hash, inputs.evmTxHash!) &&
+        (!hasBridgeOperation(row) ||
+          (operation &&
+            inputs.agglayerRoute &&
+            matchesAgglayerReceiveDeposit(candidate, operation, inputs.agglayerRoute)))
+    );
+    if (deposit && isAgglayerDepositReady(deposit) && (await originalStillBound())) {
       await updateBridgedReceivePhase(row.id, 'ready');
     }
   } catch (error) {

@@ -77,7 +77,12 @@ export const claimAgglayerDeposit = async ({
   const signer = await ethersProvider.getSigner();
   const accounts: unknown = await provider.request({ method: 'eth_accounts' });
   const chainId: unknown = await provider.request({ method: 'eth_chainId' });
-  if (!Array.isArray(accounts) || typeof accounts[0] !== 'string' || accounts[0].toLowerCase() !== deposit.dest_addr.toLowerCase() || Number(chainId) !== (route?.chainId ?? DEFAULT_CHAIN_ID))
+  if (
+    !Array.isArray(accounts) ||
+    typeof accounts[0] !== 'string' ||
+    accounts[0].toLowerCase() !== deposit.dest_addr.toLowerCase() ||
+    Number(chainId) !== (route?.chainId ?? DEFAULT_CHAIN_ID)
+  )
     throw new Error('Agglayer claim wallet or destination chain changed');
   const agglayerContract = BaseContract.from<AgglayerBridgeContract>(l1Bridge, AGGLAYER_BRIDGE_ABI, signer);
 

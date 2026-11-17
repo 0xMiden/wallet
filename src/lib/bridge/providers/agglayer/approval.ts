@@ -2,8 +2,17 @@
 import { encodeFunctionData, erc20Abi, type Address, type Hash, type Hex } from 'viem';
 
 import { parseBridgeApproval, replaceApproval, type BridgeApproval } from 'lib/bridge/evm/approval';
-import { captureSourceTransaction, recoverSourceTransaction, type SourceTransaction } from 'lib/bridge/evm/source-transaction';
-import { bridgeOperationOf, findAdmittedBridgeOperation, recordBridgeApproval, type BridgeOperationSnapshot } from 'lib/bridge/operation';
+import {
+  captureSourceTransaction,
+  recoverSourceTransaction,
+  type SourceTransaction
+} from 'lib/bridge/evm/source-transaction';
+import {
+  bridgeOperationOf,
+  findAdmittedBridgeOperation,
+  recordBridgeApproval,
+  type BridgeOperationSnapshot
+} from 'lib/bridge/operation';
 
 import type { AgglayerClient } from './deposit';
 
@@ -20,11 +29,19 @@ interface ApprovalRequest {
 }
 
 /** Passive facts only: a pending approval can never restart its original source attempt. */
-export async function recoverAgglayerApprovals(operation: BridgeOperationSnapshot, client: AgglayerClient): Promise<void> {
+export async function recoverAgglayerApprovals(
+  operation: BridgeOperationSnapshot,
+  client: AgglayerClient
+): Promise<void> {
   const admitted = await findAdmittedBridgeOperation(operation);
   if (!admitted || bridgeOperationOf(admitted)?.revision !== operation.revision) return;
   for (const saved of operation.approvals ?? []) {
-    if (saved.replacementReason === 'cancelled' || saved.replacementReason === 'replaced' || operation.approvals?.some(next => next.hash !== saved.hash && next.originalTransaction?.hash === saved.hash)) continue;
+    if (
+      saved.replacementReason === 'cancelled' ||
+      saved.replacementReason === 'replaced' ||
+      operation.approvals?.some(next => next.hash !== saved.hash && next.originalTransaction?.hash === saved.hash)
+    )
+      continue;
     const resolved = await recoverSourceTransaction(client, saved.chainId, saved.hash, saved.transaction);
     const row = await findAdmittedBridgeOperation(operation);
     if (!row || bridgeOperationOf(row)?.revision !== operation.revision) return;
@@ -43,7 +60,8 @@ export async function recoverAgglayerApprovals(operation: BridgeOperationSnapsho
 /** A receipt verifies the requested allowance, never permission to deposit after a scope change. */
 export async function ensureAgglayerApproval(request: ApprovalRequest): Promise<void> {
   const { operation, client, chainId, account, token, spender, amount } = request;
-  const allowance = () => client.readContract({ address: token, abi: erc20Abi, functionName: 'allowance', args: [account, spender] });
+  const allowance = () =>
+    client.readContract({ address: token, abi: erc20Abi, functionName: 'allowance', args: [account, spender] });
   const save = async (approval: BridgeApproval) => {
     if (!(await recordBridgeApproval(operation.operationId, operation.revision, approval)))
       throw new Error('Agglayer approval ownership changed');
@@ -64,14 +82,22 @@ export async function ensureAgglayerApproval(request: ApprovalRequest): Promise<
     const replacements: Promise<void>[] = [];
     let replacementError: unknown;
     const receipt = await client.waitForTransactionReceipt({
-      hash, timeout: 120000,
+      hash,
+      timeout: 120000,
       onReplaced: replacement => {
         try {
-          const tx: SourceTransaction = { ...replacement.transaction, chainId, value: replacement.transaction.value.toString() };
+          const tx: SourceTransaction = {
+            ...replacement.transaction,
+            chainId,
+            value: replacement.transaction.value.toString()
+          };
           approval = replaceApproval(approval, tx);
-          if (approval.replacementReason !== replacement.reason) throw new Error('Agglayer approval replacement changed');
+          if (approval.replacementReason !== replacement.reason)
+            throw new Error('Agglayer approval replacement changed');
           replacements.push(save(approval));
-        } catch (error) { replacementError = error; }
+        } catch (error) {
+          replacementError = error;
+        }
       }
     });
     await Promise.all(replacements);

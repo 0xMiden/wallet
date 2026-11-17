@@ -109,7 +109,10 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: jest.fn(() => 'https://wallet-rpc.example/private')
 }));
 jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () => jest.requireActual<typeof import('lib/bridge/testing/fixtures')>('lib/bridge/testing/fixtures').referenceSnapshot('testnet')
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/bridge/testing/fixtures')>('lib/bridge/testing/fixtures')
+      .referenceSnapshot('testnet')
 }));
 
 // Effective network is localnet, so a correctly-encoded row id starts `mlcl1`.
@@ -496,31 +499,45 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
     mockAgglayerExitTxHash.mockReturnValue(`0x${'c'.repeat(64)}`);
     const recovery = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
     if (!recovery) throw new Error('Missing accepted native route');
-    mockGetBridgeOut.mockReturnValue({ midenBridge: recovery.midenBridgeId, evmNetworkId: recovery.evmNetworkId, recovery });
-    mockInitiateBridgedSendTransaction.mockImplementation((...args: unknown[]) => Reflect.apply(initiateBridgedSendTransaction, undefined, args));
+    mockGetBridgeOut.mockReturnValue({
+      midenBridge: recovery.midenBridgeId,
+      evmNetworkId: recovery.evmNetworkId,
+      recovery
+    });
+    mockInitiateBridgedSendTransaction.mockImplementation((...args: unknown[]) =>
+      Reflect.apply(initiateBridgedSendTransaction, undefined, args)
+    );
   });
   afterEach(() => jest.restoreAllMocks());
 
   function input() {
     const review = reviewedErc20Transfer('agglayer', 'send');
     if (review.route.source.kind !== 'miden') throw new Error('Missing native asset');
-    return { amount: 100000000n, faucetId: review.route.source.faucetId,
+    return {
+      amount: 100000000n,
+      faucetId: review.route.source.faucetId,
       destinationAddress: `0x${accounts.evmAddress.slice(2)}` satisfies `0x${string}`,
-      senderPublicKey: accounts.midenAccount, guardianProvider, destinationChainId: 11155111,
-      operation: { operationId: 'native-agglayer-operation', review } };
+      senderPublicKey: accounts.midenAccount,
+      guardianProvider,
+      destinationChainId: 11155111,
+      operation: { operationId: 'native-agglayer-operation', review }
+    };
   }
 
-  it.each([false, true])('coalesces the original reviewed operation through real native admission (Guardian=%s)', async guardian => {
-    mockIsGuardian.mockResolvedValue(guardian);
-    const first = await initiateB2AggBridge(input());
-    const second = await initiateB2AggBridge(input());
-    const row = await Repo.transactions.get(first);
-    expect(row?.extraInputs.bridgeOperation?.operationId).toBe('native-agglayer-operation');
-    expect(second).toBe(first);
-    expect(await Repo.transactions.count()).toBe(1);
-    expect(row?.extraInputs.agglayerExitTxHash).toBe(`0x${'c'.repeat(64)}`);
-    expect(row?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
-  });
+  it.each([false, true])(
+    'coalesces the original reviewed operation through real native admission (Guardian=%s)',
+    async guardian => {
+      mockIsGuardian.mockResolvedValue(guardian);
+      const first = await initiateB2AggBridge(input());
+      const second = await initiateB2AggBridge(input());
+      const row = await Repo.transactions.get(first);
+      expect(row?.extraInputs.bridgeOperation?.operationId).toBe('native-agglayer-operation');
+      expect(second).toBe(first);
+      expect(await Repo.transactions.count()).toBe(1);
+      expect(row?.extraInputs.agglayerExitTxHash).toBe(`0x${'c'.repeat(64)}`);
+      expect(row?.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+    }
+  );
 
   it('adapts the reviewed provider send into the native queue with its exact Miden source scale', async () => {
     mockIsGuardian.mockResolvedValue(false);

@@ -109,9 +109,13 @@ export async function initiateB2AggBridge(args: {
     const current = getBridgeConfigSnapshot();
     if (
       configKey(scopeBeforeBuild) !== configKey(captureBridgeWalletScope()) ||
-      route.provider !== 'agglayer' || route.mode !== 'send' || current.status !== 'ready' ||
-      configKey([current.network, current.config, current.derived]) !== configKey([route.recovery.network, route.recovery.config, route.recovery.derived])
-    ) throw new Error('Agglayer bridge review changed');
+      route.provider !== 'agglayer' ||
+      route.mode !== 'send' ||
+      current.status !== 'ready' ||
+      configKey([current.network, current.config, current.derived]) !==
+        configKey([route.recovery.network, route.recovery.config, route.recovery.derived])
+    )
+      throw new Error('Agglayer bridge review changed');
     assertReviewedBridge(operation.review, operation.review, Date.now());
   };
   assertReviewCurrent();

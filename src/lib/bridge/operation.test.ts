@@ -200,14 +200,19 @@ it('hands the real non-Epoch CAS winner its captured rotated revision without a 
   const id = await seed();
   const original = await snapshot(id);
   let finish: () => void = () => undefined;
-  const completed = new Promise<void>(resolve => { finish = resolve; });
+  const completed = new Promise<void>(resolve => {
+    finish = resolve;
+  });
   let handed: BridgeOperationSnapshot | undefined;
   const owner = createBridgeReceiveReconciler({ getLocks: () => undefined });
-  await owner.startSubmission(async () => id, async (rowId, claimed) => {
-    expect(rowId).toBe(id);
-    handed = claimed;
-    finish();
-  });
+  await owner.startSubmission(
+    async () => id,
+    async (rowId, claimed) => {
+      expect(rowId).toBe(id);
+      handed = claimed;
+      finish();
+    }
+  );
   await completed;
   const recorded = await snapshot(id);
   expect(recorded.sourceAttempt).toEqual({ phase: 'running' });
@@ -221,11 +226,18 @@ it('hands the real non-Epoch CAS winner its captured rotated revision without a 
 it('enriches a saved approval hash with its verified own call, preserving facts on omitted repeats', async () => {
   const { id, operation, approval, transaction } = await claimedApprovalFixture();
   expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);
-  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction })).toBe(true);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction })).toBe(
+    true
+  );
   expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);
   expect((await snapshot(id)).approvals).toEqual([{ ...approval, transaction }]);
   const original = await snapshot(id);
-  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction: { ...transaction, nonce: 99 } })).toBe(false);
+  expect(
+    await recordBridgeApproval(operation.operationId, operation.revision, {
+      ...approval,
+      transaction: { ...transaction, nonce: 99 }
+    })
+  ).toBe(false);
   expect(await snapshot(id)).toEqual(original);
 });
 

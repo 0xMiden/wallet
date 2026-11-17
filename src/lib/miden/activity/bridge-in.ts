@@ -449,22 +449,45 @@ export async function takeAgglayerBridgeInInfo(args: {
         const route = operation?.review.route;
         const source = operation?.sourceAttempt;
         const quote = operation?.review.quote;
-        if (!operation || !route || quote?.kind !== 'agglayer' || quote.request.amount !== operation.review.amount || route.mode !== 'receive' || route.provider !== 'agglayer' || route.destination.kind !== 'miden' || !routeMatchesRecovery(route) ||
-          source?.phase !== 'known' || typeof source.hash !== 'string' || !isHash(source.hash) ||
-          !inputs.evmTxHash || noteIdKey(inputs.evmTxHash) !== noteIdKey(source.hash)) continue;
+        if (
+          !operation ||
+          !route ||
+          quote?.kind !== 'agglayer' ||
+          quote.request.amount !== operation.review.amount ||
+          route.mode !== 'receive' ||
+          route.provider !== 'agglayer' ||
+          route.destination.kind !== 'miden' ||
+          !routeMatchesRecovery(route) ||
+          source?.phase !== 'known' ||
+          typeof source.hash !== 'string' ||
+          !isHash(source.hash) ||
+          !inputs.evmTxHash ||
+          noteIdKey(inputs.evmTxHash) !== noteIdKey(source.hash)
+        )
+          continue;
         const original = await findAdmittedBridgeOperation(operation);
-        if (!original || original.id !== tx.id || bridgeOperationOf(original)?.revision !== operation.revision) continue;
+        if (!original || original.id !== tx.id || bridgeOperationOf(original)?.revision !== operation.revision)
+          continue;
         const saved = { ...route.recovery, status: 'ready', lastFetch: null } satisfies BridgeConfigSnapshot;
         delivery = deliveryOf(saved, inputs);
         const chainId = inputs.agglayerRoute?.chainId;
-        const token = route.source.kind === 'erc20' ? route.source.address : '0x0000000000000000000000000000000000000000';
+        const token =
+          route.source.kind === 'erc20' ? route.source.address : '0x0000000000000000000000000000000000000000';
         const registered = selectAgglayerRegistryToken(saved, token, chainId, inputs.agglayerRoute?.evmNetworkId);
-        if (!delivery || !registered || !compareAccountIds(delivery.faucet, route.destination.faucetId) ||
-          !compareAccountIds(registered.midenFaucetId, delivery.faucet) || registered.scale !== delivery.scale ||
-          (route.source.kind === 'erc20' && inputs.agglayerDelivery?.originToken.toLowerCase() !== token.toLowerCase())) continue;
+        if (
+          !delivery ||
+          !registered ||
+          !compareAccountIds(delivery.faucet, route.destination.faucetId) ||
+          !compareAccountIds(registered.midenFaucetId, delivery.faucet) ||
+          registered.scale !== delivery.scale ||
+          (route.source.kind === 'erc20' && inputs.agglayerDelivery?.originToken.toLowerCase() !== token.toLowerCase())
+        )
+          continue;
         // Owned admission stores destination base units; only legacy rows store source units to rescale.
         amount = original.amount;
-      } catch { continue; }
+      } catch {
+        continue;
+      }
     }
     if (delivery && amount === args.amount && sentBy(delivery.faucet)) matches.push(tx);
   }

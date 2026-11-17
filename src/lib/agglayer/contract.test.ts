@@ -51,7 +51,13 @@ const provider: EIP1193Provider = { request: mockRequest, on: jest.fn(), removeL
 /** The provider answers eth_chainId with `chains` in turn, the last one from then on. */
 const onChains = (...chains: string[]) =>
   mockRequest.mockImplementation(async ({ method }: { method: string }) =>
-    method === 'eth_chainId' ? (chains.length > 1 ? chains.shift() : chains[0]) : method === 'eth_accounts' ? [DEPOSIT.dest_addr] : null
+    method === 'eth_chainId'
+      ? chains.length > 1
+        ? chains.shift()
+        : chains[0]
+      : method === 'eth_accounts'
+        ? [DEPOSIT.dest_addr]
+        : null
   );
 
 beforeEach(() => {
@@ -67,20 +73,31 @@ beforeEach(() => {
   });
 });
 
-it.each(['chain', 'recipient'])('refuses a changed %s after the awaited claim proof instead of sending', async changed => {
-  jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
-  const proof = { main_exit_root: '0xmain', rollup_exit_root: '0xrollup', merkle_proof: [], rollup_merkle_proof: [] };
-  jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => {
-    mockRequest.mockImplementation(async ({ method }: { method: string }) => method === 'eth_chainId' ? changed === 'chain' ? '0x1' : '0xaa36a7' : [changed === 'recipient' ? `0x${'9'.repeat(40)}` : DEPOSIT.dest_addr]);
-    return proof;
-  });
-  await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow();
-  expect(mockClaimAsset).not.toHaveBeenCalled();
-});
+it.each(['chain', 'recipient'])(
+  'refuses a changed %s after the awaited claim proof instead of sending',
+  async changed => {
+    jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+    const proof = { main_exit_root: '0xmain', rollup_exit_root: '0xrollup', merkle_proof: [], rollup_merkle_proof: [] };
+    jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => {
+      mockRequest.mockImplementation(async ({ method }: { method: string }) =>
+        method === 'eth_chainId'
+          ? changed === 'chain'
+            ? '0x1'
+            : '0xaa36a7'
+          : [changed === 'recipient' ? `0x${'9'.repeat(40)}` : DEPOSIT.dest_addr]
+      );
+      return proof;
+    });
+    await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow();
+    expect(mockClaimAsset).not.toHaveBeenCalled();
+  }
+);
 
 it('does not manually claim an exit the bridge already auto-claimed', async () => {
   jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
-  await expect(claimAgglayerDeposit({ deposit: { ...DEPOSIT, claim_tx_hash: `0x${'a'.repeat(64)}` }, provider })).rejects.toThrow();
+  await expect(
+    claimAgglayerDeposit({ deposit: { ...DEPOSIT, claim_tx_hash: `0x${'a'.repeat(64)}` }, provider })
+  ).rejects.toThrow();
   expect(mockClaimAsset).not.toHaveBeenCalled();
 });
 

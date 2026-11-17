@@ -19,18 +19,34 @@ export async function quoteAgglayer(request: QuoteRequest, signal: AbortSignal):
   signal.throwIfAborted();
   const network = route.mode === 'receive' ? route.source.network : route.destination.network;
   const chainId = route.recovery.config.supportedEvmChains[network]?.chainId;
-  const recovery = chainId && selectAgglayerRecoveryConfig({ ...route.recovery, status: 'ready', lastFetch: null }, chainId);
+  const recovery =
+    chainId && selectAgglayerRecoveryConfig({ ...route.recovery, status: 'ready', lastFetch: null }, chainId);
   const assertCurrent = () => {
     const current = getBridgeConfigSnapshot();
-    if (route.provider !== 'agglayer' || !isBridgeRouteAvailable(route) || !routeMatchesRecovery(route) || current.status !== 'ready' || configKey([current.network, current.config, current.derived]) !== configKey([route.recovery.network, route.recovery.config, route.recovery.derived]))
+    if (
+      route.provider !== 'agglayer' ||
+      !isBridgeRouteAvailable(route) ||
+      !routeMatchesRecovery(route) ||
+      current.status !== 'ready' ||
+      configKey([current.network, current.config, current.derived]) !==
+        configKey([route.recovery.network, route.recovery.config, route.recovery.derived])
+    )
       throw new Error('Agglayer quote terms changed');
     signal.throwIfAborted();
   };
   assertCurrent();
   if (!recovery) throw new Error('Agglayer route unavailable');
   const client = agglayerReadClient(recovery.chainId);
-  const paused = await client.readContract({ address: recovery.contractAddress, abi: statusAbi, functionName: 'isEmergencyState' });
+  const paused = await client.readContract({
+    address: recovery.contractAddress,
+    abi: statusAbi,
+    functionName: 'isEmergencyState'
+  });
   assertCurrent();
   if (paused) throw new Error('Agglayer is paused');
-  return { kind: 'agglayer', received: formatUnits(parseUnits(amount.trim(), route.destination.decimals), route.destination.decimals), validity: { kind: 'time', expiresAt: Date.now() + 60000 } };
+  return {
+    kind: 'agglayer',
+    received: formatUnits(parseUnits(amount.trim(), route.destination.decimals), route.destination.decimals),
+    validity: { kind: 'time', expiresAt: Date.now() + 60000 }
+  };
 }
