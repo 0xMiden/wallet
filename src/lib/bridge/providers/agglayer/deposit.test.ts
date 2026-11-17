@@ -263,6 +263,52 @@ it.each(['reset', 'smaller'])('waits for another owned pending %s even when curr
   } finally { release(); await current; }
 });
 
+it.each(['rpc', 'missing-call', 'nonce-conflict', 'receipt-hash', 'scope'])('blocks the new operation when old reducing approval observation has %s uncertainty', async uncertainty => {
+  allowance = 1n;
+  rpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Old receipt unavailable'));
+  const old = await drive(reviewAmount('1'), 'old-reset');
+  expect(old.error).toBeInstanceOf(Error);
+  allowance = 2000000000000000000n;
+  if (uncertainty === 'rpc' || uncertainty === 'missing-call') {
+    rpc.getTransaction.mockRejectedValue(new Error('Old transaction unreadable'));
+    if (uncertainty === 'missing-call') await Repo.transactions.update(old.id, { 'extraInputs.bridgeOperation.approvals': [{ ...old.row?.extraInputs.bridgeOperation.approvals[0], transaction: undefined }] });
+  }
+  if (uncertainty === 'nonce-conflict') await Repo.transactions.update(old.id, { 'extraInputs.bridgeOperation.approvals.0.transaction.nonce': 99 });
+  rpc.waitForTransactionReceipt.mockImplementationOnce(async ({ hash }) => {
+    if (uncertainty === 'scope') jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://departed-rpc.example/private');
+    return { status: 'success', transactionHash: uncertainty === 'receipt-hash' ? `0x${'f'.repeat(64)}` : hash };
+  });
+  const current = await drive(reviewAmount('1'), 'new-reset-review');
+  expect(current.error).toBeInstanceOf(Error);
+  expect(signed).toHaveLength(1);
+  expect(current.row?.extraInputs.evmTxHash).toBeUndefined();
+  expect((await Repo.transactions.get(old.id))?.extraInputs.evmTxHash).toBeUndefined();
+});
+
+it('allows a distinct fresh operation after independently verified mined cancellation of an old reset, without rearming it', async () => {
+  allowance = 1n;
+  rpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Old receipt unavailable'));
+  const old = await drive(reviewAmount('1'), 'old-cancelled-reset');
+  expect(old.error).toBeInstanceOf(Error);
+  allowance = 2000000000000000000n;
+  rpc.waitForTransactionReceipt.mockImplementationOnce(async ({ onReplaced }) => {
+    const original = sourceTransactions.get(resetHash);
+    if (!original) throw new Error('Missing original reset');
+    const replacement = { ...original, hash: `0x${'e'.repeat(64)}`, to: accounts.evmAddress, input: '0x', value: 0n };
+    onReplaced({ reason: 'cancelled', transaction: replacement });
+    return { status: 'success', transactionHash: replacement.hash };
+  });
+  const current = await drive(reviewAmount('1'), 'distinct-fresh-operation');
+  expect(current.error).toBeUndefined();
+  expect(rpc.waitForTransactionReceipt).toHaveBeenCalledTimes(2);
+  expect(signed).toHaveLength(2);
+  expect(current.row?.extraInputs.evmTxHash).toBe(depositHash);
+  const original = await Repo.transactions.get(old.id);
+  expect(original?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
+  expect(original?.extraInputs.bridgeOperation?.approvals?.[1]?.replacementReason).toBe('cancelled');
+  expect(original?.extraInputs.evmTxHash).toBeUndefined();
+});
+
 it('keeps a verified non-reducing approval sufficient-allowance fast path for a separately reviewed operation', async () => {
   rpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Old receipt unavailable'));
   const old = await drive(reviewAmount('2'), 'old-nonreducing');
