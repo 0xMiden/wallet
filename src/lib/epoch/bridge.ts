@@ -270,7 +270,8 @@ export async function buildEVMToMidenIntent(
   }
 
   // The SDK deposits into The Compact before it asks the allocator for the allocation, and a refused allocation
-  // only gives an error message. The lock balance before and after the solve tells if a deposit landed (#2120).
+  // only gives an error message. The lock balance before and after the solve tells if a deposit landed (#2120). Both
+  // reads must work: without the read before, the lock can hold older funds, so no deposit is reported.
   const lockToken = params.isNative === true ? ZERO_ADDRESS : params.evmTokenAddress;
   const lockBefore = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
 
@@ -294,7 +295,7 @@ export async function buildEVMToMidenIntent(
   } catch (err) {
     console.error('[EpochBridge] EVM→Miden solveIntent failed:', err);
     const lockAfter = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
-    const stranded = strandedDepositAmount(lockBefore, lockAfter, quoteResult?.tokenIn);
+    const stranded = strandedDepositAmount(lockBefore, lockAfter);
     return {
       taskTypeString,
       intentData: intentData as Record<string, unknown>,

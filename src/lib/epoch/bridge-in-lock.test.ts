@@ -65,20 +65,19 @@ describe('strandedDepositAmount', () => {
   const at = (balance: bigint, lockId = '42') => ({ lockId, balance });
 
   it('takes the increase of the lock as the deposit', () => {
-    expect(strandedDepositAmount(at(5n), at(1000005n), '1000000')).toBe(1000000n);
+    expect(strandedDepositAmount(at(5n), at(1000005n))).toBe(1000000n);
   });
 
   it('finds no deposit when the lock did not grow, changed, or could not be read after the solve', () => {
-    expect(strandedDepositAmount(at(5n), at(5n), '1000000')).toBeUndefined();
-    expect(strandedDepositAmount(at(5n), at(1000005n, '43'), '1000000')).toBeUndefined();
-    expect(strandedDepositAmount(at(5n), undefined, '1000000')).toBeUndefined();
+    expect(strandedDepositAmount(at(5n), at(5n))).toBeUndefined();
+    expect(strandedDepositAmount(at(5n), at(1000005n, '43'))).toBeUndefined();
+    expect(strandedDepositAmount(at(5n), undefined)).toBeUndefined();
   });
 
-  it('without a balance from before, needs the lock to hold the full quoted deposit', () => {
-    expect(strandedDepositAmount(undefined, at(2000000n), '1000000')).toBe(1000000n);
-    expect(strandedDepositAmount(undefined, at(999999n), '1000000')).toBeUndefined();
-    expect(strandedDepositAmount(undefined, at(2000000n), undefined)).toBeUndefined();
-    expect(strandedDepositAmount(undefined, at(2000000n), '0')).toBeUndefined();
+  it('finds no deposit without a balance from before the solve, whatever the lock holds now', () => {
+    expect(strandedDepositAmount(undefined, at(2000000n))).toBeUndefined();
+    expect(strandedDepositAmount(undefined, at(0n))).toBeUndefined();
+    expect(strandedDepositAmount(undefined, undefined)).toBeUndefined();
   });
 });
 

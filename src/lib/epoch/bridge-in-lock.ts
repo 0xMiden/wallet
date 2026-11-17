@@ -30,31 +30,21 @@ export async function readCompactLockBalance(
   }
 }
 
-function baseUnits(value: string | undefined): bigint | undefined {
-  if (value === undefined || !/^[0-9]+$/.test(value)) return undefined;
-  return BigInt(value);
-}
-
 /**
  * The base units that a failed solve left in the lock, or undefined when no deposit landed.
  *
- * With a balance from before the solve, the increase is the deposit. Without one, only a lock that holds at least the
- * quoted deposit counts, and the quoted amount is the deposit.
+ * A deposit needs proof from this attempt: a read before the solve and a read after it, on the same lock, with a
+ * positive increase. An old balance and the quoted amount are no proof, so a failed read before the solve gives no
+ * deposit. The Settings recovery scans the lock itself and still shows such funds.
  */
 export function strandedDepositAmount(
   before: CompactLockBalance | undefined,
-  after: CompactLockBalance | undefined,
-  quotedAmount: string | undefined
+  after: CompactLockBalance | undefined
 ): bigint | undefined {
-  if (after === undefined) return undefined;
-  if (before !== undefined) {
-    if (before.lockId !== after.lockId) return undefined;
-    const added = after.balance - before.balance;
-    return added > 0n ? added : undefined;
-  }
-  const quoted = baseUnits(quotedAmount);
-  if (quoted === undefined || quoted <= 0n || after.balance < quoted) return undefined;
-  return quoted;
+  if (before === undefined || after === undefined) return undefined;
+  if (before.lockId !== after.lockId) return undefined;
+  const added = after.balance - before.balance;
+  return added > 0n ? added : undefined;
 }
 
 /** What a row with a locked Epoch deposit shows. `undefined`: the row is a normal bridge-in. */

@@ -66,6 +66,21 @@ it('reports no deposit when the solve failed before the deposit', async () => {
   expect(intent.strandedDeposit).toBeUndefined();
 });
 
+it('reports no deposit when the lock could not be read before the solve', async () => {
+  const getDepositedBalances = jest.fn();
+  getDepositedBalances.mockRejectedValueOnce(new Error('rpc down'));
+  getDepositedBalances.mockResolvedValueOnce([
+    { depositId: '42', symbol: '', balance: '2000000', decimals: 0, withdrawStatus: 'Disabled' }
+  ]);
+  jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+  const intent = await buildEVMToMidenIntent({ getTaskData, solveIntent: refusedSolve, getDepositedBalances }, params);
+
+  expect(getDepositedBalances).toHaveBeenCalledTimes(2);
+  expect(intent.error).toBe('Nonce has already been used; request a fresh nonce');
+  expect(intent.strandedDeposit).toBeUndefined();
+});
+
 it('reads the native lock at the zero address', async () => {
   const getDepositedBalances = balances('0', '7');
 
