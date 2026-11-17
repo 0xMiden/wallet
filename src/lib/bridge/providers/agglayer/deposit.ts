@@ -16,6 +16,7 @@ import {
 
 import { AGGLAYER_BRIDGE_ABI } from 'lib/agglayer/constant';
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
+import { assertReviewedBridge } from 'lib/bridge/core/review';
 import { configKey } from 'lib/bridge/core/routes';
 import { validateTransferAmount } from 'lib/bridge/core/rules';
 import type { SubmissionChecks } from 'lib/bridge/core/submission';
@@ -43,12 +44,12 @@ export interface AgglayerDepositRequest {
   operation: BridgeOperationSnapshot;
   provider: EIP1193Provider;
   client: AgglayerClient;
-  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
+  checks: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }
 
 /** Consumes the receive wrapper's winning snapshot; it never claims or resumes an idle-looking row. */
 export async function submitAgglayerDeposit(request: AgglayerDepositRequest): Promise<void> {
-  const { rowId, provider, client } = request;
+  const { rowId, provider, client, checks } = request;
   const operation = structuredClone(request.operation);
   const { review } = operation;
   const { route, amount, accounts } = review;
@@ -94,6 +95,7 @@ export async function submitAgglayerDeposit(request: AgglayerDepositRequest): Pr
       throw new Error('Agglayer deposit terms changed');
   };
   const assertWallet = async () => {
+    assertReviewedBridge(review, await checks.readCurrent(), checks.now());
     const active: unknown = await provider.request({ method: 'eth_accounts' });
     const activeChain: unknown = await provider.request({ method: 'eth_chainId' });
     if (

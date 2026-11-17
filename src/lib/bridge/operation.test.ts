@@ -290,16 +290,39 @@ it.each(['restored', 'recovered', 'stale'])('does not enrich approval history fo
   expect(await Repo.transactions.get(id)).toEqual(before);
 });
 
-it.each(['cancelled', 'replaced'])('preserves verified %s lineage when a later same-hash observation omits optional old facts', async reason => {
-  const { id, operation, approval, transaction } = await claimedApprovalFixture();
-  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction })).toBe(true);
-  const replacement: SourceTransaction = { ...transaction, hash: `0x${'8'.repeat(64)}`, to: reason === 'cancelled' ? transaction.from : transaction.to, input: reason === 'cancelled' ? '0x' : '0x1234', value: '0' };
-  const recorded: BridgeApproval = { ...approval, hash: replacement.hash, transaction: replacement, originalTransaction: transaction, replacementReason: reason === 'cancelled' ? 'cancelled' : 'replaced' };
-  expect(await recordBridgeApproval(operation.operationId, operation.revision, recorded)).toBe(true);
-  const before = await snapshot(id);
-  expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...recorded, originalTransaction: undefined, replacementReason: undefined })).toBe(true);
-  expect(await snapshot(id)).toEqual(before);
-});
+it.each(['cancelled', 'replaced'])(
+  'preserves verified %s lineage when a later same-hash observation omits optional old facts',
+  async reason => {
+    const { id, operation, approval, transaction } = await claimedApprovalFixture();
+    expect(await recordBridgeApproval(operation.operationId, operation.revision, { ...approval, transaction })).toBe(
+      true
+    );
+    const replacement: SourceTransaction = {
+      ...transaction,
+      hash: `0x${'8'.repeat(64)}`,
+      to: reason === 'cancelled' ? transaction.from : transaction.to,
+      input: reason === 'cancelled' ? '0x' : '0x1234',
+      value: '0'
+    };
+    const recorded: BridgeApproval = {
+      ...approval,
+      hash: replacement.hash,
+      transaction: replacement,
+      originalTransaction: transaction,
+      replacementReason: reason === 'cancelled' ? 'cancelled' : 'replaced'
+    };
+    expect(await recordBridgeApproval(operation.operationId, operation.revision, recorded)).toBe(true);
+    const before = await snapshot(id);
+    expect(
+      await recordBridgeApproval(operation.operationId, operation.revision, {
+        ...recorded,
+        originalTransaction: undefined,
+        replacementReason: undefined
+      })
+    ).toBe(true);
+    expect(await snapshot(id)).toEqual(before);
+  }
+);
 
 it('atomically coalesces only the same reviewed operation and generates its revision at admission', async () => {
   const ids = await Promise.all([admit(), admit()]);

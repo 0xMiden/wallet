@@ -95,7 +95,7 @@ export async function runAgglayerReceive(
     },
     async (rowId, claimed) => {
       if (!claimed) return;
-      await submitAgglayerDeposit({ rowId, operation: claimed, provider: deps.provider, client: deps.client });
+      await submitAgglayerDeposit({ rowId, operation: claimed, provider: deps.provider, client: deps.client, checks: deps.checks });
     }
   );
 }
