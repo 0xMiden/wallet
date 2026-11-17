@@ -2,7 +2,7 @@ import { createPublicClient } from 'viem';
 
 import { bindTransferQuote, quoteAmounts } from 'lib/bridge/core/quote';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
-import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
+import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { reviewedCircleTransfer } from 'lib/bridge/testing/operation-fixtures';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -32,6 +32,12 @@ beforeEach(() => {
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   jest.mocked(getBridgeConfigSnapshot).mockReturnValue(referenceSnapshot('testnet'));
+  read.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    if (functionName === 'isRemoteDomainRegistered') return true;
+    if (functionName === 'getRemoteToken') return `0x${'0'.repeat(32)}${native.faucetId.slice(2)}00`;
+    if (functionName === 'paused') return false;
+    throw new Error('Unexpected quote preflight');
+  });
   jest.mocked(createPublicClient).mockReturnValue(Object.assign(
     jest.requireActual('viem').createPublicClient({ transport: jest.requireActual('viem').http('https://rpc.example') }),
     { readContract: read }
@@ -48,16 +54,46 @@ function request(executor: boolean) {
   }
   return { route: review.route, amount: '6.000001', ...accounts };
 }
-it.each([false, true])('quotes bound Circle received output and additional fee (executor=%s)', async executor => {
+function respond(executor: boolean) {
   const input = request(executor);
   const token = input.route.source.kind === 'erc20' ? input.route.source.address : '';
   const body = { signedQuote: '0x1234', burnAmount: '6000001', feeToken: token, feeTotalAmount: '100001',
     issuedAt: now / 1000, expiry: { mode: 'TIMESTAMP', expiresAt: now / 1000 + 120 } };
   fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => body });
+  return input;
+}
+it.each([false, true])('quotes bound Circle received output and additional fee (executor=%s)', async executor => {
+  const input = respond(executor);
   const result = await quoteXReserve(input, new AbortController().signal);
   expect(result).toMatchObject({ kind: executor ? 'cctp' : 'arc-deposit', received: '6.000001' });
   if (!result) throw new Error('Missing provider quote');
   const bound = bindTransferQuote(input, result);
   assertReviewedBridge({ route: input.route, amount: input.amount, accounts, quote: bound }, { route: input.route, amount: input.amount, accounts }, now);
   expect(quoteAmounts(input.route, bound)).toMatchObject({ received: '6.000001', sourceTotal: executor ? '6.100002' : '6.000001' });
+});
+it.each([false, true])('refuses an unregistered Miden target before offering a quote (executor=%s)', async executor => {
+  const input = respond(executor);
+  read.mockImplementation(async ({ functionName }: { functionName: string }) =>
+    functionName === 'getRemoteToken' ? `0x${'0'.repeat(32)}${native.faucetId.slice(2)}00` : false);
+  await expect(quoteXReserve(input, new AbortController().signal)).rejects.toThrow();
+});
+it.each([false, true])('refuses the wrong native remote token before quoting (executor=%s)', async executor => {
+  const input = respond(executor);
+  read.mockImplementation(async ({ functionName }: { functionName: string }) =>
+    functionName === 'isRemoteDomainRegistered' ? true : functionName === 'getRemoteToken' ? `0x${'0'.repeat(64)}` : false);
+  await expect(quoteXReserve(input, new AbortController().signal)).rejects.toThrow();
+});
+it('refuses a paused executor or handler before quoting CCTP', async () => {
+  const input = respond(true);
+  read.mockImplementation(async ({ functionName }: { functionName: string }) =>
+    functionName === 'getRemoteToken' ? `0x${'0'.repeat(32)}${native.faucetId.slice(2)}00` : true);
+  await expect(quoteXReserve(input, new AbortController().signal)).rejects.toThrow();
+});
+it('discards a quote when the wallet RPC leaves during live preflight', async () => {
+  const input = respond(false);
+  read.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://other.example/private');
+    return functionName === 'getRemoteToken' ? `0x${'0'.repeat(32)}${native.faucetId.slice(2)}00` : true;
+  });
+  await expect(quoteXReserve(input, new AbortController().signal)).rejects.toThrow();
 });
