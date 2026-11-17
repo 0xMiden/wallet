@@ -12,6 +12,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { initiateUsdcxBurn } from './burn';
 import { readUsdcxDestinationSnapshot } from './destination-status';
 
+const mockMinimumProof = jest.fn(async () => ({ getStorageSlotValue: () => undefined }));
 const mockOwnNotes = jest.fn(() => [{ id: () => ({ toString: () => 'burn-note-id' }) }]);
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const felts = { toFelts: () => [] };
@@ -23,8 +24,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   return {
     ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
     AccountId: { fromHex: (hex: string) => ({ toString: () => hex.toLowerCase() }) },
+    Endpoint: jest.fn(),
     RpcClient: jest.fn(() => ({
-      getAccountProof: async () => ({ getStorageSlotValue: () => undefined }),
+      getAccountProof: () => mockMinimumProof(),
       free: () => undefined
     })),
     NoteScript: { burn: () => ({}) },
@@ -146,6 +148,7 @@ function input() {
 }
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockMinimumProof.mockReset().mockResolvedValue({ getStorageSlotValue: () => undefined });
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   jest.mocked(readUsdcxDestinationSnapshot).mockResolvedValue({ balance: '0', blockNumber: '100' });
@@ -294,4 +297,13 @@ it('keeps original-row lookup passive after departure without a new fee measurem
   expect(await initiateUsdcxBurn(request)).toBe(id);
   expect(fetchMock).toHaveBeenCalledTimes(reads);
   expect(await Repo.transactions.count()).toBe(1);
+});
+
+it('preserves minimum-read fallback without disclosing native RPC error payloads', async () => {
+  const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  mockMinimumProof.mockRejectedValueOnce(new Error('private-native-minimum-rpc-placeholder'));
+  const id = await initiateUsdcxBurn(input());
+  expect((await Repo.transactions.get(id))?.amount).toBe(6000000n);
+  const diagnostics = warning.mock.calls.flat().map(value => (value instanceof Error ? value.message : String(value)));
+  expect(diagnostics.join(' ')).not.toContain('private-native-minimum-rpc-placeholder');
 });

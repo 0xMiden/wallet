@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+
+import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 
 import { bindTransferQuote, type QuoteRequest, type TransferQuote } from 'lib/bridge/core/quote';
 import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
@@ -11,8 +13,11 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 
 import { CommandDraftProvider, useCommandDrafts } from '../command-drafts';
+import { CommandWorkbench } from '../CommandWorkbench';
+import { CommandBridge } from './CommandBridge';
 import { useCommandBridge } from './useCommandBridge';
 
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 let mockSnapshot: BridgeConfigSnapshot;
 let mockLocked = false;
 let mockRpc = 'https://wallet-rpc.example/private';
@@ -348,4 +353,30 @@ it('invalidates actual Circle review on a changed displayed native cap, not same
   mockFee = { ...mockFee, reserve: 301n };
   rerender();
   expect(result.current.bridge.review).toBeUndefined();
+});
+
+it('shows the exact reviewed native maximum in the actual Command Bridge workbench disclosure', async () => {
+  render(
+    <CommandDraftProvider scope={scope}>
+      <CommandWorkbench route={{ kind: 'flow', action: 'bridge' }} container={null}>
+        <CommandBridge />
+      </CommandWorkbench>
+    </CommandDraftProvider>
+  );
+  fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
+  const route = deriveBridgeRoutes(mockSnapshot).find(item => item.provider === 'xreserve' && item.mode === 'send');
+  if (!route) throw new Error('Missing native Circle fixture');
+  fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '6' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
+    target: { value: accounts.evmAddress }
+  });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
+  const form = screen.getByRole('textbox', { name: 'amount' }).closest('form');
+  if (!form) throw new Error('Missing real Command Bridge form');
+  fireEvent.submit(form);
+  expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled();
+  fireEvent.click(screen.getByText('commandDetails'));
+  expect(screen.getByText('networkFeeMax')).toBeVisible();
+  expect(screen.getByText('0.0003 USDCx')).toBeVisible();
 });
