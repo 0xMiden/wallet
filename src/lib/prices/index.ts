@@ -44,13 +44,19 @@ function entries<T>(map: Map<string, T> | null | undefined): [string, T][] | nul
 }
 
 /**
- * Everything the price fetch reads from the loaded list (price assets, baskets and decimals), as one string, or
- * undefined before the first load. A refresh that changes any of them changes this key, so the fetch runs again.
+ * Everything the price fetch reads from the loaded list (price assets, baskets, decimals and token symbols), as one
+ * string, or undefined before the first load. A refresh that changes any of them changes this key, so the fetch runs
+ * again.
  */
 function peekPriceListKey(network: string): string | undefined {
   const assets = peekTokenPriceAssets(network);
   if (assets === undefined) return undefined;
-  return JSON.stringify([entries(assets), entries(peekTokenBaskets(network)), entries(peekTokenDecimals(network))]);
+  return JSON.stringify([
+    entries(assets),
+    entries(peekTokenBaskets(network)),
+    entries(peekTokenDecimals(network)),
+    entries(peekTokenSymbols(network))
+  ]);
 }
 
 async function loadPriceListKey(network: string): Promise<string | undefined> {
