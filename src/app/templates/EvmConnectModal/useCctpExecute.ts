@@ -3,6 +3,8 @@ import { useCallback } from 'react';
 import { encodeFunctionData, Hash, isHash, isHex, toHex } from 'viem';
 import { useSwitchChain, useWriteContract } from 'wagmi';
 
+import { captureBridgeWalletScope } from 'lib/bridge/operation';
+import { captureCctpExecution, recordCctpExecutionHash, reserveCctpExecution } from 'lib/bridge/providers/xreserve/manual-execute';
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 import { IBridgedReceiveExtraInputs, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -35,13 +37,16 @@ export function useCctpExecute(): CctpExecute {
 
   return useCallback(
     async (txId, sourceChainId, leg) => {
+      const invocationScope = captureBridgeWalletScope();
+      const originalLeg = structuredClone(leg);
       const row = await Repo.transactions.get(txId);
+      const owned = captureCctpExecution(row, sourceChainId, originalLeg, invocationScope);
       const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
       const saved = inputs?.usdcxSource;
-      const source = saved ?? getUsdcxExecutorSource(sourceChainId);
+      const source = owned?.source ?? saved ?? getUsdcxExecutorSource(sourceChainId);
       if (source.route !== 'cctp-executor') throw new Error('The saved route has no executor');
       const { target } = source;
-      const { message, attestation } = leg;
+      const { message, attestation } = originalLeg;
       if (!isHex(message) || !isHex(attestation)) {
         throw new Error('The CCTP attestation is not available yet.');
       }
@@ -52,21 +57,25 @@ export function useCctpExecute(): CctpExecute {
       });
 
       let hash: Hash;
+      let attemptId: string | undefined;
       if (nativeReownAvailable) {
         // A session that did not approve the target chain fails here, before the wallet prompt.
         await prepareNativeSessionChain(target.chain.id);
+        const feeFields = await readNativeFeeFields(target.chain.id);
+        if (owned) attemptId = await reserveCctpExecution(owned);
         const result = await NativeReown.sendTransaction({
           chainId: target.chain.id,
           to: target.executor,
           value: toHex(0n),
           data,
-          ...(await readNativeFeeFields(target.chain.id))
+          ...feeFields
         });
         const unwrapped = unwrapNativeResult(result.hash);
         if (!isHash(unwrapped)) throw new Error('The wallet returned no transaction hash.');
         hash = unwrapped;
       } else {
         await switchChainAsync({ chainId: target.chain.id });
+        if (owned) attemptId = await reserveCctpExecution(owned);
         hash = await writeContract.mutateAsync({
           chainId: target.chain.id,
           abi: GENERIC_EXECUTOR_ABI,
@@ -76,14 +85,18 @@ export function useCctpExecute(): CctpExecute {
         });
       }
 
-      await updateBridgedReceivePhase(txId, 'delivering', {
-        cctp: { sourceDomain: leg.sourceDomain, executeTxHash: hash }
+      if (!isHash(hash)) throw new Error('The wallet returned no transaction hash.');
+      if (owned) {
+        if (!attemptId) throw new Error('Circle execute attempt unavailable');
+        await recordCctpExecutionHash(owned, attemptId, hash);
+      } else await updateBridgedReceivePhase(txId, 'delivering', {
+        cctp: { sourceDomain: originalLeg.sourceDomain, executeTxHash: hash }
       });
       try {
         await waitForEvmReceipt(hash, target.chain);
       } catch (error) {
         if (error instanceof EvmTransactionRevertedError) {
-          await updateBridgedReceivePhase(txId, 'delivering', { cctp: revertedExecuteLeg(leg.sourceDomain, hash) });
+          await updateBridgedReceivePhase(txId, 'delivering', { cctp: revertedExecuteLeg(originalLeg.sourceDomain, hash) });
           throw error;
         }
         // Keep the saved hash if the receipt cannot be read. Circle can still confirm execution.

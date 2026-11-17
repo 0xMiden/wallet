@@ -317,6 +317,8 @@ export interface IUsdcxCctpLeg {
   /** Verified original source receipt facts, never source or execute consent. */
   sourceMessage?: string;
   messageTransmitter?: string;
+  /** Destination wallet invocation ownership; hashless uncertainty never grants another gas prompt. */
+  executeAttempt?: { id: string; phase: 'uncertain' | 'known'; hash?: string };
   /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
   message?: string;
   attestation?: string;
