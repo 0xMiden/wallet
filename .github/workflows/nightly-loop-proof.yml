@@ -1,10 +1,11 @@
 name: Current qualified SDK0.18 held-only readiness - NO release or payment
 on:
   push:
-    branches: [wiktor/green03-current-held-canonical-checks-once]
+    branches: [wiktor/green03-current-held-graphql-read-once]
 permissions:
   contents: read
   actions: read
+  checks: read
 concurrency:
   group: e2e-mainnet-nightly
   cancel-in-progress: false
@@ -25,7 +26,7 @@ jobs:
         run: |
           test "$GITHUB_EVENT_NAME" = push
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green03-current-held-canonical-checks-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green03-current-held-graphql-read-once
           git merge-base --is-ancestor 3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c HEAD
           test "$(git diff --name-only 3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-held-readonly.spec.ts scripts/held-review-failure.test.ts scripts/held-review-failure.ts)"
           ! grep -E 'releaseMainnetSendAuthorization|awaitMainnetLoopAuthorization' playwright/e2e/tests/mainnet/near-held-readonly.spec.ts
@@ -37,9 +38,9 @@ jobs:
           gh api repos/0xMiden/wallet/branches/main > "$RUNNER_TEMP/current-main.json"
           MAIN=$(node -p "require(process.env.RUNNER_TEMP+'/current-main.json').commit.sha")
           gh api "repos/0xMiden/wallet/git/commits/$MAIN" > "$RUNNER_TEMP/current-main-commit.json"
-          gh api repos/0xMiden/wallet/commits/3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c/check-runs?per_page=100 > "$RUNNER_TEMP/qualified-checks.json"
+          gh api graphql -f query='query { repository(owner:"0xMiden",name:"wallet") { object(oid:"3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c") { ... on Commit { oid statusCheckRollup { contexts(first:100) { totalCount pageInfo { hasNextPage } nodes { __typename ... on CheckRun { name status conclusion checkSuite { commit { oid } } } } } } } } } }' > "$RUNNER_TEMP/qualified-checks.json"
           node <<'NODE'
-          const a=require('node:assert/strict'),fs=require('node:fs'),cp=require('node:child_process'),read=n=>JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${n}.json`));const pr=read('diagnostic-pr'),main=read('current-main'),commit=read('current-main-commit'),checks=read('qualified-checks');a.equal(pr.merged,true);a.equal(pr.head.sha,'3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c');a.equal(pr.merge_commit_sha,main.commit.sha);a.equal(commit.tree.sha,cp.execFileSync('git',['rev-parse','3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c^{tree}'],{encoding:'utf8'}).trim());const inventory=/^const REQUIRED_NAMES = \[(.*)\];$/m.exec(fs.readFileSync('playwright/e2e/harness/spec-selection.test.ts','utf8'));a.ok(inventory);const canonical=[...inventory[1].matchAll(/'([^']+)'/g)].map(m=>m[1]);a.equal(canonical.length,3);const required=['Test','Coverage Check (95% minimum)',"Check for non-i18n'd strings",'Update Translation Files','Native prover pin lockstep','changelog','Compile Android','Compile iOS','Compile desktop (Tauri)','swap-e2e-gate','earn-e2e-gate','linked-web-sdk-pr-ready',...canonical];a.equal(new Set(required).size,15);a.ok(checks.total_count<=100);for(const name of required){const c=checks.check_runs.filter(c=>c.name===name);a.equal(c.length,1);a.equal(c[0].head_sha,pr.head.sha);a.equal(c[0].conclusion,'success');}
+          const a=require('node:assert/strict'),fs=require('node:fs'),cp=require('node:child_process'),read=n=>JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${n}.json`));const pr=read('diagnostic-pr'),main=read('current-main'),commit=read('current-main-commit'),checks=read('qualified-checks');a.equal(pr.merged,true);a.equal(pr.head.sha,'3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c');a.equal(pr.merge_commit_sha,main.commit.sha);a.equal(commit.tree.sha,cp.execFileSync('git',['rev-parse','3b5a3e5e42efcf27b0b4fd46cc6dc1ba8e13db9c^{tree}'],{encoding:'utf8'}).trim());const inventory=/^const REQUIRED_NAMES = \[(.*)\];$/m.exec(fs.readFileSync('playwright/e2e/harness/spec-selection.test.ts','utf8'));a.ok(inventory);const canonical=[...inventory[1].matchAll(/'([^']+)'/g)].map(m=>m[1]);a.equal(canonical.length,3);const required=['Test','Coverage Check (95% minimum)',"Check for non-i18n'd strings",'Update Translation Files','Native prover pin lockstep','changelog','Compile Android','Compile iOS','Compile desktop (Tauri)','swap-e2e-gate','earn-e2e-gate','linked-web-sdk-pr-ready',...canonical];a.equal(new Set(required).size,15);a.ok(!checks.errors);const qualified=checks.data.repository.object;a.equal(qualified.oid,pr.head.sha);const contexts=qualified.statusCheckRollup.contexts;a.equal(contexts.pageInfo.hasNextPage,false);a.ok(contexts.totalCount<=100);for(const name of required){const c=contexts.nodes.filter(c=>c.name===name);a.equal(c.length,1);a.equal(c[0].checkSuite.commit.oid,pr.head.sha);a.equal(c[0].status,'COMPLETED');a.equal(c[0].conclusion,'SUCCESS');}
           NODE
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
