@@ -98,6 +98,9 @@ const HISTORY_CAP = 25600;
 const DEFAULT_CAP = 4096;
 const MIN_BLOB = 28;
 const MAX_BATCH = 100;
+/** The contract's caps (services/wallet-api/README.md): a request body, and the entries one feature holds. */
+const MAX_BODY_BYTES = 512 * 1024;
+const MAX_ENTRIES_PER_FEATURE = 1000;
 
 function readFeatureName(value: string): FakeFeature | null {
   switch (value) {
@@ -233,11 +236,14 @@ export class FakeWalletApi {
     const rawIfNoneMatch = headers['If-None-Match'];
     const ifNoneMatch = rawIfNoneMatch === undefined ? null : rawIfNoneMatch.replace(/^"|"$/g, '');
     this.onRequest?.({ method, path: url.pathname, query });
+    const bodyBytes = init.body === undefined ? 0 : new TextEncoder().encode(init.body).byteLength;
     const reply =
       `${url.origin}` !== FAKE_WALLET_API_URL
         ? errorReply(404, 'not_found')
-        : (this.takeFault(method, url.pathname) ??
-          this.route(method, url.pathname, query, headers.Authorization ?? null, ifNoneMatch, init.body));
+        : bodyBytes > MAX_BODY_BYTES
+          ? errorReply(413, 'payload_too_large')
+          : (this.takeFault(method, url.pathname) ??
+            this.route(method, url.pathname, query, headers.Authorization ?? null, ifNoneMatch, init.body));
     const body = reply.body;
     const etag = body !== undefined && isRecord(body) && typeof body.etag === 'string' ? body.etag : null;
     this.requests.push({ method, path: url.pathname, query, ifNoneMatch, status: reply.status, etag });
@@ -427,6 +433,10 @@ export class FakeWalletApi {
       if (size < MIN_BLOB || size > cap) return errorReply(413, 'payload_too_large');
       writes.push({ hashedKey, entry });
     }
+    // Checked whole before any write: a refused batch changes nothing.
+    const stored = profile.features[feature];
+    const added = new Set(writes.map(write => write.hashedKey).filter(hashedKey => !stored.has(hashedKey)));
+    if (stored.size + added.size > MAX_ENTRIES_PER_FEATURE) return errorReply(413, 'entry_limit');
     const updatedAt = this.nextUpdatedAt(profile);
     const acks: JsonValue[] = writes.map(({ hashedKey, entry }) => {
       const revision = (profile.features[feature].get(hashedKey)?.revision ?? 0) + 1;

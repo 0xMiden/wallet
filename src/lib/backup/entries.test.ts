@@ -1,6 +1,13 @@
+import { putEntries } from './api-client';
 import { DEFAULT_BLOB_CAP, HISTORY_BLOB_CAP, encryptEntry, hashedEntryKey, plaintextDigest } from './crypto';
 import { type IncomingEntry, blobCapOf, hashedKeyOf, readFeature, uploadEntries } from './entries';
-import { type BackupSession, BackupSessionClosedError, clearBackupSession, getBackupSession } from './session';
+import {
+  type BackupSession,
+  BackupSessionClosedError,
+  clearBackupSession,
+  getBackupSession,
+  withSessionToken
+} from './session';
 import { readBackupState } from './state';
 import {
   type FakeFeature,
@@ -414,6 +421,31 @@ describe('uploadEntries', () => {
     const puts = server.requestsSince(mark).filter(request => request.method === 'PUT');
     expect(puts.length).toBeGreaterThan(1);
     expect(puts.every(request => request.status === 200)).toBe(true);
+  });
+
+  // The fake must refuse what the real server refuses, or the split test above would pass a budget over the cap.
+  it('is refused with 413 for a body over 512 KiB that skips the split, and nothing is stored', async () => {
+    const entries = await Promise.all(
+      Array.from({ length: 30 }, async (_value, index) => ({
+        hashedKey: hashedEntryKey(`history:dev:${index}`, session.storageKey),
+        entry: await encryptEntry(session.encKey, 'y'.repeat(18000), session.kdfParams)
+      }))
+    );
+    await expect(withSessionToken(session, token => putEntries(token, 'history', entries))).rejects.toMatchObject({
+      status: 413,
+      code: 'payload_too_large'
+    });
+    expect(server.entriesOf(session.publicKey, 'history')).toHaveLength(0);
+  });
+
+  it('is refused with 413 for an entry past 1000 in a feature, and the stored rows stay', async () => {
+    await uploadEntries(session, 'accounts', entryKeys(1000));
+    const before = server.entriesOf(session.publicKey, 'accounts');
+    expect(before).toHaveLength(1000);
+    await expect(
+      uploadEntries(session, 'accounts', [{ entryKey: 'one-more', plaintext: 'value' }])
+    ).rejects.toMatchObject({ status: 413, code: 'entry_limit' });
+    expect(server.entriesOf(session.publicKey, 'accounts')).toEqual(before);
   });
 
   it('refuses a closed session before it sends anything', async () => {
