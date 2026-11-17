@@ -44,13 +44,15 @@ export function basketChange24h(composition: readonly BasketComponent[], prices:
 /**
  * The basket's price line: at each candle close all of its tokens share, the basket's price scaled from `price` (its
  * current price) by the value its holdings had then relative to their value at the last shared candle close. A candle
- * closes one declared step after it opens, so candles of different lengths pair only where they end together. Empty
- * when any token has no candles, any step is not a finite positive number, or they share no candle close.
+ * closes one declared step after it opens, so candles of different lengths pair only where they end together. The
+ * candle that is still open closes after `now`, so its point is dated `now`. Empty when any token has no candles, any
+ * step is not a finite positive number, or they share no candle close.
  */
 export function basketKlines(
   composition: readonly BasketComponent[],
   candles: readonly KlineSeries[],
-  price: number
+  price: number,
+  now: number = Date.now()
 ): KlinePoint[] {
   if (composition.length === 0 || candles.length !== composition.length || !(price > 0)) return [];
   if (!candles.every(({ stepMs }) => Number.isFinite(stepMs) && stepMs > 0)) return [];
@@ -70,7 +72,7 @@ export function basketKlines(
     return (time: number) => (s.get(time) ?? 0) / end;
   });
   return times.map(time => ({
-    time,
+    time: Math.min(time, now),
     value: price * composition.reduce((sum, c, i) => sum + c.weight * (relative[i]?.(time) ?? 0), 0)
   }));
 }

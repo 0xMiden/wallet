@@ -94,6 +94,22 @@ describe('basketKlines', () => {
     ]);
   });
 
+  it('dates the unfinished candle at now, not at its future close', () => {
+    const btc = series(6, [
+      { time: 0, value: 1 },
+      { time: 6, value: 2 }
+    ]);
+    const eth = series(6, [
+      { time: 0, value: 1 },
+      { time: 6, value: 1 }
+    ]);
+    // At 8 the candle that opened at 6 is still open: its close at 12 has not happened yet.
+    expect(basketKlines(mix, [btc, eth], 2, 8)).toEqual([
+      { time: 6, value: 2 * (0.6 * 0.5 + 0.4 * 1) },
+      { time: 8, value: 2 }
+    ]);
+  });
+
   it('draws no line when a candle length is not a finite positive number', () => {
     const points = [{ time: 1, value: 1 }];
     for (const stepMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
