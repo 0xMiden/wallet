@@ -1,5 +1,7 @@
 // Adapted from bridge-portal@cb52c470 src/bridge/providers/agglayer/deposit.test.ts (MIT).
-import { waitFor } from '@testing-library/react';
+import React from 'react';
+
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   createWalletClient,
   custom,
@@ -13,6 +15,13 @@ import {
 } from 'viem';
 
 import { AGGLAYER_BRIDGE_ABI } from 'lib/agglayer/constant';
+import { CommandBridge } from 'screens/command/bridge/CommandBridge';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
+import { FlowPresentationProvider, CommandFlowBackProvider } from 'components/flow/FlowPresentation';
+import { navigate } from 'lib/woozie';
+import { deriveBridgeRoutes } from 'lib/bridge/catalog';
+import { buildNativeReownProvider, NativeReown } from 'lib/walletconnect/native';
 import { fetchDeposits } from 'lib/agglayer/status';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
 import type { SourceRpcTransaction } from 'lib/bridge/evm/source-transaction';
@@ -43,11 +52,19 @@ jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: async (fn: 
 jest.mock('lib/miden/activity/notes', () => ({ queueNoteImport: jest.fn() }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
 const mockWalletState = {
+  currentAccount: { publicKey: accounts.midenAccount },
   balances: { [accounts.midenAccount]: [] },
-  balancesLoading: {}, balanceReadFailed: {},
-  tokenPricesStatus: 'ready', tokenPrices: {}
+  balancesLoading: {},
+  balanceReadFailed: {},
+  tokenPricesStatus: 'ready',
+  tokenPrices: {}
 };
-jest.mock('lib/store', () => ({ getIntercom: jest.fn(), useWalletStore: { getState: () => mockWalletState } }));
+jest.mock('lib/store', () => ({
+  getIntercom: jest.fn(),
+  useWalletStore: Object.assign((select: (state: typeof mockWalletState) => unknown) => select(mockWalletState), {
+    getState: () => mockWalletState
+  })
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getActiveOverride: () => null,
@@ -60,6 +77,71 @@ jest.mock('lib/remote-config/runtime', () => ({
     jest
       .requireActual<typeof import('lib/bridge/testing/fixtures')>('lib/bridge/testing/fixtures')
       .referenceSnapshot('testnet')
+}));
+let mockNative = false;
+jest.mock('@reown/appkit/react', () => ({
+  useAppKitNetwork: () => ({ chainId: 11155111 }),
+  useDisconnect: () => ({ disconnect: jest.fn() })
+}));
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => null }));
+jest.mock('lib/miden/front', () => ({
+  useMidenContext: () => ({ locked: false, signTransaction: jest.fn() }),
+  useAllBalances: () => ({}),
+  useAllTokensBaseMetadata: () => ({})
+}));
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => jest.requireActual('lib/bridge/testing/fixtures').referenceSnapshot('testnet')
+}));
+jest.mock('lib/bridge/wallet-transport', () => ({
+  quoteBridgeTransfer: async (request: unknown) =>
+    jest
+      .requireActual('lib/bridge/core/quote')
+      .bindTransferQuote(request, { kind: 'agglayer', received: '1', validity: { kind: 'provider' } })
+}));
+jest.mock('lib/epoch/client', () => ({
+  getEvmConnection: async () => ({
+    address: '0x1111111111111111111111111111111111111111',
+    chainId: 11155111,
+    isNative: mockNative
+  }),
+  buildEpochWalletClient: async (address: `0x${string}`) => {
+    const viem = jest.requireActual<typeof import('viem')>('viem');
+    const provider = mockNative
+      ? jest
+          .requireActual<typeof import('lib/walletconnect/native')>('lib/walletconnect/native')
+          .buildNativeReownProvider({ chainId: 11155111, address, rpcUrl: 'https://rpc.example' })
+      : { request: (...args: unknown[]) => wallet(...args) };
+    return viem.createWalletClient({ account: address, transport: viem.custom(provider) });
+  },
+  switchWebWalletChain: jest.fn()
+}));
+jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
+  useEvmWalletConnection: () => ({
+    address: '0x1111111111111111111111111111111111111111',
+    connected: true,
+    nativeReown: { state: { chainIds: [11155111] } },
+    useNativeReownWallet: mockNative
+  })
+}));
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  zustandProvider: { getAccounts: async () => [], getPublicKeyForCommitment: async () => '', signWord: async () => '' }
+}));
+jest.mock('lib/woozie', () => ({
+  navigate: jest.fn(),
+  goBack: jest.fn(),
+  createLocationState: () => ({ historyPosition: 1 }),
+  listen: () => () => {}
+}));
+jest.mock('lib/walletconnect/fees', () => ({
+  readNativeFeeFields: async () => ({ maxFeePerGas: '0x1', maxPriorityFeePerGas: '0x1' })
+}));
+jest.mock('@capacitor/core', () => ({
+  registerPlugin: jest.fn(() => ({
+    getState: jest.fn(),
+    sendTransaction: jest.fn(),
+    addListener: jest.fn(async () => ({ remove: async () => undefined }))
+  }))
 }));
 jest.mock('lib/agglayer/status', () => ({ ...jest.requireActual('lib/agglayer/status'), fetchDeposits: jest.fn() }));
 jest.mock('lib/walletconnect/receipt', () => ({
@@ -179,6 +261,22 @@ beforeEach(async () => {
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
   jest.spyOn(Date, 'now').mockReturnValue(now);
   await Repo.transactions.clear();
+  mockNative = false;
+  jest
+    .mocked(NativeReown.getState)
+    .mockResolvedValue({
+      configured: true,
+      connected: true,
+      topic: 'test-session',
+      address: accounts.evmAddress,
+      accounts: [`eip155:11155111:${accounts.evmAddress}`],
+      chainId: 11155111,
+      chainIds: [11155111]
+    });
+  jest.mocked(NativeReown.addListener).mockResolvedValue({ remove: async () => undefined });
+  jest
+    .mocked(NativeReown.sendTransaction)
+    .mockImplementation(async tx => ({ hash: await wallet({ method: 'eth_sendTransaction', params: [tx] }) }));
   allowance = 0n;
   activeAccount = accounts.evmAddress;
   signed = [];
@@ -239,7 +337,10 @@ beforeEach(async () => {
     return hash;
   });
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  cleanup();
+  jest.restoreAllMocks();
+});
 
 function reviewAmount(amount: string): ReviewedTransfer {
   const review = reviewedErc20Transfer('agglayer');
@@ -251,6 +352,121 @@ function reviewAmount(amount: string): ReviewedTransfer {
   return review;
 }
 
+async function renderReceive() {
+  const route = deriveBridgeRoutes(referenceSnapshot('testnet')).find(
+    item => item.mode === 'receive' && item.provider === 'agglayer' && item.source.symbol === 'USDC'
+  );
+  const recovery = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
+  if (!route || !recovery || route.source.kind !== 'erc20') throw new Error('Missing actual receive catalog');
+  bridgeAddress = recovery.contractAddress;
+  tokenAddress = `0x${route.source.address.slice(2)}`;
+  const mounted = render(
+    React.createElement(CommandDraftProvider, {
+      scope: { accountId: accounts.midenAccount, network: 'testnet', rpcUrl: 'https://wallet-rpc.example/private' },
+      children: React.createElement(FlowPresentationProvider, {
+        value: 'command',
+        children: React.createElement(CommandFlowBackProvider, {
+          children: React.createElement(CommandWorkbench, {
+            route: { kind: 'flow', action: 'bridge' },
+            container: null,
+            children: React.createElement(CommandBridge)
+          })
+        })
+      })
+    })
+  );
+  fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1.00000000' } });
+  const form = screen.getByRole('textbox', { name: 'amount' }).closest('form');
+  if (!form) throw new Error('Missing actual form');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
+  fireEvent.submit(form);
+  expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled();
+  return { ...mounted, form };
+}
+
+it.each([false, true])(
+  'the actual visible controller survives admission and drives original EVM prompts exactly once (native=%s)',
+  async native => {
+    mockNative = native;
+    let release: (value: { data: Hex }) => void = () => undefined;
+    rpc.call.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        })
+    );
+    const { form } = await renderReceive();
+    fireEvent.submit(form);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commandBridgeViewStatus' })).toBeVisible());
+    await waitFor(() => expect(rpc.call).toHaveBeenCalledTimes(1));
+    expect(signed).toHaveLength(0);
+    expect(navigate).not.toHaveBeenCalled();
+    const row = (await Repo.transactions.toArray())[0];
+    expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('running');
+    fireEvent.submit(form);
+    expect(await Repo.transactions.count()).toBe(1);
+    release({ data: '0x' });
+    await waitFor(async () => expect((await Repo.transactions.get(row.id))?.extraInputs.evmTxHash).toBe(depositHash));
+    expect(signed).toHaveLength(2);
+    expect(screen.getByTestId('command-bridge')).toBeVisible();
+    if (native) expect(NativeReown.sendTransaction).toHaveBeenCalledTimes(2);
+    fireEvent.submit(form);
+    expect(signed).toHaveLength(2);
+    expect(await Repo.transactions.count()).toBe(1);
+  }
+);
+
+it('explicit minimize before a later prompt refuses fresh spending and reopen does not replay the original row', async () => {
+  let release: (value: { data: Hex }) => void = () => undefined;
+  rpc.call.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve;
+      })
+  );
+  const { form, unmount } = await renderReceive();
+  fireEvent.submit(form);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'commandBridgeViewStatus' })).toBeVisible());
+  await waitFor(() => expect(rpc.call).toHaveBeenCalledTimes(1));
+  const row = (await Repo.transactions.toArray())[0];
+  fireEvent.click(screen.getByRole('button', { name: 'minimize' }));
+  unmount();
+  release({ data: '0x' });
+  await waitFor(async () =>
+    expect((await Repo.transactions.get(row.id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain')
+  );
+  expect(signed).toHaveLength(0);
+  const reopened = await renderReceive();
+  expect(await Repo.transactions.count()).toBe(1);
+  expect(signed).toHaveLength(0);
+  reopened.unmount();
+});
+
+it('a returned source hash is saved to the original owner after explicit UI departure', async () => {
+  const originalWallet = wallet.getMockImplementation();
+  let release: (hash: Hash) => void = () => undefined;
+  wallet.mockImplementation(async request => {
+    if (!originalWallet) throw new Error('Missing actual provider boundary');
+    const hash = await originalWallet(request);
+    if (request.method === 'eth_sendTransaction' && request.params[0].to.toLowerCase() === bridgeAddress.toLowerCase())
+      return new Promise(resolve => {
+        release = resolve;
+      });
+    return hash;
+  });
+  const { form, unmount } = await renderReceive();
+  fireEvent.submit(form);
+  await waitFor(() => expect(signed).toHaveLength(2));
+  const row = (await Repo.transactions.toArray())[0];
+  fireEvent.click(screen.getByRole('button', { name: 'minimize' }));
+  unmount();
+  release(depositHash);
+  await waitFor(async () => expect((await Repo.transactions.get(row.id))?.extraInputs.evmTxHash).toBe(depositHash));
+  expect((await Repo.transactions.get(row.id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('known');
+  expect(await Repo.transactions.count()).toBe(1);
+});
+
 it('admits the public external-wallet receive through the original real DB/CAS and never blindly replays it', async () => {
   const review = reviewedErc20Transfer('agglayer');
   const recovery = selectAgglayerRecoveryConfig(referenceSnapshot('testnet'), 11155111);
@@ -260,7 +476,11 @@ it('admits the public external-wallet receive through the original real DB/CAS a
   const client = createWalletClient({ account: `0x${accounts.evmAddress.slice(2)}`, transport: custom(provider) });
   const deps = {
     signTransaction: async () => new Uint8Array(),
-    guardianProvider: { getAccounts: async () => [], getPublicKeyForCommitment: async () => '', signWord: async () => '' },
+    guardianProvider: {
+      getAccounts: async () => [],
+      getPublicKeyForCommitment: async () => '',
+      signWord: async () => ''
+    },
     getContext: () => review,
     getEvmWallet: async () => client,
     onOperation: jest.fn()
@@ -268,7 +488,9 @@ it('admits the public external-wallet receive through the original real DB/CAS a
   const result = await submitReviewedBridge(review, deps);
   expect(result.kind).toBe('started');
   if (result.kind !== 'started') throw new Error('Expected admission');
-  await waitFor(async () => expect((await Repo.transactions.get(result.operationId))?.extraInputs.evmTxHash).toBe(depositHash));
+  await waitFor(async () =>
+    expect((await Repo.transactions.get(result.operationId))?.extraInputs.evmTxHash).toBe(depositHash)
+  );
   const before = await Repo.transactions.get(result.operationId);
   const sent = signed.length;
   expect(before?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('known');
