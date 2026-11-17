@@ -548,100 +548,119 @@ function inHistoryLane<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** The flush pass waiting in the history lane that has not started yet, with the session it is for. */
+let pendingFlush: { session: BackupSession; result: Promise<number> } | null = null;
+
 /**
  * Append new Completed rows to this device's chunks, rewrite the chunks whose
  * rows changed, and upload the changed chunks. Returns how many chunks the
  * server acknowledged.
+ *
+ * Requests coalesce: a request made while a pass of the same session waits in
+ * the lane joins it, so a burst of completions costs one pass running and one
+ * more after it. That pass reads the rows when it starts, so it sees every
+ * row a joined request was made for.
  */
 export function flushHistory(session: BackupSession): Promise<number> {
-  return inHistoryLane(async () => {
-    // The task waited in the lane, then for the device id: a lock or a wipe may have landed.
-    assertSessionLive(session);
-    const deviceId = await getBackupDeviceId();
-    assertSessionLive(session);
-    const history = session.state.history;
-    const projections = new Map<string, string>();
-    const project = (tx: ITransaction) => {
-      const json = JSON.stringify(projectTransaction(tx));
-      if (chunkBlobBytes([json]) > HISTORY_BLOB_CAP) {
-        console.warn(`[backup] history row ${tx.id} is over the chunk cap; not synced`);
-        return;
-      }
-      projections.set(tx.id, json);
-    };
+  if (pendingFlush !== null && pendingFlush.session === session) return pendingFlush.result;
+  const pending: { session: BackupSession; result: Promise<number> } = {
+    session,
+    result: inHistoryLane(() => {
+      if (pendingFlush === pending) pendingFlush = null;
+      return flushPass(session);
+    })
+  };
+  pendingFlush = pending;
+  return pending.result;
+}
 
-    // Rows already in a chunk: their current projection, whatever their status now.
-    const assignedIds = Object.keys(history.assigned);
-    const assignedRows = await Repo.transactions.bulkGet(assignedIds);
-    assertSessionLive(session);
-    for (const tx of assignedRows) {
-      if (tx !== undefined && !tx.restoredFromBackup) project(tx);
+async function flushPass(session: BackupSession): Promise<number> {
+  // The task waited in the lane, then for the device id: a lock or a wipe may have landed.
+  assertSessionLive(session);
+  const deviceId = await getBackupDeviceId();
+  assertSessionLive(session);
+  const history = session.state.history;
+  const projections = new Map<string, string>();
+  const project = (tx: ITransaction) => {
+    const json = JSON.stringify(projectTransaction(tx));
+    if (chunkBlobBytes([json]) > HISTORY_BLOB_CAP) {
+      console.warn(`[backup] history row ${tx.id} is over the chunk cap; not synced`);
+      return;
     }
-    const dirty = new Set(history.dirty);
-    for (const [id, assignment] of Object.entries(history.assigned)) {
-      const json = projections.get(id);
-      if (json === undefined) continue;
-      const digest = plaintextDigest(json);
-      if (digest !== assignment.digest) {
-        assignment.digest = digest;
-        dirty.add(assignment.n);
-      }
-    }
+    projections.set(tx.id, json);
+  };
 
-    // New Completed rows, oldest first, appended to the open chunk.
-    const candidates = await Repo.transactions
-      .filter(tx => isAppendableRow(tx) && history.assigned[tx.id] === undefined)
-      .toArray();
-    assertSessionLive(session);
-    candidates.sort(
-      (a, b) =>
-        (a.completedAt ?? a.initiatedAt) - (b.completedAt ?? b.initiatedAt) ||
-        a.initiatedAt - b.initiatedAt ||
-        a.id.localeCompare(b.id)
-    );
-    const rowsOf = (ids: readonly string[]) =>
-      ids.map(id => projections.get(id)).filter((json): json is string => json !== undefined);
-    for (const tx of candidates) {
-      project(tx);
-      const json = projections.get(tx.id);
-      if (json === undefined) continue;
-      let open = history.chunks[history.chunks.length - 1];
-      if (open === undefined) {
-        open = { n: 0, ids: [] };
-        history.chunks.push(open);
-      }
-      const after = chunkBlobBytes([...rowsOf(open.ids), json]);
-      if (open.ids.length > 0 && after > HISTORY_BLOB_CAP - CHUNK_HEADROOM_BYTES) {
-        open = { n: open.n + 1, ids: [] };
-        history.chunks.push(open);
-      }
-      open.ids.push(tx.id);
-      history.assigned[tx.id] = { n: open.n, digest: plaintextDigest(json) };
-      dirty.add(open.n);
+  // Rows already in a chunk: their current projection, whatever their status now.
+  const assignedIds = Object.keys(history.assigned);
+  const assignedRows = await Repo.transactions.bulkGet(assignedIds);
+  assertSessionLive(session);
+  for (const tx of assignedRows) {
+    if (tx !== undefined && !tx.restoredFromBackup) project(tx);
+  }
+  const dirty = new Set(history.dirty);
+  for (const [id, assignment] of Object.entries(history.assigned)) {
+    const json = projections.get(id);
+    if (json === undefined) continue;
+    const digest = plaintextDigest(json);
+    if (digest !== assignment.digest) {
+      assignment.digest = digest;
+      dirty.add(assignment.n);
     }
-    // A rewritten chunk can be over the cap now: its last rows move to the open chunk.
-    for (const n of spillOverfullChunks(history, rowsOf)) dirty.add(n);
-    history.dirty = [...dirty].sort((a, b) => a - b);
-    await persistBackupState(session.state);
-    if (history.dirty.length === 0) return 0;
+  }
 
-    // A row this device no longer holds keeps no projection, so a rewrite of its chunk drops it.
-    const outgoing = history.dirty.flatMap(n => {
-      const chunk = history.chunks.find(candidate => candidate.n === n);
-      if (chunk === undefined) return [];
-      return [{ entryKey: historyEntryKey(deviceId, n), plaintext: `[${rowsOf(chunk.ids).join(',')}]` }];
-    });
-    const written = await uploadEntries(session, 'history', outgoing);
-    const marks = session.state.features.history.entries;
-    history.dirty = history.dirty.filter(n => {
-      const item = outgoing.find(candidate => candidate.entryKey === historyEntryKey(deviceId, n));
-      if (item === undefined) return false;
-      return marks[hashedKeyOf(session, item.entryKey)]?.digest !== plaintextDigest(item.plaintext);
-    });
-    assertSessionLive(session);
-    await persistBackupState(session.state);
-    return written.length;
+  // New Completed rows, oldest first, appended to the open chunk.
+  const candidates = await Repo.transactions
+    .filter(tx => isAppendableRow(tx) && history.assigned[tx.id] === undefined)
+    .toArray();
+  assertSessionLive(session);
+  candidates.sort(
+    (a, b) =>
+      (a.completedAt ?? a.initiatedAt) - (b.completedAt ?? b.initiatedAt) ||
+      a.initiatedAt - b.initiatedAt ||
+      a.id.localeCompare(b.id)
+  );
+  const rowsOf = (ids: readonly string[]) =>
+    ids.map(id => projections.get(id)).filter((json): json is string => json !== undefined);
+  for (const tx of candidates) {
+    project(tx);
+    const json = projections.get(tx.id);
+    if (json === undefined) continue;
+    let open = history.chunks[history.chunks.length - 1];
+    if (open === undefined) {
+      open = { n: 0, ids: [] };
+      history.chunks.push(open);
+    }
+    const after = chunkBlobBytes([...rowsOf(open.ids), json]);
+    if (open.ids.length > 0 && after > HISTORY_BLOB_CAP - CHUNK_HEADROOM_BYTES) {
+      open = { n: open.n + 1, ids: [] };
+      history.chunks.push(open);
+    }
+    open.ids.push(tx.id);
+    history.assigned[tx.id] = { n: open.n, digest: plaintextDigest(json) };
+    dirty.add(open.n);
+  }
+  // A rewritten chunk can be over the cap now: its last rows move to the open chunk.
+  for (const n of spillOverfullChunks(history, rowsOf)) dirty.add(n);
+  history.dirty = [...dirty].sort((a, b) => a - b);
+  await persistBackupState(session.state);
+  if (history.dirty.length === 0) return 0;
+
+  // A row this device no longer holds keeps no projection, so a rewrite of its chunk drops it.
+  const outgoing = history.dirty.flatMap(n => {
+    const chunk = history.chunks.find(candidate => candidate.n === n);
+    if (chunk === undefined) return [];
+    return [{ entryKey: historyEntryKey(deviceId, n), plaintext: `[${rowsOf(chunk.ids).join(',')}]` }];
   });
+  const written = await uploadEntries(session, 'history', outgoing);
+  const marks = session.state.features.history.entries;
+  history.dirty = history.dirty.filter(n => {
+    const item = outgoing.find(candidate => candidate.entryKey === historyEntryKey(deviceId, n));
+    if (item === undefined) return false;
+    return marks[hashedKeyOf(session, item.entryKey)]?.digest !== plaintextDigest(item.plaintext);
+  });
+  assertSessionLive(session);
+  await persistBackupState(session.state);
+  return written.length;
 }
 
 /** The hashed keys of this device's own chunks: never applied from the server. */

@@ -379,6 +379,37 @@ describe('history sync', () => {
     expect(server.entriesOf(session.publicKey, 'history')).toHaveLength(0);
   });
 
+  // Every completed row signals a flush, and each pass reads and projects the whole history.
+  it('coalesces flush requests made while a flush runs into one more pass, which sees the new rows', async () => {
+    await Repo.transactions.bulkAdd([row('a')]);
+    const bulkGet = Repo.transactions.bulkGet.bind(Repo.transactions);
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const passes = jest.spyOn(Repo.transactions, 'bulkGet').mockImplementationOnce(async keys => {
+      await gate;
+      return bulkGet(keys);
+    });
+    const first = flushHistory(session);
+    while (passes.mock.calls.length === 0) await new Promise(resolve => setTimeout(resolve, 0));
+
+    await Repo.transactions.add(row('b'));
+    const later = Array.from({ length: 10 }, () => flushHistory(session));
+    release();
+    await Promise.all([first, ...later]);
+
+    expect(passes).toHaveBeenCalledTimes(2);
+    expect(await chunkRows(0)).toEqual(['a', 'b']);
+  });
+
+  it('runs a flush requested after a failed pass', async () => {
+    jest.spyOn(Repo.transactions, 'bulkGet').mockRejectedValueOnce(new Error('db'));
+    await expect(flushHistory(session)).rejects.toThrow('db');
+    await Repo.transactions.add(row('a'));
+    await expect(flushHistory(session)).resolves.toBe(1);
+  });
+
   it('appends Completed rows, oldest first, to chunk 0 and uploads it once', async () => {
     await Repo.transactions.bulkAdd([
       row('late', { completedAt: 1_700_000_100 }),
