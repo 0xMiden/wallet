@@ -10,7 +10,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { createNodeReads, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import type { ITransaction } from '../db/types';
 import { recordedSwapOrder, swapOrderOf } from '../sdk/apply-after-submit';
-import { canonicalWalletAccountId } from '../sdk/helpers';
+import { accountRefToSdk } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { landedOrderFacts, type LandedTransaction, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
@@ -158,9 +158,10 @@ export async function checkPinnedReplayNotes(
         const notes = request.expectedOutputOwnNotes();
         // The SDK refuses a note declared under another account only when it executes the request, and the wallet once
         // queued a dApp's request whose approval run failed: such bytes never run as this row, so they are refused here
-        // rather than asked about on every Retry.
+        // rather than asked about on every Retry. The account parse catches nothing, so a trap leaves as itself for the
+        // lock and an id that does not parse is a read with no answer, never a foreign sender.
         if (row.type === 'execute' && notes.length > 0) {
-          const owner = normalizeHex(canonicalWalletAccountId(row.accountId));
+          const owner = normalizeHex(accountRefToSdk(row.accountId).toString());
           if (notes.some(note => normalizeHex(note.metadata().sender().toString()) !== owner)) {
             throw new SavedRequestForeignSender('the saved request declares a note under another account');
           }

@@ -413,6 +413,16 @@ describe('the account an execute`s saved request names as its notes` sender', ()
     expect(createReads).not.toHaveBeenCalled();
   });
 
+  it('a row account that does not parse is a read that gave no answer, not a foreign sender', async () => {
+    decodesTo(requestNote(FIRST));
+
+    await expect(checkPinnedReplayNotes({ ...execute, accountId: 'mtst1unknown' }, { createReads })).resolves.toEqual({
+      kind: 'unknown',
+      cause: 'read'
+    });
+    expect(createReads).not.toHaveBeenCalled();
+  });
+
   // The wallet builds a send's, a swap's and a bridged send's request in the row's own name.
   it.each(['send', 'swap', 'bridged-send'] as const)(
     'a %s`s request is not checked for the sender it declares',
