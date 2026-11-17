@@ -4,7 +4,7 @@ import { b64ToU8 } from 'lib/shared/helpers';
 
 import { HISTORY_BLOB_CAP, decryptEntry, encryptEntry } from '../crypto';
 import { hashedKeyOf } from '../entries';
-import { type BackupSession, clearBackupSession, getBackupSession } from '../session';
+import { type BackupSession, BackupSessionClosedError, clearBackupSession, getBackupSession } from '../session';
 import { type HistoryState, getBackupDeviceId, onBackupStorageCleared } from '../state';
 import {
   CHUNK_HEADROOM_BYTES,
@@ -25,6 +25,7 @@ import {
   FakeVault,
   FakeWalletApi,
   MemoryStorage,
+  getActiveStorage,
   PHRASE_A,
   installCopyingImportKey,
   installFakeFetch,
@@ -365,6 +366,17 @@ describe('history sync', () => {
     clearBackupSession();
     restoreFetch();
     jest.restoreAllMocks();
+  });
+
+  it('a flush that waited past a storage wipe writes no backup state and uploads nothing', async () => {
+    await Repo.transactions.bulkAdd([row('a')]);
+    const flush = flushHistory(session);
+    // The wipe: a new, empty storage for the next wallet.
+    setActiveStorage(new MemoryStorage());
+    onBackupStorageCleared();
+    await expect(flush).rejects.toBeInstanceOf(BackupSessionClosedError);
+    expect(getActiveStorage().has('backup_state_v1')).toBe(false);
+    expect(server.entriesOf(session.publicKey, 'history')).toHaveLength(0);
   });
 
   it('appends Completed rows, oldest first, to chunk 0 and uploads it once', async () => {

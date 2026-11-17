@@ -41,6 +41,7 @@ import {
   BackupSessionClosedError,
   clearBackupSession,
   getBackupSession,
+  isSessionLive,
   persistMergeRecords,
   withSessionToken
 } from './session';
@@ -210,12 +211,14 @@ export async function deleteBackupProfile(): Promise<BackupRefreshOutcome> {
   if ('unavailable' in opened) return opened.unavailable;
   try {
     await withSessionToken(opened.session, token => deleteProfile(token));
+    // A lock or a wipe during the delete: the local records are no longer this session's to clear.
+    if (!isSessionLive(opened.session)) return 'locked';
     cancelGuardianReread();
     clearBackupSession();
     // The contacts base described the deleted profile's list; the name marks are local facts and stay.
     opened.session.merge.contactsBase = null;
     await persistMergeRecords(opened.session);
-    await removeBackupState();
+    await removeBackupState(opened.session.state);
     return 'updated';
   } catch (error) {
     if (error instanceof BackupSessionClosedError) return 'locked';

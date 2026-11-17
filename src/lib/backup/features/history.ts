@@ -34,7 +34,7 @@ import { isRecord } from 'lib/update/guards';
 
 import { HISTORY_BLOB_CAP, encryptedBlobLength, plaintextDigest } from '../crypto';
 import { type IncomingEntry, hashedKeyOf, readFeature, uploadEntries } from '../entries';
-import type { BackupSession } from '../session';
+import { type BackupSession, assertSessionLive } from '../session';
 import { type HistoryState, getBackupDeviceId, persistBackupState } from '../state';
 
 /** The most note ids one row carries. */
@@ -555,7 +555,10 @@ function inHistoryLane<T>(task: () => Promise<T>): Promise<T> {
  */
 export function flushHistory(session: BackupSession): Promise<number> {
   return inHistoryLane(async () => {
+    // The task waited in the lane, then for the device id: a lock or a wipe may have landed.
+    assertSessionLive(session);
     const deviceId = await getBackupDeviceId();
+    assertSessionLive(session);
     const history = session.state.history;
     const projections = new Map<string, string>();
     const project = (tx: ITransaction) => {
@@ -570,6 +573,7 @@ export function flushHistory(session: BackupSession): Promise<number> {
     // Rows already in a chunk: their current projection, whatever their status now.
     const assignedIds = Object.keys(history.assigned);
     const assignedRows = await Repo.transactions.bulkGet(assignedIds);
+    assertSessionLive(session);
     for (const tx of assignedRows) {
       if (tx !== undefined && !tx.restoredFromBackup) project(tx);
     }
@@ -588,6 +592,7 @@ export function flushHistory(session: BackupSession): Promise<number> {
     const candidates = await Repo.transactions
       .filter(tx => isAppendableRow(tx) && history.assigned[tx.id] === undefined)
       .toArray();
+    assertSessionLive(session);
     candidates.sort(
       (a, b) =>
         (a.completedAt ?? a.initiatedAt) - (b.completedAt ?? b.initiatedAt) ||
@@ -633,6 +638,7 @@ export function flushHistory(session: BackupSession): Promise<number> {
       if (item === undefined) return false;
       return marks[hashedKeyOf(session, item.entryKey)]?.digest !== plaintextDigest(item.plaintext);
     });
+    assertSessionLive(session);
     await persistBackupState(session.state);
     return written.length;
   });

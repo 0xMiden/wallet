@@ -111,14 +111,17 @@ function emptyHistory(): HistoryState {
 }
 
 export function emptyBackupState(publicKey: string): BackupState {
-  return {
-    v: 1,
-    publicKey,
-    salt: null,
-    profileEtag: null,
-    features: emptyFeatures(),
-    history: emptyHistory()
-  };
+  return ownedByEpoch(
+    {
+      v: 1,
+      publicKey,
+      salt: null,
+      profileEtag: null,
+      features: emptyFeatures(),
+      history: emptyHistory()
+    },
+    storageEpoch
+  );
 }
 
 /**
@@ -237,15 +240,39 @@ export function readBackupMergeRecords(value: unknown): BackupMergeRecords | nul
 
 /** Load the state of `publicKey`. A missing state, a state of another key or an unreadable state gives an empty one. */
 export async function loadBackupState(publicKey: string): Promise<BackupState> {
+  // Taken before the read: a load that spans a wipe belongs to the storage it read.
+  const epoch = storageEpoch;
+  let state: BackupState | null = null;
   try {
     const items = await getStorageProvider().get([STATE_STORAGE_KEY]);
-    const stored: unknown = items[STATE_STORAGE_KEY];
-    const state = readBackupState(stored);
-    return state !== null && state.publicKey === publicKey ? state : emptyBackupState(publicKey);
+    const stored = readBackupState(items[STATE_STORAGE_KEY]);
+    if (stored !== null && stored.publicKey === publicKey) state = stored;
   } catch (error) {
     console.warn('[backup] the local backup state could not be read; starting from empty', error);
-    return emptyBackupState(publicKey);
   }
+  return ownedByEpoch(state ?? emptyBackupState(publicKey), epoch);
+}
+
+/**
+ * The storage wipe count each state was loaded or made in. Not stored: a
+ * state belongs to the storage of this realm's run that produced it.
+ */
+const stateEpochs = new WeakMap<BackupState, number>();
+
+function ownedByEpoch(state: BackupState, epoch: number): BackupState {
+  stateEpochs.set(state, epoch);
+  return state;
+}
+
+/**
+ * True while `state` belongs to the current storage. A state from before a
+ * wipe (a task of the old wallet that still holds it) must not write into the
+ * storage of the wallet made after it.
+ */
+function isCurrentState(state: BackupState, action: string): boolean {
+  if (stateEpochs.get(state) === storageEpoch) return true;
+  console.warn(`[backup] a backup state from before a storage wipe was not ${action}`);
+  return false;
 }
 
 let persistChain: Promise<void> = Promise.resolve();
@@ -255,15 +282,20 @@ let persistChain: Promise<void> = Promise.resolve();
  * A failed write is logged; the next change writes the full state again.
  */
 export function persistBackupState(state: BackupState): Promise<void> {
+  if (!isCurrentState(state, 'saved')) return persistChain;
   const snapshot: unknown = JSON.parse(JSON.stringify(state));
   persistChain = persistChain
-    .then(() => getStorageProvider().set({ [STATE_STORAGE_KEY]: snapshot }))
+    // A wipe can land while the write waits its turn.
+    .then(() =>
+      isCurrentState(state, 'saved') ? getStorageProvider().set({ [STATE_STORAGE_KEY]: snapshot }) : undefined
+    )
     .catch(error => console.warn('[backup] the local backup state could not be saved', error));
   return persistChain;
 }
 
-/** Remove the local state, for a deleted profile. The device id stays. */
-export function removeBackupState(): Promise<void> {
+/** Remove the local state of `state`'s storage, for a deleted profile. The device id stays. */
+export function removeBackupState(state: BackupState): Promise<void> {
+  if (!isCurrentState(state, 'removed')) return persistChain;
   persistChain = persistChain
     .then(() => getStorageProvider().remove([STATE_STORAGE_KEY]))
     .catch(error => console.warn('[backup] the local backup state could not be removed', error));

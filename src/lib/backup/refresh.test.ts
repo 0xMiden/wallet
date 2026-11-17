@@ -18,7 +18,7 @@ import {
   getBackupSession,
   isSessionLive
 } from './session';
-import { readBackupState } from './state';
+import { onBackupStorageCleared, readBackupState } from './state';
 import {
   FakeVault,
   FakeWalletApi,
@@ -350,6 +350,20 @@ describe('deleteBackupProfile', () => {
     // The pending Guardian re-reads stop with the profile.
     await jest.advanceTimersByTimeAsync(3_600_000);
     expect(readHistory).toHaveBeenCalledTimes(reads);
+  });
+
+  it('leaves the records of a wallet made during the delete alone', async () => {
+    await runBackupRefresh('unlock');
+    const newWallet = { v: 1, publicKey: 'new-wallet' };
+    server.onRequest = request => {
+      if (request.method !== 'DELETE') return;
+      // The storage is wiped and a new wallet writes its own records while the delete is on the wire.
+      onBackupStorageCleared();
+      void getActiveStorage().set({ backup_state_v1: newWallet });
+    };
+    await expect(deleteBackupProfile()).resolves.toBe('locked');
+    server.onRequest = null;
+    expect(getActiveStorage().read('backup_state_v1')).toEqual(newWallet);
   });
 
   it('reports disabled, locked and failed', async () => {

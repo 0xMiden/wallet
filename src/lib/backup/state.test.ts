@@ -177,8 +177,9 @@ describe('persistBackupState', () => {
 
   it('removes the state and keeps the device id', async () => {
     const deviceId = await getBackupDeviceId();
-    await persistBackupState(filledState());
-    await removeBackupState();
+    const state = filledState();
+    await persistBackupState(state);
+    await removeBackupState(state);
     expect(storage.has(STATE_KEY)).toBe(false);
     expect(storage.read(DEVICE_KEY)).toBe(deviceId);
   });
@@ -186,8 +187,46 @@ describe('persistBackupState', () => {
   it('logs a failed removal', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     jest.spyOn(storage, 'remove').mockRejectedValueOnce(new Error('io'));
-    await expect(removeBackupState()).resolves.toBeUndefined();
+    await expect(removeBackupState(filledState())).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe('a state from before a storage wipe', () => {
+  // The wipe made a new wallet's storage; nothing the old wallet's tasks still hold may write into it.
+  it('is not written when the write is asked for after the wipe', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const stale = filledState();
+    onBackupStorageCleared();
+    await persistBackupState(stale);
+    expect(storage.has(STATE_KEY)).toBe(false);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('is not written when its queued write runs after the wipe', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const write = persistBackupState(filledState());
+    onBackupStorageCleared();
+    await write;
+    expect(storage.has(STATE_KEY)).toBe(false);
+  });
+
+  it('is not written when its load spanned the wipe', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const loading = loadBackupState('pk');
+    onBackupStorageCleared();
+    await persistBackupState(await loading);
+    expect(storage.has(STATE_KEY)).toBe(false);
+  });
+
+  it("does not remove the new wallet's state", async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const stale = filledState();
+    onBackupStorageCleared();
+    const current = filledState('new');
+    await persistBackupState(current);
+    await removeBackupState(stale);
+    expect(readBackupState(storage.read(STATE_KEY))?.publicKey).toBe('new');
   });
 });
 
