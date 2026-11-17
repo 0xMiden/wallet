@@ -244,19 +244,37 @@ function forcedWithdrawalOf(value: unknown): CompactLockState['withdrawal'] {
   }
 }
 
-/** Read the balance of `owner` in lock `lockId` on `chainId` and the state of its forced withdrawal. */
-export async function readCompactLockState(chainId: number, owner: Address, lockId: bigint): Promise<CompactLockState> {
-  const snapshot = await initBridgeConfig();
-  const allocatorUrl = snapshot.config?.['bridge-providers'].epoch.allocatorUrl;
-  if (allocatorUrl === undefined) return {};
+/**
+ * Read the balance of `owner` in lock `lockId` on `chainId` and the state of its forced withdrawal. A caller that
+ * already read the allocator settings gives `knownCompact`, and then they are not read again.
+ */
+export async function readCompactLockState(
+  chainId: number,
+  owner: Address,
+  lockId: bigint,
+  knownCompact?: Address
+): Promise<CompactLockState> {
   let compact: Address;
   let client: ReturnType<typeof compactPublicClient>;
-  try {
-    compact = (await readCompactLockConfig(allocatorUrl, chainId)).compact;
-    client = compactPublicClient(chainId);
-  } catch (err) {
-    console.warn('[epoch] Compact lock settings read failed', chainId, err);
-    return {};
+  if (knownCompact === undefined) {
+    const snapshot = await initBridgeConfig();
+    const allocatorUrl = snapshot.config?.['bridge-providers'].epoch.allocatorUrl;
+    if (allocatorUrl === undefined) return {};
+    try {
+      compact = (await readCompactLockConfig(allocatorUrl, chainId)).compact;
+      client = compactPublicClient(chainId);
+    } catch (err) {
+      console.warn('[epoch] Compact lock settings read failed', chainId, err);
+      return {};
+    }
+  } else {
+    compact = knownCompact;
+    try {
+      client = compactPublicClient(chainId);
+    } catch (err) {
+      console.warn('[epoch] Compact lock client build failed', chainId, err);
+      return {};
+    }
   }
   const [balance, withdrawal] = await Promise.allSettled([
     client.readContract(balanceCall(compact, owner, lockId)),

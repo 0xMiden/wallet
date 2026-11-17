@@ -200,7 +200,13 @@ export async function lockedDepositsOnLock(ref: CompactLockRef): Promise<{ id: s
  * intent. Undefined when no row has one.
  */
 export async function findRetryableLockedDeposit(ref: CompactLockRef): Promise<string | undefined> {
-  const deposits = await lockedDepositsOnLock(ref);
+  return retryableLockedDepositId(await lockedDepositsOnLock(ref));
+}
+
+/** The id of the first of `deposits`, as `lockedDepositsOnLock` returns them, that still holds the refused intent. */
+export function retryableLockedDepositId(
+  deposits: readonly { id: string; lock: IEpochLockedDeposit }[]
+): string | undefined {
   return deposits.find(({ lock }) => lock.taskTypeString !== '' && Object.keys(lock.intentData).length > 0)?.id;
 }
 

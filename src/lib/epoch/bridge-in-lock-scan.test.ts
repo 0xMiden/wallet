@@ -241,4 +241,24 @@ describe('readCompactLockState', () => {
       withdrawal: { status: 'Disabled' }
     });
   });
+
+  it('reads at the given Compact address and does not read the allocator settings again', async () => {
+    mockClient.readContract.mockResolvedValueOnce(9n).mockResolvedValueOnce([0, 0n]);
+
+    await expect(readCompactLockState(11155111, OWNER, 42n, COMPACT)).resolves.toEqual({
+      balance: 9n,
+      withdrawal: { status: 'Disabled' }
+    });
+
+    expect(mockResolveConfig).not.toHaveBeenCalled();
+    expect(mockClient.readContract).toHaveBeenCalledTimes(2);
+    expect(mockClient.readContract).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ address: COMPACT, functionName: 'balanceOf', args: [OWNER, 42n] })
+    );
+    expect(mockClient.readContract).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ address: COMPACT, functionName: 'getForcedWithdrawalStatus', args: [OWNER, 42n] })
+    );
+  });
 });

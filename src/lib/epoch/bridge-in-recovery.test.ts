@@ -8,9 +8,11 @@ import {
   finishLockedDepositWithdrawal,
   finishLockWithdrawal,
   LockedDepositError,
+  lockedDepositsOnLock,
   markEpochLockedDepositReallocated,
   patchLockedDepositsOnLock,
   readCompactData,
+  retryableLockedDepositId,
   retryLockedDeposit,
   sponsorWalletRefusal,
   startLockedDepositWithdrawal,
@@ -686,6 +688,19 @@ describe('lock actions (Settings recovery page)', () => {
 
     seedRow({ lockId: LOCK_ID }, { restoredFromBackup: true });
     await expect(findRetryableLockedDeposit(REF)).resolves.toBeUndefined();
+  });
+
+  it('picks the retryable row from rows that were already read', async () => {
+    expect(retryableLockedDepositId(await lockedDepositsOnLock(REF))).toBeUndefined();
+
+    seedRow({ lockId: LOCK_ID });
+    expect(retryableLockedDepositId(await lockedDepositsOnLock(REF))).toBe('row-1');
+
+    seedRow({ lockId: LOCK_ID, intentData: {} });
+    expect(retryableLockedDepositId(await lockedDepositsOnLock(REF))).toBeUndefined();
+
+    seedRow({ lockId: LOCK_ID }, { restoredFromBackup: true });
+    expect(retryableLockedDepositId(await lockedDepositsOnLock(REF))).toBeUndefined();
   });
 });
 

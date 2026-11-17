@@ -29,7 +29,11 @@ const mockOpenPicker = jest.fn();
 jest.mock('lib/walletconnect/useEvmWalletPicker', () => ({
   useEvmWalletPicker: () => ({ openWalletPicker: mockOpenPicker, error: undefined })
 }));
-jest.mock('lib/walletconnect/config', () => ({ getChain: () => ({ name: 'Sepolia' }) }));
+// The real bridge-in-recovery module, which supplies the pure retry rule below, loads the rest of this module.
+jest.mock('lib/walletconnect/config', () => ({
+  ...jest.requireActual<typeof import('lib/walletconnect/config')>('lib/walletconnect/config'),
+  getChain: () => ({ name: 'Sepolia' })
+}));
 jest.mock('lib/walletconnect/signing-error', () => ({
   nativeSigningErrorMessage: (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 }));
@@ -62,7 +66,6 @@ const mockStart = jest.fn();
 const mockFinish = jest.fn();
 const mockCancel = jest.fn();
 const mockRetry = jest.fn();
-const mockFindRetryable = jest.fn();
 const mockDepositsOnLock = jest.fn();
 jest.mock('lib/epoch/bridge-in-recovery', () => {
   class LockedDepositError extends Error {
@@ -83,7 +86,10 @@ jest.mock('lib/epoch/bridge-in-recovery', () => {
     finishLockWithdrawal: (...args: unknown[]) => mockFinish(...args),
     cancelLockWithdrawal: (...args: unknown[]) => mockCancel(...args),
     retryLockedDeposit: (...args: unknown[]) => mockRetry(...args),
-    findRetryableLockedDeposit: (...args: unknown[]) => mockFindRetryable(...args),
+    // The pure rule comes from the real module, so the page derives Retry from the rows that it read.
+    retryableLockedDepositId:
+      jest.requireActual<typeof import('lib/epoch/bridge-in-recovery')>('lib/epoch/bridge-in-recovery')
+        .retryableLockedDepositId,
     lockedDepositsOnLock: (...args: unknown[]) => mockDepositsOnLock(...args)
   };
 });
@@ -103,7 +109,6 @@ beforeEach(() => {
   mockConnection.connected = true;
   mockReadState.mockResolvedValue({ balance: 2_500_000n, withdrawal: { status: 'Disabled' } });
   mockReadRecord.mockResolvedValue(undefined);
-  mockFindRetryable.mockResolvedValue(undefined);
   mockDepositsOnLock.mockResolvedValue([]);
   mockStart.mockResolvedValue(4900);
   mockFinish.mockResolvedValue('0xwithdraw');
@@ -183,7 +188,9 @@ describe('RecoverLockedFundsLock', () => {
 
   it('prefers a locked history row over the storage record', async () => {
     mockReadState.mockResolvedValue({});
-    mockDepositsOnLock.mockResolvedValue([{ id: 'row-1', lock: { withdrawEnabledAt: 950, withdrawableAt: 1030 } }]);
+    mockDepositsOnLock.mockResolvedValue([
+      { id: 'row-1', lock: { taskTypeString: '', intentData: {}, withdrawEnabledAt: 950, withdrawableAt: 1030 } }
+    ]);
     mockReadRecord.mockResolvedValue({ enabledAt: 990, withdrawableAt: 1010 });
     await renderLock();
 
@@ -191,9 +198,14 @@ describe('RecoverLockedFundsLock', () => {
   });
 
   it('offers Retry bridge only when a row still holds the intent', async () => {
-    mockFindRetryable.mockResolvedValue('row-1');
+    mockDepositsOnLock.mockResolvedValue([
+      { id: 'row-0', lock: { taskTypeString: '', intentData: {} } },
+      { id: 'row-1', lock: { taskTypeString: 'task', intentData: { amount: '1' } } }
+    ]);
     await renderLock();
 
+    // One read of the rows feeds both the retry choice and the recorded times.
+    expect(mockDepositsOnLock).toHaveBeenCalledTimes(1);
     await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-retry')));
     expect(mockRetry).toHaveBeenCalledWith('row-1');
   });

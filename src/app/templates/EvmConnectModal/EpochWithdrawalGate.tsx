@@ -33,10 +33,10 @@ type WithdrawalCheck =
   | { status: 'ready'; lock: CompactLockRef; compact: Address; active: boolean };
 
 /** Whether The Compact now reports no forced withdrawal for `lock`. A failed read gives false: keep the active state. */
-async function chainShowsWithdrawalOff(lock: CompactLockRef): Promise<boolean> {
+async function chainShowsWithdrawalOff(lock: CompactLockRef, compact: Address): Promise<boolean> {
   if (!isAddress(lock.sponsorAddress)) return false;
   try {
-    const state = await readCompactLockState(lock.chainId, lock.sponsorAddress, BigInt(lock.lockId));
+    const state = await readCompactLockState(lock.chainId, lock.sponsorAddress, BigInt(lock.lockId), compact);
     return state.withdrawal?.status === 'Disabled';
   } catch {
     return false;
@@ -77,7 +77,7 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
       if (!isAddress(sponsorAddress)) throw new Error('Invalid bridge sponsor address.');
       const config = await readCompactLockConfig(allocatorUrl, chainId);
       const lockId = compactLockId(config.allocator, config.resetPeriod, config.scope, tokenAddress);
-      const state = await readCompactLockState(chainId, sponsorAddress, lockId);
+      const state = await readCompactLockState(chainId, sponsorAddress, lockId, config.compact);
       if (state.withdrawal === undefined) throw new Error('Could not read the forced withdrawal status.');
       if (cancelled) return;
       setCheck({
@@ -105,7 +105,7 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
         await cancelLockWithdrawal(check.lock);
       } catch (cause) {
         // The write can fail after the chain already turned the withdrawal off. Read the status again.
-        if (!(await chainShowsWithdrawalOff(check.lock))) throw cause;
+        if (!(await chainShowsWithdrawalOff(check.lock, check.compact))) throw cause;
       }
       requestLockRescan();
       if (!mounted.current) return;

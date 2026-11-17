@@ -23,9 +23,9 @@ import {
 } from 'lib/epoch/bridge-in-lock-scan';
 import {
   cancelLockWithdrawal,
-  findRetryableLockedDeposit,
   finishLockWithdrawal,
   lockedDepositsOnLock,
+  retryableLockedDepositId,
   retryLockedDeposit,
   sponsorWalletRefusal,
   startLockWithdrawal
@@ -134,15 +134,14 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [chain, deposits, record, retryTxId] = await Promise.all([
+      const [chain, deposits, record] = await Promise.all([
         readCompactLockState(lock.chainId, lock.sponsorAddress, BigInt(lock.lockId)),
         lockedDepositsOnLock(lock),
-        readForcedWithdrawalRecord(lock),
-        findRetryableLockedDeposit(lock)
+        readForcedWithdrawalRecord(lock)
       ]);
       const row = deposits.find(deposit => deposit.lock.withdrawEnabledAt !== undefined)?.lock;
       const local: LocalLockState = {
-        retryTxId,
+        retryTxId: retryableLockedDepositId(deposits),
         enabledAt: row?.withdrawEnabledAt ?? record?.enabledAt,
         withdrawableAt: row?.withdrawableAt ?? record?.withdrawableAt
       };

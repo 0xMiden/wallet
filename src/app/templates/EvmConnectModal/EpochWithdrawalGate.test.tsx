@@ -30,6 +30,7 @@ jest.mock('./locked-deposit-error-text', () => ({
 const SPONSOR = '0x00000000000000000000000000000000000000AA';
 const TOKEN = '0x0000000000000000000000000000000000000002';
 const ALLOCATOR = '0x0000000000000000000000000000000000000003';
+const COMPACT = '0x0000000000000000000000000000000000000004';
 const mockOnDisabled = jest.fn<Promise<void>, []>();
 const props = {
   chainId: 137,
@@ -54,7 +55,7 @@ beforeEach(() => {
   jest.mocked(cancelLockWithdrawal).mockReset();
   jest.mocked(readCompactLockConfig).mockResolvedValue({
     chainId: 137,
-    compact: TOKEN,
+    compact: COMPACT,
     allocator: ALLOCATOR,
     resetPeriod: 2,
     scope: 0
@@ -75,10 +76,11 @@ it('holds submission while the status read is pending, then opens a disabled loc
 
   expect(screen.queryByRole('button', { name: 'Continue bridge' })).not.toBeInTheDocument();
   expect(screen.getByTestId('bridge-withdrawal-disable')).toBeDisabled();
-  await waitFor(() => expect(readCompactLockState).toHaveBeenCalledWith(137, SPONSOR, 42n));
+  await waitFor(() => expect(readCompactLockState).toHaveBeenCalledWith(137, SPONSOR, 42n, COMPACT));
   await act(async () => finishRead({ withdrawal: { status: 'Disabled' } }));
 
   expect(screen.getByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
+  expect(readCompactLockConfig).toHaveBeenCalledTimes(1);
   expect(readCompactLockConfig).toHaveBeenCalledWith(props.allocatorUrl, 137);
   expect(compactLockId).toHaveBeenCalledWith(ALLOCATOR, 2, 0, TOKEN);
   expect(cancelLockWithdrawal).not.toHaveBeenCalled();
@@ -157,7 +159,10 @@ describe('after a failed cancel the gate reads the status again', () => {
 
     await waitFor(() => expect(mockOnDisabled).toHaveBeenCalledTimes(1));
     expect(readCompactLockState).toHaveBeenCalledTimes(2);
-    expect(readCompactLockState).toHaveBeenLastCalledWith(137, SPONSOR, 42n);
+    expect(readCompactLockState).toHaveBeenNthCalledWith(1, 137, SPONSOR, 42n, COMPACT);
+    expect(readCompactLockState).toHaveBeenLastCalledWith(137, SPONSOR, 42n, COMPACT);
+    // The settings of the allocator are read once for the check, not again for the status read after the failure.
+    expect(readCompactLockConfig).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: 'Continue bridge' })).not.toBeInTheDocument();
     await act(async () => quote());
 
@@ -249,7 +254,7 @@ it('reads the new lock when a new gate is mounted for it', async () => {
   expect(await screen.findByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
   await act(async () => finishRead({ withdrawal: { status: 'Enabled' } }));
   expect(screen.queryByTestId('bridge-withdrawal-disable')).not.toBeInTheDocument();
-  expect(readCompactLockState).toHaveBeenLastCalledWith(1, SPONSOR, 42n);
+  expect(readCompactLockState).toHaveBeenLastCalledWith(1, SPONSOR, 42n, COMPACT);
 });
 
 // The same mounted gate gets a new chain, so only the effect cleanup can tell that the old read is stale.
@@ -271,7 +276,7 @@ it('ignores a conflicting result of an old read after the same gate moved to a n
 
   view.rerender(renderOnChain(1));
   expect(await screen.findByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
-  expect(readCompactLockState).toHaveBeenLastCalledWith(1, SPONSOR, 42n);
+  expect(readCompactLockState).toHaveBeenLastCalledWith(1, SPONSOR, 42n, COMPACT);
 
   await act(async () => finishOldRead({ withdrawal: { status: 'Enabled' } }));
 
