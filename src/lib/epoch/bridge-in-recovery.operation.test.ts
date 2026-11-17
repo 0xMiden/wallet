@@ -249,6 +249,15 @@ it.each(['restored', 'recovered', 'malformed-no-token'])(
   }
 );
 
+it('conflicting row provider cannot hide a positively bound original Epoch source', async () => {
+  const value = owned('protected');
+  value.extraInputs = { ...value.extraInputs, provider: 'agglayer' };
+  delete value.extraInputs?.epochLockedDeposit;
+  await Repo.transactions.put(value);
+  await expect(finishLockWithdrawal(LOCK)).rejects.toThrow();
+  expect(mockWithdraw).not.toHaveBeenCalled();
+});
+
 it('late protected insertion during status preparation refuses the first withdrawal prompt', async () => {
   mockStatus.mockImplementationOnce(async () => {
     await Repo.transactions.put(owned('late-protected'));
