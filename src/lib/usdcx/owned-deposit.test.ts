@@ -1,5 +1,5 @@
 import { waitFor } from '@testing-library/react';
-import { createPublicClient, decodeFunctionData, erc20Abi, parseUnits, type Hash, type Hex, type EIP1193Provider } from 'viem';
+import { concatHex, createPublicClient, decodeFunctionData, erc20Abi, parseUnits, slice, toHex, type Hash, type Hex, type EIP1193Provider } from 'viem';
 
 import { runXReserveReceive } from 'lib/bridge/providers/xreserve/flows';
 import type { XReserveClient } from 'lib/bridge/providers/xreserve/deposit';
@@ -348,13 +348,18 @@ it.each(['failed', 'zero'])('refuses a %s transmitter getter before any new sour
   await waitFor(async () => expect(['known', 'uncertain']).toContain(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase));
   expect(signed).toHaveLength(0);
 });
-it.each(['hash', 'transmitter', 'duplicate log', 'source sender', 'source amount'])('retains the source hash but refuses unverified %s receipt evidence', async change => {
+it.each(['hash', 'transmitter', 'duplicate log', 'source sender', 'source amount', 'source domain', 'source token', 'mint recipient', 'source hook'])('retains the source hash but refuses unverified %s receipt evidence', async change => {
   const id = await driveAdapter(true, () => {
     adapterRpc.waitForTransactionReceipt.mockImplementationOnce(async ({ hash }) => {
       const source = getUsdcxSourceChain(11155111);
       if (source.route !== 'cctp-executor') throw new Error('Missing source');
-      const receipt = cctpSourceReceipt(hash, cctpSourceMessage(source,
-        change === 'source amount' ? { amount: 1000002n } : change === 'source sender' ? { sender: TEST_CCTP_TRANSMITTER } : {}));
+      let message = cctpSourceMessage(source,
+        change === 'source amount' ? { amount: 1000002n } : change === 'source sender' ? { sender: TEST_CCTP_TRANSMITTER } : {});
+      if (change === 'source domain') message = concatHex([slice(message, 0, 4), toHex(3, { size: 4 }), slice(message, 8)]);
+      if (change === 'source token') message = concatHex([slice(message, 0, 152), toHex(0, { size: 32 }), slice(message, 184)]);
+      if (change === 'mint recipient') message = concatHex([slice(message, 0, 184), toHex(0, { size: 32 }), slice(message, 216)]);
+      if (change === 'source hook') message = `0x${message.slice(2, -2)}05`;
+      const receipt = cctpSourceReceipt(hash, message);
       if (change === 'hash') receipt.transactionHash = FORWARD_HASH;
       if (change === 'transmitter') receipt.logs[0].address = source.usdc;
       if (change === 'duplicate log') receipt.logs.push(receipt.logs[0]);
@@ -397,6 +402,8 @@ it('accepts source placeholder nonce -> unique attested nonce -> same Arc Execut
   const { row } = await prepareOwnedStatus('none');
   expect(row?.extraInputs.phase).toBe('ready');
   expect(row?.extraInputs.cctp?.executeTxHash).toBe(FORWARD_HASH);
+  expect(slice(`0x${row?.extraInputs.cctp?.sourceMessage?.slice(2)}`, 12, 44)).toBe(toHex(0, { size: 32 }));
+  expect(receiptReader).toHaveBeenCalledTimes(1);
 });
 it('continues passive funded status after UI RPC departure and quote expiry without fresh source permission', async () => {
   const { row } = await prepareOwnedStatus('none', () => {
@@ -420,6 +427,25 @@ it.each(['ambiguous', 'proof', 'immutable amount', 'arc nonce', 'arc deposit', '
     change === 'immutable amount' ? 'immutable amount' : change === 'arc nonce' ? 'arc nonce' : change === 'arc deposit' ? 'arc deposit' : 'arc handler');
   expect(row?.extraInputs.phase).toBe('delivering');
   expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
+  expect(signed).toHaveLength(1);
+});
+
+it('enriches pending Circle approval facts in the existing passive reconciler without signing again', async () => {
+  const id = await driveAdapter(true, () => {
+    adapterAllowance = 0n;
+    adapterRpc.getTransaction.mockRejectedValueOnce(new Error('Metadata unavailable'));
+    adapterRpc.waitForTransactionReceipt.mockRejectedValueOnce(new Error('Receipt unavailable'));
+  });
+  await waitFor(async () => expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('uncertain'));
+  const before = await Repo.transactions.get(id);
+  const approval = before && bridgeOperationOf(before)?.approvals?.[0];
+  expect(approval?.hash).toBeDefined();
+  expect(approval?.transaction).toBeUndefined();
+  await createBridgeReceiveReconciler({ getLocks: () => undefined }).reconcile();
+  const after = await Repo.transactions.get(id);
+  expect(bridgeOperationOf(after!)?.approvals?.[0]?.transaction?.hash).toBe(approval?.hash);
+  expect(bridgeOperationOf(after!)?.sourceAttempt?.phase).toBe('uncertain');
+  expect(after?.extraInputs.evmTxHash).toBeUndefined();
   expect(signed).toHaveLength(1);
 });
 
