@@ -550,6 +550,32 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
     expect(await Repo.transactions.count()).toBe(1);
   });
 
+  it.each([false, true])('refuses revoked live consent after request build (Guardian=%s)', async guardian => {
+    mockIsGuardian.mockResolvedValue(guardian);
+    let revoked = false;
+    const original = input();
+    const checks = {
+      readCurrent: async () => {
+        if (revoked) throw new Error('Review invalidated');
+        return original.operation.review;
+      },
+      now: () => now
+    };
+    mockFeeAwareTransactionRequestBuilder.mockImplementationOnce(async () => {
+      revoked = true;
+      return mockFeeAwareBuilder;
+    });
+    await expect(runAgglayerSend(original.operation, { guardianProvider, ...{ checks } })).rejects.toThrow();
+    expect(await Repo.transactions.count()).toBe(0);
+  });
+
+  it('does not disclose serialized bridge request bytes in actual admission diagnostics', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await initiateB2AggBridge(input());
+    expect(log.mock.calls.flat().some(value => value instanceof Uint8Array)).toBe(false);
+    expect(await Repo.transactions.count()).toBe(1);
+  });
+
   it('returns the original admitted row after quote expiry and RPC departure without building another note', async () => {
     mockIsGuardian.mockResolvedValue(false);
     const original = input();

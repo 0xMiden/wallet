@@ -221,6 +221,33 @@ function directNoteInput(): CreateBridgeP2IDENoteArgs {
   };
 }
 
+it.each(['outer', 'direct'])('refuses revoked live consent during collateral build before queue: %s', async caller => {
+  let revoked = false;
+  const checks = {
+    readCurrent: async () => {
+      if (revoked) throw new EpochReviewChangedError();
+      return input.operation!.review;
+    },
+    now: () => now
+  };
+  jest.mocked(buildEpochCollateralRequestBytes).mockImplementationOnce(async () => {
+    revoked = true;
+    return { requestBytes: new Uint8Array([81, 82]), reclaimHeight: 6000, noteId: 'original-built-note' };
+  });
+  const outcome = caller === 'outer'
+    ? await runEpochSend(input.operation!, { ...input.deps, ...{ checks } }).then(() => 'admitted', () => 'refused')
+    : await createBridgeP2IDENote({ ...directNoteInput(), ...{ checks } }).then(
+      result => result.success ? 'admitted' : 'refused', () => 'refused');
+  expect({ outcome, rows: await Repo.transactions.count(), builds: noteBuilds + 1 }).toEqual({ outcome: 'refused', rows: 0, builds: 1 });
+});
+
+it('keeps account and collateral identifiers out of real note admission diagnostics', async () => {
+  const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+  const result = await createBridgeP2IDENote(directNoteInput());
+  expect(result.success).toBe(true);
+  expect(JSON.stringify(log.mock.calls)).not.toContain(accounts.midenAccount);
+});
+
 it('admits a same-scope direct owned note with native-captured protected RPC and original review', async () => {
   const result = await createBridgeP2IDENote(directNoteInput());
   expect(result.success).toBe(true);
