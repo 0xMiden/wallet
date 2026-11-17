@@ -370,8 +370,8 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   const outputAmount = exactQuoteAmount(rawTokenOut, usdc.decimals);
   if (bridgeTxId) {
     await updateBridgeClaimStatus(bridgeTxId, 'not-applicable', {
-      evmTxHash,
-      intentNonce,
+      ...(evmTxHash === undefined ? {} : { evmTxHash }),
+      ...(intentNonce === undefined ? {} : { intentNonce }),
       outputAmount,
       outputSymbol: usdc.symbol,
       epochStatus: 'pending'
