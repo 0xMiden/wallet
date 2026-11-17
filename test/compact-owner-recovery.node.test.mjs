@@ -82,6 +82,13 @@ for (const [name, change] of [
     }
   ],
   [
+    'retired unacknowledged signature hash even under a new journal',
+    f => {
+      f.journal.signedHash = '0x80d725e68e6d14509bcac442a4d80da7afd2e6d6c5bce09a8c8f9350c9d31a4a';
+      f.bytes = JSON.stringify(f.journal);
+    }
+  ],
+  [
     'unbound signed transaction hash',
     f => {
       f.journal.signedHash = '0x00';
