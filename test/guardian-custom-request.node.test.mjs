@@ -88,6 +88,7 @@ after(async () => {
 
 const salt = () => new sdk.Word(BigUint64Array.from([1n, 2n, 3n, 4n]));
 const bareBuilder = () => new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([note]));
+const authBuilder = () => new sdk.TransactionRequestBuilder().withAuthArgs(new sdk.FeltArray(salt().toFelts()));
 const feeBuilder = () => client.feeAwareTransactionRequestBuilder(accountId, { feeConversionSalt: salt() });
 
 for (const hasSalt of [false, true]) {
@@ -269,7 +270,7 @@ for (const [name, shape] of refusedForeign) {
     const original = ownOutputRequest(notes, foreign);
     const bytes = original.serialize();
     assert.throws(
-      () => enrichOwnOutputRequest(original, new sdk.TransactionRequestBuilder().withAuthArg(salt()), bytes),
+      () => enrichOwnOutputRequest(original, authBuilder(), bytes),
       /only own output notes/
     );
   });
@@ -297,13 +298,15 @@ test('preserves a custom note script and NetworkAccountTarget attachment', async
 
 test('refuses additional Merkle data without discarding it', async () => {
   const bytes = new Uint8Array(bareBuilder().build().serialize());
-  const entriesStart = bytes.length - 8 - 255 * 96;
-  const entriesEnd = entriesStart + 255 * 96;
+  // SDK 0.18 omits default tree nodes; the empty store count precedes eight trailing fields.
+  const entriesStart = bytes.length - 8;
+  const entriesEnd = entriesStart;
+  assert.equal(new DataView(bytes.buffer).getBigUint64(entriesStart - 8, true), 0n);
   const expanded = new Uint8Array(bytes.length + 96);
   expanded.set(bytes.subarray(0, entriesEnd));
   expanded.set(bytes.subarray(entriesEnd), entriesEnd + 96);
   const view = new DataView(expanded.buffer);
-  view.setBigUint64(entriesStart - 8, 256n, true);
+  view.setBigUint64(entriesStart - 8, 1n, true);
   const left = salt();
   const right = new sdk.Word(BigUint64Array.from([5n, 6n, 7n, 8n]));
   const root = sdk.Poseidon2.hashElements(new sdk.FeltArray([...left.toFelts(), ...right.toFelts()]));
@@ -312,8 +315,9 @@ test('refuses additional Merkle data without discarding it', async () => {
   });
   const changed = sdk.TransactionRequest.deserialize(expanded);
   assert.equal(changed.serialize().length, expanded.length);
+  assert.deepEqual(changed.serialize(), expanded);
   assert.throws(
-    () => enrichOwnOutputRequest(changed, new sdk.TransactionRequestBuilder().withAuthArg(salt()), changed.serialize()),
+    () => enrichOwnOutputRequest(changed, authBuilder(), changed.serialize()),
     /only own output notes/
   );
 });
@@ -323,7 +327,7 @@ test('refuses an unauthenticated custom transaction script', async () => {
   const original = new sdk.TransactionRequestBuilder().withCustomScript(script).build();
   assert.throws(
     () =>
-      enrichOwnOutputRequest(original, new sdk.TransactionRequestBuilder().withAuthArg(salt()), original.serialize()),
+      enrichOwnOutputRequest(original, authBuilder(), original.serialize()),
     /only own output notes/
   );
 });

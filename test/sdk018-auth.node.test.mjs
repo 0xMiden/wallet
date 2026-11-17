@@ -50,7 +50,7 @@ test('SDK 0.18 auth copy refuses conflicting fee salt before its destructive set
   );
 });
 
-test('SDK 0.18 send validation refuses transported advice inconsistent with the original commitment', () => {
+test('SDK 0.18 send validation refuses inconsistent advice and extra Merkle data after transport', () => {
   const scope = {
     accountId: '0xa95e28ec96b9ae1132266aa4d4ddb9',
     recipientId: '0x593c167bec26769178dcbd1f9bcb40',
@@ -75,4 +75,23 @@ test('SDK 0.18 send validation refuses transported advice inconsistent with the 
   assert.equal(corrupted.authArg().toHex(), original.authArg().toHex());
   assert.equal(corrupted.adviceMap().get(corrupted.authArg())[0].asInt(), 999n);
   assert.throws(() => inspectTestMainnetSendRequest(scope, corrupted.serialize(), true), /differ from the exact/);
+
+  const bytes = original.serialize();
+  const entriesEnd = bytes.length - 40; // Eight trailing fields plus the present auth Word.
+  assert.equal(new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(entriesEnd - 8, true), 0n);
+  const expanded = new Uint8Array(bytes.length + 96);
+  expanded.set(bytes.subarray(0, entriesEnd));
+  expanded.set(bytes.subarray(entriesEnd), entriesEnd + 96);
+  const view = new DataView(expanded.buffer);
+  view.setBigUint64(entriesEnd - 8, 1n, true);
+  const left = sdk.Word.fromHex(`0x${'01'.repeat(32)}`);
+  const right = sdk.Word.fromHex(`0x${'02'.repeat(32)}`);
+  const root = sdk.Poseidon2.hashElements(new sdk.FeltArray([...left.toFelts(), ...right.toFelts()]));
+  [...root.toU64s(), ...left.toU64s(), ...right.toU64s()].forEach((n, index) => {
+    view.setBigUint64(entriesEnd + index * 8, n, true);
+  });
+  const extraMerkle = sdk.TransactionRequest.deserialize(expanded);
+  assert.deepEqual(extraMerkle.serialize(), expanded);
+  assert.deepEqual(canonicalRequestBytes(expanded), expanded);
+  assert.throws(() => inspectTestMainnetSendRequest(scope, expanded, true), /differ from the exact/);
 });

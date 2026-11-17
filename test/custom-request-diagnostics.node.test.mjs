@@ -87,8 +87,13 @@ async function authRequest(kind) {
   // Protocol fee.rs stores [SALT, INFO] under hash(INFO || SALT).
   const auth = sdk.Word.fromHex('0x3681264494675a8c487cc2ab6821857517fbc036fc6e6396888e0c87d8599da4');
   const advice = new sdk.AdviceMap();
-  advice.insert(auth, new sdk.FeltArray([1n, 2n, 3n, 4n, 5n, 6n, 1n, 1n].map(n => new sdk.Felt(n))));
-  return new sdk.TransactionRequestBuilder().withAuthArg(auth).extendAdviceMap(advice).build();
+  const values = [1n, 2n, 3n, 4n, 5n, 6n, 1n, 1n].map(n => new sdk.Felt(n));
+  const input = [...values.slice(4), ...values.slice(0, 4)];
+  assert.equal(sdk.Poseidon2.hashElements(new sdk.FeltArray(input)).toHex(), auth.toHex());
+  advice.insert(auth, new sdk.FeltArray(values));
+  const request = new sdk.TransactionRequestBuilder().withAuthArgs(new sdk.FeltArray(input)).extendAdviceMap(advice).build();
+  assert.equal(request.authArg().toHex(), auth.toHex());
+  return request;
 }
 
 for (const kind of ['fee', 'guardian']) {
@@ -108,7 +113,9 @@ for (const kind of ['fee', 'guardian']) {
     values[values.length - 1] = new sdk.Felt(999n);
     const advice = new sdk.AdviceMap();
     advice.insert(auth, new sdk.FeltArray(values));
-    const corrupted = new sdk.TransactionRequestBuilder().withAuthArg(auth).extendAdviceMap(advice).build();
+    const corrupted = sdk.TransactionRequest.deserialize(request.extendAdviceMap(advice).serialize());
+    assert.equal(corrupted.authArg().toHex(), auth.toHex());
+    assert.equal(corrupted.adviceMap().get(corrupted.authArg()).at(-1).asInt(), 999n);
     assert.deepEqual(diagnose(corrupted), expected(kind, 'neither'));
   });
 }
@@ -116,7 +123,7 @@ for (const kind of ['fee', 'guardian']) {
 test('distinguishes absent auth from a missing preimage', () => {
   assert.deepEqual(diagnose(new sdk.TransactionRequestBuilder().build()), expected('absent', 'unavailable'));
   assert.deepEqual(
-    diagnose(new sdk.TransactionRequestBuilder().withAuthArg(salt()).build()),
+    diagnose({ authArg: salt, adviceMap: () => new sdk.AdviceMap() }),
     expected('missing_preimage', 'unavailable')
   );
 });
@@ -124,7 +131,8 @@ test('distinguishes absent auth from a missing preimage', () => {
 test('does not hash arbitrary advice shapes', () => {
   const advice = new sdk.AdviceMap();
   advice.insert(salt(), new sdk.FeltArray(Array.from({ length: 13 }, () => new sdk.Felt(7n))));
-  const request = new sdk.TransactionRequestBuilder().withAuthArg(salt()).extendAdviceMap(advice).build();
+  // A stub preserves the malformed shape which withAuthArgs correctly refuses to construct.
+  const request = { authArg: salt, adviceMap: () => advice };
   assert.deepEqual(diagnose(request), expected('other', 'unavailable'));
 });
 

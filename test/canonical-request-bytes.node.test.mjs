@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { TransactionRequestBuilder } from '@miden-sdk/miden-sdk';
 import { canonicalRequestBytes } from '../scripts/canonical-request-bytes.mjs';
 
@@ -9,6 +11,23 @@ test('SDK 0.18 default MerkleStore omits empty nodes and canonical bytes stay ex
   const result = canonicalRequestBytes(bytes);
   assert.deepEqual(result, bytes);
   assert.notEqual(result, bytes);
+});
+
+test('frozen published SDK 0.17.5 authorities keep their canonical identity', () => {
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/sdk017-canonical-request.json', import.meta.url), 'utf8'));
+  assert.equal(fixture.sdk, '0.17.5');
+  const bytes = new Uint8Array(Buffer.from(fixture.serializedBase64, 'base64'));
+  const digest = input => createHash('sha256').update(canonicalRequestBytes(input)).digest('hex');
+  assert.equal(digest(bytes), fixture.canonicalSha256);
+  const reordered = Uint8Array.from(bytes);
+  const start = 16;
+  for (let index = 0; index < 255; index++) {
+    reordered.set(bytes.subarray(start + index * 96, start + (index + 1) * 96), start + (254 - index) * 96);
+  }
+  assert.equal(digest(reordered), fixture.canonicalSha256);
+  const changed = Uint8Array.from(bytes);
+  changed[changed.length - 1] ^= 1;
+  assert.notEqual(digest(changed), fixture.canonicalSha256);
 });
 
 test('no legacy store means unchanged bytes, not a declaration of request validity', () => {
