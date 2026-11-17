@@ -13,6 +13,7 @@ import {
   recordBridgeApproval,
   type BridgeOperationSnapshot
 } from 'lib/bridge/operation';
+import * as Repo from 'lib/miden/repo';
 
 import type { AgglayerClient } from './deposit';
 
@@ -26,6 +27,69 @@ interface ApprovalRequest {
   client: AgglayerClient;
   send: (to: Address, data: Hex, value: bigint) => Promise<Hash>;
   assertCurrent: () => Promise<void>;
+}
+
+async function approvalReceipt(client: AgglayerClient, initial: BridgeApproval, save: (approval: BridgeApproval) => Promise<void>) {
+  let approval = initial;
+  const writes: Promise<void>[] = [];
+  let replacementError: unknown;
+  const receipt = await client.waitForTransactionReceipt({
+    hash: approval.hash, timeout: 120000,
+    onReplaced: replacement => {
+      try {
+        const transaction: SourceTransaction = { ...replacement.transaction, chainId: approval.chainId, value: replacement.transaction.value.toString() };
+        approval = replaceApproval(approval, transaction);
+        if (approval.replacementReason !== replacement.reason) throw new Error('Agglayer approval replacement changed');
+        writes.push(save(approval).catch(error => { replacementError = error; }));
+      } catch (error) { replacementError = error; }
+    }
+  }).finally(async () => { await Promise.all(writes); });
+  if (replacementError) throw replacementError;
+  if (receipt.transactionHash.toLowerCase() !== approval.hash.toLowerCase() || (receipt.status !== 'success' && receipt.status !== 'reverted'))
+    throw new Error('Agglayer approval receipt is not verified');
+  return { approval, receipt };
+}
+
+async function settleEarlierApprovals(request: ApprovalRequest, allowance: () => Promise<bigint>): Promise<void> {
+  const rows = await Repo.transactions.where('type').equals('bridged-receive').filter(row => !row.restoredFromBackup && !row.recovered).toArray();
+  await request.assertCurrent();
+  for (const row of rows) {
+    const original = bridgeOperationOf(row);
+    if (!original || original.operationId === request.operation.operationId ||
+      (original.sourceAttempt?.hash && original.sourceAttempt.hash === row.extraInputs?.evmTxHash)) continue;
+    const references = (original.approvals ?? []).filter(reference => reference.chainId === request.chainId &&
+      reference.account.toLowerCase() === request.account.toLowerCase() && reference.token.toLowerCase() === request.token.toLowerCase() && reference.spender.toLowerCase() === request.spender.toLowerCase() &&
+      !original.approvals?.some(next => next.hash !== reference.hash && next.originalTransaction?.hash === reference.hash));
+    if (!references.length) continue;
+    const admitted = await findAdmittedBridgeOperation(original);
+    await request.assertCurrent();
+    if (!admitted || bridgeOperationOf(admitted)?.revision !== original.revision || !original.sourceAttempt)
+      throw new Error('Agglayer pending approval ownership is not verified');
+    const save = async (reference: BridgeApproval) => {
+      if (!(await recordBridgeApproval(original.operationId, original.revision, reference)))
+        throw new Error('Agglayer pending approval ownership changed');
+    };
+    for (const saved of references) {
+      const resolved = await recoverSourceTransaction(request.client, saved.chainId, saved.hash, saved.transaction);
+      await request.assertCurrent();
+      if (resolved.uncertain || !resolved.transaction) throw new Error('Agglayer pending approval is not verified');
+      let reference = parseBridgeApproval({ ...saved, transaction: resolved.transaction });
+      await save(reference);
+      await request.assertCurrent();
+      if (resolved.replacement) {
+        reference = replaceApproval(reference, resolved.replacement);
+        await save(reference);
+        await request.assertCurrent();
+      }
+      if (reference.replacementReason !== 'cancelled' && reference.replacementReason !== 'replaced' && BigInt(reference.amount) >= request.amount) {
+        const sufficient = await allowance();
+        await request.assertCurrent();
+        if (sufficient >= request.amount) continue;
+      }
+      await approvalReceipt(request.client, reference, save);
+      await request.assertCurrent();
+    }
+  }
 }
 
 /** Passive facts only: a pending approval can never restart its original source attempt. */
@@ -79,36 +143,15 @@ export async function ensureAgglayerApproval(request: ApprovalRequest): Promise<
       approval = parseBridgeApproval({ ...approval, transaction });
       await save(approval);
     }
-    const replacements: Promise<void>[] = [];
-    let replacementError: unknown;
-    const receipt = await client.waitForTransactionReceipt({
-      hash,
-      timeout: 120000,
-      onReplaced: replacement => {
-        try {
-          const tx: SourceTransaction = {
-            ...replacement.transaction,
-            chainId,
-            value: replacement.transaction.value.toString()
-          };
-          approval = replaceApproval(approval, tx);
-          if (approval.replacementReason !== replacement.reason)
-            throw new Error('Agglayer approval replacement changed');
-          replacements.push(save(approval));
-        } catch (error) {
-          replacementError = error;
-        }
-      }
-    });
-    await Promise.all(replacements);
-    if (replacementError) throw replacementError;
-    if (approval.replacementReason === 'cancelled' || approval.replacementReason === 'replaced')
+    const observed = await approvalReceipt(client, approval, save);
+    if (observed.approval.replacementReason === 'cancelled' || observed.approval.replacementReason === 'replaced')
       throw new Error('Agglayer token approval was cancelled or replaced');
-    if (receipt.status !== 'success') throw new Error('Agglayer token approval reverted');
+    if (observed.receipt.status !== 'success') throw new Error('Agglayer token approval reverted');
     await request.assertCurrent();
     const confirmed = await allowance();
     if (value === 0n ? confirmed !== 0n : confirmed < value) throw new Error('Agglayer allowance is not confirmed');
   };
+  await settleEarlierApprovals(request, allowance);
   const current = await allowance();
   if (current >= amount) return;
   if (current > 0n) await approve(0n);

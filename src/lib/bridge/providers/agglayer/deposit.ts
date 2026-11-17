@@ -31,7 +31,7 @@ import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 
 import { ensureAgglayerApproval } from './approval';
 
-export const agglayerStatusAbi = parseAbi(['function isEmergencyState() view returns (bool)']);
+const agglayerStatusAbi = parseAbi(['function isEmergencyState() view returns (bool)']);
 export type AgglayerClient = SourceTransactionClient &
   Pick<
     PublicClient,

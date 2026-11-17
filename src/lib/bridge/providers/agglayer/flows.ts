@@ -2,7 +2,6 @@
 import { parseUnits } from 'viem';
 
 import { initiateB2AggBridge, type B2AggBridgeDeps } from 'lib/agglayer/b2agg';
-
 import { configKey } from 'lib/bridge/core/routes';
 import { verifyBridgeSubmission, type SubmissionChecks } from 'lib/bridge/core/submission';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
