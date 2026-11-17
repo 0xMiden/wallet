@@ -35,6 +35,30 @@ describe('resolvePublicKeyCommitments', () => {
     expect(resolvePublicKeyCommitments(account as never)).toEqual([{ hex: '0xabc123' }]);
   });
 
+  it('resolves the Guardian hot signer when the SDK rejects the custom auth component', () => {
+    mockGetSignerCommitments.mockReturnValue(['0xabc123', '0xdef456']);
+    const account = {
+      getPublicKeyCommitments: () => {
+        throw new Error('account auth procedure does not match a standard auth component');
+      }
+    };
+
+    expect(resolvePublicKeyCommitments(account as never)).toEqual([{ hex: '0xabc123' }]);
+  });
+
+  it('returns [] when neither the SDK nor Guardian can identify the auth component', () => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw new Error('not a guarded-multisig account');
+    });
+    const account = {
+      getPublicKeyCommitments: () => {
+        throw new Error('account auth procedure does not match a standard auth component');
+      }
+    };
+
+    expect(resolvePublicKeyCommitments(account as never)).toEqual([]);
+  });
+
   it('returns [] when the interface is empty and the account reports no signers', () => {
     mockGetSignerCommitments.mockReturnValue([]);
     const account = { getPublicKeyCommitments: () => [] };
