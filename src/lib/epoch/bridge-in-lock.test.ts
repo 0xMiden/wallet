@@ -47,11 +47,18 @@ describe('readCompactLockBalance', () => {
     expect(getDepositedBalances).toHaveBeenCalledWith(SPONSOR, [{ address: TOKEN, symbol: '', decimals: 0 }]);
   });
 
-  it('gives nothing when the SDK cannot read the lock', async () => {
+  it('does not call the SDK for a missing read method or an invalid token address', async () => {
+    // Without the guard, the call throws inside the try block, and the catch block writes a warning.
     await expect(readCompactLockBalance({}, SPONSOR, TOKEN)).resolves.toBeUndefined();
-    await expect(readCompactLockBalance({ getDepositedBalances: jest.fn() }, SPONSOR, 'not-an-address')).resolves.toBe(
-      undefined
-    );
+    expect(console.warn).not.toHaveBeenCalled();
+
+    // The reader gives a valid row, so only the address guard can give undefined here.
+    const getDepositedBalances = jest.fn(async () => [balanceRow('1')]);
+    await expect(readCompactLockBalance({ getDepositedBalances }, SPONSOR, 'not-an-address')).resolves.toBeUndefined();
+    expect(getDepositedBalances).not.toHaveBeenCalled();
+  });
+
+  it('gives nothing when the SDK cannot read the lock', async () => {
     const failing = jest.fn(async () => {
       throw new Error('rpc down');
     });

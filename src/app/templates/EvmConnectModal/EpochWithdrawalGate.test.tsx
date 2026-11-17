@@ -151,7 +151,9 @@ it('can retry a failed configuration read', async () => {
   expect(await screen.findByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
 });
 
-it('ignores a status read from a lock that was replaced', async () => {
+// A new key mounts a new gate, so this case covers only the read of the new lock. The two same-instance cases below
+// cover the stale-read guard.
+it('reads the new lock when a new gate is mounted for it', async () => {
   let finishRead: (state: CompactLockState) => void = () => {};
   jest.mocked(readCompactLockState).mockReturnValueOnce(
     new Promise(resolve => {
@@ -169,6 +171,52 @@ it('ignores a status read from a lock that was replaced', async () => {
   await act(async () => finishRead({ withdrawal: { status: 'Enabled' } }));
   expect(screen.queryByTestId('bridge-withdrawal-disable')).not.toBeInTheDocument();
   expect(readCompactLockState).toHaveBeenLastCalledWith(1, SPONSOR, 42n);
+});
+
+// The same mounted gate gets a new chain, so only the effect cleanup can tell that the old read is stale.
+const renderOnChain = (chainId: number) => (
+  <EpochWithdrawalGate {...props} chainId={chainId}>
+    <button>Continue bridge</button>
+  </EpochWithdrawalGate>
+);
+
+it('ignores a conflicting result of an old read after the same gate moved to a new chain', async () => {
+  let finishOldRead: (state: CompactLockState) => void = () => {};
+  jest.mocked(readCompactLockState).mockReturnValueOnce(
+    new Promise(resolve => {
+      finishOldRead = resolve;
+    })
+  );
+  const view = render(renderOnChain(137));
+  await waitFor(() => expect(readCompactLockState).toHaveBeenCalledTimes(1));
+
+  view.rerender(renderOnChain(1));
+  expect(await screen.findByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
+  expect(readCompactLockState).toHaveBeenLastCalledWith(1, SPONSOR, 42n);
+
+  await act(async () => finishOldRead({ withdrawal: { status: 'Enabled' } }));
+
+  expect(screen.getByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
+  expect(screen.queryByTestId('bridge-withdrawal-disable')).not.toBeInTheDocument();
+});
+
+it('ignores a failure of an old read after the same gate moved to a new chain', async () => {
+  let failOldRead: (cause: Error) => void = () => {};
+  jest.mocked(readCompactLockState).mockReturnValueOnce(
+    new Promise((_resolve, reject) => {
+      failOldRead = reject;
+    })
+  );
+  const view = render(renderOnChain(137));
+  await waitFor(() => expect(readCompactLockState).toHaveBeenCalledTimes(1));
+
+  view.rerender(renderOnChain(1));
+  expect(await screen.findByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
+
+  await act(async () => failOldRead(new Error('Old read failed')));
+
+  expect(screen.getByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
+  expect(screen.queryByTestId('bridge-withdrawal-disable')).not.toBeInTheDocument();
 });
 
 it('does not refresh another flow when an old wallet request completes after unmount', async () => {

@@ -1,7 +1,12 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import {
+  finishLockedDepositWithdrawal,
+  retryLockedDeposit,
+  startLockedDepositWithdrawal
+} from 'lib/epoch/bridge-in-recovery';
 import type { IEpochLockedDeposit } from 'lib/miden/db/types';
 
 import { EpochLockedDepositAction } from './EpochLockedDepositAction';
@@ -76,6 +81,88 @@ describe('EpochLockedDepositAction', () => {
 
     expect(screen.getByTestId('epoch-deposit-retry')).toBeInTheDocument();
     expect(screen.getByTestId('epoch-deposit-withdraw')).toBeInTheDocument();
+  });
+
+  describe('as the sponsor wallet', () => {
+    // A new element for each render: React skips a render of the same element.
+    const sponsorRow = (lock: IEpochLockedDeposit, state: 'locked' | 'withdrawn' = 'locked') => (
+      <EpochLockedDepositAction txId="row-1" lock={lock} state={state} amountLabel="1 USDC" />
+    );
+
+    beforeEach(() => {
+      mockConnection.address = SPONSOR.toLowerCase();
+      mockConnection.connected = true;
+      jest.mocked(retryLockedDeposit).mockResolvedValue(undefined);
+      jest.mocked(startLockedDepositWithdrawal).mockResolvedValue(undefined);
+      jest.mocked(finishLockedDepositWithdrawal).mockResolvedValue(undefined);
+    });
+
+    it('retries the row that was clicked', async () => {
+      render(sponsorRow(LOCK));
+
+      fireEvent.click(screen.getByTestId('epoch-deposit-retry'));
+
+      await waitFor(() => expect(screen.getByTestId('epoch-deposit-retry')).toBeEnabled());
+      expect(retryLockedDeposit).toHaveBeenCalledTimes(1);
+      expect(retryLockedDeposit).toHaveBeenCalledWith('row-1');
+      expect(startLockedDepositWithdrawal).not.toHaveBeenCalled();
+      expect(finishLockedDepositWithdrawal).not.toHaveBeenCalled();
+    });
+
+    it('starts the withdrawal with no recorded enable time, then finishes it once the time is recorded', async () => {
+      const view = render(sponsorRow(LOCK));
+
+      fireEvent.click(screen.getByTestId('epoch-deposit-withdraw'));
+      await waitFor(() => expect(screen.getByTestId('epoch-deposit-withdraw')).toBeEnabled());
+      expect(startLockedDepositWithdrawal).toHaveBeenCalledTimes(1);
+      expect(startLockedDepositWithdrawal).toHaveBeenCalledWith('row-1');
+      expect(finishLockedDepositWithdrawal).not.toHaveBeenCalled();
+
+      const enabledAt = Math.floor(Date.now() / 1000) - 100;
+      view.rerender(sponsorRow({ ...LOCK, withdrawEnabledAt: enabledAt, withdrawableAt: enabledAt + 50 }));
+      fireEvent.click(screen.getByTestId('epoch-deposit-withdraw'));
+      await waitFor(() => expect(screen.getByTestId('epoch-deposit-withdraw')).toBeEnabled());
+      expect(finishLockedDepositWithdrawal).toHaveBeenCalledTimes(1);
+      expect(finishLockedDepositWithdrawal).toHaveBeenCalledWith('row-1');
+      expect(startLockedDepositWithdrawal).toHaveBeenCalledTimes(1);
+    });
+
+    it('disables Withdraw while the countdown is positive', () => {
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      render(sponsorRow({ ...LOCK, withdrawEnabledAt: nowSeconds - 10, withdrawableAt: nowSeconds + 3600 }));
+
+      const withdraw = screen.getByTestId('epoch-deposit-withdraw');
+      expect(withdraw).toBeDisabled();
+      expect(screen.getByTestId('epoch-deposit-withdraw-status')).toHaveTextContent('epochDepositWithdrawStarted');
+      fireEvent.click(withdraw);
+
+      expect(startLockedDepositWithdrawal).not.toHaveBeenCalled();
+      expect(finishLockedDepositWithdrawal).not.toHaveBeenCalled();
+    });
+
+    it('shows the withdrawn text and no actions for a withdrawn row', () => {
+      render(sponsorRow({ ...LOCK, withdrawnAt: 5 }, 'withdrawn'));
+
+      expect(screen.getByTestId('epoch-deposit-withdrawn')).toHaveTextContent('epochDepositWithdrawnBody');
+      expect(screen.queryByTestId('epoch-deposit-retry')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('epoch-deposit-withdraw')).not.toBeInTheDocument();
+    });
+
+    it('shows the error line when an action is rejected', async () => {
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        jest.mocked(retryLockedDeposit).mockRejectedValueOnce(new Error('Wallet refused'));
+        render(sponsorRow(LOCK));
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId('epoch-deposit-retry'));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('failed');
+        expect(screen.getByTestId('epoch-deposit-retry')).toBeEnabled();
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
   });
 
   it('keeps the countdown moving when a render lands between the deadline and the next tick', () => {
