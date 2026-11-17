@@ -525,12 +525,16 @@ async function reconcileRow(
     }
     return;
   }
+  const operation = bridgeOperationOf(row);
+  const originalSourceRoute =
+    operation?.review.route.recovery.config.supportedEvmChains[operation.review.route.source.network]?.bridges.usdcx
+      ?.deposit;
   if (
     hasBridgeOperation(row) &&
     inputs.provider === 'usdcx' &&
     inputs.evmTxHash &&
-    inputs.usdcxSource?.route === 'cctp-executor' &&
-    !ownedCctpSourceProof(row, inputs.usdcxSource)
+    (inputs.usdcxSource?.route === 'cctp-executor' || originalSourceRoute?.route === 'executor') &&
+    (inputs.usdcxSource?.route !== 'cctp-executor' || !ownedCctpSourceProof(row, inputs.usdcxSource))
   )
     return;
   if (!withinDeliveryWindow(row, inputs, cutoffSec)) {

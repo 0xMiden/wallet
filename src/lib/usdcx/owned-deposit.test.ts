@@ -553,7 +553,15 @@ it.each([
   expect(signed).toHaveLength(1);
 });
 async function prepareOwnedStatus(
-  change: 'immutable amount' | 'ambiguous' | 'proof' | 'proof and route' | 'arc nonce' | 'arc deposit' | 'arc handler' | 'none',
+  change:
+    | 'immutable amount'
+    | 'ambiguous'
+    | 'proof'
+    | 'proof and route'
+    | 'arc nonce'
+    | 'arc deposit'
+    | 'arc handler'
+    | 'none',
   beforeStatus?: () => void
 ) {
   const id = await driveAdapter(true);
