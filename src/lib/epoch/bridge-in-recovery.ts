@@ -10,8 +10,9 @@ import { getCompactData } from '@epoch-protocol/epoch-intents-sdk/dist/services/
 import { resolveCompactAddress } from '@epoch-protocol/epoch-intents-sdk/dist/services/shared.js';
 import { type Address, type Hex, isAddress, isHex } from 'viem';
 
+import { bridgeOperationOf, hasBridgeOperation } from 'lib/bridge/operation';
 import { registerPendingBridgeIn } from 'lib/miden/activity/bridge-in';
-import type { IBridgedReceiveExtraInputs, IEpochLockedDeposit } from 'lib/miden/db/types';
+import type { IBridgedReceiveExtraInputs, IEpochLockedDeposit, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 import { waitForEvmReceipt } from 'lib/walletconnect/receipt';
@@ -64,6 +65,9 @@ async function readLockedDeposit(txId: string): Promise<LockedDepositRow> {
   const lock = inputs?.epochLockedDeposit;
   if (
     row === undefined ||
+    hasBridgeOperation(row) ||
+    row.restoredFromBackup === true ||
+    row.recovered === true ||
     inputs === undefined ||
     lock === undefined ||
     epochLockedDepositState(lock, inputs.phase, row.restoredFromBackup === true) !== 'locked' ||
@@ -150,14 +154,66 @@ const isOnLock = (lock: IEpochLockedDeposit, ref: CompactLockRef): boolean =>
   lock.lockId === ref.lockId &&
   lock.sponsorAddress.toLowerCase() === ref.sponsorAddress.toLowerCase();
 
+function protectedSourceOnLock(row: ITransaction, ref: CompactLockRef): boolean {
+  const inputs: IBridgedReceiveExtraInputs | undefined = row.type === 'bridged-receive' ? row.extraInputs : undefined;
+  if (!inputs || inputs.provider !== 'epoch') return false;
+  const tagged = hasBridgeOperation(row);
+  if (!tagged && !row.restoredFromBackup && !row.recovered) return false;
+  const lock = inputs.epochLockedDeposit;
+  if (lock && typeof lock.sponsorAddress === 'string' && isOnLock(lock, ref)) return true;
+  if (!tagged) return false;
+  const operation = bridgeOperationOf(row);
+  const route = operation?.review.route;
+  const source = route?.source;
+  const originalChain = route?.recovery?.config?.supportedEvmChains?.[source?.network ?? '']?.chainId;
+  const sponsor = operation?.review.accounts?.evmAddress;
+  const sameAddress = (value: unknown): boolean =>
+    typeof value === 'string' &&
+    isAddress(value, { strict: false }) &&
+    value.toLowerCase() === ref.sponsorAddress.toLowerCase();
+  const originalReceive = route?.provider === 'epoch' && route.mode === 'receive';
+  const rowScope = sameAddress(inputs.sourceAddress) && inputs.sourceChainId === ref.chainId;
+  const originalScope = originalReceive && sameAddress(sponsor) && originalChain === ref.chainId;
+  if (!rowScope && !originalScope) return false;
+  // A positively bound source with conflicting or missing token identity cannot prove this shared lock unrelated.
+  if (
+    !originalReceive ||
+    !source ||
+    (inputs.sourceChainId !== undefined && originalChain !== undefined && inputs.sourceChainId !== originalChain) ||
+    (typeof sponsor === 'string' &&
+      typeof inputs.sourceAddress === 'string' &&
+      inputs.sourceAddress.toLowerCase() !== sponsor.toLowerCase())
+  )
+    return true;
+  const target = compactLockToken(ref.lockId).toLowerCase();
+  if (source.kind === 'native') return target === '0x0000000000000000000000000000000000000000';
+  if (source.kind === 'erc20' && typeof source.address === 'string' && isAddress(source.address, { strict: false }))
+    return source.address.toLowerCase() === target;
+  return true;
+}
+
+async function assertLegacyLockAvailable(ref: CompactLockRef): Promise<void> {
+  const rows = await Repo.transactions.where('type').equals('bridged-receive').toArray();
+  if (rows.some(row => protectedSourceOnLock(row, ref)))
+    throw new LockedDepositError('notRecoverable', 'This lock contains a protected wallet operation.');
+}
+
 /** The locked deposit of a history row when the row is a locked deposit in the lock of `ref`, else undefined. */
 function lockedDepositOn(
-  row: { type: string; restoredFromBackup?: boolean; extraInputs?: IBridgedReceiveExtraInputs },
+  row: { type: string; restoredFromBackup?: boolean; recovered?: boolean; extraInputs?: IBridgedReceiveExtraInputs },
   ref: CompactLockRef
 ): IEpochLockedDeposit | undefined {
   const inputs = row.type === 'bridged-receive' ? row.extraInputs : undefined;
   const lock = inputs?.epochLockedDeposit;
-  if (inputs === undefined || lock === undefined || !isOnLock(lock, ref)) return undefined;
+  if (
+    hasBridgeOperation(row) ||
+    row.restoredFromBackup ||
+    row.recovered ||
+    inputs === undefined ||
+    lock === undefined ||
+    !isOnLock(lock, ref)
+  )
+    return undefined;
   if (epochLockedDepositState(lock, inputs.phase, row.restoredFromBackup === true) !== 'locked') return undefined;
   return lock;
 }
@@ -332,6 +388,7 @@ async function withdrawWholeLock(
  * in unix seconds, or undefined when the chain does not report it yet.
  */
 export async function startLockWithdrawal(ref: CompactLockRef): Promise<number | undefined> {
+  await assertLegacyLockAvailable(ref);
   const sponsor = sponsorOf(ref);
   const sdk = await connectSponsorSdk(ref, getEpochAllocatorUrl());
   return enableForcedWithdrawal(sdk, sponsor, ref);
@@ -339,6 +396,7 @@ export async function startLockWithdrawal(ref: CompactLockRef): Promise<number |
 
 /** Withdraw the whole balance of a lock to the sponsor once due (the Settings recovery page). Return the hash. */
 export async function finishLockWithdrawal(ref: CompactLockRef): Promise<string> {
+  await assertLegacyLockAvailable(ref);
   const sponsor = sponsorOf(ref);
   const sdk = await connectSponsorSdk(ref, getEpochAllocatorUrl());
   return withdrawWholeLock(sdk, sponsor, ref, compactLockToken(ref.lockId));
@@ -362,6 +420,7 @@ async function disableForcedWithdrawalIfOn(sdk: EpochIntentSDK, sponsor: Address
  * refuses new Fast bridge-ins of the lock's token from that address.
  */
 export async function cancelLockWithdrawal(ref: CompactLockRef): Promise<void> {
+  await assertLegacyLockAvailable(ref);
   const sponsor = sponsorOf(ref);
   const sdk = await connectSponsorSdk(ref, getEpochAllocatorUrl());
   await disableForcedWithdrawalIfOn(sdk, sponsor, ref);
@@ -381,7 +440,15 @@ export async function markEpochLockedDepositReallocated(
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     const lock = inputs?.epochLockedDeposit;
-    if (tx.type !== 'bridged-receive' || inputs === undefined || lock === undefined) return;
+    if (
+      hasBridgeOperation(tx) ||
+      tx.restoredFromBackup ||
+      tx.recovered ||
+      tx.type !== 'bridged-receive' ||
+      inputs === undefined ||
+      lock === undefined
+    )
+      return;
     if (epochLockedDepositState(lock, inputs.phase, tx.restoredFromBackup === true) !== 'locked') return;
     tx.extraInputs = {
       ...inputs,
@@ -406,6 +473,7 @@ export async function markEpochLockedDepositReallocated(
  */
 export async function startLockedDepositWithdrawal(txId: string): Promise<number | undefined> {
   const { inputs, lock, sponsor } = await readLockedDeposit(txId);
+  await assertLegacyLockAvailable(lock);
   const sdk = await connectSponsorSdk(lock, inputs.epochAllocatorUrl ?? getEpochAllocatorUrl());
   return enableForcedWithdrawal(sdk, sponsor, lock);
 }
@@ -417,6 +485,7 @@ export async function startLockedDepositWithdrawal(txId: string): Promise<number
  */
 export async function finishLockedDepositWithdrawal(txId: string): Promise<string> {
   const { inputs, lock, sponsor } = await readLockedDeposit(txId);
+  await assertLegacyLockAvailable(lock);
   const sdk = await connectSponsorSdk(lock, inputs.epochAllocatorUrl ?? getEpochAllocatorUrl());
   return withdrawWholeLock(sdk, sponsor, lock, lock.tokenAddress);
 }
@@ -510,6 +579,7 @@ export async function submitWhenRegistered(
  */
 export async function retryLockedDeposit(txId: string): Promise<string> {
   const { inputs, lock, sponsor } = await readLockedDeposit(txId);
+  await assertLegacyLockAvailable(lock);
   const allocatorUrl = inputs.epochAllocatorUrl ?? getEpochAllocatorUrl();
   const sdk = await connectSponsorSdk(lock, allocatorUrl);
   // Read and check the balance first: a refusal here must leave a forced withdrawal that is on as it is.

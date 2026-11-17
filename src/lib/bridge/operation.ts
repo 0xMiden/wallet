@@ -46,7 +46,7 @@ function metadataOf(row: ITransaction): unknown {
   const inputs: unknown = row.extraInputs;
   return inputs && typeof inputs === 'object' ? Reflect.get(inputs, 'bridgeOperation') : undefined;
 }
-export function hasBridgeOperation(row: ITransaction): boolean {
+export function hasBridgeOperation(row: Pick<ITransaction, 'extraInputs'>): boolean {
   const inputs: unknown = row.extraInputs;
   return (
     inputs !== null && typeof inputs === 'object' && Object.prototype.hasOwnProperty.call(inputs, 'bridgeOperation')
