@@ -1743,6 +1743,92 @@ describe('a throw after the leaf resolved', () => {
     expect(row.outputNoteIds).toBeUndefined();
   });
 
+  // Offscreen, the stamp that names those notes crossed fire-and-forget, so an IndexedDB abort on its one write left a
+  // landed attempt with no record of them. The leaf now submits only once its call's gate recorded them (#1081).
+  const runLoopAgainstOffscreen = async (writes: Record<string, jest.Mock>) => {
+    const proxy = require('../back/miden-client-proxy').midenClientProxy;
+    const originals = Object.fromEntries(Object.keys(writes).map(name => [name, proxy[name]]));
+    Object.assign(proxy, writes);
+    try {
+      await runLoopAgainst({});
+    } finally {
+      Object.assign(proxy, originals);
+    }
+  };
+  // The offscreen leaf asks the gate its call carries; a call with none had its stamp dropped on the bus.
+  const askGate = async (gate: unknown, evidence: Record<string, unknown>) => {
+    if (typeof gate === 'function')
+      expect(await (gate as (evidence: unknown) => Promise<boolean>)(evidence)).toBe(true);
+  };
+
+  it('an offscreen private send whose result traps at its first read owes the note its submit gate recorded', async () => {
+    const id = 'tx-offscreen-send-first-read-trap';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SEND'
+    });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const restore = installLandedTrapRetirement(jest.fn());
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const sendTransaction = jest.fn(async (_tx: unknown, _signer: unknown, _onStage: unknown, gate?: unknown) => {
+      await askGate(gate, { transactionId: `0x${'cd'.repeat(32)}`, outputNoteIds: [owed] });
+      return {
+        executedTransaction: () => {
+          throw trap;
+        },
+        serialize: () => new Uint8Array([])
+      };
+    });
+    try {
+      await runLoopAgainstOffscreen({ sendTransaction });
+    } finally {
+      restore();
+    }
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(txStore.find(stored => stored.id === id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [owed],
+      noteDelivery: 'undelivered',
+      secondaryAccountId: 'recipient'
+    });
+  });
+
+  it("an offscreen execute whose applied result trapped serializing owes the private notes its submit gate recorded to its row's recipient", async () => {
+    const id = 'tx-offscreen-execute-serialize-trap';
+    queuedExecute(id, { secondaryAccountId: 'recipient' });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const publicNote = `0x${'7a'.repeat(32)}`;
+    const newTransaction = jest.fn(async (...a: unknown[]) => {
+      await askGate(a[5], {
+        transactionId: `0x${'cd'.repeat(32)}`,
+        outputNoteIds: [publicNote, owed],
+        privateOutputNoteIds: [owed]
+      });
+      // As the proxy rebuilds the offscreen reply for a trap serializing a result its leaf applied.
+      throw Object.assign(new Error("Offscreen call 'newTransaction' failed: unreachable"), {
+        errorCode: 'ApplyTransactionAfterSubmitFailed',
+        landed: { applied: true }
+      });
+    });
+
+    await runLoopAgainstOffscreen({ newTransaction });
+
+    expect(newTransaction).toHaveBeenCalledTimes(1);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [owed],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(row.outputNoteIds).toBeUndefined();
+  });
+
   it('a loop epoch bridged-send that is already Failed still records the landed id', async () => {
     const id = 'tx-tail-epoch-already-failed';
     queuedRow(id, {

@@ -1268,6 +1268,39 @@ describe('an eviction during the in-realm leg (#1233)', () => {
   });
 });
 
+// Offscreen a gated write's 'submitting' stamp waits for the service worker's answer, so an eviction can land while it
+// is parked, and the worker leg asks again before its submit whether or not the write has a check of its own (#1081).
+describe('an eviction while the worker leg waits on its submitting stamp', () => {
+  const evict = () =>
+    window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+  type Client = Awaited<ReturnType<typeof load>>['client'];
+  type ParkingStamp = (stage: string) => Promise<void>;
+  it.each<[string, (client: Client, onStage: ParkingStamp) => Promise<unknown>]>([
+    ['send', (client, onStage) => client.sendTransaction(sendTx(false), onStage)],
+    ['swap', (client, onStage) => client.swapTransaction(swapTx(false), onStage)],
+    ['newTransaction', (client, onStage) => client.newTransaction('acct', new Uint8Array([4]), false, onStage)]
+  ])('a %s stops before its submit', async (_name, write) => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
+    const parkingStamp: ParkingStamp = async stage => {
+      if (stage !== 'submitting') return;
+      evict();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    };
+    let abandoned: Promise<unknown> = Promise.resolve();
+    const lockError = await withWasmClientLock(async () => {
+      const writing = write(client, parkingStamp);
+      abandoned = writing.catch((caught: unknown) => caught);
+      return writing;
+    }).catch((caught: unknown) => caught);
+    const outcome = await abandoned;
+
+    expect(harness.submitProven).not.toHaveBeenCalled();
+    expect(outcome).toBeInstanceOf(WasmClientPoisonedError);
+    expect(lockError).toBeInstanceOf(WasmClientPoisonedError);
+  });
+});
+
 describe('ProveAttempt worker members', () => {
   it('refuses a worker prove for a disposed client, without calling the transport', async () => {
     const harness = buildHarness();

@@ -115,10 +115,17 @@ jest.mock('../back/miden-client-proxy', () => ({
 const stamped: string[] = [];
 // eslint-disable-next-line no-var
 var mockThrowOnStage: string | null = null;
+// When set, the write that records a submit crossing rejects, as an IndexedDB abort under contention does.
+// eslint-disable-next-line no-var
+var mockCrossingWriteFails = false;
 jest.mock('./helper', () => {
   const actual = jest.requireActual('./helper');
   return {
     ...actual,
+    recordSubmitCrossing: jest.fn(async (...a: unknown[]) => {
+      if (mockCrossingWriteFails) throw new Error('IndexedDB transaction aborted');
+      return actual.recordSubmitCrossing(...a);
+    }),
     setTransactionStage: jest.fn(async (id: string, stage: string) => {
       if (mockThrowOnStage === stage) throw new Error(`dexie write blew up stamping '${stage}'`);
       stamped.push(`${id}:${stage}`);
@@ -242,6 +249,7 @@ beforeEach(() => {
   txStore.length = 0;
   stamped.length = 0;
   mockThrowOnStage = null;
+  mockCrossingWriteFails = false;
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
 
@@ -282,10 +290,11 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     const tx = await runSend('tx-send-flagon');
 
     // Flag ON is the ambient state of the SW build, and the switch must be blind to
-    // it: exactly ONE proxy call, with the SAME three arguments the flag-OFF case
-    // asserted, and no second flag-conditional branch anywhere near it.
+    // it: exactly ONE proxy call, with the SAME arguments the flag-OFF case
+    // asserted plus the submit gate the proxy uses only offscreen, and no second
+    // flag-conditional branch anywhere near it.
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction.mock.calls[0]!).toHaveLength(3);
+    expect(mockProxySendTransaction.mock.calls[0]!).toHaveLength(4);
     const [sentTx, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
     expect(sentTx).toBe(tx);
     expect(typeof sentSign).toBe('function');
@@ -487,6 +496,128 @@ describe('which dispatches carry a stamp (#1081)', () => {
     await runRow(row);
     const call = proxyMock()[leaf].mock.calls[0];
     expect(typeof call[stampIndex] === 'function').toBe(stamped);
+  });
+});
+
+// Offscreen, a single-key send, swap or custom write submits only once the gate its call carries recorded the
+// 'submitting' crossing, so a stamp the bus would drop cannot leave an attempt that crossed with no record (#1081).
+describe('which dispatches carry a submit gate (#1081)', () => {
+  const swapRow = {
+    type: 'swap',
+    faucetId: 'f',
+    amount: 1n,
+    extraInputs: { requestedFaucetId: 'g', requestedAmount: 2n }
+  };
+  it.each<[string, Record<string, unknown>, string, number, boolean]>([
+    ['a claim', { id: 'gc', type: 'consume', noteId: 'n', noteIds: ['n'] }, 'consumeNoteId', 3, false],
+    [
+      'a prepared zero-fill PSWAP reclaim',
+      {
+        id: 'gcr',
+        type: 'consume',
+        noteId: 'zero-fill-tip',
+        noteIds: ['zero-fill-tip'],
+        requestBytes: new Uint8Array([1]),
+        extraInputs: { swapOrderTxId: 'swap-row', swapSettleKind: 'reclaim' }
+      },
+      'newTransaction',
+      5,
+      true
+    ],
+    [
+      'a send',
+      { id: 'gsend', type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: 1n, noteType: 'public' },
+      'sendTransaction',
+      3,
+      true
+    ],
+    ['a swap', { id: 'gs', ...swapRow }, 'swapTransaction', 3, true],
+    ['a dApp execute', { id: 'ge', type: 'execute', requestBytes: new Uint8Array([1]) }, 'newTransaction', 5, true],
+    [
+      'an Agglayer bridge',
+      {
+        id: 'gb',
+        type: 'bridged-send',
+        requestBytes: new Uint8Array([1]),
+        approvedOutputNoteIds: ['note:recorded'],
+        extraInputs: { provider: 'agglayer' }
+      },
+      'newTransaction',
+      5,
+      true
+    ],
+    [
+      'an Epoch bridge',
+      {
+        id: 'gp',
+        type: 'bridged-send',
+        requestBytes: new Uint8Array([1]),
+        approvedOutputNoteIds: ['note:recorded'],
+        extraInputs: { provider: 'epoch' }
+      },
+      'newTransaction',
+      5,
+      false
+    ]
+  ])('%s', async (_label, row, leaf, gateIndex, gated) => {
+    await runRow(row);
+    const calls = leaf === 'sendTransaction' ? mockProxySendTransaction.mock.calls : proxyMock()[leaf].mock.calls;
+    expect(typeof calls[0][gateIndex] === 'function').toBe(gated);
+  });
+
+  const evidence = { transactionId: `0x${'b'.repeat(64)}`, outputNoteIds: [`0x${'c'.repeat(64)}`] };
+  type Gate = (evidence?: unknown) => Promise<boolean>;
+
+  it('records the crossing with its evidence before it answers yes, and answers no once the write settled', async () => {
+    let gate: Gate | undefined;
+    let answer: unknown = 'no gate';
+    let entriesAtAnswer: unknown;
+    mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+      if (typeof a[3] === 'function') {
+        gate = a[3] as Gate;
+        answer = await gate(evidence);
+        entriesAtAnswer = txStore.find(r => r.id === 'tx-gate')?.submitEvidence;
+      }
+      return makeResult();
+    });
+
+    await runSend('tx-gate');
+
+    const row = txStore.find(r => r.id === 'tx-gate')!;
+    expect(answer).toBe(true);
+    expect(entriesAtAnswer).toEqual([
+      expect.objectContaining({ attemptId: row.attemptId, source: 'stage', ...evidence })
+    ]);
+    expect(row.mayHaveSubmitted).toBe(true);
+    expect(await gate!(evidence)).toBe(false);
+    expect(row.submitEvidence).toHaveLength(1);
+  });
+
+  it('stays shut when the crossing write fails, so the write submits nothing and leaves no entry', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockCrossingWriteFails = true;
+    const { markErrorBeforeSubmit, SubmitCrossingUnrecordedError } = jest.requireActual('../sdk/sdk-error-code');
+    let refusal: unknown;
+    let submitted = false;
+    mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[3];
+      // A call with no gate is the fire-and-forget stamp, whose loss the offscreen leaf never sees.
+      if (typeof gate !== 'function') {
+        submitted = true;
+        return makeResult();
+      }
+      refusal = await (gate as Gate)(evidence).catch((error: unknown) => error);
+      // As the proxy rebuilds the offscreen leaf's refusal: tagged as before its submit.
+      throw markErrorBeforeSubmit(new Error("Offscreen call 'sendTransaction' failed: offscreen submit gate refused"));
+    });
+
+    await expect(runSend('tx-gate-shut')).rejects.toThrow('offscreen submit gate refused');
+
+    const row = txStore.find(r => r.id === 'tx-gate-shut')!;
+    expect(submitted).toBe(false);
+    expect(refusal).toBeInstanceOf(SubmitCrossingUnrecordedError);
+    expect(row.submitEvidence ?? []).toEqual([]);
+    expect(row.mayHaveSubmitted).toBeUndefined();
   });
 });
 

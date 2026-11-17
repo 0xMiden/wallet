@@ -3586,6 +3586,120 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
   });
 
+  // A single-key write whose service worker gates its submit asks that gate for its 'submitting' stamp and waits for the
+  // answer, so the worker records the crossing before the submit; a refusal, or no answer, submits nothing (#1081).
+  describe('a single-key write the service worker gates', () => {
+    const gatedWrites: Array<[string, string, string[]]> = [
+      [
+        'sendTransaction',
+        'clientSendTransaction',
+        [
+          encodeArg({
+            accountId: 'mtst1qacc',
+            secondaryAccountId: 'mtst1qrecipient',
+            faucetId: 'mtst1qfaucet',
+            noteType: 'private',
+            amount: '1',
+            extraInputs: {}
+          })
+        ]
+      ],
+      [
+        'swapTransaction',
+        'clientSwapTransaction',
+        [
+          encodeArg({
+            accountId: 'mtst1qacc',
+            faucetId: 'mtst1qoffered',
+            amount: '1',
+            extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '2' },
+            swapFeeContext: {
+              scope: 'testnet|queued-endpoint',
+              nativeAssetId: 'mtst1qfee',
+              feeFaucetId: null,
+              baseFee: '7'
+            }
+          })
+        ]
+      ],
+      [
+        'newTransaction',
+        'clientNewTransaction',
+        [encodeArg('mtst1qacc'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+      ]
+    ];
+    // The leaf as the client drives it: the 'submitting' stamp, then the submit.
+    const leafThatSubmits = (order: string[]) =>
+      jest.fn(async (...args: unknown[]) => {
+        const onStage = args.find(arg => typeof arg === 'function');
+        if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
+        order.push('submit');
+        return { serialize: () => new Uint8Array([1]) };
+      });
+
+    it.each(gatedWrites)('%s submits only once its gate answered yes', async (method, leaf, argsB64) => {
+      await loadModule();
+      const order: string[] = [];
+      const posted: any[] = [];
+      let answer: ((reply: unknown) => void) | undefined;
+      G.chrome.runtime.sendMessage = jest.fn((m: any) => {
+        posted.push(m);
+        if (m?.type !== OFFSCREEN_SUBMIT_GATE) return Promise.resolve(undefined);
+        order.push('gate');
+        return new Promise(resolve => {
+          answer = resolve;
+        });
+      });
+      G.__off[leaf] = leafThatSubmits(order);
+      const sendResponse = jest.fn();
+      capturedListener!(callReq({ op_id: 'op-gated', method, argsB64, submitGated: true }), {}, sendResponse);
+      await flush();
+
+      expect(order).toEqual(['gate']);
+      expect(posted).toContainEqual({
+        target: 'sw',
+        type: OFFSCREEN_SUBMIT_GATE,
+        op_id: 'op-gated',
+        evidence: { refBlock: 9 }
+      });
+      answer?.({ ok: true });
+      await flush();
+      expect(order).toEqual(['gate', 'submit']);
+      // The gate is the crossing's record, so no fire-and-forget 'submitting' stamp rides beside it.
+      expect(posted.filter(m => m?.type === 'OFFSCREEN_STAGE_EVENT' && m.stage === 'submitting')).toEqual([]);
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+    });
+
+    const refusals: Array<[string, () => Promise<unknown>]> = [
+      ['a refusal', async () => ({ ok: false, error: 'op op-gated has already settled' })],
+      ['no answer', async () => undefined],
+      ['a lost message', async () => Promise.reject(new Error('Could not establish connection'))]
+    ];
+    it.each(
+      gatedWrites.flatMap(([method, leaf, argsB64]) =>
+        refusals.map(([label, reply]) => [method, label, leaf, argsB64, reply] as const)
+      )
+    )('%s submits nothing after %s, failing before its submit', async (method, _label, leaf, argsB64, reply) => {
+      await loadModule();
+      const order: string[] = [];
+      G.chrome.runtime.sendMessage = jest.fn((m: any) =>
+        m?.type === OFFSCREEN_SUBMIT_GATE ? reply() : Promise.resolve(undefined)
+      );
+      G.__off[leaf] = leafThatSubmits(order);
+      const sendResponse = jest.fn();
+      capturedListener!(callReq({ op_id: 'op-gated', method, argsB64, submitGated: true }), {}, sendResponse);
+      await flush();
+
+      expect(order).toEqual([]);
+      // Not a prover failure: nothing re-proves it, and the service worker leaves no entry for it.
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'SubmitCrossingUnrecordedError',
+        errorBeforeSubmit: true
+      });
+    });
+  });
+
   it('a stage-event post failure NEVER reaches the write (rejects and synchronous throws are both swallowed)', async () => {
     await loadModule();
     // Model both failure modes on the SAME channel the OP_STARTED signal uses: a
