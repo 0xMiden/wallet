@@ -3,6 +3,8 @@
  */
 import { describe, expect, it } from '@jest/globals';
 
+import { FEATURE_METADATA_SQL } from './fake-d1';
+import type { FakeD1 } from './fake-d1';
 import {
   SIGNING_KEY,
   bodyOf,
@@ -17,8 +19,6 @@ import {
   wireEntry
 } from './harness';
 import type { Harness, Session } from './harness';
-import { FEATURE_METADATA_SQL } from './fake-d1';
-import type { FakeD1 } from './fake-d1';
 import { verifyToken } from '../src/token';
 
 const PROFILE_GONE = { error: 'unauthorized', message: 'The profile does not exist. Log in again.' };

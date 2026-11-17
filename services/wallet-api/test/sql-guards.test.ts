@@ -1,12 +1,11 @@
 /**
  * @jest-environment node
  */
+import { afterEach, describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { SQLInputValue } from 'node:sqlite';
-
-import { afterEach, describe, expect, it } from '@jest/globals';
 
 import { NONCE_INSERT_SQL, NONCE_SWEEP_SQL } from './fake-d1';
 import { KDF_PARAMS, START_MS, blobBytes, hashedKey } from './harness';

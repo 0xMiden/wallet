@@ -160,6 +160,7 @@ describe('storage rate limit', () => {
     await expectRateLimited(
       await send(harness, '/v1/storage/accounts', { method: 'PUT', token: session.token, body: 'not json' })
     );
+    expect(harness.db.entriesOf(session.profileId, 'accounts')).toEqual([]);
   });
 
   it('refuses a salt set and a delete over the limit and changes nothing', async () => {
