@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } 
 import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { bindTransferQuote, type QuoteRequest, type TransferQuote } from 'lib/bridge/core/quote';
 import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
+import { submitReviewedBridge } from 'lib/bridge/wallet-submit';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
 import { switchWebWalletChain } from 'lib/epoch/client';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
@@ -64,6 +65,10 @@ jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => mockSnapshot }));
 jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockSnapshot }));
 jest.mock('lib/bridge/wallet-transport', () => ({ quoteBridgeTransfer: jest.fn() }));
+jest.mock('lib/bridge/wallet-submit', () => ({
+  ...jest.requireActual('lib/bridge/wallet-submit'),
+  submitReviewedBridge: jest.fn()
+}));
 jest.mock('lib/epoch/client', () => ({
   buildEpochWalletClient: jest.fn(),
   getEvmConnection: jest.fn(),
@@ -124,6 +129,7 @@ function quote(request: QuoteRequest, received = '1'): TransferQuote {
 }
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(submitReviewedBridge).mockReset();
   jest.spyOn(Date, 'now').mockReturnValue(now);
   mockSnapshot = referenceSnapshot('testnet');
   mockLocked = false;
@@ -506,4 +512,29 @@ it('same-named assets on another source network clear input and never silently s
   expect(result.current.bridge.amount).toBe('');
   expect(result.current.bridge.canReview).toBe(false);
   expect(switchWebWalletChain).not.toHaveBeenCalled();
+});
+
+it('keeps the admitted review as readonly original facts when a later measurement or catalog changes', async () => {
+  // UI outcome boundary only; actual queue/CAS and source execution are covered by the native-owner suites.
+  jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+    deps.onOperation('original-row');
+    return { kind: 'started', operationId: 'original-row' };
+  });
+  const { result, rerender } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  const original = result.current.bridge.review;
+  await act(async () => result.current.bridge.submit());
+  expect(result.current.bridge.operationId).toBe('original-row');
+  mockFee = { ...mockFee, reserve: 301n };
+  rerender();
+  removeCircleWithdrawals();
+  rerender();
+  expect(result.current.bridge.review).toBe(original);
+  expect(result.current.bridge.review?.networkFeeBudget?.maxAmount).toBe('300');
+  expect(result.current.bridge.operationId).toBe('original-row');
+  expect(result.current.bridge.canReview).toBe(false);
+  expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
+  await act(async () => result.current.bridge.submit());
+  expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
 });
