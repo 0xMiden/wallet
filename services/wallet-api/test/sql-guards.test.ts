@@ -7,13 +7,14 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { SQLInputValue } from 'node:sqlite';
 
-import { NONCE_INSERT_SQL, NONCE_SWEEP_SQL } from './fake-d1';
 import { KDF_PARAMS, START_MS, blobBytes, hashedKey } from './harness';
 import {
   DELETE_ENTRIES_OF_GENERATION,
   DELETE_PROFILE_OF_GENERATION,
+  INSERT_NONCE,
   SET_SALT,
   SPEND_NONCE,
+  SWEEP_NONCES,
   UPSERT_ENTRY,
   UPSERT_PROFILE
 } from '../src/sql';
@@ -169,7 +170,7 @@ describe('production SQL on SQLite', () => {
     const nonceBytes = (fill: number): Uint8Array => new Uint8Array(32).fill(fill);
 
     function insertNonce(db: DatabaseSync, fill: number, expiresAt: number, key = KEY): void {
-      db.prepare(NONCE_INSERT_SQL).run(key, nonceBytes(fill), expiresAt);
+      db.prepare(INSERT_NONCE).run(key, nonceBytes(fill), expiresAt);
     }
 
     function spend(db: DatabaseSync, fill: number, now: number, key = KEY): Record<string, SQLInputValue> | undefined {
@@ -202,12 +203,19 @@ describe('production SQL on SQLite', () => {
       const db = database();
       [5, 1, 4, 2, 3].forEach(age => insertNonce(db, age, START_MS - age));
       insertNonce(db, 9, START_MS);
-      expect(db.prepare(NONCE_SWEEP_SQL).run(START_MS, 3).changes).toBe(3);
+      expect(db.prepare(SWEEP_NONCES).run(START_MS, 3).changes).toBe(3);
       const left = db
         .prepare('SELECT expires_at FROM auth_nonces ORDER BY expires_at')
         .all()
         .map(row => Number(row.expires_at));
       expect(left).toEqual([START_MS - 2, START_MS - 1, START_MS]);
+      expect(db.prepare(SWEEP_NONCES).run(START_MS, 100).changes).toBe(2);
+      expect(
+        db
+          .prepare('SELECT expires_at FROM auth_nonces')
+          .all()
+          .map(row => Number(row.expires_at))
+      ).toEqual([START_MS]);
     });
   });
 });

@@ -8,20 +8,22 @@ import {
   DELETE_ENTRIES_OF_GENERATION,
   DELETE_PROFILE_OF_GENERATION,
   ENTRY_COLUMNS,
+  INSERT_NONCE,
   PROFILE_METADATA,
   PROFILE_STATE,
   SET_SALT,
   SPEND_NONCE,
+  SWEEP_NONCES,
   UPSERT_ENTRY,
   UPSERT_PROFILE
 } from '../src/sql';
 
-/** The inline statements of db.ts and routes/auth.ts. Keep them equal to the source text. */
+/** The inline statement of db.ts. Keep it equal to the source text. */
 export const FEATURE_METADATA_SQL =
   'SELECT hashed_key, revision FROM entries WHERE profile_id = ? AND feature = ? ORDER BY hashed_key';
-export const NONCE_SWEEP_SQL =
-  'DELETE FROM auth_nonces WHERE rowid IN (SELECT rowid FROM auth_nonces WHERE expires_at < ? ORDER BY expires_at LIMIT ?)';
-export const NONCE_INSERT_SQL = 'INSERT INTO auth_nonces (public_key, nonce, expires_at) VALUES (?, ?, ?)';
+/** The nonce sweep and insert of routes/auth.ts, shared from src/sql.ts. */
+export const NONCE_SWEEP_SQL = SWEEP_NONCES;
+export const NONCE_INSERT_SQL = INSERT_NONCE;
 const ENTRY_SQL = `${ENTRY_COLUMNS} WHERE profile_id = ? AND feature = ? AND hashed_key = ?`;
 
 /** The text of a feature page read, as featureEntriesStatement builds it. */

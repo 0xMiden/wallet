@@ -6,7 +6,7 @@ import { ApiError } from '../errors';
 import { json, readJson } from '../http';
 import { limitAuth } from '../rate-limit';
 import { parseProfileRow } from '../rows';
-import { SPEND_NONCE, UPSERT_PROFILE } from '../sql';
+import { INSERT_NONCE, SPEND_NONCE, SWEEP_NONCES, UPSERT_PROFILE } from '../sql';
 import { profileIdFor, signToken, signingKey } from '../token';
 import type { LoginResponse, NonceResponse, RequestContext } from '../types';
 import { parseLoginRequest, parseNonceRequest } from '../validate';
@@ -23,14 +23,8 @@ export async function issueNonce(context: RequestContext): Promise<Response> {
   const now = context.now();
   const expiresAt = now + NONCE_TTL_MS;
   await db.batch([
-    db
-      .prepare(
-        'DELETE FROM auth_nonces WHERE rowid IN (SELECT rowid FROM auth_nonces WHERE expires_at < ? ORDER BY expires_at LIMIT ?)'
-      )
-      .bind(now, NONCE_SWEEP_LIMIT),
-    db
-      .prepare('INSERT INTO auth_nonces (public_key, nonce, expires_at) VALUES (?, ?, ?)')
-      .bind(hexToBytes(publicKey), nonce, expiresAt)
+    db.prepare(SWEEP_NONCES).bind(now, NONCE_SWEEP_LIMIT),
+    db.prepare(INSERT_NONCE).bind(hexToBytes(publicKey), nonce, expiresAt)
   ]);
   const body: NonceResponse = { nonce: bytesToHex(nonce), expiresAt };
   return json(body);

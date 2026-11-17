@@ -37,6 +37,12 @@ VALUES (?1, ?2, NULL, ?4, ?3, ?3)
 ON CONFLICT (profile_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
 RETURNING sync_public_key, salt, generation`;
 
+// The expiry sweep of a nonce request: at most LIMIT expired nonces, oldest first, through the expiry index.
+export const SWEEP_NONCES =
+  'DELETE FROM auth_nonces WHERE rowid IN (SELECT rowid FROM auth_nonces WHERE expires_at < ? ORDER BY expires_at LIMIT ?)';
+
+export const INSERT_NONCE = 'INSERT INTO auth_nonces (public_key, nonce, expires_at) VALUES (?, ?, ?)';
+
 // Spend a nonce. One statement is atomic, so two logins that race on one nonce get one row between them.
 export const SPEND_NONCE =
   'DELETE FROM auth_nonces WHERE public_key = ? AND nonce = ? AND expires_at > ? RETURNING nonce';
