@@ -412,6 +412,15 @@ test('disable requires exact confirmed return to original owner and no remaining
   f.prior.withdraw.recipient = token;
   assert.throws(() => compactRecoveryIntent('disable', f.original, f.live, f.prior));
 });
+test('retains higher original frozen Epoch gas valuation instead of the lower replacement quote', () => {
+  assert.throws(() =>
+    assertCompactRecoveryFees(
+      { gas: 57134n, maxFeePerGas: 158599147n, maxPriorityFeePerGas: 8981n },
+      1824330000n,
+      1776116n
+    )
+  );
+});
 test('bounds maximum gas using frozen conservative valuation and original remaining allowance', () => {
   const tx = { gas: 80000n, maxFeePerGas: 500000000n, maxPriorityFeePerGas: 100000000n };
   let cost;

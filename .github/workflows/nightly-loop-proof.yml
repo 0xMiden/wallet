@@ -1,7 +1,7 @@
 name: Original Compact enabled phase independent SDK018 public and private audit
 on:
   push:
-    branches: [wiktor/green02-compact-enabled-audit]
+    branches: [wiktor/green02-compact-withdraw]
 permissions:
   contents: read
   actions: read
