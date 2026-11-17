@@ -1,0 +1,52 @@
+name: Temporary SDK 0.18 auth regression
+on:
+  push:
+    branches: [release/018-auth]
+permissions:
+  contents: read
+jobs:
+  auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+      - name: Install isolated published SDK stack without changing wallet pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/auth-deps" auth-evidence
+          cat > "$RUNNER_TEMP/auth-deps/package.json" <<'JSON'
+          {"private":true,"dependencies":{"@miden-sdk/miden-sdk":"0.18.0","@openzeppelin/miden-multisig-client":"0.19.0-rc.2","@openzeppelin/guardian-client":"0.19.0-rc.2","@epoch-protocol/epoch-intents-sdk":"2.0.1","@epoch-protocol/epoch-commons-sdk":"2.1.0","viem":"2.57.10","esbuild":"0.25.12","typescript":"5.4.5"},"overrides":{"@miden-sdk/miden-sdk":"0.18.0","@openzeppelin/guardian-client":"0.19.0-rc.2"}}
+          JSON
+          npm install --prefix "$RUNNER_TEMP/auth-deps" 2>&1 | tee auth-evidence/install.log
+          cp "$RUNNER_TEMP/auth-deps/"{package.json,package-lock.json} auth-evidence/
+          ln -s "$RUNNER_TEMP/auth-deps/node_modules" node_modules
+          npm ls --prefix "$RUNNER_TEMP/auth-deps" --all > auth-evidence/dependencies.txt
+          git rev-parse HEAD | tee auth-evidence/commit.txt
+      - name: Build scoped real-SDK validators
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p node_modules/.cache
+          esbuild=node_modules/.bin/esbuild
+          "$esbuild" src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
+          "$esbuild" scripts/helpers/mainnet-epoch-readonly-sdk.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs
+          for entry in epoch-provider epoch-request swap-claim; do
+            "$esbuild" "playwright/e2e/helpers/mainnet-$entry.ts" --bundle --platform=node --format=esm --packages=external --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --outfile="node_modules/.cache/nightly-$entry.mjs"
+          done
+          "$esbuild" playwright/e2e/helpers/mainnet-epoch-fixture.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.cache/nightly-epoch-fixture.mjs
+      - name: Run scoped auth and canonical request regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=2 test/sdk018-auth.node.test.mjs scripts/mainnet-send-request.test.mjs scripts/mainnet-swap-request.test.mjs scripts/mainnet-epoch-request.test.mjs scripts/mainnet-swap-claim.test.mjs test/custom-request-diagnostics.node.test.mjs test/dapp-custom-request.node.test.mjs test/guardian-custom-request.node.test.mjs 2>&1 | tee auth-evidence/tests.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sdk018-auth-${{ github.sha }}
+          path: auth-evidence/
