@@ -1,13 +1,112 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { decodeFunctionData } from 'viem';
 import { COMPACT_ABI } from '../node_modules/@epoch-protocol/epoch-intents-sdk/dist/abis/compact.js';
-import { compactRecoveryIntent, assertCompactRecoveryFees } from '../scripts/mainnet-compact-recovery-guard.mjs';
+import {
+  compactRecoveryIntent,
+  assertCompactRecoveryFees,
+  acknowledgeCompactRecovery,
+  consumeCompactRecoveryAttempt
+} from '../scripts/mainnet-compact-recovery-guard.mjs';
 const owner = '0xc3B89CeCb0c5C3442A7DBCbBE379351C6bDfF836',
   compact = '0x00000000000000171ede64904551eeDF3C6C9788',
   token = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
   id = BigInt('0x407c50057d83bedfcde2fb0ca0b86991c6218b36c1d19d4a2e9eb0ce3606eb48');
 const hash = `0x${'11'.repeat(32)}`;
+function journalFixture() {
+  const binding = { runId: '123456', sourceSha: 'da954b1d3c65d5d0c54cfdeb5db6a35fc1480e49', stage: 'enable' };
+  const journal = {
+    version: 1,
+    sourceRunId: '44034323631',
+    checkpointSha256: '77652e5b0590797753f5fe920d79fec252af3411a5b125a663a12d77f60e40a1',
+    ...binding,
+    preparedAt: 1000,
+    expiresAt: 241000,
+    signedHash: hash
+  };
+  return { binding, journal, bytes: JSON.stringify(journal) };
+}
+test('accepts only this execution original-case byte-identical immutable ACK before expiry', () => {
+  const f = journalFixture();
+  assert.doesNotThrow(() => acknowledgeCompactRecovery(f.bytes, f.bytes, f.binding, 2000));
+});
+for (const [name, change] of [
+  [
+    'another run',
+    f => {
+      f.binding.runId = '123457';
+    }
+  ],
+  [
+    'another source',
+    f => {
+      f.binding.sourceSha = '00'.repeat(20);
+    }
+  ],
+  [
+    'another operation',
+    f => {
+      f.binding.stage = 'withdraw';
+    }
+  ],
+  [
+    'another original checkpoint',
+    f => {
+      f.journal.checkpointSha256 = 'wrong';
+      f.bytes = JSON.stringify(f.journal);
+    }
+  ],
+  [
+    'expired acknowledgement',
+    f => {
+      f.now = 241000;
+    }
+  ],
+  [
+    'clock regression',
+    f => {
+      f.now = 999;
+    }
+  ],
+  [
+    'renewed authority window',
+    f => {
+      f.journal.expiresAt++;
+      f.bytes = JSON.stringify(f.journal);
+    }
+  ],
+  [
+    'unbound signed transaction hash',
+    f => {
+      f.journal.signedHash = '0x00';
+      f.bytes = JSON.stringify(f.journal);
+    }
+  ]
+])
+  test(`ACK rejects ${name}`, () => {
+    const f = journalFixture();
+    change(f);
+    assert.throws(() => acknowledgeCompactRecovery(f.bytes, f.bytes, f.binding, f.now ?? 2000));
+  });
+test('ACK rejects changed downloaded bytes, even harmless reserialization', () => {
+  const f = journalFixture();
+  assert.throws(() => acknowledgeCompactRecovery(f.bytes, JSON.stringify(f.journal, null, 2), f.binding, 2000));
+});
+test('consumes a durable original attempt marker once and never overwrites it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'compact-once-'));
+  try {
+    const path = join(dir, 'enable.once');
+    assert.doesNotThrow(() => consumeCompactRecoveryAttempt(path, hash));
+    assert.equal(readFileSync(path, 'utf8'), `${hash}\n`);
+    assert.throws(() => consumeCompactRecoveryAttempt(path, `0x${'22'.repeat(32)}`));
+    assert.equal(readFileSync(path, 'utf8'), `${hash}\n`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 function fixture(stage = 'enable') {
   const original = {
     checkpointSha256: '77652e5b0590797753f5fe920d79fec252af3411a5b125a663a12d77f60e40a1',

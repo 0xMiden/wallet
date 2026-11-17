@@ -128,3 +128,10 @@ export function assertCompactRecoveryFees(transaction, ethUsdMicros, remainingUs
     throw new Error('Original Compact recovery exceeds its remaining gas allowance');
   return maximumCost;
 }
+
+export function acknowledgeCompactRecovery() {
+  throw new Error('Original Compact immutable acknowledgement is not authorized');
+}
+export function consumeCompactRecoveryAttempt() {
+  throw new Error('Original Compact attempt is not authorized');
+}
