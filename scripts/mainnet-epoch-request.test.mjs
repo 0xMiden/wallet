@@ -479,6 +479,25 @@ test('does not refund before the live reclaim height or without the original ins
   );
 });
 
+test('copies SDK 0.18 Epoch auth preimage and refuses inconsistent transported advice', () => {
+  const input = request();
+  const note = sdk.TransactionRequest.deserialize(input.bytes).expectedOutputOwnNotes()[0];
+  const bytes = guardianBytes(new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray([note])));
+  assert.deepEqual(inspectEpochCollateralRequest(input.state, bytes, review), {
+    noteId: input.noteId,
+    reclaimHeight: 7200
+  });
+  const original = sdk.TransactionRequest.deserialize(bytes);
+  const values = original.adviceMap().get(original.authArg());
+  values[0] = new sdk.Felt(999n);
+  const advice = new sdk.AdviceMap();
+  advice.insert(original.authArg(), new sdk.FeltArray(values));
+  const corrupted = sdk.TransactionRequest.deserialize(original.extendAdviceMap(advice).serialize());
+  assert.equal(corrupted.authArg().toHex(), original.authArg().toHex());
+  assert.equal(corrupted.adviceMap().get(corrupted.authArg())[0].asInt(), 999n);
+  assert.throws(() => inspectEpochCollateralRequest(input.state, corrupted.serialize(), review), /undeclared execution/);
+});
+
 for (const options of [{}, { feeSalt: true }]) {
   test(`inspects real SDK collateral bytes${options.feeSalt ? ' with declared fee salt' : ''} without submitting`, () => {
     const input = request(options);
