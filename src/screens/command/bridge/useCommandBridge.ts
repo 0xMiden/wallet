@@ -411,7 +411,10 @@ export function useCommandBridge() {
         }
       });
       if (alive.current && consent.current === captured && outcome.kind === 'rejected') {
-        invalidate();
+        if (admittedRowId.current) {
+          generation.current++;
+          consent.current = undefined;
+        } else invalidate();
         setError(true);
       }
     } finally {
