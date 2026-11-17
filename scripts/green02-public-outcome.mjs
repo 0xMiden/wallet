@@ -204,8 +204,12 @@ try {
   const decoded = decodeFunctionData({ abi: COMPACT_ABI, data: deposited.transaction.input });
   assert.equal(decoded.functionName, 'depositERC20AndRegister');
   assert.equal(BigInt(decoded.args[2]), escrow);
+  // The primary RPC rejects this historical eth_call; verify the original registration on the measured archive source.
   assert.equal(
-    await client.readContract({
+    await createPublicClient({
+      chain: mainnet,
+      transport: http('https://eth.drpc.org', { retryCount: 0 })
+    }).readContract({
       address: compact,
       abi: COMPACT_ABI,
       functionName: 'isRegistered',
