@@ -60,12 +60,16 @@ function reviewFor(executor: boolean): ReviewedTransfer {
 }
 
 async function drive(executor: boolean, afterClaim?: (claimed: BridgeOperationSnapshot) => Promise<void>,
-  changed: { amount?: string; recipient?: `0x${string}`; rowId?: string; fee?: bigint } = {}) {
+  changed: { amount?: string; recipient?: `0x${string}`; rowId?: string; fee?: bigint; contract?: boolean; depositor?: `0x${string}`; signature?: `0x${string}` } = {}) {
   const review = reviewFor(executor);
   live = structuredClone(review);
   const chainId = executor ? 11155111 : 5042002;
   const source = getUsdcxSourceChain(chainId);
   if (!source) throw new Error('Missing configured Circle source');
+  if (changed.contract) {
+    if (source.route === 'xreserve') source.xReserve = '0x2222222222222222222222222222222222222222';
+    else source.target.handler = '0x2222222222222222222222222222222222222222';
+  }
   let finish: (error: unknown) => void = () => undefined;
   const finished = new Promise<unknown>(resolve => { finish = resolve; });
   let winner: BridgeOperationSnapshot | undefined;
@@ -97,9 +101,9 @@ async function drive(executor: boolean, afterClaim?: (claimed: BridgeOperationSn
           await runUsdcxDeposit(changed.rowId ?? rowId, changed.amount ?? review.amount, recipient, { ...deps, source });
         else
           await runUsdcxExecutorDeposit(changed.rowId ?? rowId, changed.amount ?? review.amount, recipient, {
-            ...deps, source, depositor: `0x${accounts.evmAddress.slice(2)}`,
+            ...deps, source, depositor: changed.depositor ?? `0x${accounts.evmAddress.slice(2)}`,
             readBalance: async () => 10000000n,
-            fetchQuote: async () => ({ signedQuote: '0x1234', feeTotalAmount: changed.fee ?? 1n, expiresAt: now / 1000 + 60 })
+            fetchQuote: async () => ({ signedQuote: changed.signature ?? '0x1234', feeTotalAmount: changed.fee ?? 1n, expiresAt: now / 1000 + 60 })
           });
         finish(undefined);
       } catch (error) { finish(error); }
@@ -166,6 +170,21 @@ it.each([false, true])('refuses a different actual recipient (executor=%s)', asy
 });
 it.each([false, true])('refuses a different tracking row (executor=%s)', async executor => {
   const { error } = await drive(executor, undefined, { rowId: 'not-original-row' });
+  expect(error).toBeInstanceOf(Error);
+  expect(deposit).not.toHaveBeenCalled();
+});
+it.each([false, true])('refuses changed configured contract or script (executor=%s)', async executor => {
+  const { error } = await drive(executor, undefined, { contract: true });
+  expect(error).toBeInstanceOf(Error);
+  expect(deposit).not.toHaveBeenCalled();
+});
+it('refuses a different actual executor depositor', async () => {
+  const { error } = await drive(true, undefined, { depositor: '0x2222222222222222222222222222222222222222' });
+  expect(error).toBeInstanceOf(Error);
+  expect(deposit).not.toHaveBeenCalled();
+});
+it('refuses a substituted signed executor authorization', async () => {
+  const { error } = await drive(true, undefined, { signature: '0xabcd' });
   expect(error).toBeInstanceOf(Error);
   expect(deposit).not.toHaveBeenCalled();
 });
