@@ -2,7 +2,7 @@
 
 ## 1.18.1 (TBD)
 
-- [FIX][ci] Read measured maximum fee rows in Chrome and iOS USDCx burn reviews, restore each dApp's existing account grant before completion reads, and retain screenshot-helper diagnostics if a native capture times out.
+- [FIX][ci] Read measured maximum fee rows in Chrome and iOS USDCx burn reviews, restore each dApp's existing account grant before completion reads, and retain scalar refusal-phase and screenshot-helper diagnostics without changing existing timing bounds.
 - [FIX][all] A Fast bridge-in whose deposit landed in The Compact while Epoch refused its allocation now reads Deposit locked, and its Activity details let the depositing EVM wallet retry the bridge over the locked balance or withdraw the whole lock back after the lock's reset period; Settings > Advanced > Recover locked bridge funds scans The Compact for every Fast bridge-in address and the connected EVM wallet and offers the same withdraw, cancel and retry per lock; the Fast bridge-in flow lets the EVM wallet disable a forced withdrawal and continues with a fresh quote after confirmation (#2120).
 - [FIX][ci] Retain the first Epoch return solve-failure as a keyed fingerprint and finite SDK kind/HTTP status without exporting private errors or changing transaction, retry, timeout or authorization behavior.
 
