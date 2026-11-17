@@ -66,10 +66,10 @@ function normalizedDepositStatus(deposit: AgglayerDeposit): string | undefined {
 export function isAgglayerDepositReady(deposit: AgglayerDeposit): boolean {
   const normalizedStatus = normalizedDepositStatus(deposit);
   return Boolean(
-    deposit.ready_for_claim ||
-    deposit.ready_to_claim ||
-    deposit.finalized ||
-    deposit.finalised ||
+    deposit.ready_for_claim === true ||
+    deposit.ready_to_claim === true ||
+    deposit.finalized === true ||
+    deposit.finalised === true ||
     (normalizedStatus && TERMINAL_DEPOSIT_STATUSES.has(normalizedStatus))
   );
 }
@@ -237,7 +237,9 @@ export async function searchAgglayerExitDeposit(
   route?: AgglayerRecoveryConfig
 ): Promise<AgglayerExitSearch> {
   const isThisExit = (deposit: AgglayerDeposit) =>
-    isMidenToEvmDeposit(deposit, route) && sameTxHash(deposit.tx_hash, exitTxHash);
+    isMidenToEvmDeposit(deposit, route) &&
+    deposit.dest_addr?.toLowerCase() === l1Dest.toLowerCase() &&
+    sameTxHash(deposit.tx_hash, exitTxHash);
   if (depositCnt !== undefined) {
     try {
       const pinned = await fetchMidenToEvmDeposit(depositCnt, route);
@@ -277,7 +279,9 @@ async function searchExitHistory(
   for (; page < AGGLAYER_EXIT_SEARCH_MAX_PAGES; page++) {
     const offset = page * AGGLAYER_DEPOSITS_PAGE_SIZE;
     const { deposits, total } = await fetchDepositsPage(l1Dest, offset, route);
-    const deposit = deposits.find(isThisExit);
+    const matching = deposits.filter(isThisExit);
+    if (matching.length > 1) throw new Error('Multiple Agglayer deposits carry this exit');
+    const deposit = matching[0];
     if (deposit) return { deposit, complete: true };
     if (offset + deposits.length >= total) return exitHistoryMiss(searchKey, page, 'missed');
     if (deposits.length === 0) break;

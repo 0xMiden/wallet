@@ -540,6 +540,8 @@ export function createBridgeReceiveReconciler({
               )
                 return;
               assertBridgeOperationCurrent(claimedRow, operation);
+              await drive(txId, claimed);
+              return;
             }
           }
           await drive(txId);
