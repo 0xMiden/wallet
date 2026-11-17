@@ -94,12 +94,14 @@ export function inspectTestMainnetSendRequest(
     const equal = (left: Uint8Array, right: Uint8Array) =>
       left.length === right.length && left.every((value, index) => value === right[index]);
     const differences: string[] = [];
-    if (!equal(note.serialize(), expectedNote.serialize())) differences.push('note');
-    if (note.recipient().digest().toHex() !== expectedNote.recipient().digest().toHex()) differences.push('recipient');
-    if (note.metadata().sender().toString() !== expectedNote.metadata().sender().toString()) differences.push('sender');
-    if (note.metadata().noteType() !== expectedNote.metadata().noteType()) differences.push('visibility');
-    if (note.metadata().tag().asU32() !== expectedNote.metadata().tag().asU32()) differences.push('tag');
-    if (note.attachments().length !== expectedNote.attachments().length) differences.push('attachments');
+    // NoteArray transfers WASM ownership; inspect a fresh getter copy, not the consumed builder input.
+    const expectedOutput = expected.expectedOutputOwnNotes()[0];
+    if (!equal(note.serialize(), expectedOutput.serialize())) differences.push('note');
+    if (note.recipient().digest().toHex() !== expectedOutput.recipient().digest().toHex()) differences.push('recipient');
+    if (note.metadata().sender().toString() !== expectedOutput.metadata().sender().toString()) differences.push('sender');
+    if (note.metadata().noteType() !== expectedOutput.metadata().noteType()) differences.push('visibility');
+    if (note.metadata().tag().asU32() !== expectedOutput.metadata().tag().asU32()) differences.push('tag');
+    if (note.attachments().length !== expectedOutput.attachments().length) differences.push('attachments');
     if (request.authArg()?.toHex() !== expected.authArg()?.toHex()) differences.push('auth');
     if (request.scriptArg()?.toHex() !== expected.scriptArg()?.toHex()) differences.push('script');
     if (JSON.stringify(request.blockNumbers()) !== JSON.stringify(expected.blockNumbers())) differences.push('blocks');
