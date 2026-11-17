@@ -1,4 +1,9 @@
-import { parseUnits, type Hash } from 'viem';
+import { waitFor } from '@testing-library/react';
+import { parseUnits, type Hash, type EIP1193Provider } from 'viem';
+
+import { runXReserveReceive } from 'lib/bridge/providers/xreserve/flows';
+import type { XReserveClient } from 'lib/bridge/providers/xreserve/deposit';
+import { usdcxExpectedRemoteTokenFor } from 'lib/usdcx/deposit-target';
 
 import { bindTransferQuote, quoteAmounts } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
@@ -149,6 +154,40 @@ beforeEach(async () => {
   await Repo.transactions.clear();
 });
 afterEach(() => jest.restoreAllMocks());
+
+it.each([false, true])('adapts the reviewed provider into the actual receive wrapper and source leaf (executor=%s)', async executor => {
+  const review = reviewFor(executor);
+  live = structuredClone(review);
+  const client = {
+    readContract: jest.fn(async ({ functionName }: { functionName: string }) => {
+      if (functionName === 'allowance') return 10000000n;
+      if (functionName === 'balanceOf') return 1000000000n;
+      if (functionName === 'decimals') return 6;
+      if (functionName === 'isRemoteDomainRegistered') return true;
+      if (functionName === 'getRemoteToken') return usdcxExpectedRemoteTokenFor(review.route.recovery.nativeAsset!.faucetId);
+      if (functionName === 'paused') return false;
+      if (functionName === 'getFee') return [1n, review.route.source.kind === 'erc20' ? review.route.source.address : ''];
+      throw new Error('Unexpected read');
+    }), call: jest.fn(async () => ({ data: '0x' })), estimateGas: jest.fn(async () => 100000n),
+    waitForTransactionReceipt: jest.fn(), getBalance: jest.fn(async () => 1000000000n), getGasPrice: jest.fn(async () => 1n),
+    getTransaction: jest.fn(), getBlockNumber: jest.fn(), getTransactionCount: jest.fn(), getBlock: jest.fn()
+  } satisfies XReserveClient;
+  const send = jest.fn(async ({ method }: { method: string }) => {
+    if (method === 'eth_accounts') return [accounts.evmAddress];
+    if (method === 'eth_chainId') return executor ? '0xaa36a7' : '0x4cef52';
+    if (method === 'eth_sendTransaction') return sourceHash;
+    throw new Error('Unexpected wallet method');
+  });
+  const provider: EIP1193Provider = { request: send, on: jest.fn(), removeListener: jest.fn() };
+  const id = await runXReserveReceive({ operationId: 'circle-provider', review }, { provider, client,
+    checks: { readCurrent: async () => live, verifyBalanceCap: async () => undefined, now: () => now } });
+  await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBe(sourceHash));
+  const row = await Repo.transactions.get(id);
+  expect(bridgeOperationOf(row!)?.sourceAttempt).toMatchObject({ phase: 'known', hash: sourceHash });
+  expect(bridgeOperationOf(row!)?.operationId).toBe('circle-provider');
+  expect(send.mock.calls.filter(([args]) => args.method === 'eth_sendTransaction')).toHaveLength(1);
+  expect(await Repo.transactions.count()).toBe(1);
+});
 
 it.each([false, true])('first drives a real claimed Circle row (executor=%s)', async executor => {
   const { row, error } = await drive(executor);

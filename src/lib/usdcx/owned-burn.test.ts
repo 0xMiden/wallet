@@ -2,6 +2,7 @@ import { padHex } from 'viem';
 
 import { bindTransferQuote } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
+import { runXReserveSend } from 'lib/bridge/providers/xreserve/flows';
 import { bridgeOperationOf } from 'lib/bridge/operation';
 import { accounts, native, now } from 'lib/bridge/testing/fixtures';
 import { reviewedCircleTransfer } from 'lib/bridge/testing/operation-fixtures';
@@ -126,6 +127,16 @@ it.each([
   };
   await expect(initiateUsdcxBurn(input())).rejects.toThrow();
   expect(await Repo.transactions.count()).toBe(0);
+});
+
+it('adapts the reviewed provider send to the exact existing native queue', async () => {
+  const request = input();
+  const id = await runXReserveSend(request.operation, request.checks);
+  const row = await Repo.transactions.get(id);
+  expect(row?.amount).toBe(6000000n);
+  expect(row?.extraInputs.usdcxBurn?.noteId).toBe('burn-note-id');
+  expect(bridgeOperationOf(row!)?.operationId).toBe('circle-native');
+  expect(await Repo.transactions.count()).toBe(1);
 });
 
 it('coalesces an original reviewed burn instead of admitting a second native source', async () => {
