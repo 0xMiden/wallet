@@ -458,7 +458,8 @@ it('the original receive driver never discloses raw external wallet failures fro
     expect((await Repo.transactions.toArray())[0]?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain')
   );
   await waitFor(() => expect(log).toHaveBeenCalled());
-  expect(JSON.stringify(log.mock.calls)).not.toContain('private-wallet-payload-placeholder');
+  const diagnostics = log.mock.calls.flat().map(value => value instanceof Error ? value.message : String(value));
+  expect(diagnostics.join(' ')).not.toContain('private-wallet-payload-placeholder');
   expect(signed).toHaveLength(0);
   expect(await Repo.transactions.count()).toBe(1);
 });
