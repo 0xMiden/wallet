@@ -246,9 +246,10 @@ it.each(['outer', 'direct'])(
             () => 'admitted',
             () => 'refused'
           )
-        : (await createBridgeP2IDENote(directNoteInput())).success
-          ? 'admitted'
-          : 'refused';
+        : await createBridgeP2IDENote(directNoteInput()).then(
+            result => (result.success ? 'admitted' : 'refused'),
+            () => 'refused'
+          );
     const rows = await Repo.transactions.toArray();
     expect({
       outcome,
