@@ -114,6 +114,17 @@ export function inspectTestMainnetSendRequest(
     if (JSON.stringify(request.blockNumbers()) !== JSON.stringify(expected.blockNumbers())) differences.push('blocks');
     if (request.expectedFutureNotes().length !== expected.expectedFutureNotes().length) differences.push('future');
     if (!equal(actualBytes, canonicalRequestBytes(Uint8Array.from(request.serialize())))) differences.push('roundtrip');
+    if (guardian) {
+      // Mainnet fee policy publicly caps proofs at 20 blocks; test exact equality, never accept this candidate.
+      const feeBound = withTestGuardianAuthentication(
+        new TransactionRequestBuilder()
+          .withOwnOutputNotes(new NoteArray(expected.expectedOutputOwnNotes()))
+          .withExpirationDelta(20),
+        request
+      ).build();
+      if (equal(actualBytes, canonicalRequestBytes(Uint8Array.from(feeBound.serialize()))))
+        differences.push('fee-policy-expiration');
+    }
     try {
       // Locate the advice-map boundary by changing only a fixed public diagnostic entry in a copy.
       const adviceStart = (original: TransactionRequest, originalBytes: Uint8Array) => {
