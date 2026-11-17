@@ -146,6 +146,18 @@ it('rejects dry fee terms when direct nightly planning requires signed execution
   f.facts.config.feePolicy = undefined;
   await expect(prepareMainnetNearRoundTrip(f.facts, f.quote)).rejects.toThrow(/signed execution terms/);
 });
+it('rejects direct execution terms that would refund no principal', async () => {
+  const f = planningFixture();
+  f.facts.config.feePolicy = undefined;
+  await expect(prepareMainnetNearRoundTrip(f.facts, async request => {
+    const response = await f.quote(request);
+    if (response) {
+      response.quoteRequest.dry = false;
+      response.quote.refundFee = response.quote.amountIn;
+    }
+    return response;
+  })).rejects.toThrow(/bounded refund fee/);
+});
 it('accepts bounded execution terms without a fabricated partner policy', async () => {
   const f = planningFixture();
   f.facts.config.feePolicy = undefined;
