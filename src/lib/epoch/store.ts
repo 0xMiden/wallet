@@ -335,7 +335,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       const allocatorUrl = inputs?.epochAllocatorUrl ?? getEpochAllocatorUrl();
       const sdk = await getEpochSdk({ chainId: sourceChainId, allocatorUrl });
       if (!sdk) throw walletRaised(new Error('Connect an EVM wallet first'));
-      if (claimedOperation && row) {
+      const assertOwnedCurrent = async () => {
+        if (!claimedOperation || !row) throw new Error('Bridge operation terms changed');
         connection = await getEvmConnection();
         const currentRow = await Repo.transactions.get(row.id);
         const currentOperation = currentRow && bridgeOperationOf(currentRow);
@@ -354,11 +355,15 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         )
           throw new Error('Bridge operation terms changed');
         assertOwnedEpochQuote(currentRow, claimedOperation, quote);
-      }
-      const intent = await buildEVMToMidenIntent(sdk, {
-        ...(quote as EVMToMidenQuote).params,
-        preFetchedQuote: quote as EVMToMidenQuote
-      });
+      };
+      if (claimedOperation) await assertOwnedCurrent();
+      const buildParams = {
+        ...quote.params,
+        preFetchedQuote: { ...quote, params: quote.params }
+      };
+      const intent = claimedOperation
+        ? await buildEVMToMidenIntent(sdk, buildParams, assertOwnedCurrent)
+        : await buildEVMToMidenIntent(sdk, buildParams);
       const nonce = intent.intentNonce ?? intent.solveResult?.nonce;
       const evmTxHash = intent.solveResult?.depositResult?.transactionHash ?? intent.solveResult?.hash;
       if (claimedOperation) {
@@ -372,7 +377,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         if (!saved) throw new Error('Bridge source attempt changed');
         if (!intent.error && !evmTxHash && !nonce) throw new Error('Bridge source outcome is uncertain');
       }
-      console.log('[epoch] EVM→Miden intent', intent);
+      if (!tagged) console.log('[epoch] EVM→Miden intent', intent);
       if (intent.error) {
         if (!tagged || request === latestRequest) set({ status: 'failed', intent, error: intent.error });
         if (bridgeReceiveTxId && !tagged) {
@@ -437,7 +442,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         }).catch(err => console.warn('[epoch] registerPendingBridgeIn failed', err));
       }
     } catch (err) {
-      console.error('[epoch] executeEVMToMiden failed', err);
+      if (!tagged) console.error('[epoch] executeEVMToMiden failed', err);
       const message = errorMessage(err);
       if (!tagged || request === latestRequest) set({ status: 'failed', error: message });
       if (tagged) {

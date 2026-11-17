@@ -66,7 +66,6 @@ async function readLockedDeposit(txId: string): Promise<LockedDepositRow> {
   if (
     row === undefined ||
     hasBridgeOperation(row) ||
-    row.restoredFromBackup === true ||
     row.recovered === true ||
     inputs === undefined ||
     lock === undefined ||
@@ -156,14 +155,16 @@ const isOnLock = (lock: IEpochLockedDeposit, ref: CompactLockRef): boolean =>
 
 function protectedSourceOnLock(row: ITransaction, ref: CompactLockRef): boolean {
   const inputs: IBridgedReceiveExtraInputs | undefined = row.type === 'bridged-receive' ? row.extraInputs : undefined;
-  if (!inputs || inputs.provider !== 'epoch') return false;
+  if (!inputs) return false;
   const tagged = hasBridgeOperation(row);
+  const operation = tagged ? bridgeOperationOf(row) : undefined;
+  const route = operation?.review.route;
+  const originalReceive = route?.provider === 'epoch' && route.mode === 'receive';
+  if (inputs.provider !== 'epoch' && !originalReceive) return false;
   if (!tagged && !row.restoredFromBackup && !row.recovered) return false;
   const lock = inputs.epochLockedDeposit;
   if (lock && typeof lock.sponsorAddress === 'string' && isOnLock(lock, ref)) return true;
   if (!tagged) return false;
-  const operation = bridgeOperationOf(row);
-  const route = operation?.review.route;
   const source = route?.source;
   const originalChain = route?.recovery?.config?.supportedEvmChains?.[source?.network ?? '']?.chainId;
   const sponsor = operation?.review.accounts?.evmAddress;
@@ -171,7 +172,6 @@ function protectedSourceOnLock(row: ITransaction, ref: CompactLockRef): boolean 
     typeof value === 'string' &&
     isAddress(value, { strict: false }) &&
     value.toLowerCase() === ref.sponsorAddress.toLowerCase();
-  const originalReceive = route?.provider === 'epoch' && route.mode === 'receive';
   const rowScope = sameAddress(inputs.sourceAddress) && inputs.sourceChainId === ref.chainId;
   const originalScope = originalReceive && sameAddress(sponsor) && originalChain === ref.chainId;
   if (!rowScope && !originalScope) return false;
@@ -205,14 +205,7 @@ function lockedDepositOn(
 ): IEpochLockedDeposit | undefined {
   const inputs = row.type === 'bridged-receive' ? row.extraInputs : undefined;
   const lock = inputs?.epochLockedDeposit;
-  if (
-    hasBridgeOperation(row) ||
-    row.restoredFromBackup ||
-    row.recovered ||
-    inputs === undefined ||
-    lock === undefined ||
-    !isOnLock(lock, ref)
-  )
+  if (hasBridgeOperation(row) || row.recovered || inputs === undefined || lock === undefined || !isOnLock(lock, ref))
     return undefined;
   if (epochLockedDepositState(lock, inputs.phase, row.restoredFromBackup === true) !== 'locked') return undefined;
   return lock;
@@ -341,6 +334,7 @@ async function enableForcedWithdrawal(
 ): Promise<number | undefined> {
   let status = await sdk.getForcedWithdrawalStatus(sponsor, ref.lockId);
   if (status.status === 'Disabled') {
+    await assertLegacyLockAvailable(ref);
     await sdk.initateDepositWithdrawal(ref.lockId);
     status = await sdk.getForcedWithdrawalStatus(sponsor, ref.lockId);
   }
@@ -373,6 +367,7 @@ async function withdrawWholeLock(
       break;
   }
   const amount = await readCheckedLockBalance(sdk, sponsor, ref, tokenAddress, 1n);
+  await assertLegacyLockAvailable(ref);
   const result = await sdk.withdrawToken(ref.lockId, sponsor, amount.toString());
   await patchLockedDepositsOnLock(ref, () => ({
     withdrawTxHash: result.transactionHash,
@@ -410,6 +405,7 @@ export async function finishLockWithdrawal(ref: CompactLockRef): Promise<string>
 async function disableForcedWithdrawalIfOn(sdk: EpochIntentSDK, sponsor: Address, ref: CompactLockRef): Promise<void> {
   const status = await sdk.getForcedWithdrawalStatus(sponsor, ref.lockId);
   if (status.status !== 'Disabled') {
+    await assertLegacyLockAvailable(ref);
     await sdk.disableForcedWithdrawal(ref.lockId);
   }
   await recordWithdrawalStopped(ref);
@@ -442,7 +438,6 @@ export async function markEpochLockedDepositReallocated(
     const lock = inputs?.epochLockedDeposit;
     if (
       hasBridgeOperation(tx) ||
-      tx.restoredFromBackup ||
       tx.recovered ||
       tx.type !== 'bridged-receive' ||
       inputs === undefined ||
@@ -537,6 +532,7 @@ async function registerCompactAgain(
   }
   const chain = walletClient.chain ?? epochChain(lock.chainId);
   const compactAddress = await resolveCompactAddress(config, lock.chainId);
+  await assertLegacyLockAvailable(lock);
   const hash = await walletClient.writeContract({
     address: compactAddress,
     abi: COMPACT_ABI,
@@ -558,10 +554,15 @@ const REGISTRATION_LAG = /not (found on-chain|registered)/i;
 export async function submitWhenRegistered(
   sdk: Pick<EpochIntentSDK, 'submitAllocation'>,
   request: CompactRequest,
-  { attempts = 6, delayMs = 2000 }: { attempts?: number; delayMs?: number } = {}
+  {
+    attempts = 6,
+    delayMs = 2000,
+    beforeSubmit
+  }: { attempts?: number; delayMs?: number; beforeSubmit?: () => Promise<void> } = {}
 ): Promise<string> {
   for (let attempt = 0; ; attempt++) {
     try {
+      await beforeSubmit?.();
       const submitted = await sdk.submitAllocation(request);
       return submitted.nonce;
     } catch (err) {
@@ -586,7 +587,7 @@ export async function retryLockedDeposit(txId: string): Promise<string> {
   await readCheckedLockBalance(sdk, sponsor, lock, lock.tokenAddress, BigInt(lock.amount));
   await disableForcedWithdrawalIfOn(sdk, sponsor, lock);
   const request = await registerCompactAgain(lock, sponsor, allocatorUrl);
-  const nonce = await submitWhenRegistered(sdk, request);
+  const nonce = await submitWhenRegistered(sdk, request, { beforeSubmit: () => assertLegacyLockAvailable(lock) });
   await markEpochLockedDepositReallocated(txId, nonce, allocatorUrl);
   await registerPendingBridgeIn(sponsor, nonce, {
     provider: 'epoch',

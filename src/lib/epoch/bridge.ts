@@ -291,7 +291,8 @@ function solvedCompactExpires(solveResult: unknown): string | undefined {
 
 export async function buildEVMToMidenIntent(
   sdk: Pick<EpochIntentSDK, 'getTaskData' | 'solveIntent'> & Partial<Pick<EpochIntentSDK, 'getDepositedBalances'>>,
-  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote }
+  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote },
+  beforeSolve?: () => Promise<void>
 ): Promise<IntentResult> {
   let taskTypeString: string;
   let intentData: unknown;
@@ -311,6 +312,7 @@ export async function buildEVMToMidenIntent(
   const lockBefore = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
 
   try {
+    await beforeSolve?.();
     const solveResult = await sdk.solveIntent({
       isNative: params.isNative === true,
       sponsorAddress: params.evmSourceAddress as `0x${string}`,
@@ -328,7 +330,7 @@ export async function buildEVMToMidenIntent(
       ...(compactExpires !== undefined ? { compactExpires } : {})
     };
   } catch (err) {
-    console.error('[EpochBridge] EVM→Miden solveIntent failed:', err);
+    if (!beforeSolve) console.error('[EpochBridge] EVM→Miden solveIntent failed:', err);
     const lockAfter = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
     const stranded = strandedDepositAmount(lockBefore, lockAfter);
     return {

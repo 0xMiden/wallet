@@ -1,7 +1,7 @@
 import { parseUnits } from 'viem';
 
-import { accounts, now } from 'lib/bridge/testing/fixtures';
 import type { ReviewedTransfer } from 'lib/bridge/core/review';
+import { accounts, now } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import {
   BridgedReceiveTransaction,
