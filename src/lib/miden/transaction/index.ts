@@ -5048,7 +5048,7 @@ const generateGuardianTransaction = async (
       // structural completion below (e.g. leaving replace-hot-key's chain rotation done
       // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
       // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
-      await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type, transaction.accountId);
+      await waitForStructuralCommit(id, service, proposalResult, transaction.type, transaction.accountId);
     }
 
     // Sync the cached hot service so the next consumer sees post-tx state.
