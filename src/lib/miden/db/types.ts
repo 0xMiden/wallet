@@ -525,8 +525,16 @@ export interface ISwitchGuardianExtraInputs {
  */
 export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
 
+/** Native base-unit cap shown at confirmation, bound to a fingerprint of the source RPC/network. */
+export interface IUsdcxNetworkFeeBudget {
+  faucetId: string;
+  maxAmount: string;
+  scope: string;
+}
+
 /** Faucet-side lifecycle, independent of the sender's transaction status. */
 export interface IUsdcxBurn {
+  networkFeeBudget?: IUsdcxNetworkFeeBudget;
   noteId: string;
   destinationDomain: number;
   destinationUsdc?: `0x${string}`;

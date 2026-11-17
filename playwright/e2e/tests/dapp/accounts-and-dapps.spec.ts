@@ -439,6 +439,12 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         const sideOne = await sideOf(j, dapp, 'primary');
         const baseOne = await captureBaseline(sideOne, [j.tokenFaucetId], ctx);
         await sessionWithin(dapp, view => sameAs(view.providerAddress, primary), 20_000, ctx);
+        const restoredOne = await expectNoPrompt(
+          dapp,
+          () => callDapp(dapp, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(restoredOne, 'restore the existing primary grant', ctx).address, primary)).toBe(true);
         const sentOne = await answerPrompt(
           dapp,
           () => callDapp(dapp, 'send', { ...toB, via: 'requestSend' }, ctx.deadline),
@@ -476,6 +482,12 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         await callDapp(dapp, 'disconnect', {}, ctx.deadline);
         await j.walletA.selectAccount(second);
         await sessionWithin(two, view => sameAs(view.providerAddress, second), 20_000, ctx);
+        const restoredTwo = await expectNoPrompt(
+          two,
+          () => callDapp(two, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(restoredTwo, 'restore the existing second grant', ctx).address, second)).toBe(true);
         unwrap(
           await expectNoPrompt(two, () => callDapp(two, 'guardianInfo', {}, ctx.deadline), ctx),
           "dApp two's session survives dApp one's disconnect",
