@@ -46,6 +46,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 165 || 120 }}
     env:
       E2E_NETWORK: mainnet
+      SW_DEBUG: '1'
       # Where the build under test is built: its own checkout for `to`, else the harness checkout.
       CANDIDATE_DIR: ${{ inputs.to != '' && 'candidate' || '.' }}
     steps:
