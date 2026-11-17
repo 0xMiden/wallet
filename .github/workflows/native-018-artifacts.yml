@@ -1,7 +1,7 @@
 name: Temporary native 0.18 artifacts
 on:
   push:
-    branches: [release/018-native]
+    branches: [release/018-native-signed]
     paths:
       - 'packages/native-prover/**'
       - '.github/workflows/native-018-artifacts.yml'
