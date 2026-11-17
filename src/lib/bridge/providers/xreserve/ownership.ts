@@ -40,6 +40,7 @@ export function assertUsdcxDepositTerms(
     chain?.chainId !== source.chain.id ||
     configKey(source) !== configKey(getUsdcxSourceChain(source.chain.id)) ||
     parseUnits(amount, 6) !== parseUnits(owned.operation.review.amount, 6) ||
+    parseUnits(reviewed.received, route.destination.decimals) !== parseUnits(amount, 6) ||
     recipient.toLowerCase() !== usdcxRemoteRecipientFor(accounts.midenAccount).toLowerCase() ||
     (source.route === 'xreserve'
       ? reviewed.kind !== 'arc-deposit'

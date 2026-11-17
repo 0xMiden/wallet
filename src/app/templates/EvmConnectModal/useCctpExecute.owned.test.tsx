@@ -203,9 +203,11 @@ it.each([false, true])('preserves a real persisted untagged legacy execute path 
     Reflect.deleteProperty(row.extraInputs, 'bridgeOperation');
   });
   native = useNative;
-  jest.mocked(waitForEvmReceipt).mockImplementation(
-    jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
-  );
+  jest
+    .mocked(waitForEvmReceipt)
+    .mockImplementation(
+      jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
+    );
   waitReceiptReader.mockResolvedValue({ transactionHash: FORWARD_HASH, status: 'success' });
   const root = renderHook(useCctpExecute);
   try {
@@ -482,10 +484,14 @@ describe.each([false, true])('actual owned receipt boundaries (native=%s)', useN
     native = useNative;
     write.mockResolvedValueOnce(FORWARD_HASH).mockResolvedValue(retryHash);
     nativeWrite.mockResolvedValueOnce({ hash: FORWARD_HASH }).mockResolvedValue({ hash: retryHash });
-    jest.mocked(waitForEvmReceipt).mockImplementation(
-      jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
-    );
-    waitReceiptReader.mockResolvedValueOnce(receipt).mockResolvedValue({ transactionHash: retryHash, status: 'success' });
+    jest
+      .mocked(waitForEvmReceipt)
+      .mockImplementation(
+        jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
+      );
+    waitReceiptReader
+      .mockResolvedValueOnce(receipt)
+      .mockResolvedValue({ transactionHash: retryHash, status: 'success' });
     receiptReader.mockRejectedValue(new Error('Receipt unavailable'));
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const root = renderHook(useCctpExecute);
@@ -545,10 +551,13 @@ describe.each([false, true])('actual owned receipt boundaries (native=%s)', useN
     native = useNative;
     write.mockResolvedValueOnce(FORWARD_HASH).mockResolvedValue(retryHash);
     nativeWrite.mockResolvedValueOnce({ hash: FORWARD_HASH }).mockResolvedValue({ hash: retryHash });
-    jest.mocked(waitForEvmReceipt).mockImplementation(
-      jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
-    );
-    waitReceiptReader.mockResolvedValueOnce({ transactionHash: FORWARD_HASH, status: 'reverted', logs: [] })
+    jest
+      .mocked(waitForEvmReceipt)
+      .mockImplementation(
+        jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt').waitForEvmReceipt
+      );
+    waitReceiptReader
+      .mockResolvedValueOnce({ transactionHash: FORWARD_HASH, status: 'reverted', logs: [] })
       .mockResolvedValue({ transactionHash: retryHash, status: 'success' });
     const root = renderHook(useCctpExecute);
     try {

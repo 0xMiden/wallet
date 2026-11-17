@@ -139,9 +139,9 @@ describe.each(['foreground', 'passive'])('%s receipt identity', boundary => {
     { label: 'malformed status', receipt: { transactionHash: hash, status: 'unknown' } }
   ])('refuses $label before classifying an outcome', async ({ receipt }) => {
     (boundary === 'foreground' ? mockWaitForReceipt : mockGetReceipt).mockResolvedValueOnce(receipt);
-    const outcome: unknown = await (boundary === 'foreground'
-      ? waitForEvmReceipt(hash, sepolia)
-      : readEvmReceiptOutcome(hash, sepolia)).catch((error: unknown) => error);
+    const outcome: unknown = await (
+      boundary === 'foreground' ? waitForEvmReceipt(hash, sepolia) : readEvmReceiptOutcome(hash, sepolia)
+    ).catch((error: unknown) => error);
     expect(outcome).toBeInstanceOf(Error);
     expect(outcome).not.toBeInstanceOf(EvmTransactionRevertedError);
   });
