@@ -1,5 +1,6 @@
 import {
   AccountId,
+  AdviceMap,
   Felt,
   FeltArray,
   FungibleAsset,
@@ -16,7 +17,8 @@ import {
   NoteTag,
   NoteType,
   TransactionRequest,
-  TransactionRequestBuilder
+  TransactionRequestBuilder,
+  Word
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { testRequestSha256 } from './test-request-sha256';
@@ -90,15 +92,20 @@ export function inspectTestMainnetSendRequest(
   const expected = builder.build();
   const actualBytes = canonicalRequestBytes(bytes);
   const expectedBytes = canonicalRequestBytes(Uint8Array.from(expected.serialize()));
-  if (actualBytes.length !== expectedBytes.length || actualBytes.some((value, index) => value !== expectedBytes[index])) {
+  if (
+    actualBytes.length !== expectedBytes.length ||
+    actualBytes.some((value, index) => value !== expectedBytes[index])
+  ) {
     const equal = (left: Uint8Array, right: Uint8Array) =>
       left.length === right.length && left.every((value, index) => value === right[index]);
     const differences: string[] = [];
     // NoteArray transfers WASM ownership; inspect a fresh getter copy, not the consumed builder input.
     const expectedOutput = expected.expectedOutputOwnNotes()[0];
     if (!equal(note.serialize(), expectedOutput.serialize())) differences.push('note');
-    if (note.recipient().digest().toHex() !== expectedOutput.recipient().digest().toHex()) differences.push('recipient');
-    if (note.metadata().sender().toString() !== expectedOutput.metadata().sender().toString()) differences.push('sender');
+    if (note.recipient().digest().toHex() !== expectedOutput.recipient().digest().toHex())
+      differences.push('recipient');
+    if (note.metadata().sender().toString() !== expectedOutput.metadata().sender().toString())
+      differences.push('sender');
     if (note.metadata().noteType() !== expectedOutput.metadata().noteType()) differences.push('visibility');
     if (note.metadata().tag().asU32() !== expectedOutput.metadata().tag().asU32()) differences.push('tag');
     if (note.attachments().length !== expectedOutput.attachments().length) differences.push('attachments');
@@ -107,20 +114,67 @@ export function inspectTestMainnetSendRequest(
     if (JSON.stringify(request.blockNumbers()) !== JSON.stringify(expected.blockNumbers())) differences.push('blocks');
     if (request.expectedFutureNotes().length !== expected.expectedFutureNotes().length) differences.push('future');
     if (!equal(actualBytes, canonicalRequestBytes(Uint8Array.from(request.serialize())))) differences.push('roundtrip');
-    if (guardian) {
-      // Diagnostic candidates only; every mismatch still throws and the local scope stays unreleased.
-      for (const [delta, code] of [[65535, 'expiration-default'], [256, 'expiration-guardian']] as const) {
-        const candidate = withTestGuardianAuthentication(
-          new TransactionRequestBuilder()
-            .withOwnOutputNotes(new NoteArray(expected.expectedOutputOwnNotes()))
-            .withExpirationDelta(delta),
-          request
-        ).build();
-        if (equal(actualBytes, canonicalRequestBytes(Uint8Array.from(candidate.serialize())))) differences.push(code);
+    try {
+      // Locate the advice-map boundary by changing only a fixed public diagnostic entry in a copy.
+      const adviceStart = (original: TransactionRequest, originalBytes: Uint8Array) => {
+        const marker = new AdviceMap();
+        marker.insert(Word.fromHex(`0x${'11'.repeat(32)}`), new FeltArray([new Felt(1n)]));
+        const changed = canonicalRequestBytes(Uint8Array.from(original.extendAdviceMap(marker).serialize()));
+        const at = originalBytes.findIndex((value, index) => value !== changed[index]);
+        if (at < 0) throw new Error('Diagnostic request layout unavailable');
+        return at;
+      };
+      const count = (bytes: Uint8Array, at: number) => {
+        if (at < 0 || at + 8 > bytes.length) throw new Error('Diagnostic request layout unavailable');
+        const value = Number(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(at, true));
+        if (!Number.isSafeInteger(value) || value > bytes.length)
+          throw new Error('Diagnostic request layout unavailable');
+        return value;
+      };
+      const adviceEnd = (bytes: Uint8Array, start: number) => {
+        let at = start + 8;
+        for (let left = count(bytes, start); left > 0; left--) {
+          at += 32;
+          at += 8 + count(bytes, at) * 8;
+          if (at > bytes.length) throw new Error('Diagnostic request layout unavailable');
+        }
+        return at;
+      };
+      let a = adviceStart(request, actualBytes),
+        e = adviceStart(expected, expectedBytes);
+      if (!equal(actualBytes.subarray(0, a), expectedBytes.subarray(0, e))) differences.push('request-prefix');
+      const section = (code: string, nextA: number, nextE: number) => {
+        if (nextA > actualBytes.length || nextE > expectedBytes.length)
+          throw new Error('Diagnostic request layout unavailable');
+        if (!equal(actualBytes.subarray(a, nextA), expectedBytes.subarray(e, nextE))) differences.push(code);
+        a = nextA;
+        e = nextE;
+      };
+      section('advice', adviceEnd(actualBytes, a), adviceEnd(expectedBytes, e));
+      section('merkle', a + 8 + count(actualBytes, a) * 96, e + 8 + count(expectedBytes, e) * 96);
+      if (count(actualBytes, a) || count(expectedBytes, e)) {
+        differences.push('foreign');
+      } else {
+        section('foreign', a + 8, e + 8);
+        section('expiration', a + 1 + (actualBytes[a] === 1 ? 2 : 0), e + 1 + (expectedBytes[e] === 1 ? 2 : 0));
+        section('ignore-inputs', a + 1, e + 1);
+        for (const code of ['script', 'auth', 'fee-salt'])
+          section(code, a + 1 + (actualBytes[a] === 1 ? 32 : 0), e + 1 + (expectedBytes[e] === 1 ? 32 : 0));
+        if (count(actualBytes, a) || count(expectedBytes, e)) differences.push('network-scripts');
+        else {
+          section('network-scripts', a + 8, e + 8);
+          if (actualBytes[a] || expectedBytes[e]) differences.push('account-upgrade');
+          else section('account-upgrade', a + 1, e + 1);
+          if (a !== actualBytes.length || e !== expectedBytes.length) differences.push('layout-unknown');
+        }
       }
+    } catch {
+      differences.push('layout-unknown');
     }
     if (!differences.length) differences.push('other');
-    throw new Error(`Actual native send bytes differ from the exact authorized request; NativeSendDifference:${differences.join(',')}`);
+    throw new Error(
+      `Actual native send bytes differ from the exact authorized request; NativeSendDifference:${differences.join(',')}`
+    );
   }
   return note.id().toString();
 }
