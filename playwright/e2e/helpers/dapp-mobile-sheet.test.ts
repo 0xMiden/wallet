@@ -365,6 +365,39 @@ describe('the approval sheet over the wallet webview', () => {
 });
 
 describe('a request that must open no sheet', () => {
+  it.each([
+    { phase: 'request', requestMs: 400, afterSyncMs: 0 },
+    { phase: 'final sync', requestMs: 0, afterSyncMs: 400 }
+  ])('keeps a three-block refusal failed with $phase delay and records phase observations', async ({ requestMs, afterSyncMs }) => {
+    jest.useFakeTimers({ now: 0 });
+    const ctx = contextFor();
+    const send = jest
+      .fn()
+      .mockResolvedValueOnce({ height: 10 })
+      .mockImplementationOnce(async () => {
+        if (afterSyncMs) await new Promise(resolve => setTimeout(resolve, afterSyncMs));
+        return { height: 13 };
+      });
+    const result = expect(
+      expectNoSheet(
+        hostFor(send),
+        async () => {
+          if (requestMs) await new Promise(resolve => setTimeout(resolve, requestMs));
+          return declined;
+        },
+        ctx,
+        { refusal: true }
+      )
+    ).rejects.toThrow('blocks the dApp saw while a refusal before enqueue was pending');
+    await Promise.all([result, jest.advanceTimersByTimeAsync(1_000)]);
+
+    expect(ctx.evidence).toMatchObject({
+      dappError: declined.error,
+      refusalTiming: { beforeHeight: 10, afterHeight: 13, beforeSyncMs: 0, requestMs, afterSyncMs }
+    });
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it('passes a refusal answered within one block with no sheet', async () => {
     const ctx = contextFor();
     const send = jest.fn().mockResolvedValueOnce({ height: 10 }).mockResolvedValueOnce({ height: 11 });
