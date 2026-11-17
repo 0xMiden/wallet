@@ -128,14 +128,13 @@ async function reconcileAgglayerRow(
     }
     // Only a confirmed revert fails the row: a failed row leaves reconciliation for good, so a deposit that
     // lands after an unreadable receipt would stay Failed. The delivery window bounds a dropped transaction.
-    let outcome: Awaited<ReturnType<typeof readEvmReceiptOutcome>>;
+    let outcome: Awaited<ReturnType<typeof readEvmReceiptOutcome>> = 'pending';
     try {
       outcome = await readEvmReceiptOutcome(inputs.evmTxHash, chain);
     } catch (error) {
       console.warn('[bridge-receive] AggLayer receipt read failed', row.id, error);
-      return;
     }
-    if (outcome === 'pending' || !(await originalStillBound())) return;
+    if (!(await originalStillBound())) return;
     if (outcome === 'reverted') {
       const revert = new EvmTransactionRevertedError(chain.name);
       await updateBridgedReceivePhase(row.id, 'failed', {
@@ -144,7 +143,7 @@ async function reconcileAgglayerRow(
       });
       return;
     }
-    await updateBridgedReceivePhase(row.id, 'delivering');
+    if (outcome === 'success') await updateBridgedReceivePhase(row.id, 'delivering');
   }
 
   try {

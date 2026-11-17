@@ -439,7 +439,7 @@ describe('reconcileBridgedReceives', () => {
     expect(readOutcome).toHaveBeenCalledTimes(1);
     expect(readOutcome).toHaveBeenCalledWith(`0x${'e'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
     expect(updatePhase).not.toHaveBeenCalled();
-    expect(fetchDeposits).not.toHaveBeenCalled();
+    expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account', undefined, undefined);
   });
 
   it.each([new Error('timeout'), new Error('Sepolia RPC is not configured')])(
@@ -452,7 +452,7 @@ describe('reconcileBridgedReceives', () => {
       await reconcileBridgedReceives();
 
       expect(updatePhase).not.toHaveBeenCalled();
-      expect(fetchDeposits).not.toHaveBeenCalled();
+      expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account', undefined, undefined);
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith('[bridge-receive] AggLayer receipt read failed', 'agg-unreadable', error);
       warn.mockRestore();
