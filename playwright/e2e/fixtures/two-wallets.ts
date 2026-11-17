@@ -371,7 +371,37 @@ async function launchWalletInstance(
   // target it.
   let context = await chromium.launchPersistentContext(userDataDir, browserLaunchOptions(extensionPath));
 
-  const serviceWorker = await waitForExtensionServiceWorker(context);
+  let serviceWorker = await waitForExtensionServiceWorker(context);
+  const invalidatedPages = new Set<Page>();
+  if (suppliedProfile !== undefined && process.env.E2E_UPGRADE_PHASE === 'after') {
+    // Replacing unpacked files alone can leave the previous worker running against the new assets.
+    for (const page of context.pages()) invalidatedPages.add(page);
+    const previousWorker = serviceWorker;
+    const browser = context.browser();
+    if (!browser) throw new Error('An upgrade requires its persistent browser context');
+    const debug = await browser.newBrowserCDPSession();
+    try {
+      [serviceWorker] = await Promise.all([
+        context.waitForEvent('serviceworker', {
+          predicate: worker => worker !== previousWorker && worker.url() === previousWorker.url(),
+          timeout: 60_000
+        }),
+        (async () => {
+          // CDP marks this owned unpacked load so Chrome's developer-mode policy does not disable it.
+          const loaded = await debug.send('Extensions.loadUnpacked', { path: path.resolve(extensionPath) });
+          if (loaded.id !== new URL(previousWorker.url()).host) {
+            throw new Error('The upgrade changed extension identity');
+          }
+          const updatedPage = await context.newPage();
+          await updatedPage.goto(new URL('fullpage.html', previousWorker.url()).toString(), {
+            waitUntil: 'domcontentloaded'
+          });
+        })()
+      ]);
+    } finally {
+      await debug.detach().catch(() => {});
+    }
+  }
   const extensionId = new URL(serviceWorker.url()).host;
 
   if (feeFaucetId) {
@@ -503,7 +533,7 @@ async function launchWalletInstance(
   // Typed `Page` (not `Page | undefined`): the return exposes this via a getter
   // (relaunch swaps it), and a getter body can't carry the control-flow
   // narrowing an inline `return` would, so the variable itself must be `Page`.
-  const existingPage = context.pages().find(p => p.url().includes(extensionId));
+  const existingPage = context.pages().find(p => !invalidatedPages.has(p) && p.url().includes(extensionId));
   let page: Page;
   if (existingPage) {
     page = existingPage;

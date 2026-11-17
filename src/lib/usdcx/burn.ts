@@ -24,6 +24,7 @@ import { configKey } from 'lib/bridge/core/routes';
 import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
 import { quoteXReserveWithdrawal } from 'lib/bridge/providers/xreserve/withdrawal-quote';
+import type { IUsdcxNetworkFeeBudget } from 'lib/miden/db/types';
 import {
   accountRefToSdk,
   getBech32AddressFromAccountId,
@@ -46,6 +47,7 @@ import {
 } from './constant';
 import { readUsdcxDestinationSnapshot } from './destination-status';
 import { readWithOwnRpcClient } from './rpc-client';
+import { isCurrentUsdcxFeeBudget } from './sponsorship';
 import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 /**
@@ -102,12 +104,19 @@ export async function initiateUsdcxBurn(args: {
   amount: bigint;
   destinationAddress: string;
   destinationChainId: number;
+  networkFeeBudget: IUsdcxNetworkFeeBudget;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   operation?: BridgeOperationInput;
   checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }): Promise<string> {
   const { senderPublicKey, faucetId, amount, destinationAddress, destinationChainId, spendingLimitAuthorization } =
     args;
+  const reviewed = args.networkFeeBudget;
+  const networkFeeBudget = reviewed && {
+    faucetId: reviewed.faucetId,
+    maxAmount: reviewed.maxAmount,
+    scope: reviewed.scope
+  };
   const operation = args.operation && structuredClone(args.operation);
   const originalScope = captureBridgeWalletScope();
   if (operation) {
@@ -142,6 +151,7 @@ export async function initiateUsdcxBurn(args: {
   const destination = getUsdcxDestination(destinationChainId);
   // Resolve the native asset so the checks below read a known faucet id.
   await getNativeAssetId();
+  if (!isCurrentUsdcxFeeBudget(networkFeeBudget)) throw new UsdcxBurnError('usdcxBurnFeeUnavailable');
   validateUsdcxWithdrawal(faucetId, destinationChainId, amount, await readUsdcxMinimumBurn());
   await assertCurrent();
   const { domain } = destination;
@@ -163,6 +173,7 @@ export async function initiateUsdcxBurn(args: {
       throw new Error('Circle withdrawal estimate changed');
   }
   await assertCurrent();
+  if (!isCurrentUsdcxFeeBudget(networkFeeBudget)) throw new UsdcxBurnError('usdcxBurnFeeUnavailable');
   return initiateBridgedSendTransaction(
     senderPublicKey,
     amount,
@@ -180,6 +191,7 @@ export async function initiateUsdcxBurn(args: {
       noteId: built.burnNoteId,
       destinationDomain: built.destinationDomain,
       phase: 'pending',
+      networkFeeBudget,
       destinationBalanceBefore,
       destinationUsdc: destination.usdc,
       payoutFeeAllowance: destination.payoutFeeAllowance.toString()

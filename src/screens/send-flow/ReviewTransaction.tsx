@@ -36,11 +36,12 @@ import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
-import { IConsumedAssetTotal } from 'lib/miden/db/types';
+import { IConsumedAssetTotal, type IUsdcxNetworkFeeBudget } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
@@ -61,6 +62,8 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
 import { USDCX_DECIMALS } from 'lib/usdcx/constant';
+import { isCurrentUsdcxFeeBudget } from 'lib/usdcx/sponsorship';
+import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { useBurnMinimum } from 'lib/usdcx/use-burn-minimum';
 import { isUsdcxWithdrawalAvailable, UsdcxBurnError, usdcxMinimumBurnShortfall } from 'lib/usdcx/withdrawal';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
@@ -201,9 +204,33 @@ export const ReviewTransaction: React.FC = () => {
   // Held, not left: the review stays on screen, unconfirmable, until the document says whether it is retired.
   const tokenHeld = isNewTransferTokenHeld(bridgeConfig, tokenId, nativeFaucetId);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
-  const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
+  const nativeMetadata = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId);
+  const nativeSymbol = nativeMetadata.symbol;
+  const nativeScaleKnown = hasKnownScale(nativeMetadata);
 
   const isUsdcxBurn = isBridge && route === 'usdcx';
+  const burnFee = useBurnFeeReserve(
+    isUsdcxBurn && publicKey && bridgeNetworkObj
+      ? {
+          accountPublicKey: publicKey,
+          destinationChainId: bridgeNetworkObj.chainId
+        }
+      : undefined
+  );
+  const burnNetworkFeeBudget = useMemo<IUsdcxNetworkFeeBudget | undefined>(() => {
+    if (
+      !isUsdcxBurn ||
+      !nativeScaleKnown ||
+      burnFee.status !== 'measured' ||
+      burnFee.reserve === undefined ||
+      !burnFee.faucetId ||
+      !burnFee.scope
+    )
+      return undefined;
+    return { faucetId: burnFee.faucetId, maxAmount: burnFee.reserve.toString(), scope: burnFee.scope };
+  }, [isUsdcxBurn, nativeScaleKnown, burnFee]);
+  const burnFeeReady = burnNetworkFeeBudget !== undefined && isCurrentUsdcxFeeBudget(burnNetworkFeeBudget);
+  useUserVisibleError(isUsdcxBurn && burnFee.status === 'failed' ? 'usdcxBurnFeeUnavailable' : null, 'review');
   const burnMinimum = useBurnMinimum(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
 
   // A burn keeps its own 6-decimal refusal. Every other review refuses a finer amount
@@ -573,12 +600,16 @@ export const ReviewTransaction: React.FC = () => {
           if (!bridgeNetworkObj || !isUsdcxWithdrawalAvailable(token.id)) {
             throw new UsdcxBurnError('usdcxUnsupportedFaucet');
           }
+          if (!burnNetworkFeeBudget || !isCurrentUsdcxFeeBudget(burnNetworkFeeBudget)) {
+            throw new UsdcxBurnError('usdcxBurnFeeUnavailable');
+          }
           const txId = await initiateUsdcxBurn({
             senderPublicKey: publicKey,
             faucetId: token.id,
             amount: amountBaseUnits,
             destinationAddress: to,
             destinationChainId: bridgeNetworkObj.chainId,
+            networkFeeBudget: burnNetworkFeeBudget,
             spendingLimitAuthorization: authorization
           });
           if (isExtension()) requestSWTransactionProcessing();
@@ -664,6 +695,7 @@ export const ReviewTransaction: React.FC = () => {
     [
       amountBaseUnits,
       bridgeNetworkObj,
+      burnNetworkFeeBudget,
       epochMinimumOutput,
       epochQuote.address,
       epochQuote.decimals,
@@ -885,7 +917,7 @@ export const ReviewTransaction: React.FC = () => {
     isSubmitting ||
     scaleIsUnknown ||
     amountExceedsPrecision ||
-    (isUsdcxBurn && !!burnValidationError) ||
+    (isUsdcxBurn && (!!burnValidationError || !burnFeeReady)) ||
     recallInvalid;
   const ReviewLayout = command ? CommandSendReview : SendStepLayout;
   return (
@@ -1051,7 +1083,20 @@ export const ReviewTransaction: React.FC = () => {
                   >
                     <TokenAmount amount={burnMinimum} decimals={USDCX_DECIMALS} symbol="USDCx" formatting="exact" />
                   </DetailRow>
-                  <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
+                  <DetailRow label={t('networkFeeMax')} sub={t('usdcxSponsorshipFee', { symbol: nativeSymbol })}>
+                    {burnFeeReady && burnNetworkFeeBudget ? (
+                      <TokenAmount
+                        amount={BigInt(burnNetworkFeeBudget.maxAmount)}
+                        decimals={nativeMetadata.decimals}
+                        symbol={nativeSymbol}
+                        formatting="exact"
+                      />
+                    ) : (
+                      <span role="status">
+                        {t(burnFee.status === 'pending' ? 'usdcxBurnFeeMeasuring' : 'usdcxBurnFeeUnavailable')}
+                      </span>
+                    )}
+                  </DetailRow>
                   {bridgeNetworkObj && amountBaseUnits !== undefined && (
                     <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} />
                   )}
