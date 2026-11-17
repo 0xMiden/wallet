@@ -327,7 +327,8 @@ async function reconcileUsdcxRow(
         return;
     }
   } catch (error) {
-    console.warn('[bridge-receive] USDCx attestation poll failed', row.id, error);
+    if (hasBridgeOperation(row)) console.warn('[bridge-receive] owned USDCx status unavailable');
+    else console.warn('[bridge-receive] USDCx attestation poll failed', row.id, error);
   }
 }
 

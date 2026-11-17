@@ -655,10 +655,17 @@ it.each(['ambiguous', 'proof', 'immutable amount', 'arc nonce', 'arc deposit', '
 
 it('keeps private Arc RPC diagnostics out of the owned status observer while preserving funded facts', async () => {
   const privateData = 'https://private-rpc.example/?key=secret Arc-receipt-request';
-  const { row } = await prepareOwnedStatus('none', () => { receiptReader.mockRejectedValue(new Error(privateData)); });
+  const { row } = await prepareOwnedStatus('none', () => {
+    receiptReader.mockRejectedValue(new Error(privateData));
+  });
   expect(row?.extraInputs.phase).toBe('delivering');
   expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
-  expect(jest.mocked(console.warn).mock.calls.flatMap(call => call.map(String)).join(' ')).not.toContain(privateData);
+  expect(
+    jest
+      .mocked(console.warn)
+      .mock.calls.flatMap(call => call.map(String))
+      .join(' ')
+  ).not.toContain(privateData);
   expect(signed).toHaveLength(1);
 });
 

@@ -126,10 +126,18 @@ it('does not expose private RPC or request bytes when the live quote preflight f
   const input = respond(false);
   const privateData = 'https://private-rpc.example/?key=secret quote-request-bytes';
   read.mockRejectedValueOnce(new Error(privateData));
-  const error: unknown = await quoteXReserve(input, new AbortController().signal).catch(cause => cause);
+  const error: unknown = await quoteXReserve(input, new AbortController().signal).catch((cause: unknown) => cause);
   expect(error).toBeInstanceOf(Error);
   expect(String(error)).not.toContain(privateData);
   expect(error).not.toHaveProperty('cause');
+});
+
+it('preserves caller abort semantics without attempting a quote RPC', async () => {
+  const input = respond(false);
+  const controller = new AbortController();
+  controller.abort();
+  await expect(quoteXReserve(input, controller.signal)).rejects.toBe(controller.signal.reason);
+  expect(read).not.toHaveBeenCalled();
 });
 
 it('does not offer a new owned CCTP capability without the published underlying messenger', async () => {
