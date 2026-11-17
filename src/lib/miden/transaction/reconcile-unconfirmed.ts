@@ -29,7 +29,14 @@ import { orderFromSavedRequest, sameRequestBytes, swapOpensOrderFromRead } from 
 import { accountOthers, deferralHolds, judgeSubmitEvidence, LandingProof, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { submitApproach } from './submit-approach-diagnostics';
-import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
+import {
+  admitsInclusionAt,
+  awaitingVerdict,
+  evidenceKey,
+  isCheckable,
+  isUnresolvedEntry,
+  nowSeconds
+} from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { submittedSwapOrder } from '../sdk/apply-after-submit';
@@ -125,14 +132,44 @@ async function networkStillMatches(node: NodeReads, entries: readonly ISubmitEvi
   return true;
 }
 
+const noteSetKey = (noteIds: readonly string[]): string => JSON.stringify(noteIds.map(normalizeHex).sort());
+
 /** The notes recorded by the attempts that submitted `transactionId`: none when none did, or two disagree. */
 const notesOfTransaction = (row: Pick<ITransaction, 'submitEvidence'>, transactionId: string): string[] => {
   const recorded = (row.submitEvidence ?? [])
     .filter(entry => entry.transactionId === transactionId && entry.outputNoteIds !== undefined)
     .map(entry => storedNoteIds(entry.outputNoteIds));
-  const key = (noteIds: string[]) => JSON.stringify(noteIds.map(normalizeHex).sort());
   const [first] = recorded;
-  return first !== undefined && recorded.every(noteIds => key(noteIds) === key(first)) ? first : [];
+  return first !== undefined && recorded.every(noteIds => noteSetKey(noteIds) === noteSetKey(first)) ? first : [];
+};
+
+/**
+ * The execute stamp whose private notes a landing proven by a note owes, when no transaction id is bound: the attempts
+ * that can have created that note (not proven dead, not retired before its submit, an execute's with its transaction
+ * id, naming the note, their window admitting its block) all read the same private notes, the agreement
+ * {@link notesOfTransaction} asks. A script whose notes depend on state can create other notes on a replay, and the
+ * note alone cannot say which attempt landed, so with none that can, or two that disagree, nothing is owed and the row
+ * keeps the warning that a private note may not have been delivered.
+ */
+export const landedNoteStamp = (
+  row: Pick<ITransaction, 'submitEvidence'>,
+  proof: { noteId: string; block: number }
+): ISubmitEvidence | undefined => {
+  const candidates = (row.submitEvidence ?? []).filter(
+    entry =>
+      isUnresolvedEntry(entry) &&
+      entry.fromExecute === true &&
+      entry.transactionId !== undefined &&
+      entry.outputNoteIds?.includes(proof.noteId) === true &&
+      admitsInclusionAt(entry, proof.block)
+  );
+  const owed = candidates.map(entry => privateOutputNoteIdsOf(entry.outputNoteIds, entry.privateOutputNoteIds));
+  const [first] = candidates;
+  const [firstOwed] = owed;
+  if (first === undefined || firstOwed === undefined) return undefined;
+  return owed.every(noteIds => noteIds !== undefined && noteSetKey(noteIds) === noteSetKey(firstOwed))
+    ? first
+    : undefined;
 };
 
 /**
@@ -330,8 +367,12 @@ async function writeLanding(
     // An execute whose tail recorded nothing before its row was failed (its realm died after the apply, or its landed
     // write spent its budget and the reaper failed it) owes the private notes the landing attempt's stamp read. Read
     // from the row as found, before the landed fields label an execute with a recipient undelivered; such a row never
-    // took the completion's write, so its recipient is the one its request named.
-    const landedStamp = fresh.submitEvidence?.find(entry => entry.attemptId === landing.attemptId);
+    // took the completion's write, so its recipient is the one its request named. A note landing that binds no id
+    // names no attempt, so it owes only what every attempt that can have created the note read.
+    const landedStamp =
+      landing.proof.kind === 'note' && landing.boundTransactionId === undefined
+        ? landedNoteStamp(fresh, landing.proof)
+        : fresh.submitEvidence?.find(entry => entry.attemptId === landing.attemptId);
     const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
     // A single-key swap saves no request, so its order is the one the landed attempt's stamp recorded.
     applyVerifiedLanding(

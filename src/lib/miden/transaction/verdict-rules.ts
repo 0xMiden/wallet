@@ -162,6 +162,14 @@ export const notConfirmedHintKey = (row: VerdictRow, nowSec?: number): NotConfir
 export const isUnresolvedEntry = (entry: ISubmitEvidence): boolean =>
   entry.verdict !== 'never-committed' && entry.preSubmitEnd !== true;
 
+/** Block `block` can include this attempt: after its reference block and at or before its expiration, where recorded. */
+export const admitsInclusionAt = (
+  entry: Pick<ISubmitEvidence, 'refBlock' | 'expirationBlock'>,
+  block: number
+): boolean =>
+  (entry.refBlock === undefined || block > entry.refBlock) &&
+  (entry.expirationBlock === undefined || block <= entry.expirationBlock);
+
 /**
  * This attempt may have reached its submit call: a crossing is on record for it, and its leaf did not prove it ended
  * before that call. The row's `stage` cannot say so alone, because the stamp swallows a stage write that fails after

@@ -43,6 +43,7 @@ import {
   accountRowsOf,
   checkEvidenceForRetry,
   landedExecuteDeliveryValues,
+  landedNoteStamp,
   recordLandedDeliveryTarget
 } from './reconcile-unconfirmed';
 import { GuardianHoldRetryError } from './retry-refusal';
@@ -545,8 +546,9 @@ type PinnedLandingWrite = 'written' | 'declined' | 'claimed';
  * account's rows, since another attempt naming that note may be the one that created it. A swap opens the order its
  * pinned note names when the row holds none ({@link applyVerifiedLanding}), with its expiry anchored at `landedAt`,
  * the including block's time; without it at now, which is later and so never cancels the order early. An execute
- * whose tail recorded nothing owes the private notes of the stamp that names the pinned note, as at the reconciler's
- * landing ({@link landedExecuteDeliveryValues}), a delivery write counted once it commits.
+ * whose tail recorded nothing owes the private notes every attempt that can have created the pinned note read
+ * ({@link landedNoteStamp}), as at the reconciler's note landing ({@link landedExecuteDeliveryValues}), a delivery write
+ * counted once it commits.
  */
 const writePinnedLanding = async (
   tx: ITransaction,
@@ -569,18 +571,17 @@ const writePinnedLanding = async (
         return { write: 'declined' };
       }
       if (noteClaimedElsewhere(fresh, pinned.noteId, await accountRowsOf(fresh))) return { write: 'claimed' };
-      // Read from the row as found, before the landed fields label an execute with a recipient undelivered. An attempt
-      // the node proved dead created none of the notes its stamp names, as the note attribution rule has it.
-      const landedStamp = fresh.submitEvidence?.find(
-        entry => entry.verdict !== 'never-committed' && entry.outputNoteIds?.includes(pinned.noteId) === true
-      );
+      // Read from the row as found, before the landed fields label an execute with a recipient undelivered. The pinned
+      // check cannot say which attempt created the note, so only what every attempt that can have created it read.
+      const notePin = { noteId: pinned.noteId, block: pinned.block };
+      const landedStamp = landedNoteStamp(fresh, notePin);
       const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
       applyVerifiedLanding(
         fresh,
         { ...verifiedLandingRowFields(fresh), ...executeDelivery, completedAt: landedAt ?? nowSeconds() },
         pinned.order
       );
-      const target = recordLandedDeliveryTarget(fresh, { proof: { kind: 'note', noteId: pinned.noteId } });
+      const target = recordLandedDeliveryTarget(fresh, { proof: { kind: 'note', ...notePin } });
       // Never an execute's root: the delivery sweep reads root notes as owed to the recipient, public ones and all, and
       // these were found on the node, never put in this client's store to relay.
       if (fresh.type !== 'execute' && storedNoteIds(fresh.outputNoteIds).length === 0) {

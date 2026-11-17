@@ -4,7 +4,7 @@
 // batch can erase a landed attempt's notes and its nullifiers with them.
 import { pipelineMayStillBeRunning } from './cancel';
 import { AccountRead, AccountState, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
-import { isCheckable, isProvable, latestEntry, ProvableEvidence } from './verdict-rules';
+import { admitsInclusionAt, isCheckable, isProvable, latestEntry, ProvableEvidence } from './verdict-rules';
 import { ISubmitEvidence, ITransaction, isLiveTransaction, type NeverCommittedBy } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
 
@@ -22,7 +22,8 @@ export type EntryResult =
 
 export type LandingProof =
   | { kind: 'commitment' }
-  | { kind: 'note'; noteId: string }
+  /** `block` is the one that includes the note, which only an attempt whose window admits it can have created. */
+  | { kind: 'note'; noteId: string; block: number }
   | { kind: 'nullifier'; nullifier: string; finalCommitment: string };
 
 export interface EntryJudgement {
@@ -201,8 +202,7 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     notes = read;
   }
   // E could be included only after its reference block and at or before X, so a copy outside that window is never E's.
-  const inWindow = (block: number): boolean =>
-    block > entry.refBlock && (expiration === undefined || block <= expiration);
+  const inWindow = (block: number): boolean => admitsInclusionAt(entry, block);
   const onChain = [...notes].filter(([, block]) => inWindow(block));
 
   let spend: { nullifier: string; height: number } | undefined;
@@ -318,7 +318,11 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     return { ...withRecord, result: deferralHolds(entry, proof, others) ? 'deferred' : 'landed', proof };
   }
   if (attributable !== undefined)
-    return { ...withRecord, result: 'landed', proof: { kind: 'note', noteId: attributable[0] } };
+    return {
+      ...withRecord,
+      result: 'landed',
+      proof: { kind: 'note', noteId: attributable[0], block: attributable[1] }
+    };
   if (row3 && spend !== undefined) {
     const proof: LandingProof = {
       kind: 'nullifier',
