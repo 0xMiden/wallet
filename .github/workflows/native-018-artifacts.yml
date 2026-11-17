@@ -1,0 +1,127 @@
+name: Temporary native 0.18 artifacts
+on:
+  push:
+    branches: [release/018-native-signed]
+    paths:
+      - 'packages/native-prover/**'
+      - '.github/workflows/native-018-artifacts.yml'
+permissions:
+  contents: read
+concurrency:
+  group: native-018-artifacts
+  cancel-in-progress: false
+env:
+  WEB_SDK_SHA: be0ea7ce47d72cd52ad1867c2eb13c74b8fdce13
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: 22}
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - name: Resolve exact release graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test packages/native-prover/scripts/*.test.mjs
+          git clone --filter=blob:none --no-checkout https://github.com/0xMiden/web-sdk.git "$RUNNER_TEMP/web-sdk"
+          git -C "$RUNNER_TEMP/web-sdk" checkout "$WEB_SDK_SHA"
+          test "$(git -C "$RUNNER_TEMP/web-sdk" rev-parse HEAD)" = "$WEB_SDK_SHA"
+          cp "$RUNNER_TEMP/web-sdk/Cargo.lock" packages/native-prover/android/rust-bridge/Cargo.lock
+          cargo metadata --manifest-path packages/native-prover/android/rust-bridge/Cargo.toml --format-version 1 > "$RUNNER_TEMP/native-metadata.json"
+          mkdir -p native-artifacts
+          node packages/native-prover/scripts/verify-release-lock.mjs packages/native-prover/android/rust-bridge/Cargo.lock "$RUNNER_TEMP/web-sdk/Cargo.lock" > native-artifacts/android-graph.json
+          cp "$RUNNER_TEMP/web-sdk/Cargo.lock" native-artifacts/web-Cargo.lock
+      - name: Build locked JNI libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.0.13004108'
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
+          cargo install cargo-ndk --version 4.1.2 --locked
+          packages/native-prover/scripts/build-android.sh
+          node packages/native-prover/scripts/verify-release-lock.mjs packages/native-prover/android/rust-bridge/Cargo.lock "$RUNNER_TEMP/web-sdk/Cargo.lock" > native-artifacts/android-graph.json
+          tool="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for abi in arm64-v8a x86_64; do
+            lib="packages/native-prover/android/src/main/jniLibs/$abi/libmiden_native_prover_jni.so"
+            "$tool/llvm-readelf" -h "$lib" | tee "native-artifacts/$abi-elf.txt"
+            "$tool/llvm-nm" -D --defined-only "$lib" | tee "native-artifacts/$abi-symbols.txt"
+            grep -q 'Java_com_miden_nativeprover_MidenNativeProverPlugin_proveNative' "native-artifacts/$abi-symbols.txt"
+            test "$(wc -c < "$lib")" -lt 104857600
+          done
+          grep -q 'AArch64' native-artifacts/arm64-v8a-elf.txt
+          grep -q 'X86-64' native-artifacts/x86_64-elf.txt
+          cp --parents packages/native-prover/android/rust-bridge/Cargo.lock packages/native-prover/android/src/main/jniLibs/*/*.so native-artifacts/
+          {
+            echo "wallet_source=$GITHUB_SHA"
+            echo "web_sdk_source=$WEB_SDK_SHA"
+            echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            rustc -Vv
+            cargo -V
+            cargo ndk --version
+            cat "$ANDROID_NDK_HOME/source.properties"
+            uname -a
+            sha256sum packages/native-prover/android/rust-bridge/Cargo.toml packages/native-prover/android/rust-bridge/Cargo.lock packages/native-prover/scripts/build-android.sh packages/native-prover/android/src/main/jniLibs/*/*.so
+          } > native-artifacts/android-provenance.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-018-android
+          path: native-artifacts/
+          if-no-files-found: error
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: 22}
+      - name: Build locked iOS slices from release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test packages/native-prover/scripts/*.test.mjs
+          git clone --filter=blob:none --no-checkout https://github.com/0xMiden/web-sdk.git "$RUNNER_TEMP/web-sdk"
+          git -C "$RUNNER_TEMP/web-sdk" checkout "$WEB_SDK_SHA"
+          test "$(git -C "$RUNNER_TEMP/web-sdk" rev-parse HEAD)" = "$WEB_SDK_SHA"
+          cd "$RUNNER_TEMP/web-sdk"
+          rustup show
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          # Keep the tracked wallet root untouched; preserve the build script's SDK-pin check.
+          stage="$RUNNER_TEMP/ios-stage"
+          mkdir -p "$stage/packages"
+          cp -R "$GITHUB_WORKSPACE/packages/native-prover" "$stage/packages/"
+          printf '{"dependencies":{"@miden-sdk/miden-sdk":"0.18.0"}}\n' > "$stage/package.json"
+          "$stage/packages/native-prover/scripts/build-ios.sh" "$RUNNER_TEMP/web-sdk"
+          git diff --exit-code -- Cargo.lock
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p native-artifacts/packages/native-prover/ios
+          cp -R "$stage/packages/native-prover/ios/MidenMobileProver.xcframework" native-artifacts/packages/native-prover/ios/
+          cp "$RUNNER_TEMP/web-sdk/Cargo.lock" native-artifacts/web-Cargo.lock
+          cp "$stage/package.json" native-artifacts/ios-staging-package.json
+          (
+            echo "wallet_source=$GITHUB_SHA"
+            echo "web_sdk_source=$WEB_SDK_SHA"
+            echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            cd "$RUNNER_TEMP/web-sdk"
+            rustc -Vv
+            cargo -V
+            xcodebuild -version
+            xcrun --sdk iphoneos --show-sdk-version
+            uname -a
+            shasum -a 256 Cargo.lock "$stage/packages/native-prover/scripts/build-ios.sh" "$stage/package.json" "$stage/packages/native-prover/ios/MidenMobileProver.xcframework"/*/*.a
+          ) > native-artifacts/ios-provenance.txt
+          for slice in ios-arm64 ios-arm64-simulator; do
+            lib="native-artifacts/packages/native-prover/ios/MidenMobileProver.xcframework/$slice/libmiden_mobile_prover.a"
+            xcrun lipo -info "$lib" | tee "native-artifacts/$slice-architecture.txt"
+            xcrun nm -gU "$lib" > "native-artifacts/$slice-symbols.txt" 2> "native-artifacts/$slice-nm-stderr.txt" || true
+            grep -q '_miden_prove_transaction' "native-artifacts/$slice-symbols.txt"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-018-ios
+          path: native-artifacts/
+          if-no-files-found: error
