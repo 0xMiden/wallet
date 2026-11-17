@@ -7,7 +7,10 @@ import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/rev
 import { bridgeOperationOf, type BridgeOperationSnapshot } from 'lib/bridge/operation';
 import { accounts, now, referenceSnapshot, testRoute } from 'lib/bridge/testing/fixtures';
 import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
+import { applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from 'lib/miden/activity/bridge-in';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
+import { ITransactionStatus } from 'lib/miden/db/types';
+import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import * as Repo from 'lib/miden/repo';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiate';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -77,7 +80,8 @@ async function drive(review = reviewedErc20Transfer('agglayer')) {
     accountId: accounts.midenAccount, amount: parseUnits('1', review.route.destination.decimals),
     faucetId: review.route.destination.faucetId, provider: 'agglayer', sourceAddress: accounts.evmAddress,
     sourceChainId: route.chainId, sourceAmount: review.amount, sourceSymbol: review.route.source.symbol,
-    agglayerRoute: route, operation: { operationId: 'agglayer-operation', review }
+    agglayerRoute: route, operation: { operationId: 'agglayer-operation', review },
+    agglayerDelivery: review.route.source.kind === 'erc20' ? { originToken: `0x${review.route.source.address.slice(2)}`, faucetId: review.route.destination.faucetId, scale: 10 } : undefined
   }), async (rowId, claimed) => {
     captured = claimed;
     if (!captured) { complete(new Error('Missing real CAS winner')); return; }
@@ -147,6 +151,7 @@ it('admits a reviewed receive through the provider and existing wrapper once, in
   await waitFor(async () => expect((await Repo.transactions.get(first))?.extraInputs.evmTxHash).toBe(depositHash));
   expect(await Repo.transactions.count()).toBe(1);
   expect(signed.filter(tx => tx.to === bridgeAddress)).toHaveLength(1);
+  expect((await Repo.transactions.get(first))?.extraInputs.agglayerDelivery).toEqual({ originToken: tokenAddress, faucetId: '0xb41aed8db850a3d140fc2079216c60', scale: 10 });
 });
 
 it('does not adopt another RPC during the asynchronous receive balance-cap check', async () => {
@@ -241,6 +246,50 @@ it('persists the returned original source hash even when the wallet scope leaves
   expect(error).toBeUndefined();
   expect(row?.extraInputs.evmTxHash).toBe(depositHash);
   expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
+});
+
+it('matches an owned native-unit delivery after source readiness, expiry and RPC departure, then records only a completed local consume', async () => {
+  const review = reviewedErc20Transfer('agglayer');
+  const { error, id } = await drive(review);
+  expect(error).toBeUndefined();
+  expect(review.route.destination.kind).toBe('miden');
+  await updateBridgedReceivePhase(id, 'ready');
+  expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('ready');
+  jest.spyOn(Date, 'now').mockReturnValue(now + 120000);
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://departed-rpc.example/private');
+  const info = await takeAgglayerBridgeInInfo({ accountId: accounts.midenAccount, senderAccountId: '0xb41aed8db850a3d140fc2079216c60', amount: 100000000n });
+  expect(info).toMatchObject({ bridgeReceiveTxId: id, evmTxHash: depositHash, sourceToken: tokenAddress });
+  if (!info) throw new Error('Missing original delivery');
+  await Repo.transactions.add({ id: 'local-consume', accountId: accounts.midenAccount, type: 'consume', status: ITransactionStatus.Queued, initiatedAt: now / 1000, displayIcon: 'RECEIVE', amount: 100000000n, faucetId: '0xb41aed8db850a3d140fc2079216c60', transactionId: 'miden-consume' });
+  await expect(applyBridgeInToConsumeRow('local-consume', info)).rejects.toThrow();
+  expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('ready');
+  await Repo.transactions.update('local-consume', { status: ITransactionStatus.Completed });
+  await applyBridgeInToConsumeRow('local-consume', info);
+  const received = await Repo.transactions.get(id);
+  expect(received?.extraInputs.phase).toBe('received');
+  expect(received?.amount).toBe(100000000n);
+  expect(received?.transactionId).toBe('miden-consume');
+  expect(received?.extraInputs.bridgeOperation?.sourceAttempt?.hash).toBe(depositHash);
+});
+
+it.each(['faucet', 'recipient', 'amount', 'malformed', 'restored', 'recovered', 'source-less', 'changed-review'])('does not attribute an owned delivery with %s mismatch', async change => {
+  const { id, error } = await drive();
+  expect(error).toBeUndefined();
+  if (change === 'restored') await Repo.transactions.update(id, { restoredFromBackup: true });
+  if (change === 'recovered') await Repo.transactions.update(id, { recovered: true });
+  if (change === 'source-less') await Repo.transactions.update(id, { 'extraInputs.evmTxHash': undefined });
+  if (change === 'malformed') await Repo.transactions.update(id, { 'extraInputs.bridgeOperation': { owner: 'wallet' } });
+  if (change === 'changed-review') await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.review.amount': '2' });
+  const match = await takeAgglayerBridgeInInfo({ accountId: change === 'recipient' ? '0x1111111111111111111111111111' : accounts.midenAccount, senderAccountId: change === 'faucet' ? '0x7c6d1dc7fb7045913d524bbef017f5' : '0xb41aed8db850a3d140fc2079216c60', amount: change === 'amount' ? 99999999n : 100000000n });
+  expect(match).toBeUndefined();
+  expect((await Repo.transactions.get(id))?.extraInputs.phase).not.toBe('received');
+});
+
+it('retains the untagged legacy source-unit scaling contract', async () => {
+  const { id, error } = await drive();
+  expect(error).toBeUndefined();
+  await Repo.transactions.where({ id }).modify(row => { Reflect.deleteProperty(row.extraInputs, 'bridgeOperation'); row.amount = 1000000000000000000n; });
+  expect(await takeAgglayerBridgeInInfo({ accountId: accounts.midenAccount, senderAccountId: '0xb41aed8db850a3d140fc2079216c60', amount: 100000000n })).toMatchObject({ bridgeReceiveTxId: id });
 });
 
 it('accepts no-return approval and requires its confirmed allowance before bridging', async () => {
