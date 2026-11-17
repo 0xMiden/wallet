@@ -17,7 +17,7 @@ it('retains wallet hook order while matching both exact pinned Circle frames and
     midenAccountHexToXReserveRecipient(fixture.recipient), sender);
   const pinned = `0x${fixture.hook.slice(2)}` satisfies `0x${string}`;
   expect(encoded.length).toBe(1410);
-  expect(slice(encoded, 0, 24)).toBe('0x636374702d666f72776172640000000000000000000000000000');
+  expect(slice(encoded, 0, 24)).toBe('0x636374702d666f7277617264000000000000000000000000');
   expect(slice(encoded, 24, 32)).toBe('0x0000000100000000');
   expect(slice(encoded, 32 + 24, 32 + 32)).toBe('0x0000000100000280');
   expect(slice(encoded, 0, 32)).toBe(slice(pinned, 672));
