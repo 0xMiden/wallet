@@ -12,6 +12,7 @@ import {
   toHex
 } from 'viem';
 
+import type { OwnedUsdcxDeposit } from 'lib/bridge/providers/xreserve/ownership';
 import type { updateBridgedReceivePhase } from 'lib/miden/activity';
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
@@ -275,6 +276,7 @@ export interface UsdcxExecutorDepositDeps {
   updatePhase: typeof updateBridgedReceivePhase;
   /** Circle's quote for the forwarded burn; `quoteExecutorBurn` unless a test supplies one. */
   fetchQuote?: (intent: ExecutorBurnIntent) => Promise<CctpBurnQuote>;
+  owned?: OwnedUsdcxDeposit;
 }
 
 /**
@@ -307,9 +309,14 @@ export async function runUsdcxExecutorDeposit(
     readBalance,
     waitForReceipt,
     updatePhase,
-    fetchQuote = intent => quoteExecutorBurn(source, intent)
+    fetchQuote = intent => quoteExecutorBurn(source, intent),
+    owned
   }: UsdcxExecutorDepositDeps
 ): Promise<Hash> {
+  const original = owned && { ...owned, operation: structuredClone(owned.operation) };
+  const ownership = original && await import('lib/bridge/providers/xreserve/ownership');
+  const assertCurrent = async () => { if (original && ownership) await ownership.assertUsdcxDepositCurrent(original); };
+  await assertCurrent();
   const intent = buildExecutorBurnIntent(amount, source, remoteRecipient, depositor);
 
   const remoteDomain = midenDomainOf(source);
@@ -341,6 +348,7 @@ export async function runUsdcxExecutorDeposit(
   ensureBalanceCovers(quote, balance);
   if (feeAllowance < intent.value + quote.feeTotalAmount) {
     const approvedSpend = intent.value + 2n * quote.feeTotalAmount;
+    await assertCurrent();
     await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, approvedSpend));
     const freshBalance = await readBalance();
     quote = await quoteOrFail();
@@ -350,9 +358,11 @@ export async function runUsdcxExecutorDeposit(
     }
   }
 
+  await assertCurrent();
   const burnHash = await signer.depositForBurnWithHookAndFees(
     buildDepositForBurnWithHookAndFeesArgs(source, intent, quote, depositor)
   );
+  if (original && ownership) await ownership.recordUsdcxDepositHash(original, burnHash);
   await updatePhase(trackingTxId, 'submitting', {
     evmTxHash: burnHash,
     usdcxRemoteRecipient: remoteRecipient.toLowerCase(),

@@ -1,5 +1,6 @@
 import { Address, Hash, Hex, parseUnits } from 'viem';
 
+import type { OwnedUsdcxDeposit } from 'lib/bridge/providers/xreserve/ownership';
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 
 import {
@@ -40,6 +41,7 @@ export interface UsdcxDepositDeps {
   readAllowance(spender: Address): Promise<bigint>;
   waitForReceipt(hash: Hash): Promise<void>;
   updatePhase: typeof updateBridgedReceivePhase;
+  owned?: OwnedUsdcxDeposit;
 }
 
 /** Build the `depositToRemote` arguments for a human USDC amount, an encoded recipient and a source chain. */
@@ -84,9 +86,14 @@ export async function runUsdcxDeposit(
     isRemoteDomainRegistered,
     readAllowance,
     waitForReceipt,
-    updatePhase
+    updatePhase,
+    owned
   }: UsdcxDepositDeps
 ): Promise<Hash> {
+  const original = owned && { ...owned, operation: structuredClone(owned.operation) };
+  const ownership = original && await import('lib/bridge/providers/xreserve/ownership');
+  const assertCurrent = async () => { if (original && ownership) await ownership.assertUsdcxDepositCurrent(original); };
+  await assertCurrent();
   const args = buildDepositToRemoteArgs(amount, remoteRecipient, sourceChainId, source);
   const [value, remoteDomain] = args;
 
@@ -98,11 +105,14 @@ export async function runUsdcxDeposit(
   // and `approve` would replace a larger allowance with this amount.
   const { xReserve } = source;
   if ((await readAllowance(xReserve)) < value) {
+    await assertCurrent();
     const approvalHash = await signer.approve(xReserve, value);
     await waitForReceipt(approvalHash);
   }
 
+  await assertCurrent();
   const depositHash = await signer.depositToRemote(args);
+  if (original && ownership) await ownership.recordUsdcxDepositHash(original, depositHash);
   await updatePhase(trackingTxId, 'submitting', {
     evmTxHash: depositHash,
     usdcxRemoteRecipient: remoteRecipient.toLowerCase()
