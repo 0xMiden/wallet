@@ -98,3 +98,120 @@ describe('deserializeHotSecretKey', () => {
     expect(mockedAuthSecretKey.deserialize).not.toHaveBeenCalled();
   });
 });
+
+describe('the tag probe on a fresh module', () => {
+  type ProbeKey = { serialize: jest.Mock; free: jest.Mock };
+  type FreshModule = typeof import('./hot-key-import');
+
+  // The tag cache is module-scoped, so each case loads its own copy of the module and of the SDK mock it reads.
+  const freshModule = (probe: () => ProbeKey) => {
+    let loaded: FreshModule | undefined;
+    let sdk: { ecdsaWithRNG: jest.Mock; deserialize: jest.Mock } | undefined;
+    jest.isolateModules(() => {
+      const { AuthSecretKey: isolated } = require('@miden-sdk/miden-sdk/lazy');
+      isolated.ecdsaWithRNG = jest.fn(probe);
+      isolated.deserialize = jest.fn((bytes: Uint8Array) => ({ bytes, free: jest.fn() }));
+      sdk = isolated;
+      loaded = require('./hot-key-import');
+    });
+    if (!loaded || !sdk) throw new Error('hot-key-import did not load');
+    return { module: loaded, sdk };
+  };
+
+  const thrownBy = (call: () => unknown): unknown => {
+    try {
+      call();
+    } catch (error) {
+      return error;
+    }
+    throw new Error('expected a throw');
+  };
+
+  it('lets a trap from serializing the tag probe reach the caller without freeing it', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const free = jest.fn(() => {
+      throw new Error('freed after the trap');
+    });
+    const { module, sdk } = freshModule(() => ({
+      serialize: jest.fn(() => {
+        throw trap;
+      }),
+      free
+    }));
+
+    expect(thrownBy(() => module.deserializeHotSecretKey(SCALAR_HEX))).toBe(trap);
+    expect(free).not.toHaveBeenCalled();
+    expect(sdk.deserialize).not.toHaveBeenCalled();
+    expect(thrownBy(() => module.deserializeHotSecretKey(SCALAR_HEX))).toBe(trap);
+    expect(sdk.ecdsaWithRNG).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets a trap from freeing the tag probe reach the caller without caching the tag', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const { module, sdk } = freshModule(() => ({
+      serialize: jest.fn(() => Uint8Array.from([TAG_BYTE])),
+      free: jest.fn(() => {
+        throw trap;
+      })
+    }));
+
+    expect(thrownBy(() => module.deserializeHotSecretKey(SCALAR_HEX))).toBe(trap);
+    expect(sdk.deserialize).not.toHaveBeenCalled();
+    expect(thrownBy(() => module.deserializeHotSecretKey(SCALAR_HEX))).toBe(trap);
+    expect(sdk.ecdsaWithRNG).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets a killed free of the tag probe reach the caller', () => {
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const poison = new WasmClientPoisonedError('watchdog', new Error('evicted'));
+    const { module, sdk } = freshModule(() => ({
+      serialize: jest.fn(() => Uint8Array.from([TAG_BYTE])),
+      free: jest.fn(() => {
+        throw poison;
+      })
+    }));
+
+    expect(thrownBy(() => module.ecdsaSecretKeyTagHex())).toBe(poison);
+    expect(thrownBy(() => module.ecdsaSecretKeyTagHex())).toBe(poison);
+    expect(sdk.ecdsaWithRNG).toHaveBeenCalledTimes(2);
+  });
+
+  it('still caches the tag when freeing the probe fails with an ordinary error', () => {
+    const { module, sdk } = freshModule(() => ({
+      serialize: jest.fn(() => Uint8Array.from([TAG_BYTE])),
+      free: jest.fn(() => {
+        throw new Error('already freed');
+      })
+    }));
+
+    module.deserializeHotSecretKey(SCALAR_HEX);
+    expect(sdk.deserialize).toHaveBeenCalledTimes(1);
+    expect((sdk.deserialize.mock.calls[0]![0] as Uint8Array)[0]).toBe(TAG_BYTE);
+    expect(module.ecdsaSecretKeyTagHex()).toBe('07');
+    expect(sdk.ecdsaWithRNG).toHaveBeenCalledTimes(1);
+  });
+
+  it('frees the probe and probes again after an ordinary serialize failure', () => {
+    const failure = new Error('bad serialize');
+    const free = jest.fn();
+    const { module, sdk } = freshModule(() => ({
+      serialize: jest.fn(() => {
+        throw failure;
+      }),
+      free
+    }));
+
+    expect(thrownBy(() => module.deserializeHotSecretKey(SCALAR_HEX))).toBe(failure);
+    expect(free).toHaveBeenCalledTimes(1);
+    expect(sdk.deserialize).not.toHaveBeenCalled();
+    expect(thrownBy(() => module.ecdsaSecretKeyTagHex())).toBe(failure);
+    expect(sdk.ecdsaWithRNG).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not probe for a 66-hex serialized key', () => {
+    const { module, sdk } = freshModule(() => ({ serialize: jest.fn(), free: jest.fn() }));
+
+    module.deserializeHotSecretKey(`03${SCALAR_HEX}`);
+    expect(sdk.ecdsaWithRNG).not.toHaveBeenCalled();
+  });
+});

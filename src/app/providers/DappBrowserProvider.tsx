@@ -794,6 +794,64 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         const id = (event as { id?: string })?.id ?? 'default';
         const state = getSessionStateById(id);
         if (!state?.instance) return;
+        // Only a platform-verified main frame can speak to the wallet bridge. A main-frame
+        // availability PING is answered while the session origin trails the document, so an
+        // origin mismatch does not stop it. Any other message from another origin stops here.
+        if (event.mainFrame !== true) {
+          console.debug('[DappBrowserProvider] Ignoring a bridge message that is not from the session main frame');
+          return;
+        }
+        // Same parse as the handler, before the try that writes session state: `detail` when
+        // present, otherwise the event; a string is JSON. A PING is a non-null object whose
+        // `type` and `reqId` are strings and whose `payload` is exactly `PING`.
+        let isAvailabilityPing = false;
+        let refusedRequestId: string | undefined;
+        try {
+          const eventData = (event as { detail?: unknown })?.detail ?? event;
+          const classified: unknown = typeof eventData === 'string' ? JSON.parse(eventData) : eventData;
+          isAvailabilityPing =
+            classified !== null &&
+            typeof classified === 'object' &&
+            typeof (classified as { type?: unknown }).type === 'string' &&
+            typeof (classified as { reqId?: unknown }).reqId === 'string' &&
+            (classified as { payload?: unknown }).payload === 'PING';
+          if (
+            !isAvailabilityPing &&
+            classified !== null &&
+            typeof classified === 'object' &&
+            typeof (classified as { type?: unknown }).type === 'string' &&
+            typeof (classified as { reqId?: unknown }).reqId === 'string' &&
+            !('__midenInternal' in classified)
+          ) {
+            refusedRequestId = (classified as { reqId: string }).reqId;
+          }
+        } catch {
+          // A parse failure is not an availability PING.
+        }
+        if (!isAvailabilityPing && event.frameOrigin !== state.origin) {
+          console.debug('[DappBrowserProvider] Ignoring or refusing a bridge message with a different frame origin');
+          if (refusedRequestId !== undefined) {
+            try {
+              await sendResponseToInstance(
+                state.instance,
+                {
+                  type: 'MIDEN_PAGE_ERROR_RESPONSE',
+                  payload: null,
+                  reqId: refusedRequestId,
+                  error: MidenDAppErrorType.NotGranted
+                },
+                null,
+                () => {
+                  const current = getSessionStateById(id);
+                  return current !== undefined && current.instance === state.instance;
+                }
+              );
+            } catch (error) {
+              console.error('[DappBrowserProvider] Error refusing WebView message:', error);
+            }
+          }
+          return;
+        }
         try {
           const eventData = (event as { detail?: unknown })?.detail ?? event;
           const parsed: unknown = typeof eventData === 'string' ? JSON.parse(eventData) : eventData;

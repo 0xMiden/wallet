@@ -133,6 +133,13 @@ const noteBlockers = (noteId: string, others: readonly ITransaction[]): ITransac
     )
   );
 
+/** Whether another row of `row`'s account could have produced `noteId`, by the rule a note landing is attributed by. */
+export const noteClaimedElsewhere = (
+  row: ITransaction,
+  noteId: string,
+  accountRows: readonly ITransaction[]
+): boolean => noteBlockers(noteId, accountOthers(row, accountRows)).length > 0;
+
 /**
  * Another recorded attempt that is not proven dead and reaches the same final commitment, whatever its pre-state: the
  * commitment does not cover the notes a transaction consumed, so its landing would look exactly like E's.
@@ -342,7 +349,11 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     if (spentElsewhere) return { ...withRecord, result: 'never-committed', neverCommittedBy: 'spent_elsewhere' };
     if (bindingLost) return { ...withRecord, result: 'unresolvable' };
   }
-  return { ...withRecord, result: pastInitial ? 'unresolvable' : 'pending' };
+  // A private account shows no nonce, so a tip off E.initial alone is not S-1. Once X is past reading no later pass can
+  // read more than this one did, and without this E would wait on inputs that never change (#2060).
+  const xUnreadable =
+    offInitial && expiration !== undefined && bindingBudgetMs(tip.blockNum, expiration, reads.cadenceMs) <= 0;
+  return { ...withRecord, result: pastInitial || xUnreadable ? 'unresolvable' : 'pending' };
 }
 
 const ruledOutFor = (

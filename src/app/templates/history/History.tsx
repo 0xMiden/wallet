@@ -7,7 +7,6 @@ import {
   cancelTransactionById,
   getUncompletedTransactions,
   isCancellableTransaction,
-  isOutcomeUnconfirmed,
   isUserCancelledTransaction,
   supersededFailedConsumeIds,
   suppressedLinkedConsumeIds,
@@ -37,7 +36,7 @@ import {
   readLinkedSwapOrderRows,
   type CompletedHistoryCursor
 } from 'lib/miden/transaction/get';
-import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { readsAsNotConfirmed } from 'lib/miden/transaction/submission-feedback';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -797,9 +796,7 @@ async function readLoadedActivityStatus(ids: readonly string[]): Promise<Map<str
 
 const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> => {
   const isCancelled = isUserCancelledTransaction(tx.error);
-  const submission = submissionFeedback(tx);
-  const isUnconfirmed =
-    submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx);
+  const isUnconfirmed = readsAsNotConfirmed(tx);
   const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
   const bridgedReceive =
     tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
@@ -822,7 +819,10 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     bridgeEpochStatus: bridge?.epochStatus,
     bridgeFillTxHash: bridge?.fillTxHash,
     bridgeFillChainId: bridge?.fillChainId,
+    outputNoteIds: tx.outputNoteIds,
     bridgeReclaimHeight: bridge?.reclaimHeight,
+    bridgeReclaimNoteId: bridge?.reclaimNoteId,
+    bridgeSubmitClaimed: bridge?.submitClaimed,
     bridgeInPhase: bridgedReceive?.phase,
     bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
@@ -831,7 +831,13 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
   };
 };
 
-const patchLoadedActivityStatus = (
+// IndexedDB returns a fresh copy of an array field (outputNoteIds) on every read, so it is equal by its elements.
+const sameLoadedField = (shown: unknown, fresh: unknown): boolean =>
+  Array.isArray(shown) && Array.isArray(fresh)
+    ? shown.length === fresh.length && shown.every((value, index) => value === fresh[index])
+    : shown === fresh;
+
+export const patchLoadedActivityStatus = (
   state: ScopedEntries,
   key: string,
   ids: ReadonlySet<string>,
@@ -844,7 +850,9 @@ const patchLoadedActivityStatus = (
     const row = fresh.get(entry.txId);
     if (row === undefined) return entry;
     const fields = loadedActivityStatusFields(row);
-    if (Object.entries(fields).every(([field, value]) => entry[field as keyof IHistoryEntry] === value)) return entry;
+    if (Object.entries(fields).every(([field, value]) => sameLoadedField(entry[field as keyof IHistoryEntry], value))) {
+      return entry;
+    }
     changed = true;
     return { ...entry, ...fields };
   });
@@ -951,9 +959,7 @@ async function fetchTransactionsAsHistoryEntries(
   const { swapProgress, paybackStates } = await enrichCompletedSwapHistory(visibleTransactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
-    const submission = submissionFeedback(tx);
-    const isUnconfirmed =
-      submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx);
+    const isUnconfirmed = readsAsNotConfirmed(tx);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
@@ -1054,7 +1060,10 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeEpochStatus: bridge?.epochStatus,
       usdcxBurn: bridge?.usdcxBurn,
       bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
+      outputNoteIds: tx.outputNoteIds,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      bridgeReclaimNoteId: bridge?.reclaimNoteId,
+      bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
@@ -1205,7 +1214,10 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeEpochStatus: bridge?.epochStatus,
       usdcxBurn: bridge?.usdcxBurn,
       bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
+      outputNoteIds: tx.outputNoteIds,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      bridgeReclaimNoteId: bridge?.reclaimNoteId,
+      bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus
     } as IHistoryEntry;

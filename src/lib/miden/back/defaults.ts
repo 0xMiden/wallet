@@ -1,3 +1,4 @@
+import { MidenMessageType } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 
 // Lazy-loaded IntercomServer (only in extension context)
@@ -10,7 +11,7 @@ export function getIntercom() {
   if (!_intercom) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { IntercomServer } = require('lib/intercom/server');
-    _intercom = new IntercomServer();
+    _intercom = new IntercomServer({ contentScriptRequestTypes: new Set([MidenMessageType.PageRequest]) });
   }
   return _intercom;
 }
@@ -31,10 +32,13 @@ export const intercom = {
   },
   hasClients: () => {
     return getIntercom()!.hasClients();
+  },
+  isConnected: (...args: Parameters<import('lib/intercom/server').IntercomServer['isConnected']>) => {
+    return getIntercom()!.isConnected(...args);
   }
 };
 
-export class PublicError extends Error {}
+export { PublicError } from './public-error';
 
 /** The code on `swapHotKey`'s refusal of a key this wallet does not hold; the port carries codes, not classes. */
 export const HOT_KEY_NOT_STORED = 'HOT_KEY_NOT_STORED';

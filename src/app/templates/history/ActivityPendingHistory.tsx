@@ -1,10 +1,9 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { AnimatedNumber } from 'components/ui/AnimatedNumber';
-import { usdFormatterFor } from 'lib/i18n/numbers';
+import { UsdAmount } from 'components/ui/TokenAmount';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivitiesRead } from 'lib/settings/activity-read';
 import { useWalletStore } from 'lib/store';
@@ -62,8 +61,14 @@ export const ActivityPendingHistory = ({
 
   // Accept All takes every listed transfer that can be accepted - whatever the asset, whoever
   // sent it. It is the ONE bulk action on this tab; there is no per-asset or per-sender variant.
+  // A claim the Guardian still holds is not one: its own Retry is off until the hold ends.
   const claimableNotes = listItems
-    .filter(item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true)
+    .filter(
+      item =>
+        (item.status === 'pending' || item.status === 'failed') &&
+        item.note.fromCache !== true &&
+        item.holdUntil === undefined
+    )
     .map(item => item.note);
   const claimingCount = listItems.filter(item => item.status === 'claiming').length;
   // Every acceptable transfer is already in flight: the action stays, in its loading state, so it
@@ -85,7 +90,6 @@ export const ActivityPendingHistory = ({
   );
   // Pinned to the total's own precision, so a figure travelling towards a dust total does not
   // change width on the way (`AnimatedNumber`).
-  const formatWaitingTotal = useMemo(() => usdFormatterFor(waitingTotalUsd ?? 0), [waitingTotalUsd]);
   // One line, one lockup, the same one the home banner uses for this money: the count in the
   // caption style, the total as a value on `ink`. When transfers are also hidden that fact joins
   // the SAME sentence as a clause rather than becoming a second line - and it is the clause the
@@ -133,13 +137,14 @@ export const ActivityPendingHistory = ({
             <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
               <span className="min-w-0 truncate text-caption text-muted">{summary}</span>
               {waitingCount > 0 && (
-                <AnimatedNumber
+                <UsdAmount
+                  animated
+                  placeholder={null}
                   data-testid="pending-row-total"
                   className="shrink-0 text-value text-ink"
                   // An asset with no price leaves no total (null), and neither is a total of zero:
                   // say nothing rather than put a false figure next to the button that accepts them.
-                  value={waitingTotalUsd !== null && waitingTotalUsd > 0 ? waitingTotalUsd : null}
-                  format={formatWaitingTotal}
+                  amount={waitingTotalUsd !== null && waitingTotalUsd > 0 ? waitingTotalUsd : null}
                 />
               )}
             </div>

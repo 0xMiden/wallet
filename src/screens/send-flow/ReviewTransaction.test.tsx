@@ -57,10 +57,19 @@ afterAll(() => _setSwapTokensForTest(undefined));
 let mockSearch = '';
 let mockFullPage = false;
 let mockPublicKey: string | null = 'pubkey-1';
+let mockIsNewRecipient: boolean | undefined;
+const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
-let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string; address?: string } = {
+let mockEpochQuote: {
+  amount?: string;
+  loading: boolean;
+  error: null;
+  symbol: string;
+  address?: string;
+  decimals?: number;
+} = {
   amount: undefined,
   loading: false,
   error: null,
@@ -241,6 +250,11 @@ jest.mock('framer-motion', () => {
         ({ initial: _i, animate: _a, exit: _e, transition: _t, ...props }: any, ref: React.Ref<HTMLDivElement>) => (
           <div ref={ref} {...props} />
         )
+      ),
+      span: React.forwardRef(
+        ({ initial: _i, animate: _a, exit: _e, transition: _t, ...props }: any, ref: React.Ref<HTMLSpanElement>) => (
+          <span ref={ref} {...props} />
+        )
       )
     },
     useReducedMotion: () => false
@@ -254,6 +268,7 @@ jest.mock('components/ui/DetailCard', () => ({
     children,
     action,
     sub,
+    badge,
     onClick,
     disabled,
     'aria-haspopup': hasPopup,
@@ -261,6 +276,7 @@ jest.mock('components/ui/DetailCard', () => ({
   }: any) => (
     <div data-testid={testId ?? 'review-row'}>
       <span data-testid="row-label">{label}</span>
+      {badge !== undefined && <span data-testid="row-badge">{badge}</span>}
       {children !== undefined && <span data-testid="row-children">{children}</span>}
       {action && (
         <button
@@ -341,7 +357,6 @@ jest.mock('lib/epoch', () => ({
 
 jest.mock('lib/i18n/numbers', () => ({
   formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
-  toAdaptiveFixed: (v: number) => v.toFixed(2),
   stringToBigInt: jest.fn(),
   // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
   // return, so the guard has to call the real helper.
@@ -463,6 +478,9 @@ jest.mock('lib/telemetry', () => ({
   classifyError: (error: unknown) => classifyErrorMock(error)
 }));
 
+jest.mock('./useIsNewRecipient', () => ({
+  useIsNewRecipient: (...a: unknown[]) => mockUseIsNewRecipient(...a)
+}));
 jest.mock('./useEpochQuote', () => ({
   useEpochQuote: (args: { amount?: bigint }) => {
     mockEpochQuoteArgs = args;
@@ -580,6 +598,8 @@ beforeEach(() => {
   mockSearch = '';
   mockFullPage = false;
   mockPublicKey = 'pubkey-1';
+  mockIsNewRecipient = undefined;
+  mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
   mockBalanceData = undefined;
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
@@ -874,7 +894,7 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 ');
+    expect(screen.getByTestId('review-amount').textContent).toBe('5');
 
     // onSubmit early-returns because there is no token: nothing fires.
     await act(async () => {
@@ -981,6 +1001,49 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
     expect(container.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+  });
+
+  it.each([
+    { amount: '4.8', decimals: 6, minimum: 4_800_000n },
+    { amount: '1.000000000000000001', decimals: 18, minimum: 1_000_000_000_000_000_001n }
+  ])(
+    'passes the reviewed output in exact $decimals-decimal base units to Epoch before signing',
+    async ({ amount, decimals, minimum }) => {
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = { amount, decimals, loading: false, error: null, symbol: 'USDC' };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+      render(<ReviewTransaction />);
+      await flush();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(bridgeEpochSendMock).toHaveBeenCalledWith(expect.objectContaining({ minimumOutputBaseUnits: minimum }));
+    }
+  );
+
+  it('cannot authorize an Epoch output whose token precision is unresolved', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', loading: false, error: null, symbol: 'USDC' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, '0'])('cannot submit Epoch without a positive reviewed quote: %s', async amount => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount, loading: false, error: null, symbol: 'USDC' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
   });
 
   // What arrives is the quote at most, so "you receive" rounds it down.
@@ -1605,6 +1668,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('reopens an Epoch bridge challenge when external preparation outlives authorization', async () => {
     mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     const firstAssessment = breachAssessment({
@@ -1654,6 +1718,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('cancels a bridge challenge before any external bridge work', async () => {
     mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
@@ -2447,5 +2512,72 @@ describe('ReviewTransaction user-visible errors', () => {
     expect(screen.getByTestId('review-error')).toHaveTextContent('unknownTokenScale');
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
     await expectReport('unknownTokenScale');
+  });
+});
+
+describe('ReviewTransaction - new recipient tag', () => {
+  it('tags a first-time recipient on the To row', async () => {
+    setValidRoute();
+    mockIsNewRecipient = true;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(within(screen.getByTestId('review-row-to')).getByTestId('review-new-recipient')).toHaveTextContent(
+      'newRecipient'
+    );
+  });
+
+  it('shows no tag for a recipient sent to before', async () => {
+    setValidRoute();
+    mockIsNewRecipient = false;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.queryByTestId('review-new-recipient')).not.toBeInTheDocument();
+  });
+
+  it('shows no tag while the history is still being read', async () => {
+    setValidRoute();
+    mockIsNewRecipient = undefined;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.queryByTestId('review-new-recipient')).not.toBeInTheDocument();
+  });
+
+  it('keeps Send available with the tag shown', async () => {
+    setValidRoute();
+    mockIsNewRecipient = true;
+    render(<ReviewTransaction />);
+    await flush();
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+
+    expect(screen.getByTestId('review-new-recipient')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+    expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
+  });
+
+  it('asks about the current account and the reviewed address', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockUseIsNewRecipient).toHaveBeenCalledWith('pubkey-1', '0xrecipient');
+  });
+
+  it('tags a first-time 0x recipient too', async () => {
+    mockDetectedChain = 'ethereum';
+    mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
+    mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
+    mockIsNewRecipient = true;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockUseIsNewRecipient).toHaveBeenCalledWith('pubkey-1', '0x1111111111111111111111111111111111111111');
+    expect(within(screen.getByTestId('review-row-to')).getByTestId('review-new-recipient')).toBeInTheDocument();
   });
 });

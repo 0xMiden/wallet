@@ -297,6 +297,17 @@ describe('HistoryItem', () => {
     expect(root).not.toHaveClass('border-b-border-card');
   });
 
+  it('rounds outgoing amounts up and incoming amounts down', () => {
+    const { rerender } = render(
+      <HistoryItem entry={makeEntry({ transactionIcon: 'SEND', amount: 1.2345, token: 'MIDEN' })} />
+    );
+
+    expect(screen.getByText('-1.24')).toBeInTheDocument();
+    rerender(<HistoryItem entry={makeEntry({ transactionIcon: 'RECEIVE', amount: 1.2345, token: 'MIDEN' })} />);
+
+    expect(screen.getByText('+1.23')).toBeInTheDocument();
+  });
+
   it('localizes a failed summary row whose stored message is the English sentinel', () => {
     render(<HistoryItem entry={makeEntry({ message: 'Transaction failed' })} />);
     expect(screen.getByText('t:transactionFailedNotificationTitle')).toBeInTheDocument();

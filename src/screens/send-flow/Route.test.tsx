@@ -385,6 +385,21 @@ describe('RouteOptions', () => {
     expect(resolveDisplayMetadata).toHaveBeenCalledWith('mtst1usdcxnative', {}, 'mtst1usdcxnative');
   });
 
+  it('groups the fast route fee as a USD amount', () => {
+    render(
+      <RouteOptions
+        route="epoch"
+        onRouteChange={jest.fn()}
+        fastFeeUsd={1234.5}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...UP}
+      />
+    );
+
+    expect(screen.getByText('$1,234.50')).toBeInTheDocument();
+  });
+
   it('marks the withdrawal notice under the USDCx route for the e2e harness', () => {
     render(
       <RouteOptions
@@ -554,4 +569,21 @@ describe('provider route labels', () => {
       }
     }
   });
+});
+
+it('omits the AggLayer card when the destination has no AggLayer route', () => {
+  render(
+    <RouteOptions
+      {...UP}
+      route="epoch"
+      onRouteChange={jest.fn()}
+      fastQuoteLoading={false}
+      slowStatus="error"
+      showSlowRoute={false}
+    />
+  );
+  expect(screen.getByTestId('bridge-route-fast')).toBeInTheDocument();
+  expect(screen.queryByTestId('bridge-route-slow')).not.toBeInTheDocument();
+
+  expect(screen.queryByText('agglayerTokenCheckFailed')).not.toBeInTheDocument();
 });

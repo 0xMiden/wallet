@@ -197,6 +197,7 @@ const mockRecoverGuardianAccountByHotKey = jest.fn(
 );
 // The lock hands its callback a hold, and assertWasmHoldCurrent runs the real comparison against it.
 let currentWasmHold: object | null = null;
+const mockRetireUnheldTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     network: 'devnet',
@@ -241,7 +242,8 @@ jest.mock('../sdk/miden-client', () => ({
     }
   },
   resetMidenClient: async () => {},
-  runWhenClientIdle: () => {}
+  runWhenClientIdle: () => {},
+  retireWasmClientForUnheldTrap: (cause: unknown) => mockRetireUnheldTrap(cause)
 }));
 
 jest.mock('../sdk/helpers', () => ({
@@ -388,6 +390,31 @@ function expectCleanedUp() {
   expect(derive.mock.calls[0]![0]).toEqual(new Uint8Array(32));
   expect(derive.mock.results[0]!.value).toEqual(new Uint8Array(32));
   expect(mockLiveHandles.size).toBe(0);
+}
+
+/** The next login key decode hands out its key after `adjust` changes it. */
+function nextLoginKey(adjust: (key: AuthSecretKey) => void) {
+  const deserialize = AuthSecretKey.deserialize;
+  return jest.spyOn(AuthSecretKey, 'deserialize').mockImplementationOnce(bytes => {
+    const key = deserialize(bytes);
+    adjust(key);
+    return key;
+  });
+}
+
+/**
+ * The vault call since `forgetKeyMaterial` met `trap`: it retired the client once, the trap reached `withError` as
+ * itself, the root and the scalar were zeroed, and `live` handles were left unfreed.
+ */
+function expectTrapRetired(trap: WebAssembly.RuntimeError, errorSpy: jest.SpyInstance, live: number) {
+  expect(mockRetireUnheldTrap).toHaveBeenCalledTimes(1);
+  expect(mockRetireUnheldTrap).toHaveBeenCalledWith(trap);
+  expect(errorSpy).toHaveBeenCalledWith(expect.any(String), trap);
+  const derive = jest.mocked(deriveLoginKeyScalar);
+  expect(derive).toHaveBeenCalledTimes(1);
+  expect(derive.mock.calls[0]![0]).toEqual(new Uint8Array(32));
+  expect(derive.mock.results[0]!.value).toEqual(new Uint8Array(32));
+  expect(mockLiveHandles.size).toBe(live);
 }
 
 // The Guardian wallet most tests start from, spawned once and restored before each test.
@@ -672,5 +699,83 @@ describe('Vault login keys', () => {
       deserialize.mockRestore();
     }
     expectCleanedUp();
+  });
+
+  describe('a trap outside any hold', () => {
+    let errorSpy: jest.SpyInstance;
+    const spies: jest.SpyInstance[] = [];
+    beforeEach(() => {
+      errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      forgetKeyMaterial();
+    });
+    afterEach(() => {
+      errorSpy.mockRestore();
+      for (const spy of spies.splice(0)) spy.mockRestore();
+    });
+
+    it('retires a trapped login key decode once', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      spies.push(
+        jest.spyOn(AuthSecretKey, 'deserialize').mockImplementationOnce(() => {
+          throw trap;
+        })
+      );
+
+      await expect(vault.loginKeyCommitment(account.publicKey, DOMAIN)).rejects.toThrow(
+        'Failed to derive the login key'
+      );
+      expectTrapRetired(trap, errorSpy, 0);
+    });
+
+    it('frees neither the key nor its public key after a trapped commitment read', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      spies.push(
+        nextLoginKey(key => {
+          const publicKey = key.publicKey.bind(key);
+          key.publicKey = () => {
+            const pub = publicKey();
+            pub.toCommitment = () => {
+              throw trap;
+            };
+            return pub;
+          };
+        })
+      );
+
+      await expect(vault.loginKeyCommitment(account.publicKey, DOMAIN)).rejects.toThrow(
+        'Failed to derive the login key'
+      );
+      expectTrapRetired(trap, errorSpy, 2);
+    });
+
+    it('frees neither the key nor the message after a trapped sign', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      spies.push(
+        nextLoginKey(key => {
+          key.sign = () => {
+            throw trap;
+          };
+        })
+      );
+
+      await expect(
+        vault.signWithLoginKey(account.publicKey, DOMAIN, u8ToB64(new Uint8Array(32).fill(7)))
+      ).rejects.toThrow('Failed to sign with the login key');
+      expectTrapRetired(trap, errorSpy, 2);
+    });
+
+    it('does not read a trapped word decode as a word it cannot sign, and keeps the key', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      spies.push(
+        jest.spyOn(Word, 'deserialize').mockImplementationOnce(() => {
+          throw trap;
+        })
+      );
+
+      await expect(
+        vault.signWithLoginKey(account.publicKey, DOMAIN, u8ToB64(new Uint8Array(32).fill(7)))
+      ).rejects.toThrow('Failed to sign with the login key');
+      expectTrapRetired(trap, errorSpy, 1);
+    });
   });
 });

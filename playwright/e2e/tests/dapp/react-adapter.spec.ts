@@ -27,6 +27,7 @@ import {
   answerPrompt,
   callDapp,
   dappSessionsFor,
+  expectDomainSignature,
   expectNoPrompt,
   popupBlock,
   revokeDappSession,
@@ -484,16 +485,11 @@ function reactCells(j: Journey, react: DappHandle, query: ReactDappQuery): Recor
         );
         // Q2: a Guardian account signs with its hot key, so both kinds expect the same verifiable signature.
         const signed = unwrap(result, 'MidenFi signCb', ctx);
-        const verified = await callDapp(
-          j.dapp,
-          'verifySignature',
-          {
-            kind: 'signingInputs',
-            payloadB64: signed.payloadB64,
-            signatureB64: signed.signatureB64,
-            publicKeyB64: recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
-          },
-          ctx.deadline
+        const verified = await expectDomainSignature(
+          input => callDapp(j.dapp, 'verifySignature', input, ctx.deadline),
+          signed,
+          'signingInputs',
+          recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
         );
         // A connect key that is not a Word leaves publicKeyHex null; its reason shows here rather than a bare null.
         expect({ ...verified, keyError: connected.publicKeyError ?? null }).toEqual({

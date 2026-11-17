@@ -24,7 +24,15 @@
  */
 
 import { execSync } from 'node:child_process';
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync
+} from 'node:fs';
 import http from 'node:http';
 import { createConnection } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
@@ -266,8 +274,12 @@ function printCompare(leftLabel, rightLabel) {
     throw new Error(`missing a run for ${left ? rightLabel : leftLabel}`);
   }
   const verdict = judge(left.summary, right.summary);
-  console.log(`${leftLabel}  feel ${left.summary.medianFeel}  follow ${left.summary.medianFollowP95Px}px  worst ${left.summary.medianWorstFrameMs}ms  commits ${left.summary.commits}/${left.summary.swipes}`);
-  console.log(`${rightLabel}  feel ${right.summary.medianFeel}  follow ${right.summary.medianFollowP95Px}px  worst ${right.summary.medianWorstFrameMs}ms  commits ${right.summary.commits}/${right.summary.swipes}`);
+  console.log(
+    `${leftLabel}  feel ${left.summary.medianFeel}  follow ${left.summary.medianFollowP95Px}px  worst ${left.summary.medianWorstFrameMs}ms  commits ${left.summary.commits}/${left.summary.swipes}`
+  );
+  console.log(
+    `${rightLabel}  feel ${right.summary.medianFeel}  follow ${right.summary.medianFollowP95Px}px  worst ${right.summary.medianWorstFrameMs}ms  commits ${right.summary.commits}/${right.summary.swipes}`
+  );
   console.log(verdict.winner ? `winner: ${rightLabel} (${verdict.reason})` : `not a winner (${verdict.reason})`);
   return verdict.winner ? 0 : 2;
 }
@@ -600,10 +612,9 @@ async function touchDrag(cdp, x, y0, y1) {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
-async function settingsListBox(page) {
+async function profileListBox(page) {
   return page.evaluate(() => {
-    const root = document.querySelector('[data-testid="settings-root"]');
-    const el = root?.querySelector('[data-slot="body"]');
+    const el = document.querySelector('[data-testid="profile-scroll"]');
     if (!el) return null;
     el.scrollTop = 0;
     const rect = el.getBoundingClientRect();
@@ -620,26 +631,26 @@ async function settingsListBox(page) {
 
 async function measureList(page, cdp) {
   // A fresh mock wallet's overview fits in the frame, so it has nothing to
-  // scroll. Settings is a real list of rows and is taller than the screen.
+  // scroll. Profile has a list of settings rows that is taller than the screen.
   await page.evaluate(() => {
-    location.hash = '#/settings';
+    location.hash = '#/me';
   });
   const deadline = Date.now() + 8000;
   let opened = null;
   while (Date.now() < deadline) {
-    opened = await settingsListBox(page);
+    opened = await profileListBox(page);
     if (opened && opened.overflow >= 80 && opened.height > 50) break;
     opened = null;
     await sleep(40);
   }
-  if (!opened) throw new Error(`settings list did not become scrollable: ${JSON.stringify(await settingsListBox(page))}`);
+  if (!opened) throw new Error(`profile list did not become scrollable: ${JSON.stringify(await profileListBox(page))}`);
 
   const dropped = [];
   const p95 = [];
   for (let run = 0; run < LIST_RUNS; run++) {
-    const before = await settingsListBox(page);
-    if (!before) throw new Error('settings list is missing');
-    if (before.overflow < 80) throw new Error(`settings list does not scroll (${before.overflow}px)`);
+    const before = await profileListBox(page);
+    if (!before) throw new Error('profile list is missing');
+    if (before.overflow < 80) throw new Error(`profile list does not scroll (${before.overflow}px)`);
     await sleep(50);
     await page.evaluate(() => window.__PERF__.start());
     const x = Math.round(before.left + before.width * 0.5);
@@ -649,16 +660,18 @@ async function measureList(page, cdp) {
     await sleep(300);
     const after = await page.evaluate(() => {
       const raw = window.__PERF__.stop();
-      const el = document.querySelector('[data-testid="settings-root"]')?.querySelector('[data-slot="body"]');
+      const el = document.querySelector('[data-testid="profile-scroll"]');
       return { frames: raw.frames, scrollTop: el ? el.scrollTop : 0 };
     });
     const travel = after.scrollTop - before.scrollTop;
-    if (travel < 40) throw new Error(`settings list moved ${travel}px on run ${run + 1}`);
+    if (travel < 40) throw new Error(`profile list moved ${travel}px on run ${run + 1}`);
     const health = frameHealth(after.frames);
-    if (!health) throw new Error(`settings list produced too few frames on run ${run + 1}`);
+    if (!health) throw new Error(`profile list produced too few frames on run ${run + 1}`);
     dropped.push(health.droppedPct);
     p95.push(health.p95Ms);
-    console.log(`list ${run + 1}/${LIST_RUNS}  dropped ${health.droppedPct}%  p95 ${health.p95Ms}ms  travel ${travel}px`);
+    console.log(
+      `list ${run + 1}/${LIST_RUNS}  dropped ${health.droppedPct}%  p95 ${health.p95Ms}ms  travel ${travel}px`
+    );
   }
   return { dropped, p95 };
 }
@@ -667,7 +680,9 @@ function loafLeaders(swipes) {
   const totals = new Map();
   for (const swipe of swipes) {
     for (const loaf of swipe.loafs || []) {
-      const scripts = loaf.scripts?.length ? loaf.scripts : [{ fn: '(unattributed)', file: '', duration: loaf.duration }];
+      const scripts = loaf.scripts?.length
+        ? loaf.scripts
+        : [{ fn: '(unattributed)', file: '', duration: loaf.duration }];
       for (const script of scripts) {
         const key = [script.fn, script.file].filter(Boolean).join(' ');
         totals.set(key, (totals.get(key) || 0) + (script.duration || 0));
@@ -782,7 +797,9 @@ async function measure(args) {
     for (let i = 1; i < idle.frames.length; i++) idleDeltas.push(idle.frames[i] - idle.frames[i - 1]);
     const idleMedianFrameMs = Math.round(median(idleDeltas) * 10) / 10;
     if (idleMedianFrameMs > 22) {
-      console.log(`idle frames already ${idleMedianFrameMs}ms at throttle ${args.throttle}; the swipe will be hard to tell apart from the throttle itself`);
+      console.log(
+        `idle frames already ${idleMedianFrameMs}ms at throttle ${args.throttle}; the swipe will be hard to tell apart from the throttle itself`
+      );
     }
 
     const box = await page.evaluate(() => window.__PERF__.box());
@@ -917,7 +934,9 @@ async function measure(args) {
 
 const args = parseArgs(process.argv.slice(2));
 if (args.help) {
-  console.log('node scripts/home-swipe-bench.mjs [--label name] [--throttle 4] [--reps 6] [--dpr 2] [--rebuild] [--summary file]');
+  console.log(
+    'node scripts/home-swipe-bench.mjs [--label name] [--throttle 4] [--reps 6] [--dpr 2] [--rebuild] [--summary file]'
+  );
   console.log('--reps is the number of passes from Overview to Swap. Each pass is four swipes.');
   console.log('node scripts/home-swipe-bench.mjs --compare <baseline-label> <candidate-label>');
   process.exit(0);

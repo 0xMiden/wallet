@@ -4,10 +4,13 @@ import { act, fireEvent, render, renderHook, screen } from '@testing-library/rea
 
 import { PendingActivityCard } from 'app/templates/history/PendingActivityCard';
 import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
+import type { ISubmitEvidence } from 'lib/miden/db/types';
 import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { GuardianHoldRetryError } from 'lib/miden/transaction/retry-refusal';
+import { GUARDIAN_PENDING_HOLD_SEC } from 'lib/miden/transaction/verdict-rules';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { annotatePendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
@@ -35,6 +38,8 @@ type MockRow = {
   error?: string;
   rawError?: string;
   mayHaveSubmitted?: boolean;
+  neverCommittedAt?: number;
+  submitEvidence?: ISubmitEvidence[];
 };
 const mockQueue = jest.fn();
 const mockRequeue = jest.fn();
@@ -90,7 +95,8 @@ const mockClaim = {
   claimingNoteIds: new Set<string>(),
   checkingNoteIds: new Set<string>(),
   invalidNoteIds: new Set<string>(),
-  retriableNoteIds: new Set<string>()
+  retriableNoteIds: new Set<string>(),
+  retriableTxIds: new Map<string, string>()
 };
 
 jest.mock('./useClaimNotes', () => ({
@@ -158,7 +164,8 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 jest.mock('lib/miden/db/types', () => ({
-  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 }
+  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 },
+  STRUCTURAL_GUARDIAN_TYPES: jest.requireActual('lib/miden/db/types').STRUCTURAL_GUARDIAN_TYPES
 }));
 // The vault rows and the base fee the claim gate reads. A null fee fails the gate open, which every case not about
 // the fee runs under.
@@ -253,6 +260,7 @@ beforeEach(() => {
   mockClaim.checkingNoteIds = new Set();
   mockClaim.invalidNoteIds = new Set();
   mockClaim.retriableNoteIds = new Set();
+  mockClaim.retriableTxIds = new Map();
   mockQueue.mockResolvedValue('tx-one');
   mockQueueMany.mockResolvedValue('tx-batch');
 });
@@ -961,16 +969,14 @@ describe('held claims (#1081)', () => {
   });
 
   it('a refusal stays on the item as its message', async () => {
-    mockRequeue.mockRejectedValue(
-      new Error('The Guardian is still holding this transaction. You can retry it after 10:00:00.')
-    );
+    mockRequeue.mockRejectedValue(new GuardianHoldRetryError(Math.floor(Date.now() / 1000) + 60));
     mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
     const { result } = renderHook(() => useActivityClaims());
     settle([{ id: 'tx-held', status: 4, held: true }]);
     await act(async () => {
       await result.current.retryHeld(result.current.items[0]!);
     });
-    expect(result.current.items[0]?.retryError).toMatch(/still holding this transaction/);
+    expect(result.current.items[0]?.retryError).toBe('guardianHoldRetryRefused');
   });
 
   it('a second Retry while the first runs does nothing, so no refusal is left behind', async () => {
@@ -1006,14 +1012,14 @@ describe('held claims (#1081)', () => {
   });
 
   it('forgets a refusal once the claim moves on, so a later hold starts clean', async () => {
-    mockRequeue.mockRejectedValue(new Error('The Guardian is still holding this transaction.'));
+    mockRequeue.mockRejectedValue(new GuardianHoldRetryError(Math.floor(Date.now() / 1000) + 60));
     mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
     const { result } = renderHook(() => useActivityClaims());
     settle([{ id: 'tx-held', status: 4, held: true }]);
     await act(async () => {
       await result.current.retryHeld(result.current.items[0]!);
     });
-    expect(result.current.items[0]?.retryError).toMatch(/still holding this transaction/);
+    expect(result.current.items[0]?.retryError).toBe('guardianHoldRetryRefused');
     settle([{ id: 'tx-held', status: 0 }]);
     settle([{ id: 'tx-held', status: 4, held: true }]);
     expect(result.current.items[0]).toMatchObject({ held: true });
@@ -1748,6 +1754,43 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     }
   );
 
+  it('reports a failed claim only once the Guardian hold it showed is over (#2060)', async () => {
+    const proven = (candidateKept?: true): MockRow => ({
+      id: 'tx-one',
+      status: 3,
+      stage: 'submitting',
+      type: 'consume',
+      neverCommittedAt: 2,
+      error: 'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.',
+      submitEvidence: [
+        {
+          attemptId: 'a1',
+          capturedAt: Math.floor(Date.now() / 1000) - 60,
+          source: 'stage',
+          verdict: 'never-committed',
+          candidateKept
+        }
+      ]
+    });
+    render(React.createElement(ClaimCards));
+    open();
+    await click('activityAcceptTransfer');
+    settle([proven(true)]);
+    advance(1000);
+    expect(screen.getByTestId('pending-activity-submission')).toHaveTextContent('submissionProvenHeldByGuardian');
+    expect(screen.getByTestId('pending-activity-hint')).not.toHaveTextContent('noteClaimFailedRetry');
+    expect(jest.mocked(reportUserVisibleError).mock.calls.map(([id]) => id)).toEqual(['guardianHoldNotice']);
+
+    settle([proven()]);
+    advance(1000);
+    expect(screen.queryByTestId('pending-activity-submission')).toBeNull();
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('noteClaimFailedRetry');
+    expect(jest.mocked(reportUserVisibleError).mock.calls.map(([id]) => id)).toEqual([
+      'guardianHoldNotice',
+      'noteClaimFailedRetry'
+    ]);
+  });
+
   it('reports a real queued attempt whose watched row becomes failed while mounted', async () => {
     render(React.createElement(ClaimCards));
     open();
@@ -2102,6 +2145,91 @@ describe('proof submission feedback on Activity claims (#1689)', () => {
     expect(mockRequeue).not.toHaveBeenCalled();
   });
 
+  it('shows no refusal on a held claim the reconciler still judges, then shows it once nothing is left (#2060)', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-judged' }];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    const refused: MockRow = {
+      id: 'tx-judged',
+      status: 3,
+      stage: 'submitting',
+      type: 'consume',
+      mayHaveSubmitted: true,
+      error:
+        'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters'
+    };
+    const checkable: ISubmitEvidence = {
+      attemptId: 'a1',
+      capturedAt: 1,
+      source: 'stage',
+      transactionId: '0x01',
+      initialCommitment: '0x02',
+      finalCommitment: '0x03',
+      initialNonce: '4',
+      outputNoteIds: ['0x05'],
+      nullifiers: [],
+      refBlock: 100,
+      refBlockCommitment: '0x06'
+    };
+    settle([{ ...refused, held: true, submitEvidence: [checkable] }]);
+
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', held: true });
+    expect(result.current.items[0]?.submission).toBeUndefined();
+
+    settle([{ ...refused, held: false, neverCommittedAt: 2 }]);
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'rejected' });
+  });
+
+  it('fails a claim the reconciler gave up on with its refusal, as Activity reads it (#2060)', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-unresolvable' }];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    settle([
+      {
+        id: 'tx-unresolvable',
+        status: 3,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error:
+          'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters',
+        submitEvidence: [{ attemptId: 'a1', capturedAt: 1, source: 'stage', verdict: 'unresolvable' }]
+      }
+    ]);
+
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'rejected' });
+  });
+
+  it('says a proven claim cannot be retried yet while the Guardian holds its candidate (#2060)', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-proven' }];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    settle([
+      {
+        id: 'tx-proven',
+        status: 3,
+        stage: 'submitting',
+        type: 'consume',
+        neverCommittedAt: 2,
+        error: 'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.',
+        submitEvidence: [
+          {
+            attemptId: 'a1',
+            capturedAt: Math.floor(Date.now() / 1000) - 60,
+            source: 'stage',
+            verdict: 'never-committed',
+            candidateKept: true
+          }
+        ]
+      }
+    ]);
+
+    expect(result.current.items[0]?.submission).toMatchObject({
+      kind: 'guardianHold',
+      messageKey: 'submissionProvenHeldByGuardian'
+    });
+  });
+
   it('keeps the plain claim, with no submission verdict, when the stored submit error is unrecognized', async () => {
     mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-unrecognized' }];
     const { result } = renderHook(() => useActivityClaims());
@@ -2119,6 +2247,276 @@ describe('proof submission feedback on Activity claims (#1689)', () => {
 
     expect(result.current.items[0]).toMatchObject({ status: 'claiming' });
     expect(result.current.items[0]?.submission).toBeUndefined();
+  });
+});
+
+describe('a failed claim follows its row (#2060)', () => {
+  const REFUSAL =
+    'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
+  const nowSec = () => Math.floor(Date.now() / 1000);
+  const proven = (id: string, evidence: Partial<ISubmitEvidence> = {}): MockRow => ({
+    id,
+    status: 3,
+    stage: 'submitting',
+    type: 'consume',
+    neverCommittedAt: 2,
+    error: 'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.',
+    rawError: REFUSAL,
+    submitEvidence: [
+      {
+        attemptId: 'a1',
+        capturedAt: nowSec() - 60,
+        source: 'stage',
+        verdict: 'never-committed',
+        candidateKept: true,
+        ...evidence
+      }
+    ]
+  });
+  const accepted = async () => {
+    const view = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await view.result.current.accept(note);
+    });
+    return view;
+  };
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('drops the hold notice of a claim this session started once the Guardian lets go of the candidate', async () => {
+    const { result } = await accepted();
+    const watching = latestSubscription();
+    settle([proven('tx-one')]);
+    expect(result.current.items[0]).toMatchObject({
+      status: 'failed',
+      txId: 'tx-one',
+      submission: { kind: 'guardianHold', messageKey: 'submissionProvenHeldByGuardian' }
+    });
+
+    expect(watching.unsubscribe).not.toHaveBeenCalled();
+    settle([proven('tx-one', { candidateKept: undefined })]);
+    expect(result.current.items[0]).toMatchObject({ status: 'failed', submission: { kind: 'rejected' } });
+    expect(watching.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('keeps one failure across the re-reads, so its card restarts no report', async () => {
+    const { result } = await accepted();
+    settle([proven('tx-one')]);
+    const { failure } = result.current.items[0]!;
+    expect(failure).toBeDefined();
+
+    settle([proven('tx-one', { candidateKept: undefined })]);
+    expect(result.current.items[0]?.failure).toBe(failure);
+  });
+
+  it('names when the hold on a failed claim clears, and stops at its deadline', async () => {
+    jest.useFakeTimers();
+    const { result } = await accepted();
+    const capturedAt = nowSec() - GUARDIAN_PENDING_HOLD_SEC + 30;
+    settle([proven('tx-one', { capturedAt })]);
+    expect(result.current.items[0]?.holdUntil).toBe(capturedAt + GUARDIAN_PENDING_HOLD_SEC);
+
+    act(() => {
+      jest.advanceTimersByTime(31_000);
+    });
+    expect(result.current.items[0]).toMatchObject({ status: 'failed' });
+    expect(result.current.items[0]?.holdUntil).toBeUndefined();
+  });
+
+  it.each([
+    ['forward past the deadline', (capturedAt: number) => capturedAt + GUARDIAN_PENDING_HOLD_SEC + 60],
+    ['back behind the evidence', (capturedAt: number) => capturedAt - 60]
+  ])('ends the hold within a second of a clock stepped %s, as its countdown does', async (_label, steppedToSec) => {
+    jest.useFakeTimers();
+    const { result } = await accepted();
+    const capturedAt = nowSec() - GUARDIAN_PENDING_HOLD_SEC + 30;
+    settle([proven('tx-one', { capturedAt })]);
+    expect(result.current.items[0]?.holdUntil).toBe(capturedAt + GUARDIAN_PENDING_HOLD_SEC);
+
+    jest.setSystemTime(steppedToSec(capturedAt) * 1000);
+    act(() => {
+      jest.advanceTimersByTime(1_000);
+    });
+    expect(result.current.items[0]?.holdUntil).toBeUndefined();
+  });
+
+  it('reads the hold again every second without rebuilding the items while nothing moved', async () => {
+    jest.useFakeTimers();
+    const { result } = await accepted();
+    settle([proven('tx-one', { capturedAt: nowSec() - GUARDIAN_PENDING_HOLD_SEC + 30 })]);
+    const { items } = result.current;
+
+    act(() => {
+      jest.advanceTimersByTime(5_000);
+    });
+    expect(result.current.items).toBe(items);
+  });
+
+  describe('on a claim that holds its notes', () => {
+    const heldRow = (evidence: Partial<ISubmitEvidence> = {}): MockRow => ({
+      id: 'tx-held',
+      status: 4,
+      type: 'consume',
+      held: true,
+      submitEvidence: [
+        {
+          attemptId: 'a1',
+          capturedAt: nowSec() - 60,
+          source: 'stage',
+          candidateKept: true,
+          ...evidence
+        }
+      ]
+    });
+    const claiming = async () => {
+      mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+      const view = renderHook(() => useActivityClaims());
+      await latestSubscription().query();
+      return view;
+    };
+
+    it('names when the hold clears, so its card can turn Retry off', async () => {
+      const { result } = await claiming();
+      const row = heldRow();
+      settle([row]);
+
+      expect(result.current.items[0]).toMatchObject({
+        held: true,
+        holdUntil: row.submitEvidence![0]!.capturedAt + GUARDIAN_PENDING_HOLD_SEC
+      });
+    });
+
+    it('names no hold on a row still running, whatever its evidence says', async () => {
+      const { result } = await claiming();
+      settle([{ ...heldRow(), status: 1 }]);
+
+      expect(result.current.items[0]?.holdUntil).toBeUndefined();
+    });
+
+    it('drops a refusal that met the hold when the hold ends, though the claim is still held', async () => {
+      mockRequeue.mockRejectedValue(new GuardianHoldRetryError(nowSec() + 60));
+      const { result } = await claiming();
+      settle([{ ...heldRow(), submitEvidence: [] }]);
+      await act(async () => {
+        await result.current.retryHeld(result.current.items[0]!);
+      });
+      settle([heldRow()]);
+      expect(result.current.items[0]?.retryError).toBe('guardianHoldRetryRefused');
+
+      settle([heldRow({ candidateKept: undefined })]);
+
+      expect(result.current.items[0]).toMatchObject({ held: true });
+      expect(result.current.items[0]?.retryError).toBeUndefined();
+    });
+
+    it('keeps a refusal the hold did not cause', async () => {
+      mockRequeue.mockRejectedValue(new Error('The wallet is checking this transaction right now.'));
+      const { result } = await claiming();
+      settle([heldRow({ candidateKept: undefined })]);
+      await act(async () => {
+        await result.current.retryHeld(result.current.items[0]!);
+      });
+
+      settle([heldRow({ candidateKept: undefined })]);
+
+      expect(result.current.items[0]?.retryError).toBe('The wallet is checking this transaction right now.');
+    });
+  });
+
+  it('ends the hold notice at its deadline, which writes nothing to the row', async () => {
+    jest.useFakeTimers();
+    const { result } = await accepted();
+    settle([proven('tx-one', { capturedAt: nowSec() - GUARDIAN_PENDING_HOLD_SEC + 30 })]);
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'guardianHold' });
+
+    act(() => {
+      jest.advanceTimersByTime(29_000);
+    });
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'guardianHold' });
+    act(() => {
+      jest.advanceTimersByTime(2_000);
+    });
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'rejected' });
+  });
+
+  it('reads the deadline again on the way back to the page, past a timer a freeze held up', async () => {
+    jest.useFakeTimers();
+    const { result } = await accepted();
+    settle([proven('tx-one', { capturedAt: nowSec() - GUARDIAN_PENDING_HOLD_SEC + 30 })]);
+    jest.setSystemTime(Date.now() + 60_000);
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'guardianHold' });
+
+    const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'guardianHold' });
+
+    visibility.mockReturnValue('visible');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'rejected' });
+  });
+
+  it('stops following the row once it stops being watched', async () => {
+    jest.useFakeTimers();
+    const { unmount } = await accepted();
+    settle([proven('tx-one', { capturedAt: nowSec() - GUARDIAN_PENDING_HOLD_SEC + 30 })]);
+    const watching = latestSubscription();
+    const timers = jest.getTimerCount();
+    expect(timers).toBeGreaterThan(0);
+    const removed = jest.spyOn(document, 'removeEventListener');
+
+    unmount();
+    expect(watching.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(timers - 1);
+    expect(removed).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+  });
+
+  it('follows the row of a claim started before this session, once the check names it', async () => {
+    mockClaim.retriableNoteIds = new Set([note.id]);
+    mockClaim.retriableTxIds = new Map([[note.id, 'tx-old']]);
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    expect(mockAnyOf).toHaveBeenLastCalledWith('id', ['tx-old']);
+
+    settle([proven('tx-old')]);
+    expect(result.current.items[0]).toMatchObject({
+      status: 'failed',
+      txId: 'tx-old',
+      submission: { kind: 'guardianHold', messageKey: 'submissionProvenHeldByGuardian' }
+    });
+
+    settle([proven('tx-old', { candidateKept: undefined })]);
+    expect(result.current.items[0]).toMatchObject({ status: 'failed', submission: { kind: 'rejected' } });
+  });
+
+  it('names no failed row on a note whose state is being checked again', () => {
+    mockClaim.retriableNoteIds = new Set([note.id]);
+    mockClaim.retriableTxIds = new Map([[note.id, 'tx-old']]);
+    mockClaim.checkingNoteIds = new Set([note.id]);
+    const { result } = renderHook(() => useActivityClaims());
+
+    expect(result.current.items[0]).toMatchObject({ status: 'checking' });
+    expect(result.current.items[0]?.txId).toBeUndefined();
+  });
+
+  it('starts over on a fresh claim of the same note', async () => {
+    const { result } = await accepted();
+    settle([proven('tx-one')]);
+    mockQueue.mockResolvedValue('tx-two');
+    await act(async () => {
+      await result.current.accept(note);
+    });
+
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-two' });
+    expect(result.current.items[0]?.submission).toBeUndefined();
+    await latestSubscription().query();
+    expect(mockAnyOf).toHaveBeenLastCalledWith('id', ['tx-two']);
   });
 });
 

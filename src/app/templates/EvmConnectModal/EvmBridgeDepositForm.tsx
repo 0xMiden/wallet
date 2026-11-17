@@ -13,13 +13,13 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { Skeleton } from 'components/ui/Skeleton';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { evmQuote } from 'lib/prices/evm';
 import { useWalletStore } from 'lib/store';
 import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
-import { balanceFormatterFor } from 'screens/send-flow/amount-format';
 import { AmountShortcuts } from 'screens/send-flow/AmountShortcuts';
 import { BridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { UITokenWithPendingBalance } from 'screens/send-flow/types';
@@ -27,14 +27,15 @@ import { truncateAddress } from 'utils/string';
 
 interface EvmBridgeDepositFormProps {
   token: UITokenWithPendingBalance;
-  /** The Miden faucet an Epoch token arrives in: its token-list logo stands in when the wallet ships no mark. */
-  logoFaucetId?: string;
+  /** The Miden faucet the deposit arrives in, which keys the token's logo; undefined while that faucet does not exist. */
+  logoFaucetId: string | undefined;
   network?: BridgeNetwork;
   tokenLabel: string;
   arrivingName: string;
   destinationName?: string;
   amount: string;
   isValidAmount: boolean;
+  balanceUnreadable?: boolean;
   error?: string;
   errorId?: UserErrorId | null;
   errorDiagnostics?: UiEvidenceInput;
@@ -56,6 +57,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   destinationName,
   amount,
   isValidAmount,
+  balanceUnreadable = false,
   error,
   errorId,
   errorDiagnostics,
@@ -69,7 +71,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   const { t } = useTranslation();
   const [shortcutSelection, setShortcutSelection] = React.useState(0);
   const prices = useWalletStore(state => state.tokenPrices);
-  const balanceReady = token.balance !== null;
+  const balanceReady = !balanceUnreadable && token.balance !== null;
   const canProceed = token.scaleIsKnown && balanceReady && !!network && isValidAmount;
   const visibleError = error && (amount || error !== 'invalidAmount') ? error : undefined;
   const amountError =
@@ -82,7 +84,6 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
           : 'raw_bridge_balance_failed'
         : errorId
       : null;
-  const balanceText = token.balance === null ? null : balanceFormatterFor(token.balance)(token.balance);
 
   return (
     <HomeGroupPaneBody
@@ -150,11 +151,18 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       <DetailCard surface="outline" face="heading" className="mt-8">
         <ListRow
           title={tokenLabel}
-          avatar={<TokenLogo symbol={token.name} faucetId={logoFaucetId ?? token.id} size="md" />}
+          avatar={<TokenLogo faucetId={logoFaucetId} size="md" />}
           subtitle={
             token.scaleIsKnown ? (
-              balanceReady ? (
-                `${t('available')} ${balanceText}`
+              balanceUnreadable ? (
+                t('unavailable')
+              ) : balanceReady ? (
+                <TokenAmount
+                  amount={token.balance}
+                  minimumFractionDigits={4}
+                  rounding="down"
+                  prefix={`${t('available')} `}
+                />
               ) : (
                 <Skeleton className="h-4 w-20" />
               )

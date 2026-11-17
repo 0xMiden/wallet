@@ -11,7 +11,8 @@ import {
   quoteEarnWithdrawal,
   assertWithdrawalReviewCurrent,
   assertWithdrawalDelivery,
-  assertWithdrawalAllocations
+  assertWithdrawalAllocations,
+  extendWithdrawalReview
 } from './earn-withdraw-quote';
 import { fetchEarnPositions } from './positions';
 
@@ -26,8 +27,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 jest.mock('lib/remote-config/values', () => ({
   getEpochAllocatorUrl: () => 'https://allocator.example',
-  // The document names one Epoch route, Sepolia; a position on any other chain is off route.
-  getEpochRoutes: () => [{ chainId: 11155111, usdc: '0x1111111111111111111111111111111111111111' }]
+  // The document names one EVM chain, Sepolia; a position on any other chain is not a known market.
+  getSupportedEvmChainIds: () => [11155111]
 }));
 const token = '0x1111111111111111111111111111111111111111';
 const position = {
@@ -123,26 +124,77 @@ it('requires refresh once availability falls below the reviewed amount', async (
   withWithdrawable('1');
   await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
 });
-it('requires refresh on expiry, a malformed reviewed amount, payout identity or failed position read', async () => {
+it('requires refresh on expiry, a malformed reviewed amount or payout identity', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
   await expect(assertWithdrawalReviewCurrent({ ...q, expiresAt: 0 })).rejects.toThrow('earnWithdrawRefresh');
   await expect(assertWithdrawalReviewCurrent({ ...q, amountAtomic: '1e18' })).rejects.toThrow('earnWithdrawRefresh');
   jest.mocked(getNativeAssetId).mockResolvedValueOnce('different');
   await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+});
+describe('extendWithdrawalReview (#2117)', () => {
+  it('keeps a review with 30 s or more left as it is, without quoting again', async () => {
+    const q = await quoteEarnWithdrawal(args, sdk);
+    getIntentQuote.mockClear();
+    // A second of margin, so the milliseconds the call takes cannot bring it under 30 s.
+    expect(await extendWithdrawalReview({ ...q, expiresAt: Date.now() + 31_000 }, sdk)).toEqual({
+      ...q,
+      expiresAt: expect.any(Number)
+    });
+    expect(getIntentQuote).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['as good', '991822'],
+    ['better', '995000']
+  ])(
+    'gives a review the setup outlasted a new minute when the new route is %s, keeping the reviewed floor',
+    async (_c, out) => {
+      const q = await quoteEarnWithdrawal(args, sdk);
+      getIntentQuote.mockResolvedValue({ success: true, tokenOut: out, transactions: [], resourceLockRequired: true });
+      const expired = { ...q, expiresAt: Date.now() - 1 };
+
+      const extended = await extendWithdrawalReview(expired, sdk);
+
+      expect(extended).toEqual({ ...expired, expiresAt: expect.any(Number) });
+      expect(extended.expiresAt).toBeGreaterThan(Date.now() + 59_000);
+      expect(extended.minimumAtomic).toBe(q.minimumAtomic);
+    }
+  );
+
+  it('refuses to extend a review when the new route pays less than the reviewed floor', async () => {
+    const q = await quoteEarnWithdrawal(args, sdk);
+    getIntentQuote.mockResolvedValue({
+      success: true,
+      tokenOut: '980000',
+      transactions: [],
+      resourceLockRequired: true
+    });
+
+    await expect(extendWithdrawalReview({ ...q, expiresAt: Date.now() + 10_000 }, sdk)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+  });
+});
+it('reports a failed position read as unavailable, never as a changed balance (#2116)', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
   jest.mocked(fetchEarnPositions).mockResolvedValueOnce({
     positions: [],
     owners: [token],
     totalDepositsUSD: 0,
-    errors: [{ owner: token, error: 'offline' }]
+    errors: [{ owner: token, error: 'Request timed out after 15000 ms' }]
   });
-  await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+  await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnPositionsUnavailable');
 });
-it("reads the fresh position of the quote's owner alone", async () => {
+it("reads only the reviewed market of the quote's owner", async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
   await assertWithdrawalReviewCurrent(q);
-  expect(fetchEarnPositions).toHaveBeenCalledWith({ accountId: 'miden', owners: [token] });
+  expect(fetchEarnPositions).toHaveBeenCalledWith({
+    accountId: 'miden',
+    owners: [token],
+    markets: [q.position.marketUid]
+  });
 });
-it("accepts a position in any market on the route's chain, and refuses one on another chain", async () => {
+it('accepts a position in any market on a chain the document lists, and refuses one on another chain', async () => {
   // A market of another lender than the default market, on the default market's chain.
   const otherMarket = { ...position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:11155111:${token}` };
   jest.mocked(fetchEarnPositions).mockResolvedValue({
@@ -166,8 +218,8 @@ it("accepts a position in any market on the route's chain, and refuses one on an
   const q = await quoteEarnWithdrawal({ ...args, position: otherMarket }, sdk);
   await expect(assertWithdrawalReviewCurrent(q)).resolves.toBeUndefined();
 
-  const offRoute = { ...q, position: { ...q.position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:8453:${token}` } };
-  await expect(assertWithdrawalReviewCurrent(offRoute)).rejects.toThrow('earnWithdrawRefresh');
+  const offChain = { ...q, position: { ...q.position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:8453:${token}` } };
+  await expect(assertWithdrawalReviewCurrent(offChain)).rejects.toThrow('earnWithdrawRefresh');
 });
 it('binds the prepared delivery to the reviewed source amount, underlying and minimum', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);

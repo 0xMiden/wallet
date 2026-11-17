@@ -1,6 +1,8 @@
 import {
+  attemptMayHaveCrossed,
   awaitingVerdict,
   canAwaitVerdict,
+  crossedCandidateNonce,
   evidenceKey,
   holdsNotes,
   isCheckable,
@@ -143,6 +145,23 @@ describe('awaitingVerdict, holdsNotes and isFailedClaim', () => {
   });
 });
 
+describe('attemptMayHaveCrossed (#2060)', () => {
+  it("answers yes for the attempt's own entry, among others", () => {
+    const row = { submitEvidence: [provable({ attemptId: 'a0' }), provable({ attemptId: 'a1' })] };
+    expect(attemptMayHaveCrossed(row, 'a1')).toBe(true);
+  });
+
+  it.each<[string, Pick<ITransaction, 'submitEvidence'> | undefined, string | undefined]>([
+    ['a missing row', undefined, 'a1'],
+    ['a row with no evidence', {}, 'a1'],
+    ["another attempt's entry", { submitEvidence: [provable({ attemptId: 'a0' })] }, 'a1'],
+    ['an entry the leaf retired before its submit call', { submitEvidence: [provable({ preSubmitEnd: true })] }, 'a1'],
+    ['no attempt to ask about', { submitEvidence: [provable()] }, undefined]
+  ])('answers no for %s', (_label, row, attemptId) => {
+    expect(attemptMayHaveCrossed(row, attemptId)).toBe(false);
+  });
+});
+
 describe('upsertEvidenceEntry', () => {
   it('creates one entry per attempt and fills only what it lacks', () => {
     let entries = upsertEvidenceEntry(
@@ -208,6 +227,16 @@ describe('upsertEvidenceEntry', () => {
     entries = upsertEvidenceEntry(entries, 'a1', { source: 'pin', preSubmitEnd: true }, NOW);
     entries = upsertEvidenceEntry(entries, 'a1', { source: 'stage', evidence: { refBlock: 3 } }, NOW);
     expect(entries[0]?.preSubmitEnd).toBe(true);
+  });
+
+  // An outside end marks a crossed attempt kept, and a live leaf can still prove it stopped short and abandon (#2060).
+  it('drops a kept mark at a pre-submit end, and a later keep records it again', () => {
+    let entries = upsertEvidenceEntry(undefined, 'a1', { source: 'stage', candidateKept: true }, NOW);
+    entries = upsertEvidenceEntry(entries, 'a1', { source: 'stage', preSubmitEnd: true }, NOW);
+    expect(entries[0]).toMatchObject({ preSubmitEnd: true });
+    expect(entries[0]?.candidateKept).toBeUndefined();
+    entries = upsertEvidenceEntry(entries, 'a1', { source: 'kill', candidateKept: true }, NOW);
+    expect(entries[0]).toMatchObject({ preSubmitEnd: true, candidateKept: true });
   });
 
   it('sets raisedFlag only when the pin creates the entry', () => {
@@ -287,5 +316,40 @@ describe('keptCandidateHoldUntil (#1081)', () => {
   it('holds nothing for a capture ahead of the clock, however far', () => {
     expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW + 5)] }, NOW)).toBeUndefined();
     expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW + 10 * 24 * 3600)] }, NOW)).toBeUndefined();
+  });
+});
+
+describe('crossedCandidateNonce (#2060)', () => {
+  const row = (overrides: Partial<ITransaction> = {}) => ({
+    type: 'send' as const,
+    attemptId: 'a1',
+    submitEvidence: [provable({ guardianProposalNonce: 8 })],
+    ...overrides
+  });
+  const candidate = { endpoint: 'https://guardian.test', nonce: 9, proposedAt: 1, attemptId: 'a1' };
+
+  it('reads the nonce the crossing recorded, ahead of the row`s candidate', () => {
+    expect(crossedCandidateNonce(row({ guardianCandidate: candidate }))).toBe(8);
+  });
+
+  it('falls back to the candidate this attempt wrote on the row', () => {
+    const submitEvidence = [provable()];
+
+    expect(crossedCandidateNonce(row({ submitEvidence, guardianCandidate: candidate }))).toBe(9);
+    expect(
+      crossedCandidateNonce(row({ submitEvidence, guardianCandidate: { ...candidate, attemptId: 'a0' } }))
+    ).toBeUndefined();
+    expect(crossedCandidateNonce(row({ submitEvidence }))).toBeUndefined();
+  });
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['an attempt retired before its submit', { submitEvidence: [provable({ preSubmitEnd: true })] }],
+    ['an earlier attempt`s crossing', { submitEvidence: [provable({ attemptId: 'a0', guardianProposalNonce: 8 })] }],
+    ['no evidence', { submitEvidence: undefined }],
+    ['a row with no attempt', { attemptId: undefined }],
+    ['a restored row', { restoredFromBackup: true }],
+    ['a structural type', { type: 'replace-hot-key' }]
+  ])('names no nonce for %s', (_label, overrides) => {
+    expect(crossedCandidateNonce(row(overrides))).toBeUndefined();
   });
 });

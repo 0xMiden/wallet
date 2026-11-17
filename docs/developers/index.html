@@ -1153,12 +1153,14 @@ const signature = await adapter.signBytes(word.serialize(), 'word');
 // or: adapter.signBytes(signingInputs.serialize(), 'signingInputs')
 // signature: the SDK's serialized Signature bytes</code></pre></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>kind</th><th>message holds</th></tr></thead>
+          <thead><tr><th>kind</th><th>What Bread signs</th></tr></thead>
           <tbody>
-            <tr><td><code>'word'</code></td><td>A serialized <code>Word</code>, 32 bytes</td></tr>
-            <tr><td><code>'signingInputs'</code></td><td>Serialized <code>SigningInputs</code></td></tr>
+            <tr><td><code>'word'</code></td><td>Signs the domain-separated commitment of that <code>Word</code>, tag Poseidon2 of <code>miden-wallet/sign-bytes/v1</code>, not the raw Word, and cannot authorize a transaction.</td></tr>
+            <tr><td><code>'signingInputs'</code> holding a transaction summary</td><td>Signs that summary's own commitment, which can authorize the transaction.</td></tr>
+            <tr><td><code>'signingInputs'</code> holding Blind or Arbitrary</td><td>Signs the domain-separated commitment of that payload and cannot authorize a transaction.</td></tr>
           </tbody>
         </table></div>
+        <p>To verify, take the word Bread signed and check <code>publicKey.verify(word, Signature.deserialize(signature))</code>. For a word, Blind, or Arbitrary payload, compute that word with <code>domainSeparatedSignCommitment(data, kind)</code> from <code>@miden-sdk/miden-sdk</code> 0.17.10; for a transaction summary it is <code>signingInputs.toCommitment()</code>. A page that calls the injected provider directly also gets the word back as <code>signedCommitment</code>. A word, Blind, or Arbitrary signature does not verify against the raw payload.</p>
         <p>To sign people in, use the login key below instead: it is separate from the account's transaction keys.</p>
       </section>
 

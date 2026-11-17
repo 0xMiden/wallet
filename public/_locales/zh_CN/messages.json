@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "密钥解锁",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "使用密钥解锁",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "请使用设备的密钥管理器解锁此钱包。您的钱包密码仍然有效。",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "此钱包已启用密钥解锁功能。",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "此浏览器、操作系统或钱包不支持密钥解锁功能。您仍可使用钱包密码。",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "启用密钥解锁",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "更换密钥",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "移除密钥解锁功能",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "此处移除“密钥解锁”功能，并不意味着撤销或删除您的服务商存储的密钥。若您不再需要该密钥，请在服务商的设置中将其删除。",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "您的服务商表示，此密钥可以备份或同步。在其他设备上的可用性取决于您的服务商。",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "您的服务商报告称，此密钥无法备份。",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "打开钱包侧边栏，以启用、更换或移除密钥解锁功能。",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "无法打开侧边栏。请从钱包工具栏打开侧边栏，然后重试。",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "密钥请求已被取消或不可用。您仍可使用钱包密码。",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "无法启用密钥解锁。请检查您的钱包密码，并使用支持此功能的提供商。",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "无法移除密钥解锁。请重试。您的钱包密码仍然有效。",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "无法使用此密钥解锁。请使用您的钱包密码并检查密钥设置。",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "备份您的助记词",
     "englishSource": "Back up your recovery phrase"
@@ -823,6 +891,10 @@
     "message": "此审核是针对另一种存款代币准备的。请返回并重新输入金额。",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "抵押品note必须使用已审核的代币、已审核的金额以及已配置的分配器。未发送任何内容。请返回并重试。",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "总收益",
     "englishSource": "Total earned"
@@ -855,6 +927,14 @@
   "earnPositionsLoadError": {
     "message": "无法加载您的持仓。请检查网络连接并重试。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnPositionsUnavailable": {
+    "message": "无法通过 Epoch 查询您的余额。请重试。",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
+  "earnBalanceLoadError": {
+    "message": "无法加载您的余额。请检查网络连接并重试。",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "该网络不支持“赚取”功能",
@@ -1243,6 +1323,32 @@
   "submissionRejectedByNetwork": {
     "message": "该网络拒绝了此提交。请重试。",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "您的Guardian仍持有此笔交易，因此目前尚无法重试。",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "网络已确认该交易从未成功，因此没有任何资产转移。您的Guardian仍持有该资产，因此目前尚无法重试。",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "您的Guardian仍持有此笔交易。您可在$time$后重试。",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "您可在$time$后重试",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "此次提交未收到任何响应。钱包无法确认提交是否成功。该操作仍可能完成，因此请在重试前先进行确认。",
@@ -3185,6 +3291,14 @@
     "message": "备份您的钱包",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "恢复短语已隐藏",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "私钥隐藏",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "显示",
     "englishSource": "Show"
@@ -3326,12 +3440,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8个字符，1个数字",
-    "englishSource": "8 characters, 1 number"
+    "message": "至少 12 个字符",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "至少8个字符，其中至少包含1个数字",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "密码长度至少为12个字符。使用数字、符号及大小写混合可增强安全性。",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "请将这12个词保存下来，并存放在安全的地方。",
@@ -3988,6 +4102,10 @@
     "message": "你不能寄到自己的地址",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "新收款人",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4019,6 +4137,14 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
+  },
+  "proposalEffectRefused": {
+    "message": "钱包在签署该交易前已中止了该交易，因为它无法确认该交易仅转移了您批准的金额。资金并未发生转移。",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "钱包无法读取网络手续费，因此未对本次交易进行签名。未发送任何内容。请稍后再试。",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "金额必须小于余额",
@@ -4343,6 +4469,18 @@
     "message": "我们无法在此Guardian上找到备份。请检查URL或选择另一个Guardian。",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "您的账户无法恢复：该guardian返回的账户数据与您的恢复短语不匹配。没有任何数据被恢复。",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "您的账户无法恢复：该账户的guardian副本尚未与Miden网络匹配。没有任何内容被恢复。请几分钟后重试。",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "无法连接到 Miden 网络以核查您的账户。您的恢复短语没有问题。请检查网络连接并重试。",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "该“guardian”运行在另一个 Miden 网络上，因此无法在此处恢复账户。",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4414,6 +4552,10 @@
   "unknown": {
     "message": "未知",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "包括您尚未认领的notes",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "已消耗输入notes",
@@ -4681,6 +4823,14 @@
   "unavailable": {
     "message": "不可用",
     "englishSource": "Unavailable"
+  },
+  "assetPriceUnsupported": {
+    "message": "不支持",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "未知规模",
+    "englishSource": "Unknown scale"
   },
   "bridgeFeatureUnavailableTitle": {
     "message": "暂时不可用",
@@ -5794,6 +5944,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "MetaMask 智能交易无法发送此笔交易。请在 MetaMask 设置中关闭智能交易功能，然后重试。",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "联网钱包",
     "englishSource": "Connected wallet"
@@ -5881,6 +6035,10 @@
   "bridgeDepositFailed": {
     "message": "桥接存款失败",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "您已连接的钱包在此网络上没有余额为正的代币。",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "您已连接的钱包在$network$上持有$balance$的$token$，该金额低于本次存款所需。未发送任何资金。",
@@ -6294,6 +6452,10 @@
     "message": "该 dApp 正在发起一笔自定义交易。钱包无法解析其详细信息——请仅在您完全清楚该交易具体作用的情况下继续操作。",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "该钱包无法模拟此交易，因此无法显示其操作过程。您无法批准此交易。",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "原始值",
     "englishSource": "Raw value"
@@ -6301,6 +6463,10 @@
   "opaqueSignatureTitle": {
     "message": "不透明签名请求",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "此签名无法授权从您的账户发起交易。",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "该网站要求您对原始值进行签名。钱包无法显示其授权的内容。请仅在您完全信任该网站的情况下继续操作。",
@@ -7390,6 +7556,14 @@
   "tokenHiddenNotice": {
     "message": "隐藏于“主钱包”之外。它仍保存在您的钱包中，其转账仍可被领取。",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "隐藏微量代币",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "将价值低于 0.001 美元的代币从您的资产列表中隐藏。原生代币始终可见。",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "隐藏资产",
@@ -8603,6 +8777,72 @@
   "arcadePostingPolicy": {
     "message": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "自动锁定",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "当钱包在后台处于闲置状态达到一定时间后，系统将自动锁定该钱包。",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$分钟",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "等待返还",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "准备申领",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "退还资金",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "资金退回",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "您的资金仍保留在 Miden 上。您可以在区块 $block$ 之后提取这些资金。",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "申领您的资金，将其退回您的钱包。",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "您的资金正在返还至您的钱包。",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "您的资金已返还至您的钱包。",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "资金已发送至您的目的地。",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "该note已被使用，但支付尚未确认。请检查您的收款地址和Miden余额。",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "无法查询资金状态。请重试。",
+    "englishSource": "Unable to check the funds status. Try again."
   },
   "epochDepositLocked": {
     "message": "锁定存款",

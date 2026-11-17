@@ -88,7 +88,7 @@ const URL_TAIL_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/[^\s"'<>)\]}]*?)[?#][^\s"'<>)
 const BEARER_PATTERN = /\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 /** `password=…`, `"secret": "…"`, `apiKey = …` — the key survives, the value does not. */
 const ASSIGNMENT_PATTERN =
-  /((?:pass(?:word|code|phrase)?|secret|seed|mnemonic|private[_-]?key|secret[_-]?key|api[_-]?key|token|auth(?:orization)?|credential|pin)\b["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;)}\]]+)/gi;
+  /((?:pass(?:word|code|phrase)?|secret|seed|mnemonic|private[_-]?key|secret[_-]?key|api[_-]?key|token|auth(?:orization)?|credential|pin)\b\\*["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;)}\]]+)/gi;
 
 /**
  * A run of characters that could be an encoded blob. Long enough that ordinary

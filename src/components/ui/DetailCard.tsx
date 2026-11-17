@@ -37,6 +37,8 @@ export interface DetailRowProps {
    * rows apart and make the card read as prose.
    */
   info?: React.ReactNode;
+  /** A tag after the label (a `Pill size="tag"`), on the label line. Never an action: that is `action`. */
+  badge?: React.ReactNode;
   /** Inline action after the value, e.g. "Edit": a small selected `Pill`, whose tint ink clears 4.5:1 (Rule 6). */
   action?: DetailRowAction;
   /** Stack the value under the label, for values too long to sit beside it (e.g. a full address). */
@@ -60,6 +62,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
   children,
   sub,
   info,
+  badge,
   action,
   stacked = false,
   onClick,
@@ -72,6 +75,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
   const content = (
     <>
       <span
+        data-slot="label"
         className={cn(
           'flex shrink-0 items-center gap-0.5 text-body-sm text-muted',
           !stacked && 'min-w-20',
@@ -80,6 +84,13 @@ export const DetailRow: React.FC<DetailRowProps> = ({
       >
         {label}
         {info}
+        {badge != null && (
+          // A box of its own with no leading, so the tag sets its height: an inherited line box grew the
+          // 20px label line by a pixel under WebKit's metrics.
+          <span data-slot="badge" className="ml-1 flex items-center leading-none">
+            {badge}
+          </span>
+        )}
       </span>
       <div className={cn('flex min-w-0 flex-1 flex-col gap-1', stacked ? 'items-start' : 'items-end text-right')}>
         <div className={cn('flex max-w-full items-center gap-2 text-value text-ink', stacked && 'break-all')}>

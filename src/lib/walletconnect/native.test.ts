@@ -1442,6 +1442,32 @@ describe('iOS native per-call failures', () => {
     }
   );
 
+  it.each(['request_expired', 'session_deleted'])(
+    'marks the original rejection for the published origin %s as published with an unknown age',
+    async nativeOrigin => {
+      const original = Object.assign(new Error('original display'), {
+        code: `REOWN_IOS_REQUEST_FAILURE:${nativeOrigin}`
+      });
+      rawNativeSend.mockRejectedValueOnce(original);
+      const { error } = await rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' }));
+      expect(error).toBe(original);
+      expect(readReownNativeFailure(error)).toEqual({ nativeOrigin, requestAge: 'unknown', published: 'confirmed' });
+    }
+  );
+
+  it.each(['request_expired', 'session_deleted'])(
+    'marks the original rejection for %s_unpublished as unobserved with an unknown age',
+    async nativeOrigin => {
+      const original = Object.assign(new Error('original display'), {
+        code: `REOWN_IOS_REQUEST_FAILURE:${nativeOrigin}_unpublished`
+      });
+      rawNativeSend.mockRejectedValueOnce(original);
+      const { error } = await rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' }));
+      expect(error).toBe(original);
+      expect(readReownNativeFailure(error)).toEqual({ nativeOrigin, requestAge: 'unknown', published: 'unobserved' });
+    }
+  );
+
   it('marks request and send independently and rejects untrusted response origins', async () => {
     const first = Object.assign(new Error('first'), { code: 'REOWN_IOS_REQUEST_FAILURE:argument_validation' });
     const second = Object.assign(new Error('second'), { code: 'REOWN_IOS_REQUEST_FAILURE:request_call_error' });

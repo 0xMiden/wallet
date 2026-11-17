@@ -38,8 +38,9 @@ export function isUsdcxWithdrawalNetwork(): boolean {
   return featureAvailability('usdcxWithdrawal', getBridgeConfigSnapshot()).state === 'available';
 }
 
-export function isUsdcxWithdrawalAvailable(faucetId: string | undefined): boolean {
-  return isUsdcxWithdrawalNetwork() && isUsdcxFaucet(faucetId);
+export function isUsdcxWithdrawalAvailable(faucetId: string | undefined, chainId?: number): boolean {
+  const available = chainId === undefined ? isUsdcxWithdrawalNetwork() : isUsdcxDestinationChain(chainId);
+  return available && isUsdcxFaucet(faucetId);
 }
 
 /**

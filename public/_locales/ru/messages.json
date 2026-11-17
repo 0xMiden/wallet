@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Разблокировка с помощью пароля",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Разблокировка с помощью пароля",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Используйте поставщик паролей вашего устройства для разблокировки этого кошелька. Пароль вашего кошелька по-прежнему будет работать.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Для этого кошелька включена функция разблокировки с помощью пароля.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Разблокировка с помощью пароля недоступна в этом браузере, операционной системе или кошельке. Вы по-прежнему можете использовать пароль своего кошелька.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Включить разблокировку с помощью пароля",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Заменить пароль",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Удалить разблокировку с помощью пароля",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Удаление разблокировки с помощью пароля в данном случае не приводит к аннулированию или удалению пароля, хранящегося у вашего провайдера. Если он вам больше не нужен, удалите его также в настройках вашего провайдера.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Ваш провайдер сообщает, что этот пароль можно скопировать или синхронизировать. Доступность на других устройствах зависит от вашего провайдера.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Ваш провайдер сообщает, что этот пароль нельзя скопировать.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Откройте боковую панель кошелька, чтобы включить, заменить или отключить разблокировку с помощью пароля.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Не удалось открыть боковую панель. Откройте её с панели инструментов кошелька и попробуйте ещё раз.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "Запрос на ввод пароля был отменен или недоступен. Вы по-прежнему можете использовать пароль своего кошелька.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Не удалось включить разблокировку с помощью пароля-ключа. Проверьте пароль своего кошелька и воспользуйтесь услугами провайдера, поддерживающего эту функцию.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Не удалось снять блокировку с помощью пароля. Попробуйте ещё раз. Пароль вашего кошелька по-прежнему действует.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Не удалось разблокировать с помощью этого пароля. Используйте пароль кошелька и проверьте настройки пароля.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Сделайте резервную копию своей семенной фразы",
     "englishSource": "Back up your recovery phrase"
@@ -823,6 +891,10 @@
     "message": "Этот обзор был подготовлен для другого депозитного токена. Вернитесь и введите сумму заново.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "В залоговой note необходимо использовать проверенный токен, проверенную сумму и настроенный аллокатор. Ничего не было отправлено. Вернитесь и попробуйте ещё раз.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Общая сумма заработка",
     "englishSource": "Total earned"
@@ -855,6 +927,14 @@
   "earnPositionsLoadError": {
     "message": "Не удалось загрузить ваши позиции. Проверьте подключение и попробуйте ещё раз.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnPositionsUnavailable": {
+    "message": "Не удалось проверить ваш баланс с помощью Epoch. Попытайтесь ещё раз.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
+  "earnBalanceLoadError": {
+    "message": "Не удалось загрузить ваш баланс. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "Функция «Earn» недоступна в этой сети",
@@ -1243,6 +1323,32 @@
   "submissionRejectedByNetwork": {
     "message": "Сеть отклонила эту заявку. Попробуйте ещё раз.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Ваш «Guardian» по-прежнему удерживает эту транзакцию, поэтому повторную попытку пока совершить нельзя.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Сеть подтвердила, что эта транзакция так и не прошла, поэтому ничего не переместилось. Ваш «Guardian» по-прежнему удерживает средства, поэтому повторную попытку пока совершить нельзя.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Ваш «Guardian» по-прежнему удерживает эту транзакцию. Вы можете повторить попытку через $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Вы можете повторить попытку через $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Ответ на эту отправку не поступил. Кошелек не может подтвердить, прошла ли она. Возможно, операция всё ещё завершается, поэтому проверьте, прежде чем повторить попытку.",
@@ -3185,6 +3291,14 @@
     "message": "Сделайте резервную копию своего кошелька",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Скрытая фраза восстановления",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "Скрытый закрытый ключ",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Показать",
     "englishSource": "Show"
@@ -3326,12 +3440,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 символов, 1 цифра",
-    "englishSource": "8 characters, 1 number"
+    "message": "Не менее 12 символов",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Не менее 8 символов, включая как минимум 1 цифру",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Используйте не менее 12 символов. Цифры, символы и смешанный регистр делают пароль более надежным.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Запишите эти 12 слов и храните их в надёжном месте.",
@@ -3988,6 +4102,10 @@
     "message": "Нельзя отправлять на свой собственный адрес",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Новый получатель",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4019,6 +4137,14 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
+  },
+  "proposalEffectRefused": {
+    "message": "Кошелек остановил эту транзакцию перед её подписанием, поскольку не смог подтвердить, что транзакция перемещает только то, что вы одобрили. Средства не были перемещены.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "Кошелек не смог прочитать размер сетевой комиссии, поэтому не подписал эту транзакцию. Ничего не было отправлено. Попробуйте ещё раз через некоторое время.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "Сумма должна быть меньше остатка",
@@ -4343,6 +4469,18 @@
     "message": "Мы не смогли найти резервную копию на этом Guardian. Проверьте URL-адрес или выберите другого Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Ваши счета не могут быть восстановлены: guardian вернул данные счета, не совпадающие с вашей фразой восстановления. Ничего не было восстановлено.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Ваши счета не могут быть восстановлены: копия счета, хранящаяся у guardian, пока не совпадает с данными сети Miden. Ничего не было восстановлено. Повторите попытку через несколько минут.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Не удалось подключиться к сети Miden для проверки ваших счетов. Ваша фраза восстановления верна. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "Этот «guardian» работает в другой сети Miden, поэтому он не может восстановить аккаунт здесь.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4414,6 +4552,10 @@
   "unknown": {
     "message": "Неизвестно",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Включает notes, которые вы ещё не получили",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Входные notes использованы",
@@ -4685,6 +4827,14 @@
   "unavailable": {
     "message": "Недоступно",
     "englishSource": "Unavailable"
+  },
+  "assetPriceUnsupported": {
+    "message": "Неподдерживаемые термины",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Неизвестная шкала",
+    "englishSource": "Unknown scale"
   },
   "bridgeFeatureUnavailableTitle": {
     "message": "Временно недоступно",
@@ -5798,6 +5948,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "Функция «Smart Transactions» в MetaMask не смогла отправить эту транзакцию. Отключите «Smart Transactions» в настройках MetaMask и попробуйте ещё раз.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "Подключенный кошелек",
     "englishSource": "Connected wallet"
@@ -5885,6 +6039,10 @@
   "bridgeDepositFailed": {
     "message": "Ошибка при внесении депозита через мост",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "В вашем подключенном кошельке нет токенов с положительным балансом в этой сети.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "В вашем подключенном кошельке на $network$ хранится $balance$ $token$, что меньше суммы, необходимой для этого депозита. Ничего не было отправлено.",
@@ -6298,6 +6456,10 @@
     "message": "Это dApp запрашивает пользовательскую транзакцию. Кошелек не смог расшифровать её детали — продолжайте только в том случае, если точно знаете, что она собой представляет.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "Кошелек не смог смоделировать эту транзакцию, поэтому не может показать, что она собой представляет. Вы не можете её утвердить.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Исходное значение",
     "englishSource": "Raw value"
@@ -6305,6 +6467,10 @@
   "opaqueSignatureTitle": {
     "message": "Запрос на подписание с сокрытием информации",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Эта подпись не может авторизовать транзакцию с вашего счёта.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Этот сайт попросил вас подписать исходное значение. Кошелек не может отобразить, что именно он авторизует. Продолжайте только в том случае, если вы полностью доверяете этому сайту.",
@@ -7394,6 +7560,14 @@
   "tokenHiddenNotice": {
     "message": "Скрыто из «Дома». Оно остается в вашем кошельке, и его переводы по-прежнему можно получить.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "Скрыть токены «dust»",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Скрывает токены стоимостью менее 0,001 доллара из вашего списка активов. Нативный токен всегда остается видимым.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Скрытые активы",
@@ -8607,6 +8781,72 @@
   "arcadePostingPolicy": {
     "message": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Автоблокировка",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Блокирует кошелек, если он находился в фоновом режиме в течение такого длительного времени.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ мин",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "В ожидании возврата",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Готовы к получению",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Возврат средств",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Возвращённые средства",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Ваши средства остаются на Miden. Вы сможете получить их после блока $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Запросите свои средства, чтобы вернуть их в свой кошелек.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Ваши средства возвращаются в ваш кошелек.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Ваши средства вернулись в ваш кошелек.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Средства, отправленные по назначению.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Эта note была использована, но выплата не подтверждена. Проверьте адрес назначения и свой баланс в Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Не удалось проверить состояние средств. Попытайтесь ещё раз.",
+    "englishSource": "Unable to check the funds status. Try again."
   },
   "epochDepositLocked": {
     "message": "Депозит заблокирован",

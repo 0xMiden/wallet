@@ -67,8 +67,6 @@ jest.mock('lib/remote-config/values', () => {
     'lib/epoch/testing/bridge-config'
   );
   const values = fixtures.remoteConfigValuesMock();
-  values.getEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
-  values.findEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
   return values;
 });
 
@@ -101,6 +99,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => '0xabcdef1234567890abcdef12345678',
   getNativeAssetMetadataSync: () => null,
   getSdkSyncedNativeAssetIdSync: () => null,
+  onNativeAssetChanged: () => () => {},
   captureNativeAssetSnapshot: () => ({ scope: 'testnet', revision: 1 })
 }));
 jest.mock('lib/miden/front', () => ({
@@ -282,6 +281,7 @@ async function pastFailure() {
     evmAddress: PREPARED_OWNER,
     marketUid: mockPosition.marketUid,
     underlyingAddress: PREPARED_TOKEN,
+    underlyingSymbol: mockPosition.asset,
     amount: '10',
     underlyingDecimals: 6,
     protocol: 'dummy-lending',

@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import * as Repo from 'lib/miden/repo';
 import { captureCrash } from 'lib/telemetry/crash';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
@@ -26,6 +27,7 @@ import {
 } from './complete';
 import {
   INVALID_NOTE_ERROR,
+  ProposalEffectRefusedError,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
@@ -167,6 +169,7 @@ describe('committed terminal transaction failure reports', () => {
     ['the queue expiry', TRANSACTION_EXPIRED_ERROR, 'queued_expired'],
     ['the node check of an unconsumed note', TRANSACTION_INTERRUPTED_ERROR, 'consume_not_landed'],
     ['the node check of an invalid note', INVALID_NOTE_ERROR, 'note_invalid'],
+    ['a proof that kept going stale', new StaleProofError(), 'stale_proof'],
     ['the rotation gate', new RotationGateConsumeRefusal(ROTATION_PENDING_CONSUME_ERROR), 'rotation_key_pending'],
     [
       'the rotation claim of a vanished note',
@@ -178,7 +181,12 @@ describe('committed terminal transaction failure reports', () => {
       new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR),
       'rotation_funding_not_native'
     ],
-    ['any other rotation gate refusal', new RotationGateConsumeRefusal('refused'), 'rotation_gate_refusal']
+    ['any other rotation gate refusal', new RotationGateConsumeRefusal('refused'), 'rotation_gate_refusal'],
+    [
+      'the signing-time effect check',
+      new ProposalEffectRefusedError('consume', '500 of fA leaves (approved 0)', 'refused'),
+      'proposal_effect_refused'
+    ]
   ] as const)('names %s as the reason a claim failed at its signing proposal', async (_name, error, reason) => {
     const claim = row({ type: 'consume', stage: 'signing-proposal' });
     await Repo.transactions.put(claim);

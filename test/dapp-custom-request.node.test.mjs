@@ -14,6 +14,7 @@ const globals = new Map(
   ['window', 'document', 'fetch'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)])
 );
 let api;
+let pageCommon;
 
 before(async () => {
   const imports = new Map([
@@ -66,7 +67,7 @@ before(async () => {
       dataModule(`
         import * as sdk from ${JSON.stringify(sdkUrl)};
         export const guardianRequestBuilder = async () => new sdk.TransactionRequestBuilder()
-          .withAuthArg(sdk.Word.fromHex('0x${'02'.repeat(32)}')).withBlockNumbers([42]);
+          .withAuthArgs(new sdk.FeltArray([1n, 2n, 3n, 4n].map(n => new sdk.Felt(n)))).withBlockNumbers([42]);
         export const previewTwinSummary = async () => { throw new Error('not used by request fixture tests'); };
       `)
     ]
@@ -98,6 +99,7 @@ before(async () => {
   };
   // A data: module resolves no relative specifier, so the page's own modules load through the same map, leaves first.
   imports.set('./page-common.js', await pageModule('page-common.ts'));
+  pageCommon = await import(imports.get('./page-common.js'));
   imports.set('./custom-scripts.js', await pageModule('custom-scripts.ts'));
   imports.set('./script-request.js', await pageModule('script-request.ts'));
   globalThis.window = { midenWallet: { on: () => undefined }, location: { host: 'fixture-unit' } };
@@ -115,6 +117,30 @@ after(() => {
     if (descriptor === undefined) delete globalThis[name];
     else Object.defineProperty(globalThis, name, descriptor);
   }
+});
+
+// The harness copy of the signBytes scheme must equal the wallet's numbers (test/sign-bytes-domain.node.test.mjs).
+[
+  [
+    'word',
+    'AQAAAAAAAAACAAAAAAAAAAMAAAAAAAAABAAAAAAAAAA=',
+    '0x110a1b1c3b8cc8a4e0ed9acebb00996abdb93e7228280e2547edbdf9c268bee9'
+  ],
+  [
+    'signingInputs',
+    'AgEAAAAAAAAAAgAAAAAAAAADAAAAAAAAAAQAAAAAAAAA',
+    '0x110a1b1c3b8cc8a4e0ed9acebb00996abdb93e7228280e2547edbdf9c268bee9'
+  ],
+  [
+    'signingInputs',
+    'AQcFAAAAAAAAAAYAAAAAAAAABwAAAAAAAAA=',
+    '0x8d7fafd3929b6cb5b0375bf0a5ab4f17b1a1948baefea1bb8067807021571d57'
+  ]
+].forEach(([kind, data, expected]) => {
+  test(`signBytesCommitment matches the pinned ${kind} vector ${expected.slice(0, 10)}`, () => {
+    const payload = new Uint8Array(Buffer.from(data, 'base64'));
+    assert.equal(pageCommon.signBytesCommitment(payload, kind).toHex(), expected);
+  });
 });
 
 [false, true].forEach(feeSalt => {
@@ -148,6 +174,8 @@ test('refuses the fee-salt flag on an authenticated twin request', async () => {
   );
   const built = await api.call('buildCustom', { shape: 'p2id', outputs: [output] });
   const request = sdk.TransactionRequest.deserialize(new Uint8Array(Buffer.from(built.requestB64, 'base64')));
-  assert.equal(request.authArg()?.toHex(), `0x${'02'.repeat(32)}`);
+  const preimage = [1n, 2n, 3n, 4n].map(n => new sdk.Felt(n));
+  assert.equal(request.authArg()?.toHex(), sdk.Poseidon2.hashElements(new sdk.FeltArray(preimage)).toHex());
+  assert.deepEqual(request.adviceMap().get(request.authArg()).map(n => n.asInt()), [1n, 2n, 3n, 4n]);
   assert.deepEqual(request.blockNumbers(), [42]);
 });

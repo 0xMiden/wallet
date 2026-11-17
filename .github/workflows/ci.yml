@@ -26,10 +26,10 @@ jobs:
 
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Use Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -41,22 +41,22 @@ jobs:
         uses: ./.github/actions/yarn-install
 
       - name: Run ESLint
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: lint
 
       - name: Run TypeScript Check
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: ts
 
       - name: Run Unit Tests
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: test
 
       - name: Install Chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce # v1
 
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
@@ -64,7 +64,7 @@ jobs:
           E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
 
       - name: Build chrome
-        uses: borales/actions-yarn@v4
+        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
         with:
           cmd: build:chrome
         env:

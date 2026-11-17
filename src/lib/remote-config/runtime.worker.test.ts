@@ -71,7 +71,13 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
     derivedAt,
     chains: {},
     agglayer: { indexer: skipped },
-    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: skipped, vaults: skipped },
+    epoch: {
+      allocator: skipped,
+      allocatorAccount: skipped,
+      market: skipped,
+      midenUsdcFaucet: skipped,
+      vaults: skipped
+    },
     swap: { pairs: skipped }
   };
 };

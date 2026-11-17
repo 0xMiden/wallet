@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { isFeatureBlocked } from 'components/FeatureUnavailable';
-import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 
 import { RouteOptions, RouteOptionsProps } from './Route';
+import { sendTokenRoutes } from './send-token-routes';
 import { SendStepLayout } from './SendStepLayout';
 import { useAgglayerEligibility } from './useAgglayerEligibility';
 
@@ -29,10 +31,29 @@ export const SendRoute: React.FC<SendRouteProps> = ({
   ...options
 }) => {
   const { t } = useTranslation();
+  const snapshot = useBridgeConfigSnapshot();
+  const bridges = Object.values(snapshot.config?.supportedEvmChains ?? {}).find(
+    chain => chain.chainId === destinationChainId
+  )?.bridges;
+  const routes = destinationChainId === undefined ? undefined : sendTokenRoutes(snapshot, faucetId, destinationChainId);
   const slowStatus = useAgglayerEligibility(faucetId, destinationChainId);
-  const fastAvailability = useFeatureAvailability('fastBridgeOut', { chainId: destinationChainId });
-  const slowAvailability = useFeatureAvailability('bridgeOut', { chainId: destinationChainId });
-  // The USDCx burn reads no remote bridge config, so the Fast and Slow features cannot block it.
+  const fastFeatureAvailability = useFeatureAvailability('fastBridgeOut', { chainId: destinationChainId });
+  // Only a route that works but not for this faucet reads as not configured; loading, service-down and off keep their
+  // own state.
+  const fastAvailability: FeatureAvailability =
+    routes?.epoch === false && fastFeatureAvailability.state === 'available'
+      ? {
+          state: 'unavailable',
+          reason: 'not-configured',
+          detail: 'No Epoch output for this faucet on the selected chain'
+        }
+      : fastFeatureAvailability;
+  const slowFeatureAvailability = useFeatureAvailability('bridgeOut', { chainId: destinationChainId });
+  const slowAvailability: FeatureAvailability =
+    routes?.agglayer === false && slowFeatureAvailability.state === 'available'
+      ? { state: 'unavailable', reason: 'not-configured', detail: 'No AggLayer withdrawal on the selected chain' }
+      : slowFeatureAvailability;
+  // The Circle route has its own availability check.
   const confirmBlocked = (() => {
     switch (options.route) {
       case 'epoch':
@@ -65,6 +86,8 @@ export const SendRoute: React.FC<SendRouteProps> = ({
       <RouteOptions
         {...options}
         slowStatus={slowStatus}
+        showFastRoute={bridges?.epoch !== undefined}
+        showSlowRoute={bridges?.agglayer !== undefined}
         fastFeature="fastBridgeOut"
         fastAvailability={fastAvailability}
         slowFeature="bridgeOut"

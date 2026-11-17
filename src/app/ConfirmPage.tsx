@@ -37,8 +37,9 @@ import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
-import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
+import { TxAssetView } from './confirm/decode';
+import { NoteFlow } from './confirm/note-flow';
+import { fromSimulatedEffectsWire, SimulatedEffectsWire } from './confirm/simulated-wire';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
@@ -126,14 +127,21 @@ const SignatureRawValue: FC<{ value: string; errorId?: UserErrorId | null }> = (
   return <>{value}</>;
 };
 
-const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId | null }> = ({
-  rawValue,
-  errorId
-}) => {
+const OpaqueSignatureWarning: React.FC<{
+  rawValue: string;
+  errorId?: UserErrorId | null;
+  /** A measured transaction summary is one; this sentence is for every other signature. */
+  showNotATransaction?: boolean;
+}> = ({ rawValue, errorId, showNotATransaction = true }) => {
   const { t } = useTranslation();
   return (
     <>
       <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
+      {showNotATransaction && (
+        <p className="text-sm text-left text-ink mb-2" data-testid="opaque-signature-not-a-transaction">
+          {t('opaqueSignatureNotATransaction')}
+        </p>
+      )}
       <AdvancedDetails label={t('rawValue')}>
         <SignatureRawValue value={rawValue} errorId={errorId} />
       </AdvancedDetails>
@@ -168,9 +176,19 @@ interface PayloadContentProps {
   account?: WalletAccount;
   viewKey?: string;
   error?: any;
+  /** A custom transaction tells the form when its simulated view is on the sheet. */
+  onCustomVerifiedChange?: (verified: boolean) => void;
 }
 
-const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account, viewKey }) => {
+const ignoreVerifiedChange = () => undefined;
+
+const PayloadContent: React.FC<PayloadContentProps> = ({
+  payload,
+  error,
+  account,
+  viewKey,
+  onCustomVerifiedChange = ignoreVerifiedChange
+}) => {
   const { t } = useTranslation();
   let content: string | React.ReactNode = t('noPreview');
 
@@ -195,7 +213,11 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
 
         case 'signingInputs': {
           console.log('Signing inputs payload', bytes);
-          content = <SigningInputsPayloadContent bytes={bytes} />;
+          content = payload.signingEffects ? (
+            <SigningEffectsContent effects={payload.signingEffects} bytes={bytes} />
+          ) : (
+            <SigningInputsPayloadContent bytes={bytes} />
+          );
           break;
         }
       }
@@ -244,7 +266,9 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
 
     case 'transaction': {
       if (payload.txKind === 'custom') {
-        content = <CustomTransactionContent payload={payload} id={viewKey ?? ''} />;
+        content = (
+          <CustomTransactionContent payload={payload} id={viewKey ?? ''} onVerifiedChange={onCustomVerifiedChange} />
+        );
         break;
       }
       content = (
@@ -358,6 +382,29 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
   );
 };
 
+/** A transaction summary's holdings as the background measured them, the same measure the mobile sheet prints. */
+const SigningEffectsContent: React.FC<{ effects: SimulatedEffectsWire; bytes: Uint8Array }> = ({ effects, bytes }) => {
+  const { t } = useTranslation();
+  const measured = useMemo(() => {
+    try {
+      return fromSimulatedEffectsWire(effects);
+    } catch (e) {
+      console.error('Signing summary holdings unavailable:', e);
+      return null;
+    }
+  }, [effects]);
+
+  if (!measured) return <OpaqueSignatureWarning rawValue={t('noPreview')} showNotATransaction={false} />;
+  return (
+    <TransactionAssetView
+      view={measured.view}
+      noteFlow={measured.noteFlow}
+      mode="verified"
+      onDownload={() => downloadBytes('transaction_summary.bin', bytes)}
+    />
+  );
+};
+
 const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes }) => {
   const { t } = useTranslation();
 
@@ -377,23 +424,10 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
   }
 
   switch (signingInputs.variantType) {
-    case SigningInputsType.TransactionSummary: {
-      const summary = signingInputs.transactionSummaryPayload();
-      let noteFlow: NoteFlow | undefined;
-      try {
-        noteFlow = noteFlowFromTransaction(summary);
-      } catch (noteError) {
-        console.error('Signing summary note details unavailable:', noteError);
-      }
-      return (
-        <TransactionAssetView
-          view={summaryToView(summary)}
-          noteFlow={noteFlow}
-          mode="verified"
-          onDownload={() => downloadBytes('transaction_summary.bin', bytes)}
-        />
-      );
-    }
+    // The background measures every summary it lets through and sends that measure, so a summary arriving without
+    // one is shown as unmeasured. It is still a transaction, so the not-a-transaction line stays off.
+    case SigningInputsType.TransactionSummary:
+      return <OpaqueSignatureWarning rawValue={t('noPreview')} showNotATransaction={false} />;
     case SigningInputsType.Arbitrary:
     case SigningInputsType.Blind:
       return (
@@ -413,48 +447,33 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
 const CustomTransactionContent: React.FC<{
   payload: Extract<MidenDAppPayload, { type: 'transaction' }>;
   id: string;
-}> = ({ payload, id }) => {
+  /** Tells the form whether the simulated view is on the sheet, so it can block the approval until then. */
+  onVerifiedChange: (verified: boolean) => void;
+}> = ({ payload, id, onVerifiedChange }) => {
   const { t } = useTranslation();
   const { simulateCustomTransaction } = useMidenContext();
 
-  const declaredView = useMemo<TxAssetView | null>(() => {
-    if (!payload.requestBytes) return null;
-    try {
-      return declaredRequestToView(payload.requestBytes, payload.importNotes ?? []);
-    } catch (e) {
-      console.error('Failed to decode declared custom transaction:', e);
-      return null;
-    }
-  }, [payload.requestBytes, payload.importNotes]);
-
+  // The user approves only the simulated view. The background refuses a request whose dry run fails before it raises
+  // this sheet, and this sheet never shows the effects that the dApp declares in place of the simulated view.
   const [verifiedView, setVerifiedView] = useState<TxAssetView | null>(null);
   const [verifiedNoteFlow, setVerifiedNoteFlow] = useState<NoteFlow>();
-  const [simError, setSimError] = useState(false);
-  useUserVisibleError(
-    verifiedView ? null : declaredView ? (simError ? 'couldNotVerifyBySimulation' : null) : 'couldNotDecodeTransaction',
-    'inline'
-  );
+  const [simError, setSimError] = useState(!payload.requestBytes);
+  useUserVisibleError(simError ? 'customTransactionNotSimulated' : null, 'inline');
+
+  useEffect(() => {
+    onVerifiedChange(verifiedView !== null);
+  }, [verifiedView, onVerifiedChange]);
 
   useEffect(() => {
     if (!payload.requestBytes) return;
     let cancelled = false;
     (async () => {
       try {
-        const { summaryBytes, executedBytes } = await simulateCustomTransaction(id);
+        const { view, noteFlow } = await simulateCustomTransaction(id);
         if (cancelled) return;
-        // Summary when authorization is still pending, executed transaction for every ordinary
-        // single-sig account on web-sdk 0.16 - same ground truth either way. The choice lives in
-        // `simulatedBytesToView` so the backend's spending-limit gate decodes it identically;
-        // a second copy of this ladder there once treated every ordinary account as unsimulatable.
-        const view = simulatedBytesToView({ summaryBytes, executedBytes });
         if (view) {
           setVerifiedView(view);
-          try {
-            setVerifiedNoteFlow(noteFlowFromSimulatedBytes({ summaryBytes, executedBytes }));
-          } catch (noteError) {
-            console.error('Custom transaction note details unavailable:', noteError);
-            setVerifiedNoteFlow(undefined);
-          }
+          setVerifiedNoteFlow(noteFlow);
           return;
         }
         setSimError(true);
@@ -490,24 +509,20 @@ const CustomTransactionContent: React.FC<{
     );
   }
 
-  if (declaredView) {
+  if (simError) {
     return (
-      <>
-        <TransactionAssetView view={declaredView} mode="declared" />
-        {simError && (
-          <div className="text-xs text-text-muted my-2" data-testid="tx-simulation-failed">
-            {t('couldNotVerifyBySimulation')}
-          </div>
-        )}
+      <div>
+        <div className="text-sm my-4" data-testid="tx-simulation-failed">
+          {t('customTransactionNotSimulated')}
+        </div>
         {advanced}
-      </>
+      </div>
     );
   }
 
   return (
-    <div>
-      <div className="text-sm my-4">{t('couldNotDecodeTransaction')}</div>
-      {advanced}
+    <div className="flex justify-center my-6" data-testid="tx-simulation-pending">
+      <Spinner />
     </div>
   );
 };
@@ -567,6 +582,9 @@ const ConfirmDAppForm: FC = () => {
   const delegate = isDelegateProofEnabled();
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
   const confirmationInFlightRef = useRef(false);
+  // A custom transaction is approved only once its simulated view is on the sheet.
+  const [customVerified, setCustomVerified] = useState(false);
+  const awaitsCustomVerification = payload.type === 'transaction' && payload.txKind === 'custom' && !customVerified;
 
   const onConfirm = useCallback(
     async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
@@ -680,7 +698,7 @@ const ConfirmDAppForm: FC = () => {
   }, [payload, confirm]);
 
   const handleConfirmClick = useCallback(async () => {
-    if (confirming || declining || confirmationInFlightRef.current) return;
+    if (confirming || declining || confirmationInFlightRef.current || awaitsCustomVerification) return;
     if (spendingLimitAssessment !== undefined) {
       setShowSpendingLimitChallenge(true);
       return;
@@ -691,7 +709,7 @@ const ConfirmDAppForm: FC = () => {
     await confirm(true);
     setConfirming(false);
     confirmationInFlightRef.current = false;
-  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment]);
+  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment, awaitsCustomVerification]);
 
   const handleDeclineClick = useCallback(async () => {
     if (confirming || declining) return;
@@ -895,7 +913,13 @@ const ConfirmDAppForm: FC = () => {
                 <DappNetworkMismatchNotice claimedNetwork={payload.network} className="my-2" />
               </>
             ) : (
-              <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
+              <PayloadContent
+                payload={payload}
+                error={payloadError}
+                account={account}
+                viewKey={id}
+                onCustomVerifiedChange={setCustomVerified}
+              />
             )}
           </>
         )}
@@ -932,6 +956,7 @@ const ConfirmDAppForm: FC = () => {
             variant={ButtonVariant.Primary}
             className="w-full"
             isLoading={confirming}
+            disabled={awaitsCustomVerification}
             onClick={handleConfirmClick}
             data-testid={content.confirmActionTestID}
           >

@@ -179,7 +179,12 @@ export async function requestPrivateNotes(
   return res.privateNotes;
 }
 
-export async function signBytes(sourceAccountId: string, sourcePublicKey: string, message: string, kind: SignKind) {
+export async function signBytes(
+  sourceAccountId: string,
+  sourcePublicKey: string,
+  message: string,
+  kind: SignKind
+): Promise<{ signature: string; signedCommitment?: string }> {
   const res = await request({
     type: MidenDAppMessageType.SignRequest,
     sourceAccountId,
@@ -188,7 +193,7 @@ export async function signBytes(sourceAccountId: string, sourcePublicKey: string
     kind: kind
   });
   assertResponse(res.type === MidenDAppMessageType.SignResponse);
-  return res.signature;
+  return { signature: res.signature, signedCommitment: res.signedCommitment };
 }
 
 export async function requestLoginKey(sourceAccountId: string) {

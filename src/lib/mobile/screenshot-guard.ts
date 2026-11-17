@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 
 import { registerPlugin } from '@capacitor/core';
 
-import { isMobile } from 'lib/platform';
+import { setWindowContentProtected } from 'lib/desktop/content-protection';
+import { isDesktop, isMobile } from 'lib/platform';
 
 interface ScreenshotGuardPlugin {
   enable(): Promise<void>;
@@ -16,19 +17,41 @@ const ScreenshotGuard = registerPlugin<ScreenshotGuardPlugin>('ScreenshotGuard')
 let holders = 0;
 let sharedEnable: Promise<boolean> | null = null;
 
+// The desktop window flag stops capture where the OS honours it, but macOS capture tools may ignore it.
+// A failed enable therefore still reports ready: the mask is the protection the reveal relies on, and
+// failing closed would make the phrase unviewable.
+function enableProtection(): Promise<boolean> {
+  if (isDesktop()) {
+    return setWindowContentProtected(true).then(
+      () => true,
+      err => {
+        console.warn('[screenshot-guard] content protection failed:', err);
+        return true;
+      }
+    );
+  }
+  return ScreenshotGuard.enable().then(
+    () => true,
+    err => {
+      console.warn('[screenshot-guard] enable failed:', err);
+      return false;
+    }
+  );
+}
+
+function disableProtection(): Promise<void> {
+  return isDesktop() ? setWindowContentProtected(false) : ScreenshotGuard.disable();
+}
+
 function acquireGuard(): Promise<boolean> {
   holders += 1;
   if (sharedEnable === null) {
-    const enabling: Promise<boolean> = ScreenshotGuard.enable().then(
-      () => true,
-      err => {
-        console.warn('[screenshot-guard] enable failed:', err);
-        // A failure is not kept as the shared answer, so the next holder retries the native enable;
-        // a newer enable started after a release must not be cleared by this older one.
-        if (sharedEnable === enabling) sharedEnable = null;
-        return false;
-      }
-    );
+    const enabling: Promise<boolean> = enableProtection().then(enabled => {
+      // A failure is not kept as the shared answer, so the next holder retries the native enable;
+      // a newer enable started after a release must not be cleared by this older one.
+      if (!enabled && sharedEnable === enabling) sharedEnable = null;
+      return enabled;
+    });
     sharedEnable = enabling;
   }
   return sharedEnable;
@@ -38,7 +61,7 @@ function releaseGuard(): void {
   holders -= 1;
   if (holders > 0) return;
   sharedEnable = null;
-  ScreenshotGuard.disable().catch(err => console.warn('[screenshot-guard] disable failed:', err));
+  disableProtection().catch(err => console.warn('[screenshot-guard] disable failed:', err));
 }
 
 /** Test-only: forget every holder and the shared enable. */
@@ -49,6 +72,7 @@ export function __resetScreenshotGuardForTest(): void {
 
 /**
  * Blocks screenshots / screen recordings of the current screen while `active`.
+ * Desktop excludes the wallet window from capture through the Tauri window flag.
  * iOS excludes the window from captures via the secure-text-field layer trick;
  * Android sets FLAG_SECURE on the activity window.
  *
@@ -59,11 +83,11 @@ export function __resetScreenshotGuardForTest(): void {
  * first render where guarding is needed until the shared native enable has
  * succeeded, so callers can withhold sensitive content from the unprotected
  * frames (an in-progress screen recording would otherwise capture them). Stays
- * `false` if activation fails. Always `true` on web/desktop, where there is
- * nothing to guard.
+ * `false` if mobile activation fails; a desktop failure is logged and still
+ * reports ready. Always `true` on the extension and web, where there is nothing to guard.
  */
 export function useScreenshotGuard(active = true): boolean {
-  const needsGuard = active && isMobile();
+  const needsGuard = active && (isMobile() || isDesktop());
   const [guardEnabled, setGuardEnabled] = useState(false);
 
   useEffect(() => {

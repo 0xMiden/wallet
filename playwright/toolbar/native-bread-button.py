@@ -11,6 +11,10 @@ box = {key: int(value) for key, value in (line.split('=', 1) for line in geometr
 
 matches = []
 
+# at-spi2-core 2.53.1 renamed ATSPI_ROLE_PUSH_BUTTON to ATSPI_ROLE_BUTTON, whose role
+# name is 'button'. Ubuntu 24.04 ships 2.52 ('push button'), Ubuntu 26.04 ships 2.60.
+BUTTON_ROLES = ('push button', 'button')
+
 
 def visit(node, toolbar=False, page=False, depth=0):
     if depth > 22:
@@ -19,7 +23,7 @@ def visit(node, toolbar=False, page=False, depth=0):
         role = node.getRoleName()
         toolbar = toolbar or role == 'tool bar'
         page = page or role == 'document web'
-        if toolbar and not page and role == 'push button' and (node.name or '').split('\n', 1)[0] == 'Bread':
+        if toolbar and not page and role in BUTTON_ROLES and (node.name or '').split('\n', 1)[0] == 'Bread':
             if node.getState().contains(pyatspi.STATE_SHOWING):
                 rect = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
                 x, y = rect.x + rect.width // 2, rect.y + rect.height // 2
@@ -34,5 +38,5 @@ def visit(node, toolbar=False, page=False, depth=0):
 
 visit(pyatspi.Registry.getDesktop(0))
 if len(matches) != 1:
-    raise RuntimeError('Rendered Bread toolbar glyph is not unique')
+    raise RuntimeError(f'Rendered Bread toolbar glyph is not unique: {len(matches)} found')
 print(json.dumps(matches[0]))

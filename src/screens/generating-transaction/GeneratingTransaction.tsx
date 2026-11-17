@@ -5,10 +5,12 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { useGuardianHoldUntil } from 'app/hooks/useGuardianHoldUntil';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { outlineSurfaceClassName } from 'components/ui/surfaces';
@@ -27,7 +29,9 @@ import { useMidenContext } from 'lib/miden/front';
 import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
-import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { retryRefusalText } from 'lib/miden/transaction/retry-refusal';
+import { readsAsNotConfirmed, shownSubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { awaitingVerdict } from 'lib/miden/transaction/verdict-rules';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isOneClickDeadlineError } from 'lib/one-click/deadline';
@@ -46,6 +50,7 @@ import {
   getProcessingTitleKey,
   getStageDescriptionKey,
   getStageTitleKey,
+  formatStepSeconds,
   getStepDurationsMs,
   getTransactionStepState,
   isDirectGuardianSwitch,
@@ -127,6 +132,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // Queued → GeneratingTransaction → Completed | Failed and never disappears,
   // so status alone drives the whole screen — no queue-guessing, no shadow copy.
   const { row: active, loaded } = useTransactionRow(txId);
+  // What the row says about its hold is read at render, so this also turns the page when the hold ends.
+  const guardianHoldUntil = useGuardianHoldUntil(active);
 
   const onClose = useCallback(() => {
     const { hash } = window.location;
@@ -175,14 +182,15 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
       active?.id === txId &&
       status === ITransactionStatus.Failed &&
       firstLoadedRow.current?.txId === txId &&
-      !firstLoadedRow.current.failed
+      !firstLoadedRow.current.failed &&
+      !readsAsNotConfirmed(active)
       ? 'raw_transaction_failed'
       : null,
     'status_screen'
   );
   const submissionMessage =
     active !== undefined && (status === ITransactionStatus.Failed || status === ITransactionStatus.Unconfirmed)
-      ? submissionFeedback(active)
+      ? shownSubmissionFeedback(active)
       : undefined;
   const expiredOneClick = isRecoverableExpiredOneClick(active, status);
   useUserVisibleError(
@@ -197,13 +205,14 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         }
   );
   // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
-  // it while the row waits for a verdict; its judging takes no WASM lock (#1081).
+  // it while the row waits for a verdict, a Failed one included (#2060); its judging takes no WASM lock (#1081).
+  const verdictPending = status === ITransactionStatus.Unconfirmed || (active !== undefined && awaitingVerdict(active));
   useEffect(() => {
-    if (isExtension() || status !== ITransactionStatus.Unconfirmed) return;
+    if (isExtension() || !verdictPending) return;
     void reconcileUnconfirmedInApp();
     const timer = setInterval(() => void reconcileUnconfirmedInApp(), TRANSACTION_LOOP_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [status]);
+  }, [verdictPending]);
 
   // An Unconfirmed row stops the spinner and shows the not-confirmed header and Retry; a landing later flips the live
   // row to the receipt (#1081).
@@ -258,7 +267,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           setRetryError(
             error instanceof Error
               ? {
-                  text: error.message,
+                  text: retryRefusalText(error, t),
                   id: 'raw_transaction_retry_failed',
                   transactionId: active.id,
                   diagnostics: {
@@ -287,6 +296,13 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const onRetryAnyway = useCallback(() => {
     if (acknowledgement !== null) void handleRetry(acknowledgement);
   }, [acknowledgement, handleRetry]);
+  // A refusal describes the hold it met, and Retry anyway only ever follows its refusal.
+  useEffect(() => {
+    if (guardianHoldUntil !== undefined) return;
+    setRetryError(null);
+    setAcknowledgement(null);
+  }, [guardianHoldUntil]);
+  const shownRefusal = retryError?.transactionId === active?.id ? retryError : null;
 
   // Drop any hash left over from an EARLIER receipt as soon as this screen
   // starts tracking a different row. `lastCompletedTxHash` is module-global and
@@ -385,14 +401,13 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
             completedTxHash={receiptTxHash}
             onViewExplorer={explorerUrl ? onViewExplorer : undefined}
             onRetry={onRetry}
-            onRetryAnyway={acknowledgement !== null ? onRetryAnyway : undefined}
+            onRetryAnyway={shownRefusal !== null && acknowledgement !== null ? onRetryAnyway : undefined}
             canRetry={canRetry}
+            guardianHoldUntil={guardianHoldUntil}
             isRetrying={isRetrying}
-            retryError={retryError?.text}
-            retryErrorId={retryError && retryError.transactionId === active?.id ? retryError.id : null}
-            retryErrorDiagnostics={
-              retryError && retryError.transactionId === active?.id ? retryError.diagnostics : undefined
-            }
+            retryError={shownRefusal?.text}
+            retryErrorId={shownRefusal?.id ?? null}
+            retryErrorDiagnostics={shownRefusal?.diagnostics}
           />
         )}
       </div>
@@ -415,6 +430,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   onRetry,
   onRetryAnyway,
   canRetry = false,
+  guardianHoldUntil,
   isRetrying = false,
   retryError,
   retryErrorId,
@@ -450,12 +466,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
   // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;
-  const submission = failedRow !== undefined ? submissionFeedback(failedRow) : undefined;
-  const outcomeUnconfirmed =
-    transactionComplete && hasErrors && failedRow !== undefined && isOutcomeUnconfirmed(failedRow);
-  // A stored submit refusal is a definite failure even after the submit stamp. A stored timeout,
-  // drop, or missing answer stays not confirmed, including when the row was marked Failed.
-  const unconfirmed = submission?.kind === 'rejected' ? false : submission !== undefined ? true : outcomeUnconfirmed;
+  const submission = failedRow !== undefined ? shownSubmissionFeedback(failedRow) : undefined;
+  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && readsAsNotConfirmed(failedRow);
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
   // The pipeline requeued this row while its Guardian settles the account's previous transaction (#312): say so
   // instead of spinning the approval step. Only a Queued row counts, since the mark survives a Failed end.
@@ -480,7 +492,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const stepDurationLabels = useMemo(
     () =>
       getStepDurationsMs(steps, stageTimestamps).map(ms =>
-        ms === undefined ? undefined : t('transactionStepDurationSec', { seconds: ms / 1000 })
+        ms === undefined ? undefined : t('transactionStepDurationSec', { seconds: formatStepSeconds(ms) })
       ),
     [steps, stageTimestamps, t]
   );
@@ -555,6 +567,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // While the Guardian is busy, its step waits rather than spinning (#312).
   const guardianWaitState: TransactionStepState = 'pending';
   const actionTitle = transactionComplete ? t('done') : t('hide');
+  const offersRetry = transactionComplete && hasErrors && canRetry && onRetry !== undefined;
+  const heldByGuardian = guardianHoldUntil !== undefined;
 
   if (showSuccessReceipt) {
     return (
@@ -580,7 +594,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
                   resubmit) as the primary action; Done demotes to secondary so the
                   recovery path is the obvious one. */}
-            {transactionComplete && hasErrors && canRetry && onRetry && maxNetworkFee && (
+            {offersRetry && heldByGuardian && <GuardianHoldNotice clearsAtSec={guardianHoldUntil} />}
+            {offersRetry && !heldByGuardian && maxNetworkFee && (
               // Retry requeues as a fresh transaction paying a fresh fee. This is the screen
               // every claim, send and swap lands on when it fails, so it is where the cost
               // of trying again has to be stated.
@@ -588,13 +603,13 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 {t('networkFeeMax')} · {maxNetworkFee}
               </div>
             )}
-            {transactionComplete && hasErrors && canRetry && onRetry && (
+            {offersRetry && (
               <Button
                 type="button"
                 variant={ButtonVariant.Primary}
                 accent={accent}
                 isLoading={isRetrying}
-                disabled={isRetrying}
+                disabled={isRetrying || heldByGuardian}
                 onClick={onRetry}
                 className="w-full max-w-none"
               >
@@ -641,7 +656,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 data-testid="retry-anyway-button"
                 variant={ButtonVariant.Secondary}
                 isLoading={isRetrying}
-                disabled={isRetrying}
+                disabled={isRetrying || heldByGuardian}
                 onClick={onRetryAnyway}
                 className="w-full max-w-none"
               >

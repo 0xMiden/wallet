@@ -1,12 +1,18 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { type EpochRoute, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
+import { getEarnVaults, getEpochPositionsUrl, getSupportedEvmChainIds } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { annotateUiProducer, type EarnPositionsLoadStage } from 'lib/telemetry/ui-producer-diagnostics';
 
+import { marketUidChainId } from './market-uid';
 import type { EarnVaultInfo } from './pools-read';
-import { notePositionsRequests, positionsBudgetDelayMs, POSITIONS_LIMIT } from './positions-budget';
+import {
+  notePositionsRequests,
+  positionsBudgetDelayMs,
+  POSITIONS_LIMIT,
+  POSITIONS_PAGE_LIMIT
+} from './positions-budget';
 
 export { notePositionsRequests, positionsBudgetDelayMs } from './positions-budget';
 
@@ -22,9 +28,13 @@ export type { EarnVaultInfo };
  * It does not read the vault catalogue: the bridge-config derivation reads it once per
  * document version (`selectEarnVaultCatalog` in `lib/remote-config/values`).
  *
- * The wallet has no single "my EVM address" (each deposit names its own owner), so
- * we collect every distinct `evmRecipient` the user has deposited to from the
- * `earn-deposit` activity rows and fetch them all concurrently.
+ * The read has one owner: the EVM address that the account derives (`account.evmAddress`). Each deposit goes to
+ * that address, and a withdrawal takes only a position of that address. The read does not use the `evmRecipient`
+ * of the `earn-deposit` rows as owners. An account with no derived EVM address has no owner and sends no request.
+ *
+ * The read knows only two sets of markets: the vaults that the document lists (`earn.vaults[].marketUid`), and the
+ * markets of the owner's own `earn-deposit` rows. It asks for those markets only, and it keeps a position only when
+ * its market is in one of the two sets. The Epoch bridge routes do not limit the markets.
  *
  * Notes from the live API:
  * - `deposits`/`withdrawable` are already human-decimal strings (e.g. "1.9834…"),
@@ -91,7 +101,7 @@ interface PositionsApiResponse {
 
 /** A single non-zero lending position, tagged with the EVM owner it belongs to. */
 export interface EarnPosition {
-  /** EVM position-owner address this position was fetched for (one of the user's deposit recipients). */
+  /** EVM position-owner address this position was fetched for: the account's derived EVM address. */
   owner: string;
   /** `PROTOCOL:chainId:token` — checksum-cased as returned by the service. */
   marketUid: string;
@@ -144,28 +154,29 @@ export function carryForward(
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 /**
- * Distinct EVM position-owner addresses the user has opened lending positions for,
- * read from `earn-deposit` activity rows. Dedup is case-insensitive (returns the
- * lowercased form). Pass `accountId` to scope to a single Miden account.
+ * The markets that each EVM owner deposited into, read from the `earn-deposit` activity rows of `accountId`. The key
+ * is the lowercased owner. The value is the lowercased `marketUid`s of its deposits. This is a market source only:
+ * the read never takes an owner from it. A market that the document stopped listing stays known, so its position
+ * stays withdrawable.
  */
-export async function getEarnDepositEvmAddresses(accountId?: string): Promise<string[]> {
+async function getEarnDepositMarkets(accountId?: string): Promise<Map<string, Set<string>>> {
   try {
-    const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
-    const seen = new Set<string>();
+    const rows = await Repo.transactions.where('type').equals('earn-deposit').toArray();
+    const markets = new Map<string, Set<string>>();
     for (const tx of rows) {
       if (accountId && !compareAccountIds(tx.accountId, accountId)) continue;
-      // These addresses are queried against Epoch's positions service and whatever
-      // comes back is rendered as the user's own position, folded into their total.
-      // A restored row's `evmRecipient` is not this wallet's — it is whatever the
-      // backup recorded — so it would show a stranger's balance as the user's.
+      // A restored row is not a record of this wallet. Its values are what the backup recorded. So it adds no market.
       if (tx.restoredFromBackup) continue;
       const extra: IEarnDepositExtraInputs | undefined = tx.extraInputs;
       const recipient = extra?.evmRecipient?.trim().toLowerCase();
       if (recipient && EVM_ADDRESS_RE.test(recipient)) {
-        seen.add(recipient);
+        const owned = markets.get(recipient) ?? new Set<string>();
+        const marketUid = extra?.marketUid?.trim().toLowerCase();
+        if (marketUid) owned.add(marketUid);
+        markets.set(recipient, owned);
       }
     }
-    return [...seen];
+    return markets;
   } catch (error) {
     annotateUiProducer(error, 'earnPositionsLoadError', 'notice', {
       kind: 'earn_positions_load',
@@ -176,25 +187,37 @@ export async function getEarnDepositEvmAddresses(accountId?: string): Promise<st
   }
 }
 
-// A stalled request would hold its whole read open, and with it the poll and every Retry that joins it.
+// A stalled request would hold its whole read open, and with it every automatic read and Retry that waits on it.
 const POSITIONS_REQUEST_TIMEOUT_MS = 15_000;
 
 /**
- * Fetch lending positions for ONE EVM owner address. Never rejects: on any
- * failure, a request or body read past 15 s included, it resolves to an empty
+ * One positions request: `owner`'s positions in one `lender` on `chains`. A request with no lender makes the service
+ * read every lender on every chain. That took 25 to 47 s on mainnet in November 2026. One lender on its chains took
+ * 1 to 4 s (#2116).
+ */
+interface PositionsQuery {
+  owner: string;
+  chains: number[];
+  /** Upper-case lender key; the service refuses a lower-case one. One key per request: a list is not honoured. */
+  lender: string;
+}
+
+/**
+ * Fetch lending positions for ONE query. Never rejects: on any failure, a
+ * request or body read past `timeoutMs` included, it resolves to an empty
  * `items` array plus an `error` string, so the `Promise.all` in
  * `fetchEarnPositions` can't be torn down by a single bad address or transient
  * network error.
  */
-async function fetchPositionsForOwner(
+async function fetchPositions(
   positionsUrl: string,
-  owner: string,
-  chains: number[]
+  { owner, chains, lender }: PositionsQuery,
+  timeoutMs = POSITIONS_REQUEST_TIMEOUT_MS
 ): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string; stage?: EarnPositionsLoadStage }> {
-  const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}`;
+  const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}&lenders=${lender}`;
   let stage: EarnPositionsLoadStage = 'request';
   try {
-    return await withRequestTimeout(POSITIONS_REQUEST_TIMEOUT_MS, async signal => {
+    return await withRequestTimeout(timeoutMs, async signal => {
       const res = await fetch(url, { signal });
       if (!res.ok) {
         return { owner, items: [], error: `positions request failed (${res.status})`, stage };
@@ -222,25 +245,15 @@ function assertFieldTypes(strings: unknown[], numbers: unknown[]): void {
 }
 
 /**
- * True when `marketUid` names a market on one of the Epoch routes the document names, in that route's USDC. The
- * document's vault list gates deposits only: a position exists on chain whatever the list says, so one in a market
- * the document never listed, or has stopped listing, stays in sight and can still be withdrawn.
+ * Flatten one chain item's nested `data[].positions[]` into the non-zero `EarnPosition`s of the `known` markets.
+ * `known` holds lowercased `marketUid`s. The service can send a position in another market on the same address (for
+ * example an Aave WETH position). Such a position is not an Earn position of this wallet, so it is not kept.
  */
-function isRouteMarket(marketUid: string, routes: readonly EpochRoute[]): boolean {
-  const [, chainId, token] = marketUid.split(':');
-  return routes.some(route => chainId === String(route.chainId) && token?.toLowerCase() === route.usdc.toLowerCase());
-}
-
-/** Flatten one chain item's nested `data[].positions[]` into the non-zero `EarnPosition`s of the markets `keeps` names. */
-function flattenChainItem(
-  owner: string,
-  item: PositionsApiChainItem,
-  keeps: (marketUid: string) => boolean
-): EarnPosition[] {
+function flattenChainItem(owner: string, item: PositionsApiChainItem, known: ReadonlySet<string>): EarnPosition[] {
   const out: EarnPosition[] = [];
   for (const group of item.data) {
     for (const pos of group.positions) {
-      if (!keeps(pos.marketUid)) continue;
+      if (!known.has(pos.marketUid.toLowerCase())) continue;
       // Every supported token is returned even at zero balance — keep only funded ones.
       if (pos.deposits === '0' && pos.depositsUSD === 0) continue;
       const { asset, prices } = pos.underlyingInfo;
@@ -278,32 +291,74 @@ function flattenChainItem(
 }
 
 export interface FetchEarnPositionsArgs {
-  /** Scope address collection to a single Miden account (defaults to all earn rows). */
+  /** The Miden account whose `earn-deposit` rows give known markets (defaults to all earn rows). */
   accountId?: string;
-  /** Override the owner addresses to query (defaults to those from activity). */
+  /**
+   * The EVM owners to read: the account's derived EVM address, or none. Omitted or empty, the read has no owner and
+   * sends no request. The read never takes an owner from the activity rows.
+   */
   owners?: string[];
-  /** Chains to query (defaults to every Epoch route the document names). */
-  chains?: number[];
+  /**
+   * The markets to read for every owner. When this is omitted, an owner's markets are the vaults that the document
+   * lists, then the markets of the owner's own deposits.
+   */
+  markets?: string[];
+}
+
+const LENDER_KEY_RE = /^[A-Z0-9_]+$/;
+
+/**
+ * The lender key and the chain id of `marketUid`, or undefined when the uid does not have this shape. The chain is
+ * read by `marketUidChainId`, the one parser of that segment: `Number('1e3')` or `Number('0x10')` would name a chain
+ * the uid does not.
+ */
+function lenderAndChainOf(marketUid: string): { lender: string; chain: number } | undefined {
+  const lender = marketUid.split(':')[0]?.toUpperCase();
+  const chain = marketUidChainId(marketUid);
+  if (!lender || !LENDER_KEY_RE.test(lender) || chain === undefined) return undefined;
+  return { lender, chain };
 }
 
 /**
- * Fetch every open lending position for the wallet. Collects the distinct EVM owner addresses from `earn-deposit`
- * activity and queries the positions service once for each of them, all at once. With no owner, it makes no
- * request. Per-address failures are isolated (see `fetchPositionsForOwner`) and surfaced in `errors`, and so is a
- * payload that cannot be read or has a copied field of the wrong type, with none of that owner's positions kept.
+ * The requests that read `owner`'s positions in `markets`: one request for each lender. A request asks only for the
+ * chains where that lender has one of the markets. The chains keep the order of `markets`. A market with a malformed
+ * lender key or chain id is not read. With no market, there is no request.
+ */
+function queriesFor(owner: string, markets: readonly string[]): PositionsQuery[] {
+  const order: number[] = [];
+  const lenders = new Map<string, Set<number>>();
+  for (const marketUid of markets) {
+    const parsed = lenderAndChainOf(marketUid);
+    if (!parsed) continue;
+    if (!order.includes(parsed.chain)) order.push(parsed.chain);
+    lenders.set(parsed.lender, (lenders.get(parsed.lender) ?? new Set<number>()).add(parsed.chain));
+  }
+  return [...lenders].map(([lender, on]): PositionsQuery => ({ owner, lender, chains: order.filter(c => on.has(c)) }));
+}
+
+/** The lowercased markets in `markets`, in their first order, with no duplicate. */
+function distinctMarkets(markets: Iterable<string>): string[] {
+  return [...new Set([...markets].map(marketUid => marketUid.trim().toLowerCase()))].filter(Boolean);
+}
+
+/**
+ * Fetch every open lending position of `owners`. The caller gives the account's derived EVM address as the one owner.
  *
- * Positions are asked for on every Epoch route the document names at once (`chains=8453,42161,1`), and a position is
- * kept when its uid names a market on one of those routes in that route's USDC, whether or not the document lists the
- * market: the vault list gates deposits only, and a position in an unlisted market must stay withdrawable. The vault
- * catalogue is not read here (`selectEarnVaultCatalog`). It rejects only when the owner lookup fails or the bridge
- * config names no positions host or no Epoch route, before any request.
+ * The known markets of an owner are the vaults that the document lists, then the markets of the owner's own
+ * `earn-deposit` rows (`args.markets` replaces both). The read sends one request for each owner and lender. Each
+ * request asks only for the chains of the known markets of that lender (see `queriesFor`). With no owner, or no known
+ * market, the read sends no request. The read keeps a position only when its market is a known market of its owner.
+ * Thus a market that the document stops listing stays withdrawable while a deposit row names it.
+ *
+ * The read isolates each failure of an owner (see `fetchPositions`) and reports it in `errors`. A payload that it
+ * cannot read, or a copied field of the wrong type, is also a failure of that owner. An owner with a failed request
+ * keeps none of its positions. The read does not read the vault catalogue (`selectEarnVaultCatalog`). It rejects
+ * before a request only when the bridge config names no positions host or the market lookup of the rows fails.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
   let positionsUrl: string;
-  let routes: EpochRoute[];
   try {
-    [positionsUrl, routes] = [getEpochPositionsUrl(), getEpochRoutes()];
-    if (routes.length === 0) throw new Error('The bridge config names no Epoch route');
+    positionsUrl = getEpochPositionsUrl();
   } catch (error) {
     annotateUiProducer(error, 'earnPositionsLoadError', 'notice', {
       kind: 'earn_positions_load',
@@ -312,44 +367,61 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     });
     throw error;
   }
-  const chains = args.chains ?? routes.map(route => route.chainId);
-  const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
+  const owners = args.owners ?? [];
+  // With no owner, or with the markets given, the activity rows give nothing to read.
+  const deposited =
+    args.markets || owners.length === 0 ? new Map<string, Set<string>>() : await getEarnDepositMarkets(args.accountId);
+  const supportedChainIds = new Set(getSupportedEvmChainIds());
+  const listed = args.markets
+    ? []
+    : getEarnVaults()
+        .filter(vault => supportedChainIds.has(Number(vault.marketUid.split(':')[1])))
+        .map(vault => vault.marketUid);
+  const knownByOwner = new Map<string, Set<string>>();
+  const queries = owners.flatMap(owner => {
+    const markets = distinctMarkets(args.markets ?? [...listed, ...(deposited.get(owner.toLowerCase()) ?? [])]);
+    knownByOwner.set(owner, new Set(markets));
+    return queriesFor(owner, markets);
+  });
 
-  const pending: ReturnType<typeof fetchPositionsForOwner>[] = [];
-  for (let offset = 0; offset < owners.length; ) {
-    const count = Math.min(owners.length - offset, POSITIONS_LIMIT);
+  const pending: ReturnType<typeof fetchPositions>[] = [];
+  const limit = args.markets ? POSITIONS_LIMIT : POSITIONS_PAGE_LIMIT;
+  for (let offset = 0; offset < queries.length; ) {
+    const count = Math.min(queries.length - offset, limit);
     let admitted = count;
-    while (admitted > 0 && !notePositionsRequests(admitted)) admitted -= 1;
+    while (admitted > 0 && !notePositionsRequests(admitted, limit)) admitted -= 1;
     if (admitted === 0) {
-      await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1)));
+      await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1, limit)));
       continue;
     }
-    pending.push(
-      ...owners.slice(offset, offset + admitted).map(owner => fetchPositionsForOwner(positionsUrl, owner, chains))
-    );
+    pending.push(...queries.slice(offset, offset + admitted).map(query => fetchPositions(positionsUrl, query)));
     offset += admitted;
   }
   const results = await Promise.all(pending);
 
-  const keeps = (marketUid: string): boolean => isRouteMarket(marketUid, routes);
-
-  const positions: EarnPosition[] = [];
-  const errors: { owner: string; error: string; stage?: EarnPositionsLoadStage }[] = [];
+  const loaded: EarnPosition[] = [];
+  const failed = new Map<string, { error: string; stage?: EarnPositionsLoadStage }>();
   for (const result of results) {
+    if (failed.has(result.owner)) continue;
     if (result.error) {
-      errors.push({ owner: result.owner, error: result.error, stage: result.stage });
+      failed.set(result.owner, { error: result.error, stage: result.stage });
       continue;
     }
     // An owner fails alone, like a failed request, when its holdings cannot be read (an item's positions, or a field a
     // funded position copies), so the read does not reject after its requests are spent.
     try {
-      positions.push(...result.items.flatMap(item => flattenChainItem(result.owner, item, keeps)));
+      const known = knownByOwner.get(result.owner) ?? new Set<string>();
+      loaded.push(...result.items.flatMap(item => flattenChainItem(result.owner, item, known)));
     } catch (err) {
       console.warn(`[epoch] positions response unreadable for ${result.owner}`, err);
-      errors.push({ owner: result.owner, error: 'positions response unreadable', stage: 'position_decode' });
+      failed.set(result.owner, { error: 'positions response unreadable', stage: 'position_decode' });
     }
   }
 
+  // An owner with one failed request keeps none of its other requests' positions: `carryForward` brings back what it
+  // loaded before, owner by owner.
+  const positions = loaded.filter(position => !failed.has(position.owner));
+  const errors = [...failed].map(([owner, failure]) => ({ owner, ...failure }));
   const totalDepositsUSD = positions.reduce((sum, p) => sum + p.depositsUSD, 0);
   return { positions, totalDepositsUSD, owners, errors };
 }

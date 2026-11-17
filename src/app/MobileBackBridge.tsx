@@ -9,12 +9,11 @@ import { RECOVER_FUNDS_PATH } from './pages/recover-funds-paths';
 const TAB_PAGES = ['/history', '/browser'];
 
 /**
- * Where back goes from a cold-opened Settings or Me page: the page that the header chevron falls back to. A lock of
- * the recovery page goes to the recovery page, every other Settings page to the Settings list.
+ * Where back goes from a cold-opened Settings or Me page. A lock of the recovery page goes to the recovery page,
+ * as its header chevron does. Every other page goes to Me.
  */
-function coldBackPath(pathname: string, isSettingsSubpage: boolean): string {
-  if (!isSettingsSubpage) return '/me';
-  return pathname.startsWith(`${RECOVER_FUNDS_PATH}/`) ? RECOVER_FUNDS_PATH : '/settings';
+function coldBackPath(pathname: string): string {
+  return pathname.startsWith(`${RECOVER_FUNDS_PATH}/`) ? RECOVER_FUNDS_PATH : '/me';
 }
 
 /**
@@ -24,7 +23,7 @@ function coldBackPath(pathname: string, isSettingsSubpage: boolean): string {
  * Higher-priority handlers (dialogs, Navigator flows, onboarding) can intercept first.
  *
  * Behavior:
- * - Settings subpage (/settings/xxx): pop one entry, or land on /settings when
+ * - Settings subpage (/settings/xxx): pop one entry, or land on /me when
  *   the page was opened cold — these are real routes now and can nest, so
  *   jumping straight to the list would skip the page the chevron goes back to
  * - Me's pushed pages: pop one entry, or land on Me when opened cold
@@ -42,20 +41,12 @@ export const MobileBackBridge: FC = () => {
   const isTabPage = pathname === '/me' || TAB_PAGES.some(tab => pathname === tab || pathname.startsWith(tab + '/'));
 
   useMobileBackHandler(() => {
-    // Settings subpage -> pop one level, or land on the list on a cold open.
-    //
-    // Same rule as the header chevron's `useBackWithFallback('/settings')`, and
-    // it has to be: the settings sub-screens became real routes, so they can
-    // now nest (Keys -> Reveal private key, Authorized dApps -> Connected
-    // dApps). Jumping straight to '/settings' from any depth skipped the
-    // intermediate page the chevron goes back to, so the two affordances
-    // disagreed about where "back" is. As drawers these screens never pushed an
-    // entry, so there was nothing to skip.
+    // Use history for nested pages. A page opened without history returns to Profile.
     if (isSettingsSubpage || isProfileSubpage) {
       if (historyPosition > 0) {
         goBack();
       } else {
-        navigate(coldBackPath(pathname, isSettingsSubpage), HistoryAction.Replace);
+        navigate(coldBackPath(pathname), HistoryAction.Replace);
       }
       return true;
     }

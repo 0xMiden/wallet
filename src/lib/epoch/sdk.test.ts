@@ -87,11 +87,49 @@ describe('ensureEpochSmartAccount', () => {
     await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow('relay unavailable');
   });
 
-  it('rejects when setup returns before the delegation becomes active', async () => {
-    mockGetWalletGaslessStatus.mockResolvedValue({ delegation: 'none', canRelayDeposit: false });
-    mockConvertToSmartAccount.mockResolvedValue({ ok: true, delegation: 'epoch' });
+  describe('after the relay accepted the setup', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
 
-    await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow('delegation is not active');
+    it('waits until the delegation lands on chain (#2117)', async () => {
+      // The relay accepted the setup; the chain shows it two reads later, one of which fails.
+      mockGetWalletGaslessStatus
+        .mockResolvedValueOnce({ delegation: 'none', canRelayDeposit: false })
+        .mockResolvedValueOnce({ delegation: 'none', canRelayDeposit: false })
+        .mockRejectedValueOnce(new Error('rpc flake'))
+        .mockResolvedValueOnce({ delegation: 'epoch', canRelayDeposit: true });
+      mockConvertToSmartAccount.mockResolvedValue({ ok: true, delegation: 'epoch' });
+      let settled = false;
+      const ensuring = ensureEpochSmartAccount('miden-account', EVM_ADDRESS).finally(() => {
+        settled = true;
+      });
+
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(2_000);
+      await expect(ensuring).resolves.toBeDefined();
+      expect(mockGetWalletGaslessStatus).toHaveBeenCalledTimes(4);
+    });
+
+    it('rejects when the delegation has not landed after 60 s', async () => {
+      mockGetWalletGaslessStatus.mockResolvedValue({ delegation: 'none', canRelayDeposit: false });
+      mockConvertToSmartAccount.mockResolvedValue({ ok: true, delegation: 'epoch' });
+      const failure = ensureEpochSmartAccount('miden-account', EVM_ADDRESS).catch((error: Error) => error.message);
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(await failure).toBe('Epoch smart-account setup completed but the delegation is not active.');
+    });
+
+    it('rejects at once when another implementation takes the delegation meanwhile', async () => {
+      mockGetWalletGaslessStatus
+        .mockResolvedValueOnce({ delegation: 'none', canRelayDeposit: false })
+        .mockResolvedValueOnce({ delegation: 'other', canRelayDeposit: false });
+      mockConvertToSmartAccount.mockResolvedValue({ ok: true, delegation: 'epoch' });
+
+      await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow(
+        'unsupported smart-account implementation'
+      );
+    });
   });
 });
 

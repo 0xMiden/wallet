@@ -16,7 +16,7 @@ import {
   StorageOwner
 } from 'lib/telemetry/crash-diagnostics';
 
-import { ITransaction, ITransactionStatus } from './db/types';
+import { ITransaction, ITransactionStatus, type ITransactionType } from './db/types';
 import { PersistedSpendingLimit } from './spending-limits/types';
 
 export enum Table {
@@ -52,8 +52,124 @@ export const SPENDING_LIMITS_V17_STORE = indexes('[accountId+faucetId]', 'accoun
 /** The current `transactions` shape (2): the 1.7 indexes plus `type`. */
 export const TRANSACTIONS_V2_STORE = indexes(TRANSACTIONS_V17_STORE, 'type');
 
+const TRANSACTIONS_V3_2_STORE = indexes(
+  TRANSACTIONS_V2_STORE,
+  '[badgeNetwork+status+type]',
+  '[badgeNetwork+status+type+badgeEvidenceRevision]',
+  '[recoveredBadgeNetwork+status+type+badgeEvidenceRevision]'
+);
+
 /** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
 export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
+
+// Types a badge is built from, beside the predicate below. The repo test locks this list to the badge module's union.
+export const BADGE_EVIDENCE_ROW_TYPES: readonly ITransactionType[] = ['send', 'swap', 'consume', 'bridged-receive'];
+
+const BADGE_EVIDENCE_ROW_TYPE_SET: ReadonlySet<string> = new Set(BADGE_EVIDENCE_ROW_TYPES);
+
+// The backfill reader's completed-mainnet check. A recovered receipt still counts when it was restored; an ordinary
+// row does not. The recovered arm is mainnet on `recoveredBadgeNetwork`, the ordinary arm on `badgeNetwork`.
+const suppliesBadgeEvidence = (row: {
+  status?: unknown;
+  type?: unknown;
+  recovered?: unknown;
+  recoveredBadgeNetwork?: unknown;
+  badgeNetwork?: unknown;
+  restoredFromBackup?: unknown;
+}): boolean =>
+  row.status === ITransactionStatus.Completed &&
+  typeof row.type === 'string' &&
+  BADGE_EVIDENCE_ROW_TYPE_SET.has(row.type) &&
+  (row.recovered === true
+    ? row.recoveredBadgeNetwork === 'mainnet'
+    : row.badgeNetwork === 'mainnet' && row.restoredFromBackup !== true);
+
+type BadgeChangeSpec = { [keyPath: string]: unknown };
+
+const revisionFor = (revisions: Map<string, string>, key: unknown): string => {
+  const id = String(key);
+  const existing = revisions.get(id);
+  if (existing !== undefined) return existing;
+  const created = crypto.randomUUID();
+  revisions.set(id, created);
+  return created;
+};
+
+// Eligible values gain one new token. Anything else keeps a caller-supplied token and gains nothing when omitted.
+const withEvidenceRevision = (row: ITransaction, revisions: Map<string, string>): ITransaction => {
+  if (!suppliesBadgeEvidence(row)) return row;
+  return { ...row, badgeEvidenceRevision: revisionFor(revisions, row.id) };
+};
+
+const withoutSharedRevision = (spec: BadgeChangeSpec): BadgeChangeSpec => {
+  if (!Object.prototype.hasOwnProperty.call(spec, 'badgeEvidenceRevision')) return spec;
+  const rest: BadgeChangeSpec = {};
+  for (const [key, value] of Object.entries(spec)) {
+    if (key !== 'badgeEvidenceRevision') rest[key] = value;
+  }
+  return rest;
+};
+
+const mergedBadgeRow = (stored: unknown, changes: BadgeChangeSpec) => {
+  if (typeof stored !== 'object' || stored === null) return undefined;
+  const read = (key: string): unknown =>
+    Object.prototype.hasOwnProperty.call(changes, key) ? changes[key] : Reflect.get(stored, key);
+  return {
+    status: read('status'),
+    type: read('type'),
+    recovered: read('recovered'),
+    recoveredBadgeNetwork: read('recoveredBadgeNetwork'),
+    badgeNetwork: read('badgeNetwork'),
+    restoredFromBackup: read('restoredFromBackup')
+  };
+};
+
+const reviseTransactionPut = (
+  coreTable: DBCoreTable,
+  req: Extract<Parameters<DBCoreTable['mutate']>[0], { type: 'put' }>
+): Promise<DBCoreMutateResponse> => {
+  const write = (values: readonly ITransaction[], updates: typeof req.updates) => {
+    const changeSpec = req.changeSpec && withoutSharedRevision(req.changeSpec);
+    return coreTable.mutate({
+      ...req,
+      values,
+      ...(updates && { updates }),
+      ...(changeSpec && { changeSpec })
+    });
+  };
+  const perKey = req.updates;
+  if (!perKey) {
+    const revisions = new Map<string, string>();
+    return write(
+      req.values.map((row: ITransaction) => withEvidenceRevision(row, revisions)),
+      undefined
+    );
+  }
+  // The stored row is read on this mutate's transaction. A shared changeSpec is not this path: modify already
+  // merged it into `values`, and reading again would add a second getMany beside the one modify counts.
+  return coreTable.getMany({ trans: req.trans, keys: perKey.keys }).then(stored => {
+    const revisions = new Map<string, string>();
+    const eligibleIds = new Set<string>();
+    const judgedIds = new Set<string>();
+    const changeSpecs = perKey.changeSpecs.map((changes, index) => {
+      const key = perKey.keys[index];
+      const merged = mergedBadgeRow(stored[index], changes);
+      if (merged === undefined) return changes;
+      const id = String(key);
+      judgedIds.add(id);
+      if (!suppliesBadgeEvidence(merged)) return changes;
+      eligibleIds.add(id);
+      return { ...changes, badgeEvidenceRevision: revisionFor(revisions, key) };
+    });
+    const values = req.values.map((row: ITransaction) => {
+      const id = String(row.id);
+      if (!judgedIds.has(id)) return withEvidenceRevision(row, revisions);
+      if (!eligibleIds.has(id)) return row;
+      return { ...row, badgeEvidenceRevision: revisionFor(revisions, row.id) };
+    });
+    return write(values, { ...perKey, changeSpecs });
+  });
+};
 
 /**
  * Declares every version this app has ever shipped, against whichever Dexie instance it is
@@ -266,6 +382,28 @@ function defineSchema(target: Dexie): void {
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
 
+  // v3.2 - a local revision for rows the badge backfill can read. The v3.1 index selects completed mainnet
+  // rows of those types; a restored ordinary row is in that index and is declined, so its result blob stays put.
+  // Recovered rows have no network stamp on a database that predates this schema, and no index selects them.
+  target
+    .version(3.2)
+    .stores({
+      [Table.Transactions]: TRANSACTIONS_V3_2_STORE,
+      [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db
+        .table<ITransaction, string>(Table.Transactions)
+        .where('[badgeNetwork+status+type]')
+        .anyOf(BADGE_EVIDENCE_ROW_TYPES.map(type => ['mainnet', ITransactionStatus.Completed, type]))
+        .modify(row => {
+          // `false` on the declining path, for the same reason as v1.3 above.
+          if (!suppliesBadgeEvidence(row)) return false;
+          row.badgeEvidenceRevision = crypto.randomUUID();
+          return undefined;
+        });
+    });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -286,7 +424,13 @@ function defineSchema(target: Dexie): void {
               if (unplaceable !== undefined) {
                 throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
               }
+              const revisions = new Map<string, string>();
+              return table.mutate({
+                ...req,
+                values: rows.map(row => withEvidenceRevision(row, revisions))
+              });
             }
+            if (req.type === 'put') return reviseTransactionPut(table, req);
             return table.mutate(req);
           }
         };
@@ -336,7 +480,7 @@ function observeWalletStorage<T>(
 function observeWalletCursor(cursor: DBCoreCursor, owner: StorageOwner): DBCoreCursor {
   const start = cursor.start;
   const observedStart: DBCoreCursor['start'] = function (this: DBCoreCursor, ...args) {
-    return observeWalletStorage(() => start.apply(this, args), owner, 'cursor');
+    return observeWalletStorage(() => start.apply(this, args), owner, 'cursor_iteration');
   };
   // Dexie replaces start on exhaustion; next must keep using that replacement.
   cursor.start = observedStart;
@@ -375,7 +519,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
           const count: DBCoreTable['count'] = (...args) =>
             observeWalletStorage(() => table.count(...args), owner, 'count');
           const openCursor: DBCoreTable['openCursor'] = (...args) =>
-            observeWalletStorage(() => table.openCursor(...args), owner, 'cursor').then(cursor =>
+            observeWalletStorage(() => table.openCursor(...args), owner, 'cursor_open').then(cursor =>
               cursor === null ? null : observeWalletCursor(cursor, owner)
             );
           const mutate: DBCoreTable['mutate'] = (...args) =>
@@ -759,12 +903,20 @@ export async function exportDb(): Promise<string> {
   await db.transaction('r', transactions, async () => {
     const rawTransactions = await transactions.toArray();
     // `dappOrigins` stays out: a backup must not record which dApps the user used (#1416).
-    const serializableTransactions = rawTransactions.map(({ amount, dappOrigins: _dappOrigins, ...rest }) => ({
-      ...mapValues(rest, toSerializable),
-      // `amount` keeps its plain-string shape so files stay readable by builds
-      // that predate the tag; `fromSerializable` accepts either form.
-      ...(amount !== undefined && { amount: amount.toString() })
-    }));
+    const serializableTransactions = rawTransactions.map(
+      ({
+        amount,
+        dappOrigins: _dappOrigins,
+        recoveredBadgeNetwork: _recoveredBadgeNetwork,
+        badgeEvidenceRevision: _badgeEvidenceRevision,
+        ...rest
+      }) => ({
+        ...mapValues(rest, toSerializable),
+        // `amount` keeps its plain-string shape so files stay readable by builds
+        // that predate the tag; `fromSerializable` accepts either form.
+        ...(amount !== undefined && { amount: amount.toString() })
+      })
+    );
     dump[Table.Transactions] = serializableTransactions;
   });
   return JSON.stringify(dump);
@@ -802,7 +954,14 @@ export async function importDb(dump: string): Promise<void> {
   if (data[Table.Transactions]) {
     const transactionsToImport = data[Table.Transactions].map((tx: object) => {
       // A dump's `dappOrigins` is dropped too: no restored row is ever waitable by a dApp.
-      const { amount, dappOrigins: _dappOrigins, extraInputs, ...rest } = mapValues(tx, fromSerializable);
+      const {
+        amount,
+        dappOrigins: _dappOrigins,
+        recoveredBadgeNetwork: _recoveredBadgeNetwork,
+        badgeEvidenceRevision: _badgeEvidenceRevision,
+        extraInputs,
+        ...rest
+      } = mapValues(tx, fromSerializable);
       const imported = {
         ...rest,
         ...(extraInputs !== undefined && { extraInputs: importedExtraInputs(extraInputs, rest.recovered === true) }),

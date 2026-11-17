@@ -48,8 +48,8 @@ jest.mock('components/Button', () => {
 jest.mock('components/TokenLogo', () => {
   const R = require('react');
   return {
-    TokenLogo: ({ symbol, size }: any) =>
-      R.createElement('div', { 'data-testid': 'token-logo', 'data-symbol': symbol, 'data-size': size })
+    TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) =>
+      R.createElement('div', { 'data-testid': 'token-logo', 'data-faucet-id': faucetId, 'data-size': size })
   };
 });
 
@@ -64,6 +64,17 @@ const baseProps = (overrides: Partial<EvmBridgeDepositReviewProps> = {}): EvmBri
 });
 
 describe('EvmBridgeDepositReview', () => {
+  it('keys the hero logo by the arriving faucet and marks the To row with the Miden logo (#2093)', () => {
+    render(
+      <EvmBridgeDepositReview
+        {...baseProps({ symbol: 'POL', outputFaucetId: 'mm1azjm2663ak76y52vwyfcthr0xyuy7ll6' })}
+      />
+    );
+
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 'mm1azjm2663ak76y52vwyfcthr0xyuy7ll6');
+    expect(screen.getByText('miden').querySelector('[data-testid="miden-logo"]')).not.toBeNull();
+  });
+
   it('matches the actual extension ID and the Slow ETH bridge action before opening the mobile wallet', () => {
     render(
       <EvmBridgeDepositReview
@@ -154,10 +165,12 @@ describe('EvmBridgeDepositReview', () => {
 
   describe('hero', () => {
     it('renders the deposit caption, logo and amount', () => {
-      render(<EvmBridgeDepositReview {...baseProps({ amount: '10', symbol: 'USDC' })} />);
+      render(
+        <EvmBridgeDepositReview {...baseProps({ amount: '10', symbol: 'USDC', outputFaucetId: 'faucet-usdc' })} />
+      );
 
       expect(screen.getByText('youAreDepositing')).toBeInTheDocument();
-      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 'faucet-usdc');
       // Rendered twice by design: once as the Hero value, once as the Amount detail row.
       expect(screen.getAllByText('10 USDC')).toHaveLength(2);
     });
@@ -188,11 +201,17 @@ describe('EvmBridgeDepositReview', () => {
   it('names the token by its label in the hero, the amount row and "you receive", keeping the logo on its symbol', () => {
     render(
       <EvmBridgeDepositReview
-        {...baseProps({ amount: '10', symbol: 'USDC', label: 'Test Epoch USDC', outputAmount: '9.5' })}
+        {...baseProps({
+          amount: '10',
+          symbol: 'USDC',
+          label: 'Test Epoch USDC',
+          outputAmount: '9.5',
+          outputFaucetId: 'faucet-usdc'
+        })}
       />
     );
 
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 'faucet-usdc');
     expect(screen.getAllByText('10 Test Epoch USDC')).toHaveLength(2);
     expect(screen.getByText('≈ 9.5 Test Epoch USDC')).toBeInTheDocument();
   });

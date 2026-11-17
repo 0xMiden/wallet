@@ -39,7 +39,7 @@ export const LANGUAGES = [
 const LanguageSettings: FC = () => {
   const selectedLocale = getCurrentLocale();
   const { t } = useTranslation();
-  const goBackToSettings = useBackWithFallback('/settings');
+  const goBackToSettings = useBackWithFallback('/me');
 
   const currentCode = useMemo(() => {
     // Underscores, because the list is keyed the way the locale directories are

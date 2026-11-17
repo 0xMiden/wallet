@@ -12,15 +12,33 @@ import { TextAction } from 'components/ui/TextAction';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
-import { EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from 'screens/earn-flow/components';
+import {
+  EarnAssetMark,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  EarnSummaryPanel,
+  useEarnAssetFaucetId
+} from 'screens/earn-flow/components';
 import { EarnLoadError } from 'screens/earn-flow/EarnLoadError';
+import { EarnLoading } from 'screens/earn-flow/EarnLoading';
 import { ProviderLogo } from 'screens/earn-flow/ProviderLogo';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
 import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, vaults, isLoading, error, errorDiagnostics, notOnNetwork, refetch } = useEarnPositions();
+  const {
+    summary,
+    positions,
+    vaults,
+    vaultsPending,
+    isLoading,
+    isRefreshing,
+    error,
+    errorDiagnostics,
+    notOnNetwork,
+    refetch
+  } = useEarnPositions();
   // The hook keeps a failed load's error through a retry and reports it as not loading, so the failure
   // stays said until a load succeeds and the empty state never flashes back.
   const loadFailed = Boolean(error);
@@ -76,11 +94,13 @@ const Earn: FC = () => {
           </SectionHeader>
 
           {/* Only a load that settled with nothing says "no positions": while the first load is in
-              flight the slot stays empty, and a failed load says so and retries - in place of the
+              flight the slot shows a spinner, and a failed load says so and retries - in place of the
               list when there is nothing to show, above the last-good cards when there is. */}
           {positions.length === 0 && loadFailed ? (
-            <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />
-          ) : positions.length === 0 && isLoading ? null : positions.length === 0 ? (
+            <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
+          ) : positions.length === 0 && isLoading ? (
+            <EarnLoading />
+          ) : positions.length === 0 ? (
             <EmptyState
               surface="dashed"
               size="compact"
@@ -91,7 +111,9 @@ const Earn: FC = () => {
             />
           ) : (
             <>
-              {loadFailed && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
+              {loadFailed && (
+                <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
+              )}
               <div className="-mx-4 overflow-x-auto overscroll-x-contain no-scrollbar touch-pan-x">
                 <div className="flex gap-3 px-4 pb-1">
                   {positions.map(position => (
@@ -103,8 +125,8 @@ const Earn: FC = () => {
           )}
         </section>
 
-        {/* Fed by the same read as the positions: with no vaults, loading, failed or settled, there is
-            nothing to feature, and a failure is already said once above. */}
+        {/* Show progress until the vault catalogue is ready. */}
+        {vaultsPending && vaults.length === 0 && <EarnLoading />}
         {vaults.length > 0 && (
           <section aria-label={t('earnVaultsTitle')}>
             <SectionHeader size="xl">{t('earnVaultsTitle')}</SectionHeader>
@@ -125,6 +147,7 @@ const Earn: FC = () => {
 /** A lone position spans the row; with more than one they keep their own width and scroll. */
 const PositionCard: FC<{ position: EarnPosition; fullWidth?: boolean }> = ({ position, fullWidth = false }) => {
   const { t } = useTranslation();
+  const assetFaucetId = useEarnAssetFaucetId();
 
   return (
     <CardButton
@@ -137,7 +160,7 @@ const PositionCard: FC<{ position: EarnPosition; fullWidth?: boolean }> = ({ pos
       {/* One row, like a Settings row: the asset's mark, the vault over its asset and network, and
           the position's value over its rate, all in Nunito. */}
       <div className="face-heading flex items-center gap-3">
-        <EarnAssetMark asset={position.asset} network={position.network} decorative />
+        <EarnAssetMark asset={position.asset} network={position.network} faucetId={assetFaucetId} decorative />
         <div className="min-w-0 flex-1">
           <div className="truncate text-row-title text-ink">{earnSubjectTitle(position)}</div>
           {/* The position named as the page it opens names it: the protocol, over its asset and network. */}
