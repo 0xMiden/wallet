@@ -51,8 +51,9 @@ export function sourceMessageFromReceipt(receipt: CctpReceipt, hash: Hex, transm
     throw new Error('Circle source receipt does not match the original burn');
   const messages = parseEventLogs({ abi: messageAbi, eventName: 'MessageSent',
     logs: receipt.logs.filter(log => log.address.toLowerCase() === transmitter.toLowerCase()) });
-  if (messages.length !== 1) throw new Error('Circle source receipt has no unique message');
-  return `0x${messages[0].args.message.slice(2).toLowerCase()}`;
+  const message = messages[0];
+  if (messages.length !== 1 || !message) throw new Error('Circle source receipt has no unique message');
+  return `0x${message.args.message.slice(2).toLowerCase()}`;
 }
 
 export function assertCctpArcReceipt(

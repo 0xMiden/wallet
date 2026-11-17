@@ -485,6 +485,10 @@ async function reconcileRow(
       const { recoverAgglayerApprovals } = await import('lib/bridge/providers/agglayer/approval');
       const { agglayerReadClient } = await import('lib/bridge/providers/agglayer/provider');
       await recoverAgglayerApprovals(operation, agglayerReadClient(inputs.agglayerRoute.chainId));
+    } else if (inputs.provider === 'usdcx' && operation?.approvals?.length && inputs.sourceChainId !== undefined) {
+      const { recoverTokenApprovals } = await import('lib/bridge/evm/token-approval');
+      const { xreserveReadClient } = await import('lib/bridge/providers/xreserve/provider');
+      await recoverTokenApprovals(operation, xreserveReadClient(inputs.sourceChainId));
     }
     return;
   }

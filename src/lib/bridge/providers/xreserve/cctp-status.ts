@@ -39,7 +39,7 @@ export async function fetchOwnedAttestedCctpMessage(
       matchesCctpSourceMessage(original, entry.message));
   if (candidates.length !== 1) return undefined;
   const candidate = candidates[0];
-  if (candidate.attestation === 'PENDING') return undefined;
+  if (!candidate || candidate.attestation === 'PENDING') return undefined;
   return { ...candidate, attestation: candidate.attestation };
 }
 

@@ -360,9 +360,11 @@ it.each(['hash', 'transmitter', 'duplicate log', 'source sender', 'source amount
       if (change === 'mint recipient') message = concatHex([slice(message, 0, 184), toHex(0, { size: 32 }), slice(message, 216)]);
       if (change === 'source hook') message = `0x${message.slice(2, -2)}05`;
       const receipt = cctpSourceReceipt(hash, message);
+      const first = receipt.logs[0];
+      if (!first) throw new Error('Missing source log fixture');
       if (change === 'hash') receipt.transactionHash = FORWARD_HASH;
-      if (change === 'transmitter') receipt.logs[0].address = source.usdc;
-      if (change === 'duplicate log') receipt.logs.push(receipt.logs[0]);
+      if (change === 'transmitter') first.address = source.usdc;
+      if (change === 'duplicate log') receipt.logs.push(first);
       return receipt;
     });
   });
@@ -382,9 +384,10 @@ async function prepareOwnedStatus(change: 'immutable amount' | 'ambiguous' | 'pr
   if (source.route !== 'cctp-executor') throw new Error('Missing CCTP source');
   if (change === 'proof') await Repo.transactions.update(id, { 'extraInputs.cctp.sourceMessage': undefined });
   const attested = cctpSourceMessage(source, { executed: 1000 });
-  const entries = [{ message: attested, attestation: '0xabcd', status: 'complete', forwardTxHash: FORWARD_HASH }];
-  if (change === 'ambiguous') entries.push({ ...entries[0], message: cctpSourceMessage(source, { executed: 1000, nonce: `0x${'9'.repeat(64)}` }) });
-  if (change === 'immutable amount') entries[0].message = cctpSourceMessage(source, { executed: 1000, amount: 1000002n });
+  const entry = { message: attested, attestation: '0xabcd', status: 'complete', forwardTxHash: FORWARD_HASH };
+  const entries = [entry];
+  if (change === 'ambiguous') entries.push({ ...entry, message: cctpSourceMessage(source, { executed: 1000, nonce: `0x${'9'.repeat(64)}` }) });
+  if (change === 'immutable amount') entry.message = cctpSourceMessage(source, { executed: 1000, amount: 1000002n });
   fetchMock.mockImplementation(async (url: string) => {
     const body = url.includes('/v2/messages/') ? { messages: entries } : cctpDepositAttestation(source);
     return { ok: true, status: 200, json: async () => body };
