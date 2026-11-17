@@ -4,7 +4,7 @@ import { createPublicClient, TransactionReceiptNotFoundError, type Hash } from '
 import { bridgeOperationOf, recordBridgeSourceAttempt } from 'lib/bridge/operation';
 import { recordCctpSourceFacts } from 'lib/bridge/providers/xreserve/ownership';
 import { assertCctpSourceMessage, sourceMessageFromReceipt } from 'lib/bridge/providers/xreserve/cctp-message';
-import { FORWARD_HASH, cctpSourceMessage, cctpSourceReceipt } from 'lib/bridge/testing/cctp-fixtures';
+import { FORWARD_HASH, cctpArcReceipt, cctpDepositAttestation, cctpSourceMessage, cctpSourceReceipt } from 'lib/bridge/testing/cctp-fixtures';
 import { reviewedOwnedCircleTransfer, TEST_CCTP_TRANSMITTER } from 'lib/bridge/testing/circle-fixtures';
 import { accounts, now } from 'lib/bridge/testing/fixtures';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
@@ -188,9 +188,10 @@ it('admits only one concurrent real DB destination attempt and a loser cannot de
     expect((await Repo.transactions.get(id))?.extraInputs.cctp?.executeTxHash).toBe(FORWARD_HASH);
   } finally { release(FORWARD_HASH); await first; one.unmount(); two.unmount(); }
 });
-it('keeps a hashless invoked attempt uncertain across unmount and refuses a new wallet prompt', async () => {
+it.each([false, true])('keeps a hashless invoked attempt uncertain across unmount (native=%s)', async useNative => {
   const { id, leg } = await funded();
-  write.mockRejectedValueOnce(new Error('Wallet transport closed'));
+  native = useNative;
+  (useNative ? nativeWrite : write).mockRejectedValueOnce(new Error('Wallet transport closed'));
   const one = renderHook(useCctpExecute);
   await one.result.current(id, 11155111, leg).catch(() => undefined);
   one.unmount();
@@ -198,7 +199,7 @@ it('keeps a hashless invoked attempt uncertain across unmount and refuses a new 
   try {
     const outcome: unknown = await two.result.current(id, 11155111, leg).catch(error => error);
     expect(outcome).toBeInstanceOf(Error);
-    expect(write).toHaveBeenCalledTimes(1);
+    expect(useNative ? nativeWrite : write).toHaveBeenCalledTimes(1);
     expect((await Repo.transactions.get(id))?.extraInputs.cctp).toMatchObject({ executeAttempt: { phase: 'uncertain' } });
   } finally { two.unmount(); }
 });
@@ -212,6 +213,40 @@ it('records the original destination attempt hash after UI RPC departure in the 
       executeAttempt: { phase: 'known', hash: FORWARD_HASH } });
   } finally { root.unmount(); }
 });
+it('retains a known manual hash while a passive Circle forward wins, then observes it if that forward reverts', async () => {
+  const { id, leg, owner } = await funded();
+  const source = getUsdcxExecutorSource(11155111);
+  let release: (hash: Hash) => void = () => undefined;
+  write.mockImplementationOnce(() => new Promise<Hash>(resolve => { release = resolve; }));
+  const root = renderHook(useCctpExecute);
+  const execution = root.result.current(id, 11155111, leg);
+  try {
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    await updateBridgedReceivePhase(id, 'delivering', { cctp: { sourceDomain: 0, executeTxHash: FORWARD_HASH } }, undefined, { onlyIfNoExecuteHash: true });
+    release(retryHash);
+    await execution;
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toMatchObject({ executeTxHash: FORWARD_HASH,
+      executeAttempt: { phase: 'known', hash: retryHash } });
+    receiptReader.mockResolvedValueOnce({ transactionHash: FORWARD_HASH, status: 'reverted', logs: [] });
+    const receipt = cctpArcReceipt(source);
+    receipt.transactionHash = retryHash;
+    for (const entry of receipt.logs) entry.transactionHash = retryHash;
+    receiptReader.mockResolvedValue(receipt);
+    fetchMock.mockImplementation(async (url: string) => ({ ok: true, status: 200, json: async () =>
+      url.includes('/v2/messages/') ? { messages: [{ status: 'complete', message: cctpSourceMessage(source, { executed: 1000 }),
+        attestation: '0xabcd', forwardState: 'FAILED' }] } : cctpDepositAttestation(source) }));
+    await owner.reconcile();
+    await owner.reconcile();
+    await owner.reconcile();
+    await owner.reconcile();
+    const row = await Repo.transactions.get(id);
+    expect(row?.extraInputs.phase).toBe('ready');
+    expect(row?.extraInputs.cctp?.executeTxHash).toBe(retryHash);
+    expect(row?.extraInputs.cctp?.revertedExecuteTxHash).toBe(FORWARD_HASH);
+    expect(write).toHaveBeenCalledTimes(1);
+  } finally { release(retryHash); await execution; root.unmount(); }
+});
+
 it.each(['revert', 'known stall'])('preserves authoritative %s destination reopening without rearming source funding', async kind => {
   const { id, leg, owner } = await funded();
   write.mockResolvedValueOnce(FORWARD_HASH).mockResolvedValueOnce(retryHash);
