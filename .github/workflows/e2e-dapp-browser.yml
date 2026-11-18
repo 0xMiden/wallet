@@ -656,10 +656,15 @@ jobs:
             exec bash .github/scripts/run-dapp-presentation-gesture-api36.sh; fi;
             umask 077;
             log=$(mktemp "$RUNNER_TEMP/presentation-gesture.XXXXXXXX") || exit 1;
-            trap "rm -f -- \"\$log\"" EXIT;
+            stage="$log.stage";
+            export PRESENTATION_GESTURE_STAGE_FILE="$stage";
+            trap "rm -f -- \"\$log\" \"\$stage\"" EXIT;
             if bash .github/scripts/run-dapp-presentation-gesture-api36.sh >"$log" 2>&1; then
             printf "%s\n" "Android API36 presentation gestures: PASS";
-            else rc=$?; printf "%s\n" "Android API36 presentation gestures: FAIL"; exit "$rc"; fi'
+            else rc=$?; phase=unknown;
+            if [ -f "$stage" ]; then IFS= read -r phase <"$stage" || phase=unknown; fi;
+            case "$phase" in device-setup|input-bridge|playwright|result-checks) ;; *) phase=unknown;; esac;
+            printf "%s\n" "Android API36 presentation gestures: FAIL ($phase)"; exit "$rc"; fi'
       - name: Upload gesture acceptance artifacts
         if: always() && inputs.suite == 'presentation-gestures'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

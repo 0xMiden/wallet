@@ -43,6 +43,13 @@ NODE
 }
 trap cleanup EXIT
 
+phase() {
+  if [[ -n ${PRESENTATION_GESTURE_STAGE_FILE:-} ]]; then
+    printf '%s\n' "$1" > "$PRESENTATION_GESTURE_STAGE_FILE" || rm -f -- "$PRESENTATION_GESTURE_STAGE_FILE" || true
+  fi
+}
+
+phase device-setup
 [[ "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" == 36 ]]
 [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
 build_type=$(adb shell getprop ro.build.type | tr -d '\r')
@@ -78,6 +85,7 @@ timeout 240s adb install -r -t --no-streaming android/app/build/outputs/apk/andr
 # Clear only before instrumentation takes ownership; the spec never resets the running target.
 adb shell pm clear com.miden.wallet >/dev/null
 adb shell pm grant com.miden.wallet android.permission.POST_NOTIFICATIONS
+phase input-bridge
 adb forward --no-rebind tcp:9236 tcp:8736
 owned_forward=true
 adb shell am instrument -w -e class com.miden.wallet.DappPresentationGestureInputTest \
@@ -95,7 +103,9 @@ done
 [[ "$target_pid" =~ ^[0-9]+$ ]]
 export GESTURE_TARGET_PID="$target_pid"
 export DAPP_PRESENTATION_GESTURE_API36=1
+phase playwright
 yarn playwright test --config playwright.android.presentation-gesture.config.ts
+phase result-checks
 node <<'NODE'
 const r = require('./test-results-presentation-gesture/results.json');
 if (!r.stats || r.stats.expected !== 4 || r.stats.unexpected !== 0 || r.stats.skipped !== 0 || r.stats.flaky !== 0)
