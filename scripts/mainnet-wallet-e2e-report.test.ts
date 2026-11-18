@@ -1,0 +1,308 @@
+/** @jest-environment node */
+
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+import YAML from 'yaml';
+
+import { recoveryFixture } from './wallet-e2e/fixtures/generate.cjs';
+import { INVOCATIONS } from './wallet-e2e/invocations.cjs';
+import { main } from './wallet-e2e/job.cjs';
+import { REPORT_FILENAME, errorFor, formatReport } from './wallet-e2e/report.cjs';
+
+const cwd = resolve(__dirname, '..');
+const roots: string[] = [];
+
+function sandbox() {
+  const tmp = mkdtempSync(join(tmpdir(), 'wallet-nightly-report-'));
+  roots.push(tmp);
+  const root = join(tmp, 'report');
+  const env = {
+    PATH: process.env.PATH,
+    TMPDIR: tmp,
+    GITHUB_JOB: 'mainnet-nightly',
+    GITHUB_REPOSITORY: '0xMiden/wallet',
+    GITHUB_SHA: 'cccee6fb4001f4d3debf36c73329563fbb996d6f',
+    GITHUB_REF: 'refs/heads/main',
+    GITHUB_WORKFLOW_REF: '0xMiden/wallet/.github/workflows/e2e-mainnet-nightly.yml@refs/heads/main',
+    GITHUB_RUN_ID: '900002',
+    GITHUB_RUN_NUMBER: '902',
+    GITHUB_RUN_ATTEMPT: '1',
+    GITHUB_EVENT_NAME: 'schedule',
+    MIDEN_E2E_MAINNET_NIGHTLY: 'true',
+    E2E_NETWORK: 'mainnet',
+    E2E_WALLET_REPORT_ROOT: root
+  };
+  const report = () => readFileSync(join(root, REPORT_FILENAME), 'utf8');
+  return { tmp, root, env, report };
+}
+
+function runInvocation(id: string, env: NodeJS.ProcessEnv, ...args: string[]) {
+  return spawnSync('bash', ['scripts/wallet-e2e/run.sh', id, process.execPath, ...args], {
+    cwd,
+    env,
+    encoding: 'utf8',
+    timeout: 25_000
+  });
+}
+
+function assertSanitized(data: string) {
+  expect(data).not.toMatch(/sentinel|signed\.invalid|authorization|proofbytes|<script|rawnote|browserstorage/i);
+}
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe('wallet-e2e/v1 projection', () => {
+  it('replays its first producer-emitted bytes and distinguishes prior-run claims from fresh swaps', () => {
+    const fixtureRoot = resolve(cwd, 'scripts/wallet-e2e/fixtures');
+    const bytes = formatReport(recoveryFixture());
+    expect(bytes).toBe(readFileSync(join(fixtureRoot, REPORT_FILENAME), 'utf8'));
+    const rejected = JSON.parse(readFileSync(join(fixtureRoot, 'rejected-v1.json'), 'utf8'));
+    expect(() => formatReport(rejected)).toThrow('Invalid wallet E2E report');
+    assertSanitized(bytes);
+    const failure = recoveryFixture();
+    expect(failure.coverage.freshSwapsStarted.value).toBe(0);
+    expect(failure.coverage.swap.status).toBe('not_started');
+    expect(failure.stages[0]?.error).toEqual(errorFor('recovery_gate_failed'));
+
+    const previous = recoveryFixture(true);
+    expect(formatReport(previous)).toBe(readFileSync(join(fixtureRoot, 'prior-run-claim-v1.json'), 'utf8'));
+    expect(previous.invocations[0]?.tests[0]?.status).toBe('passed');
+    expect(previous.coverage.freshSwapsStarted.value).toBe(0);
+    const action = previous.invocations[0]?.tests[0]?.attempts[0]?.operations[0];
+    expect(action?.sourceRunId.value).not.toEqual(previous.runId);
+    expect(action?.recoveryEffect).toEqual('prior_authorized_claim');
+  });
+
+  it.each([
+    ['unsupported version', { schemaVersion: 'wallet-e2e/v99' }],
+    ['unsafe numeric run ID', { runId: 17 }],
+    ['invalid run ID', { runId: '900002\n' }],
+    ['impossible date', { generatedAt: '2026-02-30T05:45:18Z' }],
+    ['private attachment', { attachments: { seed: 'private_seed_sentinel', authorization: 'header' } }]
+  ])('rejects %s', (name, change) => {
+    expect(() => formatReport({ ...recoveryFixture(), ...change })).toThrow(/Invalid wallet E2E/);
+  });
+
+  it('rejects unsigned numeric coercion or decomposed invalid elapsed evidence', () => {
+    const fixture = recoveryFixture();
+    const stage = fixture.stages[0];
+    expect(() =>
+      formatReport({ ...fixture, stages: [{ ...stage, elapsedMs: { value: -1, reason: null } }] })
+    ).toThrow();
+    expect(() =>
+      formatReport({
+        ...fixture,
+        stages: [{ ...stage, elapsedMs: { value: null, reason: null } }]
+      })
+    ).toThrow();
+  });
+});
+
+describe('wallet report command boundary', () => {
+  it.each([0, 17])('preserves command exit %i on reporting-write failure', async code => {
+    const { root, env } = sandbox();
+    await main(env, ['initialize']);
+    mkdirSync(join(root, 'invocations'));
+    writeFileSync(join(root, 'invocations', 'swap-forward'), 'journal write must fail');
+    const invocation = runInvocation('swap-forward', env, '-e', 'process.exit(' + code + ')');
+    expect(invocation.status).toBe(code);
+    expect(invocation.stdout).toBe('');
+    expect(invocation.stderr).toBe('');
+  });
+
+  it('keeps each overlapping invocation and original command outcome in its own journal', async () => {
+    const { root, env, report } = sandbox();
+    await main(env, ['initialize']);
+    const result = spawnSync(
+      'bash',
+      [
+        '-c',
+        [
+          'bash scripts/wallet-e2e/run.sh swap-forward "$1" -e "process.exit(0)" &',
+          'a=$!',
+          'bash scripts/wallet-e2e/run.sh swap-reverse "$1" -e "process.exit(17)" &',
+          'b=$!',
+          'wait "$a"; a_status=$?',
+          'wait "$b"; b_status=$?',
+          '[ "$a_status" = 0 ] && [ "$b_status" = 17 ]'
+        ].join('\n'),
+        'offline-wallet-e2e',
+        process.execPath
+      ],
+      { cwd, env, timeout: 10_000 }
+    );
+    expect(result.status).toBe(0);
+    await main(env, ['assemble']);
+    const assembled = JSON.parse(report());
+    expect(assembled.availability).toBe('partial');
+    expect(
+      assembled.invocations.map((row: { id: string; exitCode: { value: number } }) => [row.id, row.exitCode.value])
+    ).toEqual([
+      ['swap-forward', 0],
+      ['swap-reverse', 17]
+    ]);
+    expect(readFileSync(join(root, 'invocations', 'swap-forward', 'exit.json'), 'utf8')).toContain('"code":0');
+  });
+
+  it('withholds affected payload if projection fails and refuses funded rerun and topic-ref manifests', async () => {
+    const { root, env, report } = sandbox();
+    await main({ ...env, GITHUB_RUN_ATTEMPT: '2' }, ['initialize']);
+    await main({ ...env, GITHUB_REF: 'refs/heads/temporary' }, ['initialize']);
+    expect(() => readFileSync(join(root, 'job.json'))).toThrow();
+    await main(env, ['initialize']);
+    await main(env, ['assemble']);
+    expect(report()).toContain('wallet-e2e/v1');
+    writeFileSync(join(root, 'job.json'), '{"identity":null}');
+    await expect(main(env, ['assemble'])).rejects.toThrow('Wallet E2E manifest unavailable');
+    expect(() => report()).toThrow();
+  });
+
+  it('uses setup and recovery gate evidence, while keeping workflow selection separate', async () => {
+    const { env, report } = sandbox();
+    await main({ ...env, REPORT_SWAPS_ONLY: 'true' }, ['initialize']);
+    await main(
+      {
+        ...env,
+        REPORT_BUILD_OUTCOME: 'success',
+        REPORT_SWAP_RECOVERY_OUTCOME: 'failure',
+        REPORT_WAIT_SWAP_RECOVER: 'failure',
+        REPORT_INVOCATION_SWAP_FORWARD: 'skipped'
+      },
+      ['assemble']
+    );
+    let assembled = JSON.parse(report());
+    expect(assembled.availability).toBe('partial');
+    expect(assembled.coverage).toEqual({
+      swap: { selection: 'selected', status: 'not_started', reason: 'blocked_by_recovery' },
+      bridge: { selection: 'not_selected', status: 'not_started', reason: 'workflow_selection' },
+      freshSwapsStarted: { value: 0, reason: null }
+    });
+    await main(env, ['initialize']);
+    await main({ ...env, REPORT_BUILD_OUTCOME: 'failure', REPORT_INVOCATION_SWAP_FORWARD: 'skipped' }, ['assemble']);
+    assembled = JSON.parse(report());
+    expect(assembled.coverage.bridge.reason).toBe('blocked_by_setup');
+    expect(assembled.stages[0].error.code).toBe('setup_failed');
+    assertSanitized(report());
+  });
+
+  it('runs the real reporter on a hermetic fixture and keeps failed retry evidence', async () => {
+    const { tmp, env, report } = sandbox();
+    await main(env, ['initialize']);
+    const testModule = JSON.stringify(resolve(cwd, 'node_modules/@playwright/test'));
+    const codec = JSON.stringify(resolve(cwd, 'scripts/wallet-e2e/report.cjs'));
+    const reporter = resolve(cwd, 'playwright/e2e/reporting/wallet-e2e-reporter.ts');
+    const config = join(tmp, 'offline.config.cjs');
+    writeFileSync(
+      config,
+      'module.exports = ' +
+        JSON.stringify({
+          testDir: tmp,
+          timeout: 2_000,
+          retries: 1,
+          reporter: [[reporter]],
+          workers: 1
+        })
+    );
+    writeFileSync(join(tmp, 'mainnet-swap-loop.spec.cjs'), 'throw new Error("not the selected suffix");');
+    writeFileSync(
+      join(tmp, 'mainnet-swap-loop.spec.ts'),
+      [
+        'const { test, expect } = require(' + testModule + ');',
+        'const { createOperation, createStage } = require(' + codec + ');',
+        "test('real Guardian mainnet solver swaps out and back with recycled principal', async ({}, info) => {",
+        '  const operation = createOperation({',
+        "    key: 'swap-forward', kind: 'swap', surface: 'wallet_ui_and_helper', provider: 'solver',",
+        "    sourceNetwork: 'Miden', destinationNetwork: 'Miden', outcome: 'prepared', secret: 'rawnote_sentinel'",
+        '  });',
+        "  const stages = [createStage({key: 'preparation', origin: 'wallet_assertion', status: 'passed'})];",
+        "  if (info.retry === 1) stages.push(createStage({key: 'execution', origin: 'wallet_ui', status: 'in_progress'}));",
+        "  info.annotations.push({type: 'wallet-e2e-observation-v1', description: JSON.stringify({operation: {...operation, stages}, timeout: 2000})});",
+        "  await info.attach('authorization', {body: Buffer.from('proofbytes_sentinel'), contentType: 'text/plain'});",
+        "  expect(info.retry, 'browserstorage_sentinel <script>alert(1)</script>').toBe(1);",
+        '});'
+      ].join('\n')
+    );
+    const run = runInvocation(
+      'swap-forward',
+      env,
+      resolve(cwd, 'node_modules/playwright/cli.js'),
+      'test',
+      '--config',
+      config,
+      'mainnet-swap-loop.spec.ts$'
+    );
+    expect(run.status).toBe(0);
+    await main(env, ['assemble']);
+    const bytes = report();
+    assertSanitized(bytes);
+    const parsed = JSON.parse(bytes);
+    const [invocation] = parsed.invocations;
+    const [logical] = invocation.tests;
+    expect(parsed.coverage.freshSwapsStarted.value).toBe(1);
+    expect(invocation.exitCode.value).toBe(0);
+    expect(invocation.playwrightOutcome.value).toBe('passed');
+    expect(logical.outcome).toBe('flaky');
+    expect(logical.attempts.map(({ status }: { status: string }) => status)).toEqual(['failed', 'passed']);
+    expect(logical.attempts.every(({ operations }: { operations: unknown[] }) => operations.length === 1)).toBe(true);
+  }, 30_000);
+});
+
+describe('nightly workflow report wiring', () => {
+  const source = readFileSync(resolve(cwd, '.github/workflows/e2e-mainnet-nightly.yml'), 'utf8');
+  function record(value: unknown): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a workflow mapping');
+    return Object.fromEntries(Object.entries(value));
+  }
+
+  it('assigns one stable id per existing call and leaves each exit-file protocol in place', () => {
+    const calls = Array.from(
+      source.matchAll(/scripts\/wallet-e2e\/run\.sh ([a-z-]+) xvfb-run -a yarn playwright test/g)
+    );
+    expect(calls.map(call => call[1]).sort()).toEqual(Array.from(INVOCATIONS.keys()).sort());
+    for (const id of ['swap-recover', 'swap-forward', 'swap-reverse', 'epoch-recover', 'near-recover']) {
+      expect(source).toContain('> "$RUNNER_TEMP/' + id + '.exit"');
+      expect(source).toMatch(new RegExp('read -r code < "\\$RUNNER_TEMP/' + id + '\\.exit"'));
+    }
+  });
+
+  it('isolates projection and upload failures from verdicts and uploads only the fixed safe filename', () => {
+    const jobs = record(record(YAML.parse(source)).jobs);
+    for (const [id, value] of Object.entries(jobs)) {
+      const job = record(value);
+      const key = id === 'mainnet-nightly' ? 'mainnet' : 'agglayer';
+      expect(job['continue-on-error']).toBeUndefined();
+      if (!Array.isArray(job.steps)) throw new Error('Expected job steps');
+      const steps = job.steps.map(record);
+      const assemble = steps.find(step => step.name === 'Assemble Wallet E2E report');
+      const upload = steps.find(step => step.name === 'Upload Wallet E2E report');
+      expect(assemble).toMatchObject({
+        'continue-on-error': true,
+        if: "always() && steps.wallet-report-init.outcome == 'success'"
+      });
+      expect(upload).toMatchObject({
+        'continue-on-error': true,
+        if: "always() && steps.wallet-report-assemble.outcome == 'success'",
+        with: {
+          name: 'wallet-e2e-v1-${{ github.run_id }}-${{ github.run_attempt }}-' + key,
+          path: '${{runner.temp}}/wallet-e2e/' + key + '/wallet-e2e-report-v1.json'
+        }
+      });
+      for (const financialStep of ['success', 'failure']) {
+        // Mirror Actions' documented treatment of a simulated failed upload step outcome.
+        const outcomes = [
+          { conclusion: financialStep },
+          {
+            conclusion: upload?.['continue-on-error'] === true ? 'success' : 'failure'
+          }
+        ];
+        const jobConclusion = outcomes.some(step => step.conclusion === 'failure') ? 'failure' : 'success';
+        expect(jobConclusion).toBe(financialStep);
+      }
+    }
+  });
+});

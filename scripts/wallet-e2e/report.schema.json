@@ -1,0 +1,1043 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/0xMiden/wallet/contracts/wallet-e2e/v1",
+  "title": "Safe wallet nightly job report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "producerVersion",
+    "generatedAt",
+    "units",
+    "clockPolicy",
+    "synthetic",
+    "fixture",
+    "network",
+    "testEnvironment",
+    "availability",
+    "repository",
+    "workflowId",
+    "workflowPath",
+    "sourceSha",
+    "sourceRef",
+    "event",
+    "runId",
+    "runNumber",
+    "runAttempt",
+    "jobKey",
+    "jobId",
+    "startAt",
+    "endAt",
+    "elapsedMs",
+    "timeoutMs",
+    "build",
+    "coverage",
+    "stages",
+    "invocations"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "wallet-e2e/v1"},
+    "producerVersion": {"const": "1.0.0"},
+    "generatedAt": {"$ref": "#/$defs/timestamp"},
+    "units": {"const": "milliseconds"},
+    "clockPolicy": {"const": "utc_observation_and_monotonic_elapsed"},
+    "synthetic": {"const": true},
+    "fixture": {"type": "boolean"},
+    "network": {"const": "mainnet"},
+    "testEnvironment": {"const": "chrome_extension"},
+    "availability": {"enum": ["available", "partial"]},
+    "repository": {"const": "0xMiden/wallet"},
+    "workflowId": {"const": "391951744"},
+    "workflowPath": {"const": ".github/workflows/e2e-mainnet-nightly.yml"},
+    "sourceSha": {"$ref": "#/$defs/sha"},
+    "sourceRef": {"const": "refs/heads/main"},
+    "event": {"enum": ["schedule", "workflow_dispatch"]},
+    "runId": {"$ref": "#/$defs/id"},
+    "runNumber": {"$ref": "#/$defs/id"},
+    "runAttempt": {"$ref": "#/$defs/id"},
+    "jobKey": {"enum": ["mainnet", "agglayer"]},
+    "jobId": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"$ref": "#/$defs/id"}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"const": null}, "reason": {"enum": ["github_metadata_only", "not_observed"]}}
+        }
+      ]
+    },
+    "startAt": {"$ref": "#/$defs/startAt"},
+    "endAt": {"$ref": "#/$defs/endAt"},
+    "elapsedMs": {"$ref": "#/$defs/elapsedMs"},
+    "timeoutMs": {"$ref": "#/$defs/timeoutMs"},
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["extensionVersion", "extensionSha256", "sdkVersion", "remoteConfigSha256", "endpointLabels"],
+      "properties": {
+        "extensionVersion": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"type": "string", "pattern": "^[0-9]{1,6}(\\.[0-9]{1,6}){1,3}$", "maxLength": 27},
+                "reason": {"const": null}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "extensionSha256": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"$ref": "#/$defs/sha256"}, "reason": {"const": null}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "sdkVersion": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,4}\\.[0-9]{1,4}\\.[0-9]{1,4}(-[a-z]{1,8}[.-][0-9]{1,4})?$",
+                  "maxLength": 32
+                },
+                "reason": {"const": null}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "remoteConfigSha256": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"$ref": "#/$defs/sha256"}, "reason": {"const": null}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "endpointLabels": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "miden_mainnet_rpc",
+              "miden_mainnet_guardian",
+              "inicio_mainnet",
+              "epoch_mainnet",
+              "near_mainnet",
+              "agglayer_mainnet"
+            ]
+          },
+          "maxItems": 8
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["swap", "bridge", "freshSwapsStarted"],
+      "properties": {
+        "swap": {"$ref": "#/$defs/coverage"},
+        "bridge": {"$ref": "#/$defs/coverage"},
+        "freshSwapsStarted": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"type": "integer", "minimum": 0, "maximum": 17}, "reason": {"const": null}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "stages": {"type": "array", "items": {"$ref": "#/$defs/stage"}, "maxItems": 32},
+    "invocations": {"type": "array", "items": {"$ref": "#/$defs/invocation"}, "maxItems": 17}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$", "maxLength": 20},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{40}$", "maxLength": 40},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "maxLength": 64},
+    "testId": {"type": "string", "pattern": "^[a-f0-9]{24}$", "maxLength": 24},
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$",
+      "maxLength": 24
+    },
+    "status": {
+      "enum": ["passed", "failed", "timed_out", "skipped", "interrupted", "not_started", "in_progress", "unknown"]
+    },
+    "duration": {"type": "integer", "minimum": 0, "maximum": 86400000},
+    "elapsedMs": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"$ref": "#/$defs/duration"}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {
+            "value": {"const": null},
+            "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+          }
+        }
+      ]
+    },
+    "startAt": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"$ref": "#/$defs/timestamp"}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {
+            "value": {"const": null},
+            "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+          }
+        }
+      ]
+    },
+    "endAt": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"$ref": "#/$defs/timestamp"}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {
+            "value": {"const": null},
+            "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+          }
+        }
+      ]
+    },
+    "timeoutMs": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"$ref": "#/$defs/duration"}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {
+            "value": {"const": null},
+            "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+          }
+        }
+      ]
+    },
+    "deadlineAt": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"$ref": "#/$defs/timestamp"}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {
+            "value": {"const": null},
+            "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+          }
+        }
+      ]
+    },
+    "exitCode": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"type": "integer", "minimum": 0, "maximum": 255}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"const": null}, "reason": {"enum": ["not_observed", "report_incomplete"]}}
+        }
+      ]
+    },
+    "playwrightOutcome": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"enum": ["passed", "failed", "timed_out", "interrupted"]}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {
+            "value": {"const": null},
+            "reason": {"enum": ["not_observed", "not_applicable", "report_incomplete"]}
+          }
+        }
+      ]
+    },
+    "spec": {
+      "enum": [
+        "mainnet-swap-loop.spec.ts",
+        "mainnet-epoch-loop.spec.ts",
+        "mainnet-1click-loop.spec.ts",
+        "mainnet-round-trip.spec.ts",
+        "mainnet-bridge-loop.spec.ts",
+        "mainnet-agglayer-loop.spec.ts"
+      ]
+    },
+    "operationKind": {"enum": ["swap", "bridge", "setup", "recovery", "other"]},
+    "surface": {"enum": ["wallet_ui", "helper_sdk", "wallet_ui_and_helper", "unknown"]},
+    "opKey": {
+      "enum": [
+        "swap-forward",
+        "swap-reverse",
+        "swap-recovery",
+        "epoch-forward",
+        "epoch-reverse",
+        "epoch-recovery",
+        "near-forward",
+        "near-reverse",
+        "near-recovery",
+        "usdcx-ethereum",
+        "usdcx-base",
+        "usdcx-arc",
+        "usdcx-arbitrum",
+        "agglayer-deposit",
+        "agglayer-withdrawal",
+        "native-round-trip",
+        "registration"
+      ]
+    },
+    "mode": {"enum": ["authorize_recovery_return", "recover", "prepare", "forward", "reverse", "round_trip"]},
+    "invocationId": {
+      "enum": [
+        "swap-recovery-grant",
+        "swap-recover",
+        "swap-recovered-return",
+        "epoch-recover",
+        "near-recover",
+        "swap-prepare",
+        "swap-forward",
+        "swap-reverse",
+        "epoch-prepare",
+        "epoch-forward",
+        "epoch-reverse",
+        "near-prepare",
+        "near-forward",
+        "near-reverse",
+        "native-round-trip",
+        "usdcx-round-trip",
+        "agglayer-round-trip"
+      ]
+    },
+    "tokenSymbol": {
+      "enum": [
+        "MIDEN",
+        "USDC",
+        "USDCx",
+        "PAXG",
+        "ETH",
+        "BTC",
+        "WBTC",
+        "WETH",
+        "WMATIC",
+        "POL",
+        "MATIC",
+        "USDT",
+        "SOL",
+        "NEAR"
+      ]
+    },
+    "networkLabel": {
+      "enum": [
+        "Miden",
+        "Ethereum",
+        "Base",
+        "Arc",
+        "Polygon",
+        "Bitcoin",
+        "Arbitrum",
+        "Solana",
+        "Monad",
+        "BNB",
+        "Near",
+        "OP Mainnet"
+      ]
+    },
+    "amount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset", "baseUnits", "decimals"],
+      "properties": {
+        "asset": {"$ref": "#/$defs/tokenSymbol"},
+        "baseUnits": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,29})$", "maxLength": 30},
+        "decimals": {"type": "integer", "minimum": 0, "maximum": 24}
+      }
+    },
+    "error": {
+      "anyOf": [
+        {"const": null},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "recovery_gate_failed"},
+            "explanation": {"const": "Prior swap recovery did not clear the gate. The underlying cause is unavailable."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "test_failed"},
+            "explanation": {"const": "Playwright observed a test failure. A more specific stage may be available."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "test_timed_out"},
+            "explanation": {"const": "Playwright reported that this test exceeded its timeout."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "command_failed"},
+            "explanation": {"const": "The test command exited with a nonzero status."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "setup_failed"},
+            "explanation": {"const": "An observed setup step failed before test execution."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "quote_unavailable"},
+            "explanation": {"const": "The solver did not provide a usable quote."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "quote_request_failed"},
+            "explanation": {"const": "The quote request did not complete successfully."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "quote_failed"},
+            "explanation": {
+              "const": "The wallet did not obtain a usable quote. Request and availability evidence are incomplete."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "preparation_failed"},
+            "explanation": {"const": "The wallet did not finish transaction preparation."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "execution_failed"},
+            "explanation": {"const": "The observed wallet execution step failed."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "submission_failed"},
+            "explanation": {"const": "The submission step did not confirm submission."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "inclusion_unconfirmed"},
+            "explanation": {"const": "The submitted transaction did not reach the asserted inclusion state."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "order_outcome_unconfirmed"},
+            "explanation": {"const": "The wallet did not establish a final order outcome."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "claim_unconfirmed"},
+            "explanation": {"const": "The wallet did not establish the asserted claim result."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "receipt_unconfirmed"},
+            "explanation": {"const": "The wallet did not establish the asserted usable receipt."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "input_refunded"},
+            "explanation": {"const": "The wallet recovered refunded input and failed the full-completion assertion."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "bridge_failed"},
+            "explanation": {"const": "The observed bridge step failed before the required assertion completed."}
+          }
+        }
+      ]
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "status",
+        "origin",
+        "evidence",
+        "reason",
+        "startAt",
+        "endAt",
+        "elapsedMs",
+        "timeoutMs",
+        "deadlineAt",
+        "error",
+        "httpStatus",
+        "priceAgeMs",
+        "endpoint"
+      ],
+      "properties": {
+        "key": {
+          "enum": [
+            "setup",
+            "recovery_gate",
+            "wallet_session",
+            "quote_request",
+            "quote_availability",
+            "quote",
+            "preparation",
+            "approval",
+            "execution",
+            "proof",
+            "submission",
+            "inclusion",
+            "order",
+            "payback",
+            "claim",
+            "usable_receipt",
+            "cleanup",
+            "provider",
+            "bridge_finality"
+          ]
+        },
+        "status": {"$ref": "#/$defs/status"},
+        "origin": {"enum": ["playwright", "wallet_assertion", "wallet_ui", "sdk_read", "workflow", "provider"]},
+        "evidence": {"enum": ["observed", "not_recorded", "not_applicable"]},
+        "reason": {"enum": [null, "not_instrumented", "not_reached", "not_applicable", "report_incomplete"]},
+        "startAt": {"$ref": "#/$defs/startAt"},
+        "endAt": {"$ref": "#/$defs/endAt"},
+        "elapsedMs": {"$ref": "#/$defs/elapsedMs"},
+        "timeoutMs": {"$ref": "#/$defs/timeoutMs"},
+        "deadlineAt": {"$ref": "#/$defs/deadlineAt"},
+        "error": {"$ref": "#/$defs/error"},
+        "httpStatus": {"$ref": "#/$defs/httpStatus"},
+        "priceAgeMs": {"$ref": "#/$defs/priceAgeMs"},
+        "endpoint": {"enum": [null, "inicio_swap_eta", "inicio_pair_price", "miden_mainnet_rpc"]}
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "kind",
+        "surface",
+        "sourceRunId",
+        "recoveryEffect",
+        "outcome",
+        "provider",
+        "sourceNetwork",
+        "destinationNetwork",
+        "offered",
+        "minimum",
+        "received",
+        "fee",
+        "stages"
+      ],
+      "properties": {
+        "key": {"$ref": "#/$defs/opKey"},
+        "kind": {"$ref": "#/$defs/operationKind"},
+        "surface": {"$ref": "#/$defs/surface"},
+        "sourceRunId": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"$ref": "#/$defs/id"}, "reason": {"const": null}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"const": null}, "reason": {"enum": ["not_observed", "not_applicable"]}}
+            }
+          ]
+        },
+        "recoveryEffect": {
+          "enum": [
+            "no_work",
+            "read_only",
+            "prior_authorized_claim",
+            "prior_authorized_return",
+            "not_applicable",
+            "unknown"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "unknown",
+            "not_started",
+            "prepared",
+            "executed",
+            "included",
+            "partial_fill",
+            "fully_filled",
+            "payment_unclaimed",
+            "claimed",
+            "usable_receipt",
+            "refunded",
+            "partially_filled_and_refunded",
+            "full_swap_asserted",
+            "bridge_completion_asserted"
+          ]
+        },
+        "provider": {"enum": [null, "solver", "Epoch", "NEAR", "Circle xReserve", "Circle USDCx", "AggLayer"]},
+        "sourceNetwork": {
+          "enum": [
+            null,
+            "Miden",
+            "Ethereum",
+            "Base",
+            "Arc",
+            "Polygon",
+            "Bitcoin",
+            "Arbitrum",
+            "Solana",
+            "Monad",
+            "BNB",
+            "Near",
+            "OP Mainnet"
+          ]
+        },
+        "destinationNetwork": {
+          "enum": [
+            null,
+            "Miden",
+            "Ethereum",
+            "Base",
+            "Arc",
+            "Polygon",
+            "Bitcoin",
+            "Arbitrum",
+            "Solana",
+            "Monad",
+            "BNB",
+            "Near",
+            "OP Mainnet"
+          ]
+        },
+        "offered": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"$ref": "#/$defs/amount"}, "reason": {"const": null}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"$ref": "#/$defs/amount"}, "reason": {"const": null}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "received": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"$ref": "#/$defs/amount"}, "reason": {"const": null}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "fee": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"$ref": "#/$defs/amount"}, "reason": {"const": null}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "stages": {"type": "array", "items": {"$ref": "#/$defs/stage"}, "maxItems": 64}
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retry",
+        "worker",
+        "status",
+        "expectedStatus",
+        "startAt",
+        "endAt",
+        "elapsedMs",
+        "timeoutMs",
+        "error",
+        "operations"
+      ],
+      "properties": {
+        "retry": {"type": "integer", "minimum": 0, "maximum": 32},
+        "worker": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {"value": {"type": "integer", "minimum": 0, "maximum": 1024}, "reason": {"const": null}}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "status": {"$ref": "#/$defs/status"},
+        "expectedStatus": {"$ref": "#/$defs/status"},
+        "startAt": {"$ref": "#/$defs/startAt"},
+        "endAt": {"$ref": "#/$defs/endAt"},
+        "elapsedMs": {"$ref": "#/$defs/elapsedMs"},
+        "timeoutMs": {"$ref": "#/$defs/timeoutMs"},
+        "error": {"$ref": "#/$defs/error"},
+        "operations": {"type": "array", "items": {"$ref": "#/$defs/operation"}, "maxItems": 48}
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "project", "status", "outcome", "attempts"],
+      "properties": {
+        "id": {"$ref": "#/$defs/testId"},
+        "title": {
+          "enum": [
+            "real Guardian mainnet solver swaps out and back with recycled principal",
+            "mainnet Epoch staged round trip",
+            "mainnet NEAR staged round trip",
+            "register the two long-lived mainnet accounts",
+            "plain and guardian exchange one base unit of the native asset",
+            "loops the minimum on every mainnet USDCx route",
+            "loops ETH from Ethereum to Miden and back over AggLayer"
+          ]
+        },
+        "project": {"const": "default"},
+        "status": {"$ref": "#/$defs/status"},
+        "outcome": {"enum": ["expected", "unexpected", "flaky", "skipped", "unknown"]},
+        "attempts": {"type": "array", "items": {"$ref": "#/$defs/attempt"}, "maxItems": 16}
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "mode",
+        "suite",
+        "spec",
+        "shard",
+        "status",
+        "startAt",
+        "endAt",
+        "elapsedMs",
+        "deadlineAt",
+        "timeoutMs",
+        "exitCode",
+        "playwrightOutcome",
+        "tests"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/invocationId"},
+        "mode": {"$ref": "#/$defs/mode"},
+        "suite": {"enum": ["solver", "epoch", "near", "native", "usdcx", "agglayer"]},
+        "spec": {"$ref": "#/$defs/spec"},
+        "shard": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"type": "string", "pattern": "^[1-9][0-9]?/[1-9][0-9]?$", "maxLength": 5},
+                "reason": {"const": null}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "reason"],
+              "properties": {
+                "value": {"const": null},
+                "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+              }
+            }
+          ]
+        },
+        "status": {"$ref": "#/$defs/status"},
+        "startAt": {"$ref": "#/$defs/startAt"},
+        "endAt": {"$ref": "#/$defs/endAt"},
+        "elapsedMs": {"$ref": "#/$defs/elapsedMs"},
+        "deadlineAt": {"$ref": "#/$defs/deadlineAt"},
+        "timeoutMs": {"$ref": "#/$defs/timeoutMs"},
+        "exitCode": {"$ref": "#/$defs/exitCode"},
+        "playwrightOutcome": {"$ref": "#/$defs/playwrightOutcome"},
+        "tests": {"type": "array", "items": {"$ref": "#/$defs/test"}, "maxItems": 16}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selection", "status", "reason"],
+      "properties": {
+        "selection": {"enum": ["selected", "not_selected", "unknown"]},
+        "status": {"$ref": "#/$defs/status"},
+        "reason": {
+          "enum": [
+            null,
+            "blocked_by_recovery",
+            "blocked_by_setup",
+            "workflow_selection",
+            "report_incomplete",
+            "outside_job"
+          ]
+        }
+      }
+    },
+    "httpStatus": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"type": "integer", "minimum": 100, "maximum": 599}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {
+            "value": {"const": null},
+            "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+          }
+        }
+      ]
+    },
+    "priceAgeMs": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {"value": {"type": "integer", "minimum": -30000, "maximum": 60000}, "reason": {"const": null}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "reason"],
+          "properties": {
+            "value": {"const": null},
+            "reason": {"enum": ["not_observed", "not_applicable", "not_available", "report_incomplete"]}
+          }
+        }
+      ]
+    }
+  }
+}

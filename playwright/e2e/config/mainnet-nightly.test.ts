@@ -105,8 +105,16 @@ describe('mainnet nightly workflow', () => {
   });
 
   it('keeps the run one verdict: a failure in either job fails the run', () => {
-    // A job runs after a failed one only by its own if:, and a failed job fails the run; continue-on-error would hide it.
-    expect(jobText('mainnet-agglayer')).not.toContain('continue-on-error');
-    expect(jobText('mainnet-nightly')).not.toContain('continue-on-error');
+    // Only the four dedicated reporting steps are best effort. Job-level and all existing step failures retain their verdict.
+    for (const job of ['mainnet-nightly', 'mainnet-agglayer']) {
+      const [jobSettings, ...steps] = jobText(job).split(/^      - name: /m);
+      expect(jobSettings).not.toContain('continue-on-error');
+      expect(steps.filter(step => step.includes('continue-on-error')).map(step => step.split('\n')[0])).toEqual([
+        'Initialize Wallet E2E report',
+        'Capture Wallet E2E build identity',
+        'Assemble Wallet E2E report',
+        'Upload Wallet E2E report'
+      ]);
+    }
   });
 });

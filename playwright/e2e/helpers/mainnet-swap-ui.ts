@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import type { SavedSwapHolding, SwapOrderEvidence } from './mainnet-swap-checkpoint';
 import type { SwapLegBound } from './mainnet-swap-plan';
+import { nightlyDuration, observedStage, type ObserveNightly } from '../reporting/nightly-observation';
 import { DEFAULT_SWAP_SLIPPAGE_BPS } from '../../../src/lib/miden/swap/slippage-bounds';
 import { parseSwapPairs, type SwapPairs } from '../../../src/lib/remote-config/swap-pairs';
 import { readTimestampedEntry } from '../../../src/lib/remote-json';
@@ -145,8 +146,9 @@ export function swapDisplayAmount(amount: bigint, decimals: number): string {
   return `${amount / scale}${fraction ? `.${fraction}` : ''}`;
 }
 
-export async function swapJson(url: URL | string): Promise<unknown> {
+export async function swapJson(url: URL | string, onResponse?: (status: number) => void): Promise<unknown> {
   const response = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: { Accept: 'application/json' } });
+  onResponse?.(response.status);
   if (!response.ok) throw new Error(`Live swap read failed: HTTP ${response.status}`);
   return response.json();
 }
@@ -155,19 +157,72 @@ export async function readLiveSwapLeg(
   service: string,
   offered: SavedSwapHolding,
   requested: SavedSwapHolding,
-  amount: bigint
+  amount: bigint,
+  observe?: ObserveNightly
 ): Promise<SwapLegBound> {
   const priceUrl = new URL(`${service}/v2/pair-price`);
   priceUrl.search = new URLSearchParams({ offered_faucet: offered.hex, requested_faucet: requested.hex }).toString();
-  const minimum = quotedSwapMinimum(
-    await swapJson(priceUrl),
-    offered.hex,
-    requested.hex,
-    offered.decimals,
-    requested.decimals,
-    amount
-  );
-  await checkLiveSwapEta(service, offered, requested, amount, minimum);
+  const timing = observe ? nightlyDuration() : undefined;
+  let status: number | undefined;
+  const body = await swapJson(
+    priceUrl,
+    observe
+      ? code => {
+          status = code;
+        }
+      : undefined
+  ).catch((error: unknown) => {
+    observe?.(undefined, {
+      key: 'quote_request',
+      origin: 'provider',
+      status: 'failed',
+      errorCode: 'quote_request_failed',
+      endpoint: 'inicio_pair_price',
+      httpStatus: status,
+      timeoutMs: 15_000,
+      ...timing?.()
+    });
+    throw error;
+  });
+  const now = Date.now();
+  const age = record(body) && typeof body.asOf === 'number' ? now - body.asOf * 1000 : undefined;
+  observe?.(undefined, {
+    key: 'quote_request',
+    origin: 'provider',
+    status: 'passed',
+    endpoint: 'inicio_pair_price',
+    httpStatus: status,
+    timeoutMs: 15_000,
+    priceAgeMs: age !== undefined && Number.isSafeInteger(age) && age >= -30_000 && age <= 60_000 ? age : undefined,
+    ...timing?.()
+  });
+  let minimum: bigint;
+  try {
+    minimum = quotedSwapMinimum(body, offered.hex, requested.hex, offered.decimals, requested.decimals, amount, now);
+  } catch (error) {
+    observe?.(undefined, {
+      key: 'quote_availability',
+      origin: 'wallet_assertion',
+      status: 'failed',
+      errorCode: 'quote_unavailable',
+      endpoint: 'inicio_pair_price'
+    });
+    throw error;
+  }
+  if (observe) {
+    await observedStage(
+      observe,
+      {
+        key: 'quote_availability',
+        origin: 'wallet_assertion',
+        errorCode: 'quote_unavailable',
+        endpoint: 'inicio_swap_eta'
+      },
+      () => checkLiveSwapEta(service, offered, requested, amount, minimum)
+    );
+  } else {
+    await checkLiveSwapEta(service, offered, requested, amount, minimum);
+  }
   return {
     offered: { ...offered, balance: BigInt(offered.balance), usdMicros: BigInt(offered.usdMicros) },
     requested: { ...requested, balance: BigInt(requested.balance), usdMicros: BigInt(requested.usdMicros) },
@@ -208,7 +263,8 @@ export async function prepareMainnetSwapReview(
   offered: SavedSwapHolding,
   requested: SavedSwapHolding,
   amount: bigint,
-  minimum: bigint
+  minimum: bigint,
+  observe: ObserveNightly = () => {}
 ): Promise<{ minimumReceive: string; submit: () => Promise<void> }> {
   const page = wallet.page;
   await page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/swap`);
@@ -227,6 +283,7 @@ export async function prepareMainnetSwapReview(
   await page.getByTestId(`swap-token-${requested.symbol}`).click();
   const pay = page.getByTestId('swap-pay-side').getByTestId('send-amount-input');
   const receive = page.getByTestId('swap-receive-side').getByTestId('send-amount-input');
+  const quoteTiming = nightlyDuration();
   const eta = page.waitForResponse(
     response => {
       const url = new URL(response.url());
@@ -241,12 +298,46 @@ export async function prepareMainnetSwapReview(
     { timeout: 60_000 }
   );
   await pay.fill(swapDisplayAmount(amount, offered.decimals));
-  const response = await eta;
-  if (!response.ok()) throw new Error('The wallet quote request failed');
-  const verdict: unknown = await response.json();
-  if (!record(verdict) || !integer(verdict.requestedAmount))
-    throw new Error('The wallet quote has no requested amount');
-  validateSwapEta(verdict, offered.hex, requested.hex, amount, BigInt(verdict.requestedAmount));
+  const response = await eta.catch((error: unknown) => {
+    observe(undefined, {
+      key: 'quote_request',
+      origin: 'wallet_ui',
+      status: 'failed',
+      errorCode: 'quote_request_failed',
+      endpoint: 'inicio_swap_eta',
+      timeoutMs: 60_000,
+      ...quoteTiming()
+    });
+    throw error;
+  });
+  const accepted = response.ok();
+  observe(undefined, {
+    key: 'quote_request',
+    origin: 'wallet_ui',
+    status: accepted ? 'passed' : 'failed',
+    errorCode: accepted ? undefined : 'quote_request_failed',
+    endpoint: 'inicio_swap_eta',
+    httpStatus: response.status(),
+    timeoutMs: 60_000,
+    ...quoteTiming()
+  });
+  if (!accepted) throw new Error('The wallet quote request failed');
+  const quoted = await observedStage(
+    observe,
+    {
+      key: 'quote_availability',
+      origin: 'wallet_assertion',
+      errorCode: 'quote_unavailable',
+      endpoint: 'inicio_swap_eta'
+    },
+    async () => {
+      const verdict: unknown = await response.json();
+      if (!record(verdict) || !integer(verdict.requestedAmount))
+        throw new Error('The wallet quote has no requested amount');
+      validateSwapEta(verdict, offered.hex, requested.hex, amount, BigInt(verdict.requestedAmount));
+      return verdict.requestedAmount;
+    }
+  );
   await receive.waitFor({ state: 'visible' });
   // The response event can precede React's committed quote projection.
   await page.waitForFunction(
@@ -256,7 +347,7 @@ export async function prepareMainnetSwapReview(
       );
       return input?.value === value;
     },
-    { value: swapDisplayAmount(BigInt(verdict.requestedAmount), requested.decimals) },
+    { value: swapDisplayAmount(BigInt(quoted), requested.decimals) },
     { timeout: 30_000 }
   );
   const actualOffer = units(await pay.inputValue(), offered.decimals);

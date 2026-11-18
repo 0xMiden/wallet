@@ -1,3 +1,4 @@
+import type { TestInfo } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { privateKeyToAccount, privateKeyToAddress } from 'viem/accounts';
 import { expect } from '@playwright/test';
@@ -75,10 +76,15 @@ import { exportPublicInputNote } from './swap';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
 import { WcCounterparty } from '../ios/helpers/wc-counterparty';
+import { nightlyDuration, observeNightly, observedStage } from '../reporting/nightly-observation';
 
 export const MAINNET_NEAR_STATE_PATH = 'test-results/mainnet-1click-state/roundtrip.json';
 
-export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode: string): Promise<void> {
+export async function runMainnetNearStage(
+  wallet: GuardianAwareWalletPage,
+  mode: string,
+  info?: TestInfo
+): Promise<void> {
   const runId = process.env.GITHUB_RUN_ID;
   if (
     process.env.E2E_NETWORK !== 'mainnet' ||
@@ -89,6 +95,18 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
   )
     throw new Error('Native NEAR requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH);
+  const chain = previous ? (previous.evm.chainId === 1 ? 'Ethereum' : 'Arbitrum') : undefined;
+  const observe = info
+    ? observeNightly(info, {
+        key: mode === 'recover' ? 'near-recovery' : mode === 'reverse' ? 'near-reverse' : 'near-forward',
+        kind: mode === 'recover' ? 'recovery' : mode === 'prepare' ? 'setup' : 'bridge',
+        surface: 'wallet_ui_and_helper',
+        provider: 'NEAR',
+        sourceRunId: previous?.sourceRunId,
+        sourceNetwork: mode === 'forward' ? 'Miden' : mode === 'reverse' ? chain : undefined,
+        destinationNetwork: mode === 'forward' ? chain : mode === 'reverse' ? 'Miden' : undefined
+      })
+    : () => {};
   if (mode === 'recover') {
     if (
       process.env.MAINNET_NEAR_PREAUTH_UNSPENT === 'true' &&
@@ -99,6 +117,7 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
       if (!keyPair) throw new Error('Original Guardian is required for live NEAR unspent verification');
       await restoreMainnetLoopGuardian(wallet, keyPair);
       await verifyUnstartedNearForward(wallet, previous);
+      observe({ recoveryEffect: 'read_only' }, { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' });
       previous.phase = 'unspent';
       previous.updatedAt = new Date().toISOString();
       saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, previous);
@@ -123,6 +142,7 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
       previous.paidEvmFees === '0' &&
       process.env.MAINNET_NEAR_FORWARD_ATTEMPTED === 'false'
     ) {
+      observe({ recoveryEffect: 'read_only' }, { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' });
       previous.phase = 'unspent';
       previous.updatedAt = new Date().toISOString();
       saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, previous);
@@ -201,9 +221,16 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
       throw new Error('Original native NEAR Guardian changed');
     const signal = AbortSignal.timeout(1_100_000);
     try {
-      if (mode === 'forward')
-        await runMainnetNearForward(wallet, previous, `${MAINNET_NEAR_STATE_PATH}.forward`, signal);
-      else await runMainnetNearReverse(wallet, previous, `${MAINNET_NEAR_STATE_PATH}.reverse`, signal);
+      await observedStage(
+        observe,
+        { key: 'bridge_finality', origin: 'wallet_assertion', timeoutMs: 1_100_000, errorCode: 'bridge_failed' },
+        async () => {
+          if (mode === 'forward')
+            await runMainnetNearForward(wallet, previous, `${MAINNET_NEAR_STATE_PATH}.forward`, signal);
+          else await runMainnetNearReverse(wallet, previous, `${MAINNET_NEAR_STATE_PATH}.reverse`, signal);
+        }
+      );
+      observe({ outcome: 'bridge_completion_asserted' });
     } catch {
       throw new Error(
         'Native NEAR stage blocked; retain original public authority and never retry uncertain submissions'
@@ -211,6 +238,7 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
     }
     return;
   }
+  const preparationTiming = nightlyDuration();
   if (previous && !['complete', 'unspent', 'cancelled'].includes(previous.phase))
     throw new Error('Cannot replace unresolved original native NEAR authority');
   if (previous?.sourceRunId === runId) throw new Error('Native NEAR authority already exists for this source run');
@@ -297,7 +325,12 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
     },
     async request => {
       try {
-        return await requestOneClickQuote(setup.config, request, !usesMainnetNearSignedEconomics(setup.config), fetcher);
+        return await requestOneClickQuote(
+          setup.config,
+          request,
+          !usesMainnetNearSignedEconomics(setup.config),
+          fetcher
+        );
       } catch (error) {
         if (error instanceof OneClickHttpError && error.status === 400) return undefined;
         throw error;
@@ -305,6 +338,26 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
     }
   );
   saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, state);
+  if (info) {
+    const prepared = observeNightly(info, {
+      key: 'near-forward',
+      kind: 'setup',
+      surface: 'wallet_ui_and_helper',
+      provider: 'NEAR',
+      sourceRunId: state.sourceRunId,
+      sourceNetwork: 'Miden',
+      destinationNetwork: state.evm.chainId === 1 ? 'Ethereum' : 'Arbitrum'
+    });
+    prepared(
+      { outcome: 'prepared' },
+      {
+        key: 'preparation',
+        origin: 'wallet_assertion',
+        status: 'passed',
+        ...preparationTiming()
+      }
+    );
+  }
 }
 
 export async function runMainnetNearForward(
@@ -420,7 +473,8 @@ export async function runMainnetNearForward(
     const evmMinimum = tokenValueUsdMicro(BigInt(quote.quote.minAmountOut), 6, tokenPrice, false);
     const evmInput = tokenValueUsdMicro(BigInt(reverse.quote.amountIn), 6, tokenPrice, true);
     const nativeMinimum = tokenValueUsdMicro(BigInt(reverse.quote.minAmountOut), 6, nativePrice, false);
-    const loss = (nativeInput > evmMinimum ? nativeInput - evmMinimum : 0n) +
+    const loss =
+      (nativeInput > evmMinimum ? nativeInput - evmMinimum : 0n) +
       (evmInput > nativeMinimum ? evmInput - nativeMinimum : 0n) +
       signedMainnetNearFees(quote, nativePrice, tokenPrice) +
       signedMainnetNearFees(reverse, tokenPrice, nativePrice) +
@@ -899,10 +953,12 @@ export async function runMainnetNearReverse(
       const creditPrice = currentTokenPrice < originalTokenPrice ? currentTokenPrice : originalTokenPrice;
       const credit = tokenValueUsdMicro(amount, 6, creditPrice, false);
       const principal = tokenValueUsdMicro(BigInt(state.principal), 6, nativePrice, true);
-      signedLoss = signedMainnetNearFees(quote, tokenPrice, nativePrice) + (principal > credit ? principal - credit : 0n);
+      signedLoss =
+        signedMainnetNearFees(quote, tokenPrice, nativePrice) + (principal > credit ? principal - credit : 0n);
     }
     if (
-      tokenValueUsdMicro(loss + BigInt(state.feeBudget), 6, nativePrice, true) + signedLoss +
+      tokenValueUsdMicro(loss + BigInt(state.feeBudget), 6, nativePrice, true) +
+        signedLoss +
         tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, gasPrice, true) >
       BigInt(state.lossBudgetUsdMicros)
     )

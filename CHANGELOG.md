@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [CHANGE][ci] Emit a sanitized mainnet nightly report for the Wallet E2E dashboard with test and recovery evidence.
+
 - [FIX][ci] Retry a timed-out test CLI sync once without resending a transaction or changing wallet deadlines.
 
 - [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.

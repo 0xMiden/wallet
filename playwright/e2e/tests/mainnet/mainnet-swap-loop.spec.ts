@@ -62,6 +62,7 @@ import {
   releaseMainnetConsumeAuthorization
 } from '../../helpers/mainnet-consume-authorization';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
+import { nightlyAmount, nightlyDuration, observeNightly, observedStage } from '../../reporting/nightly-observation';
 import { armMainnetSendAuthorization, releaseMainnetSendAuthorization } from '../../helpers/mainnet-send-authorization';
 
 const STATE_PATH = 'test-results/mainnet-swap-state/roundtrip.json';
@@ -340,7 +341,13 @@ async function authorizeReturn(
   );
   const amount = result.now.request - BigInt(state.request.balance);
   if (amount <= 0n) throw new Error('The forward swap left no newly received return principal');
-  const reverse = await readLiveSwapLeg(live.service, state.request, state.offer, amount);
+  const reverse = await readLiveSwapLeg(
+    live.service,
+    state.request,
+    state.offer,
+    amount,
+    observeSwap('forward', state)
+  );
   const paidUsd = swapValue(holding(state.native), result.fees);
   const loss =
     swapValue(holding(state.offer), BigInt(state.principal) - result.refunded) -
@@ -367,6 +374,21 @@ async function authorizeReturn(
   persist(state);
 }
 
+function observeSwap(leg: 'forward' | 'reverse', state?: MainnetSwapCheckpoint) {
+  const invocation = process.env.E2E_WALLET_REPORT_INVOCATION;
+  const recovery =
+    invocation === 'swap-recovered-return' || invocation === 'swap-recover' || invocation === 'swap-recovery-grant';
+  return observeNightly(test.info(), {
+    key: recovery ? 'swap-recovery' : leg === 'forward' ? 'swap-forward' : 'swap-reverse',
+    kind: recovery ? 'recovery' : invocation === 'swap-prepare' ? 'setup' : 'swap',
+    surface: 'wallet_ui_and_helper',
+    sourceRunId: state?.sourceRunId,
+    provider: 'solver',
+    sourceNetwork: 'Miden',
+    destinationNetwork: 'Miden'
+  });
+}
+
 function completeReturn(state: MainnetSwapCheckpoint, result: Awaited<ReturnType<typeof settle>>): void {
   const totalFees = BigInt(state.paidFees) + result.fees;
   const loss = realizedSwapLoss([
@@ -382,8 +404,28 @@ function completeReturn(state: MainnetSwapCheckpoint, result: Awaited<ReturnType
   state.realizedCostUsdMicros = loss.toString();
   state.phase = 'complete';
   persist(state);
-  if (BigInt(state.forwardRefunded ?? '0') > 0n)
+  const observe = observeSwap('reverse', state);
+  if (BigInt(state.forwardRefunded ?? '0') > 0n) {
+    observe(
+      { outcome: 'partially_filled_and_refunded' },
+      {
+        key: 'cleanup',
+        origin: 'wallet_assertion',
+        status: 'failed',
+        errorCode: 'input_refunded'
+      }
+    );
     throw new Error('Partial forward fill was safely recovered, not a passing full-fill acceptance');
+  }
+  const fresh = process.env.E2E_WALLET_REPORT_INVOCATION === 'swap-reverse';
+  observe(
+    { outcome: fresh ? 'full_swap_asserted' : 'usable_receipt' },
+    {
+      key: 'cleanup',
+      origin: 'wallet_assertion',
+      status: 'passed'
+    }
+  );
 }
 
 async function settle(
@@ -392,6 +434,7 @@ async function settle(
   leg: 'forward' | 'reverse'
 ): Promise<{ received: bigint; refunded: bigint; fees: bigint; now: Awaited<ReturnType<typeof balances>> }> {
   claimLeg = leg;
+  const observe = observeSwap(leg, state);
   claimStage = 'payback-proof';
   const authority = leg === 'forward' ? state.forwardRequestAuthority : state.reverseRequestAuthority;
   const gate = process.env.MAINNET_SWAP_SDK_GATE;
@@ -407,17 +450,37 @@ async function settle(
     orderId: authority.orderId
   };
   let found: MainnetSwapPaybackEvidence | undefined;
-  await expect
-    .poll(
-      async () => {
-        found = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope);
-        return found !== undefined;
-      },
-      { timeout: 300_000, intervals: [5_000], message: 'Exact original full-fill payback not proved' }
-    )
-    .toBe(true);
+  await observedStage(
+    observe,
+    {
+      key: 'payback',
+      origin: 'sdk_read',
+      timeoutMs: 300_000,
+      errorCode: 'order_outcome_unconfirmed',
+      endpoint: 'miden_mainnet_rpc'
+    },
+    () =>
+      expect
+        .poll(
+          async () => {
+            found = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope);
+            return found !== undefined;
+          },
+          { timeout: 300_000, intervals: [5_000], message: 'Exact original full-fill payback not proved' }
+        )
+        .toBe(true)
+  );
   const payback = found;
   if (!payback) throw new Error('Original funded swap payout is unresolved; never resubmit');
+  const receivedAsset = leg === 'forward' ? state.request : state.offer;
+  observe(
+    { outcome: 'fully_filled' },
+    { key: 'order', origin: 'sdk_read', status: 'passed', endpoint: 'miden_mainnet_rpc' }
+  );
+  observe({
+    outcome: payback.claimedAtBlock === undefined ? 'payment_unclaimed' : 'claimed',
+    received: nightlyAmount(receivedAsset, payback.amount)
+  });
   claimStage = 'portfolio-reserve';
   const before = await balances(wallet, state);
   const creationDebits = prepareMainnetSwapClaimRecovery(state, payback, before, leg);
@@ -435,9 +498,16 @@ async function settle(
   )
     throw new Error('Existing claim or unrelated wallet activity prevents native claim');
   claimStage = 'creator-proof';
-  const creator = await readMainnetMidenOwnNoteCreator(authority.noteId, scope.accountId);
-  if (creator.blockNumber !== payback.originalCreatedAtBlock)
-    throw new Error('Original swap creator block differs from its inclusion proof');
+  const creator = await observedStage(
+    observe,
+    { key: 'inclusion', origin: 'sdk_read', errorCode: 'inclusion_unconfirmed', endpoint: 'miden_mainnet_rpc' },
+    async () => {
+      const evidence = await readMainnetMidenOwnNoteCreator(authority.noteId, scope.accountId);
+      if (evidence.blockNumber !== payback.originalCreatedAtBlock)
+        throw new Error('Original swap creator block differs from its inclusion proof');
+      return evidence;
+    }
+  );
   claimStage = 'input-discovery';
   await wallet.triggerSync(true);
   const file = await exportPublicInputNote(wallet, payback.noteId);
@@ -494,6 +564,7 @@ async function settle(
       }
     });
     claimStage = 'consume-commit';
+    const claimTiming = nightlyDuration();
     const receipt = await waitForTransactionRow(
       wallet.page,
       queued.id,
@@ -513,7 +584,9 @@ async function settle(
       BigInt(receipt.feeAmount) > SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee)
     )
       throw new Error('Missing exact recovered consume receipt or authorized native fee');
+    observe({ outcome: 'claimed' }, { key: 'claim', origin: 'wallet_assertion', status: 'passed', ...claimTiming() });
     claimStage = 'vault-reconciliation';
+    const receiptTiming = nightlyDuration();
     await wallet.refreshBalancesLanded(90_000);
     const now = await balances(wallet, state);
     const claimFee = BigInt(receipt.feeAmount);
@@ -526,6 +599,14 @@ async function settle(
     );
     const targetNative = leg === 'forward' ? requestNative : offerNative;
     expect(now.native).toBe(before.native + (targetNative ? payback.amount : 0n) - claimFee);
+    observe(
+      {
+        outcome: 'usable_receipt',
+        received: nightlyAmount(receivedAsset, payback.amount),
+        fee: nightlyAmount(state.native, fees)
+      },
+      { key: 'usable_receipt', origin: 'wallet_assertion', status: 'passed', ...receiptTiming() }
+    );
     claimStage = 'public-claim-proof';
     let claimed: MainnetSwapPaybackEvidence | undefined;
     await expect
@@ -564,6 +645,28 @@ async function settle(
       )
     );
     claimStage = 'complete';
+    if (process.env.E2E_WALLET_REPORT_INVOCATION === 'swap-recover') {
+      observe(
+        { recoveryEffect: 'prior_authorized_claim' },
+        {
+          key: 'claim',
+          origin: 'sdk_read',
+          status: 'passed',
+          endpoint: 'miden_mainnet_rpc'
+        }
+      );
+    }
+    if (process.env.E2E_WALLET_REPORT_INVOCATION === 'swap-recovered-return') {
+      observe(
+        { recoveryEffect: 'prior_authorized_return' },
+        {
+          key: 'claim',
+          origin: 'sdk_read',
+          status: 'passed',
+          endpoint: 'miden_mainnet_rpc'
+        }
+      );
+    }
     return { received: payback.amount, refunded: 0n, fees, now };
   } finally {
     controller.abort();
@@ -585,8 +688,15 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
     throw new Error('Missing explicit mainnet swap mode, workflow identity or Guardian key');
   if (process.env.GITHUB_RUN_ATTEMPT !== '1')
     throw new Error('Do not rerun funded workflow jobs; use a new serialized run to reconcile prior state');
-  await restoreMainnetLoopGuardian(walletB, key);
-  await walletB.refreshBalancesLanded(90_000);
+  const reportedLeg = mode === 'reverse' ? 'reverse' : 'forward';
+  await observedStage(
+    observeSwap(reportedLeg),
+    { key: 'wallet_session', origin: 'wallet_ui', errorCode: 'setup_failed' },
+    async () => {
+      await restoreMainnetLoopGuardian(walletB, key);
+      await walletB.refreshBalancesLanded(90_000);
+    }
+  );
   let state = loadMainnetSwapCheckpoint(STATE_PATH);
   const account = await walletB.getAccountAddress();
   if (state && state.account !== account) throw new Error('The checkpoint belongs to a different Guardian account');
@@ -614,7 +724,13 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
     if (live.baseFee > BigInt(state.baseFee))
       throw new Error('Native fee increased beyond the original recovery budget');
     const before = await balances(walletB, state);
-    const quoted = await readLiveSwapLeg(live.service, state.request, state.offer, proof.amount);
+    const quoted = await readLiveSwapLeg(
+      live.service,
+      state.request,
+      state.offer,
+      proof.amount,
+      observeSwap('reverse', state)
+    );
     const floor =
       replacement &&
       state.reverseRequestAuthority &&
@@ -687,21 +803,60 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       return;
     if (mainnetSwapNextAction(state) !== 'prepare')
       throw new Error('Previous principal is unresolved; refusing a new forward swap');
+    const prepareTiming = nightlyDuration();
     state = await prepare(walletB, runId, await registry(walletB));
     persist(state);
+    observeSwap('forward', state)(
+      {
+        outcome: 'prepared',
+        offered: nightlyAmount(state.offer, BigInt(state.principal)),
+        minimum: nightlyAmount(state.request, BigInt(state.forwardMinimum))
+      },
+      { key: 'preparation', origin: 'wallet_assertion', status: 'passed', ...prepareTiming() }
+    );
     return;
   }
   if (!state) {
-    if (mode === 'recover' && process.env.MAINNET_SWAP_BOOTSTRAP === 'true') return;
+    if (mode === 'recover' && process.env.MAINNET_SWAP_BOOTSTRAP === 'true') {
+      observeSwap('forward')(
+        { recoveryEffect: 'no_work' },
+        {
+          key: 'cleanup',
+          status: 'passed',
+          origin: 'wallet_assertion'
+        }
+      );
+      return;
+    }
     throw new Error('Missing durable swap authorization; do not bootstrap over a previous attempt');
   }
-  if (mainnetSwapNextAction(state) === 'prepare') return;
+  if (mainnetSwapNextAction(state) === 'prepare') {
+    if (mode === 'recover') {
+      observeSwap('forward', state)(
+        { recoveryEffect: 'no_work' },
+        {
+          key: 'cleanup',
+          status: 'passed',
+          origin: 'wallet_assertion'
+        }
+      );
+    }
+    return;
+  }
   if (mainnetSwapNextAction(state) === 'stop')
     throw new Error('The checkpoint requires operator recovery before another spend');
   if (mode === 'recover') {
     if (state.phase === 'forward-authorized' && process.env.MAINNET_SWAP_PRIOR_FORWARD_ATTEMPTED === 'false') {
       state.phase = 'unspent';
       persist(state);
+      observeSwap('forward', state)(
+        { recoveryEffect: 'read_only' },
+        {
+          key: 'cleanup',
+          status: 'passed',
+          origin: 'wallet_assertion'
+        }
+      );
       return;
     }
     if (!process.env.GITHUB_OUTPUT) throw new Error('Missing workflow recovery output channel');
@@ -747,6 +902,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   if (state.phase !== `${leg}-authorized` || state.authorizationRunId !== runId)
     throw new Error('This run has no authorization to submit that swap leg');
   const authorized = state;
+  const observe = observeSwap(leg, authorized);
   if (leg === 'forward' ? authorized.forwardOrderId !== undefined : authorized.reverseOrderId !== undefined)
     throw new Error('This swap already has an order; reconcile it instead of submitting again');
   const observed = await evidence(walletB);
@@ -785,7 +941,16 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       const minimum = BigInt(leg === 'forward' ? authorized.forwardMinimum : authorized.reverseMinimum);
       const gate = process.env.MAINNET_SWAP_SDK_GATE;
       if (!gate) throw new Error('Missing exact SDK swap authorization upload gate');
-      const reviewed = await prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum);
+      const reviewed = await observedStage(
+        observe,
+        { key: 'preparation', origin: 'wallet_ui', errorCode: 'preparation_failed' },
+        () => prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum, observe)
+      );
+      observe({
+        outcome: 'prepared',
+        offered: nightlyAmount(offered, amount),
+        minimum: nightlyAmount(requested, BigInt(reviewed.minimumReceive))
+      });
       const handle = await armMainnetSendAuthorization(walletB.page, {
         kind: 'swap',
         accountId: Address.fromBech32(authorized.account).accountId().toString(),
@@ -798,8 +963,16 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       return async () => {
         const controller = new AbortController();
         try {
+          observe(undefined, {
+            key: 'execution',
+            origin: 'wallet_ui',
+            status: 'in_progress',
+            startAt: new Date().toISOString()
+          });
           await Promise.all([
-            reviewed.submit().catch(error => {
+            observedStage(observe, { key: 'approval', origin: 'wallet_ui', errorCode: 'execution_failed' }, () =>
+              reviewed.submit()
+            ).catch(error => {
               controller.abort();
               throw error;
             }),
@@ -826,6 +999,14 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
               }
             })
           ]);
+          observe({ outcome: 'executed' }, { key: 'execution', origin: 'wallet_assertion', status: 'passed' });
+          observe(undefined, {
+            key: 'proof',
+            origin: 'sdk_read',
+            status: 'unknown',
+            evidence: 'not_recorded',
+            reason: 'not_instrumented'
+          });
           return snapshot;
         } finally {
           controller.abort();

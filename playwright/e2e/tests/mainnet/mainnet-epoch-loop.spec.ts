@@ -32,12 +32,13 @@ import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from '../../hel
 import { loadMainnetSwapCheckpoint } from '../../helpers/mainnet-swap-checkpoint';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { getEnvironmentConfig } from '../../config/environments';
+import { nightlyDuration, observeNightly, observedStage } from '../../reporting/nightly-observation';
 
 const STATE_PATH = 'test-results/mainnet-epoch-state/roundtrip.json';
 test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial', retries: 0 });
 
-test('mainnet Epoch staged round trip', async ({ walletB }) => {
+test('mainnet Epoch staged round trip', async ({ walletB }, info) => {
   const mode = process.env.MAINNET_EPOCH_MODE;
   test.skip(mode === undefined, 'Epoch is selected only by the staged nightly workflow');
   const runId = process.env.GITHUB_RUN_ID;
@@ -50,6 +51,16 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
   )
     throw new Error('Epoch requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetEpochCheckpoint(STATE_PATH);
+  const chain = previous ? (previous.evm.chainId === 1 ? 'Ethereum' : 'Arbitrum') : undefined;
+  const observe = observeNightly(info, {
+    key: mode === 'recover' ? 'epoch-recovery' : mode === 'reverse' ? 'epoch-reverse' : 'epoch-forward',
+    kind: mode === 'recover' ? 'recovery' : mode === 'prepare' ? 'setup' : 'bridge',
+    surface: 'wallet_ui_and_helper',
+    provider: 'Epoch',
+    sourceRunId: previous?.sourceRunId,
+    sourceNetwork: mode === 'forward' ? 'Miden' : mode === 'reverse' ? chain : undefined,
+    destinationNetwork: mode === 'forward' ? chain : mode === 'reverse' ? 'Miden' : undefined
+  });
   if (mode === 'recover') {
     if (
       previous?.phase === 'forward-authorized' &&
@@ -75,11 +86,13 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
         await verifyUnstartedEpochForward(walletB, previous);
       }
       previous.phase = 'unspent';
+      observe({ recoveryEffect: 'read_only' }, { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' });
       previous.updatedAt = new Date().toISOString();
       saveMainnetEpochCheckpoint(STATE_PATH, previous);
     }
     if (!previous || ['complete', 'unspent', 'cancelled'].includes(previous.phase)) {
       writeFileSync('test-results/mainnet-epoch-recovery.json', `${JSON.stringify({ recoveryOnly: false })}\n`);
+      observe(undefined, { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' });
       return;
     }
     if (previous.consumeAuthority && !previous.returnMidenTxId)
@@ -169,14 +182,22 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
     if ((await walletB.getAccountAddress()) !== previous.account) throw new Error('Original Epoch Guardian changed');
     const signal = AbortSignal.timeout(1_100_000);
     try {
-      if (mode === 'forward')
-        await runEpochForward(walletB, previous, STATE_PATH, runId, `${STATE_PATH}.forward`, signal);
-      else await runEpochReverse(walletB, previous, STATE_PATH, runId, `0x${key}`, `${STATE_PATH}.reverse`, signal);
+      await observedStage(
+        observe,
+        { key: 'bridge_finality', origin: 'wallet_assertion', timeoutMs: 1_100_000, errorCode: 'bridge_failed' },
+        async () => {
+          if (mode === 'forward')
+            await runEpochForward(walletB, previous, STATE_PATH, runId, `${STATE_PATH}.forward`, signal);
+          else await runEpochReverse(walletB, previous, STATE_PATH, runId, `0x${key}`, `${STATE_PATH}.reverse`, signal);
+        }
+      );
+      observe({ outcome: 'bridge_completion_asserted' });
     } catch {
       throw new Error('Epoch stage blocked; retain original public authority and never retry uncertain submissions');
     }
     return;
   }
+  const preparationTiming = nightlyDuration();
   if (previous && !['complete', 'unspent', 'cancelled'].includes(previous.phase))
     throw new Error('Cannot replace an unresolved Epoch authorization');
   if (previous?.sourceRunId === runId) throw new Error('Epoch authorization already exists for this run');
@@ -285,4 +306,22 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
   if (!selected) throw new Error('No funded Epoch route has a real quote pair within the remaining shared allowance');
   saveMainnetEpochCheckpoint(STATE_PATH, selected.state);
   writeFileSync('test-results/mainnet-epoch-summary.json', `${JSON.stringify(selected.state, null, 2)}\n`);
+  const prepared = observeNightly(info, {
+    key: 'epoch-forward',
+    kind: 'setup',
+    surface: 'wallet_ui_and_helper',
+    provider: 'Epoch',
+    sourceRunId: selected.state.sourceRunId,
+    sourceNetwork: 'Miden',
+    destinationNetwork: selected.state.evm.chainId === 1 ? 'Ethereum' : 'Arbitrum'
+  });
+  prepared(
+    { outcome: 'prepared' },
+    {
+      key: 'preparation',
+      origin: 'wallet_assertion',
+      status: 'passed',
+      ...preparationTiming()
+    }
+  );
 });

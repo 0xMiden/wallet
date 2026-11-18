@@ -40,6 +40,7 @@ import {
   readEthereumFunds
 } from '../../helpers/mainnet-bridge-run';
 import { AGGLAYER_LOOP_WEI, CEDAR_ROLLUP_ID, mainnetChain, mainnetRpc } from '../../helpers/mainnet-bridge-sources';
+import { nightlyAmount, nightlyDuration, observeNightly, observedStage } from '../../reporting/nightly-observation';
 
 // One night: ETH from Ethereum to the plain Miden account over AggLayer, then back. The exit takes 40 to 45 minutes to
 // become claimable, so this runs in its own job after the main one, which shares the account and the Ethereum key.
@@ -113,30 +114,58 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
   }
 
   // An indexer that cannot be read now could not settle tonight's exit either, so nothing is sent.
+  const provider = 'AggLayer';
+  const deposit = observeNightly(test.info(), {
+    key: 'agglayer-deposit',
+    kind: 'bridge',
+    surface: 'wallet_ui_and_helper',
+    provider,
+    sourceNetwork: 'Ethereum',
+    destinationNetwork: 'Miden'
+  });
+  const withdrawal = observeNightly(test.info(), {
+    key: 'agglayer-withdrawal',
+    kind: 'bridge',
+    surface: 'wallet_ui_and_helper',
+    provider,
+    sourceNetwork: 'Miden',
+    destinationNetwork: 'Ethereum'
+  });
   const target = { rollupId: CEDAR_ROLLUP_ID, address: evm.address };
   await fetchIndexedDeposits(AGGLAYER_INDEXER, evm.address);
   const ethBefore = await vaultBalance(walletA.page, 'ETH');
-  const depositTx = await bridgeEthToMiden({
-    key: signer,
-    chain,
-    rpcUrl: mainnetRpc(1),
-    bridge: AGGLAYER_BRIDGE,
-    rollupId: CEDAR_ROLLUP_ID,
-    midenAddress: address,
-    wei: AGGLAYER_LOOP_WEI
-  });
+  const depositTx = await observedStage(
+    deposit,
+    { key: 'submission', origin: 'sdk_read', errorCode: 'submission_failed' },
+    () =>
+      bridgeEthToMiden({
+        key: signer,
+        chain,
+        rpcUrl: mainnetRpc(1),
+        bridge: AGGLAYER_BRIDGE,
+        rollupId: CEDAR_ROLLUP_ID,
+        midenAddress: address,
+        wei: AGGLAYER_LOOP_WEI
+      })
+  );
   record({ depositTx, depositAt: iso() });
   // Sync and claim until the balance rises above what the account held before this night's deposit.
-  await expect
-    .poll(
-      async () => {
-        await walletA.triggerSync(true);
-        await walletA.claimAllNotes();
-        return vaultBalance(walletA.page, 'ETH');
-      },
-      { timeout: LANDING_MS, intervals: [POLL_MS] }
-    )
-    .toBeGreaterThan(ethBefore);
+  await observedStage(
+    deposit,
+    { key: 'usable_receipt', origin: 'wallet_assertion', timeoutMs: LANDING_MS, errorCode: 'receipt_unconfirmed' },
+    () =>
+      expect
+        .poll(
+          async () => {
+            await walletA.triggerSync(true);
+            await walletA.claimAllNotes();
+            return vaultBalance(walletA.page, 'ETH');
+          },
+          { timeout: LANDING_MS, intervals: [POLL_MS] }
+        )
+        .toBeGreaterThan(ethBefore)
+  );
+  deposit({ outcome: 'usable_receipt', offered: nightlyAmount({ symbol: 'ETH', decimals: 18 }, AGGLAYER_LOOP_WEI) });
   record({ landedAt: iso() });
 
   // Read again just before the bridge-out, so an exit filed during the landing is not mistaken for tonight's.
@@ -164,6 +193,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
 
   const readClaim = (hash: Hex) => retried(() => readEthereumClaim({ chain, rpcUrl: mainnetRpc(1), hash }));
 
+  const finalityTiming = nightlyDuration();
   const settle = async (claimTxHash: string, exit: AgglayerDeposit, read?: ClaimRead): Promise<void> => {
     if (!isHex(claimTxHash)) throw new Error(`exit ${exit.deposit_cnt} has a claim hash that is not hex`);
     const claim = read ?? (await readClaim(claimTxHash));
@@ -176,10 +206,26 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
     });
     const problem = claimPaysExit(claim.receipt, exit, { bridge: AGGLAYER_BRIDGE, destination: evm.address });
     if (problem) {
+      withdrawal(undefined, {
+        key: 'bridge_finality',
+        origin: 'wallet_assertion',
+        status: 'failed',
+        errorCode: 'bridge_failed',
+        ...finalityTiming()
+      });
       record({ outcome: `claim did not pay the exit: ${problem}` });
       throw new Error(`claim ${claimTxHash}: ${problem}`);
     }
     record({ outcome: 'settled' });
+    withdrawal(
+      { outcome: 'bridge_completion_asserted' },
+      {
+        key: 'bridge_finality',
+        origin: 'wallet_assertion',
+        status: 'passed',
+        ...finalityTiming()
+      }
+    );
   };
 
   // The exit wait ends before the test does, so a slow night fails with its own message and summary.
@@ -306,6 +352,14 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
     night.exitDepositCnt === undefined
       ? `no exit above ${cursor} carrying ${AGGLAYER_LOOP_WEI} wei was indexed`
       : `exit ${night.exitDepositCnt} ${exitState}`;
+  withdrawal(undefined, {
+    key: 'bridge_finality',
+    origin: 'wallet_assertion',
+    status: 'failed',
+    errorCode: 'bridge_failed',
+    deadlineAt: new Date(deadline).toISOString(),
+    ...finalityTiming()
+  });
   record({ outcome: `timed out: ${where}` });
   throw new Error(
     `AggLayer exit to ${evm.address} not settled within ${Math.round((Date.now() - waitStarted) / 60_000)} minutes: ${where}` +
