@@ -21,6 +21,8 @@
 - [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
 - [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
 - [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
+- [FIX][ci] Wait for the Guardian to settle the funding claim before testing candidate abandonment.
+
 - [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.
 
 - [FIX][ci] Allow a first explicitly approved Swap recovery return when an unsigned plan was retained and still matches the verified proceeds and vault balances. Previously issued return authority remains ineligible.
