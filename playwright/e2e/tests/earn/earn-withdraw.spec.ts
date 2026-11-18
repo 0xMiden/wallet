@@ -1,11 +1,13 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
-import type { TestInfo } from '@playwright/test';
+import type { ConsoleMessage, TestInfo } from '@playwright/test';
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
 import sharp from 'sharp';
 
 import { getEnvironmentConfig } from '../../config/environments';
 import { expect, test } from '../../fixtures/hermetic-bridge';
 import { suspendScreenCapture } from '../../harness/screen-capture';
+import { summarizeEarnReactFrames } from '../../helpers/earn-react-frames';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';
 import { type AccountAxis, guardianAxis, offChainAxis } from '../../helpers/money-path';
@@ -424,9 +426,35 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         await expect
           .poll(async () => (await withdrawState(survivor, txId))?.phase, { timeout: 45_000, intervals: [1000] })
           .toBe('failed');
-        await survivor.navigateTo(`/history-details/${txId}`);
         const retryDelivery = survivorPage.getByRole('button', { name: 'Retry delivery', exact: true });
-        await expect(retryDelivery).toBeVisible({ timeout: 30_000 });
+        const consoleErrors: string[] = [];
+        const diagnoseColdReceipt = getEnvironmentConfig().name === 'localhost';
+        const onConsoleError = (message: ConsoleMessage) => {
+          if (message.type() !== 'error' || consoleErrors.length >= 2) return;
+          const text = message.text();
+          if (text.length <= 16_384 && text.includes('Minified React error #185')) consoleErrors.push(text);
+        };
+        if (diagnoseColdReceipt) survivorPage.on('console', onConsoleError);
+        try {
+          await survivor.navigateTo(`/history-details/${txId}`);
+          await expect(retryDelivery).toBeVisible({ timeout: 30_000 });
+        } catch (error) {
+          if (diagnoseColdReceipt) {
+            try {
+              const frames = summarizeEarnReactFrames(
+                consoleErrors,
+                walletA.extensionId,
+                process.env.EXTENSION_DIST ?? resolve(__dirname, '../../../..', 'dist/chrome_unpacked')
+              );
+              console.error(`Earn receipt #185 frames: ${frames}`);
+            } catch {
+              console.error('Earn receipt #185 frames: unavailable');
+            }
+          }
+          throw error;
+        } finally {
+          if (diagnoseColdReceipt) survivorPage.off('console', onConsoleError);
+        }
         await expect(survivorPage.getByText(/Max network fee/)).toHaveCount(0);
         await retryDelivery.scrollIntoViewIfNeeded();
         await captureWithdrawalScreen(survivor, testInfo, 'withdrawal-retry-delivery');

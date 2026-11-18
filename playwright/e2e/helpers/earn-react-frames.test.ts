@@ -39,6 +39,24 @@ it('maps 1-based stack positions to only static markers and deduplicates repeate
   expect(result).not.toMatch(/chrome-extension|private|src\/|abcdefgh|mh|error/i);
 });
 
+it('reserves frames from a second #185 console record after a long first stack', () => {
+  writeFileSync(
+    join(build, 'chunks', `${CHUNK}.map`),
+    JSON.stringify({
+      version: 3,
+      file: CHUNK,
+      sources: ['../../src/private/WalletVault.ts', '../../src/app/layouts/Dialogs.tsx'],
+      sourcesContent: [null],
+      names: [],
+      mappings: 'AAAA;ACAA'
+    })
+  );
+  const repeatedFrame = `    at mh (chrome-extension://${EXTENSION}/chunks/${CHUNK}:1:1)`;
+  const first = `Error: Minified React error #185\n${Array(9).fill(repeatedFrame).join('\n')}`;
+  const second = `Error: Minified React error #185\n    at Presence (chrome-extension://${EXTENSION}/chunks/${CHUNK}:2:1)`;
+  expect(summarizeEarnReactFrames([first, second], EXTENSION, build)).toBe('Dialogs:1:1');
+});
+
 it('refuses different origins, non-chunk paths, unknown sources and untrusted build maps', () => {
   map();
   expect(summarizeEarnReactFrames([stack('b'.repeat(32))], EXTENSION, build)).toBe('unavailable');
