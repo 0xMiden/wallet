@@ -156,6 +156,14 @@ jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div da
 jest.mock('screens/command/CommandPortfolio', () => ({
   CommandPortfolio: () => <div data-testid="command-portfolio" />
 }));
+jest.mock('screens/command/CommandRecentActions', () => ({
+  CommandRecentActions: ({ scope }: { scope: { accountId: string } }) => (
+    <div data-testid="command-recent-actions" data-account-id={scope.accountId} />
+  )
+}));
+jest.mock('screens/command/CommandOperation', () => ({
+  CommandOperation: ({ children }: { children: React.ReactNode }) => <>{children}</>
+}));
 jest.mock('screens/command/bridge/CommandBridge', () => ({
   CommandBridge: () => <div data-testid="command-bridge" />
 }));
@@ -334,6 +342,7 @@ describe('Command routing', () => {
     mockExtension.value = true;
     renderAt('/', { ...ready, fullPage: true });
     expect(screen.getByTestId('command-portfolio')).toBeInTheDocument();
+    expect(screen.getByTestId('command-recent-actions')).toHaveAttribute('data-account-id', 'account-a');
     expect(screen.getByTestId('command-notices')).toBeInTheDocument();
     expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
   });

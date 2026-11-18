@@ -69,6 +69,7 @@ jest.mock('lib/woozie', () => ({
 }));
 jest.mock('screens/command/CommandHomePrompts', () => ({ CommandHomePrompts: () => null }));
 jest.mock('screens/command/CommandPortfolio', () => ({ CommandPortfolio: () => null }));
+jest.mock('screens/command/CommandRecentActions', () => ({ CommandRecentActions: () => null }));
 
 it('shows the real receiving address before incoming notes, with asset guidance beneath incoming', () => {
   render(
