@@ -40,6 +40,11 @@ export function CommandAssets({
         {assets.map(asset => {
           const quote = tokenQuote(prices, asset.tokenId, asset.metadata.symbol);
           const known = hasKnownScale(asset.metadata);
+          const baseUnits = !hidden && current && known ? asset.balanceBaseUnits : undefined;
+          const quantity =
+            typeof baseUnits === 'string' && baseUnits.length > 0 && !/[^0-9]/.test(baseUnits)
+              ? BigInt(baseUnits)
+              : undefined;
           const now = Date.now();
           const available =
             pricesReady &&
@@ -61,11 +66,15 @@ export function CommandAssets({
                   ? t('commandMaskedBalance')
                   : !current
                     ? t('commandBalanceUnavailable')
-                    : !Number.isFinite(asset.balance)
-                      ? t('commandBalanceUnavailable')
-                      : known
-                        ? `${formatAmountDisplay(asset.balance, displayOptions)} ${asset.metadata.symbol}`
-                        : t('assetValueUnknownScale')
+                    : !known
+                      ? t('assetValueUnknownScale')
+                      : quantity === undefined
+                        ? t('commandBalanceUnavailable')
+                        : `${formatAmountDisplay(quantity, {
+                            ...displayOptions,
+                            decimals: asset.metadata.decimals,
+                            rounding: 'down'
+                          })} ${asset.metadata.symbol}`
               }
               value={
                 hidden
