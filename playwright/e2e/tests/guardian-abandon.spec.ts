@@ -39,7 +39,10 @@ test.describe('Guardian account - abandon', () => {
         timeoutMs: 180_000,
         decimals: TOKEN_DECIMALS
       });
+      walletA.trackGuardianCommitments();
       await walletA.claimAllNotes(180_000);
+      // The next proposal needs the funding claim to be canonical on the Guardian.
+      await walletA.waitForGuardianSettled();
     });
 
     await steps.step('abandon_pushed_candidate', async () => {
