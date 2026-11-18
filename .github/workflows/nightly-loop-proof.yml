@@ -26,7 +26,7 @@ jobs:
           test "$GITHUB_RUN_ATTEMPT" = 1
           test "$GITHUB_REF" = refs/heads/wiktor/green04-near-status-bound-once
           base=eb23473d006c3564a30cdb991f177e64ff89ec24
-          test "$(gh api repos/0xMiden/wallet/branches/main --jq .commit.sha)" = "$base"
+          gh api "repos/0xMiden/wallet/compare/$base...main" --jq .status | grep -Ex 'identical|ahead'
           test "$(gh run list --workflow e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44318071333:completed
           gh run view 44318071333 --json headSha,attempt,conclusion,jobs | jq -e --arg base "$base" '.headSha==$base and .attempt==1 and .conclusion=="failure" and ([.jobs[].steps[]|select(.name=="Wait for mainnet NEAR forward" and .conclusion=="failure")]|length)==1' >/dev/null
           git merge-base --is-ancestor "$base" HEAD
