@@ -65,6 +65,7 @@ import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
 import {
   createMainnetNearEvmBroadcast,
   inspectMainnetNearForwardReceipt,
+  matchesMainnetNearMidenSource,
   reconcileMainnetNearEvmReceipt
 } from './mainnet-near-evm';
 import { getEnvironmentConfig } from '../config/environments';
@@ -518,7 +519,7 @@ export async function runMainnetNearForward(
     )
     .toBe('SUCCESS');
   const origins = settled?.swapDetails.originChainTxHashes;
-  if (origins?.length !== 1 || origins[0]?.hash.toLowerCase() !== state.forwardMidenTxId)
+  if (!matchesMainnetNearMidenSource(origins, creator.transactionId, noteId))
     throw new Error('Native NEAR provider settlement does not identify the actual original source transaction');
   const hashes = settled?.swapDetails.destinationChainTxHashes;
   const hash = hashes?.[0]?.hash.toLowerCase();
@@ -1166,7 +1167,12 @@ export async function recoverMainnetNear(
   const sourceHash = creator.transactionId;
   if (!isHash(sourceHash)) throw new Error('Invalid original actual native NEAR source hash');
   const forward = await originalMainnetNearStatus(wallet, state, 'forward', sourceHash);
-  if (!forward.swapDetails.originChainTxHashes.some(item => item.hash.toLowerCase() === sourceHash))
+  const origins = forward.swapDetails.originChainTxHashes;
+  if (
+    forward.status === 'SUCCESS'
+      ? !matchesMainnetNearMidenSource(origins, sourceHash, noteId)
+      : !origins.some(item => item.hash.toLowerCase() === sourceHash)
+  )
     throw new Error('Native NEAR provider does not correlate the exact original source transaction');
   const client = createPublicClient({
     chain: mainnetChain(state.evm.chainId),
