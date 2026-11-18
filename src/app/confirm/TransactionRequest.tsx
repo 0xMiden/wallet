@@ -116,8 +116,6 @@ interface MovementRow {
   amount: React.ReactNode;
   incoming: boolean;
   titleTestId?: string;
-  /** A row of the simulated view: marked for the E2E preview checks. */
-  verified?: boolean;
 }
 
 /** Who sends to whom: one row per side, an arrow between them, the fee along the bottom. */
@@ -145,7 +143,6 @@ const MovementCard: FC<{ rows: MovementRow[]; fee?: { label: string; value: Reac
         </div>
         <span
           className={cn('shrink-0 whitespace-nowrap text-value', row.incoming ? 'text-positive-tint-ink' : 'text-ink')}
-          data-verified={row.verified ? 'true' : undefined}
         >
           {row.amount}
         </span>
@@ -413,6 +410,17 @@ export const ConsumeRequest: FC<{
 // Custom transaction
 // --------------------------------------------------------------------------------------------
 
+/**
+ * A simulated row's amount: the sign on screen, the marked element exactly "<quantity> <symbol>", the shape the E2E
+ * preview checks read (`[data-verified="true"]` filtered by /^1 TST$/).
+ */
+const verifiedAmount = (sign: '-' | '+', text: string) => (
+  <>
+    {sign}
+    <span data-verified="true">{text}</span>
+  </>
+);
+
 export const CustomRequest: FC<{
   origin: string;
   account: WalletAccount;
@@ -439,33 +447,29 @@ export const CustomRequest: FC<{
       leading: <GlyphAvatar icon={IconName.Send} color="var(--accent-send)" />,
       title: t('confirmTxYouPay'),
       subtitle: t('confirmTxLeavesAccount'),
-      amount: `-${label(a)}`,
-      incoming: false,
-      verified: true
+      amount: verifiedAmount('-', label(a)),
+      incoming: false
     })),
     ...view.outgoingNfts.map(nft => ({
       leading: <GlyphAvatar icon={IconName.Send} color="var(--accent-send)" />,
       title: t('confirmTxYouPay'),
       subtitle: `${t('nftFaucet')} ${truncateAddress(nft.faucetId)}`,
-      amount: `-${t('nft')} ${nft.assetId}`,
-      incoming: false,
-      verified: true
+      amount: verifiedAmount('-', `${t('nft')} ${nft.assetId}`),
+      incoming: false
     })),
     ...incoming.map(a => ({
       leading: <GlyphAvatar icon={IconName.Receive} color="var(--accent-receive)" />,
       title: t('confirmTxYouGet'),
       subtitle: t('confirmTxArrivesAccount'),
-      amount: `+${label(a)}`,
-      incoming: true,
-      verified: true
+      amount: verifiedAmount('+', label(a)),
+      incoming: true
     })),
     ...view.incomingNfts.map(nft => ({
       leading: <GlyphAvatar icon={IconName.Receive} color="var(--accent-receive)" />,
       title: t('confirmTxYouGet'),
       subtitle: `${t('nftFaucet')} ${truncateAddress(nft.faucetId)}`,
-      amount: `+${t('nft')} ${nft.assetId}`,
-      incoming: true,
-      verified: true
+      amount: verifiedAmount('+', `${t('nft')} ${nft.assetId}`),
+      incoming: true
     }))
   ];
 

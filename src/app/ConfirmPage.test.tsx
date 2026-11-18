@@ -1551,6 +1551,43 @@ describe('ConfirmPage custom transaction', () => {
     expect(screen.queryByTestId('tx-note-flow-unavailable')).not.toBeInTheDocument();
   });
 
+  // expectVerifiedPreview (playwright/e2e/helpers/dapp-assertions.ts) filters the marked rows by /^1 TST$/: the
+  // sign stays on screen but outside the marked element, as the view before the redesign kept it.
+  it('marks each simulated row on its unsigned amount, the shape the E2E preview reads', async () => {
+    mockFetchTokenMetadata.mockResolvedValue({ symbol: 'TST', name: 'Test', decimals: 0 });
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ view: verifiedView('mtst1acct') });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() =>
+      expect(Array.from(document.querySelectorAll('[data-verified="true"]'), el => el.textContent)).toEqual([
+        '10 TST',
+        '3 TST'
+      ])
+    );
+    expect(document.querySelector('[data-verified="true"]')?.parentElement).toHaveTextContent(/^-10 TST$/);
+  });
+
+  it('marks a simulated NFT row on its unsigned value too', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({
+      view: {
+        ...verifiedView('mtst1acct'),
+        outgoing: [],
+        incoming: [],
+        outgoingNfts: [{ faucetId: 'fN', assetId: '0xabc' }],
+        incomingNfts: [{ faucetId: 'fM', assetId: '0xdef' }]
+      }
+    });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(Array.from(document.querySelectorAll('[data-verified="true"]'), el => el.textContent)).toEqual([
+      'nft 0xabc',
+      'nft 0xdef'
+    ]);
+  });
+
   it("shows the simulated view's held-note count apart from its input notes", async () => {
     (ctx as any).simulateCustomTransaction.mockResolvedValue({
       view: { ...verifiedView('mtst1acct'), inputNotesConsumed: 3, heldNotesSpent: 2 }
