@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
-import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { ClaimableNoteWithMetadata, ScopedClaimableNotesRead } from 'lib/miden/front/claimable-notes';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead } from 'lib/settings/activity-read';
@@ -45,7 +45,7 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
  * and the Groups view read it, so a transfer can be accepted or declined from either and each hands the
  * same items to `History`, which hides the consume row a card already stands for.
  */
-export function useActivityClaimList(search: string, filter: ActivityFilter) {
+export function useActivityClaimList(search: string, filter: ActivityFilter, sharedRead?: ScopedClaimableNotesRead) {
   const { t } = useTranslation();
   const {
     items: claimItems,
@@ -55,7 +55,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     cannotPayFee,
     account,
     isLoadingNotes
-  } = useActivityClaims();
+  } = useActivityClaims(sharedRead);
   // Every claim is a card on every network: on Mainnet a note of the native asset sent by its
   // faucet is a bridge-in, which the USDCx faucet mints, so no network filters the faucet claims.
   const items = claimItems;

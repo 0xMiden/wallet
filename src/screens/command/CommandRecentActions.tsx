@@ -9,6 +9,7 @@ import HistoryItem from 'app/templates/history/HistoryItem';
 import { HistoryLoadErrorCard, HistoryLoadErrorNotice } from 'app/templates/history/HistoryView';
 import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
 import { EmptyState, Notice, SectionHeader, Spinner, TextAction } from 'components/ui';
+import type { ScopedClaimableNotesRead } from 'lib/miden/front/claimable-notes';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { navigate } from 'lib/woozie';
 
@@ -16,7 +17,15 @@ import { useCommandPrivacy } from './useCommandPrivacy';
 
 const RECENT_ACTION_COUNT = 5;
 
-export function CommandRecentActions({ scope }: { scope: AccountScope }): React.ReactElement {
+export function CommandRecentActions({
+  scope,
+  sharedRead,
+  scopeCurrent = true
+}: {
+  scope: AccountScope;
+  sharedRead?: ScopedClaimableNotesRead;
+  scopeCurrent?: boolean;
+}): React.ReactElement {
   const { t } = useTranslation();
   const [hidden] = useCommandPrivacy();
 
@@ -24,24 +33,35 @@ export function CommandRecentActions({ scope }: { scope: AccountScope }): React.
     <section className="mx-auto w-full max-w-5xl px-4 pb-8" aria-label={t('commandRecentActions')}>
       <SectionHeader
         size="xl"
-        action={!hidden && <TextAction onClick={() => navigate('/history')}>{t('activity')}</TextAction>}
+        action={
+          !hidden && scopeCurrent && <TextAction onClick={() => navigate('/history')}>{t('activity')}</TextAction>
+        }
       >
         {t('commandRecentActions')}
       </SectionHeader>
       {hidden ? (
         <EmptyState icon={IconName.ArrowUpDown} size="compact" title={t('commandMaskedBalance')} />
+      ) : !scopeCurrent ? (
+        <ClaimsLoadingBar loading label={t('activityFetchingHistoryAndNotes')} />
       ) : (
-        <RecentActionsList scope={scope} />
+        <RecentActionsList scope={scope} sharedRead={sharedRead} />
       )}
     </section>
   );
 }
 
-function RecentActionsList({ scope }: { scope: AccountScope }): React.ReactElement {
+function RecentActionsList({
+  scope,
+  sharedRead
+}: {
+  scope: AccountScope;
+  sharedRead?: ScopedClaimableNotesRead;
+}): React.ReactElement {
   const { t } = useTranslation();
   const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden } = useActivityClaimList(
     '',
-    'all'
+    'all',
+    sharedRead
   );
   if (hidden.failed)
     return (

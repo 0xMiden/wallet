@@ -67,6 +67,13 @@ jest.mock('app/templates/history/HistoryItem', () => ({
     </div>
   )
 }));
+jest.mock('lib/miden/front', () => ({
+  ...jest.requireActual('lib/miden/front'),
+  useAccount: () => ({ publicKey: 'account-a' })
+}));
+jest.mock('lib/miden/front/claimable-notes', () => ({
+  useClaimableNotes: () => ({ data: [], isFallback: false, mutate: jest.fn() })
+}));
 jest.mock('./useCommandPrivacy', () => ({ useCommandPrivacy: () => [mockHidden, jest.fn()] }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));

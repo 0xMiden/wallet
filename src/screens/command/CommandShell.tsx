@@ -3,7 +3,11 @@ import React, { useEffect, useLayoutEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 
 import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
+import { useAccount } from 'lib/miden/front';
+import { useClaimableNotes, type ScopedClaimableNotesRead } from 'lib/miden/front/claimable-notes';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { isExtension } from 'lib/platform';
 
 import { CommandDraftProvider } from './command-drafts';
 import type { CommandRoute } from './command-routes';
@@ -15,6 +19,26 @@ import { CommandPalette } from './CommandPalette';
 import { CommandPortfolio } from './CommandPortfolio';
 import { CommandRecentActions } from './CommandRecentActions';
 import { CommandWorkbench } from './CommandWorkbench';
+
+function CommandDashboard({ scope }: { scope: AccountScope }): React.ReactElement {
+  const account = useAccount();
+  const scopeCurrent =
+    !isExtension() ||
+    (scope.accountId === account.publicKey &&
+      scope.network === getEffectiveNetworkName() &&
+      scope.rpcUrl === getEffectiveRpcUrl());
+  const shareNotes = isExtension() && scopeCurrent;
+  const result = useClaimableNotes(account.publicKey, shareNotes);
+  const sharedRead: ScopedClaimableNotesRead | undefined = shareNotes ? { scope, result } : undefined;
+
+  return (
+    <>
+      <CommandPortfolio scope={scope} />
+      <CommandHomePrompts sharedRead={sharedRead} />
+      <CommandRecentActions scope={scope} sharedRead={sharedRead} scopeCurrent={scopeCurrent} />
+    </>
+  );
+}
 
 export function CommandShell({
   scope,
@@ -71,11 +95,10 @@ export function CommandShell({
               <CommandHeader />
               <main className="relative min-h-0 flex-1 overflow-y-auto">
                 {route.kind === 'dashboard' && (
-                  <>
-                    <CommandPortfolio scope={scope} />
-                    <CommandHomePrompts />
-                    <CommandRecentActions scope={scope} />
-                  </>
+                  <CommandDashboard
+                    key={JSON.stringify([scope.accountId, scope.network, scope.rpcUrl])}
+                    scope={scope}
+                  />
                 )}
                 <div
                   ref={setPortalHost}
