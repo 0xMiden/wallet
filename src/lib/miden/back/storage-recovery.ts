@@ -27,7 +27,8 @@ import {
   markWalletStorageUnavailable,
   WalletStorageUnavailableError
 } from '../storage-health';
-import { judgeSubmitEvidence, type RowJudgement } from '../transaction/reconcile-judge';
+import { orderFromSavedRequest, swapOpensOrderFromRead } from '../transaction/pinned-replay-check';
+import { judgeSubmitEvidence } from '../transaction/reconcile-judge';
 import { createNodeReads, observedCadenceMs, RPC_READ_TIMEOUT_MS } from '../transaction/reconcile-reads';
 import { upsertEvidenceEntry } from '../transaction/verdict-rules';
 
@@ -323,7 +324,7 @@ async function fetchCurrentAccountState(account: WalletAccount, vault: Vault, as
 async function verifyRetainedTransfers(
   rows: ITransaction[],
   assertCurrent: () => void
-): Promise<Map<string, RowJudgement['landed']>> {
+): Promise<Map<string, Repo.RecoveryLanding | undefined>> {
   const pending = rows.filter(
     row =>
       row.restoredFromBackup !== true &&
@@ -331,30 +332,36 @@ async function verifyRetainedTransfers(
       row.status !== ITransactionStatus.Completed &&
       row.neverCommittedAt === undefined
   );
-  const verified = new Map<string, RowJudgement['landed']>();
+  const verified = new Map<string, Repo.RecoveryLanding | undefined>();
   if (!pending.length) return verified;
   const node = await createNodeReads();
   const nowSec = Math.floor(Date.now() / 1000);
   for (const row of pending) {
     assertCurrent();
     const verdict = await judgeSubmitEvidence(row, { node, accountRows: rows, nowSec, cadenceMs: observedCadenceMs() });
-    if (!verdict.landed && !verdict.allDead) throw new WalletStorageUnavailableError();
+    const { landed } = verdict;
+    if (!landed && !verdict.allDead) throw new WalletStorageUnavailableError();
+    const savedOrder =
+      landed && landed.attemptId === row.attemptId && swapOpensOrderFromRead(row)
+        ? await orderFromSavedRequest(row.requestBytes)
+        : undefined;
+    assertCurrent();
     for (const entry of verdict.judgedEntries) {
       if (entry.preSubmitEnd === true || entry.refBlock === undefined) continue;
       if ((await node.blockCommitment(entry.refBlock)) !== entry.refBlockCommitment) {
         throw new WalletStorageUnavailableError();
       }
     }
-    if (verdict.landed) {
+    if (landed) {
       row.status = ITransactionStatus.Completed;
       row.completedAt ??= nowSec;
-      row.transactionId = verdict.landed.boundTransactionId ?? row.transactionId;
+      row.transactionId = landed.boundTransactionId ?? row.transactionId;
     } else {
       row.status = ITransactionStatus.Failed;
       row.completedAt ??= nowSec;
       row.neverCommittedAt = nowSec;
     }
-    verified.set(row.id, verdict.landed);
+    verified.set(row.id, savedOrder && landed ? { ...landed, savedOrder } : landed);
   }
   return verified;
 }
