@@ -24,6 +24,7 @@ export function useCommandPortfolio(scope: AccountScope) {
 
   let held = false;
   const pricedRows: TokenBalanceData[] = [];
+  const pricedValues: { tokenId: string; value: number }[] = [];
   let partial = false;
   let staleQuote = false;
   const priced: string[] = [];
@@ -60,6 +61,7 @@ export function useCommandPortfolio(scope: AccountScope) {
       continue;
     }
     pricedRows.push(row);
+    pricedValues.push({ tokenId: row.tokenId, value });
     priced.push(row.tokenId);
   }
   const proof = storedRows === rows ? readBalanceSnapshot(rows, scope) : null;
@@ -69,6 +71,10 @@ export function useCommandPortfolio(scope: AccountScope) {
   const { totalFiat: total, previousFiat } = valuedBalanceTotal(pricedRows, tokenPrices);
   const value =
     current && hiddenReady && pricesStatus === 'ready' && (!held || pricedRows.length > 0) ? String(total) : null;
+  const allocation =
+    value !== null && !isLoading && Number.isFinite(total) && total > 0
+      ? pricedValues.map(row => ({ ...row, percentage: (row.value / total) * 100 }))
+      : [];
   const move = total - previousFiat;
   const percentage = (move / previousFiat) * 100;
   const marketPriced = pricedRows.some(row => {
@@ -87,6 +93,7 @@ export function useCommandPortfolio(scope: AccountScope) {
   const coverage: 'complete' | 'partial' = partial ? 'partial' : 'complete';
   return {
     assets: current && hiddenReady ? assets : [],
+    allocation,
     tokenPrices,
     value,
     priceMovement24h,

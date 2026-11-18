@@ -242,6 +242,28 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
           <p className="text-caption text-muted">{t('commandObservedOnDevice')}</p>
         </Card>
       </section>
+      {!hidden && portfolio.current && portfolio.allocation.length > 0 && (
+        <section aria-label={t('commandAllocation')}>
+          <Card surface="outline" className="flex flex-col gap-2">
+            <SectionHeader>{t('commandAllocation')}</SectionHeader>
+            <p className="text-caption text-muted">{t('commandPricedAssets')}</p>
+            {coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
+            {portfolio.allocation.map(entry => {
+              const asset = portfolio.assets.find(row => row.tokenId === entry.tokenId);
+              if (!asset) return null;
+              return (
+                <div key={entry.tokenId} className="flex items-center justify-between gap-3 text-body-sm text-ink">
+                  <span className="min-w-0 truncate">{asset.metadata.name || asset.metadata.symbol}</span>
+                  <span className="shrink-0 text-muted">{formatAmountDisplay(entry.value, displayOptions)} USD</span>
+                  <span className="shrink-0">
+                    {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}%
+                  </span>
+                </div>
+              );
+            })}
+          </Card>
+        </section>
+      )}
       <CommandAssets
         assets={portfolio.assets}
         prices={portfolio.tokenPrices}
