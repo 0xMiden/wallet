@@ -46,7 +46,7 @@ test('bind the original NEAR deposit to the public payout and actual private cus
   assert.equal(status.swapDetails.originChainTxHashes[0]?.hash.toLowerCase(), creator.transactionId);
   assert.equal(status.swapDetails.destinationChainTxHashes.length, 1);
   const payout = status.swapDetails.destinationChainTxHashes[0]?.hash.toLowerCase();
-  assert.ok(isHash(payout));
+  assert.ok(payout && isHash(payout));
   const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
   const receipt = await client.getTransactionReceipt({ hash: payout });
   const received = inspectMainnetNearForwardReceipt(state, payout, receipt);
