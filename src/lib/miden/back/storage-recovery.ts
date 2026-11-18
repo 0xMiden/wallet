@@ -10,7 +10,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { midenClientProxy } from './miden-client-proxy';
 import { withUnlocked, store } from './store';
 import type { Vault } from './vault';
-import { ITransactionStatus, type ITransaction } from '../db/types';
+import { ITransactionStatus, type ITransaction, type SubmitEvidenceFields } from '../db/types';
 import { inStorageTurn } from '../front/storage';
 import { resolveGuardianEndpoint } from '../guardian/account';
 import { registerGuardianOrigin } from '../guardian/native-http';
@@ -29,6 +29,7 @@ import {
 } from '../storage-health';
 import { judgeSubmitEvidence } from '../transaction/reconcile-judge';
 import { createNodeReads, observedCadenceMs, RPC_READ_TIMEOUT_MS } from '../transaction/reconcile-reads';
+import { upsertEvidenceEntry } from '../transaction/verdict-rules';
 
 type RecoveryNote = InputNoteRecord & { detailsCommitment(): string; recoveryNoteFile(): NoteFile | undefined };
 type RecoveryNotes = MidenClient['notes'] & {
@@ -132,7 +133,27 @@ export async function retainWalletNotes(notes: readonly string[], rpc: string): 
   });
 }
 
-export async function retainWalletTransfer(id: string): Promise<void> {
+function journaledTransfer(previous: string | undefined): ITransaction | undefined {
+  return previous === undefined ? undefined : (JSON.parse(previous) as ITransaction);
+}
+
+function serializeCapturedTransfer(priorRaw: string | undefined, row: ITransaction): string {
+  const prior = journaledTransfer(priorRaw);
+  const preserveCrossing =
+    row.status !== ITransactionStatus.Completed &&
+    row.mayHaveSubmitted !== true &&
+    prior?.mayHaveSubmitted === true &&
+    prior.status !== ITransactionStatus.Completed &&
+    prior.accountId === row.accountId;
+  return Repo.serializeRecoveryTransfer(
+    preserveCrossing ? { ...row, mayHaveSubmitted: true, submitEvidence: prior.submitEvidence } : row
+  );
+}
+
+export async function retainWalletTransfer(
+  id: string,
+  recoveryOnly?: { attemptId: string; evidence?: SubmitEvidenceFields }
+): Promise<void> {
   return withUnlocked(async ({ vault }) => {
     const rpc = getEffectiveRpcUrl();
     const assertCurrent = () => {
@@ -140,8 +161,22 @@ export async function retainWalletTransfer(id: string): Promise<void> {
     };
     await vault.storageJournal.retain(async data => {
       const [row, limits] = await Promise.all([Repo.transactions.get(id), Repo.spendingLimits.toArray()]);
-      if (!row || row.mayHaveSubmitted !== true) throw new WalletStorageUnavailableError();
-      return { ...data, limits, transfers: { ...data.transfers, [id]: Repo.serializeRecoveryTransfer(row) } };
+      if (!row || (recoveryOnly && row.attemptId !== recoveryOnly.attemptId)) throw new WalletStorageUnavailableError();
+      const prior = journaledTransfer(data.transfers[id]);
+      const retained = recoveryOnly
+        ? {
+            ...row,
+            mayHaveSubmitted: true,
+            submitEvidence: upsertEvidenceEntry(
+              prior?.submitEvidence ?? row.submitEvidence,
+              recoveryOnly.attemptId,
+              { source: 'stage', evidence: recoveryOnly.evidence },
+              Math.floor(Date.now() / 1000)
+            )
+          }
+        : row;
+      if (retained.mayHaveSubmitted !== true) throw new WalletStorageUnavailableError();
+      return { ...data, limits, transfers: { ...data.transfers, [id]: Repo.serializeRecoveryTransfer(retained) } };
     }, assertCurrent);
   });
 }
@@ -213,7 +248,7 @@ export async function captureWalletAccounts(
     const recentById = Object.fromEntries(
       [...recent, ...spending]
         .filter(row => accountIds.has(canonicalWalletAccountId(row.accountId)))
-        .map(row => [row.id, Repo.serializeRecoveryTransfer(row)])
+        .map(row => [row.id, serializeCapturedTransfer(previous.transfers[row.id], row)])
     );
     const unresolved = Object.entries(previous.transfers).filter(([, value]) => {
       const transaction = JSON.parse(value);

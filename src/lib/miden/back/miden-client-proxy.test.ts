@@ -4349,6 +4349,38 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
 // loadEndpointOverrides() + resetMidenClient() reach only the SW realm. Flag-on it
 // is the OFFSCREEN client that talks to the node, so it needs its own nudge.
 // The offscreen document has no extension storage, so the network it runs on is the one these messages carry (#1482).
+describe('MidenClientProxy ordinary submit gate', () => {
+  it.each([true, false])('acks submit only when the durable stage stamp completes (%s)', async accepted => {
+    const { midenClientProxy, handleOffscreenSubmitGate } = await loadProxy(true);
+    const evidence = { refBlock: 4 };
+    const onStage = jest.fn(async () => {
+      if (!accepted) throw new Error('Could not retain transfer');
+    });
+    let answer: unknown;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+      answer = await handleOffscreenSubmitGate({
+        target: 'sw',
+        type: 'OFFSCREEN_SUBMIT_GATE',
+        op_id: env.op_id,
+        evidence
+      });
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+
+    const write = midenClientProxy.sendTransaction(
+      sendTx() as never,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await write;
+
+    expect(onStage).toHaveBeenCalledWith('submitting', { evidence });
+    expect(answer).toMatchObject({ ok: accepted });
+  });
+});
+
 // #1644: the Guardian leaf's submit gate opens only for an op this worker still runs, after the leaf recorded the
 // crossing, so a leaf the worker never let through never submits.
 describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {

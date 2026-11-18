@@ -3519,7 +3519,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const posted: any[] = [];
     G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
       posted.push(m);
-      return undefined;
+      return m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined;
     });
     // The offscreen client drives its onStage hook exactly as the SDK's staged
     // execute → prove → submit pipeline does.
@@ -3547,7 +3547,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     const stageEvents = posted.filter(m => m?.type === 'OFFSCREEN_STAGE_EVENT');
-    expect(stageEvents.map(m => m.stage)).toEqual(['executing', 'proving', 'submitting']);
+    expect(stageEvents.map(m => m.stage)).toEqual(['executing', 'proving']);
+    expect(posted).toContainEqual(
+      expect.objectContaining({ type: OFFSCREEN_SUBMIT_GATE, target: 'sw', op_id: 'op-stage' })
+    );
     // Every stamp is SW-targeted (the doc's own `target === 'offscreen'` listener
     // can never pick it up) and carries THIS op's ambient id.
     expect(stageEvents.every(m => m.target === 'sw' && m.op_id === 'op-stage')).toBe(true);
@@ -3674,7 +3677,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // Model both failure modes on the SAME channel the OP_STARTED signal uses: a
     // rejected promise (no SW receiver) and a synchronous throw (torn-down port).
     let call = 0;
-    G.chrome.runtime.sendMessage = jest.fn((_m: any) => {
+    G.chrome.runtime.sendMessage = jest.fn((m: { type?: string }) => {
+      if (m?.type === OFFSCREEN_SUBMIT_GATE) return Promise.resolve({ ok: true });
       call += 1;
       if (call % 2 === 0) throw new Error('port closed');
       return Promise.reject(new Error('no receiver'));
@@ -5559,12 +5563,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const miden: any = await import('lib/miden/sdk/miden-client');
     const posted: any[] = [];
     G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
-      if (m?.type === 'OFFSCREEN_STAGE_EVENT') posted.push(`${m.stage}|${m.op_id}`);
+      if (m?.type === 'OFFSCREEN_STAGE_EVENT') posted.push(`stage:${m.stage}|${m.op_id}`);
+      if (m?.type === 'OFFSCREEN_SUBMIT_GATE') posted.push(`gate:${m.op_id}`);
       return undefined;
     });
 
     // The first send parks mid-flight, holding its onStage hook.
-    let capturedOnStage: ((s: string) => void) | undefined;
+    let capturedOnStage: ((s: string) => Promise<void> | void) | undefined;
     let releaseFirst!: () => void;
     const firstParked = new Promise<void>(resolve => {
       releaseFirst = resolve;
@@ -5612,12 +5617,12 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
     await flush();
 
-    capturedOnStage!('submitting');
+    await expect(capturedOnStage!('submitting')).rejects.toThrow(/submit gate/);
     await flush();
 
-    // Its own row — which is genuinely may-have-submitted — and not the
-    // successor's, which has broadcast nothing.
-    expect(posted).toEqual(['submitting|op-displaced']);
+    // The gate names the evicted op. It is not a stage event, and it is not the
+    // successor's id — that row has broadcast nothing.
+    expect(posted).toEqual(['gate:op-displaced']);
 
     releaseFirst();
     finishSuccessor({ serialize: () => new Uint8Array([2]) });

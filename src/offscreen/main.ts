@@ -499,6 +499,23 @@ async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenc
   }
 }
 
+// Ordinary send, swap, consume and execute keep the fire-and-forget stamp for every step but submit. Submitting
+// waits for the service worker's gate, which journals the attempt before it answers, then refuses a dispatch that
+// settled or lost its hold during that wait so the proof is not submitted.
+async function reportOrdinaryStage(
+  context: DispatchContext,
+  stage: ITransactionStage,
+  evidence?: SubmitEvidenceFields
+): Promise<void> {
+  if (stage !== 'submitting') {
+    postStageEvent(context, stage, evidence);
+    return;
+  }
+  await passSubmitGate(context, evidence);
+  if (context.settled) throw new Error('offscreen submit gate: no live op to submit for');
+  assertWasmHoldCurrent(context.hold, 'after the ordinary submit gate');
+}
+
 function postStageEvent(context: DispatchContext, stage: ITransactionStage, evidence?: SubmitEvidenceFields): void {
   const { op_id } = context;
   if (!op_id || context.settled) return;
@@ -891,7 +908,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     }
   ) => {
     const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+      reportOrdinaryStage(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
     // has submitted (and applied) by the time it returns, on either leg, so the
@@ -922,7 +939,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // every prover branch - delegated, the prove worker (#945), and the SW's
     // offscreen-prover one - so the stamps do not depend on which branch runs here.
     const result = await client.sendTransaction(tx, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+      reportOrdinaryStage(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
@@ -959,7 +976,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     );
     const result = await client.swapTransaction(
       tx,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
+      (stage, detail) => reportOrdinaryStage(context, stage, detail?.evidence),
       feeContext
     );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
@@ -984,7 +1001,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
+      (stage, detail) => reportOrdinaryStage(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has

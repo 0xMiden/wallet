@@ -40,6 +40,7 @@ jest.mock('../repo', () => ({
   restoreRecoveryTransfers: jest.fn(),
   serializeRecoveryTransfer: jest.fn(),
   transactions: {
+    get: (id: string) => mockGetTransaction(id),
     orderBy: () => ({ reverse: () => ({ limit: () => ({ toArray: async () => [] }) }) }),
     where: () => ({ aboveOrEqual: () => ({ filter: () => mockSpendingHistory }) })
   },
@@ -73,6 +74,7 @@ const retained = {
 const mockStorage = new Map<string, unknown>();
 const mockWriteStorage = jest.fn<Promise<void>, [string, unknown]>();
 const mockJournal = { read: jest.fn(), retain: jest.fn() };
+const mockGetTransaction = jest.fn<Promise<ITransaction | undefined>, [string]>();
 const testAccount: WalletAccount = {
   publicKey: accountId,
   name: 'Saved account',
@@ -105,12 +107,18 @@ const noteDetailsFile = { noteType: () => 'NoteDetails', noteId: () => undefined
 let captureWalletAccounts: typeof import('./storage-recovery').captureWalletAccounts;
 let rebuildWalletStorage: typeof import('./storage-recovery').rebuildWalletStorage;
 let retainWalletNotes: typeof import('./storage-recovery').retainWalletNotes;
+let retainWalletTransfer: typeof import('./storage-recovery').retainWalletTransfer;
 let storageHealth: typeof import('../storage-health');
 
 beforeAll(() => {
   // Jest's setup imports the real repo and storage health before this suite installs its storage mocks.
   jest.isolateModules(() => {
-    ({ captureWalletAccounts, rebuildWalletStorage, retainWalletNotes } = require('./storage-recovery'));
+    ({
+      captureWalletAccounts,
+      rebuildWalletStorage,
+      retainWalletNotes,
+      retainWalletTransfer
+    } = require('./storage-recovery'));
     storageHealth = require('../storage-health');
   });
 });
@@ -369,6 +377,57 @@ it('keeps a potentially submitted transfer paused until the node can determine i
   expect(judgeSubmitEvidence).toHaveBeenCalledWith(transfer, expect.objectContaining({ accountRows: [transfer] }));
   expect(mockClient.accounts.insert).not.toHaveBeenCalled();
   expect(Repo.restoreRecoveryTransfers).not.toHaveBeenCalled();
+  await expect(storageHealth.getWalletStorageFailure()).resolves.toBe(failureEpoch);
+});
+
+it('keeps a recovery-only submit pending through capture and requires its chain verdict on rebuild', async () => {
+  const live: ITransaction = {
+    id: 'recovery-only-submit',
+    attemptId: 'active-attempt',
+    type: 'earn-deposit',
+    accountId,
+    displayIcon: 'DEFAULT',
+    initiatedAt: Math.floor(Date.now() / 1000),
+    status: ITransactionStatus.Failed,
+    spentUsd: 10n
+  };
+  const codec = jest.requireActual<typeof Repo>('../repo');
+  jest.mocked(Repo.serializeRecoveryTransfer).mockImplementation(codec.serializeRecoveryTransfer);
+  jest.mocked(Repo.deserializeRecoveryTransfers).mockImplementation(codec.deserializeRecoveryTransfers);
+  jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue(retained.walletStoreGeneration);
+  mockGetTransaction.mockResolvedValue(live);
+  mockSpendingHistory.toArray.mockResolvedValue([live]);
+  let snapshot: typeof retained & { transfers: Record<string, string> } = { ...retained, notes: [] };
+  mockJournal.read.mockImplementation(async () => snapshot);
+  mockJournal.retain.mockImplementation(async change => {
+    snapshot = await change(snapshot);
+  });
+
+  const transactionId = `0x${'a'.repeat(64)}`;
+  await retainWalletTransfer(live.id, { attemptId: live.attemptId!, evidence: { transactionId } });
+  expect(live.mayHaveSubmitted).toBeUndefined();
+  expect(live.submitEvidence).toBeUndefined();
+
+  await captureWalletAccounts(
+    mockSession.vault as unknown as Parameters<typeof captureWalletAccounts>[0],
+    mockSession.accounts,
+    () => {}
+  );
+  const [record] = codec.deserializeRecoveryTransfers(snapshot.transfers, id => id === accountId);
+  expect(record).toMatchObject({
+    mayHaveSubmitted: true,
+    submitEvidence: [{ attemptId: live.attemptId, transactionId }]
+  });
+
+  jest.mocked(judgeSubmitEvidence).mockResolvedValue({
+    rowId: live.id,
+    judgedEntries: [],
+    entries: [],
+    allDead: false,
+    landingHeld: false
+  });
+  await expect(rebuildWalletStorage()).rejects.toThrow(storageHealth.WalletStorageUnavailableError);
+  expect(judgeSubmitEvidence).toHaveBeenCalledWith(expect.objectContaining({ id: live.id }), expect.anything());
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBe(failureEpoch);
 });
 

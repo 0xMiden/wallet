@@ -2247,18 +2247,15 @@ export class MidenClientInterface {
     beforeSubmit?: () => void
   ): Promise<TransactionResult> {
     const proof = await attempt.proveInWorker(executed.result);
-    // No re-check of the hold between here and `submitProven`: the helper's own
-    // post-prove `assertWasmHoldCurrent` already ran, and the only `onStage` this
-    // realm installs (`postStageEvent`) is synchronous, so `await` only yields one
-    // microtask before `markSubmitting()`, not a real parking point. An async
-    // `onStage` would need its own re-check.
     // Read under the hold that executed and proved it, before the stamp, so the evidence rides the stamp (#1081).
+    // The submitting callback now waits on the submit gate, so the hold is checked again after it returns and
+    // immediately before the proof is submitted.
     if (onStage) {
       await onStage('submitting', {
         evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
       });
     }
-    if (beforeSubmit && attempt.evicted()) {
+    if (attempt.evicted()) {
       throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove'));
     }
     beforeSubmit?.();
@@ -2429,13 +2426,12 @@ export class MidenClientInterface {
       if (onStage) {
         await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
       }
-      if (beforeSubmit && attempt.evicted()) {
-        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after offscreen prove'));
-      }
-      beforeSubmit?.();
-      // Point of no return — see the identical mark on the inline send path.
-      attempt.markSubmitting();
       await access._withInnerWebClient(async inner => {
+        if (attempt.evicted()) {
+          throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after offscreen prove'));
+        }
+        beforeSubmit?.();
+        attempt.markSubmitting();
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; submit');
         const height = await inner.submitProvenTransaction(proven, txResult);
         recordProveTiming(`proveLocallyViaOffscreen submit returned height=${height}; applying`);
