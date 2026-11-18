@@ -212,7 +212,8 @@ test('mainnet Epoch staged round trip', async ({ walletB }, info) => {
   const evm = privateKeyToAccount(`0x${rawEvmKey}`);
   await restoreMainnetLoopGuardian(walletB, keyPair);
   const account = await walletB.getAccountAddress();
-  if (predecessor?.account !== account) throw new Error('Epoch and swap must use the same existing Guardian account');
+  if (predecessor?.sourceRunId === runId && predecessor.account !== account)
+    throw new Error('Epoch and swap must use the same existing Guardian account');
   const response = await fetch(mainnetConfigSource(), { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error('Epoch qualification config is unavailable');
   const document = parseBridgeConfig(await response.json(), 'mainnet');

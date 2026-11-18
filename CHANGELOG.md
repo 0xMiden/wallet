@@ -40,6 +40,8 @@
 
 - [FIX][ci] Reconcile the independently audited, expired unsigned NEAR nightly quote only after exact original run/gate provenance, unchanged holdings and unused provider status with canonical hex faucet IDs and normalized tracing metadata, retaining signature and exact quote verification; keep reconciliation recovery-only and retain all SDK upload safeguards.
 
+- [CHANGE][ci] Run mainnet bridges independently with bridges_only, keep swaps_only, and retain both groups in the default nightly with unchanged recovery and spending guards.
+
 - [FIX][all] Auto-consume measures a claim against its fee floor again after it removes the notes that another claim covers or that wait for a retry, so a small payment is no longer claimed alone at a loss (#2192).
 - [FIX][all] Keep documentation and E2E gallery deployments compatible with SHA-pinned action policies.
 - [CHANGE][ci] A telemetry egress test no longer fails when a random Sentry id happens to contain one of its short hex needles.

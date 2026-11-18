@@ -162,6 +162,31 @@ describe('wallet report command boundary', () => {
     expect(() => report()).toThrow();
   });
 
+  it('reports bridge-only selection while keeping swap recovery evidence', async () => {
+    const { env, report } = sandbox();
+    const bridgeOnly = { ...env, GITHUB_EVENT_NAME: 'workflow_dispatch', REPORT_BRIDGES_ONLY: 'true' };
+    await main(bridgeOnly, ['initialize']);
+    await main(
+      {
+        ...bridgeOnly,
+        REPORT_BUILD_OUTCOME: 'success',
+        REPORT_SWAP_RECOVERY_OUTCOME: 'failure',
+        REPORT_WAIT_SWAP_RECOVER: 'failure',
+        REPORT_INVOCATION_SWAP_FORWARD: 'skipped'
+      },
+      ['assemble']
+    );
+    const assembled = JSON.parse(report());
+    expect(assembled.coverage).toEqual({
+      swap: { selection: 'not_selected', status: 'not_started', reason: 'workflow_selection' },
+      bridge: { selection: 'selected', status: 'not_started', reason: 'blocked_by_recovery' },
+      freshSwapsStarted: { value: 0, reason: null }
+    });
+    expect(assembled.stages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'recovery_gate', status: 'failed' })])
+    );
+  });
+
   it('uses setup and recovery gate evidence, while keeping workflow selection separate', async () => {
     const { env, report } = sandbox();
     await main({ ...env, REPORT_SWAPS_ONLY: 'true' }, ['initialize']);

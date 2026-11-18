@@ -90,6 +90,7 @@ function initialize(root, identity, env) {
     identity,
     startAt: utcNow(),
     swapsOnly: env.REPORT_SWAPS_ONLY === 'true',
+    bridgesOnly: env.REPORT_BRIDGES_ONLY === 'true',
     loopsOnly: env.REPORT_LOOPS_ONLY === 'true',
     approvalsOnly: env.REPORT_EXPLICIT_RECOVERY_ONLY === 'true'
   });
@@ -295,7 +296,12 @@ function assemble(root, identity, env) {
   const coverage = {
     swap: agglayer
       ? { selection: 'not_selected', status: 'not_started', reason: 'outside_job' }
-      : coverageFor(!job.approvalsOnly, ['swap-forward', 'swap-reverse'], dispositions, observations.blocked),
+      : coverageFor(
+          !job.bridgesOnly && !job.approvalsOnly,
+          ['swap-forward', 'swap-reverse'],
+          dispositions,
+          observations.blocked
+        ),
     bridge: coverageFor(!job.swapsOnly && !job.approvalsOnly, bridges, dispositions, observations.blocked),
     freshSwapsStarted: freshStarted
   };
