@@ -17,7 +17,7 @@ import {
 } from 'lib/telemetry/crash-diagnostics';
 
 import { ITransaction, ITransactionStatus, type ITransactionType } from './db/types';
-import { parsePersistedSpendingLimit, PersistedSpendingLimit } from './spending-limits/types';
+import type { PersistedSpendingLimit } from './spending-limits/types';
 import { observeWalletStorageError } from './storage-health';
 
 export enum Table {
@@ -953,6 +953,7 @@ export async function restoreRecoveryTransfers(
     const trusted = row.restoredFromBackup !== true || row.retainedRecoverySpend === true;
     return { ...neutralizeUnfinishedTransaction(row), retainedRecoverySpend: trusted && row.spentUsd !== undefined };
   });
+  const { parsePersistedSpendingLimit } = await import('./spending-limits/types');
   for (const limit of limits) parsePersistedSpendingLimit(limit);
   await db.transaction('rw', transactions, spendingLimits, async () => {
     for (const row of rows) {
