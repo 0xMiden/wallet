@@ -1,0 +1,25 @@
+name: Retained unsigned Swap return regression
+on:
+  push:
+    branches: [wiktor/nightly-swap-retained-return-green-proof]
+permissions:
+  contents: read
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - run: test "$(git rev-parse HEAD^)" = 4135a7ec4590e7fb022203c6037d311e7243547e
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Verify retained return and neighboring guard contracts
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-swap-claim.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-swap-claim.mjs
+          node --test --test-concurrency=2 scripts/mainnet-swap-claim.test.mjs
+          yarn ts
+          yarn prettier --check playwright/e2e/helpers/mainnet-swap-claim.ts scripts/mainnet-swap-claim.test.mjs
