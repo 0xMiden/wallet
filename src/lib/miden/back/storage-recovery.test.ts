@@ -10,6 +10,7 @@ import { judgeSubmitEvidence } from '../transaction/reconcile-judge';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Account: { deserialize: jest.fn() },
+  getWasmOrThrow: async () => ({}),
   NoteFile: { deserialize: jest.fn() }
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => 'https://node.invalid' }));
@@ -92,12 +93,13 @@ const noteDetailsFile = { noteType: () => 'NoteDetails', noteId: () => undefined
 
 let captureWalletAccounts: typeof import('./storage-recovery').captureWalletAccounts;
 let rebuildWalletStorage: typeof import('./storage-recovery').rebuildWalletStorage;
+let retainWalletNotes: typeof import('./storage-recovery').retainWalletNotes;
 let storageHealth: typeof import('../storage-health');
 
 beforeAll(() => {
   // Jest's setup imports the real repo and storage health before this suite installs its storage mocks.
   jest.isolateModules(() => {
-    ({ captureWalletAccounts, rebuildWalletStorage } = require('./storage-recovery'));
+    ({ captureWalletAccounts, rebuildWalletStorage, retainWalletNotes } = require('./storage-recovery'));
     storageHealth = require('../storage-health');
   });
 });
@@ -182,17 +184,69 @@ it('rebuilds after verifying a retained wallet whose IndexedDB generation change
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
 });
 
+it('acknowledges an incoming ID-only pointer without turning it into mandatory recovery data', async () => {
+  const pointer = {
+    noteType: () => 'NoteId',
+    noteId: () => 'missing-pointer',
+    free: jest.fn()
+  };
+  jest
+    .mocked(NoteFile.deserialize)
+    .mockReset()
+    .mockReturnValue(pointer as unknown as NoteFile);
+
+  await expect(retainWalletNotes([u8ToB64(Uint8Array.of(7, 8))], 'https://node.invalid')).resolves.toBeUndefined();
+
+  expect(pointer.free).toHaveBeenCalledTimes(1);
+  expect(mockJournal.retain).not.toHaveBeenCalled();
+
+  jest.mocked(NoteFile.deserialize).mockReturnValueOnce(pointer as unknown as NoteFile);
+  jest.mocked(NoteFile.deserialize).mockReturnValueOnce(noteFile as unknown as NoteFile);
+  const proof = u8ToB64(noteBytes);
+  const save = mockJournal.retain.mockImplementation(async change => change({ ...retained, notes: [] }));
+  await retainWalletNotes([u8ToB64(Uint8Array.of(7, 8)), proof], 'https://node.invalid');
+
+  expect((await save.mock.results[0].value).notes).toEqual([proof]);
+});
+
+it('drops old pointers during capture and retains a full proof over the matching expected note', async () => {
+  const proof = { ...noteFile, detailsCommitment: () => 'same-details' };
+  const expected = { ...noteDetailsFile, detailsCommitment: proof.detailsCommitment };
+  const pointer = { noteType: () => 'NoteId', noteId: () => 'missing-pointer', free: jest.fn() };
+  const files = [proof, expected, pointer];
+  const previous = { ...retained, notes: files.map((_, index) => u8ToB64(Uint8Array.of(index))) };
+  jest
+    .mocked(NoteFile.deserialize)
+    .mockReset()
+    .mockImplementation(bytes => files[bytes[0]!] as unknown as NoteFile);
+  jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue(retained.walletStoreGeneration);
+  mockJournal.read.mockResolvedValue(previous);
+  mockSpendingHistory.toArray.mockResolvedValue([]);
+  const save = mockJournal.retain.mockImplementation(async change => change(previous));
+
+  await captureWalletAccounts(
+    mockSession.vault as unknown as Parameters<typeof captureWalletAccounts>[0],
+    mockSession.accounts as Parameters<typeof captureWalletAccounts>[1],
+    () => {}
+  );
+
+  expect((await save.mock.results[0].value).notes).toEqual([previous.notes[0]]);
+});
+
 it('retains compact recent spending records beyond the old cap with the same spend total', async () => {
   const now = Math.floor(Date.now() / 1000);
-  const spending = Array.from({ length: 258 }, (_, index): ITransaction => ({
-    id: `spend-${index}`,
-    type: 'send',
-    accountId,
-    initiatedAt: now - index,
-    status: ITransactionStatus.Completed,
-    displayIcon: 'SEND',
-    spentUsd: BigInt(index + 1)
-  }));
+  const spending = Array.from(
+    { length: 258 },
+    (_, index): ITransaction => ({
+      id: `spend-${index}`,
+      type: 'send',
+      accountId,
+      initiatedAt: now - index,
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND',
+      spentUsd: BigInt(index + 1)
+    })
+  );
   mockSpendingHistory.toArray.mockResolvedValue(spending);
   jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue(retained.walletStoreGeneration);
   const recoveryCodec = jest.requireActual<typeof Repo>('../repo');

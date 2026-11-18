@@ -1,4 +1,4 @@
-import { Account, NoteFile, type InputNoteRecord, type MidenClient } from '@miden-sdk/miden-sdk/lazy';
+import { Account, getWasmOrThrow, NoteFile, type InputNoteRecord, type MidenClient } from '@miden-sdk/miden-sdk/lazy';
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -19,6 +19,7 @@ import { WalletSigner } from '../guardian/signer';
 import * as Repo from '../repo';
 import { canonicalWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { isWasmTrap, readWasmHandle } from '../sdk/wasm-handle';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/policy';
 import {
   clearVerifiedStorageFailure,
@@ -34,13 +35,31 @@ type RecoveryNotes = MidenClient['notes'] & {
   listPage?: (query: { after?: string; limit: number }) => Promise<RecoveryNote[]>;
 };
 
-function recoveryNoteIdentity(bytes: string): string | undefined {
+const ID_ONLY_NOTE_TYPE = 'NoteId';
+const PROOF_NOTE_TYPE = 'NoteWithProof';
+
+type ParsedRecoveryNote = {
+  identity: string | undefined;
+  idOnly: boolean;
+  proof: boolean;
+};
+
+function parseRecoveryNote(bytes: string): ParsedRecoveryNote {
   const file = NoteFile.deserialize(b64ToU8(bytes)) as NoteFile & { detailsCommitment?(): string | undefined };
-  try {
-    return file.detailsCommitment?.() ?? file.noteId()?.toString();
-  } finally {
-    file.free();
-  }
+  return readWasmHandle(file, parsed => {
+    const noteType = parsed.noteType();
+    if (noteType === ID_ONLY_NOTE_TYPE) return { identity: undefined, idOnly: true, proof: false };
+    const commitment = parsed.detailsCommitment?.();
+    return {
+      identity: commitment ?? parsed.noteId()?.toString(),
+      idOnly: false,
+      proof: noteType === PROOF_NOTE_TYPE
+    };
+  });
+}
+
+function recoveryNoteIdentity(bytes: string): string | undefined {
+  return parseRecoveryNote(bytes).identity;
 }
 
 async function readExistingNoteFiles(
@@ -102,8 +121,12 @@ export async function retainWalletNotes(notes: readonly string[], rpc: string): 
       if (store.getState().vault !== vault || getEffectiveRpcUrl() !== rpc) throw new WalletStorageUnavailableError();
     };
     assertCurrent();
+    await getWasmOrThrow();
+    assertCurrent();
+    const durableNotes = notes.filter(bytes => !parseRecoveryNote(bytes).idOnly);
+    if (!durableNotes.length) return;
     await vault.storageJournal.retain(
-      data => ({ ...data, notes: [...new Set([...data.notes, ...notes])] }),
+      data => ({ ...data, notes: [...new Set([...data.notes, ...durableNotes])] }),
       assertCurrent
     );
   });
@@ -200,17 +223,22 @@ export async function captureWalletAccounts(
         transaction.status !== ITransactionStatus.Completed
       );
     });
-    const notes = new Map<string, string>();
+    const notes = new Map<string, { bytes: string; proof: boolean }>();
     for (const bytes of [...previous.notes, ...states.notes.files]) {
-      const id = recoveryNoteIdentity(bytes);
-      if (!id || !confirmedConsumed.has(id)) notes.set(id ?? bytes, bytes);
+      const parsed = parseRecoveryNote(bytes);
+      if (parsed.idOnly) continue;
+      if (parsed.identity && confirmedConsumed.has(parsed.identity)) continue;
+      const key = parsed.identity ?? bytes;
+      const current = notes.get(key);
+      if (current?.proof && !parsed.proof) continue;
+      notes.set(key, { bytes, proof: parsed.proof });
     }
     return {
       ...previous,
       walletStoreGeneration,
       limits,
       accounts: states.accounts,
-      notes: [...notes.values()],
+      notes: [...notes.values()].map(note => note.bytes),
       transfers: { ...Object.fromEntries(unresolved), ...recentById }
     };
   }, assertCurrent);
@@ -330,7 +358,7 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
         expected.includes(canonicalWalletAccountId(id))
       );
       await verifyRetainedTransfers(transfers, assertCurrent);
-      const notes = retained.notes;
+      let verifiedNotes = 0;
       await withWasmClientLock(async hold => {
         const { client } = await getMidenClient();
         for (const bytes of states) {
@@ -339,16 +367,28 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
           const state = Account.deserialize(b64ToU8(bytes));
           await client.accounts.insert({ account: state, overwrite: true });
         }
-        for (const bytes of notes) {
+        for (const bytes of retained.notes) {
           assertCurrent();
           assertWasmHoldCurrent(hold, 'restoring retained note data');
           const file = NoteFile.deserialize(b64ToU8(bytes));
+          let noteType: string;
+          try {
+            noteType = file.noteType();
+          } catch (error) {
+            if (!isWasmTrap(error)) file.free();
+            throw error;
+          }
+          if (noteType === ID_ONLY_NOTE_TYPE) {
+            file.free();
+            continue;
+          }
           const noteId = file.noteId()?.toString();
           const imported = await client.notes.import(file);
           const query = noteId ? { ids: [noteId] } : { detailsCommitments: [imported] };
           const records = await client.notes.list(query as Parameters<MidenClient['notes']['list']>[0]);
           records.forEach(record => record.free());
           if (!records.length) throw new WalletStorageUnavailableError();
+          verifiedNotes++;
         }
         assertCurrent();
         for (const bytes of states) {
@@ -387,8 +427,8 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
       return {
         verifiedAccounts: states.length,
         expectedAccounts: accounts.length,
-        verifiedNotes: notes.length,
-        expectedNotes: notes.length
+        verifiedNotes,
+        expectedNotes: verifiedNotes
       };
     })
   );
