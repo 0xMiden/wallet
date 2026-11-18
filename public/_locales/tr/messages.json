@@ -3522,6 +3522,14 @@
     "message": "Portföy",
     "englishSource": "Portfolio"
   },
+  "commandRecentActions": {
+    "message": "Son işlemler",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "Gösterilecek son eylem yok",
+    "englishSource": "No recent actions to show"
+  },
   "commandWalletBalance": {
     "message": "Cüzdan bakiyesi",
     "englishSource": "Wallet balance"

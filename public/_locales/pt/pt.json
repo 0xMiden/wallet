@@ -762,6 +762,8 @@
   "commandFullscreenNewTab": "Abre sua carteira em uma nova aba.",
   "commandFullscreenOpenFailed": "Não foi possível abrir em tela cheia. Tente novamente.",
   "commandPortfolio": "Portfólio",
+  "commandRecentActions": "Ações recentes",
+  "commandNoRecentActions": "Nenhuma ação recente a ser exibida",
   "commandWalletBalance": "Saldo da carteira",
   "commandMarketPriceMovement24h": "Variação do preço de mercado em 24 horas nas participações com preço atual: $change$ USD ($percentage$%)",
   "commandHideBalances": "Ocultar saldos",

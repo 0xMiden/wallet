@@ -3522,6 +3522,14 @@
     "message": "Портфель",
     "englishSource": "Portfolio"
   },
+  "commandRecentActions": {
+    "message": "Недавние действия",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "Нет недавних действий для отображения",
+    "englishSource": "No recent actions to show"
+  },
   "commandWalletBalance": {
     "message": "Баланс кошелька",
     "englishSource": "Wallet balance"

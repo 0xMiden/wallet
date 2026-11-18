@@ -762,6 +762,8 @@
   "commandFullscreenNewTab": "在新的分頁中開啟您的錢包。",
   "commandFullscreenOpenFailed": "無法開啟全螢幕模式。請重試。",
   "commandPortfolio": "投資組合",
+  "commandRecentActions": "近期操作",
+  "commandNoRecentActions": "無近期操作可顯示",
   "commandWalletBalance": "錢包餘額",
   "commandMarketPriceMovement24h": "按當前價格計算的持倉 24 小時市場價格波動：$change$ 美元（$percentage$%）",
   "commandHideBalances": "隱藏餘額",

@@ -762,6 +762,8 @@
   "commandFullscreenNewTab": "새 탭에서 지갑을 엽니다.",
   "commandFullscreenOpenFailed": "전체 화면으로 열 수 없습니다. 다시 시도해 주세요.",
   "commandPortfolio": "포트폴리오",
+  "commandRecentActions": "최근 활동",
+  "commandNoRecentActions": "표시할 최근 작업이 없습니다",
   "commandWalletBalance": "지갑 잔액",
   "commandMarketPriceMovement24h": "현재 가격 기준 보유 자산의 24시간 시세 변동: $change$ USD ($percentage$%)",
   "commandHideBalances": "잔액 숨기기",

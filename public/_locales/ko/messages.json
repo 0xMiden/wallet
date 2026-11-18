@@ -3522,6 +3522,14 @@
     "message": "포트폴리오",
     "englishSource": "Portfolio"
   },
+  "commandRecentActions": {
+    "message": "최근 활동",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "표시할 최근 작업이 없습니다",
+    "englishSource": "No recent actions to show"
+  },
   "commandWalletBalance": {
     "message": "지갑 잔액",
     "englishSource": "Wallet balance"

@@ -762,6 +762,8 @@
   "commandFullscreenNewTab": "Открывает ваш кошелек в новой вкладке.",
   "commandFullscreenOpenFailed": "Не удалось перейти в полноэкранный режим. Попробуйте ещё раз.",
   "commandPortfolio": "Портфель",
+  "commandRecentActions": "Недавние действия",
+  "commandNoRecentActions": "Нет недавних действий для отображения",
   "commandWalletBalance": "Баланс кошелька",
   "commandMarketPriceMovement24h": "Изменение рыночной цены за 24 часа по активам по текущей цене: $change$ долларов США ($percentage$%)",
   "commandHideBalances": "Скрыть остатки",

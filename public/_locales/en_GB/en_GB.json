@@ -762,6 +762,8 @@
   "commandFullscreenNewTab": "Opens your wallet in a new tab.",
   "commandFullscreenOpenFailed": "Couldn’t open fullscreen. Try again.",
   "commandPortfolio": "Portfolio",
+  "commandRecentActions": "Recent actions",
+  "commandNoRecentActions": "No recent actions to show",
   "commandWalletBalance": "Wallet balance",
   "commandMarketPriceMovement24h": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
   "commandHideBalances": "Hide balances",

@@ -762,6 +762,8 @@
   "commandFullscreenNewTab": "Відкриває ваш гаманець у новій вкладці.",
   "commandFullscreenOpenFailed": "Не вдалося відкрити у повноекранному режимі. Спробуйте ще раз.",
   "commandPortfolio": "Портфель",
+  "commandRecentActions": "Останні дії",
+  "commandNoRecentActions": "Немає останніх дій для показу",
   "commandWalletBalance": "Баланс гаманця",
   "commandMarketPriceMovement24h": "Зміна ринкової ціни за останні 24 години для активів за поточною ціною: $change$ доларів США ($percentage$%)",
   "commandHideBalances": "Приховати залишки",

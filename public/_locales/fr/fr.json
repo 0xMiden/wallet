@@ -762,6 +762,8 @@
   "commandFullscreenNewTab": "Ouvre votre portefeuille dans un nouvel onglet.",
   "commandFullscreenOpenFailed": "Impossible d’afficher en plein écran. Veuillez réessayer.",
   "commandPortfolio": "Portefeuille",
+  "commandRecentActions": "Actions récentes",
+  "commandNoRecentActions": "Aucune action récente à afficher",
   "commandWalletBalance": "Solde du portefeuille",
   "commandMarketPriceMovement24h": "Évolution du cours de marché sur 24 h pour les avoirs au prix actuel : $change$ USD ($percentage$ %)",
   "commandHideBalances": "Masquer les soldes",

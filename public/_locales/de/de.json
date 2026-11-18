@@ -761,6 +761,8 @@
   "commandFullscreenNewTab": "Öffnet Ihre Wallet in einem neuen Tab.",
   "commandFullscreenOpenFailed": "Vollbildmodus konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.",
   "commandPortfolio": "Portfolio",
+  "commandRecentActions": "Jüngste Aktionen",
+  "commandNoRecentActions": "Es sind keine aktuellen Aktionen vorhanden",
   "commandWalletBalance": "Wallet-Guthaben",
   "commandMarketPriceMovement24h": "24-Stunden-Marktpreisentwicklung der Bestände zum aktuellen Kurs: $change$ USD ($percentage$ %)",
   "commandHideBalances": "Guthaben ausblenden",

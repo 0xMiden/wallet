@@ -762,6 +762,8 @@
   "commandFullscreenNewTab": "Cüzdanınızı yeni bir sekmede açar.",
   "commandFullscreenOpenFailed": "Tam ekran açılmadı. Lütfen tekrar deneyin.",
   "commandPortfolio": "Portföy",
+  "commandRecentActions": "Son işlemler",
+  "commandNoRecentActions": "Gösterilecek son eylem yok",
   "commandWalletBalance": "Cüzdan bakiyesi",
   "commandMarketPriceMovement24h": "Mevcut fiyatla hesaplanan varlıkların 24 saatlik piyasa fiyatı hareketi: $change$ USD ($percentage$%)",
   "commandHideBalances": "Bakiyeleri gizle",

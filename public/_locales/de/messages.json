@@ -3523,6 +3523,14 @@
     "message": "Portfolio",
     "englishSource": "Portfolio"
   },
+  "commandRecentActions": {
+    "message": "Jüngste Aktionen",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "Es sind keine aktuellen Aktionen vorhanden",
+    "englishSource": "No recent actions to show"
+  },
   "commandWalletBalance": {
     "message": "Wallet-Guthaben",
     "englishSource": "Wallet balance"

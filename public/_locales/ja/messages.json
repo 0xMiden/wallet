@@ -3522,6 +3522,14 @@
     "message": "ポートフォリオ",
     "englishSource": "Portfolio"
   },
+  "commandRecentActions": {
+    "message": "最近のアクション",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "表示する最近のアクションはありません",
+    "englishSource": "No recent actions to show"
+  },
   "commandWalletBalance": {
     "message": "ウォレットの残高",
     "englishSource": "Wallet balance"

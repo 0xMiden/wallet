@@ -762,6 +762,8 @@
   "commandFullscreenNewTab": "新しいタブでウォレットを開きます。",
   "commandFullscreenOpenFailed": "全画面表示できませんでした。もう一度お試しください。",
   "commandPortfolio": "ポートフォリオ",
+  "commandRecentActions": "最近のアクション",
+  "commandNoRecentActions": "表示する最近のアクションはありません",
   "commandWalletBalance": "ウォレットの残高",
   "commandMarketPriceMovement24h": "現在の価格での保有資産における24時間の市場価格変動：$change$米ドル（$percentage$％）",
   "commandHideBalances": "残高を非表示にする",

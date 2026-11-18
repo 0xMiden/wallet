@@ -3522,6 +3522,14 @@
     "message": "Cartera",
     "englishSource": "Portfolio"
   },
+  "commandRecentActions": {
+    "message": "Acciones recientes",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "No hay acciones recientes que mostrar",
+    "englishSource": "No recent actions to show"
+  },
   "commandWalletBalance": {
     "message": "Saldo de la cartera",
     "englishSource": "Wallet balance"

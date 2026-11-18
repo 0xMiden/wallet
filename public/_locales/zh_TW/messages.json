@@ -3522,6 +3522,14 @@
     "message": "投資組合",
     "englishSource": "Portfolio"
   },
+  "commandRecentActions": {
+    "message": "近期操作",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "無近期操作可顯示",
+    "englishSource": "No recent actions to show"
+  },
   "commandWalletBalance": {
     "message": "錢包餘額",
     "englishSource": "Wallet balance"
