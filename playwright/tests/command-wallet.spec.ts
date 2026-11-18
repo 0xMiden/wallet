@@ -82,7 +82,26 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(workbench.getByTestId('command-send-composer').getByTestId('send-amount-input')).toHaveValue('1.234500');
   await expect(workbench.getByTestId('command-footer').getByTestId('command-send-review')).toBeDisabled();
 
-  await command.getByRole('navigation', { name: 'Wallet actions' }).getByRole('button', { name: 'Earn' }).click();
+  const actions = command.getByRole('navigation', { name: 'Wallet actions' });
+  await actions.getByRole('button', { name: 'Earn' }).click();
   await expect(command).toHaveURL(/#\/earn$/);
   await expect(workbench.getByTestId('command-earn')).toBeVisible();
+  await captureCommand(command, info, 'command-earn-1440x1000');
+
+  for (const { action, surface } of [
+    { action: 'Receive', surface: 'command-receive' },
+    { action: 'Swap', surface: 'command-swap-composer' },
+    { action: 'Bridge', surface: 'command-bridge' }
+  ]) {
+    await actions.getByRole('button', { name: action, exact: true }).click();
+    await expect(workbench.getByTestId(surface)).toBeVisible();
+    await captureCommand(command, info, `command-${action.toLowerCase()}-1440x1000`);
+  }
+
+  await command.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
+  await command.evaluate(() => localStorage.setItem('theme_setting', 'dark'));
+  await command.reload({ waitUntil: 'domcontentloaded' });
+  await expect(command.locator('html')).toHaveClass(/dark/);
+  await expect(workbench.getByTestId('command-bridge')).toBeVisible();
+  await captureCommand(command, info, 'command-bridge-dark-reduced-motion-1440x1000');
 });

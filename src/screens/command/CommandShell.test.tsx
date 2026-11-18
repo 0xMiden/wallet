@@ -393,7 +393,7 @@ it.each([
   ['send', '/send'],
   ['receive', '/receive'],
   ['swap', '/swap'],
-  ['earn', '/earn/positions'],
+  ['earn', '/earn'],
   ['commandBridge', '/bridge/deposit']
 ])('opens %s through the real Command dock', (label, path) => {
   render(

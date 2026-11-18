@@ -11,7 +11,7 @@ export const COMMAND_DESTINATIONS: Record<CommandAction, string> = {
   send: '/send',
   receive: '/receive',
   swap: '/swap',
-  earn: '/earn/positions',
+  earn: '/earn',
   bridge: '/bridge/deposit'
 };
 
