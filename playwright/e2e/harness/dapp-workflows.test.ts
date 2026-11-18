@@ -282,7 +282,11 @@ describe('the mobile legs of the dApp E2E workflow', () => {
         [
           'printf "%s\\n" "fake child stdout"',
           'printf "%s\\n" "fake child stderr" >&2',
-          'printf "%s\\n" "$FAKE_MARKER" > "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 99',
+          'if [ -n "$FAKE_MARKER" ]; then',
+          '  printf "%s\\n" "$FAKE_MARKER" > "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 99',
+          'else',
+          '  rm -f -- "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 99',
+          'fi',
           'exit "$FAKE_STATUS"'
         ].join('\n')
       );
@@ -291,7 +295,10 @@ describe('the mobile legs of the dApp E2E workflow', () => {
         { marker: 'capsule-commit', status: 23, verdict: 'FAIL (capsule-commit)' },
         { marker: 'capsule-commit\nunexpected-marker-data', status: 37, verdict: 'FAIL (unknown)' },
         { marker: 'device-webview-select', status: 41, verdict: 'FAIL (device-webview-select)' },
-        { marker: 'device-webview-select\nunexpected-marker-data', status: 43, verdict: 'FAIL (unknown)' }
+        { marker: 'device-webview-select\nunexpected-marker-data', status: 43, verdict: 'FAIL (unknown)' },
+        { marker: 'swipe-handoff', status: 47, verdict: 'FAIL (swipe-handoff)' },
+        { marker: 'swipe-handoff\nunexpected-marker-data', status: 53, verdict: 'FAIL (unknown)' },
+        { marker: '', status: 59, verdict: 'FAIL (unknown)' }
       ]) {
         const result = spawnSync('/bin/sh', ['-c', script], {
           cwd,
@@ -299,6 +306,8 @@ describe('the mobile legs of the dApp E2E workflow', () => {
           stdio: ['ignore', 'pipe', 'pipe'],
           env: {
             PATH: '/usr/bin:/bin',
+            NODE_ENV: 'test',
+            PUBLIC_URL: '',
             RUNNER_TEMP: cwd,
             PRESENTATION_GESTURE_PRIVATE_OUTPUT: 'true',
             FAKE_MARKER: marker,

@@ -28,7 +28,7 @@ type GestureStage =
   | 'onboarding'
   | 'dapp-ready'
   | 'playwright'
-  | 'unknown'
+  | 'swipe-handoff'
   | 'fixture-cleanup';
 
 async function markStage(path: string, stage: GestureStage) {
@@ -248,7 +248,7 @@ test.describe('API36 managed presentation gestures', () => {
         await wallet.screenshot({ path: beforeFile });
         const before = await footprint(beforeFile);
         // A started reply precedes injection and does not confirm it.
-        if (stagePath) await markStage(stagePath, 'unknown');
+        if (stagePath) await markStage(stagePath, 'swipe-handoff');
         let inputConfirmed = false;
         try {
           let started = false;
