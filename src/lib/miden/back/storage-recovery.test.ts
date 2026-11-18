@@ -86,7 +86,7 @@ const testAccount: WalletAccount = {
 const mockSession = { accounts: [testAccount], vault: { storageJournal: mockJournal } };
 const mockClient = {
   accounts: { insert: jest.fn(), get: jest.fn() },
-  notes: { import: jest.fn(), list: jest.fn() }
+  notes: { import: jest.fn(), list: jest.fn(), listPage: jest.fn() }
 };
 
 const noteRecord = { free: jest.fn() };
@@ -149,6 +149,7 @@ beforeEach(() => {
   mockClient.accounts.get.mockResolvedValue(accountState);
   mockClient.notes.import.mockResolvedValueOnce('file-note-id').mockResolvedValueOnce('note-details-commitment');
   mockClient.notes.list.mockResolvedValue([noteRecord]);
+  mockClient.notes.listPage.mockResolvedValue([]);
 });
 
 it('resumes the same account only after reading back the retained files and persisting recovery', async () => {
@@ -293,6 +294,62 @@ it('drops old pointers during capture and retains a full proof over the matching
   );
 
   expect((await save.mock.results[0]!.value).notes).toEqual([previous.notes[0]]);
+});
+
+function spentNotePage(first: number, count: number, free: () => void) {
+  return Array.from({ length: count }, (_, index) => ({
+    detailsCommitment: () => `0x${(first + index).toString(16).padStart(64, '0')}`,
+    isConsumed: () => true,
+    free
+  }));
+}
+
+it('finishes capture after exactly 4096 spent notes and a final empty page', async () => {
+  const free = jest.fn();
+  const previous = { ...retained, notes: [] };
+  mockJournal.read.mockResolvedValue(previous);
+  mockSpendingHistory.toArray.mockResolvedValue([]);
+  jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue(retained.walletStoreGeneration);
+  const save = mockJournal.retain.mockImplementation(async change => change(previous));
+  mockClient.notes.listPage.mockImplementation(async ({ after, limit }: { after?: string; limit: number }) => {
+    const first = after === undefined ? 0 : Number.parseInt(after.slice(2), 16) + 1;
+    return spentNotePage(first, Math.min(4096 - first, limit), free);
+  });
+
+  await expect(
+    captureWalletAccounts(
+      mockSession.vault as unknown as Parameters<typeof captureWalletAccounts>[0],
+      mockSession.accounts,
+      () => {}
+    )
+  ).resolves.toBeUndefined();
+
+  expect(mockClient.notes.listPage).toHaveBeenCalledTimes(65);
+  expect(free).toHaveBeenCalledTimes(4096);
+  expect((await save.mock.results[0]!.value).notes).toEqual([]);
+});
+
+it('refuses a backwards note page cursor before writing recovery data', async () => {
+  const free = jest.fn();
+  mockJournal.read.mockResolvedValue({ ...retained, notes: [] });
+  mockSpendingHistory.toArray.mockResolvedValue([]);
+  jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue(retained.walletStoreGeneration);
+  mockClient.notes.listPage
+    .mockResolvedValueOnce(spentNotePage(64, 64, free))
+    .mockResolvedValueOnce(spentNotePage(0, 64, free));
+
+  await expect(
+    captureWalletAccounts(
+      mockSession.vault as unknown as Parameters<typeof captureWalletAccounts>[0],
+      mockSession.accounts,
+      () => {}
+    )
+  ).rejects.toThrow(storageHealth.WalletStorageUnavailableError);
+
+  expect(mockClient.notes.listPage).toHaveBeenCalledTimes(2);
+  expect(free).toHaveBeenCalledTimes(128);
+  expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
+  expect(mockJournal.retain).not.toHaveBeenCalled();
 });
 
 it('retains compact recent spending records beyond the old cap with the same spend total', async () => {
