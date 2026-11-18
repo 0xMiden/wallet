@@ -3,6 +3,7 @@ import type { EIP1193Provider, WalletClient } from 'viem';
 
 import type { BridgeNoteDeps } from 'lib/epoch/miden-note';
 import { requestSWTransactionProcessing, startBackgroundTransactionProcessing } from 'lib/miden/activity';
+import { readBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { strictPriceSymbolFor } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
@@ -38,6 +39,7 @@ export function walletBridgeBalanceCap(route: BridgeRoute, amount: string, accou
   const rows = state.balances[account];
   if (
     !rows ||
+    !readBalanceSnapshot(rows, { accountId: account, ...captureBridgeWalletScope() }) ||
     state.balancesLoading[account] ||
     state.balanceReadFailed[account] ||
     state.tokenPricesStatus !== 'ready'
