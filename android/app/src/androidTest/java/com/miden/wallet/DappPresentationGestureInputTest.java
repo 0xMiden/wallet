@@ -2,6 +2,7 @@ package com.miden.wallet;
 
 import static org.junit.Assert.*;
 
+import android.app.Instrumentation;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.os.Build;
@@ -38,6 +39,12 @@ public class DappPresentationGestureInputTest {
         assertEquals(36, Build.VERSION.SDK_INT);
         assertEquals(36, InstrumentationRegistry.getInstrumentation().getTargetContext().getApplicationInfo().targetSdkVersion);
         UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
+        boolean reportFirstSwipe = false;
+        try {
+            reportFirstSwipe = "true".equals(InstrumentationRegistry.getArguments().getString("dappSwipeBoundary"));
+        } catch (RuntimeException | Error ignored) {
+            // Unavailable diagnostic arguments leave reporting off.
+        }
         Set<Integer> commands = new HashSet<>();
         int executed = 0;
         long deadline = SystemClock.elapsedRealtime() + 540_000;
@@ -92,18 +99,49 @@ public class DappPresentationGestureInputTest {
                         path[index] = new Point(integer(point, "x", 0, device.getDisplayWidth() - 1),
                             integer(point, "y", 0, device.getDisplayHeight() - 1));
                     }
+                    boolean observeSwipe = reportFirstSwipe && executed == 0;
                     long inputStarted = SystemClock.elapsedRealtime();
                     output.println(reply(id, "started", executed, device).put("inputStartedMs", inputStarted));
-                    assertTrue("one continuous UiDevice swipe must inject successfully", device.swipe(path, steps));
+                    if (observeSwipe) reportSwipeBoundary("enter");
+                    boolean injected;
+                    try {
+                        injected = device.swipe(path, steps);
+                    } catch (Throwable failure) {
+                        if (observeSwipe) reportSwipeBoundary("throw");
+                        throw failure;
+                    }
+                    if (observeSwipe && !injected) reportSwipeBoundary("false");
+                    assertTrue("one continuous UiDevice swipe must inject successfully", injected);
                     executed++;
                     long inputEnded = SystemClock.elapsedRealtime();
-                    output.println(reply(id, "injected", executed, device).put("inputEndedMs", inputEnded));
+                    if (observeSwipe) reportSwipeBoundary("true");
+                    JSONObject injectedReply = reply(id, "injected", executed, device).put("inputEndedMs", inputEnded);
+                    if (observeSwipe) reportSwipeBoundary("reply-ready");
+                    output.println(injectedReply);
+                    if (observeSwipe) {
+                        try {
+                            reportSwipeBoundary(output.checkError() ? "writer-error" : "writer-clear");
+                        } catch (RuntimeException | Error ignored) {
+                            // A local writer observation must not change the gesture result.
+                        }
+                    }
                     assertEquals("wallet remains foreground after input", PACKAGE, device.getCurrentPackageName());
                     output.println(reply(id, "done", executed, device)
                         .put("inputStartedMs", inputStarted).put("inputEndedMs", inputEnded));
                 }
             }
             fail("gesture host did not complete its bounded acceptance session");
+        }
+    }
+
+    private static void reportSwipeBoundary(String checkpoint) {
+        try {
+            Bundle status = new Bundle();
+            // The am pretty reporter adds no newline. Isolate this from runner progress text.
+            status.putString(Instrumentation.REPORT_KEY_STREAMRESULT, "\nDAPP_SWIPE_BOUNDARY_V1 " + checkpoint + "\n");
+            InstrumentationRegistry.getInstrumentation().sendStatus(0, status);
+        } catch (RuntimeException | Error ignored) {
+            // A diagnostic failure must not replace the original result or throwable.
         }
     }
 

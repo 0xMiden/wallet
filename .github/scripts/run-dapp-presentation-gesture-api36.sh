@@ -6,10 +6,19 @@ mkdir -p "$results_dir"
 bridge_pid=
 target_pid=
 owned_forward=false
+instrumentation_file="$results_dir/instrumentation.txt"
+capture_native_boundary=false
 
 cleanup() {
   local status=$?
   trap - EXIT
+  if [[ "$status" != 0 && "$capture_native_boundary" == true && -n ${PRESENTATION_GESTURE_STAGE_FILE:-} ]]; then
+    local boundary_file="$PRESENTATION_GESTURE_STAGE_FILE.native-swipe"
+    node --input-type=module - "$instrumentation_file" 2>/dev/null > "$boundary_file" <<'NODE' || rm -f -- "$boundary_file" || true
+import { readSwipeBoundary } from './.github/scripts/presentation-native-swipe-boundary.mjs';
+console.log(readSwipeBoundary(process.argv[2]));
+NODE
+  fi
   if [[ "$owned_forward" == true ]]; then
     node <<'NODE' || true
 const net = require('node:net');
@@ -88,13 +97,19 @@ adb shell pm grant com.miden.wallet android.permission.POST_NOTIFICATIONS
 phase input-bridge
 adb forward --no-rebind tcp:9236 tcp:8736
 owned_forward=true
-adb shell am instrument -w -e class com.miden.wallet.DappPresentationGestureInputTest \
-  com.miden.wallet.test/androidx.test.runner.AndroidJUnitRunner > "$results_dir/instrumentation.txt" 2>&1 &
+instrumentation_args=(-e class com.miden.wallet.DappPresentationGestureInputTest)
+if [[ ${PRESENTATION_GESTURE_PRIVATE_OUTPUT:-} == true ]]; then
+  instrumentation_args+=(-e dappSwipeBoundary true)
+  # Never diagnose an older capture if the background command cannot open its output.
+  if : > "$instrumentation_file"; then capture_native_boundary=true; fi
+fi
+adb shell am instrument -w "${instrumentation_args[@]}" \
+  com.miden.wallet.test/androidx.test.runner.AndroidJUnitRunner > "$instrumentation_file" 2>&1 &
 bridge_pid=$!
 ready=false
 for _ in $(seq 1 60); do
   if [[ -z "$target_pid" ]]; then target_pid=$(adb shell pidof com.miden.wallet 2>/dev/null | tr -d '\r' || true); fi
-  if grep -qF 'DappGestureInput ready port=8736' "$results_dir/instrumentation.txt"; then ready=true; break; fi
+  if grep -qF 'DappGestureInput ready port=8736' "$instrumentation_file"; then ready=true; break; fi
   kill -0 "$bridge_pid" 2>/dev/null || break
   sleep 1
 done
@@ -124,4 +139,4 @@ socket.on('end', () => {
 NODE
 wait "$bridge_pid"
 bridge_pid=
-grep -qxF 'OK (1 test)' <(tr -d '\r' < "$results_dir/instrumentation.txt")
+grep -qxF 'OK (1 test)' <(tr -d '\r' < "$instrumentation_file")
