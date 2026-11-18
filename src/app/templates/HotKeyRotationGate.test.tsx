@@ -443,7 +443,12 @@ describe('HotKeyRotationGate', () => {
 
   it('withholds stale failed-rotation Retry until the tracked row read recovers', async () => {
     let readFailed = false;
-    const row = { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key', error: 'guardian unreachable' };
+    const row = {
+      id: 'tx-new',
+      status: ITransactionStatus.Failed,
+      type: 'replace-hot-key',
+      error: 'guardian unreachable'
+    };
     mockUseTransactionRow.mockImplementation(() => ({ row, loaded: true, readFailed }));
     mockTable = [rotationRow('tx-new', { status: ITransactionStatus.Failed, error: 'guardian unreachable' })];
 

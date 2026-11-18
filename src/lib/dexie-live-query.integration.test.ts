@@ -85,9 +85,6 @@ describe.each([false, true])('real subscriptions with initial read failure = %s'
     const { result } = renderHook(() => useTransactionRow(saved.id));
     expect(result.current).toEqual({ row: undefined, loaded: false });
     await waitFor(() => expect(failedReads).toBe(Number(failInitially)));
-    if (failInitially) {
-      await waitFor(() => expect(result.current).toEqual({ row: undefined, loaded: false, readFailed: true }));
-    }
     await waitFor(() => expect(result.current).toEqual({ row: saved, loaded: true }), { timeout: 2500 });
     expect(failedReads).toBe(Number(failInitially));
   });
@@ -116,6 +113,20 @@ describe.each([false, true])('real subscriptions with initial read failure = %s'
     });
     expect(failedReads).toBe(Number(failInitially));
   });
+});
+
+it('reports an initial failed transaction read before recovering without another write', async () => {
+  const saved = row();
+  await transactions.add(saved);
+  jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
+    failedReads += 1;
+    throw readError;
+  });
+  const { result } = renderHook(() => useTransactionRow(saved.id));
+  expect(result.current).toEqual({ row: undefined, loaded: false });
+  await waitFor(() => expect(result.current).toEqual({ row: undefined, loaded: false, readFailed: true }));
+  await waitFor(() => expect(result.current).toEqual({ row: saved, loaded: true }), { timeout: 2500 });
+  expect(failedReads).toBe(1);
 });
 
 it('retains a loaded transaction through a later failed read', async () => {

@@ -465,9 +465,9 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('app/hooks/useBackWithFallback', () => ({
-  useBackWithFallback:
-    jest.requireActual<typeof import('app/hooks/useBackWithFallback')>('app/hooks/useBackWithFallback')
-      .useBackWithFallback
+  useBackWithFallback: jest.requireActual<typeof import('app/hooks/useBackWithFallback')>(
+    'app/hooks/useBackWithFallback'
+  ).useBackWithFallback
 }));
 jest.mock('screens/command/CommandDock', () => ({ CommandDock: () => null }));
 jest.mock('screens/command/CommandHeader', () => ({ CommandHeader: () => null }));

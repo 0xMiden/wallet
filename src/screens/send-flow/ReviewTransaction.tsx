@@ -859,427 +859,432 @@ export const ReviewTransaction: React.FC = () => {
     }
   }, [publicKey, spendingLimitChallenge]);
 
-  const minimumBurnShortfall =
-    isUsdcxBurn && amountBaseUnits !== undefined ? usdcxMinimumBurnShortfall(amountBaseUnits, burnMinimum) : undefined;
-  const burnValidationErrorId = !isUsdcxBurn
-    ? undefined
-    : amountBaseUnits === undefined || amountBaseUnits <= 0n
-      ? 'usdcxInvalidAmount'
-      : minimumBurnShortfall
-        ? 'usdcxBelowMinimumBurn'
+  function renderReview(): React.ReactElement {
+    const minimumBurnShortfall =
+      isUsdcxBurn && amountBaseUnits !== undefined
+        ? usdcxMinimumBurnShortfall(amountBaseUnits, burnMinimum)
         : undefined;
-  const burnValidationError = burnValidationErrorId ? t(burnValidationErrorId, minimumBurnShortfall) : undefined;
+    const burnValidationErrorId = !isUsdcxBurn
+      ? undefined
+      : amountBaseUnits === undefined || amountBaseUnits <= 0n
+        ? 'usdcxInvalidAmount'
+        : minimumBurnShortfall
+          ? 'usdcxBelowMinimumBurn'
+          : undefined;
+    const burnValidationError = burnValidationErrorId ? t(burnValidationErrorId, minimumBurnShortfall) : undefined;
 
-  // Deep-link guards — after all hooks. Address/amount are checkable
-  // immediately; token existence and balance only once balances load. A 0x
-  // recipient is valid here too: it routes through the bridge. Self-sends are
-  // rejected (SendManager blocks them at entry; this covers direct routing).
-  const paramsInvalid =
-    !tokenId ||
-    !(parseFloat(amount) > 0) ||
-    !isValidRecipientAddress(to) ||
-    sameWalletAccountId(to, publicKey ?? '') ||
-    (command &&
-      !!restoredDraft &&
-      (restoredDraft.tokenId !== tokenId ||
-        restoredDraft.amount !== amount ||
-        restoredDraft.recipientAddress !== to ||
-        (isBridge && (restoredDraft.bridgeNetwork !== network || restoredDraft.bridgeRoute !== route))));
-  // A cross-chain send must know its destination network, otherwise the review
-  // rows and the submit path have nothing to act on.
-  const bridgeParamsInvalid =
-    isBridge &&
-    (!bridgeNetworkObj ||
-      !route ||
-      (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
-      (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
-  const tokenInvalid =
-    isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
-    (!!balanceData && (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
-  const precisionErrorId = amountExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined;
-  const reviewError = scaleIsUnknown
-    ? t('unknownTokenScale')
-    : (submitError ??
-      (precisionErrorId ? t(precisionErrorId) : recallInvalid ? t('recallTimeInPast') : burnValidationError));
-  const reviewErrorId = scaleIsUnknown
-    ? 'unknownTokenScale'
-    : submitError !== undefined
-      ? submitErrorId
-      : (precisionErrorId ?? (recallInvalid ? 'recallTimeInPast' : burnValidationErrorId));
-  if (
-    command &&
-    sendAdmission?.status === 'admitted' &&
-    sendAdmission.intent === sendIntent &&
-    sendAdmission.revision === reviewRevision &&
-    sendAdmission.txId
-  ) {
+    // Deep-link guards — after all hooks. Address/amount are checkable
+    // immediately; token existence and balance only once balances load. A 0x
+    // recipient is valid here too: it routes through the bridge. Self-sends are
+    // rejected (SendManager blocks them at entry; this covers direct routing).
+    const paramsInvalid =
+      !tokenId ||
+      !(parseFloat(amount) > 0) ||
+      !isValidRecipientAddress(to) ||
+      sameWalletAccountId(to, publicKey ?? '') ||
+      (command &&
+        !!restoredDraft &&
+        (restoredDraft.tokenId !== tokenId ||
+          restoredDraft.amount !== amount ||
+          restoredDraft.recipientAddress !== to ||
+          (isBridge && (restoredDraft.bridgeNetwork !== network || restoredDraft.bridgeRoute !== route))));
+    // A cross-chain send must know its destination network, otherwise the review
+    // rows and the submit path have nothing to act on.
+    const bridgeParamsInvalid =
+      isBridge &&
+      (!bridgeNetworkObj ||
+        !route ||
+        (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
+        (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
+    const tokenInvalid =
+      isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
+      (!!balanceData && (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
+    const precisionErrorId = amountExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined;
+    const reviewError = scaleIsUnknown
+      ? t('unknownTokenScale')
+      : (submitError ??
+        (precisionErrorId ? t(precisionErrorId) : recallInvalid ? t('recallTimeInPast') : burnValidationError));
+    const reviewErrorId = scaleIsUnknown
+      ? 'unknownTokenScale'
+      : submitError !== undefined
+        ? submitErrorId
+        : (precisionErrorId ?? (recallInvalid ? 'recallTimeInPast' : burnValidationErrorId));
+    if (
+      command &&
+      sendAdmission?.status === 'admitted' &&
+      sendAdmission.intent === sendIntent &&
+      sendAdmission.revision === reviewRevision &&
+      sendAdmission.txId
+    ) {
+      return (
+        <Redirect
+          to={`${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(sendAdmission.txId)}`}
+        />
+      );
+    }
+    if (
+      paramsInvalid ||
+      bridgeParamsInvalid ||
+      tokenInvalid ||
+      (command && commandReviewId !== undefined && (!commandReviewId || restoredDraft?.reviewId !== commandReviewId))
+    ) {
+      return <Redirect to="/send" />;
+    }
+
+    // Label is derived from recallBlocks — the single source of truth for the send:
+    //   undefined → plain P2ID (no recall) → "None" (or "Never" if explicitly chosen)
+    //   set        → P2IDE, recallable ~(recallBlocks * SECONDS_PER_BLOCK) after SUBMIT
+    // The offset is RELATIVE and gets converted to an absolute height at send time, so
+    // reading the window off the offset (not the picked absolute instant) keeps the
+    // displayed value matching what's actually broadcast no matter how long the user
+    // lingers here. Near windows render precisely (< 3 min in seconds, < 30 min in
+    // minutes), longer ones as a coarse relative phrase.
+    const expirationLabel = (() => {
+      if (!recallBlocks) return recallNever ? t('never') : t('none');
+      const secs = parseInt(recallBlocks, 10) * SECONDS_PER_BLOCK;
+      if (secs < 180) return t('expiresInSeconds', { seconds: String(Math.max(1, secs)) });
+      if (secs < 1800) return t('expiresInMinutes', { minutes: String(Math.ceil(secs / 60)) });
+      const rel = formatDistanceToNow(addSeconds(new Date(), secs), { addSuffix: true });
+      return rel.charAt(0).toUpperCase() + rel.slice(1);
+    })();
+
+    // Agglayer carries the bridgeable token 1:1, so it receives what was typed; the Fast route
+    // forward-quotes the USDC output, rounded down so it never promises more than arrives. Show a
+    // skeleton only while the Fast quote is still loading. A USDCx burn has no quote at all.
+    const youReceiveLoading = isBridge && route === 'epoch' && epochQuote.loading;
+    const youReceiveAmount =
+      route === 'agglayer'
+        ? formatMoneyAmount(amount, 'typed')
+        : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
+    // AggLayer receives the sent token. A Fast output takes the bridge USDC label only when it is that token.
+    const youReceiveSymbol =
+      route === 'agglayer'
+        ? (token?.name ?? '')
+        : epochOutputIsBridgeUsdc(bridgeConfig, bridgeNetworkObj?.chainId, epochQuote.symbol, epochQuote.address)
+          ? evmUsdcLabel(bridgeConfig, epochQuote.symbol)
+          : epochQuote.symbol;
+    const youReceiveLabel =
+      youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
+    const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
+    const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+
+    const submitDisabled =
+      bridgeBlocked ||
+      tokenHeld ||
+      epochQuoteUnavailable ||
+      isSubmitting ||
+      (command && sendAdmission?.status === 'pending') ||
+      scaleIsUnknown ||
+      amountExceedsPrecision ||
+      (isUsdcxBurn && (!!burnValidationError || !burnFeeReady)) ||
+      recallInvalid;
+    const ReviewLayout = command ? CommandSendReview : SendStepLayout;
     return (
-      <Redirect
-        to={`${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(sendAdmission.txId)}`}
-      />
-    );
-  }
-  if (
-    paramsInvalid ||
-    bridgeParamsInvalid ||
-    tokenInvalid ||
-    (command && commandReviewId !== undefined && (!commandReviewId || restoredDraft?.reviewId !== commandReviewId))
-  ) {
-    return <Redirect to="/send" />;
-  }
-
-  // Label is derived from recallBlocks — the single source of truth for the send:
-  //   undefined → plain P2ID (no recall) → "None" (or "Never" if explicitly chosen)
-  //   set        → P2IDE, recallable ~(recallBlocks * SECONDS_PER_BLOCK) after SUBMIT
-  // The offset is RELATIVE and gets converted to an absolute height at send time, so
-  // reading the window off the offset (not the picked absolute instant) keeps the
-  // displayed value matching what's actually broadcast no matter how long the user
-  // lingers here. Near windows render precisely (< 3 min in seconds, < 30 min in
-  // minutes), longer ones as a coarse relative phrase.
-  const expirationLabel = (() => {
-    if (!recallBlocks) return recallNever ? t('never') : t('none');
-    const secs = parseInt(recallBlocks, 10) * SECONDS_PER_BLOCK;
-    if (secs < 180) return t('expiresInSeconds', { seconds: String(Math.max(1, secs)) });
-    if (secs < 1800) return t('expiresInMinutes', { minutes: String(Math.ceil(secs / 60)) });
-    const rel = formatDistanceToNow(addSeconds(new Date(), secs), { addSuffix: true });
-    return rel.charAt(0).toUpperCase() + rel.slice(1);
-  })();
-
-  // Agglayer carries the bridgeable token 1:1, so it receives what was typed; the Fast route
-  // forward-quotes the USDC output, rounded down so it never promises more than arrives. Show a
-  // skeleton only while the Fast quote is still loading. A USDCx burn has no quote at all.
-  const youReceiveLoading = isBridge && route === 'epoch' && epochQuote.loading;
-  const youReceiveAmount =
-    route === 'agglayer'
-      ? formatMoneyAmount(amount, 'typed')
-      : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
-  // AggLayer receives the sent token. A Fast output takes the bridge USDC label only when it is that token.
-  const youReceiveSymbol =
-    route === 'agglayer'
-      ? (token?.name ?? '')
-      : epochOutputIsBridgeUsdc(bridgeConfig, bridgeNetworkObj?.chainId, epochQuote.symbol, epochQuote.address)
-        ? evmUsdcLabel(bridgeConfig, epochQuote.symbol)
-        : epochQuote.symbol;
-  const youReceiveLabel =
-    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
-  const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
-  const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
-
-  const submitDisabled =
-    bridgeBlocked ||
-    tokenHeld ||
-    epochQuoteUnavailable ||
-    isSubmitting ||
-    (command && sendAdmission?.status === 'pending') ||
-    scaleIsUnknown ||
-    amountExceedsPrecision ||
-    (isUsdcxBurn && (!!burnValidationError || !burnFeeReady)) ||
-    recallInvalid;
-  const ReviewLayout = command ? CommandSendReview : SendStepLayout;
-  return (
-    <div className={command ? 'flex flex-col' : 'flex h-full min-h-0 flex-col bg-app-bg'}>
-      <NetworkModeBanner />
-      <ReviewLayout
-        title={t('reviewDetails')}
-        onBack={command ? backToComposer : goBack}
-        formId={command ? formId : undefined}
-        onFormSubmit={() => {
-          if (!submitDisabled) void onSubmit();
-        }}
-        // Abandons the send: without the draft the next Send opens empty. Back keeps it to restore the form.
-        onClose={() => {
-          if (!command) clearSendDraft();
-          else commandDrafts?.clearDraft('send');
-          navigate('/');
-        }}
-        footer={
-          <div className="flex flex-col gap-2">
-            {(scaleIsUnknown || submitError || amountExceedsPrecision || burnValidationError || recallInvalid) && (
-              <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
-            )}
-            <Button
-              type={command ? 'submit' : 'button'}
-              form={command ? formId : undefined}
-              // The CTA names the consequence of a non-default choice, so a public send is never
-              // confirmed by a button that reads like a private one.
-              title={sharePrivately ? t('sendPayment') : t('sendPublicly')}
-              variant={ButtonVariant.Primary}
-              accent="send"
-              onClick={command ? undefined : onSubmit}
-              isLoading={isSubmitting || (command && sendAdmission?.status === 'pending')}
-              // Disabled rather than merely rejected on press: the reason is known
-              // before the user reaches for the button, and letting them tap a live
-              // CTA only to be refused reads as a wallet fault rather than a
-              // deliberate refusal.
-              disabled={submitDisabled}
-              data-testid="send-review-submit"
-              className="w-full max-w-none"
-            />
-          </div>
-        }
-      >
-        {isBridge && <FeatureUnavailableNotice feature={selectedBridgeFeature} availability={bridgeAvailability} />}
-        {/* A held token never reaches a rendered bridge review, so this never stacks on the notice above. */}
-        {tokenHeld && (
-          <Notice
-            tone="warning"
-            icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
-            data-testid="review-held-notice"
-          >
-            {t('sendTokenAvailabilityChecking')}
-          </Notice>
-        )}
-        {/* The amount is the page's hero, in the same place as on the amount step. */}
-        <Hero
-          data-testid="review-amount"
-          className="mt-3"
-          visual={<TokenLogo faucetId={tokenId} size="2xl" />}
-          value={<TokenAmount amount={amount} symbol={tokenLabel} formatting="exact" />}
-          subtitle={
-            token?.scaleIsKnown && (
-              <TokenUsdValue amount={amount} decimals={token.decimals} faucetId={token.id} symbol={token.name} />
-            )
+      <div className={command ? 'flex flex-col' : 'flex h-full min-h-0 flex-col bg-app-bg'}>
+        <NetworkModeBanner />
+        <ReviewLayout
+          title={t('reviewDetails')}
+          onBack={command ? backToComposer : goBack}
+          formId={command ? formId : undefined}
+          onFormSubmit={() => {
+            if (!submitDisabled) void onSubmit();
+          }}
+          // Abandons the send: without the draft the next Send opens empty. Back keeps it to restore the form.
+          onClose={() => {
+            if (!command) clearSendDraft();
+            else commandDrafts?.clearDraft('send');
+            navigate('/');
+          }}
+          footer={
+            <div className="flex flex-col gap-2">
+              {(scaleIsUnknown || submitError || amountExceedsPrecision || burnValidationError || recallInvalid) && (
+                <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
+              )}
+              <Button
+                type={command ? 'submit' : 'button'}
+                form={command ? formId : undefined}
+                // The CTA names the consequence of a non-default choice, so a public send is never
+                // confirmed by a button that reads like a private one.
+                title={sharePrivately ? t('sendPayment') : t('sendPublicly')}
+                variant={ButtonVariant.Primary}
+                accent="send"
+                onClick={command ? undefined : onSubmit}
+                isLoading={isSubmitting || (command && sendAdmission?.status === 'pending')}
+                // Disabled rather than merely rejected on press: the reason is known
+                // before the user reaches for the button, and letting them tap a live
+                // CTA only to be refused reads as a wallet fault rather than a
+                // deliberate refusal.
+                disabled={submitDisabled}
+                data-testid="send-review-submit"
+                className="w-full max-w-none"
+              />
+            </div>
           }
-        />
-
-        <TxStory
-          className="mt-6"
-          hops={
-            [
-              {
-                from: { role: 'you', name: '' },
-                to: { role: 'recipient', name: to },
-                amount: `${amount} ${tokenLabel}`.trim(),
-                via: isBridge ? undefined : sharePrivately ? t('private') : t('public')
-              },
-              ...(isBridge && youReceiveAmount != null
-                ? [
-                    {
-                      from: { role: 'you' as const, name: '' },
-                      to: { role: 'recipient' as const, name: bridgeNetworkObj?.name ?? '' },
-                      amount: `${youReceiveAmount} ${youReceiveSymbol}`.trim()
-                    }
-                  ]
-                : []),
-              ...(networkFee && !isUsdcxBurn
-                ? [
-                    {
-                      from: { role: 'you' as const, name: '' },
-                      to: { role: 'network' as const, name: '' },
-                      amount: networkFee
-                    }
-                  ]
-                : [])
-            ] satisfies StoryHop[]
-          }
-        />
-
-        <DetailCard surface="outline" face="heading" className="tx-stage-list mt-6">
-          {/* The full address, never truncated: this is the last look before funds move. Set in body
-              text rather than the bold value face, so it reads as something to check, not a headline. */}
-          <DetailRow
-            label={t('to')}
-            stacked
-            data-testid="review-row-to"
-            badge={
-              isNewRecipient ? (
-                <motion.span {...fade}>
-                  <Pill size="tag" tone="muted" data-testid="review-new-recipient">
-                    {t('newRecipient')}
-                  </Pill>
-                </motion.span>
-              ) : undefined
+        >
+          {isBridge && <FeatureUnavailableNotice feature={selectedBridgeFeature} availability={bridgeAvailability} />}
+          {/* A held token never reaches a rendered bridge review, so this never stacks on the notice above. */}
+          {tokenHeld && (
+            <Notice
+              tone="warning"
+              icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+              data-testid="review-held-notice"
+            >
+              {t('sendTokenAvailabilityChecking')}
+            </Notice>
+          )}
+          {/* The amount is the page's hero, in the same place as on the amount step. */}
+          <Hero
+            data-testid="review-amount"
+            className="mt-3"
+            visual={<TokenLogo faucetId={tokenId} size="2xl" />}
+            value={<TokenAmount amount={amount} symbol={tokenLabel} formatting="exact" />}
+            subtitle={
+              token?.scaleIsKnown && (
+                <TokenUsdValue amount={amount} decimals={token.decimals} faucetId={token.id} symbol={token.name} />
+              )
             }
-          >
-            <span className="text-body-sm font-semibold break-all text-ink">{to}</span>
-          </DetailRow>
-          {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
-          <DetailRow label={t('network')}>
-            <span className="flex items-center gap-1.5">
-              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} network={bridgeNetworkObj?.id} />
-              {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
-            </span>
-          </DetailRow>
+          />
 
-          {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
+          <TxStory
+            className="mt-6"
+            hops={
+              [
+                {
+                  from: { role: 'you', name: '' },
+                  to: { role: 'recipient', name: to },
+                  amount: `${amount} ${tokenLabel}`.trim(),
+                  via: isBridge ? undefined : sharePrivately ? t('private') : t('public')
+                },
+                ...(isBridge && youReceiveAmount != null
+                  ? [
+                      {
+                        from: { role: 'you' as const, name: '' },
+                        to: { role: 'recipient' as const, name: bridgeNetworkObj?.name ?? '' },
+                        amount: `${youReceiveAmount} ${youReceiveSymbol}`.trim()
+                      }
+                    ]
+                  : []),
+                ...(networkFee && !isUsdcxBurn
+                  ? [
+                      {
+                        from: { role: 'you' as const, name: '' },
+                        to: { role: 'network' as const, name: '' },
+                        amount: networkFee
+                      }
+                    ]
+                  : [])
+              ] satisfies StoryHop[]
+            }
+          />
+
+          <DetailCard surface="outline" face="heading" className="tx-stage-list mt-6">
+            {/* The full address, never truncated: this is the last look before funds move. Set in body
+              text rather than the bold value face, so it reads as something to check, not a headline. */}
+            <DetailRow
+              label={t('to')}
+              stacked
+              data-testid="review-row-to"
+              badge={
+                isNewRecipient ? (
+                  <motion.span {...fade}>
+                    <Pill size="tag" tone="muted" data-testid="review-new-recipient">
+                      {t('newRecipient')}
+                    </Pill>
+                  </motion.span>
+                ) : undefined
+              }
+            >
+              <span className="text-body-sm font-semibold break-all text-ink">{to}</span>
+            </DetailRow>
+            {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
+            <DetailRow label={t('network')}>
+              <span className="flex items-center gap-1.5">
+                <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} network={bridgeNetworkObj?.id} />
+                {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
+              </span>
+            </DetailRow>
+
+            {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
               the transaction is proven, so this quotes the upper bound the wallet already reserves
               against — the same amount the amount step withheld from `Available`. Absent on a
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
-          {networkFee && !isUsdcxBurn && (
-            // "Max" in the label already says the fee is an upper bound; the receipt shows what was paid.
-            <DetailRow
-              label={t('networkFeeMax')}
-              sub={
-                networkFeeDetails && (
-                  <TokenUsdValue {...networkFeeDetails} faucetId={networkFeeDetails.faucetId ?? undefined} />
-                )
-              }
-            >
-              {networkFee}
-            </DetailRow>
-          )}
+            {networkFee && !isUsdcxBurn && (
+              // "Max" in the label already says the fee is an upper bound; the receipt shows what was paid.
+              <DetailRow
+                label={t('networkFeeMax')}
+                sub={
+                  networkFeeDetails && (
+                    <TokenUsdValue {...networkFeeDetails} faucetId={networkFeeDetails.faucetId ?? undefined} />
+                  )
+                }
+              >
+                {networkFee}
+              </DetailRow>
+            )}
 
-          {isBridge ? (
-            <>
-              <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
-              {isUsdcxBurn ? (
-                <>
+            {isBridge ? (
+              <>
+                <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
+                {isUsdcxBurn ? (
+                  <>
+                    <DetailRow
+                      label={t('usdcxMinimumBurn')}
+                      sub={
+                        token?.scaleIsKnown && (
+                          <TokenUsdValue
+                            amount={burnMinimum}
+                            decimals={USDCX_DECIMALS}
+                            faucetId={token.id}
+                            symbol={token.name}
+                          />
+                        )
+                      }
+                    >
+                      <TokenAmount amount={burnMinimum} decimals={USDCX_DECIMALS} symbol="USDCx" formatting="exact" />
+                    </DetailRow>
+                    <DetailRow label={t('networkFeeMax')} sub={t('usdcxSponsorshipFee', { symbol: nativeSymbol })}>
+                      {burnFeeReady && burnNetworkFeeBudget ? (
+                        <TokenAmount
+                          amount={BigInt(burnNetworkFeeBudget.maxAmount)}
+                          decimals={nativeMetadata.decimals}
+                          symbol={nativeSymbol}
+                          formatting="exact"
+                        />
+                      ) : (
+                        <span role="status">
+                          {t(burnFee.status === 'pending' ? 'usdcxBurnFeeMeasuring' : 'usdcxBurnFeeUnavailable')}
+                        </span>
+                      )}
+                    </DetailRow>
+                    {bridgeNetworkObj && amountBaseUnits !== undefined && (
+                      <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} />
+                    )}
+                  </>
+                ) : (
                   <DetailRow
-                    label={t('usdcxMinimumBurn')}
+                    label={t('youReceive')}
                     sub={
-                      token?.scaleIsKnown && (
+                      !youReceiveLoading && route === 'agglayer' && token?.scaleIsKnown ? (
                         <TokenUsdValue
-                          amount={burnMinimum}
-                          decimals={USDCX_DECIMALS}
+                          amount={amount}
+                          decimals={token.decimals}
                           faucetId={token.id}
                           symbol={token.name}
                         />
-                      )
+                      ) : !youReceiveLoading && route === 'epoch' && epochQuote.amount !== undefined ? (
+                        <EvmUsdValue
+                          amount={epochQuote.amount}
+                          decimals={epochQuote.decimals ?? USDCX_DECIMALS}
+                          chainId={bridgeNetworkObj?.chainId}
+                          address={epochQuote.address}
+                        />
+                      ) : undefined
                     }
                   >
-                    <TokenAmount amount={burnMinimum} decimals={USDCX_DECIMALS} symbol="USDCx" formatting="exact" />
+                    {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
                   </DetailRow>
-                  <DetailRow label={t('networkFeeMax')} sub={t('usdcxSponsorshipFee', { symbol: nativeSymbol })}>
-                    {burnFeeReady && burnNetworkFeeBudget ? (
-                      <TokenAmount
-                        amount={BigInt(burnNetworkFeeBudget.maxAmount)}
-                        decimals={nativeMetadata.decimals}
-                        symbol={nativeSymbol}
-                        formatting="exact"
-                      />
-                    ) : (
-                      <span role="status">
-                        {t(burnFee.status === 'pending' ? 'usdcxBurnFeeMeasuring' : 'usdcxBurnFeeUnavailable')}
-                      </span>
-                    )}
-                  </DetailRow>
-                  {bridgeNetworkObj && amountBaseUnits !== undefined && (
-                    <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} />
-                  )}
-                </>
-              ) : (
+                )}
+              </>
+            ) : (
+              // The transfer type and the expiration are the two choices a same-chain send offers;
+              // both fold under one row, whose summary line names them while it is closed.
+              <DetailDisclosure
+                title={t('advancedOptions')}
+                summary={t('advancedOptionsSummary', { transferType: t(transferType), expiration: expirationLabel })}
+                summaryEmphasis={!sharePrivately}
+                open={advancedOpen}
+                onOpenChange={setAdvancedOpen}
+                data-testid="review-advanced-options"
+              >
                 <DetailRow
-                  label={t('youReceive')}
-                  sub={
-                    !youReceiveLoading && route === 'agglayer' && token?.scaleIsKnown ? (
-                      <TokenUsdValue
-                        amount={amount}
-                        decimals={token.decimals}
-                        faucetId={token.id}
-                        symbol={token.name}
-                      />
-                    ) : !youReceiveLoading && route === 'epoch' && epochQuote.amount !== undefined ? (
-                      <EvmUsdValue
-                        amount={epochQuote.amount}
-                        decimals={epochQuote.decimals ?? USDCX_DECIMALS}
-                        chainId={bridgeNetworkObj?.chainId}
-                        address={epochQuote.address}
-                      />
-                    ) : undefined
-                  }
+                  label={t('transferType')}
+                  onClick={() => setShowTransferType(true)}
+                  aria-haspopup="dialog"
+                  disabled={isSubmitting}
+                  data-testid="review-row-transfer-type"
                 >
-                  {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
+                  {t(transferType)}
                 </DetailRow>
-              )}
-            </>
-          ) : (
-            // The transfer type and the expiration are the two choices a same-chain send offers;
-            // both fold under one row, whose summary line names them while it is closed.
-            <DetailDisclosure
-              title={t('advancedOptions')}
-              summary={t('advancedOptionsSummary', { transferType: t(transferType), expiration: expirationLabel })}
-              summaryEmphasis={!sharePrivately}
-              open={advancedOpen}
-              onOpenChange={setAdvancedOpen}
-              data-testid="review-advanced-options"
-            >
-              <DetailRow
-                label={t('transferType')}
-                onClick={() => setShowTransferType(true)}
-                aria-haspopup="dialog"
-                disabled={isSubmitting}
-                data-testid="review-row-transfer-type"
-              >
-                {t(transferType)}
-              </DetailRow>
-              <DetailRow
-                label={t('expires')}
-                action={{
-                  label: t('edit'),
-                  onClick: () => setShowCalendar(true),
-                  'aria-haspopup': 'dialog',
-                  disabled: isSubmitting,
-                  'data-testid': 'review-expiration-edit'
-                }}
-                data-testid="review-row-expiration"
-              >
-                {expirationLabel}
-              </DetailRow>
-            </DetailDisclosure>
-          )}
-        </DetailCard>
-        {/* What a public note gives away stays on the page whether or not Advanced options is open:
+                <DetailRow
+                  label={t('expires')}
+                  action={{
+                    label: t('edit'),
+                    onClick: () => setShowCalendar(true),
+                    'aria-haspopup': 'dialog',
+                    disabled: isSubmitting,
+                    'data-testid': 'review-expiration-edit'
+                  }}
+                  data-testid="review-row-expiration"
+                >
+                  {expirationLabel}
+                </DetailRow>
+              </DetailDisclosure>
+            )}
+          </DetailCard>
+          {/* What a public note gives away stays on the page whether or not Advanced options is open:
             the choice is made in a sheet, and the consequence must survive closing both. */}
-        <AnimatePresence initial={false}>
-          {!isBridge && !sharePrivately && (
-            <motion.div key="public-transfer-notice" className="overflow-hidden" {...reveal}>
-              <Notice
-                tone="warning"
-                title={t('publicTransfer')}
-                icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
-                className="mt-3"
-                data-testid="review-public-notice"
-              >
-                {t('publicTransferNotice')}
-              </Notice>
-            </motion.div>
+          <AnimatePresence initial={false}>
+            {!isBridge && !sharePrivately && (
+              <motion.div key="public-transfer-notice" className="overflow-hidden" {...reveal}>
+                <Notice
+                  tone="warning"
+                  title={t('publicTransfer')}
+                  icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+                  className="mt-3"
+                  data-testid="review-public-notice"
+                >
+                  {t('publicTransferNotice')}
+                </Notice>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {isUsdcxBurn && (
+            <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="usdcx-burn-notice">
+              {t('usdcxWithdrawalNotice')}
+            </p>
           )}
-        </AnimatePresence>
-        {isUsdcxBurn && (
-          <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="usdcx-burn-notice">
-            {t('usdcxWithdrawalNotice')}
-          </p>
-        )}
-        {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
+          {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
             squeezed into the value column. */}
-        {!isBridge && recallBlocks ? (
-          <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="review-recall-note">
-            {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
-          </p>
-        ) : null}
-      </ReviewLayout>
+          {!isBridge && recallBlocks ? (
+            <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="review-recall-note">
+              {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
+            </p>
+          ) : null}
+        </ReviewLayout>
 
-      {!isBridge && (
-        <TransferTypeDrawer
-          open={showTransferType && !isSubmitting}
-          onOpenChange={setShowTransferType}
-          value={transferType}
-          onChange={next => {
-            if (isSubmitting) return;
-            setSharePrivately(next === 'private');
-          }}
-        />
-      )}
-      {!isBridge && (
-        <RecallCalendarDrawer
-          open={showCalendar && !isSubmitting}
-          onOpenChange={setShowCalendar}
-          recallDate={recallDate}
-          recallTime={recallTime}
-          onRecallBlocksChange={handleRecallBlocksChange}
-          onRecallDateChange={handleRecallDateChange}
-          onRecallTimeChange={handleRecallTimeChange}
-          onRecallNever={handleRecallNever}
-        />
-      )}
-      {spendingLimitChallenge !== undefined && (
-        <SpendingLimitChallenge
-          assessment={spendingLimitChallenge.assessment}
-          spends={spendingLimitChallenge.spends}
-          unpriced={spendingLimitChallenge.unpriced}
-          onResult={handleSpendingLimitResult}
-        />
-      )}
-    </div>
-  );
+        {!isBridge && (
+          <TransferTypeDrawer
+            open={showTransferType && !isSubmitting}
+            onOpenChange={setShowTransferType}
+            value={transferType}
+            onChange={next => {
+              if (isSubmitting) return;
+              setSharePrivately(next === 'private');
+            }}
+          />
+        )}
+        {!isBridge && (
+          <RecallCalendarDrawer
+            open={showCalendar && !isSubmitting}
+            onOpenChange={setShowCalendar}
+            recallDate={recallDate}
+            recallTime={recallTime}
+            onRecallBlocksChange={handleRecallBlocksChange}
+            onRecallDateChange={handleRecallDateChange}
+            onRecallTimeChange={handleRecallTimeChange}
+            onRecallNever={handleRecallNever}
+          />
+        )}
+        {spendingLimitChallenge !== undefined && (
+          <SpendingLimitChallenge
+            assessment={spendingLimitChallenge.assessment}
+            spends={spendingLimitChallenge.spends}
+            unpriced={spendingLimitChallenge.unpriced}
+            onResult={handleSpendingLimitResult}
+          />
+        )}
+      </div>
+    );
+  }
+  return renderReview();
 };

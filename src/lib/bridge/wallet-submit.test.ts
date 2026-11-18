@@ -85,7 +85,10 @@ it.each([
       )
   },
   { label: 'a same-network RPC switch', change: () => jest.mocked(getEffectiveRpcUrl).mockReturnValue('other-rpc') },
-  { label: 'a network switch', change: () => jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.DEVNET) }
+  {
+    label: 'a network switch',
+    change: () => jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.DEVNET)
+  }
 ])('withholds a capped receive when the wallet balance comes from $label', ({ change }) => {
   change();
   expect(walletBridgeBalanceCap(testRoute(), '1', accounts.midenAccount).status).toBe('unavailable');

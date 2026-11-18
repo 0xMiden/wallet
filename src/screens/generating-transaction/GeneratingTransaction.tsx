@@ -6,8 +6,8 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { useGuardianHoldUntil } from 'app/hooks/useGuardianHoldUntil';
-import { IconName } from 'app/icons/v2';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';

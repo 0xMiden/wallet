@@ -1088,41 +1088,49 @@ describe('Receive - Address', () => {
       { platform: 'web', mobile: false, changeAccount: false },
       { platform: 'native', mobile: true, changeAccount: false },
       { platform: 'web after account change', mobile: false, changeAccount: true }
-    ])('does not let an older $platform Share success erase a newer clipboard failure', async ({ mobile, changeAccount }) => {
-      const originalAccount = mockPublicKey;
-      mockIsMobile.mockReturnValue(mobile);
-      let finishOlderShare: () => void = () => {};
-      const olderShare = new Promise<void>(resolve => {
-        finishOlderShare = resolve;
-      });
-      const shareAction = mobile ? jest.mocked(Share.share) : share;
-      shareAction.mockReset().mockImplementationOnce(() => olderShare).mockRejectedValueOnce(new Error('dismissed'));
-      mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      const error = jest.spyOn(console, 'error').mockImplementation(() => {});
-      try {
-        const container = await renderReceive();
-        await clickShare(container);
-        expect(shareAction).toHaveBeenCalledTimes(1);
-        if (changeAccount) {
-          mockPublicKey = 'other-account';
-          await setPageActive(true);
+    ])(
+      'does not let an older $platform Share success erase a newer clipboard failure',
+      async ({ mobile, changeAccount }) => {
+        const originalAccount = mockPublicKey;
+        mockIsMobile.mockReturnValue(mobile);
+        let finishOlderShare: () => void = () => {};
+        const olderShare = new Promise<void>(resolve => {
+          finishOlderShare = resolve;
+        });
+        const shareAction = mobile ? jest.mocked(Share.share) : share;
+        shareAction
+          .mockReset()
+          .mockImplementationOnce(() => olderShare)
+          .mockRejectedValueOnce(new Error('dismissed'));
+        mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          const container = await renderReceive();
+          await clickShare(container);
+          expect(shareAction).toHaveBeenCalledTimes(1);
+          if (changeAccount) {
+            mockPublicKey = 'other-account';
+            await setPageActive(true);
+          }
+          await clickShare(container);
+          await waitFor(() =>
+            expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).not.toBeNull()
+          );
+          expect(container.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(mockPublicKey);
+          await act(async () => finishOlderShare());
+          expect(shareAction).toHaveBeenCalledTimes(2);
+          expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+          expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toHaveAttribute('role', 'alert');
+          expect(container.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(mockPublicKey);
+        } finally {
+          finishOlderShare();
+          mockPublicKey = originalAccount;
+          warn.mockRestore();
+          error.mockRestore();
         }
-        await clickShare(container);
-        await waitFor(() => expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).not.toBeNull());
-        expect(container.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(mockPublicKey);
-        await act(async () => finishOlderShare());
-        expect(shareAction).toHaveBeenCalledTimes(2);
-        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
-        expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toHaveAttribute('role', 'alert');
-        expect(container.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(mockPublicKey);
-      } finally {
-        finishOlderShare();
-        mockPublicKey = originalAccount;
-        warn.mockRestore();
-        error.mockRestore();
       }
-    });
+    );
 
     it('does not copy a previous account when its Share rejects after switching accounts', async () => {
       const originalAccount = mockPublicKey;
