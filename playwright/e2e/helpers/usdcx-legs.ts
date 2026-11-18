@@ -411,7 +411,7 @@ async function burnStuckReport(last: BridgedSendRow | undefined, rpcUrl: string,
 }
 
 /** The fee and sponsorship a burn's own outputs carry; they must name the row's burn note and fee exactly. */
-async function decodeBurnTerms(
+export async function decodeBurnTerms(
   resultBytes: string,
   row: BridgedSendRow,
   burnNoteId: Hash,
@@ -420,6 +420,7 @@ async function decodeBurnTerms(
   liveSponsorship: bigint
 ): Promise<{ fee: bigint; sponsorship: bigint }> {
   const outputs = await burnOutputs({ resultBytesBase64: resultBytes, burnNoteId, faucetBech32: ids.nativeBare });
+  const totalFee = outputs.fee.amount + outputs.sponsorship.amount;
   const mismatches = [
     outputs.burn.noteId.toLowerCase() === burnNoteId.toLowerCase()
       ? null
@@ -428,9 +429,9 @@ async function decodeBurnTerms(
     outputs.sponsorship.amount === liveSponsorship
       ? null
       : `sponsorship ${outputs.sponsorship.amount}, live fee_schedule ${liveSponsorship}`,
-    row.feeAmount === outputs.fee.amount.toString()
+    row.feeAmount === totalFee.toString()
       ? null
-      : `fee note ${outputs.fee.amount}, row feeAmount ${row.feeAmount ?? 'unset'}`,
+      : `verification ${outputs.fee.amount} + sponsorship ${outputs.sponsorship.amount} = ${totalFee}, row feeAmount ${row.feeAmount ?? 'unset'}`,
     row.feeFaucetId === ids.native ? null : `fee paid in ${row.feeFaucetId ?? 'nothing'}, not ${ids.native}`
   ].filter((text): text is string => text !== null);
   if (mismatches.length > 0) throw new Error(`burn ${row.id} outputs disagree: ${mismatches.join('; ')}`);

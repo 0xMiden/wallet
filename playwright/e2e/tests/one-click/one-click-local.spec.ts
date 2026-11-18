@@ -196,6 +196,8 @@ test('inbound WC keeps its session after amount edits, sends only on confirm, an
   oneClick
 }) => {
   test.setTimeout(900_000);
+  // The worker-scoped provider still holds the preceding case's terminal refund.
+  oneClick.service.setStatus('PENDING_DEPOSIT');
   const { accountAddress, faucetHex } = await prepareWallet(walletA, midenCli, oneClick);
   await chooseRoute(walletA.page, 'eth', 'miden');
   const wc = new WcCounterparty({ chainId: 1, sessionChainIds: [1], rpcUrl: 'http://127.0.0.1:8545' });

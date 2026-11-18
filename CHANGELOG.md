@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Compare the USDCx burn activity fee with verification and sponsorship combined, and count each component once in Chrome and iOS live vault checks.
+
 - [FIX][ci] Read measured maximum fee rows in Chrome and iOS USDCx burn reviews, restore each dApp's existing account grant before completion reads, and retain scalar refusal-phase and screenshot-helper diagnostics without changing existing timing bounds.
 - [FIX][ci] Check signed 1Click execution economics against the shared nightly loss allowance when the direct NEAR endpoint has no configured application fees or explicit fee policy. Public wallet settings are unchanged.
 
