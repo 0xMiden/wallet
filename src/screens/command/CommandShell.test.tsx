@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MotionConfig } from 'framer-motion';
 
+import { HistoryEntryType, type IHistoryEntry } from 'app/templates/history/IHistoryEntry';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { ReviewLayout } from 'components/review';
 import { AlertSheet } from 'components/ui/AlertSheet';
@@ -13,6 +14,62 @@ import { useCommandDrafts } from './command-drafts';
 import { CommandShell } from './CommandShell';
 import { useCommandWorkbenchSlots } from './CommandWorkbench';
 
+let mockRowExists = true;
+let mockHidden = false;
+let mockRecentEntries: IHistoryEntry[] = [];
+let mockHistoryInputs: { address: string; numItems?: number; pendingItems?: unknown[] } | undefined;
+let mockClaimItems: { note: { id: string; receivedAt: number }; status: string; txId?: string }[] = [];
+jest.mock('app/templates/history/History', () => ({
+  __esModule: true,
+  default: ({
+    renderEntries,
+    address,
+    numItems,
+    pendingItems
+  }: {
+    renderEntries: (view: {
+      entries: IHistoryEntry[];
+      initialLoading: boolean;
+      loadError: boolean;
+      onRetry: () => void;
+      hasMore: boolean;
+      loadMore: () => Promise<void>;
+    }) => React.ReactNode;
+    address: string;
+    numItems?: number;
+    pendingItems?: unknown[];
+  }) => {
+    mockHistoryInputs = { address, numItems, pendingItems };
+    return renderEntries({
+      entries: mockRecentEntries,
+      initialLoading: false,
+      loadError: false,
+      onRetry: () => {},
+      hasMore: false,
+      loadMore: async () => {}
+    });
+  }
+}));
+jest.mock('app/templates/history/useActivityClaimList', () => ({
+  useActivityClaimList: () => ({
+    account: { publicKey: 'account-a' },
+    representedItems: mockClaimItems,
+    listItems: mockClaimItems,
+    renderPendingItem: (item: { note: { id: string } }) => <button>{item.note.id}</button>
+  })
+}));
+jest.mock('app/templates/history/HistoryItem', () => ({
+  __esModule: true,
+  default: ({ entry }: { entry: IHistoryEntry }) => (
+    <div data-testid="recent-entry" data-row-id={entry.txId} data-status={entry.status}>
+      {entry.message} {entry.amount}
+    </div>
+  )
+}));
+jest.mock('screens/generating-transaction/useTransactionRow', () => ({
+  useTransactionRow: (id: string) => ({ loaded: true, row: mockRowExists ? { id } : undefined })
+}));
+jest.mock('./useCommandPrivacy', () => ({ useCommandPrivacy: () => [mockHidden, jest.fn()] }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 jest.mock('./CommandHomePrompts', () => ({
@@ -31,7 +88,14 @@ jest.mock('lib/woozie', () => ({
 
 const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc.test' };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockRowExists = true;
+  mockHidden = false;
+  mockRecentEntries = [];
+  mockHistoryInputs = undefined;
+  mockClaimItems = [];
+});
 
 it('renders one active workbench and navigates via the five dock destinations', () => {
   const { rerender } = render(
@@ -63,6 +127,108 @@ it('offers the existing account history as recent actions on the dashboard', () 
     </CommandShell>
   );
   expect(screen.getByTestId('command-portfolio')).toHaveTextContent('Live wallet portfolio');
+  expect(screen.getByRole('heading', { name: 'commandRecentActions' })).toBeInTheDocument();
+});
+
+it('shows newest local rows and claim cards once, bounded to the dashboard, without turning source completion into delivery', () => {
+  mockRecentEntries = Array.from(
+    { length: 9 },
+    (_, index): IHistoryEntry => ({
+      key: `completed-${index}`,
+      txId: `tx-${index}`,
+      address: 'account-a',
+      timestamp: 100 - index,
+      type: HistoryEntryType.CompletedTransaction,
+      txType: index === 0 ? 'bridged-send' : 'send',
+      message: index === 0 ? 'Burn confirmed' : `sent-${index}`,
+      amount: String(index)
+    })
+  );
+  mockRecentEntries.splice(2, 0, {
+    key: 'pending-consume',
+    txId: 'claim-row',
+    address: 'account-a',
+    timestamp: 99,
+    type: HistoryEntryType.ProcessingTransaction,
+    txType: 'consume',
+    message: 'same claim'
+  });
+  mockClaimItems = [{ note: { id: 'note-1', receivedAt: 105 }, status: 'claiming', txId: 'claim-row' }];
+  render(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  // Do not pre-truncate History: a linked claim among the first five must not hide an eligible sixth row.
+  expect(mockHistoryInputs).toEqual({ address: 'account-a', numItems: undefined, pendingItems: mockClaimItems });
+  expect(screen.getByRole('button', { name: 'note-1' })).toBeInTheDocument();
+  expect(screen.queryByText('same claim')).not.toBeInTheDocument();
+  expect(screen.getAllByTestId('recent-entry')).toHaveLength(4);
+  expect(screen.getAllByTestId('recent-entry').map(entry => entry.getAttribute('data-row-id'))).toEqual([
+    'tx-0',
+    'tx-1',
+    'tx-2',
+    'tx-3'
+  ]);
+  expect(screen.getByText(/Burn confirmed/)).toBeInTheDocument();
+  expect(screen.queryByText(/Delivered/)).not.toBeInTheDocument();
+});
+
+it('keeps dated history before same-time claim cards and leaves unknown-dated claims last', () => {
+  mockRecentEntries = [
+    {
+      key: 'older',
+      txId: 'older',
+      address: 'account-a',
+      timestamp: 40,
+      type: HistoryEntryType.CompletedTransaction,
+      txType: 'send',
+      message: 'older'
+    },
+    {
+      key: 'newer',
+      txId: 'newer',
+      address: 'account-a',
+      timestamp: 50,
+      type: HistoryEntryType.CompletedTransaction,
+      txType: 'send',
+      message: 'newer'
+    }
+  ];
+  mockClaimItems = [
+    { note: { id: 'tie', receivedAt: 50 }, status: 'pending' },
+    { note: { id: 'unknown', receivedAt: Number.NaN }, status: 'pending' }
+  ];
+  render(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  const panel = screen.getByRole('heading', { name: 'commandRecentActions' }).closest('section');
+  expect(panel?.textContent).toMatch(/newer.*tie.*older.*unknown/s);
+});
+
+it('does not put recent amounts or claim metadata in the DOM while Command privacy is on', () => {
+  mockHidden = true;
+  mockRecentEntries = [
+    {
+      key: 'private',
+      txId: 'private-row',
+      address: 'account-a',
+      timestamp: 100,
+      type: HistoryEntryType.CompletedTransaction,
+      txType: 'send',
+      message: 'private account',
+      amount: '1234.56'
+    }
+  ];
+  mockClaimItems = [{ note: { id: 'secret-note', receivedAt: 101 }, status: 'pending' }];
+  render(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  expect(screen.queryByText(/1234.56|private account|secret-note/)).not.toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'commandRecentActions' })).toBeInTheDocument();
 });
 
@@ -342,6 +508,52 @@ it('keeps the shell while replacing the operation controller for a different tra
   expect(screen.getByTestId('command-shell')).toBe(shell);
   expect(screen.getByText('tx2')).toBeInTheDocument();
   expect(screen.queryByText('tx1')).not.toBeInTheDocument();
+});
+
+it('does not mount a receipt or its actions for an unknown operation ID', () => {
+  mockRowExists = false;
+  render(
+    <CommandShell scope={scope} route={{ kind: 'operation', id: 'unknown' }}>
+      <button onClick={jest.fn()}>Retry unknown funds</button>
+    </CommandShell>
+  );
+  expect(screen.queryByRole('button', { name: 'Retry unknown funds' })).not.toBeInTheDocument();
+  expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+});
+
+it('reopens the same persisted operation by ID after a cold Command shell mount', () => {
+  const view = render(
+    <CommandShell scope={scope} route={{ kind: 'operation', id: 'original' }}>
+      <output>Existing row receipt</output>
+    </CommandShell>
+  );
+  expect(screen.getByText('Existing row receipt')).toBeInTheDocument();
+  view.unmount();
+  render(
+    <CommandShell scope={scope} route={{ kind: 'operation', id: 'original' }}>
+      <output>Existing row receipt</output>
+    </CommandShell>
+  );
+  expect(screen.getByText('Existing row receipt')).toBeInTheDocument();
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+it('withholds an existing operation and all of its actions while Command privacy is on, then restores the original view', () => {
+  mockHidden = true;
+  const view = render(
+    <CommandShell scope={scope} route={{ kind: 'operation', id: 'original' }}>
+      <button aria-label="Secret 1,234.56 USD">Retry original</button>
+    </CommandShell>
+  );
+  expect(screen.queryByText('Retry original')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Secret 1,234.56 USD')).not.toBeInTheDocument();
+  mockHidden = false;
+  view.rerender(
+    <CommandShell scope={scope} route={{ kind: 'operation', id: 'original' }}>
+      <button aria-label="Secret 1,234.56 USD">Retry original</button>
+    </CommandShell>
+  );
+  expect(screen.getByRole('button', { name: 'Secret 1,234.56 USD' })).toBeInTheDocument();
 });
 
 it('minimizes only the active workbench when Escape has no higher dialog', () => {
