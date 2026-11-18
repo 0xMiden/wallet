@@ -2068,7 +2068,8 @@ async function attemptColdReRegisterSelfHeal(
       console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
     }
   } finally {
-    if (!poisoned) {
+    // The fallback owns the shared fuse after a cold-read rejection.
+    if (!poisoned && (!signersRejected || finishOnly)) {
       if (evicted) {
         noteSyncWatchdogEviction(fuseKey);
       } else if (failed) {
