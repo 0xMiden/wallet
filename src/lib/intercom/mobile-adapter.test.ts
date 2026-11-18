@@ -647,7 +647,7 @@ describe('MobileIntercomAdapter', () => {
 
   describe('subscribe', () => {
     it('broadcasts a volatile storage failure when the disk refuses its marker', async () => {
-      await adapter.init();
+      await Promise.all([adapter.init(), adapter.init()]);
       const callback = jest.fn();
       adapter.subscribe(callback);
       jest.mocked(putToStorage).mockRejectedValueOnce(new DOMException('No space left', 'QuotaExceededError'));
@@ -656,6 +656,7 @@ describe('MobileIntercomAdapter', () => {
       const failure = await getWalletStorageFailure();
       try {
         expect(failure).toEqual(expect.any(String));
+        expect(callback).toHaveBeenCalledTimes(1);
         expect(callback).toHaveBeenCalledWith({ type: WalletMessageType.StateUpdated });
       } finally {
         if (failure) await clearVerifiedStorageFailure(failure);

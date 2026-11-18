@@ -1,5 +1,6 @@
 import * as Actions from 'lib/miden/back/actions';
 import { store, toFront } from 'lib/miden/back/store';
+import { onWalletStorageChanged } from 'lib/miden/storage-health';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { processInProcessRequest } from './in-process-request-handler';
@@ -33,11 +34,10 @@ export class MobileIntercomAdapter {
       installBridgeInTestHooks();
     }
 
-    // Watch store changes and notify subscribers
-    const frontStore = store.map(toFront);
-    frontStore.watch(() => {
-      this.notifySubscribers({ type: WalletMessageType.StateUpdated });
-    });
+    if (this.initialized) return;
+    const notifyStateUpdated = () => this.notifySubscribers({ type: WalletMessageType.StateUpdated });
+    store.map(toFront).watch(notifyStateUpdated);
+    onWalletStorageChanged(notifyStateUpdated);
 
     this.initialized = true;
     console.log('MobileIntercomAdapter: Backend initialized');
