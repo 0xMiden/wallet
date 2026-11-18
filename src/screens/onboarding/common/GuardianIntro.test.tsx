@@ -59,14 +59,12 @@ describe('GuardianIntroScreen', () => {
     expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'true');
   });
 
-  // The phrase restores the keys and the Guardian's backup the account, so neither alone is enough and the
-  // phrase is still the user's to keep: the intro says so, and promises nothing about a lost phone.
-  it("states the recovery model: the phrase restores the keys, the Guardian's backup the account", () => {
+  // The phrase and the Guardian's backup restore the account together, and the phrase is still the user's to keep.
+  it("states that the phrase and the Guardian's backup restore the account", () => {
     mockTranslate = key => english[key] ?? key;
     render(<GuardianIntroScreen />);
     const recover = screen.getByTestId('guardian-intro-point-recover');
-    expect(recover).toHaveTextContent(/recovery phrase restores your keys/i);
-    expect(recover).toHaveTextContent(/Guardian's backup/i);
+    expect(recover).toHaveTextContent(/your phrase and your Guardian's backup restore your account/i);
     expect(recover).toHaveTextContent(/keep the phrase safe/i);
     expect(screen.getByTestId('onboarding-guardian-intro')).not.toHaveTextContent(/losing your (phone|wallet)/i);
   });
