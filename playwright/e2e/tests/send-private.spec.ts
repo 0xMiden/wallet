@@ -173,9 +173,12 @@ test.describe('Private Note Send', () => {
         const accountIds = () => readIds(sdkStore, 'latestAccountHeaders', 'id');
         const noteIds = () => readIds(sdkStore, 'inputNotes', 'detailsCommitment');
         const generationIds = () => readIds('TridentMain', 'recovery', 'id');
-        const journalHead = async () => (await walletB.dumpChromeStorage()).miden_recovery_v1_localnet_head;
+        const journalHead = async () => {
+          const head = (await walletB.dumpChromeStorage()).miden_recovery_v1_localnet_head;
+          return typeof head === 'number' && Number.isSafeInteger(head) && head >= 1 ? head : undefined;
+        };
 
-        await expect.poll(journalHead).toBeGreaterThan(0);
+        await expect.poll(journalHead).toEqual(expect.any(Number));
         const accounts = await accountIds();
         const notes = await noteIds();
         expect(accounts).toEqual([expect.any(String)]);
@@ -183,10 +186,13 @@ test.describe('Private Note Send', () => {
         expect(await generationIds()).toEqual(['wallet']);
 
         // Keep the authoritative localhost node available while ruling out private-note refetch.
+        const initialFaultHits = await walletB.networkFaultHits();
         await walletB.armNetworkFault({ target: 'transport', mode: 'connectionRefused' });
         try {
           await walletB.triggerSync(true);
-          await expect.poll(() => walletB.networkFaultHits()).toBeGreaterThan(0);
+          await expect.poll(() => walletB.networkFaultHits()).toBeGreaterThanOrEqual(initialFaultHits + 1);
+          const retainedHead = await journalHead();
+          if (retainedHead === undefined) throw new Error('Expected a committed recovery journal before storage loss');
           const protocol = await walletB.page.context().newCDPSession(walletB.page);
           try {
             await protocol.send('Storage.clearDataForOrigin', { origin, storageTypes: 'indexeddb' });
@@ -196,7 +202,7 @@ test.describe('Private Note Send', () => {
           await expect.poll(accountIds).toEqual([]);
           await expect.poll(noteIds).toEqual([]);
           await expect.poll(generationIds).toEqual([]);
-          await expect.poll(journalHead).toBeGreaterThan(0);
+          await expect.poll(journalHead).toBeGreaterThanOrEqual(retainedHead);
 
           await walletB.triggerSync(true);
           const rebuild = walletB.page.getByRole('button', { name: 'Rebuild from recovery data' });
