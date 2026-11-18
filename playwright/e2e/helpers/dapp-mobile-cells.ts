@@ -28,7 +28,7 @@ import {
   mobileSideOf,
   rowOwner
 } from './dapp-mobile-writes';
-import { waitForNodeHeight } from './dapp-node-calls';
+import { nodeHeight, waitForNodeHeight } from './dapp-node-calls';
 import pinned from './dapp-pinned.json';
 import { beforeMobileDeadline } from './mobile-store-reads';
 import { TOKEN, TOKEN_DECIMALS } from './money-path';
@@ -569,14 +569,25 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
         const built = await buildPast(FUND_A * 10n, ctx);
         // The approval needs a simulation that succeeds, so the wallet refuses this request before any sheet
         // (CustomTransactionNotSimulatedError) and queues nothing.
+        // Diagnostic branch: these independent reads never participate in the verdict or delay either sample.
+        const observeTip = (phase: 'before-sample' | 'submit' | 'refusal') => {
+          const started = Date.now();
+          void nodeHeight(j.env.rpcUrl, 3_000).then(
+            height => console.info(`MIDEN_R5_TIP ${phase} ${started} ${Date.now()} ${height}`),
+            () => console.info(`MIDEN_R5_TIP ${phase} ${started} ${Date.now()} unavailable`)
+          );
+        };
+        observeTip('before-sample');
         const result = await expectNoSheet(
           j.dapp,
-          () =>
-            j.call(
+          () => {
+            observeTip('submit');
+            return j.call(
               'submitCustom',
               { requestId: built.requestId, recipientAddress: j.addressB, importNotes: false },
               ctx.deadline
-            ),
+            ).finally(() => observeTip('refusal'));
+          },
           ctx,
           { refusal: true }
         );
