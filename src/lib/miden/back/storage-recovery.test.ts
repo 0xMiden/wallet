@@ -5,6 +5,7 @@ import { u8ToB64 } from 'lib/shared/helpers';
 import { ITransactionStatus, type ITransaction } from '../db/types';
 import { readAccountChainStates } from '../guardian/recovery-verification';
 import * as Repo from '../repo';
+import { assessSpendingLimit } from '../spending-limits/policy';
 import { judgeSubmitEvidence } from '../transaction/reconcile-judge';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -77,7 +78,7 @@ const mockClient = {
 const noteRecord = { free: jest.fn() };
 const accountKey = { toString: () => accountId };
 const mockSpendingHistory = {
-  limit: () => mockSpendingHistory,
+  limit: (count: number) => ({ toArray: async () => (await mockSpendingHistory.toArray()).slice(0, count) }),
   toArray: jest.fn<Promise<ITransaction[]>, []>()
 };
 const accountState = {
@@ -181,9 +182,9 @@ it('rebuilds after verifying a retained wallet whose IndexedDB generation change
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
 });
 
-it('retains all 257 compact recent spending records during a healthy wallet capture', async () => {
+it('retains compact recent spending records beyond the old cap with the same spend total', async () => {
   const now = Math.floor(Date.now() / 1000);
-  const spending = Array.from({ length: 257 }, (_, index): ITransaction => ({
+  const spending = Array.from({ length: 258 }, (_, index): ITransaction => ({
     id: `spend-${index}`,
     type: 'send',
     accountId,
@@ -194,7 +195,8 @@ it('retains all 257 compact recent spending records during a healthy wallet capt
   }));
   mockSpendingHistory.toArray.mockResolvedValue(spending);
   jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue(retained.walletStoreGeneration);
-  jest.mocked(Repo.serializeRecoveryTransfer).mockImplementation(row => String(row.spentUsd));
+  const recoveryCodec = jest.requireActual<typeof Repo>('../repo');
+  jest.mocked(Repo.serializeRecoveryTransfer).mockImplementation(recoveryCodec.serializeRecoveryTransfer);
   const save = mockJournal.retain.mockImplementation(async change => change({ ...retained, notes: [] }));
 
   await expect(
@@ -206,7 +208,13 @@ it('retains all 257 compact recent spending records during a healthy wallet capt
   ).resolves.toBeUndefined();
 
   const saved = await save.mock.results[0].value;
-  expect(Object.values(saved.transfers)).toEqual(spending.map(row => String(row.spentUsd)));
+  const recovered = recoveryCodec.deserializeRecoveryTransfers(saved.transfers, id => id === accountId);
+  const cap = { accountId, limit: 1n, revision: '1', createdAt: now, updatedAt: now };
+  const proposal = { accountId, usdAmount: 1n, now };
+  expect(recovered).toHaveLength(spending.length);
+  expect(assessSpendingLimit(cap, recovered, proposal).breach?.spent).toBe(
+    assessSpendingLimit(cap, spending, proposal).breach?.spent
+  );
 });
 
 it('stays paused if the note import leaves no readable record', async () => {

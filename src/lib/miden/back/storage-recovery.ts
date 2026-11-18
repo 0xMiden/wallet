@@ -184,11 +184,9 @@ export async function captureWalletAccounts(
         .where('initiatedAt')
         .aboveOrEqual(spentSince)
         .filter(row => row.spentUsd !== undefined && accountIds.has(canonicalWalletAccountId(row.accountId)))
-        .limit(257)
         .toArray(),
       Repo.spendingLimits.toArray()
     ]);
-    if (spending.length > 256) throw new WalletStorageUnavailableError();
     const recentById = Object.fromEntries(
       [...recent, ...spending]
         .filter(row => accountIds.has(canonicalWalletAccountId(row.accountId)))
