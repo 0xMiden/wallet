@@ -404,6 +404,7 @@ export function registerNewWallet(
         if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
         if (isInviteOnlyNetwork()) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
+        await captureBeforeUnlock(vault, accounts);
         unlocked({
           vault,
           accounts,
@@ -444,6 +445,7 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
+        await captureBeforeUnlock(vault, accounts);
         unlocked({
           vault,
           accounts,
@@ -485,6 +487,7 @@ export function registerImportedWallet(
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
+        await captureBeforeUnlock(vault, accounts);
         unlocked({
           vault,
           accounts,
@@ -532,6 +535,19 @@ export function unlock(password?: string) {
   );
 }
 
+async function captureBeforeUnlock(vault: Vault, accounts: WalletAccount[], canAdopt = () => true) {
+  const rpc = getEffectiveRpcUrl();
+  try {
+    if (!vault.storageJournal || (await getWalletStorageFailure())) return;
+    const { captureWalletAccounts } = await import('./storage-recovery');
+    await captureWalletAccounts(vault, accounts, () => {
+      if (!canAdopt() || getEffectiveRpcUrl() !== rpc) throw new Error('The wallet changed');
+    });
+  } catch (error) {
+    observeWalletStorageError(error);
+  }
+}
+
 function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
@@ -567,16 +583,7 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
         const ownMnemonic = await vault.isOwnMnemonic();
         const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
         if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
-        try {
-          if (!(await getWalletStorageFailure())) {
-            const { captureWalletAccounts } = await import('./storage-recovery');
-            await captureWalletAccounts(vault, accounts, () => {
-              if (!canAdopt()) throw new Error('The vault was replaced');
-            });
-          }
-        } catch (error) {
-          observeWalletStorageError(error);
-        }
+        await captureBeforeUnlock(vault, accounts, canAdopt);
         if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
         unlocked({
           vault,
@@ -848,25 +855,19 @@ export async function verifyStrictActionAuthentication(credential?: string): Pro
   await Vault.verifyProtector(credential);
 }
 
-export function signTransaction(publicKey: string, signingInputs: string) {
-  return withUnlocked(async ({ vault }) => {
-    await assertWalletStorageAvailable();
-    return await vault.signTransaction(publicKey, signingInputs);
-  });
+export async function signTransaction(publicKey: string, signingInputs: string) {
+  await assertWalletStorageAvailable();
+  return withUnlocked(({ vault }) => vault.signTransaction(publicKey, signingInputs));
 }
 
-export function signWord(publicKey: string, wordHex: string, transactionId?: string) {
-  return withUnlocked(async ({ vault }) => {
-    await assertWalletStorageAvailable();
-    return await vault.signWord(publicKey, wordHex, transactionId);
-  });
+export async function signWord(publicKey: string, wordHex: string, transactionId?: string) {
+  await assertWalletStorageAvailable();
+  return withUnlocked(({ vault }) => vault.signWord(publicKey, wordHex, transactionId));
 }
 
-export function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
-  return withUnlocked(async ({ vault }) => {
-    await assertWalletStorageAvailable();
-    return await vault.signEvm(accountPublicKey, operation);
-  });
+export async function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
+  await assertWalletStorageAvailable();
+  return withUnlocked(({ vault }) => vault.signEvm(accountPublicKey, operation));
 }
 
 export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {

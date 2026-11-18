@@ -52,7 +52,10 @@ it('retains account and note recovery data encrypted outside IndexedDB', async (
 
 it('refuses a failed save and preserves the last verified generation', async () => {
   await journal.retain(data => ({ ...data, notes: ['first'] }), noop);
-  mockSet.mockRejectedValueOnce(new DOMException('No space left', 'QuotaExceededError'));
+  mockSet.mockImplementationOnce(async entries => {
+    for (const key of Object.keys(entries)) mockValues[key] = { dt: 'truncated' };
+    throw new DOMException('No space left', 'QuotaExceededError');
+  });
 
   await expect(journal.retain(data => ({ ...data, notes: ['second'] }), noop)).rejects.toThrow('No space left');
 
@@ -67,5 +70,5 @@ it('does not acknowledge an oversized journal or evict the previous notes', asyn
   await expect(journal.retain(data => ({ ...data, notes }), noop)).rejects.toThrow('Wallet storage unavailable');
 
   expect(await journal.read()).toMatchObject({ generation: 1, notes: ['first'] });
-  expect(mockSet).toHaveBeenCalledTimes(1);
+  expect(mockSet).toHaveBeenCalledTimes(3);
 });

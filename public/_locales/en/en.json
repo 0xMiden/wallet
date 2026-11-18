@@ -2003,5 +2003,6 @@
   "storageRecoveryWorking": "Checking retained wallet data…",
   "storageRecoveryVerified": "Wallet storage recovered",
   "storageRecoveryFailed": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused.",
+  "storageRecoveryUnlockOptions": "Return to unlock options",
   "storageRecoveryProgress": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes."
 }

@@ -5,6 +5,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount, WalletStorageRecoveryResult } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from './miden-client-proxy';
 import { withUnlocked, store } from './store';
@@ -28,7 +29,7 @@ import {
 import { judgeSubmitEvidence } from '../transaction/reconcile-judge';
 import { createNodeReads, observedCadenceMs, RPC_READ_TIMEOUT_MS } from '../transaction/reconcile-reads';
 
-type RecoveryNote = InputNoteRecord & { detailsCommitment(): string };
+type RecoveryNote = InputNoteRecord & { detailsCommitment(): string; recoveryNoteFile(): NoteFile | undefined };
 type RecoveryNotes = MidenClient['notes'] & {
   listPage?: (query: { after?: string; limit: number }) => Promise<RecoveryNote[]>;
 };
@@ -64,9 +65,8 @@ async function readExistingNoteFiles(
           if (nullifier) consumed.set(key, nullifier);
           continue;
         }
-        const file = record.isAuthenticated()
-          ? NoteFile.fromInputNote(record.toInputNote())
-          : NoteFile.fromNoteDetails(record.details());
+        const file = record.recoveryNoteFile();
+        if (!file) continue;
         try {
           files.push(u8ToB64(file.serialize()));
         } finally {
@@ -115,23 +115,21 @@ export async function retainWalletTransfer(id: string): Promise<void> {
     const assertCurrent = () => {
       if (store.getState().vault !== vault || getEffectiveRpcUrl() !== rpc) throw new WalletStorageUnavailableError();
     };
-    const [row, limits] = await Promise.all([Repo.transactions.get(id), Repo.spendingLimits.toArray()]);
-    if (!row || row.mayHaveSubmitted !== true) throw new WalletStorageUnavailableError();
-    const encoded = Repo.serializeRecoveryTransfer(row);
-    await vault.storageJournal.retain(
-      data => ({ ...data, limits, transfers: { ...data.transfers, [id]: encoded } }),
-      assertCurrent
-    );
+    await vault.storageJournal.retain(async data => {
+      const [row, limits] = await Promise.all([Repo.transactions.get(id), Repo.spendingLimits.toArray()]);
+      if (!row || row.mayHaveSubmitted !== true) throw new WalletStorageUnavailableError();
+      return { ...data, limits, transfers: { ...data.transfers, [id]: Repo.serializeRecoveryTransfer(row) } };
+    }, assertCurrent);
   });
 }
 
 export async function retainSpendingLimits(): Promise<void> {
   await withUnlocked(async ({ vault }) => {
-    const limits = await Repo.spendingLimits.toArray();
+    const rpc = getEffectiveRpcUrl();
     await vault.storageJournal.retain(
-      data => ({ ...data, limits }),
+      async data => ({ ...data, limits: await Repo.spendingLimits.toArray() }),
       () => {
-        if (store.getState().vault !== vault) throw new WalletStorageUnavailableError();
+        if (store.getState().vault !== vault || getEffectiveRpcUrl() !== rpc) throw new WalletStorageUnavailableError();
       }
     );
   });
@@ -179,26 +177,23 @@ export async function captureWalletAccounts(
   await Repo.writeWalletStoreGeneration(walletStoreGeneration);
   const accountIds = new Set(states.accounts.map(entry => entry.id));
   const spentSince = Math.floor(Date.now() / 1000) - MAX_WINDOW_SECONDS;
-  const [recent, spending, limits] = await Promise.all([
-    Repo.transactions.orderBy('initiatedAt').reverse().limit(64).toArray(),
-    Repo.transactions
-      .where('initiatedAt')
-      .aboveOrEqual(spentSince)
-      .filter(row => row.spentUsd !== undefined && accountIds.has(canonicalWalletAccountId(row.accountId)))
-      .limit(257)
-      .toArray(),
-    Repo.spendingLimits.toArray()
-  ]);
-  if (spending.length > 256) {
-    await markWalletStorageUnavailable();
-    return;
-  }
-  const recentById = Object.fromEntries(
-    [...recent, ...spending]
-      .filter(row => accountIds.has(canonicalWalletAccountId(row.accountId)))
-      .map(row => [row.id, Repo.serializeRecoveryTransfer(row)])
-  );
-  await vault.storageJournal.retain(previous => {
+  await vault.storageJournal.retain(async previous => {
+    const [recent, spending, limits] = await Promise.all([
+      Repo.transactions.orderBy('initiatedAt').reverse().limit(64).toArray(),
+      Repo.transactions
+        .where('initiatedAt')
+        .aboveOrEqual(spentSince)
+        .filter(row => row.spentUsd !== undefined && accountIds.has(canonicalWalletAccountId(row.accountId)))
+        .limit(257)
+        .toArray(),
+      Repo.spendingLimits.toArray()
+    ]);
+    if (spending.length > 256) throw new WalletStorageUnavailableError();
+    const recentById = Object.fromEntries(
+      [...recent, ...spending]
+        .filter(row => accountIds.has(canonicalWalletAccountId(row.accountId)))
+        .map(row => [row.id, Repo.serializeRecoveryTransfer(row)])
+    );
     const unresolved = Object.entries(previous.transfers).filter(([, value]) => {
       const transaction = JSON.parse(value);
       return (
@@ -207,17 +202,17 @@ export async function captureWalletAccounts(
         transaction.status !== ITransactionStatus.Completed
       );
     });
+    const notes = new Map<string, string>();
+    for (const bytes of [...previous.notes, ...states.notes.files]) {
+      const id = recoveryNoteIdentity(bytes);
+      if (!id || !confirmedConsumed.has(id)) notes.set(id ?? bytes, bytes);
+    }
     return {
       ...previous,
       walletStoreGeneration,
       limits,
       accounts: states.accounts,
-      notes: [
-        ...new Set([
-          ...previous.notes.filter(bytes => !confirmedConsumed.has(recoveryNoteIdentity(bytes) ?? '')),
-          ...states.notes.files
-        ])
-      ],
+      notes: [...notes.values()],
       transfers: { ...Object.fromEntries(unresolved), ...recentById }
     };
   }, assertCurrent);
@@ -229,7 +224,22 @@ function matchesChain(state: Account, accountId: string, chain: AccountChainStat
   return locallySaved && chain?.kind === 'absent' && state.isNew();
 }
 
-async function fetchGuardianState(account: WalletAccount, vault: Vault, assertCurrent: () => void) {
+async function fetchCurrentAccountState(account: WalletAccount, vault: Vault, assertCurrent: () => void) {
+  if (account.type === WalletType.OnChain && account.isPublic) {
+    return withWasmClientLock(async hold => {
+      const { client } = await getMidenClient();
+      assertCurrent();
+      assertWasmHoldCurrent(hold, 'reading public account recovery data');
+      const state = await client.accounts.import(canonicalWalletAccountId(account.publicKey));
+      try {
+        assertCurrent();
+        assertWasmHoldCurrent(hold, 'reading public account recovery data');
+        return u8ToB64(state.serialize());
+      } finally {
+        state.free();
+      }
+    });
+  }
   const key = account.coldPublicKey ?? account.hotPublicKey;
   if (!key) throw new WalletStorageUnavailableError();
   const endpoint = resolveGuardianEndpoint(account);
@@ -309,7 +319,7 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
             decoded.free();
           }
         }
-        states.push(data ?? (await fetchGuardianState(account, vault, assertCurrent)));
+        states.push(data ?? (await fetchCurrentAccountState(account, vault, assertCurrent)));
         const decoded = Account.deserialize(b64ToU8(states[index]!));
         try {
           if (!matchesChain(decoded, id, floor, data !== undefined)) throw new WalletStorageUnavailableError();

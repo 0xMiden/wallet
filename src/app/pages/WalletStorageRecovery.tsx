@@ -5,9 +5,10 @@ import { useTranslation } from 'react-i18next';
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import { SeedBackupGate } from 'app/templates/SeedBackupGate';
-import { Button } from 'components/ui/Button';
+import { Button, ButtonVariant } from 'components/ui/Button';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { backgroundLockPending } from 'lib/lock-up/background-lock';
+import { requestLock } from 'lib/lock-up/lock-request';
 import { useMidenContext } from 'lib/miden/front';
 import type { WalletStorageRecoveryResult } from 'lib/shared/types';
 
@@ -59,6 +60,11 @@ const WalletStorageRecovery: React.FC<{
             {state === 'failed' && t('storageRecoveryFailed')}
             {typeof state === 'object' && t('storageRecoveryProgress', { ...state })}
           </div>
+          {state === 'failed' && (
+            <Button variant={ButtonVariant.Secondary} onClick={() => void requestLock().catch(() => {})}>
+              {t('storageRecoveryUnlockOptions')}
+            </Button>
+          )}
         </SubPageSection>
       </SubPageLayout>
     </FullScreenPage>

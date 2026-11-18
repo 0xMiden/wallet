@@ -194,10 +194,10 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
  * Previously had 5 nested providers, now simplified to 2 (FiatCurrency still uses constate)
  */
 const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
-  const { ready } = useMidenContext();
+  const { ready, storageUnavailable } = useMidenContext();
 
   // On extension: send SyncRequest to service worker every 3s (replaces AutoSync)
-  useSyncTrigger();
+  useSyncTrigger(storageUnavailable);
   // On mobile: force an immediate sync + note refresh on app foreground so a note
   // that arrived while backgrounded appears promptly instead of after the poll
   // intervals elapse (#462). No-op off mobile.

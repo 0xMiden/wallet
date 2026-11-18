@@ -91,6 +91,8 @@ let processingRequested = false;
  * every caller — including the dApp private-data readers.
  */
 export async function swSignCallback(publicKey: string, signingInputs: string): Promise<Uint8Array> {
+  const { assertWalletStorageAvailable } = await import('../storage-health');
+  await assertWalletStorageAvailable();
   return withUnlocked(async ({ vault }) => {
     const signatureHex = await vault.signTransaction(publicKey, signingInputs);
     return new Uint8Array(Buffer.from(signatureHex, 'hex'));
@@ -119,9 +121,9 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     });
   },
   signWord: async (publicKey: string, wordHex: string, transactionId?: string) => {
-    return withUnlocked(async ({ vault }) => {
-      return await vault.signWord(publicKey, wordHex, transactionId);
-    });
+    const { assertWalletStorageAvailable } = await import('../storage-health');
+    await assertWalletStorageAvailable();
+    return withUnlocked(({ vault }) => vault.signWord(publicKey, wordHex, transactionId));
   },
   persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {
     return withUnlocked(async ({ vault }) => {
