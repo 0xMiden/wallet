@@ -899,6 +899,10 @@
     "message": "ブリッジの用語が変更されました。続行する前に「アクティビティ」を確認してください。",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "送信前に停止",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "獲得総額",
     "englishSource": "Total earned"
@@ -6141,6 +6145,10 @@
   "receiveShareCaption": {
     "message": "アドレスを送る",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "このアドレスをコピーできませんでした。以下から選択して手動でコピーしてください。",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "別のネットワークからの情報",

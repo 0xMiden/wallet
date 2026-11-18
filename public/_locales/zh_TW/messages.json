@@ -899,6 +899,10 @@
     "message": "橋接術語已變更。請先查看「活動」再繼續。",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "發送前已中止",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "總收益",
     "englishSource": "Total earned"
@@ -6141,6 +6145,10 @@
   "receiveShareCaption": {
     "message": "傳送您的地址",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "無法複製此地址。請在下方選取該地址以手動複製。",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "來自另一個網路",

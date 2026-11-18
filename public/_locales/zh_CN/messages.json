@@ -899,6 +899,10 @@
     "message": "桥接术语已变更。请先查看“活动”记录，然后再继续操作。",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "发送前已停止",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "总收益",
     "englishSource": "Total earned"
@@ -6141,6 +6145,10 @@
   "receiveShareCaption": {
     "message": "发送您的地址",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "无法复制此地址。请在下方选中该地址以手动复制。",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "来自另一个网络",

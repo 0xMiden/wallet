@@ -900,6 +900,10 @@
     "message": "Die Bridge-Begriffe haben sich geändert. Überprüfen Sie die Aktivität, bevor Sie fortfahren.",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "Vor dem Senden gestoppt",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Gesamtverdienst",
     "englishSource": "Total earned"
@@ -6150,6 +6154,10 @@
   "receiveShareCaption": {
     "message": "Adresse teilen",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "Diese Adresse konnte nicht kopiert werden. Wählen Sie sie unten aus, um sie manuell zu kopieren.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "Aus einem anderen Netzwerk",

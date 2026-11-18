@@ -899,6 +899,10 @@
     "message": "Os termos da ponte foram alterados. Verifique a Atividade antes de continuar.",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "Interrompido antes do envio",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Total ganho",
     "englishSource": "Total earned"
@@ -6147,6 +6151,10 @@
   "receiveShareCaption": {
     "message": "Envie seu endereço",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "Não foi possível copiar este endereço. Selecione-o abaixo para copiá-lo manualmente.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "De outra rede",

@@ -899,6 +899,10 @@
     "message": "Термінологія «bridge» змінилася. Перевірте «Activity», перш ніж продовжувати.",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "Зупинено перед відправленням",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Загальна сума заробленого",
     "englishSource": "Total earned"
@@ -6143,6 +6147,10 @@
   "receiveShareCaption": {
     "message": "Надіслати адресу",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "Не вдалося скопіювати цю адресу. Виберіть її нижче, щоб скопіювати вручну.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "З іншої мережі",

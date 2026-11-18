@@ -899,6 +899,10 @@
     "message": "Терминология моста изменилась. Перед продолжением проверьте активность.",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "Остановлено перед отправкой",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Общая сумма заработка",
     "englishSource": "Total earned"
@@ -6145,6 +6149,10 @@
   "receiveShareCaption": {
     "message": "Отправить адрес",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "Не удалось скопировать этот адрес. Выберите его ниже, чтобы скопировать вручную.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "Из другой сети",

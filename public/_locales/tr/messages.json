@@ -899,6 +899,10 @@
     "message": "Köprü terimleri değişti. Devam etmeden önce Etkinlik bölümünü kontrol edin.",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "Gönderilmeden önce durduruldu",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Toplam kazanç",
     "englishSource": "Total earned"
@@ -6142,6 +6146,10 @@
   "receiveShareCaption": {
     "message": "Adresinizi gönderin",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "Bu adresi kopyalayamadım. Manuel olarak kopyalamak için aşağıdan seçin.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "Başka bir ağdan",

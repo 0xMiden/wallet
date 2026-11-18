@@ -899,6 +899,10 @@
     "message": "The bridge terms changed. Check Activity before continuing.",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "Stopped before sending",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Total earned",
     "englishSource": "Total earned"
@@ -6141,6 +6145,10 @@
   "receiveShareCaption": {
     "message": "Send your address",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "Couldn't copy this address. Select it below to copy manually.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "From another network",

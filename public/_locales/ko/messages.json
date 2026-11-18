@@ -899,6 +899,10 @@
     "message": "브리지 용어가 변경되었습니다. 계속하기 전에 활동 내역을 확인하십시오.",
     "englishSource": "The bridge terms changed. Check Activity before continuing."
   },
+  "bridgeStoppedBeforeSending": {
+    "message": "전송 전에 중단됨",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "총 수익",
     "englishSource": "Total earned"
@@ -6141,6 +6145,10 @@
   "receiveShareCaption": {
     "message": "주소 보내기",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "이 주소를 복사할 수 없습니다. 아래에서 선택하여 수동으로 복사하십시오.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "다른 네트워크에서",
