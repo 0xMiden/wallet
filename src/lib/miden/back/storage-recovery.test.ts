@@ -22,7 +22,10 @@ jest.mock('lib/platform/storage-adapter', () => ({
     get: async (keys: string[]) => Object.fromEntries(keys.map(key => [key, mockStorage.get(key)]))
   })
 }));
-jest.mock('./miden-client-proxy', () => ({ midenClientProxy: { getAccount: () => mockClient.accounts.get() } }));
+jest.mock('./miden-client-proxy', () => ({
+  midenClientProxy: { getAccount: () => mockClient.accounts.get() },
+  reloadOffscreenEndpointOverrides: () => mockReloadOffscreenClient()
+}));
 jest.mock('./store', () => ({
   withUnlocked: (run: (session: typeof mockSession) => Promise<unknown>) => run(mockSession),
   store: { getState: () => mockSession }
@@ -52,6 +55,7 @@ jest.mock('../repo', () => ({
 jest.mock('../sdk/miden-client', () => ({
   assertWasmHoldCurrent: jest.fn(),
   getMidenClient: async () => ({ client: mockClient }),
+  resetMidenClient: () => mockResetMidenClient(),
   withWasmClientLock: (run: (hold: number) => Promise<unknown>) => run(1)
 }));
 jest.mock('../transaction/reconcile-judge', () => ({ judgeSubmitEvidence: jest.fn() }));
@@ -79,6 +83,8 @@ const retained = {
 const mockStorage = new Map<string, unknown>();
 const mockWriteStorage = jest.fn<Promise<void>, [string, unknown]>();
 const mockJournal = { read: jest.fn(), retain: jest.fn() };
+const mockResetMidenClient = jest.fn<Promise<void>, []>(async () => {});
+const mockReloadOffscreenClient = jest.fn<Promise<boolean>, []>(async () => true);
 const mockGetTransaction = jest.fn<Promise<ITransaction | undefined>, [string]>();
 const mockBlockCommitment = jest.fn<Promise<string>, [number]>();
 const testAccount: WalletAccount = {
@@ -202,6 +208,29 @@ it('resumes the same account only after reading back the retained files and pers
       mockWriteStorage.mock.invocationCallOrder[0]!
     );
   }
+  await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
+});
+
+it('reopens erased SDK storage in both realms before replaying its private notes', async () => {
+  let genesisAvailable = false;
+  mockResetMidenClient.mockImplementationOnce(async () => {
+    genesisAvailable = true;
+  });
+  mockClient.notes.import.mockReset().mockImplementation(async () => {
+    if (!genesisAvailable) throw new Error('block with number 0 not found in data store');
+    return 'note-details-commitment';
+  });
+
+  await expect(rebuildWalletStorage()).resolves.toMatchObject({ verifiedAccounts: 1, verifiedNotes: 2 });
+
+  expect(mockResetMidenClient).toHaveBeenCalledTimes(1);
+  expect(mockReloadOffscreenClient).toHaveBeenCalledTimes(1);
+  expect(mockResetMidenClient.mock.invocationCallOrder[0]).toBeLessThan(
+    mockClient.accounts.insert.mock.invocationCallOrder[0]!
+  );
+  expect(mockReloadOffscreenClient.mock.invocationCallOrder[0]).toBeLessThan(
+    mockClient.accounts.insert.mock.invocationCallOrder[0]!
+  );
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
 });
 
