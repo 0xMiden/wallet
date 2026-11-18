@@ -1,5 +1,7 @@
 import { expect, type Page, type TestInfo } from '@playwright/test';
-import { formatUnits, isHash, type Address, type Hash, type Hex } from 'viem';
+import { isHash, type Address, type Hash, type Hex } from 'viem';
+
+import { formatAmountDisplay, type AmountRounding } from '../../../src/lib/i18n/amount-display';
 
 import {
   arcHost,
@@ -814,13 +816,14 @@ export async function assertBurnDetails(
   await expect(page.getByText(chain.networkName, { exact: true }).first()).toBeVisible();
   if (!paid) return;
   // BridgeClaimSection's own formatting of both amounts.
-  const usdc = (units: bigint) => enText('usdcxPayoutAmount', { amount: formatUnits(units, USDCX_DECIMALS) });
+  const usdc = (units: bigint, rounding: AmountRounding) =>
+    enText('usdcxPayoutAmount', { amount: formatAmountDisplay(units, { decimals: USDCX_DECIMALS, rounding }) });
   await expect(detailRowValue(page, enText('usdcxPayoutReceived')), 'the amount Circle paid').toHaveText(
-    usdc(paid.value)
+    usdc(paid.value, 'down')
   );
   // BridgeClaimSection draws no fee row for a burn Circle kept nothing of.
   await expect(detailRowValue(page, enText('usdcxCircleFee')), 'the rest of the burn, which Circle kept').toHaveText(
-    paid.fee > 0n ? [usdc(paid.fee)] : []
+    paid.fee > 0n ? [usdc(paid.fee, 'up')] : []
   );
 }
 

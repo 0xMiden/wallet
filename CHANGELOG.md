@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.
+
 - [FIX][ci] Compare the USDCx burn activity fee with verification and sponsorship combined, and count each component once in Chrome and iOS live vault checks.
 
 - [FIX][ci] Read measured maximum fee rows in Chrome and iOS USDCx burn reviews, restore each dApp's existing account grant before completion reads, and retain scalar refusal-phase and screenshot-helper diagnostics without changing existing timing bounds.
