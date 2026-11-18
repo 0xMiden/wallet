@@ -540,6 +540,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
               (response: DBCoreMutateResponse) => {
                 // DBCore resolves partial failures; Dexie builds the public aggregate later.
                 for (const failure of Object.values(response.failures)) {
+                  observeWalletStorageError(failure);
                   annotateCrash(failure, { storageOwner: owner, storageOperation: 'mutate' });
                 }
                 return response;
@@ -554,6 +555,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
 
   const open = target.open;
   const rejectOpen = (error: unknown): never => {
+    observeWalletStorageError(error);
     // A failed upgrade can already identify a table through Dexie's error links.
     const existing: StorageCrashDiagnostics = snapshotCrashDiagnostics(error);
     if (existing.storageOwner === undefined || existing.storageOperation === undefined) {
