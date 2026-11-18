@@ -1,8 +1,10 @@
 import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk/miden-sdk/lazy';
 
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
 
 import { installLandedTrapRetirement } from './landed-trap-retirement';
+import type { SdkRecoveryStore } from './store-name';
 // This import must stay ABOVE the `./miden-client-interface` one: that import
 // forms a cycle (it imports this module back), and the poison bindings this
 // module's own body reads - the three ceilings in `armWatchdogFor`, the error
@@ -16,9 +18,10 @@ import {
   bumpWasmClientGeneration,
   wasmClientGeneration
 } from './wasm-client-poison';
+import { WalletStorageUnavailableError } from '../storage-health';
 import { buildSdkSignCallback, tagLockedSignReason, type SignCallbackReason } from '../transaction/sign-callback';
 // eslint-disable-next-line import/order -- must load AFTER wasm-client-poison (TDZ safety, see above)
-import { MidenClientInterface, MidenClientCreateOptions } from './miden-client-interface';
+import { MidenClientInterface, MidenClientCreateOptions, useSdkRecoveryStore } from './miden-client-interface';
 
 /**
  * Simple async mutex to prevent concurrent WASM client operations.
@@ -1939,8 +1942,10 @@ export async function getMidenClient(): Promise<MidenClientInterface> {
  * re-reads them. Runs inside `withWasmClientLock` so it can't dispose a
  * client mid-operation.
  */
-export async function resetMidenClient(): Promise<void> {
+export async function resetMidenClient(recoveryStore?: SdkRecoveryStore): Promise<void> {
   await withWasmClientLock(async () => {
+    if (recoveryStore && recoveryStore.rpcUrl !== getEffectiveRpcUrl()) throw new WalletStorageUnavailableError();
     midenClientSingleton.disposeAllInstances();
+    if (recoveryStore) useSdkRecoveryStore(recoveryStore.rpcUrl, recoveryStore.usesCedarStore);
   });
 }

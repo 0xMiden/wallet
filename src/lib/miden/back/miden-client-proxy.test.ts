@@ -4630,9 +4630,12 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
   it('passes the exact SDK store selected by recovery even when it is the default', async () => {
     docExists = true;
     const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    const { getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
     fakeChrome.runtime.sendMessage.mockResolvedValue({ ok: true });
 
-    await expect(reloadOffscreenEndpointOverrides(false)).resolves.toBe(true);
+    await expect(
+      reloadOffscreenEndpointOverrides({ rpcUrl: getEffectiveRpcUrl(), usesCedarStore: false })
+    ).resolves.toBe(true);
 
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
       target: 'offscreen',
@@ -4640,6 +4643,47 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
       endpoints: { override: null, feeFaucetId: undefined },
       recoveryUsesCedarStore: false
     });
+  });
+
+  it('requires a still-open offscreen document to acknowledge recovery', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    const { getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    const recoveryStore = { rpcUrl: getEffectiveRpcUrl(), usesCedarStore: false };
+    fakeChrome.runtime.sendMessage.mockResolvedValueOnce({ ok: false });
+
+    await expect(reloadOffscreenEndpointOverrides(recoveryStore)).rejects.toThrow(
+      'Offscreen SDK did not adopt the wallet recovery store'
+    );
+
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async () => {
+      docExists = false;
+      throw new Error('document closed');
+    });
+    await expect(reloadOffscreenEndpointOverrides(recoveryStore)).resolves.toBe(false);
+  });
+
+  it('refuses a recovery selection when another RPC becomes effective while waiting', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true, { overridesLoaded: false });
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    const stored = {
+      ...endpoints.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      rpcUrl: 'https://replacement.invalid'
+    };
+    await getStorageProvider().set({ [endpoints.ENDPOINT_OVERRIDE_STORAGE_KEY]: stored });
+    const recoveryStore = { rpcUrl: endpoints.getEffectiveRpcUrl(), usesCedarStore: false };
+    const reload = reloadOffscreenEndpointOverrides(recoveryStore);
+
+    await flush();
+
+    await Promise.all([
+      endpoints.loadEndpointOverrides(),
+      expect(reload).rejects.toThrow('Wallet storage unavailable')
+    ]);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('resolves false instead of throwing when the doc is reaped between the check and the send', async () => {

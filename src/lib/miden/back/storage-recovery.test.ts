@@ -7,6 +7,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { ITransactionStatus, type ITransaction } from '../db/types';
 import { readAccountChainStates } from '../guardian/recovery-verification';
 import * as Repo from '../repo';
+import type { SdkRecoveryStore } from '../sdk/store-name';
 import { assessSpendingLimit } from '../spending-limits/policy';
 import { orderFromSavedRequest } from '../transaction/pinned-replay-check';
 import { judgeSubmitEvidence } from '../transaction/reconcile-judge';
@@ -24,7 +25,8 @@ jest.mock('lib/platform/storage-adapter', () => ({
 }));
 jest.mock('./miden-client-proxy', () => ({
   midenClientProxy: { getAccount: () => mockClient.accounts.get() },
-  reloadOffscreenEndpointOverrides: () => mockReloadOffscreenClient()
+  reloadOffscreenEndpointOverrides: (...args: Parameters<typeof mockReloadOffscreenClient>) =>
+    mockReloadOffscreenClient(...args)
 }));
 jest.mock('./store', () => ({
   withUnlocked: (run: (session: typeof mockSession) => Promise<unknown>) => run(mockSession),
@@ -55,7 +57,7 @@ jest.mock('../repo', () => ({
 jest.mock('../sdk/miden-client', () => ({
   assertWasmHoldCurrent: jest.fn(),
   getMidenClient: async () => ({ client: mockClient }),
-  resetMidenClient: () => mockResetMidenClient(),
+  resetMidenClient: (...args: Parameters<typeof mockResetMidenClient>) => mockResetMidenClient(...args),
   withWasmClientLock: (run: (hold: number) => Promise<unknown>) => run(1)
 }));
 jest.mock('../transaction/reconcile-judge', () => ({ judgeSubmitEvidence: jest.fn() }));
@@ -83,8 +85,8 @@ const retained = {
 const mockStorage = new Map<string, unknown>();
 const mockWriteStorage = jest.fn<Promise<void>, [string, unknown]>();
 const mockJournal = { read: jest.fn(), retain: jest.fn() };
-const mockResetMidenClient = jest.fn<Promise<void>, []>(async () => {});
-const mockReloadOffscreenClient = jest.fn<Promise<boolean>, []>(async () => true);
+const mockResetMidenClient = jest.fn<Promise<void>, [recoveryStore?: SdkRecoveryStore]>(async () => {});
+const mockReloadOffscreenClient = jest.fn<Promise<boolean>, [recoveryStore?: SdkRecoveryStore]>(async () => true);
 const mockGetTransaction = jest.fn<Promise<ITransaction | undefined>, [string]>();
 const mockBlockCommitment = jest.fn<Promise<string>, [number]>();
 const testAccount: WalletAccount = {
@@ -223,8 +225,8 @@ it('reopens erased SDK storage in both realms before replaying its private notes
 
   await expect(rebuildWalletStorage()).resolves.toMatchObject({ verifiedAccounts: 1, verifiedNotes: 2 });
 
-  expect(mockResetMidenClient).toHaveBeenCalledTimes(1);
-  expect(mockReloadOffscreenClient).toHaveBeenCalledTimes(1);
+  expect(mockResetMidenClient).toHaveBeenCalledWith({ rpcUrl: 'https://node.invalid', usesCedarStore: false });
+  expect(mockReloadOffscreenClient).toHaveBeenCalledWith({ rpcUrl: 'https://node.invalid', usesCedarStore: false });
   expect(mockResetMidenClient.mock.invocationCallOrder[0]).toBeLessThan(
     mockClient.accounts.insert.mock.invocationCallOrder[0]!
   );

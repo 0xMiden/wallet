@@ -111,7 +111,7 @@ import {
   markErrorBeforeSubmit,
   readWasmHandle
 } from './sdk-error-code';
-import { sdkStoreNameFor } from './store-name';
+import { pinSdkRecoveryStore, sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
 import { awaitTestConsumeAuthorization } from './test-consume-authorization';
@@ -522,6 +522,12 @@ type RealmReader = {
   built?: true;
 };
 let realmReader: RealmReader | undefined;
+
+export function useSdkRecoveryStore(rpcUrl: string, usesCedarStore: boolean): void {
+  pinSdkRecoveryStore(rpcUrl, usesCedarStore);
+  // An in-flight operation can still own the displaced reader.
+  realmReader = undefined;
+}
 
 /**
  * The ONE raw reader client each realm uses (issue #868): the consumability
