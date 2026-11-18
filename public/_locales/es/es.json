@@ -1988,5 +1988,13 @@
   "bridgeWithdrawalEffect": "Esto desactiva la retirada forzosa para este bloqueo. Los fondos ya recuperados permanecen en tu monedero. Una nueva solicitud de recuperación inicia un nuevo periodo de espera. Esta transacción requiere una comisión de red.",
   "bridgeWithdrawalWalletPrompt": "Abre tu monedero EVM conectado y aprueba la transacción en $network$. Espera aquí a que se confirme.",
   "bridgeWithdrawalUseCircle": "Utiliza «Circle» en su lugar",
-  "bridgeWithdrawalUseSlow": "Utiliza «Slow bridge» en su lugar."
+  "bridgeWithdrawalUseSlow": "Utiliza «Slow bridge» en su lugar.",
+  "storageRecoveryTitle": "Almacenamiento en monedero no disponible",
+  "storageRecoveryDescription": "Bread no ha podido leer los datos de tu monedero en este dispositivo. Los saldos y las acciones del monedero quedan en pausa hasta que se verifique la recuperación.",
+  "storageRecoveryRebuild": "Reconstruir a partir de datos de recuperación",
+  "storageRecoveryWorking": "Comprobando los datos retenidos del monedero…",
+  "storageRecoveryVerified": "Almacén de la cartera recuperado",
+  "storageRecoveryFailed": "No se ha podido verificar el almacenamiento del monedero. Libera espacio en disco si es necesario y vuelve a intentarlo. Las acciones del monedero permanecen en pausa.",
+  "storageRecoveryUnlockOptions": "Volver a las opciones de desbloqueo",
+  "storageRecoveryProgress": "Se han verificado $verifiedAccounts$ de las cuentas $expectedAccounts$ y $verifiedNotes$ de las $expectedNotes$ notes."
 }

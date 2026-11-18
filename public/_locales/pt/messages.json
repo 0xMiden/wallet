@@ -9127,5 +9127,33 @@
   "bridgeWithdrawalUseSlow": {
     "message": "Use “Slow bridge” em vez disso",
     "englishSource": "Use Slow bridge instead"
+  },
+  "storageRecoveryTitle": {
+    "message": "Armazenamento na carteira indisponível",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "O Bread não conseguiu ler os dados da sua carteira neste dispositivo. Os saldos e as ações da carteira estão suspensos até que a recuperação seja verificada.",
+    "englishSource": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified."
+  },
+  "storageRecoveryRebuild": {
+    "message": "Reconstruir a partir de dados de recuperação",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryWorking": {
+    "message": "Verificando os dados retidos da carteira…",
+    "englishSource": "Checking retained wallet data…"
+  },
+  "storageRecoveryVerified": {
+    "message": "Armazenamento da carteira recuperado",
+    "englishSource": "Wallet storage recovered"
+  },
+  "storageRecoveryFailed": {
+    "message": "Não foi possível verificar o armazenamento da carteira. Libere espaço em disco, se necessário, e tente novamente. As ações da carteira permanecem pausadas.",
+    "englishSource": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused."
+  },
+  "storageRecoveryUnlockOptions": {
+    "message": "Voltar às opções de desbloqueio",
+    "englishSource": "Return to unlock options"
   }
 }

@@ -9122,5 +9122,51 @@
   "bridgeWithdrawalUseSlow": {
     "message": "Замість цього використовуйте термін «Slow bridge»",
     "englishSource": "Use Slow bridge instead"
+  },
+  "storageRecoveryTitle": {
+    "message": "Зберігання в гаманці недоступне",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Bread не зміг зчитати дані вашого гаманця на цьому пристрої. Відображення залишків та операції з гаманцем призупинено до підтвердження відновлення.",
+    "englishSource": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified."
+  },
+  "storageRecoveryRebuild": {
+    "message": "Відновлення на основі даних відновлення",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryWorking": {
+    "message": "Перевірка збережених даних гаманця…",
+    "englishSource": "Checking retained wallet data…"
+  },
+  "storageRecoveryVerified": {
+    "message": "Відновлено зберігання гаманця",
+    "englishSource": "Wallet storage recovered"
+  },
+  "storageRecoveryFailed": {
+    "message": "Не вдалося перевірити сховище гаманця. За необхідності звільніть місце на диску, а потім спробуйте ще раз. Дії з гаманцем залишаються призупиненими.",
+    "englishSource": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused."
+  },
+  "storageRecoveryUnlockOptions": {
+    "message": "Повернутися до опцій розблокування",
+    "englishSource": "Return to unlock options"
+  },
+  "storageRecoveryProgress": {
+    "message": "Перевірено $verifiedAccounts$ з $expectedAccounts$ рахунків та $verifiedNotes$ з $expectedNotes$ notes.",
+    "englishSource": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiednotes": {
+        "content": "$3"
+      },
+      "expectednotes": {
+        "content": "$4"
+      }
+    }
   }
 }

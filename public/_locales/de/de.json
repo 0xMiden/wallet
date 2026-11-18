@@ -1986,5 +1986,13 @@
   "bridgeWithdrawalEffect": "Dadurch wird die erzwungene Entnahme für diese Sperre deaktiviert. Bereits wiederhergestellte Guthaben verbleiben in Ihrer Wallet. Eine neue Wiederherstellungsanfrage löst eine neue Wartezeit aus. Für diese Transaktion fällt eine Netzwerkgebühr an.",
   "bridgeWithdrawalWalletPrompt": "Öffnen Sie Ihre verbundene EVM-Wallet und genehmigen Sie die Transaktion auf $network$. Warten Sie hier auf die Bestätigung.",
   "bridgeWithdrawalUseCircle": "Verwenden Sie stattdessen „Circle“",
-  "bridgeWithdrawalUseSlow": "Verwenden Sie stattdessen „Slow Bridge“"
+  "bridgeWithdrawalUseSlow": "Verwenden Sie stattdessen „Slow Bridge“",
+  "storageRecoveryTitle": "Wallet-Speicher nicht verfügbar",
+  "storageRecoveryDescription": "Bread konnte Ihre Wallet-Daten auf diesem Gerät nicht lesen. Guthaben und Wallet-Aktionen werden ausgesetzt, bis die Wiederherstellung bestätigt ist.",
+  "storageRecoveryRebuild": "Wiederherstellung anhand von Wiederherstellungsdaten",
+  "storageRecoveryWorking": "Überprüfung der gespeicherten Wallet-Daten…",
+  "storageRecoveryVerified": "Wiederhergestellte Wallet-Speicher",
+  "storageRecoveryFailed": "Der Wallet-Speicher konnte nicht überprüft werden. Schaffen Sie bei Bedarf Speicherplatz auf der Festplatte frei und versuchen Sie es dann erneut. Wallet-Aktionen bleiben weiterhin pausiert.",
+  "storageRecoveryUnlockOptions": "Zurück zu den Entsperroptionen",
+  "storageRecoveryProgress": "$verifiedAccounts$ von $expectedAccounts$ Konten und $verifiedNotes$ von $expectedNotes$ notes wurden verifiziert."
 }

@@ -9120,5 +9120,51 @@
   "bridgeWithdrawalUseSlow": {
     "message": "Use Slow bridge instead",
     "englishSource": "Use Slow bridge instead"
+  },
+  "storageRecoveryTitle": {
+    "message": "Wallet storage unavailable",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified.",
+    "englishSource": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified."
+  },
+  "storageRecoveryRebuild": {
+    "message": "Rebuild from recovery data",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryWorking": {
+    "message": "Checking retained wallet data…",
+    "englishSource": "Checking retained wallet data…"
+  },
+  "storageRecoveryVerified": {
+    "message": "Wallet storage recovered",
+    "englishSource": "Wallet storage recovered"
+  },
+  "storageRecoveryFailed": {
+    "message": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused.",
+    "englishSource": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused."
+  },
+  "storageRecoveryUnlockOptions": {
+    "message": "Return to unlock options",
+    "englishSource": "Return to unlock options"
+  },
+  "storageRecoveryProgress": {
+    "message": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "englishSource": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiednotes": {
+        "content": "$3"
+      },
+      "expectednotes": {
+        "content": "$4"
+      }
+    }
   }
 }

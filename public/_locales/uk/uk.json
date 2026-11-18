@@ -1994,5 +1994,13 @@
   "bridgeWithdrawalEffect": "Це вимикає примусове виведення коштів для цього блокування. Кошти, які вже було відновлено, залишаються у вашому гаманці. Новий запит на відновлення запускає новий період очікування. Ця транзакція вимагає сплати мережевої комісії.",
   "bridgeWithdrawalWalletPrompt": "Відкрийте свій підключений гаманець EVM і затвердіть транзакцію в мережі $network$. Зачекайте тут на підтвердження.",
   "bridgeWithdrawalUseCircle": "Замість цього використовуйте Circle",
-  "bridgeWithdrawalUseSlow": "Замість цього використовуйте термін «Slow bridge»"
+  "bridgeWithdrawalUseSlow": "Замість цього використовуйте термін «Slow bridge»",
+  "storageRecoveryTitle": "Зберігання в гаманці недоступне",
+  "storageRecoveryDescription": "Bread не зміг зчитати дані вашого гаманця на цьому пристрої. Відображення залишків та операції з гаманцем призупинено до підтвердження відновлення.",
+  "storageRecoveryRebuild": "Відновлення на основі даних відновлення",
+  "storageRecoveryWorking": "Перевірка збережених даних гаманця…",
+  "storageRecoveryVerified": "Відновлено зберігання гаманця",
+  "storageRecoveryFailed": "Не вдалося перевірити сховище гаманця. За необхідності звільніть місце на диску, а потім спробуйте ще раз. Дії з гаманцем залишаються призупиненими.",
+  "storageRecoveryUnlockOptions": "Повернутися до опцій розблокування",
+  "storageRecoveryProgress": "Перевірено $verifiedAccounts$ з $expectedAccounts$ рахунків та $verifiedNotes$ з $expectedNotes$ notes."
 }

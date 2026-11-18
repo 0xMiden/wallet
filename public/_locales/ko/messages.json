@@ -9120,5 +9120,51 @@
   "bridgeWithdrawalUseSlow": {
     "message": "대신 '슬로우 브리지(Slow bridge)'를 사용하십시오.",
     "englishSource": "Use Slow bridge instead"
+  },
+  "storageRecoveryTitle": {
+    "message": "지갑 저장 공간 사용 불가",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Bread는 이 기기에서 귀하의 지갑 데이터를 읽을 수 없습니다. 복구가 확인될 때까지 잔액 및 지갑 작업이 일시 중지됩니다.",
+    "englishSource": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified."
+  },
+  "storageRecoveryRebuild": {
+    "message": "복구 데이터를 사용하여 재구축",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryWorking": {
+    "message": "저장된 지갑 데이터 확인 중…",
+    "englishSource": "Checking retained wallet data…"
+  },
+  "storageRecoveryVerified": {
+    "message": "지갑 저장소 복구",
+    "englishSource": "Wallet storage recovered"
+  },
+  "storageRecoveryFailed": {
+    "message": "지갑 저장소를 확인할 수 없습니다. 필요한 경우 디스크 공간을 확보한 후 다시 시도하십시오. 지갑 작업은 일시 중지된 상태입니다.",
+    "englishSource": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused."
+  },
+  "storageRecoveryUnlockOptions": {
+    "message": "옵션 잠금 해제 페이지로 돌아가기",
+    "englishSource": "Return to unlock options"
+  },
+  "storageRecoveryProgress": {
+    "message": "$expectedAccounts$ 계정 중 $verifiedAccounts$개가 검증되었으며, $expectedNotes$ notes 중 $verifiedNotes$개가 검증되었습니다.",
+    "englishSource": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiednotes": {
+        "content": "$3"
+      },
+      "expectednotes": {
+        "content": "$4"
+      }
+    }
   }
 }

@@ -9120,5 +9120,51 @@
   "bridgeWithdrawalUseSlow": {
     "message": "请改用“Slow bridge”",
     "englishSource": "Use Slow bridge instead"
+  },
+  "storageRecoveryTitle": {
+    "message": "钱包存储不可用",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Bread 无法读取此设备上的钱包数据。余额和钱包操作将暂停，直至恢复验证通过。",
+    "englishSource": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified."
+  },
+  "storageRecoveryRebuild": {
+    "message": "根据恢复数据重建",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryWorking": {
+    "message": "正在检查保留的钱包数据……",
+    "englishSource": "Checking retained wallet data…"
+  },
+  "storageRecoveryVerified": {
+    "message": "钱包存储已恢复",
+    "englishSource": "Wallet storage recovered"
+  },
+  "storageRecoveryFailed": {
+    "message": "无法验证钱包存储。如有必要，请释放磁盘空间，然后重试。钱包操作仍处于暂停状态。",
+    "englishSource": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused."
+  },
+  "storageRecoveryUnlockOptions": {
+    "message": "返回解锁选项",
+    "englishSource": "Return to unlock options"
+  },
+  "storageRecoveryProgress": {
+    "message": "已验证 $verifiedAccounts$ 个 $expectedAccounts$ 账户，以及 $verifiedNotes$ 个 $expectedNotes$ notes。",
+    "englishSource": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiednotes": {
+        "content": "$3"
+      },
+      "expectednotes": {
+        "content": "$4"
+      }
+    }
   }
 }

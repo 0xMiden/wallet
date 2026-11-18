@@ -1993,5 +1993,13 @@
   "bridgeWithdrawalEffect": "Spowoduje to wyłączenie wymuszonej wypłaty dla tej blokady. Środki już odzyskane pozostają w Twoim portfelu. Nowe żądanie odzyskania środków rozpoczyna nowy okres oczekiwania. Ta transakcja wymaga uiszczenia opłaty sieciowej.",
   "bridgeWithdrawalWalletPrompt": "Otwórz połączony portfel EVM i zatwierdź transakcję w sieci $network$. Poczekaj tutaj na potwierdzenie.",
   "bridgeWithdrawalUseCircle": "Zamiast tego używaj Circle",
-  "bridgeWithdrawalUseSlow": "Zamiast tego używaj terminu „Slow bridge”"
+  "bridgeWithdrawalUseSlow": "Zamiast tego używaj terminu „Slow bridge”",
+  "storageRecoveryTitle": "Przechowywanie w portfelu niedostępne",
+  "storageRecoveryDescription": "Aplikacja Bread nie mogła odczytać danych portfela na tym urządzeniu. Salda i operacje portfela są wstrzymane do czasu zweryfikowania przywrócenia dostępu.",
+  "storageRecoveryRebuild": "Odbudowa na podstawie danych odzyskiwania",
+  "storageRecoveryWorking": "Sprawdzanie zachowanych danych portfela…",
+  "storageRecoveryVerified": "Odzyskanie środków z portfela",
+  "storageRecoveryFailed": "Nie udało się zweryfikować pamięci portfela. W razie potrzeby zwolnij miejsce na dysku, a następnie spróbuj ponownie. Działania związane z portfelem pozostają wstrzymane.",
+  "storageRecoveryUnlockOptions": "Powrót do opcji odblokowania",
+  "storageRecoveryProgress": "Zweryfikowano $verifiedAccounts$ z $expectedAccounts$ kont oraz $verifiedNotes$ z $expectedNotes$ notes."
 }

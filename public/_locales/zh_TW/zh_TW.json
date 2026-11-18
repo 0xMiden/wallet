@@ -1996,5 +1996,13 @@
   "bridgeWithdrawalEffect": "此操作將關閉此鎖定的強制提領功能。已恢復的資金將保留在您的錢包中。新的恢復請求將啟動新的等待期。此交易需支付網路手續費。",
   "bridgeWithdrawalWalletPrompt": "請開啟您已連線的 EVM 錢包，並在 $network$ 上批准這筆交易。請在此處等待確認。",
   "bridgeWithdrawalUseCircle": "請改用 Circle",
-  "bridgeWithdrawalUseSlow": "請改用「Slow bridge」一詞"
+  "bridgeWithdrawalUseSlow": "請改用「Slow bridge」一詞",
+  "storageRecoveryTitle": "錢包儲存功能不可用",
+  "storageRecoveryDescription": "Bread 無法讀取此裝置上的錢包資料。餘額及錢包操作將暫停，直至恢復驗證完成為止。",
+  "storageRecoveryRebuild": "從恢復資料重建",
+  "storageRecoveryWorking": "正在檢查保留的錢包資料……",
+  "storageRecoveryVerified": "錢包儲存資料已恢復",
+  "storageRecoveryFailed": "無法驗證錢包儲存空間。如有需要，請釋放磁碟空間，然後重試。錢包操作仍處於暫停狀態。",
+  "storageRecoveryUnlockOptions": "返回解鎖選項",
+  "storageRecoveryProgress": "已驗證 $verifiedAccounts$ 個 $expectedAccounts$ 帳戶，以及 $verifiedNotes$ 筆 $expectedNotes$ notes。"
 }

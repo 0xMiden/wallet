@@ -9128,5 +9128,51 @@
   "bridgeWithdrawalUseSlow": {
     "message": "Utiliza «Slow bridge» en su lugar.",
     "englishSource": "Use Slow bridge instead"
+  },
+  "storageRecoveryTitle": {
+    "message": "Almacenamiento en monedero no disponible",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Bread no ha podido leer los datos de tu monedero en este dispositivo. Los saldos y las acciones del monedero quedan en pausa hasta que se verifique la recuperación.",
+    "englishSource": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified."
+  },
+  "storageRecoveryRebuild": {
+    "message": "Reconstruir a partir de datos de recuperación",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryWorking": {
+    "message": "Comprobando los datos retenidos del monedero…",
+    "englishSource": "Checking retained wallet data…"
+  },
+  "storageRecoveryVerified": {
+    "message": "Almacén de la cartera recuperado",
+    "englishSource": "Wallet storage recovered"
+  },
+  "storageRecoveryFailed": {
+    "message": "No se ha podido verificar el almacenamiento del monedero. Libera espacio en disco si es necesario y vuelve a intentarlo. Las acciones del monedero permanecen en pausa.",
+    "englishSource": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused."
+  },
+  "storageRecoveryUnlockOptions": {
+    "message": "Volver a las opciones de desbloqueo",
+    "englishSource": "Return to unlock options"
+  },
+  "storageRecoveryProgress": {
+    "message": "Se han verificado $verifiedAccounts$ de las cuentas $expectedAccounts$ y $verifiedNotes$ de las $expectedNotes$ notes.",
+    "englishSource": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiednotes": {
+        "content": "$3"
+      },
+      "expectednotes": {
+        "content": "$4"
+      }
+    }
   }
 }
