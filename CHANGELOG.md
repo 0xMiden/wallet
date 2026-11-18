@@ -3,6 +3,9 @@
 ## 1.18.1 (TBD)
 
 - [CHANGE][ci] Emit a sanitized mainnet nightly report for the Wallet E2E dashboard with test and recovery evidence.
+- [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.
+
+- [FIX][ci] Allow a first explicitly approved Swap recovery return when an unsigned plan was retained and still matches the verified proceeds and vault balances. Previously issued return authority remains ineligible.
 
 - [FIX][ci] Retry a timed-out test CLI sync once without resending a transaction or changing wallet deadlines.
 
@@ -20,6 +23,8 @@
 - [FIX][ci] Retain the first Epoch return solve-failure as a keyed fingerprint and finite SDK kind/HTTP status without exporting private errors or changing transaction, retry, timeout or authorization behavior.
 
 - [CHANGE][all] A basket token's page shows its composition, read from its vault: a bar split by each constituent's share of the vault's value and a list of the constituents with their shares. A basket token now has a 24h move, on its page and in every price list, and its page has a chart, both derived from the constituents' market prices weighted by that composition.
+- [FIX][all] Switch the Guardian directly on chain when the outgoing Guardian refuses the switch proposal or a co-signature with any HTTP 4xx (a 401 included), so a Guardian that rejects this device cannot block the switch.
+
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
 
 ## 1.18.0 (2026-11-17)

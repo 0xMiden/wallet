@@ -1,6 +1,6 @@
 # Wallet nightly diagnostic coverage
 
-This table describes the `wallet-e2e/v1` report from wallet source based on `cccee6fb4001f4d3debf36c73329563fbb996d6f`, checked on 18 November 2026 UTC. Records cover the controlled Chrome extension workflow. For the wallet, the Actions conclusion, Playwright logical test outcome, command exit code, operation observation, and public report availability are independent.
+This table describes the `wallet-e2e/v1` report from wallet source based on `874c013e444b6a7014da0216dd74bff8b9a435b8`, checked on 18 November 2026 UTC. Records cover the controlled Chrome extension workflow. For the wallet, the Actions conclusion, Playwright logical test outcome, command exit code, operation observation, and public report availability are independent.
 
 | Signal and support | Producer or evidence | Report and proposed dashboard label | What it answers and check |
 | --- | --- | --- | --- |

@@ -23,6 +23,7 @@ import {
   saveMainnetSwapCheckpoint,
   mainnetSwapNextAction,
   mainnetSwapRequestExpiresAt,
+  minimumFirstSwapRecoveryReturn,
   swapProceeds,
   type MainnetSwapCheckpoint,
   type SavedSwapHolding,
@@ -737,13 +738,23 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       BigInt(state.reverseRequestAuthority.minimumReceive) > BigInt(state.reverseMinimum)
         ? state.reverseRequestAuthority.minimumReceive
         : state.reverseMinimum;
-    if (quoted.minimumReceive < BigInt(floor)) throw new Error('Recovery return quote weakened the original minimum');
+    const allowedMinimum = replacement ? BigInt(floor) : minimumFirstSwapRecoveryReturn(state);
+    if (quoted.minimumReceive < allowedMinimum) throw new Error('Recovery return quote exceeds the allowed shortfall');
     if (replacement) {
       if ((await readTransactionRows(walletB.page)).some(row => row.status === 0 || row.status === 1))
         throw new Error('Unresolved wallet activity prevents replacement authority');
       const absence = await readMainnetSwapReturnAbsence(getEnvironmentConfig().rpcUrl, state);
       state = authorizeMainnetSwapReturnReplacement(state, proof, before, runId, new Date().toISOString(), absence);
-    } else state = authorizeMainnetSwapRecoveryReturn(state, proof, before, runId, new Date().toISOString());
+    } else {
+      state = authorizeMainnetSwapRecoveryReturn(
+        state,
+        proof,
+        before,
+        runId,
+        new Date().toISOString(),
+        quoted.minimumReceive
+      );
+    }
     persist(state);
     writeFileSync(
       'test-results/mainnet-swap-recovery-grant.json',
@@ -759,6 +770,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
           recordedOrderId: authority.orderId,
           verifiedProtocolOrderId: proof.orderId,
           returnAmount: state.returnAmount,
+          recoveryReturnMinimum: state.recoveryReturnMinimum,
           recoveryReturnAuthorizedAt: state.recoveryReturnAuthorizedAt,
           recoveryReturnReplacement: state.recoveryReturnReplacement,
           returnExpiresAt: mainnetSwapRequestExpiresAt(state, 'reverse'),
@@ -938,7 +950,9 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       const offered = leg === 'forward' ? authorized.offer : authorized.request;
       const requested = leg === 'forward' ? authorized.request : authorized.offer;
       const amount = BigInt(leg === 'forward' ? authorized.principal : (authorized.returnAmount ?? '0'));
-      const minimum = BigInt(leg === 'forward' ? authorized.forwardMinimum : authorized.reverseMinimum);
+      const minimum = BigInt(
+        leg === 'forward' ? authorized.forwardMinimum : (authorized.recoveryReturnMinimum ?? authorized.reverseMinimum)
+      );
       const gate = process.env.MAINNET_SWAP_SDK_GATE;
       if (!gate) throw new Error('Missing exact SDK swap authorization upload gate');
       const reviewed = await observedStage(

@@ -37,6 +37,7 @@ import {
   GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS,
   GUARDIAN_RETRY_MAX_ATTEMPTS,
   isGuardianStateNotOnChain,
+  isNewGuardianAnswer,
   NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
 } from './serialize';
 import { WalletSigner } from './signer';
@@ -2816,6 +2817,25 @@ describe('MultisigService', () => {
       guardianConfig.getPubkey.mockRejectedValueOnce(fetchError);
       await expect(service.createSwitchGuardianProposal('https://new')).rejects.toBe(fetchError);
       expect(snapshotCrashDiagnostics(fetchError)).toEqual({});
+    });
+
+    it('marks the new guardian key fetch rejection as the new guardian answer, without wrapping it', async () => {
+      const fetchRefusal = Object.assign(new Error('Forbidden'), { status: 403 });
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockRejectedValueOnce(fetchRefusal);
+      await expect(service.createSwitchGuardianProposal('https://new')).rejects.toBe(fetchRefusal);
+      expect(isNewGuardianAnswer(fetchRefusal)).toBe(true);
+
+      // The outgoing guardian's own 403 from the proposal push is never marked.
+      const pushRefusal = Object.assign(new Error('Forbidden'), { status: 403 });
+      const pushMultisig = makeMultisig({
+        createSwitchGuardianProposal: jest.fn(async () => Promise.reject(pushRefusal))
+      });
+      const pushService = new MultisigService(pushMultisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
+      await expect(pushService.createSwitchGuardianProposal('https://new')).rejects.toBe(pushRefusal);
+      expect(isNewGuardianAnswer(pushRefusal)).toBe(false);
     });
 
     it('createSwitchGuardianProposal re-throws when the new guardian fetch fails and releases its origin', async () => {
