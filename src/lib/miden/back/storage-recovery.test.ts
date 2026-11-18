@@ -34,6 +34,7 @@ jest.mock('../repo', () => ({
   deserializeRecoveryTransfers: jest.fn(),
   restoreRecoveryTransfers: jest.fn(),
   serializeRecoveryTransfer: jest.fn(),
+  readWalletStoreGeneration: jest.fn(),
   writeWalletStoreGeneration: jest.fn()
 }));
 jest.mock('../sdk/miden-client', () => ({
@@ -75,8 +76,8 @@ const accountState = {
   to_commitment: () => ({ toHex: () => '0xabc' }),
   free: jest.fn()
 };
-const noteFile = { noteId: () => 'file-note-id', free: jest.fn() };
-const noteDetailsFile = { noteId: () => undefined, free: jest.fn() };
+const noteFile = { noteType: () => 'NoteWithProof', noteId: () => 'file-note-id', free: jest.fn() };
+const noteDetailsFile = { noteType: () => 'NoteDetails', noteId: () => undefined, free: jest.fn() };
 
 let rebuildWalletStorage: typeof import('./storage-recovery').rebuildWalletStorage;
 let storageHealth: typeof import('../storage-health');
@@ -146,6 +147,26 @@ it('resumes the same account only after reading back the retained files and pers
       mockWriteStorage.mock.invocationCallOrder[0]!
     );
   }
+  await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
+});
+
+it('rebuilds retained private notes without importing an old ID-only pointer', async () => {
+  const pointerBytes = Uint8Array.of(7, 8);
+  const pointer = { noteType: () => 'NoteId', noteId: () => 'missing-note-id', free: jest.fn() };
+  mockJournal.read.mockResolvedValue({ ...retained, notes: [...retained.notes, u8ToB64(pointerBytes)] });
+  jest.mocked(NoteFile.deserialize).mockReturnValueOnce(pointer as unknown as NoteFile);
+  mockClient.notes.import.mockRejectedValueOnce(new Error('Note not found on chain'));
+
+  await expect(rebuildWalletStorage()).resolves.toMatchObject({ expectedNotes: 2, verifiedNotes: 2 });
+  expect(mockClient.notes.import).not.toHaveBeenCalledWith(pointer);
+  await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
+});
+
+it('rebuilds after verifying a retained wallet whose IndexedDB generation changed', async () => {
+  jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue('different-active-generation');
+  jest.mocked(Repo.writeWalletStoreGeneration).mockRejectedValue(new Error('Wallet storage generation changed'));
+
+  await expect(rebuildWalletStorage()).resolves.toMatchObject({ verifiedAccounts: 1, verifiedNotes: 2 });
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
 });
 
