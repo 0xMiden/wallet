@@ -13,15 +13,16 @@ import { verifyMainnetMidenNoteInclusion } from '../../helpers/mainnet-miden-rea
 import { loadMainnetNearCheckpoint } from '../../helpers/mainnet-near-checkpoint';
 import { inspectMainnetNearForwardReceipt } from '../../helpers/mainnet-near-evm';
 import { createMainnetOneClickOriginFetcher } from '../../helpers/mainnet-one-click-origin';
-import { fetchOneClickStatus } from '../../../../src/lib/one-click/client';
+import { fetchOneClickStatus, OneClickHttpError } from '../../../../src/lib/one-click/client';
 import { hashOneClickQuote } from '../../../../src/lib/one-click/signature';
 
 const checkpoint = 'test-results/near/roundtrip.json';
 const digest = () => createHash('sha256').update(readFileSync(checkpoint)).digest('hex');
 let stage = 'checkpoint';
+let statusFailure: string | undefined;
 test.use({ injectFeeFaucet: false });
 test.afterEach(async ({}, info) => {
-  if (info.status !== 'passed') writeFileSync('test-results/green04-near-stage.json', JSON.stringify({ stage }));
+  if (info.status !== 'passed') writeFileSync('test-results/green04-near-stage.json', JSON.stringify({ stage, statusFailure }));
 });
 test('bind the original NEAR deposit to the public payout and actual private custody', async ({ walletB }) => {
   test.setTimeout(300_000);
@@ -46,9 +47,22 @@ test('bind the original NEAR deposit to the public payout and actual private cus
       midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }] },
     quote.depositAddress, undefined, undefined,
     createMainnetOneClickOriginFetcher(state.serviceUrl, walletB.extensionId)
-  );
+  ).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : '';
+    statusFailure = error instanceof OneClickHttpError && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599
+      ? `http-${error.status}`
+      : message === '1Click status quote signature is invalid' ? 'signature'
+      : message.startsWith('Invalid 1Click status') || message.startsWith('Invalid 1Click quote') ? 'schema'
+      : message.includes('configured app fee') ? 'fee-binding'
+      : message === 'Invalid 1Click test service URL' ? 'test-config'
+      : message === '1Click request timed out' ? 'timeout' : 'other';
+    throw new Error('Read-only provider status could not be verified');
+  });
+  stage = 'provider-settlement-state';
   assert.equal(status.status, 'SUCCESS');
+  stage = 'provider-quote-digest';
   assert.equal(hashOneClickQuote(status.quoteResponse), quote.quoteHash);
+  stage = 'provider-source-correlation';
   assert.equal(status.swapDetails.originChainTxHashes.length, 1);
   assert.equal(status.swapDetails.originChainTxHashes[0]?.hash.toLowerCase(), creator.transactionId);
   assert.equal(status.swapDetails.destinationChainTxHashes.length, 1);
