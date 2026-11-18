@@ -411,7 +411,7 @@ async function burnStuckReport(last: BridgedSendRow | undefined, rpcUrl: string,
 }
 
 /** The fee and sponsorship a burn's own outputs carry; they must name the row's burn note and fee exactly. */
-async function decodeBurnTerms(
+export async function decodeBurnTerms(
   resultBytes: string,
   row: BridgedSendRow,
   burnNoteId: Hash,
