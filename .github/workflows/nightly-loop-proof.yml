@@ -1,0 +1,114 @@
+name: Current qualified SDK0.18 held-only readiness - NO release or payment
+on:
+  push:
+    branches: [wiktor/green04-merged-held-once]
+permissions:
+  contents: read
+  actions: read
+  checks: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  held-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+      WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 16
+      - name: Bind exact prospective application and held-only diagnostic scope
+        run: |
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/wiktor/green04-merged-held-once
+          test "$(git rev-parse HEAD^)" = eb23473d006c3564a30cdb991f177e64ff89ec24
+          test "$(git diff --name-only HEAD^ HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-held-readonly.spec.ts scripts/held-review-failure.test.ts scripts/held-review-failure.ts)"
+          ! grep -E 'releaseMainnetSendAuthorization|awaitMainnetLoopAuthorization' playwright/e2e/tests/mainnet/near-held-readonly.spec.ts
+      - name: Require merged main and all original15 actual checks on qualified source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/0xMiden/wallet/pulls/2218 > "$RUNNER_TEMP/diagnostic-pr.json"
+          gh api repos/0xMiden/wallet/branches/main > "$RUNNER_TEMP/current-main.json"
+          MAIN=$(node -p "require(process.env.RUNNER_TEMP+'/current-main.json').commit.sha")
+          gh api "repos/0xMiden/wallet/git/commits/$MAIN" > "$RUNNER_TEMP/current-main-commit.json"
+          gh api graphql -f query='query { repository(owner:"0xMiden",name:"wallet") { object(oid:"b43069e28b19d50f0eb5245d1048366ee49a7338") { ... on Commit { oid statusCheckRollup { contexts(first:100) { totalCount pageInfo { hasNextPage } nodes { __typename ... on CheckRun { name status conclusion checkSuite { commit { oid } } } } } } } } } }' > "$RUNNER_TEMP/qualified-checks.json"
+          node <<'NODE'
+          const a=require('node:assert/strict'),fs=require('node:fs'),cp=require('node:child_process'),read=n=>JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${n}.json`));const pr=read('diagnostic-pr'),main=read('current-main'),commit=read('current-main-commit'),checks=read('qualified-checks');a.equal(pr.merged,true);a.equal(pr.head.sha,'b43069e28b19d50f0eb5245d1048366ee49a7338');a.equal(pr.merge_commit_sha,main.commit.sha);a.equal(main.commit.sha,'eb23473d006c3564a30cdb991f177e64ff89ec24');a.equal(commit.tree.sha,'20b6e776b16d94bb4ccb25a0f7bf585d138473bb');a.equal(commit.tree.sha,cp.execFileSync('git',['rev-parse','HEAD^^{tree}'],{encoding:'utf8'}).trim());const inventory=/^const REQUIRED_NAMES = \[(.*)\];$/m.exec(fs.readFileSync('playwright/e2e/harness/spec-selection.test.ts','utf8'));a.ok(inventory);const canonical=[...inventory[1].matchAll(/'([^']+)'/g)].map(m=>m[1]);a.equal(canonical.length,3);const required=['Test','Coverage Check (95% minimum)',"Check for non-i18n'd strings",'Update Translation Files','Native prover pin lockstep','changelog','Compile Android','Compile iOS','Compile desktop (Tauri)','swap-e2e-gate','earn-e2e-gate','linked-web-sdk-pr-ready',...canonical];a.equal(new Set(required).size,15);a.ok(!checks.errors);const qualified=checks.data.repository.object;a.equal(qualified.oid,pr.head.sha);const contexts=qualified.statusCheckRollup.contexts;a.equal(contexts.pageInfo.hasNextPage,false);a.ok(contexts.totalCount<=100);for(const name of required){const c=contexts.nodes.filter(c=>c.name===name);a.equal(c.length,1);a.equal(c[0].checkSuite.commit.oid,pr.head.sha);a.equal(c[0].status,'COMPLETED');a.equal(c[0].conclusion,'SUCCESS');}
+          NODE
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/inject-linked-web-sdk-pr
+      - uses: ./.github/actions/inject-linked-guardian-pr
+      - uses: ./.github/actions/yarn-install
+      - name: Check scoped formatting in CI
+        run: yarn prettier --check .github/workflows/nightly-loop-proof.yml scripts/held-review-failure.ts scripts/held-review-failure.test.ts
+      - name: Verify finite failure metadata and existing mainnet contracts and types
+        run: |
+          yarn jest scripts/held-review-failure.test.ts scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
+          yarn ts
+      - name: Verify accepted independent outcome audit identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/0xMiden/wallet/actions/runs/44178517805 > "$RUNNER_TEMP/outcome-run.json"
+          gh api repos/0xMiden/wallet/actions/runs/44178517805/jobs?per_page=100 > "$RUNNER_TEMP/outcome-jobs.json"
+          node <<'NODE'
+          const assert=require('node:assert/strict'),fs=require('node:fs');const run=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/outcome-run.json`)),jobs=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/outcome-jobs.json`));assert.equal(run.head_sha,'f90d81a1405bdda0b7175db031898ea30c360278');assert.equal(run.run_attempt,1);assert.equal(run.workflow_id,391951744);assert.equal(run.conclusion,'failure');assert.equal(jobs.jobs.length,1);const steps=jobs.jobs[0].steps;assert.deepEqual(steps.filter(s=>s.conclusion==='failure').map(s=>s.name),['Report recovery-only coverage']);for(const name of['Actual original public SDK018 settlement, owner return and disabled empty lock','Actual original PRIVATE SDK018 holdings with consume blocked and no policy','All original financial guards and exact cancellation contracts on fresh actual outcomes','Independently verify actual canonical finder results, only permitted changes and current SDK018 holdings'])assert.equal(steps.find(s=>s.name===name)?.conclusion,'success');
+          NODE
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 44079205760
+          github-token: ${{ github.token }}
+          name: mainnet-1click-final-44079205760
+          path: test-results/original-near
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 44178517805
+          github-token: ${{ github.token }}
+          name: mainnet-nightly-44178517805
+          path: test-results/accepted-private
+      - name: Verify independently reconciled Swap and official frontier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run view 44313761059 --json headSha,attempt,conclusion | jq -e '.headSha=="c0a27d6a783d2b7811e38e25fc87ce0bb1344c8b" and .attempt==1 and .conclusion=="success"' >/dev/null
+          test "$(gh run list --workflow e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44311095206:completed
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 44313761059
+          github-token: ${{ github.token }}
+          name: green03-custody
+          path: test-results/settled-swap
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Exact production owned provider overlay, without public rollout
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import YAML from 'yaml';const doc=YAML.parse(readFileSync('.github/workflows/e2e-mainnet-nightly.yml','utf8'));const step=doc.jobs['mainnet-nightly'].steps.find(s=>s.name==='Start owned provider loop config');if(!step?.run)throw new Error('Missing production owned-only overlay');execFileSync('bash',['-euo','pipefail','-c',step.run],{stdio:'inherit'});
+          NODE
+      - run: yarn test:e2e:blockchain:build
+      - name: Observe UI and SDK behind mandatory unreleased local scope; verify zero native spend
+        run: |
+          umask 077
+          code=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-held-private" xvfb-run -a yarn playwright test near-held-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-held-private.log" 2>&1 || code=$?
+          node --input-type=module <<'NODE'
+          import {existsSync,readFileSync} from 'node:fs';if(existsSync('test-results/near-held-diagnostic.json'))console.log(JSON.stringify(JSON.parse(readFileSync('test-results/near-held-diagnostic.json','utf8'))));
+          NODE
+          exit "$code"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: near-held-diagnostic
+          path: test-results/near-held-diagnostic.json
+          if-no-files-found: warn
