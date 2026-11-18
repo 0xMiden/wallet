@@ -12,12 +12,10 @@ capture_native_boundary=false
 cleanup() {
   local status=$?
   trap - EXIT
+  local diagnose=false capture_entry= capture_final=
   if [[ "$status" != 0 && "$capture_native_boundary" == true && -n ${PRESENTATION_GESTURE_STAGE_FILE:-} ]]; then
-    local boundary_file="$PRESENTATION_GESTURE_STAGE_FILE.native-swipe"
-    node --input-type=module - "$instrumentation_file" 2>/dev/null > "$boundary_file" <<'NODE' || rm -f -- "$boundary_file" || true
-import { readSwipeBoundary } from './.github/scripts/presentation-native-swipe-boundary.mjs';
-console.log(readSwipeBoundary(process.argv[2]));
-NODE
+    diagnose=true
+    capture_entry=$(stat --format='%d:%i:%s' -- "$instrumentation_file" 2>/dev/null) || capture_entry=
   fi
   if [[ "$owned_forward" == true ]]; then
     node <<'NODE' || true
@@ -31,6 +29,12 @@ NODE
   fi
   if [[ -n "$bridge_pid" ]]; then
     for _ in $(seq 1 10); do kill -0 "$bridge_pid" 2>/dev/null || break; sleep 1; done
+  fi
+  if [[ "$diagnose" == true ]]; then
+    # Take the last byte boundary before teardown; parse only after cleanup.
+    capture_final=$(stat --format='%d:%i:%s' -- "$instrumentation_file" 2>/dev/null) || capture_final=
+  fi
+  if [[ -n "$bridge_pid" ]]; then
     if kill -0 "$bridge_pid" 2>/dev/null; then
       # Only retire the exact target process this invocation started, never a replacement instance.
       if [[ -n "$target_pid" && "$(adb shell pidof com.miden.wallet | tr -d '\r')" == "$target_pid" ]]; then
@@ -41,6 +45,14 @@ NODE
     wait "$bridge_pid" 2>/dev/null || true
   fi
   if [[ "$owned_forward" == true ]]; then adb forward --remove tcp:9236 || true; fi
+  if [[ "$diagnose" == true ]]; then
+    local boundary_file="$PRESENTATION_GESTURE_STAGE_FILE.native-swipe"
+    node --input-type=module - "$instrumentation_file" "$PRESENTATION_GESTURE_STAGE_FILE" \
+      "$capture_entry" "$capture_final" 2>/dev/null > "$boundary_file" <<'NODE' || rm -f -- "$boundary_file" || true
+import { readSwipeVerdict } from './.github/scripts/presentation-native-swipe-boundary.mjs';
+console.log(readSwipeVerdict(...process.argv.slice(2)));
+NODE
+  fi
   {
     echo "source_sha=${GITHUB_SHA:-missing}"
     echo "source_tree=$(git rev-parse HEAD^{tree})"

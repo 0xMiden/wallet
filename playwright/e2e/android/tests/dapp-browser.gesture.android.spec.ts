@@ -18,6 +18,7 @@ const SERIAL = process.env.ANDROID_SERIAL ?? 'emulator-5554';
 const PACKAGE = 'com.miden.wallet';
 const OUTPUT = 'test-results-presentation-gesture';
 let commandId = 0;
+const idleInputErrors = new WeakSet<Error>();
 
 type GestureStage =
   | 'emulator-checks'
@@ -35,11 +36,11 @@ type GestureStage =
   | 'capsule-cancel-outcome'
   | 'fixture-cleanup';
 
-async function markStage(stage: GestureStage) {
+async function markStage(stage: GestureStage, rejectionKind?: 'idle' | 'other') {
   const path = process.env.PRESENTATION_GESTURE_STAGE_FILE;
   if (!path) return;
   try {
-    await writeFile(path, `${stage}\n`, { mode: 0o600 });
+    await writeFile(path, `${stage}\n${rejectionKind ? `${rejectionKind}\n` : ''}`, { mode: 0o600 });
   } catch {
     await rm(path, { force: true }).catch(() => {});
   }
@@ -71,7 +72,11 @@ function input(command: { op: string; points?: Point[]; steps?: number; label?: 
     const socket = createConnection({ host: '127.0.0.1', port: 9236 });
     let buffer = '';
     let completed = false;
-    socket.setTimeout(30_000, () => socket.destroy(new Error('Native gesture input timed out')));
+    socket.setTimeout(30_000, () => {
+      const error = new Error('Native gesture input timed out');
+      if (process.env.PRESENTATION_GESTURE_PRIVATE_OUTPUT === 'true') idleInputErrors.add(error);
+      socket.destroy(error);
+    });
     socket.on('connect', () => socket.write(JSON.stringify({ id, ...command }) + '\n'));
     socket.on('data', chunk => {
       buffer += String(chunk);
@@ -287,13 +292,19 @@ test.describe('API36 managed presentation gestures', () => {
             nativeResult = await gesture;
           } catch (error) {
             if (name === 'capsule-cancel') {
-              await markStage(
-                !started
-                  ? 'capsule-cancel-reply-before-started'
-                  : injecting
-                    ? 'capsule-cancel-reply-before-injected'
-                    : 'capsule-cancel-reply-after-injected'
-              );
+              const stage = !started
+                ? 'capsule-cancel-reply-before-started'
+                : injecting
+                  ? 'capsule-cancel-reply-before-injected'
+                  : 'capsule-cancel-reply-after-injected';
+              let rejectionKind: 'idle' | 'other' | undefined;
+              if (
+                stage === 'capsule-cancel-reply-before-injected' &&
+                process.env.PRESENTATION_GESTURE_PRIVATE_OUTPUT === 'true'
+              ) {
+                rejectionKind = error instanceof Error && idleInputErrors.has(error) ? 'idle' : 'other';
+              }
+              await markStage(stage, rejectionKind);
             }
             throw error;
           }

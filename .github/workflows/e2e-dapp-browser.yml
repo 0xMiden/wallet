@@ -666,11 +666,12 @@ jobs:
             if [ -f "$stage" ]; then IFS= read -r phase <"$stage" || phase=unknown; fi;
             case "$phase" in device-setup|input-bridge|playwright|emulator-checks|onboarding|dapp-ready|capsule-cancel|capsule-cancel-input|capsule-cancel-reply-before-started|capsule-cancel-reply-before-injected|capsule-cancel-reply-after-injected|capsule-cancel-input-count|capsule-cancel-input-start|capsule-cancel-input-sampling|capsule-cancel-tracking|capsule-cancel-outcome|fixture-cleanup|capsule-commit|predictive-cancel|predictive-commit|result-checks) ;; *) phase=unknown;; esac;
             printf "%s\n" "Android API36 presentation gestures: FAIL ($phase)";
-            if [ "$phase" = capsule-cancel-reply-before-injected ]; then
+            if [ "$phase" = capsule-cancel-reply-before-injected ] &&
+            cmp -s -- <(head -n 1 -- "$stage" 2>/dev/null) <(printf "%s\n" capsule-cancel-reply-before-injected); then
             native=unknown;
-            for value in enter false throw true reply-ready writer-error writer-clear; do
+            for value in other-rejection native-false native-throw idle-at-least-budget idle-under-budget idle-under-budget-late-visible; do
             if cmp -s -- "$boundary" <(printf "%s\n" "$value"); then native=$value; break; fi; done;
-            printf "%s\n" "Android API36 presentation native swipe boundary: $native"; fi;
+            printf "%s\n" "Android API36 presentation native swipe verdict: $native"; fi;
             exit "$rc"; fi'
       - name: Upload gesture acceptance artifacts
         if: always() && inputs.suite == 'presentation-gestures'

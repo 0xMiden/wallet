@@ -104,17 +104,19 @@ public class DappPresentationGestureInputTest {
                     output.println(reply(id, "started", executed, device).put("inputStartedMs", inputStarted));
                     if (observeSwipe) reportSwipeBoundary("enter");
                     boolean injected;
+                    long swipeStarted = observeSwipe ? SystemClock.elapsedRealtime() : 0;
                     try {
                         injected = device.swipe(path, steps);
                     } catch (Throwable failure) {
                         if (observeSwipe) reportSwipeBoundary("throw");
                         throw failure;
                     }
+                    boolean swipeAtLeastBudget = observeSwipe && SystemClock.elapsedRealtime() - swipeStarted >= 30_000;
                     if (observeSwipe && !injected) reportSwipeBoundary("false");
                     assertTrue("one continuous UiDevice swipe must inject successfully", injected);
                     executed++;
                     long inputEnded = SystemClock.elapsedRealtime();
-                    if (observeSwipe) reportSwipeBoundary("true");
+                    if (observeSwipe) reportSwipeBoundary(swipeAtLeastBudget ? "true at-least-budget" : "true under-budget");
                     JSONObject injectedReply = reply(id, "injected", executed, device).put("inputEndedMs", inputEnded);
                     if (observeSwipe) reportSwipeBoundary("reply-ready");
                     output.println(injectedReply);
@@ -138,7 +140,7 @@ public class DappPresentationGestureInputTest {
         try {
             Bundle status = new Bundle();
             // The am pretty reporter adds no newline. Isolate this from runner progress text.
-            status.putString(Instrumentation.REPORT_KEY_STREAMRESULT, "\nDAPP_SWIPE_BOUNDARY_V1 " + checkpoint + "\n");
+            status.putString(Instrumentation.REPORT_KEY_STREAMRESULT, "\nDAPP_SWIPE_BOUNDARY_V2 " + checkpoint + "\n");
             InstrumentationRegistry.getInstrumentation().sendStatus(0, status);
         } catch (RuntimeException | Error ignored) {
             // A diagnostic failure must not replace the original result or throwable.
