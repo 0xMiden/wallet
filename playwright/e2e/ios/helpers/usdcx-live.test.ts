@@ -3,13 +3,12 @@ import type { IosNativeAsset, IosWalletPage } from './ios-wallet-page';
 import { settleLedger } from './usdcx-live';
 
 it('charges recorded burn sponsorship once and reports verification separately', async () => {
-  const wallet = jest.createMockFromModule<IosWalletPage>('./ios-wallet-page');
   const homeVaultBaseUnits = jest.fn(async (_token: string, matches: (balance: bigint) => boolean) => {
     expect(matches(999_748n)).toBe(true);
     expect(matches(999_629n)).toBe(false);
     return 999_748n;
   });
-  wallet.homeVaultBaseUnits = homeVaultBaseUnits;
+  const wallet = { homeVaultBaseUnits } as IosWalletPage;
   const native: IosNativeAsset = { tokenId: 'native', symbol: 'USDCX', decimals: 6, baseFee: 7 };
   const term = {
     name: 'f1',
