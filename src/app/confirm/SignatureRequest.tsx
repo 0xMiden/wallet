@@ -21,7 +21,14 @@ import { RequestTiles } from './RequestTiles';
 import { fromSimulatedEffectsWire, SimulatedEffectsWire } from './simulated-wire';
 import { quantityOf, useResolvedAssets } from './TransactionAssetView';
 import { TransactionNoteFlow } from './TransactionNoteFlow';
-import { AmountHeader, FailureNotice, RequestRows, SummaryPill, TransactionRequestError } from './TransactionRequest';
+import {
+  AmountHeader,
+  FailureNotice,
+  HeldNotesRow,
+  RequestRows,
+  SummaryPill,
+  TransactionRequestError
+} from './TransactionRequest';
 
 /**
  * The body of the extension's signature windows (`sign` and `loginSign`): the Bread ··· site
@@ -184,6 +191,7 @@ const SummarySignature: FC<{
 
       <RequestCard origin={origin}>
         {view.account && <DetailRow label={t('account')}>{truncateAddress(view.account)}</DetailRow>}
+        <HeldNotesRow heldNotesSpent={view.heldNotesSpent} />
         <DetailRow label={t('inputNotesConsumed')}>{view.inputNotesConsumed}</DetailRow>
         <DetailRow label={t('outputNotesCreated')}>
           <span data-testid="tx-output-notes-created">{view.outputNotesCreated}</span>

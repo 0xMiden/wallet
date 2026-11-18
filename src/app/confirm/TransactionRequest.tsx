@@ -99,6 +99,16 @@ export const SummaryPill: FC<{ children: React.ReactNode }> = ({ children }) => 
   </Pill>
 );
 
+/** Notes the account already held are value it spends, counted in what leaves above. */
+export const HeldNotesRow: FC<{ heldNotesSpent?: number }> = ({ heldNotesSpent }) => {
+  const { t } = useTranslation();
+  return (heldNotesSpent ?? 0) > 0 ? (
+    <DetailRow label={t('includesUnclaimedNotes')}>
+      <span data-testid="tx-held-notes-spent">{heldNotesSpent}</span>
+    </DetailRow>
+  ) : null;
+};
+
 interface MovementRow {
   leading: React.ReactNode;
   title: React.ReactNode;
@@ -511,6 +521,7 @@ export const CustomRequest: FC<{
               {account.name}
             </DetailRow>
           )}
+          <HeldNotesRow heldNotesSpent={view.heldNotesSpent} />
           <DetailRow label={t('inputNotesConsumed')}>{view.inputNotesConsumed}</DetailRow>
           <DetailRow label={t('outputNotesCreated')}>
             <span data-testid="tx-output-notes-created">{view.outputNotesCreated}</span>

@@ -1152,6 +1152,21 @@ describe('sign payload — signingInputs', () => {
     expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
     expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
     expect(screen.getByText('inputNotesConsumed').parentElement).toHaveTextContent('inputNotesConsumed1');
+    // Held notes are value the summary spends: the row names them, apart from the input-note total.
+    expect(screen.getByTestId('tx-held-notes-spent')).toHaveTextContent(/^1$/);
+    expect(screen.getByText('includesUnclaimedNotes')).toBeInTheDocument();
+  });
+
+  it('shows no held-note row when the measured summary spends no held note', () => {
+    setPayload({
+      ...siPayload(),
+      signingEffects: toSimulatedEffectsWire(measuredView({ inputNotesConsumed: 2, heldNotesSpent: 0 }))
+    });
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
+    expect(screen.queryByTestId('tx-held-notes-spent')).not.toBeInTheDocument();
+    expect(screen.queryByText('includesUnclaimedNotes')).not.toBeInTheDocument();
   });
 
   it('shows the amounts the background measured, not a decode of its own', () => {
@@ -1513,6 +1528,18 @@ describe('ConfirmPage custom transaction', () => {
     expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-account', 'mtst1acct');
     expect((ctx as any).simulateCustomTransaction).toHaveBeenCalledWith('req-1');
     expect(screen.queryByTestId('tx-note-flow-unavailable')).not.toBeInTheDocument();
+  });
+
+  it("shows the simulated view's held-note count apart from its input notes", async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({
+      view: { ...verifiedView('mtst1acct'), inputNotesConsumed: 3, heldNotesSpent: 2 }
+    });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('tx-held-notes-spent')).toHaveTextContent(/^2$/);
+    expect(screen.getByText('inputNotesConsumed').parentElement).toHaveTextContent('inputNotesConsumed3');
   });
 
   // The executed dry run of a fully authorized account stays in the background; the window renders only the view
