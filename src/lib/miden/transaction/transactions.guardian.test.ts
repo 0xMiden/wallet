@@ -16706,6 +16706,39 @@ describe('generateTransaction - direct switch audit marker', () => {
     }
   });
 
+  // The fourth refusal site. A 4xx before the final co-signature returns proves that
+  // no chain write started, so the switch goes direct, after the pushed delta is
+  // abandoned.
+  it.each([
+    ['a 401', { status: 401 }],
+    ['a 403', { status: 403 }],
+    ['a bare 409', { status: 409 }],
+    ['a 429', { status: 429 }]
+  ])('escapes an outgoing guardian that refuses the final co-sign with %s', async (label, shape) => {
+    const txId = `switch-guardian-marker-final-cosign-refused-${label}`;
+    const provider = setup(txId);
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      signAndCreateTransactionRequest: jest.fn(async () => {
+        throw Object.assign(new Error('refused'), shape);
+      }),
+      abandonCandidate
+    });
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await run(txId, provider);
+
+    const extra = markerExtraInputs(txId);
+    expect(extra).toMatchObject({ switchedDirectly: true });
+    expect(extra.directSwitchReason).toContain('outgoing guardian refused the request at the final co-sign');
+    expect(abandonCandidate).toHaveBeenCalledWith(7, 'prop-1');
+    expect(mockCreateDirectSwitchRequest).toHaveBeenCalledTimes(1);
+    expect(txStore.find(r => r.id === txId)?.status).toBe(ITransactionStatus.Completed);
+  });
+
   it('keeps a failure that is not a Guardian answer on the normal path', async () => {
     const txId = 'switch-guardian-marker-local-failure';
     const provider = setup(txId);
@@ -17030,12 +17063,18 @@ describe('generateTransaction - direct switch, wedged outgoing guardian', () => 
   // exactly like a silent guardian - both end up matching the same substrings in
   // `isGuardianUnreachableError` - so a classifier-only gate would build and
   // submit a SECOND update_guardian while the first sat in the mempool.
-  it('does not rotate a second time when the failure comes after the co-signature', async () => {
+  //
+  // A 4xx after the co-signature is the same case: it is a refusal by the rule, but
+  // only `guardianCoSignReturned` keeps it off a second rotation.
+  it.each([
+    ['a transport failure', () => new Error('Failed to fetch')],
+    ['a 403', () => Object.assign(new Error('Forbidden'), { status: 403 })]
+  ])('does not rotate a second time when %s comes after the co-signature', async (label, submitError) => {
     // The whole assertion is a negative one, so a call left over from a sibling
     // test in this describe would make it pass for the wrong reason in a full run
     // while still passing in isolation.
     mockCreateDirectSwitchRequest.mockClear();
-    const txId = 'switch-guardian-submit-failed';
+    const txId = `switch-guardian-submit-failed-${label}`;
     txStore.push({
       id: txId,
       type: 'switch-guardian',
@@ -17085,7 +17124,7 @@ describe('generateTransaction - direct switch, wedged outgoing guardian', () => 
               proof: { proved: true },
               result,
               submit: async () => {
-                throw new Error('Failed to fetch');
+                throw submitError();
               }
             })
           }))
