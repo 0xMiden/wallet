@@ -3621,6 +3621,54 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
   });
 
+  it.each([false, true])('holds the ordinary send behind its journal gate when evicted is %s', async evicted => {
+    await loadModule();
+    const lock = await import('lib/miden/sdk/miden-client');
+    let reply!: (answer: { ok: true }) => void;
+    const parked = new Promise<{ ok: true }>(resolve => {
+      reply = resolve;
+    });
+    const gate = jest.fn(() => parked);
+    G.chrome.runtime.sendMessage = jest.fn(async (message: { type: string }) =>
+      message.type === OFFSCREEN_SUBMIT_GATE ? gate() : undefined
+    );
+    const submit = jest.fn();
+    G.__off.clientSendTransaction = jest.fn(async (_tx: unknown, onStage: (s: string) => Promise<void> | void) => {
+      await onStage('submitting');
+      submit();
+      return { serialize: () => Uint8Array.of(1) };
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'sendTransaction',
+        argsB64: [
+          encodeArg({
+            accountId: 'a',
+            secondaryAccountId: 'b',
+            faucetId: 'f',
+            noteType: 'public',
+            amount: '1',
+            extraInputs: {}
+          })
+        ]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(gate).toHaveBeenCalledTimes(1);
+    if (evicted) Reflect.get(lock, '__evictHolder')();
+    reply({ ok: true });
+    await waitForReply(sendResponse);
+    await flush();
+
+    expect(submit).toHaveBeenCalledTimes(evicted ? 0 : 1);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: !evicted });
+  });
+
   it('a stage-event post failure NEVER reaches the write (rejects and synchronous throws are both swallowed)', async () => {
     await loadModule();
     // Model both failure modes on the SAME channel the OP_STARTED signal uses: a
