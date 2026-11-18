@@ -6,7 +6,6 @@ import { decryptJson, encryptJson, type EncryptedPayload } from '../passworder';
 import type { PersistedSpendingLimit } from '../spending-limits/types';
 import { markWalletStorageUnavailable, WalletStorageUnavailableError } from '../storage-health';
 
-const SLOTS = ['miden_recovery_v1_slot0', 'miden_recovery_v1_slot1'] as const;
 const TURN = 'miden_recovery_v1';
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_NOTES = 256;
@@ -56,32 +55,42 @@ function validate(snapshot: Snapshot): Snapshot {
 export class StorageJournal {
   constructor(private readonly key: CryptoKey) {}
 
-  private async current(): Promise<Snapshot | undefined> {
-    const values = await getStorageProvider().get([...SLOTS]);
-    const snapshots = await Promise.all(
-      SLOTS.flatMap(slot => {
-        const value: EncryptedPayload | undefined = values[slot];
-        return value === undefined ? [] : [decryptJson(value, this.key).then(validate)];
-      })
-    );
-    const snapshot = snapshots.sort((a, b) => b.generation - a.generation)[0];
-    if (snapshot && snapshot.network !== getEffectiveNetworkName()) throw new WalletStorageUnavailableError();
+  private async current(network: string, head: string, slots: string[]): Promise<Snapshot | undefined> {
+    const values = await getStorageProvider().get([head, ...slots]);
+    const generation = values[head];
+    if (generation === 0 || (generation === undefined && slots.every(slot => values[slot] === undefined))) return;
+    if (!Number.isSafeInteger(generation) || generation < 1) throw new WalletStorageUnavailableError();
+    const value: EncryptedPayload | undefined = values[slots[generation % slots.length]!];
+    if (!value) throw new WalletStorageUnavailableError();
+    const snapshot = validate(await decryptJson(value, this.key));
+    if (snapshot.network !== network || snapshot.generation !== generation) throw new WalletStorageUnavailableError();
     return snapshot;
   }
 
   async read(): Promise<RecoveryData | undefined> {
-    return inStorageTurn(TURN, () => this.current());
+    const network = getEffectiveNetworkName();
+    try {
+      return await inStorageTurn(TURN, () => this.current(network, headFor(network), slotsFor(network)));
+    } catch (error) {
+      await markWalletStorageUnavailable();
+      throw error;
+    }
   }
 
-  async retain(change: (old: RecoveryData) => RecoveryData, assertCurrent: () => void): Promise<void> {
+  async retain(
+    change: (old: RecoveryData) => RecoveryData | Promise<RecoveryData>,
+    assertCurrent: () => void
+  ): Promise<void> {
     try {
       await inStorageTurn(TURN, async () => {
         assertCurrent();
-        const previous = await this.current();
         const network = getEffectiveNetworkName();
+        const head = headFor(network);
+        const slots = slotsFor(network);
+        const previous = await this.current(network, head, slots);
         const empty: RecoveryData = { accounts: [], notes: [], transfers: {}, limits: [] };
         const snapshot = validate({
-          ...change(previous ?? empty),
+          ...(await change(previous ?? empty)),
           version: 1,
           network,
           generation: (previous?.generation ?? 0) + 1
@@ -96,14 +105,18 @@ export class StorageJournal {
         )
           return;
 
-        const slot = SLOTS[snapshot.generation % SLOTS.length]!;
+        const slot = slots[snapshot.generation % slots.length]!;
         const value = await encryptJson(snapshot, this.key);
         const storage = getStorageProvider();
         assertCurrent();
         if (getEffectiveNetworkName() !== network) throw new WalletStorageUnavailableError();
+        if (!previous) await storage.set({ [head]: 0 });
         await storage.set({ [slot]: value });
         const written = (await storage.get([slot]))[slot];
         if (written?.dt !== value.dt || written?.iv !== value.iv) throw new WalletStorageUnavailableError();
+        assertCurrent();
+        await storage.set({ [head]: snapshot.generation });
+        if ((await storage.get([head]))[head] !== snapshot.generation) throw new WalletStorageUnavailableError();
         assertCurrent();
       });
     } catch (error) {
@@ -111,4 +124,12 @@ export class StorageJournal {
       throw error;
     }
   }
+}
+
+function slotsFor(network: string) {
+  return [`${TURN}_${network}_slot0`, `${TURN}_${network}_slot1`];
+}
+
+function headFor(network: string) {
+  return `${TURN}_${network}_head`;
 }

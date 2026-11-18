@@ -51,11 +51,11 @@ async function rowCount(protocol: CDPSession, securityOrigin: string, databaseNa
 
 function recoveryDataPresent(page: Page) {
   return page.evaluate(async () => {
-    const keys = ['vault_key_password', 'miden_recovery_v1_slot0', 'miden_recovery_v1_slot1'];
+    const keys = ['vault_key_password', 'miden_recovery_v1_testnet_slot0', 'miden_recovery_v1_testnet_slot1'];
     const data = await chrome.storage.local.get(keys);
     return (
       typeof data.vault_key_password === 'string' &&
-      Boolean(data.miden_recovery_v1_slot0 || data.miden_recovery_v1_slot1)
+      Boolean(data.miden_recovery_v1_testnet_slot0 || data.miden_recovery_v1_testnet_slot1)
     );
   });
 }

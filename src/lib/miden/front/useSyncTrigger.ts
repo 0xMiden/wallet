@@ -94,11 +94,11 @@ function isInsideSendFlow(): boolean {
  *
  * Sync is paused for the duration of the Send flow (see `isInsideSendFlow`).
  */
-export function useSyncTrigger() {
+export function useSyncTrigger(storageUnavailable = false) {
   const status = useWalletStore(s => s.status);
 
   useEffect(() => {
-    if (status !== WalletStatus.Ready) return;
+    if (status !== WalletStatus.Ready || storageUnavailable) return;
 
     if (isExtension()) {
       const intercom = getIntercom();
@@ -453,5 +453,5 @@ export function useSyncTrigger() {
       immediateSyncListeners.delete(retryNow);
       if (timer) clearTimeout(timer);
     };
-  }, [status]);
+  }, [status, storageUnavailable]);
 }

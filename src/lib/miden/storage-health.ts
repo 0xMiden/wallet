@@ -19,6 +19,7 @@ function notifyWalletStorageChanged() {
 export async function getWalletStorageFailure(): Promise<string | undefined> {
   if (pendingFailure) return pendingFailure;
   const stored: unknown = (await getStorageProvider().get([WALLET_STORAGE_FAILURE_KEY]))[WALLET_STORAGE_FAILURE_KEY];
+  if (pendingFailure) return pendingFailure;
   if (stored !== undefined && stored !== null && typeof stored !== 'string') throw new WalletStorageUnavailableError();
   return typeof stored === 'string' ? stored : undefined;
 }

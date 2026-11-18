@@ -399,6 +399,7 @@ async function runSync(force: boolean): Promise<void> {
       // cached state from a prior successful sync worth surfacing.
     }
 
+    if (await getWalletStorageFailure()) return;
     // Private-note delivery sweep. Hosted here rather than in the transaction
     // loop because that loop only runs while there is a transaction to process,
     // and the whole point of the sweep is to act minutes to hours after a send
