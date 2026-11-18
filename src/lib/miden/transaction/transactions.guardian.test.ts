@@ -17159,6 +17159,9 @@ describe('generateTransaction - direct switch, wedged outgoing guardian', () => 
     };
     mockIsGuardianAccount.mockResolvedValue(true);
     const result = makeResult();
+    const submit = jest.fn(async () => {
+      throw submitError();
+    });
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
@@ -17179,9 +17182,7 @@ describe('generateTransaction - direct switch, wedged outgoing guardian', () => 
             prove: async () => ({
               proof: { proved: true },
               result,
-              submit: async () => {
-                throw submitError();
-              }
+              submit
             })
           }))
         }
@@ -17204,10 +17205,11 @@ describe('generateTransaction - direct switch, wedged outgoing guardian', () => 
     ).catch(() => {});
 
     // Positive first: without these the negatives below would also hold if the
-    // run had died before ever reaching the co-sign, which is the opposite
-    // scenario and one where refusing to rotate proves nothing.
+    // run had died before ever reaching the co-sign or the submit, which is the
+    // opposite scenario and one where refusing to rotate proves nothing.
     expect(coSign).toHaveBeenCalled();
     expect(txStore.find(t => t.id === txId)?.status).toBe(ITransactionStatus.Failed);
+    expect(submit).toHaveBeenCalledTimes(1);
 
     // No second on-chain rotation was built or submitted.
     expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
