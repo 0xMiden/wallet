@@ -54,6 +54,11 @@ import {
   toPersistedSpendingLimit,
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
+import {
+  assertWalletStorageAvailable,
+  getWalletStorageFailure,
+  observeWalletStorageError
+} from 'lib/miden/storage-health';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import {
   getEffectiveNetworkName,
@@ -195,7 +200,13 @@ export async function getFrontState(): Promise<GetStateResponse['state']> {
   try {
     const state = store.getState();
     if (state.inited) {
-      return { ...toFront(state), backendInitialized: true };
+      // A thrown read fails closed with no id. A resolved id, including the volatile one kept when the disk write
+      // fails, is both the boolean and the generation the recovery screen binds to.
+      const storage = await getWalletStorageFailure().then(
+        failure => ({ storageFailure: failure, storageUnavailable: Boolean(failure) }),
+        () => ({ storageFailure: undefined, storageUnavailable: true })
+      );
+      return { ...toFront(state), backendInitialized: true, ...storage };
     }
   } catch {
     // store not initialized yet
@@ -398,6 +409,7 @@ export function registerNewWallet(
         if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
         if (isInviteOnlyNetwork()) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
+        await captureBeforeUnlock(vault, accounts);
         unlocked({
           vault,
           accounts,
@@ -438,6 +450,7 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
+        await captureBeforeUnlock(vault, accounts);
         unlocked({
           vault,
           accounts,
@@ -479,6 +492,7 @@ export function registerImportedWallet(
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
+        await captureBeforeUnlock(vault, accounts);
         unlocked({
           vault,
           accounts,
@@ -526,6 +540,19 @@ export function unlock(password?: string) {
   );
 }
 
+async function captureBeforeUnlock(vault: Vault, accounts: WalletAccount[], canAdopt = () => true) {
+  const rpc = getEffectiveRpcUrl();
+  try {
+    if (!vault.storageJournal || (await getWalletStorageFailure())) return;
+    const { captureWalletAccounts } = await import('./storage-recovery');
+    await captureWalletAccounts(vault, accounts, () => {
+      if (!canAdopt() || getEffectiveRpcUrl() !== rpc) throw new Error('The wallet changed');
+    });
+  } catch (error) {
+    observeWalletStorageError(error);
+  }
+}
+
 function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
@@ -560,6 +587,8 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonic = await vault.isOwnMnemonic();
         const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
+        if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
+        await captureBeforeUnlock(vault, accounts, canAdopt);
         if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
         unlocked({
           vault,
@@ -801,10 +830,13 @@ export async function saveSpendingLimit(
   observedRevision: string | undefined,
   strictlyAuthenticated: boolean
 ): Promise<PersistedSpendingLimit | undefined> {
+  await assertWalletStorageAvailable();
   const saved = await saveStoredSpendingLimit(parseSerializedSpendingLimitDraft(serializedDraft), {
     observedRevision,
     strictlyAuthenticated
   });
+  const { retainSpendingLimits } = await import('./storage-recovery');
+  await retainSpendingLimits();
   return saved === undefined ? undefined : toPersistedSpendingLimit(saved);
 }
 
@@ -828,22 +860,19 @@ export async function verifyStrictActionAuthentication(credential?: string): Pro
   await Vault.verifyProtector(credential);
 }
 
-export function signTransaction(publicKey: string, signingInputs: string) {
-  return withUnlocked(async ({ vault }) => {
-    return await vault.signTransaction(publicKey, signingInputs);
-  });
+export async function signTransaction(publicKey: string, signingInputs: string) {
+  await assertWalletStorageAvailable();
+  return withUnlocked(({ vault }) => vault.signTransaction(publicKey, signingInputs));
 }
 
-export function signWord(publicKey: string, wordHex: string, transactionId?: string) {
-  return withUnlocked(async ({ vault }) => {
-    return await vault.signWord(publicKey, wordHex, transactionId);
-  });
+export async function signWord(publicKey: string, wordHex: string, transactionId?: string) {
+  await assertWalletStorageAvailable();
+  return withUnlocked(({ vault }) => vault.signWord(publicKey, wordHex, transactionId));
 }
 
-export function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
-  return withUnlocked(async ({ vault }) => {
-    return await vault.signEvm(accountPublicKey, operation);
-  });
+export async function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
+  await assertWalletStorageAvailable();
+  return withUnlocked(({ vault }) => vault.signEvm(accountPublicKey, operation));
 }
 
 export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {

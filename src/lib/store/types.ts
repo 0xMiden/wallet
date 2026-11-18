@@ -37,6 +37,9 @@ import { WalletType } from 'screens/onboarding/types';
  * Core wallet state (synced from backend)
  */
 export interface WalletSlice {
+  storageUnavailable?: boolean;
+  /** Authoritative storage-failure id from the backend, including a volatile id whose disk write failed. */
+  storageFailure?: string;
   seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[];

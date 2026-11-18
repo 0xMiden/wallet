@@ -2,6 +2,7 @@ import Dexie, { DBCore, DBCoreCursor, DBCoreMutateResponse, DBCoreTable, Middlew
 import { IDBDatabase, IDBObjectStore } from 'fake-indexeddb';
 
 import { deriveSwapReceipt } from 'app/templates/history/swapReceipt';
+import { ExtensionStorage } from 'lib/platform/storage-adapter';
 import {
   annotateCrash,
   snapshotCrashDiagnostics,
@@ -15,18 +16,29 @@ import { compareAccountIds } from './activity/utils';
 import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
   BADGE_EVIDENCE_ROW_TYPES,
+  checkRecoveryStoreCompatibility,
   createSchemaFor,
   db,
   exportDb,
   importDb,
+  readWalletStoreGeneration,
+  restoreRecoveryTransfers,
+  serializeRecoveryTransfer,
   spendingLimits,
   transactions,
   Table,
   TRANSACTIONS_V17_STORE,
   TRANSACTIONS_V2_STORE,
   SPENDING_LIMITS_V17_STORE,
-  SPENDING_LIMITS_V19_STORE
+  SPENDING_LIMITS_V19_STORE,
+  writeWalletStoreGeneration
 } from './repo';
+import {
+  clearVerifiedStorageFailure,
+  getWalletStorageFailure,
+  onWalletStorageChanged,
+  WalletStorageUnavailableError
+} from './storage-health';
 import { isOpenRecoveredOrder, isRecoveredReturnOrder, recoveredSwapOrderRef } from './swap/recovered-order';
 import { getCompletedTransactionsPage } from './transaction/get';
 import { isRequeueableTransaction } from './transaction/retry';
@@ -876,10 +888,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 3.2', () => {
+  it('keys spending limits by account alone on schema version 3.3', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3.2);
+    expect(db.verno).toBe(3.3);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -1057,7 +1069,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3.2);
+    expect(upgraded.verno).toBe(3.3);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -1108,7 +1120,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3.2);
+    expect(upgraded.verno).toBe(3.3);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -1155,7 +1167,7 @@ describe('writing a transaction row', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.2);
+      expect(upgraded.verno).toBe(3.3);
       const upgradedLegacy = await upgraded.table(Table.Transactions).get(legacy.id);
       expect(upgradedLegacy).toMatchObject(legacy);
       expect(upgradedLegacy).not.toHaveProperty('badgeEvidenceRevision');
@@ -1401,6 +1413,30 @@ describe('wallet storage rejection boundaries', () => {
     await target.table<Record<string, unknown>, string>(table).bulkAdd([row('a'), row('b'), row('c')]);
   }
 
+  async function withRecoveryJournal(run: (changed: jest.Mock) => Promise<void>): Promise<void> {
+    const key = 'miden_recovery_v1_testnet_slot1';
+    const untouched = { iv: 'retained-iv', dt: 'retained-ciphertext' };
+    const stored = new Map<string, unknown>([[key, untouched]]);
+    const get = jest
+      .spyOn(ExtensionStorage.prototype, 'get')
+      .mockImplementation(async keys => Object.fromEntries(keys.map(name => [name, stored.get(name)])));
+    const set = jest.spyOn(ExtensionStorage.prototype, 'set').mockImplementation(async values => {
+      for (const [name, value] of Object.entries(values)) stored.set(name, value);
+    });
+    const changed = jest.fn();
+    const unsubscribe = onWalletStorageChanged(changed);
+    try {
+      await run(changed);
+      expect(stored.get(key)).toBe(untouched);
+    } finally {
+      unsubscribe();
+      const failure = await getWalletStorageFailure();
+      if (failure) await clearVerifiedStorageFailure(failure);
+      get.mockRestore();
+      set.mockRestore();
+    }
+  }
+
   // Real hooks and observability consult Dexie's active transaction zone.
   // A bare IDB transaction would bypass that public-operation invariant.
   function cursorRequest(target: Dexie, tableName: Table) {
@@ -1545,7 +1581,7 @@ describe('wallet storage rejection boundaries', () => {
   // never become telemetry merely because it passed through the wallet middleware.
   it('does not guess an owner for a historical or unknown table', async () => {
     const target = database();
-    target.version(3.3).stores({ transactionRequests: 'id', unrelated: 'id' });
+    target.version(3.4).stores({ transactionRequests: 'id', unrelated: 'id' });
     const failures = new Map<string, Error>();
     target.use({
       stack: 'dbcore',
@@ -1852,6 +1888,53 @@ describe('wallet storage rejection boundaries', () => {
     }
   );
 
+  it('reports a quota failure in a resolved partial mutation without rolling back successful writes', async () => {
+    const target = database();
+    const table = Table.Transactions;
+    const quota = new DOMException('The IndexedDB write could not fit', 'QuotaExceededError');
+    let originalResponse: DBCoreMutateResponse | undefined;
+    target.use({
+      stack: 'dbcore',
+      name: 'partial-quota-response',
+      level: 10.5,
+      create: down => ({
+        ...down,
+        table: name => {
+          const original = down.table(name);
+          if (name !== table) return original;
+          return {
+            ...original,
+            mutate: request =>
+              original.mutate(request).then(response => {
+                if (response.numFailures) {
+                  response.failures[0] = quota;
+                  originalResponse = response;
+                }
+                return response;
+              })
+          };
+        }
+      })
+    });
+    try {
+      await seed(target, table);
+      await withRecoveryJournal(async changed => {
+        const response = await target.transaction('rw', table, tx =>
+          target.core.table(table).mutate({ type: 'add', trans: tx.idbtrans, values: [row('a'), row('d'), row('b')] })
+        );
+        expect(response).toBe(originalResponse);
+        expect(response.failures[0]).toBe(quota);
+        expect(response.failures[2]?.name).toBe('ConstraintError');
+        expect(response.numFailures).toBe(2);
+        expect(await target.table(table).get('d')).toMatchObject(row('d'));
+        expect(snapshotCrashDiagnostics(quota)).toEqual(pair('wallet_transactions', 'mutate'));
+        expect(changed).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      await dispose(target);
+    }
+  });
+
   // The uninstrumented control pins Dexie's public reconstruction, including primary
   // key-changing modify failures, partial bulk commits and explicitly consumed errors.
   it.each(owners)(
@@ -2149,6 +2232,30 @@ describe('wallet storage rejection boundaries', () => {
     }
   );
 
+  it('reports a quota failure when Dexie cannot open the wallet database', async () => {
+    const target = database();
+    const factory = Dexie.dependencies.indexedDB;
+    if (factory === undefined) throw new Error('fake-indexeddb is unavailable');
+    const original = factory.open;
+    const quota = new DOMException('The IndexedDB open could not fit', 'QuotaExceededError');
+    const spy = jest.spyOn(factory, 'open').mockImplementation(function (this: IDBFactory, name, version) {
+      if (name === target.name) throw quota;
+      return original.call(this, name, version);
+    });
+    try {
+      await withRecoveryJournal(async changed => {
+        const caught = await rejection(() => target.open());
+        expect(caught).toBeInstanceOf(Dexie.QuotaExceededError);
+        expect(caught).toMatchObject({ inner: quota });
+        expect(snapshotCrashDiagnostics(caught)).toEqual(pair('wallet_database', 'open'));
+        expect(changed).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      spy.mockRestore();
+      await dispose(target);
+    }
+  });
+
   // Closing explicitly disables auto-open. Diagnostics must not manufacture an
   // observed open failure when Dexie refuses the call without trying to open.
   it('preserves explicit, concurrent, implicit, reopen and upgrade behavior', async () => {
@@ -2169,7 +2276,7 @@ describe('wallet storage rejection boundaries', () => {
         target.close();
         let upgrades = 0;
         target
-          .version(3.3)
+          .version(3.4)
           .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE })
           .upgrade(async tx => {
             upgrades++;
@@ -2201,7 +2308,7 @@ describe('wallet storage rejection boundaries', () => {
       await target.open();
       target.close();
       target
-        .version(3.3)
+        .version(3.4)
         .stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE })
         .upgrade(() => {
           throw failure;
@@ -2352,5 +2459,357 @@ describe('bounded transaction history', () => {
       isolated.close();
       await Dexie.delete(name);
     }
+  });
+});
+
+describe('verified wallet storage generation', () => {
+  const accountId = 'recovery-account';
+  const sameAccount = (id: string) => id === accountId;
+  const assertCurrent = () => {};
+  const row: ITransaction = {
+    id: 'retained-transfer',
+    accountId,
+    type: 'send',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 10,
+    displayIcon: 'SEND',
+    spentUsd: 20n
+  };
+  const config = (limit: string) => ({ accountId, limit, revision: `limit-${limit}`, createdAt: 10, updatedAt: 10 });
+  const currentGeneration = 'active-generation';
+  const savedGeneration = 'saved-generation';
+  const sent = {
+    attemptId: 'submitted-attempt',
+    transactionId: 'submitted-transaction',
+    source: 'stage',
+    capturedAt: 10
+  } as const;
+  const landing = {
+    attemptId: sent.attemptId,
+    boundTransactionId: sent.transactionId,
+    proof: { kind: 'commitment' }
+  } as const;
+
+  beforeEach(async () => {
+    await db.table(Table.Recovery).clear();
+    await transactions.clear();
+    await spendingLimits.clear();
+    await writeWalletStoreGeneration(currentGeneration);
+  });
+
+  afterEach(async () => {
+    await db.table(Table.Recovery).clear();
+    await transactions.clear();
+    await spendingLimits.clear();
+  });
+
+  it.each([
+    ['25', '75'],
+    ['75', '25']
+  ])('recovers the verified generation while keeping the lower of caps %s and %s', async (live, saved) => {
+    await spendingLimits.add(config(live));
+    await expect(writeWalletStoreGeneration(savedGeneration)).rejects.toThrow('Wallet storage generation changed');
+
+    await expect(
+      restoreRecoveryTransfers([row], [config(saved)], sameAccount, assertCurrent, {
+        observed: currentGeneration,
+        verified: savedGeneration,
+        spendingSince: 0
+      })
+    ).resolves.toEqual({ limits: [config('25')], transfers: [row] });
+    await expect(readWalletStoreGeneration()).resolves.toBe(savedGeneration);
+    await expect(transactions.get(row.id)).resolves.toMatchObject({
+      status: ITransactionStatus.Completed,
+      spentUsd: 20n,
+      restoredFromBackup: true,
+      retainedRecoverySpend: true
+    });
+    await expect(spendingLimits.get(accountId)).resolves.toEqual(config('25'));
+  });
+
+  it('refuses recovery when its observed generation is no longer active', async () => {
+    await expect(
+      restoreRecoveryTransfers([row], [config('25')], sameAccount, assertCurrent, {
+        observed: undefined,
+        verified: savedGeneration,
+        spendingSince: 0
+      })
+    ).rejects.toThrow(WalletStorageUnavailableError);
+
+    await expect(transactions.get(row.id)).resolves.toBeUndefined();
+    await expect(spendingLimits.get(accountId)).resolves.toBeUndefined();
+    await expect(readWalletStoreGeneration()).resolves.toBe(currentGeneration);
+  });
+
+  it.each([ITransactionStatus.Completed, ITransactionStatus.Failed])(
+    'applies freshly verified transfer status %s when its live attempt survived in the same generation',
+    async status => {
+      const live = { ...row, status: ITransactionStatus.Unconfirmed, attemptId: 'submitted-attempt' };
+      const covered = {
+        ...live,
+        status,
+        completedAt: 20,
+        mayHaveSubmitted: true,
+        submitEvidence: [sent],
+        ...(status === ITransactionStatus.Completed ? { transactionId: sent.transactionId } : { neverCommittedAt: 20 })
+      };
+      const unverified = { ...covered, id: 'snapshot-only-history' };
+      const generation = {
+        observed: currentGeneration,
+        verified: currentGeneration,
+        spendingSince: 0,
+        verifiedTransfers: new Map([[row.id, status === ITransactionStatus.Completed ? landing : undefined]])
+      };
+      await transactions.bulkAdd([live, { ...live, id: unverified.id }]);
+
+      await restoreRecoveryTransfers([covered, unverified], [], sameAccount, assertCurrent, generation);
+
+      await expect(transactions.get(row.id)).resolves.toMatchObject(covered);
+      await expect(transactions.get(unverified.id)).resolves.toMatchObject({ status: ITransactionStatus.Unconfirmed });
+    }
+  );
+
+  it.each([{ attemptId: 'later-attempt' }, { submitEvidence: [{ ...sent, transactionId: 'different-transaction' }] }])(
+    'refuses a rebuilt outcome if the live attempt or submit evidence has diverged',
+    async changed => {
+      const live = { ...row, status: ITransactionStatus.Unconfirmed, attemptId: 'submitted-attempt', ...changed };
+      const verified = {
+        ...row,
+        attemptId: 'submitted-attempt',
+        mayHaveSubmitted: true,
+        submitEvidence: [sent]
+      };
+      const generation = {
+        observed: currentGeneration,
+        verified: currentGeneration,
+        spendingSince: 0,
+        verifiedTransfers: new Map([[row.id, landing]])
+      };
+      await transactions.add(live);
+
+      await expect(restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation)).rejects.toThrow(
+        WalletStorageUnavailableError
+      );
+      await expect(transactions.get(row.id)).resolves.toMatchObject(live);
+    }
+  );
+
+  it.each([undefined, 'relayed'] as const)(
+    'restores a proven private note delivery target without erasing a recorded %s outcome',
+    async noteDelivery => {
+      const noteId = '0x1234';
+      const live: ITransaction = {
+        ...row,
+        status: ITransactionStatus.Unconfirmed,
+        attemptId: sent.attemptId,
+        noteType: NoteTypeEnum.Private,
+        noteDelivery,
+        ...(noteDelivery ? { outputNoteIds: [noteId] } : {})
+      };
+      const verified = {
+        ...live,
+        status: ITransactionStatus.Completed,
+        transactionId: sent.transactionId,
+        mayHaveSubmitted: true,
+        submitEvidence: [{ ...sent, outputNoteIds: [noteId] }]
+      };
+      const generation = {
+        observed: currentGeneration,
+        verified: currentGeneration,
+        spendingSince: 0,
+        verifiedTransfers: new Map([[row.id, landing]])
+      };
+      await transactions.add(live);
+
+      const retained = await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+
+      await expect(transactions.get(row.id)).resolves.toMatchObject({
+        status: ITransactionStatus.Completed,
+        stage: 'complete',
+        noteDelivery: noteDelivery ?? 'undelivered',
+        outputNoteIds: [noteId]
+      });
+      expect(retained.transfers).toEqual([await transactions.get(row.id)]);
+    }
+  );
+
+  it('keeps newer block observations for unchanged submit proof inputs', async () => {
+    const observedEvidence = { ...sent, initialSeenAtBlock: 4, landingSeenAtBlock: 8, landingSeenBy: 1 } as const;
+    const live = {
+      ...row,
+      status: ITransactionStatus.Unconfirmed,
+      attemptId: sent.attemptId,
+      mayHaveSubmitted: true,
+      submitEvidence: [observedEvidence]
+    };
+    const verified = { ...live, status: ITransactionStatus.Completed, submitEvidence: [sent] };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Map([[row.id, landing]])
+    };
+    await transactions.add(live);
+
+    await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+
+    await expect(transactions.get(row.id)).resolves.toMatchObject({
+      status: ITransactionStatus.Completed,
+      submitEvidence: [observedEvidence]
+    });
+  });
+
+  it('opens the saved order when recovery proves a swap landed', async () => {
+    const noteId = `0x${'a'.repeat(64)}`;
+    const live: ITransaction = {
+      ...row,
+      type: 'swap',
+      status: ITransactionStatus.Unconfirmed,
+      attemptId: sent.attemptId,
+      extraInputs: {
+        requestedFaucetId: 'requested-faucet',
+        requestedAmount: 5n,
+        landedOrder: { orderId: '42', expiresAt: 50, noteId }
+      }
+    };
+    const verified = { ...live, status: ITransactionStatus.Completed, submitEvidence: [sent] };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Map([[row.id, landing]])
+    };
+    await transactions.add(live);
+
+    await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+
+    await expect(transactions.get(row.id)).resolves.toMatchObject({
+      status: ITransactionStatus.Completed,
+      extraInputs: { orderId: 42n, expiresAt: 50 },
+      outputNoteIds: [noteId]
+    });
+  });
+
+  it.each([true, false])('uses a decoded swap order only with unchanged saved request bytes (%s)', async unchanged => {
+    const noteId = `0x${'b'.repeat(64)}`;
+    const requestBytes = Uint8Array.of(7, 7);
+    const extraInputs = { requestedFaucetId: 'requested-faucet', requestedAmount: 5n, expirySeconds: 10 };
+    const live: ITransaction = {
+      ...row,
+      type: 'swap',
+      status: ITransactionStatus.Unconfirmed,
+      attemptId: sent.attemptId,
+      extraInputs,
+      requestBytes: unchanged ? Uint8Array.of(7, 7) : Uint8Array.of(7, 8)
+    };
+    const verified = {
+      ...live,
+      status: ITransactionStatus.Completed,
+      completedAt: 20,
+      requestBytes,
+      submitEvidence: [sent]
+    };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Map([[row.id, { ...landing, savedOrder: { orderId: '42', orderNoteId: noteId } }]])
+    };
+    await transactions.add(live);
+
+    await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+
+    const restored = await transactions.get(row.id);
+    expect(restored?.extraInputs.orderId?.toString()).toBe(unchanged ? '42' : undefined);
+    expect(restored?.extraInputs.expiresAt).toBe(unchanged ? 30 : undefined);
+    expect(restored?.outputNoteIds).toEqual(unchanged ? [noteId] : undefined);
+  });
+
+  it('journals the compatible completed row when retrying a failed recovery snapshot write', async () => {
+    const live = {
+      ...row,
+      status: ITransactionStatus.Unconfirmed,
+      attemptId: sent.attemptId,
+      noteType: NoteTypeEnum.Private
+    };
+    const verified = {
+      ...live,
+      status: ITransactionStatus.Completed,
+      mayHaveSubmitted: true,
+      submitEvidence: [{ ...sent, outputNoteIds: ['0x1234'] }]
+    };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Map([[row.id, landing]])
+    };
+    await transactions.add(live);
+    const writeSnapshot = jest
+      .fn<Promise<void>, [string[]]>()
+      .mockResolvedValue(undefined)
+      .mockRejectedValueOnce(new DOMException('No space left', 'QuotaExceededError'));
+    const rebuild = async () => {
+      const restored = await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+      await writeSnapshot(restored.transfers.map(serializeRecoveryTransfer));
+    };
+
+    await expect(rebuild()).rejects.toThrow('No space left');
+    const committed = await transactions.get(row.id);
+    expect(committed).toMatchObject({ status: ITransactionStatus.Completed, outputNoteIds: ['0x1234'] });
+
+    await rebuild();
+
+    expect(writeSnapshot).toHaveBeenLastCalledWith([serializeRecoveryTransfer(committed!)]);
+  });
+
+  it('refuses to journal a completed live row from a different transaction attempt', async () => {
+    const live = { ...row, attemptId: 'different-attempt', transactionId: 'different-transaction' };
+    const verified = { ...row, attemptId: sent.attemptId, transactionId: sent.transactionId, submitEvidence: [sent] };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Map([[row.id, landing]])
+    };
+    await transactions.add(live);
+
+    const refused = await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation).then(
+      () => false,
+      (error: unknown) => error instanceof WalletStorageUnavailableError
+    );
+    expect(refused).toBe(true);
+    await expect(transactions.get(row.id)).resolves.toEqual(live);
+  });
+
+  it('keeps the prior generation and policy if a live spending row conflicts with the journal', async () => {
+    await transactions.add({ ...row, spentUsd: 30n });
+    await spendingLimits.add(config('25'));
+
+    await expect(
+      restoreRecoveryTransfers([row], [config('15')], sameAccount, assertCurrent, {
+        observed: currentGeneration,
+        verified: savedGeneration,
+        spendingSince: 0
+      })
+    ).rejects.toThrow(WalletStorageUnavailableError);
+    await expect(readWalletStoreGeneration()).resolves.toBe(currentGeneration);
+    await expect(transactions.get(row.id)).resolves.toMatchObject({ spentUsd: 30n });
+    await expect(spendingLimits.get(accountId)).resolves.toEqual(config('25'));
+  });
+  it('keeps the previous generation when the live database contains unmatched trusted spend', async () => {
+    const unrecorded = { ...row, id: 'unrecorded-live-spend' };
+    const generation = { observed: currentGeneration, verified: savedGeneration, spendingSince: row.initiatedAt };
+    await transactions.add(unrecorded);
+
+    await expect(checkRecoveryStoreCompatibility([row], [], sameAccount, assertCurrent, generation)).rejects.toThrow(
+      WalletStorageUnavailableError
+    );
+    await expect(restoreRecoveryTransfers([row], [], sameAccount, assertCurrent, generation)).rejects.toThrow(
+      WalletStorageUnavailableError
+    );
+    await expect(readWalletStoreGeneration()).resolves.toBe(currentGeneration);
+    await expect(transactions.get(row.id)).resolves.toBeUndefined();
+    await expect(transactions.get(unrecorded.id)).resolves.toMatchObject({ spentUsd: row.spentUsd });
   });
 });

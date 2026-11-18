@@ -9123,5 +9123,51 @@
   "bridgeWithdrawalUseSlow": {
     "message": "Zamiast tego używaj terminu „Slow bridge”",
     "englishSource": "Use Slow bridge instead"
+  },
+  "storageRecoveryTitle": {
+    "message": "Przechowywanie w portfelu niedostępne",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Aplikacja Bread nie mogła odczytać danych portfela na tym urządzeniu. Salda i operacje portfela są wstrzymane do czasu zweryfikowania przywrócenia dostępu.",
+    "englishSource": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified."
+  },
+  "storageRecoveryRebuild": {
+    "message": "Odbudowa na podstawie danych odzyskiwania",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryWorking": {
+    "message": "Sprawdzanie zachowanych danych portfela…",
+    "englishSource": "Checking retained wallet data…"
+  },
+  "storageRecoveryVerified": {
+    "message": "Odzyskanie środków z portfela",
+    "englishSource": "Wallet storage recovered"
+  },
+  "storageRecoveryFailed": {
+    "message": "Nie udało się zweryfikować pamięci portfela. W razie potrzeby zwolnij miejsce na dysku, a następnie spróbuj ponownie. Działania związane z portfelem pozostają wstrzymane.",
+    "englishSource": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused."
+  },
+  "storageRecoveryUnlockOptions": {
+    "message": "Powrót do opcji odblokowania",
+    "englishSource": "Return to unlock options"
+  },
+  "storageRecoveryProgress": {
+    "message": "Zweryfikowano $verifiedAccounts$ z $expectedAccounts$ kont oraz $verifiedNotes$ z $expectedNotes$ notes.",
+    "englishSource": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiednotes": {
+        "content": "$3"
+      },
+      "expectednotes": {
+        "content": "$4"
+      }
+    }
   }
 }

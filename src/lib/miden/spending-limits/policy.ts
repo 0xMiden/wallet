@@ -86,7 +86,7 @@ const matchingSpendEntries = (
   const entries: SpendEntry[] = [];
   for (const row of rows) {
     if (!sameSpendingLimitIdentity(row.accountId, config.accountId)) continue;
-    if (!isOutgoingSpend(row) || row.restoredFromBackup === true) continue;
+    if (!isOutgoingSpend(row) || (row.restoredFromBackup === true && row.retainedRecoverySpend !== true)) continue;
     const spend = rowSpendUsd(row);
     if (spend === undefined) continue;
     // A row that cannot be placed in time cannot be judged in or out of the window, so it stays

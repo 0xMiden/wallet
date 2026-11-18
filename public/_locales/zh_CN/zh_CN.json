@@ -1996,5 +1996,13 @@
   "bridgeWithdrawalEffect": "这将关闭该锁的强制提现功能。已恢复的资金仍保留在您的钱包中。新的恢复请求将开始新的等待期。此交易需要支付网络手续费。",
   "bridgeWithdrawalWalletPrompt": "打开您已连接的 EVM 钱包，并在 $network$ 上批准该交易。请在此处等待确认。",
   "bridgeWithdrawalUseCircle": "请改用 Circle",
-  "bridgeWithdrawalUseSlow": "请改用“Slow bridge”"
+  "bridgeWithdrawalUseSlow": "请改用“Slow bridge”",
+  "storageRecoveryTitle": "钱包存储不可用",
+  "storageRecoveryDescription": "Bread 无法读取此设备上的钱包数据。余额和钱包操作将暂停，直至恢复验证通过。",
+  "storageRecoveryRebuild": "根据恢复数据重建",
+  "storageRecoveryWorking": "正在检查保留的钱包数据……",
+  "storageRecoveryVerified": "钱包存储已恢复",
+  "storageRecoveryFailed": "无法验证钱包存储。如有必要，请释放磁盘空间，然后重试。钱包操作仍处于暂停状态。",
+  "storageRecoveryUnlockOptions": "返回解锁选项",
+  "storageRecoveryProgress": "已验证 $verifiedAccounts$ 个 $expectedAccounts$ 账户，以及 $verifiedNotes$ 个 $expectedNotes$ notes。"
 }

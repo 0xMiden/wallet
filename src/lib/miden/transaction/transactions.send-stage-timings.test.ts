@@ -57,6 +57,8 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 
+jest.mock('../back/storage-recovery', () => ({ retainWalletTransfer: jest.fn(async () => {}) }));
+
 jest.mock('../front', () => ({
   putToStorage: jest.fn(async () => {}),
   fetchFromStorage: jest.fn(),
@@ -482,11 +484,24 @@ describe('which dispatches carry a stamp (#1081)', () => {
       'newTransaction',
       4,
       false
+    ],
+    [
+      'a legacy bridge with no stored provider',
+      {
+        id: 'legacy',
+        type: 'bridged-send',
+        requestBytes: new Uint8Array([1]),
+        approvedOutputNoteIds: ['note:recorded']
+      },
+      'newTransaction',
+      4,
+      false
     ]
   ])('%s', async (_label, row, leaf, stampIndex, stamped) => {
     await runRow(row);
     const call = proxyMock()[leaf].mock.calls[0];
     expect(typeof call[stampIndex] === 'function').toBe(stamped);
+    expect(typeof call[stampIndex + 1] === 'function').toBe(!stamped);
   });
 });
 

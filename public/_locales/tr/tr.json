@@ -1994,5 +1994,13 @@
   "bridgeWithdrawalEffect": "Bu işlem, bu kilit için zorunlu para çekme özelliğini devre dışı bırakır. Halihazırda kurtarılmış olan fonlar cüzdanınızda kalır. Yeni bir kurtarma talebi, yeni bir bekleme süresini başlatır. Bu işlem için ağ ücreti ödenmesi gerekir.",
   "bridgeWithdrawalWalletPrompt": "Bağlı EVM cüzdanınızı açın ve $network$ üzerindeki işlemi onaylayın. Onay gelene kadar burada bekleyin.",
   "bridgeWithdrawalUseCircle": "Bunun yerine Circle'ı kullanın",
-  "bridgeWithdrawalUseSlow": "Bunun yerine \"Slow bridge\" ifadesini kullanın"
+  "bridgeWithdrawalUseSlow": "Bunun yerine \"Slow bridge\" ifadesini kullanın",
+  "storageRecoveryTitle": "Cüzdan depolama alanı kullanılamıyor",
+  "storageRecoveryDescription": "Bread, bu cihazdaki cüzdan verilerinizi okuyamadı. Kurtarma işlemi doğrulanana kadar bakiyeler ve cüzdan işlemleri askıya alınmıştır.",
+  "storageRecoveryRebuild": "Kurtarma verilerinden yeniden oluşturma",
+  "storageRecoveryWorking": "Cüzdan verileri kontrol ediliyor…",
+  "storageRecoveryVerified": "Cüzdan depolama alanı kurtarıldı",
+  "storageRecoveryFailed": "Cüzdan depolama alanı doğrulanamadı. Gerekirse disk alanını boşaltın, ardından tekrar deneyin. Cüzdan işlemleri askıya alınmış durumda.",
+  "storageRecoveryUnlockOptions": "Kilidi açma seçeneklerine geri dön",
+  "storageRecoveryProgress": "$expectedAccounts$ hesaplarından $verifiedAccounts$'si ve $expectedNotes$ notes'tan $verifiedNotes$'si doğrulanmıştır."
 }

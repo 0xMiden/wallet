@@ -40,6 +40,9 @@ const mockPolyfill = {
 };
 
 jest.mock('webextension-polyfill', () => mockPolyfill);
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => mockPolyfill.storage.local
+}));
 
 const mockSafeGenerateTransactionsLoop = jest.fn();
 const mockGetAllUncompletedTransactions = jest.fn();
@@ -464,6 +467,16 @@ describe('setupTransactionProcessor', () => {
 });
 
 describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
+  it('refuses both offscreen and Guardian signing while storage is unavailable', async () => {
+    mockStorageGet.mockResolvedValue({ miden_wallet_storage_failure_v1: 'unverified-store' });
+    const { swSignCallback, vaultGuardianProvider } = await import('./transaction-processor');
+
+    await expect(swSignCallback('pubkey-hex', 'signing-inputs-hex')).rejects.toThrow('Wallet storage unavailable');
+    await expect(vaultGuardianProvider.signWord('pubkey-hex', 'word-hex')).rejects.toThrow(
+      'Wallet storage unavailable'
+    );
+    expect(mockWithUnlocked).not.toHaveBeenCalled();
+  });
   it('getAccounts throws a locked-classified error (not a raw null-deref) when the vault is locked', async () => {
     // A LOCKED wallet: `inited === true` but `vault === null`. `assertUnlocked`
     // rejects that state outright — the exact situation a background Guardian

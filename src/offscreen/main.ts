@@ -104,7 +104,12 @@ import {
   withWasmClientLock,
   yieldWasmClientLock
 } from 'lib/miden/sdk/miden-client';
-import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
+import {
+  MidenClientInterface,
+  remoteProver,
+  useSdkRecoveryStore,
+  withDelegatedProveTimeout
+} from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { readChainTip } from 'lib/miden/sdk/pswap-order-note';
 import {
@@ -124,7 +129,12 @@ import {
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
 import { assertSwapFeeContextMatches, readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/balance';
-import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
+import {
+  adoptEndpointState,
+  getEffectiveRpcUrl,
+  sameEndpointState,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { assertOneClickDeadline } from 'lib/one-click/deadline';
@@ -497,6 +507,23 @@ async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenc
   if (resp?.ok !== true) {
     throw new Error(`offscreen submit gate refused: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
   }
+}
+
+// Ordinary send, swap, consume and execute keep the fire-and-forget stamp for every step but submit. Submitting
+// waits for the service worker's gate, which journals the attempt before it answers, then refuses a dispatch that
+// settled or lost its hold during that wait so the proof is not submitted.
+async function reportOrdinaryStage(
+  context: DispatchContext,
+  stage: ITransactionStage,
+  evidence?: SubmitEvidenceFields
+): Promise<void> {
+  if (stage !== 'submitting') {
+    postStageEvent(context, stage, evidence);
+    return;
+  }
+  await passSubmitGate(context, evidence);
+  if (context.settled) throw new Error('offscreen submit gate: no live op to submit for');
+  assertWasmHoldCurrent(context.hold, 'after the ordinary submit gate');
 }
 
 function postStageEvent(context: DispatchContext, stage: ITransactionStage, evidence?: SubmitEvidenceFields): void {
@@ -891,7 +918,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     }
   ) => {
     const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+      reportOrdinaryStage(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
     // has submitted (and applied) by the time it returns, on either leg, so the
@@ -922,7 +949,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // every prover branch - delegated, the prove worker (#945), and the SW's
     // offscreen-prover one - so the stamps do not depend on which branch runs here.
     const result = await client.sendTransaction(tx, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+      reportOrdinaryStage(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
@@ -959,7 +986,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     );
     const result = await client.swapTransaction(
       tx,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
+      (stage, detail) => reportOrdinaryStage(context, stage, detail?.evidence),
       feeContext
     );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
@@ -984,7 +1011,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
+      (stage, detail) => reportOrdinaryStage(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has
@@ -1801,6 +1828,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         adoptEndpoints(request.endpoints);
+        if (typeof request.recoveryUsesCedarStore === 'boolean') {
+          useSdkRecoveryStore(getEffectiveRpcUrl(), request.recoveryUsesCedarStore);
+        }
         // Dropped even when the state did not change: seed removal sends this only to discard the client.
         clientPromise = null;
         const response: OffscreenReloadEndpointsResponse = { ok: true };

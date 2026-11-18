@@ -23,6 +23,8 @@ import { isGuardianHoldRetryError } from './retry-refusal';
 import { GUARDIAN_PENDING_HOLD_SEC } from './verdict-rules';
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 
+jest.mock('../back/storage-recovery', () => ({ retainWalletTransfer: jest.fn(async () => {}) }));
+
 jest.mock('shared/logger', () => ({ logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() } }));
 jest.mock('lib/telemetry/crash', () => ({
   ...jest.requireActual('lib/telemetry/crash'),

@@ -129,7 +129,9 @@ describe('useWalletStore', () => {
       confirmation: null,
       isInitialized: false,
       isSyncing: false,
-      lastSyncedAt: null
+      lastSyncedAt: null,
+      storageUnavailable: undefined,
+      storageFailure: undefined
     });
     mockRequest.mockReset();
   });
@@ -140,6 +142,8 @@ describe('useWalletStore', () => {
 
       syncFromBackend({
         status: WalletStatus.Ready,
+        storageUnavailable: true,
+        storageFailure: 'volatile-failure',
         accounts: [
           {
             publicKey: 'pk1',
@@ -165,6 +169,8 @@ describe('useWalletStore', () => {
 
       const state = useWalletStore.getState();
       expect(state.status).toBe(WalletStatus.Ready);
+      expect(state.storageUnavailable).toBe(true);
+      expect(state.storageFailure).toBe('volatile-failure');
       expect(state.accounts).toHaveLength(1);
       expect(state.currentAccount?.publicKey).toBe('pk1');
       expect(state.isInitialized).toBe(true);

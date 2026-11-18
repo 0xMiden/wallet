@@ -51,6 +51,8 @@ _g.__txGapTest = {
 };
 const txStore: any[] = _g.__txGapTest.rows;
 
+jest.mock('../back/storage-recovery', () => ({ retainWalletTransfer: jest.fn(async () => {}) }));
+
 jest.mock('lib/miden/repo', () => ({
   db: {
     transaction: (_mode: string, _table: unknown, cb: () => Promise<unknown>) => cb()

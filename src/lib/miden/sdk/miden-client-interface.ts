@@ -111,7 +111,7 @@ import {
   markErrorBeforeSubmit,
   readWasmHandle
 } from './sdk-error-code';
-import { sdkStoreNameFor } from './store-name';
+import { pinSdkRecoveryStore, sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
 import { awaitTestConsumeAuthorization } from './test-consume-authorization';
@@ -523,6 +523,12 @@ type RealmReader = {
 };
 let realmReader: RealmReader | undefined;
 
+export function useSdkRecoveryStore(rpcUrl: string, usesCedarStore: boolean): void {
+  pinSdkRecoveryStore(rpcUrl, usesCedarStore);
+  // An in-flight operation can still own the displaced reader.
+  realmReader = undefined;
+}
+
 /**
  * The ONE raw reader client each realm uses (issue #868): the consumability
  * read and the guardian PSWAP request build both go through it.
@@ -699,7 +705,18 @@ export class MidenClientInterface {
       const feeFaucetId = getEffectiveFeeFaucetId();
       const proverUrl = getEffectiveProverUrl();
       const storeName = await sdkStoreNameFor(rpcUrl);
+      const { retainIncomingNotes, reportSdkStorageFailure } = await import('./storage-recovery-bridge');
+      const storageRecovery = {
+        beforeNoteAcquisition: (batch: { notes: readonly Uint8Array[] }) => retainIncomingNotes(batch, rpcUrl),
+        indexedDb: {
+          durability: 'strict' as const,
+          onFailure: () => {
+            if (!liveness.disposed) void reportSdkStorageFailure();
+          }
+        }
+      };
       const midenClient = await MidenClient.create({
+        ...storageRecovery,
         rpcUrl,
         ...(storeName ? { storeName } : {}),
         noteTransportUrl,
@@ -2236,18 +2253,15 @@ export class MidenClientInterface {
     beforeSubmit?: () => void
   ): Promise<TransactionResult> {
     const proof = await attempt.proveInWorker(executed.result);
-    // No re-check of the hold between here and `submitProven`: the helper's own
-    // post-prove `assertWasmHoldCurrent` already ran, and the only `onStage` this
-    // realm installs (`postStageEvent`) is synchronous, so `await` only yields one
-    // microtask before `markSubmitting()`, not a real parking point. An async
-    // `onStage` would need its own re-check.
     // Read under the hold that executed and proved it, before the stamp, so the evidence rides the stamp (#1081).
+    // The submitting callback now waits on the submit gate, so the hold is checked again after it returns and
+    // immediately before the proof is submitted.
     if (onStage) {
       await onStage('submitting', {
         evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
       });
     }
-    if (beforeSubmit && attempt.evicted()) {
+    if (attempt.evicted()) {
       throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove'));
     }
     beforeSubmit?.();
@@ -2418,13 +2432,12 @@ export class MidenClientInterface {
       if (onStage) {
         await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
       }
-      if (beforeSubmit && attempt.evicted()) {
-        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after offscreen prove'));
-      }
-      beforeSubmit?.();
-      // Point of no return — see the identical mark on the inline send path.
-      attempt.markSubmitting();
       await access._withInnerWebClient(async inner => {
+        if (attempt.evicted()) {
+          throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after offscreen prove'));
+        }
+        beforeSubmit?.();
+        attempt.markSubmitting();
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; submit');
         const height = await inner.submitProvenTransaction(proven, txResult);
         recordProveTiming(`proveLocallyViaOffscreen submit returned height=${height}; applying`);

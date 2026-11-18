@@ -232,6 +232,7 @@ export interface OffscreenReloadEndpointsRequest {
   target: typeof OFFSCREEN_TARGET;
   type: typeof OFFSCREEN_RELOAD_ENDPOINTS;
   endpoints: EndpointState;
+  recoveryUsesCedarStore?: boolean;
 }
 
 /**

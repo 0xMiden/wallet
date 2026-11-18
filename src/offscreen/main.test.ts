@@ -321,6 +321,7 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
         return g.__off.getMidenClient(opts);
       }
     },
+    useSdkRecoveryStore: (...args: unknown[]) => g.__off.useSdkRecoveryStore(...args),
     remoteProver: (...a: any[]) => g.__off.remoteProver(...a),
     // Pass-through: the wrapper's own timeout behaviour is covered in
     // miden-client-interface.test.ts. What matters here is only that the pipeline
@@ -3519,7 +3520,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const posted: any[] = [];
     G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
       posted.push(m);
-      return undefined;
+      return m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined;
     });
     // The offscreen client drives its onStage hook exactly as the SDK's staged
     // execute → prove → submit pipeline does.
@@ -3547,7 +3548,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     const stageEvents = posted.filter(m => m?.type === 'OFFSCREEN_STAGE_EVENT');
-    expect(stageEvents.map(m => m.stage)).toEqual(['executing', 'proving', 'submitting']);
+    expect(stageEvents.map(m => m.stage)).toEqual(['executing', 'proving']);
+    expect(posted).toContainEqual(
+      expect.objectContaining({ type: OFFSCREEN_SUBMIT_GATE, target: 'sw', op_id: 'op-stage' })
+    );
     // Every stamp is SW-targeted (the doc's own `target === 'offscreen'` listener
     // can never pick it up) and carries THIS op's ambient id.
     expect(stageEvents.every(m => m.target === 'sw' && m.op_id === 'op-stage')).toBe(true);
@@ -3556,8 +3560,6 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Array.from(Buffer.from(sendResponse.mock.calls[0][0].resultB64, 'base64'))).toEqual([11, 22, 33]);
   });
 
-  // #1081: each write's 'submitting' stamp carries the evidence its leaf read, so the service worker can record what
-  // the attempt was.
   it.each<[string, string[]]>([
     ['consumeNoteId', [encodeArg({ accountId: 'mtst1qacc', noteId: '0xn1', noteIds: ['0xn1'] })]],
     [
@@ -3591,16 +3593,18 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       ]
     ],
     ['newTransaction', [encodeArg('mtst1qacc'), encodeArg(new Uint8Array([1])), encodeArg(true)]]
-  ])('%s posts its submitting stamp with the evidence the leaf read (#1081)', async (method, argsB64) => {
+  ])('%s refuses to submit when the recovery journal rejects the evidence', async (method, argsB64) => {
     await loadModule();
-    const posted: any[] = [];
-    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
-      posted.push(m);
-      return undefined;
+    const posted: unknown[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (message: { type: string }) => {
+      posted.push(message);
+      return message.type === OFFSCREEN_SUBMIT_GATE ? { ok: false, error: 'Recovery journal write failed' } : undefined;
     });
+    const submit = jest.fn();
     const leaf = jest.fn(async (...args: unknown[]) => {
       const onStage = args.find(arg => typeof arg === 'function');
       if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
+      submit();
       return { serialize: () => new Uint8Array([1]) };
     });
     const leaves: Record<string, string> = {
@@ -3614,15 +3618,59 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     capturedListener!(callReq({ op_id: 'op-evidence', method, argsB64 }), {}, sendResponse);
     await flush();
 
-    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+    expect(submit).not.toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false });
     expect(posted).toContainEqual(
-      expect.objectContaining({
-        type: 'OFFSCREEN_STAGE_EVENT',
-        op_id: 'op-evidence',
-        stage: 'submitting',
-        evidence: { refBlock: 9 }
-      })
+      expect.objectContaining({ type: OFFSCREEN_SUBMIT_GATE, op_id: 'op-evidence', evidence: { refBlock: 9 } })
     );
+  });
+
+  it.each([false, true])('holds the ordinary send behind its journal gate when evicted is %s', async evicted => {
+    await loadModule();
+    const lock = await import('lib/miden/sdk/miden-client');
+    let reply!: (answer: { ok: true }) => void;
+    const parked = new Promise<{ ok: true }>(resolve => {
+      reply = resolve;
+    });
+    const gate = jest.fn(() => parked);
+    G.chrome.runtime.sendMessage = jest.fn(async (message: { type: string }) =>
+      message.type === OFFSCREEN_SUBMIT_GATE ? gate() : undefined
+    );
+    const submit = jest.fn();
+    G.__off.clientSendTransaction = jest.fn(async (_tx: unknown, onStage: (s: string) => Promise<void> | void) => {
+      await onStage('submitting');
+      submit();
+      return { serialize: () => Uint8Array.of(1) };
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'sendTransaction',
+        argsB64: [
+          encodeArg({
+            accountId: 'a',
+            secondaryAccountId: 'b',
+            faucetId: 'f',
+            noteType: 'public',
+            amount: '1',
+            extraInputs: {}
+          })
+        ]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(gate).toHaveBeenCalledTimes(1);
+    if (evicted) Reflect.get(lock, '__evictHolder')();
+    reply({ ok: true });
+    await waitForReply(sendResponse);
+    await flush();
+
+    expect(submit).toHaveBeenCalledTimes(evicted ? 0 : 1);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: !evicted });
   });
 
   it('a stage-event post failure NEVER reaches the write (rejects and synchronous throws are both swallowed)', async () => {
@@ -3630,7 +3678,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // Model both failure modes on the SAME channel the OP_STARTED signal uses: a
     // rejected promise (no SW receiver) and a synchronous throw (torn-down port).
     let call = 0;
-    G.chrome.runtime.sendMessage = jest.fn((_m: any) => {
+    G.chrome.runtime.sendMessage = jest.fn((m: { type?: string }) => {
+      if (m?.type === OFFSCREEN_SUBMIT_GATE) return Promise.resolve({ ok: true });
       call += 1;
       if (call % 2 === 0) throw new Error('port closed');
       return Promise.reject(new Error('no receiver'));
@@ -5515,12 +5564,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const miden: any = await import('lib/miden/sdk/miden-client');
     const posted: any[] = [];
     G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
-      if (m?.type === 'OFFSCREEN_STAGE_EVENT') posted.push(`${m.stage}|${m.op_id}`);
+      if (m?.type === 'OFFSCREEN_STAGE_EVENT') posted.push(`stage:${m.stage}|${m.op_id}`);
+      if (m?.type === 'OFFSCREEN_SUBMIT_GATE') posted.push(`gate:${m.op_id}`);
       return undefined;
     });
 
     // The first send parks mid-flight, holding its onStage hook.
-    let capturedOnStage: ((s: string) => void) | undefined;
+    let capturedOnStage: ((s: string) => Promise<void> | void) | undefined;
     let releaseFirst!: () => void;
     const firstParked = new Promise<void>(resolve => {
       releaseFirst = resolve;
@@ -5568,12 +5618,12 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
     await flush();
 
-    capturedOnStage!('submitting');
+    await expect(capturedOnStage!('submitting')).rejects.toThrow(/submit gate/);
     await flush();
 
-    // Its own row — which is genuinely may-have-submitted — and not the
-    // successor's, which has broadcast nothing.
-    expect(posted).toEqual(['submitting|op-displaced']);
+    // The gate names the evicted op. It is not a stage event, and it is not the
+    // successor's id — that row has broadcast nothing.
+    expect(posted).toEqual(['gate:op-displaced']);
 
     releaseFirst();
     finishSuccessor({ serialize: () => new Uint8Array([2]) });
@@ -5621,10 +5671,15 @@ describe('offscreen/main - the network comes from the service worker (#1482)', (
     await flush();
     return reply.mock.calls[0]?.[0];
   };
-  const reload = async (endpoints?: unknown) => {
+  const reload = async (endpoints?: unknown, recoveryUsesCedarStore?: boolean) => {
     const ack = jest.fn();
     const ret = capturedListener!(
-      { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', ...(endpoints ? { endpoints } : {}) },
+      {
+        target: 'offscreen',
+        type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+        ...(endpoints ? { endpoints } : {}),
+        ...(recoveryUsesCedarStore === undefined ? {} : { recoveryUsesCedarStore })
+      },
       {},
       ack
     );
@@ -5640,6 +5695,18 @@ describe('offscreen/main - the network comes from the service worker (#1482)', (
     expect(G.__off.createEndpoints).toEqual([MAINNET_BUILD]);
     expect(realm().getEffectiveNetworkName()).toBe('mainnet');
     expect(G.__off.storageCalls).toBe(0);
+  });
+
+  it('adopts the verified recovery store before its next same-endpoint client build', async () => {
+    await loadModule();
+    G.__off.useSdkRecoveryStore = jest.fn();
+    expect((await call(mainnet())).ok).toBe(true);
+    expect(G.__off.createOptions).toHaveLength(1);
+
+    expect(await reload(mainnet(), false)).toEqual({ ok: true });
+    expect(G.__off.useSdkRecoveryStore).toHaveBeenCalledWith(MAINNET_BUILD.rpcUrl, false);
+    expect((await call(mainnet())).ok).toBe(true);
+    expect(G.__off.createOptions).toHaveLength(2);
   });
 
   it('refuses a call that carries no network state, and builds no client', async () => {

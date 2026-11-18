@@ -17,11 +17,16 @@ import {
 } from 'lib/telemetry/crash-diagnostics';
 
 import { ITransaction, ITransactionStatus, type ITransactionType } from './db/types';
-import { PersistedSpendingLimit } from './spending-limits/types';
+import type { PersistedSpendingLimit } from './spending-limits/types';
+import { observeWalletStorageError, WalletStorageUnavailableError } from './storage-health';
+import type { orderFromSavedRequest } from './transaction/pinned-replay-check';
+import type { RowJudgement } from './transaction/reconcile-judge';
+import { evidenceKey } from './transaction/verdict-rules';
 
 export enum Table {
   Transactions = 'transactions',
-  SpendingLimits = 'spendingLimits'
+  SpendingLimits = 'spendingLimits',
+  Recovery = 'recovery'
 }
 
 /**
@@ -404,6 +409,8 @@ function defineSchema(target: Dexie): void {
         });
     });
 
+  target.version(3.3).stores({ [Table.Recovery]: 'id' });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -448,7 +455,7 @@ function defineSchema(target: Dexie): void {
 // concerns collide. It applies to every `modify` on this database, including the schema upgrades
 // above, which walk the whole table.
 function buildTridentDb(name: string): Dexie {
-  const target = new Dexie(name, { modifyChunkSize: 25 });
+  const target = new Dexie(name, { modifyChunkSize: 25, chromeTransactionDurability: 'strict' });
   defineSchema(target);
   installWalletStorageDiagnostics(target);
   return target;
@@ -468,10 +475,12 @@ function observeWalletStorage<T>(
   try {
     // Keep the invoked promise's chain and Dexie's active transaction zone.
     return invoke().then(undefined, (error: unknown) => {
+      observeWalletStorageError(error);
       annotateCrash(error, { storageOwner: owner, storageOperation: operation });
       throw error;
     });
   } catch (error) {
+    observeWalletStorageError(error);
     annotateCrash(error, { storageOwner: owner, storageOperation: operation });
     throw error;
   }
@@ -498,8 +507,15 @@ function installWalletStorageDiagnostics(target: Dexie): void {
         const store = stores.length === 1 ? stores[0] : undefined;
         const owner = store === undefined ? 'wallet_database' : (walletTableOwner(store) ?? 'wallet_database');
         try {
-          return down.transaction(...args);
+          const tx = down.transaction(...args);
+          if (typeof (tx as IDBTransaction).addEventListener === 'function') {
+            (tx as IDBTransaction).addEventListener('abort', () =>
+              observeWalletStorageError((tx as IDBTransaction).error)
+            );
+          }
+          return tx;
         } catch (error) {
+          observeWalletStorageError(error);
           annotateCrash(error, { storageOwner: owner, storageOperation: 'transaction' });
           throw error;
         }
@@ -527,6 +543,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
               (response: DBCoreMutateResponse) => {
                 // DBCore resolves partial failures; Dexie builds the public aggregate later.
                 for (const failure of Object.values(response.failures)) {
+                  observeWalletStorageError(failure);
                   annotateCrash(failure, { storageOwner: owner, storageOperation: 'mutate' });
                 }
                 return response;
@@ -541,6 +558,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
 
   const open = target.open;
   const rejectOpen = (error: unknown): never => {
+    observeWalletStorageError(error);
     // A failed upgrade can already identify a table through Dexie's error links.
     const existing: StorageCrashDiagnostics = snapshotCrashDiagnostics(error);
     if (existing.storageOwner === undefined || existing.storageOperation === undefined) {
@@ -559,6 +577,20 @@ function installWalletStorageDiagnostics(target: Dexie): void {
 }
 
 export const db = buildTridentDb('TridentMain');
+
+const recovery = db.table<{ id: string; generation: string }, string>(Table.Recovery);
+
+export async function readWalletStoreGeneration(): Promise<string | undefined> {
+  return (await recovery.get('wallet'))?.generation;
+}
+
+export async function writeWalletStoreGeneration(generation: string): Promise<void> {
+  await db.transaction('rw', recovery, async () => {
+    const active = await readWalletStoreGeneration();
+    if (active && active !== generation) throw new Error('Wallet storage generation changed');
+    if (!active) await recovery.add({ id: 'wallet', generation });
+  });
+}
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
@@ -898,6 +930,217 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
   };
 };
 
+export function serializeRecoveryTransfer(row: ITransaction): string {
+  const { dappOrigins: _origins, resultBytes: _result, ...rest } = row;
+  return JSON.stringify(mapValues(rest, toSerializable));
+}
+
+export function deserializeRecoveryTransfers(
+  transfers: Readonly<Record<string, string>>,
+  canRestore: (accountId: string) => boolean
+): ITransaction[] {
+  return Object.entries(transfers).map(([id, value]) => {
+    const row = mapValues(JSON.parse(value), fromSerializable) as unknown as ITransaction;
+    if (row.id !== id || typeof row.accountId !== 'string' || !canRestore(row.accountId)) {
+      throw new Error('Invalid retained transfer');
+    }
+    return row;
+  });
+}
+
+type RecoveryStoreGeneration = { observed: string | undefined; verified: string; spendingSince: number };
+export type RecoveryLanding = NonNullable<RowJudgement['landed']> & {
+  savedOrder?: Awaited<ReturnType<typeof orderFromSavedRequest>>;
+};
+
+const hasDifferentRecoveryIdentity = (current: ITransaction, retained: ITransaction): boolean =>
+  current.accountId !== retained.accountId ||
+  current.type !== retained.type ||
+  current.initiatedAt !== retained.initiatedAt ||
+  current.amount !== retained.amount ||
+  current.spentUsd !== retained.spentUsd;
+
+function conflictsWithRecovery(
+  current: ITransaction,
+  retained: ITransaction | undefined,
+  spendingSince: number
+): boolean {
+  const pending =
+    current.mayHaveSubmitted === true &&
+    current.status !== ITransactionStatus.Completed &&
+    current.neverCommittedAt === undefined;
+  if (!retained) {
+    return (
+      pending ||
+      current.status === ITransactionStatus.Queued ||
+      current.status === ITransactionStatus.GeneratingTransaction ||
+      current.status === ITransactionStatus.Unconfirmed ||
+      (current.spentUsd !== undefined &&
+        current.initiatedAt >= spendingSince &&
+        (current.restoredFromBackup !== true || current.retainedRecoverySpend === true))
+    );
+  }
+  return (
+    hasDifferentRecoveryIdentity(current, retained) ||
+    (pending &&
+      (retained.mayHaveSubmitted !== true ||
+        evidenceKey(current.submitEvidence) !== evidenceKey(retained.submitEvidence)))
+  );
+}
+
+async function recoveryLimitValidator(limits: readonly PersistedSpendingLimit[], canRestore: (id: string) => boolean) {
+  const { parsePersistedSpendingLimit } = await import('./spending-limits/types');
+  for (const limit of limits) {
+    if (!canRestore(limit.accountId)) throw new WalletStorageUnavailableError();
+    parsePersistedSpendingLimit(limit);
+  }
+  return parsePersistedSpendingLimit;
+}
+
+async function readRecoveryStoreLimits(
+  transfers: readonly ITransaction[],
+  canRestore: (id: string) => boolean,
+  assertCurrent: () => void,
+  generation: RecoveryStoreGeneration,
+  validateLimit: (limit: PersistedSpendingLimit) => unknown
+): Promise<Map<string, PersistedSpendingLimit>> {
+  assertCurrent();
+  if ((await readWalletStoreGeneration()) !== generation.observed) throw new WalletStorageUnavailableError();
+  const replacingGeneration = generation.observed !== generation.verified;
+  if (replacingGeneration) {
+    const retained = new Map(transfers.map(row => [row.id, row]));
+    const conflict = await transactions
+      .filter(
+        row =>
+          (retained.has(row.id) || canRestore(row.accountId)) &&
+          conflictsWithRecovery(row, retained.get(row.id), generation.spendingSince)
+      )
+      .first();
+    if (conflict) throw new WalletStorageUnavailableError();
+  }
+  const limits = (await spendingLimits.toArray()).filter(limit => canRestore(limit.accountId));
+  if (replacingGeneration) limits.forEach(validateLimit);
+  assertCurrent();
+  return new Map(limits.map(limit => [limit.accountId, limit]));
+}
+
+export async function checkRecoveryStoreCompatibility(
+  transfers: readonly ITransaction[],
+  limits: readonly PersistedSpendingLimit[],
+  canRestore: (id: string) => boolean,
+  assertCurrent: () => void,
+  generation: RecoveryStoreGeneration
+): Promise<void> {
+  const validateLimit = await recoveryLimitValidator(limits, canRestore);
+  await db.transaction('r', transactions, spendingLimits, recovery, () =>
+    readRecoveryStoreLimits(transfers, canRestore, assertCurrent, generation, validateLimit)
+  );
+}
+
+export async function restoreRecoveryTransfers(
+  transfers: readonly ITransaction[],
+  limits: readonly PersistedSpendingLimit[],
+  canRestore: (accountId: string) => boolean,
+  assertCurrent: () => void,
+  generation: RecoveryStoreGeneration & { verifiedTransfers?: ReadonlyMap<string, RecoveryLanding | undefined> }
+): Promise<{ limits: PersistedSpendingLimit[]; transfers: ITransaction[] }> {
+  const rows = transfers.map(row => {
+    const trusted = row.restoredFromBackup !== true || row.retainedRecoverySpend === true;
+    return { ...neutralizeUnfinishedTransaction(row), retainedRecoverySpend: trusted && row.spentUsd !== undefined };
+  });
+  const validateLimit = await recoveryLimitValidator(limits, canRestore);
+  const [
+    { applyVerifiedLanding, countNoteDeliveryWrite, verifiedLandingRowFields },
+    { sameRequestBytes },
+    { recordLandedDeliveryTarget }
+  ] = await Promise.all([
+    import('./transaction/helper'),
+    import('./transaction/pinned-replay-check'),
+    import('./transaction/reconcile-unconfirmed')
+  ]);
+  const retainedTransfers = [...transfers];
+  let deliveryChanged = false;
+  const acceptedLimits = await db.transaction('rw', transactions, spendingLimits, recovery, async () => {
+    const limitsByAccount = await readRecoveryStoreLimits(
+      transfers,
+      canRestore,
+      assertCurrent,
+      generation,
+      validateLimit
+    );
+    const replacingGeneration = generation.observed !== generation.verified;
+
+    for (const [index, row] of rows.entries()) {
+      assertCurrent();
+      const current = await transactions.get(row.id);
+      if (current && current.accountId !== row.accountId) throw new WalletStorageUnavailableError();
+      if (generation.verifiedTransfers?.has(row.id)) {
+        const evidence = row.submitEvidence ?? [];
+        const observed = current?.submitEvidence ?? [];
+        if (
+          current &&
+          (hasDifferentRecoveryIdentity(current, row) ||
+            current.attemptId !== row.attemptId ||
+            observed.some(entry => !evidence.some(saved => evidenceKey([saved]) === evidenceKey([entry]))))
+        ) {
+          throw new WalletStorageUnavailableError();
+        }
+        const landing = generation.verifiedTransfers.get(row.id);
+        if (current?.status === ITransactionStatus.Completed) {
+          if (
+            !landing ||
+            (landing.boundTransactionId !== undefined &&
+              current.transactionId !== undefined &&
+              current.transactionId !== landing.boundTransactionId)
+          ) {
+            throw new WalletStorageUnavailableError();
+          }
+          retainedTransfers[index] = current;
+          continue;
+        }
+        const target = current ?? row;
+        target.completedAt = row.completedAt;
+        target.mayHaveSubmitted = row.mayHaveSubmitted;
+        target.neverCommittedAt = row.neverCommittedAt;
+        target.submitEvidence = evidence.map(
+          entry => observed.find(live => live.attemptId === entry.attemptId) ?? entry
+        );
+        if (landing) {
+          applyVerifiedLanding(
+            target,
+            { ...verifiedLandingRowFields(target), transactionId: landing.boundTransactionId ?? target.transactionId },
+            sameRequestBytes(target.requestBytes, row.requestBytes) ? landing.savedOrder : undefined
+          );
+          recordLandedDeliveryTarget(target, landing);
+          deliveryChanged ||= target.noteDelivery !== undefined;
+        } else {
+          target.status = row.status;
+        }
+        assertCurrent();
+        await transactions.put(target);
+        retainedTransfers[index] = target;
+      } else if (!current || (replacingGeneration && current.status !== ITransactionStatus.Completed)) {
+        assertCurrent();
+        await transactions.put(row);
+      }
+    }
+    for (const limit of limits) {
+      assertCurrent();
+      const current = limitsByAccount.get(limit.accountId);
+      if (!current || (replacingGeneration && BigInt(limit.limit) < BigInt(current.limit))) {
+        await spendingLimits.put(limit);
+        limitsByAccount.set(limit.accountId, limit);
+      }
+    }
+    assertCurrent();
+    if (replacingGeneration) await recovery.put({ id: 'wallet', generation: generation.verified });
+    assertCurrent();
+    return [...limitsByAccount.values()];
+  });
+  if (deliveryChanged) countNoteDeliveryWrite();
+  return { limits: acceptedLimits, transfers: retainedTransfers };
+}
+
 export async function exportDb(): Promise<string> {
   const dump: { [tableName: string]: unknown[] } = {};
   await db.transaction('r', transactions, async () => {
@@ -909,6 +1152,7 @@ export async function exportDb(): Promise<string> {
         dappOrigins: _dappOrigins,
         recoveredBadgeNetwork: _recoveredBadgeNetwork,
         badgeEvidenceRevision: _badgeEvidenceRevision,
+        retainedRecoverySpend: _retainedRecoverySpend,
         ...rest
       }) => ({
         ...mapValues(rest, toSerializable),
@@ -959,6 +1203,7 @@ export async function importDb(dump: string): Promise<void> {
         dappOrigins: _dappOrigins,
         recoveredBadgeNetwork: _recoveredBadgeNetwork,
         badgeEvidenceRevision: _badgeEvidenceRevision,
+        retainedRecoverySpend: _retainedRecoverySpend,
         extraInputs,
         ...rest
       } = mapValues(tx, fromSerializable);

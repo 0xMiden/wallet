@@ -1992,5 +1992,13 @@
   "bridgeWithdrawalEffect": "Это отключает принудительный вывод средств для данного блокировки. Уже восстановленные средства остаются в вашем кошельке. Новый запрос на восстановление запускает новый период ожидания. Для этой транзакции требуется сетевая комиссия.",
   "bridgeWithdrawalWalletPrompt": "Откройте свой подключённый кошелек EVM и утвердите транзакцию в сети $network$. Дождитесь подтверждения здесь.",
   "bridgeWithdrawalUseCircle": "Вместо этого используйте Circle",
-  "bridgeWithdrawalUseSlow": "Вместо этого используйте термин «Slow bridge»"
+  "bridgeWithdrawalUseSlow": "Вместо этого используйте термин «Slow bridge»",
+  "storageRecoveryTitle": "Хранение в кошельке недоступно",
+  "storageRecoveryDescription": "Bread не смог прочитать данные вашего кошелька на этом устройстве. Отображение балансов и операции с кошельком приостановлены до подтверждения восстановления.",
+  "storageRecoveryRebuild": "Восстановление на основе данных восстановления",
+  "storageRecoveryWorking": "Проверка сохраненных данных кошелька…",
+  "storageRecoveryVerified": "Восстановление данных кошелька",
+  "storageRecoveryFailed": "Не удалось проверить хранилище кошелька. При необходимости освободите место на диске, затем повторите попытку. Действия с кошельком по-прежнему приостановлены.",
+  "storageRecoveryUnlockOptions": "Вернуться к параметрам разблокировки",
+  "storageRecoveryProgress": "Проверено $verifiedAccounts$ из $expectedAccounts$ счетов и $verifiedNotes$ из $expectedNotes$ notes."
 }

@@ -176,6 +176,8 @@ jobs:
       # jobs just need the package.json mutation, not the comment.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+        with:
+          build-node-module: 'true'
       - name: Inject linked guardian PR
         uses: ./.github/actions/inject-linked-guardian-pr
 
@@ -470,6 +472,8 @@ jobs:
 
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+        with:
+          build-node-module: 'true'
       - name: Inject linked guardian PR
         uses: ./.github/actions/inject-linked-guardian-pr
 

@@ -54,7 +54,7 @@ import {
 } from 'lib/miden/sdk/wasm-client-poison';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
-import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveRpcUrl, getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 import {
   annotateOffscreenDeadline,
@@ -109,6 +109,8 @@ import {
   GuardianHistoryFeeUnavailableError
 } from '../guardian/history-errors';
 import { guardianSummarySchema } from '../sdk/guardian-history';
+import type { SdkRecoveryStore } from '../sdk/store-name';
+import { WalletStorageUnavailableError } from '../storage-health';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 
 /**
@@ -911,26 +913,30 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
  * its first call, so this never creates one (contrast `dispatchOp`, which always
  * `ensureOffscreenDocument()`s first).
  *
- * Resolves true only on an explicit ack. A rejected `sendMessage` — the document
- * was reaped between the check and the send — resolves false rather than throwing:
- * that realm is gone and its replacement gets the state with its first call, so
- * there is nothing for the caller to recover from.
+ * An ordinary endpoint reload reports whether it got an ack. Recovery requires the
+ * existing realm to acknowledge the selected store, or to have gone away.
  */
-export async function reloadOffscreenEndpointOverrides(): Promise<boolean> {
+export async function reloadOffscreenEndpointOverrides(recoveryStore?: SdkRecoveryStore): Promise<boolean> {
   if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) return false;
   if (!(await hasOffscreenDocument())) return false;
   await whenEndpointOverridesLoaded();
+  if (recoveryStore && recoveryStore.rpcUrl !== getEffectiveRpcUrl()) throw new WalletStorageUnavailableError();
   const envelope: OffscreenReloadEndpointsRequest = {
     target: OFFSCREEN_TARGET,
     type: OFFSCREEN_RELOAD_ENDPOINTS,
-    endpoints: getEndpointState()
+    endpoints: getEndpointState(),
+    ...(recoveryStore ? { recoveryUsesCedarStore: recoveryStore.usesCedarStore } : {})
   };
   try {
     const resp = (await chrome.runtime.sendMessage(envelope)) as OffscreenReloadEndpointsResponse | undefined;
-    return resp?.ok === true;
+    if (resp?.ok === true) return true;
   } catch {
-    return false;
+    // Chrome can reap the document between the existence check and the message.
   }
+  if (recoveryStore && (await hasOffscreenDocument())) {
+    throw new Error('Offscreen SDK did not adopt the wallet recovery store');
+  }
+  return false;
 }
 
 /**
@@ -1024,10 +1030,22 @@ type OffscreenSwapDto = {
  *
  * `onStage` (optional) is the write's per-step stage stamp (PR #524). Every write
  * that can cross its submit supplies one (#1081): the send, consume, swap and
- * execute leaves and the guardian leaf. Its 'submitting' stamp carries the
- * attempt's submit evidence, which `handleOffscreenStageEvent` forwards with
- * `reliable: false`. A write called without one registers nothing.
+ * execute leaves and the guardian leaf. Steps other than submitting still arrive
+ * as `OFFSCREEN_STAGE_EVENT`s, which `handleOffscreenStageEvent` forwards with
+ * `reliable: false`. Submitting is the op's {@link SubmitGate}: the service worker
+ * journals that attempt before it answers, and the offscreen leaf submits only
+ * once the gate does. A write called without either callback registers nothing.
  */
+function stageForInlineLeaf(onStage?: StageCallback, submitGate?: SubmitGate): StageCallback | undefined {
+  if (onStage) return onStage;
+  if (!submitGate) return undefined;
+  // The same recovery gate the offscreen leaf awaits, so an inline submitting hook journals before markSubmitting.
+  return async (stage, detail) => {
+    if (stage !== 'submitting') return;
+    if (!(await submitGate(detail?.evidence))) throw new Error('submit gate refused');
+  };
+}
+
 async function dispatchOffscreenWrite(
   method: string,
   args: unknown[],
@@ -1045,7 +1063,14 @@ async function dispatchOffscreenWrite(
   // arrive after this dispatch, from inside the offscreen execute.
   opSignCallbacks.set(op_id, signCallback);
   if (onStage) opStageCallbacks.set(op_id, onStage);
-  if (submitGate) opSubmitGates.set(op_id, submitGate);
+  if (submitGate) {
+    opSubmitGates.set(op_id, submitGate);
+  } else if (method !== 'guardianPipeline' && onStage) {
+    opSubmitGates.set(op_id, async evidence => {
+      await onStage('submitting', { evidence });
+      return true;
+    });
+  }
   incrementCriticalOp();
   try {
     const resultB64 = await dispatchOp(op_id, method, args, WRITE_DEADLINE_MS, /* critical */ true);
@@ -1821,11 +1846,14 @@ export const midenClientProxy = {
   async consumeNoteId(
     transaction: ConsumeTransaction,
     signCallback: RawSignCallback,
-    onStage?: StageCallback
+    onStage?: StageCallback,
+    submitGate?: SubmitGate
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async hold =>
-        withHoldSigner(hold, signCallback, async () => (await getMidenClient()).consumeNoteId(transaction, onStage))
+        withHoldSigner(hold, signCallback, async () =>
+          (await getMidenClient()).consumeNoteId(transaction, stageForInlineLeaf(onStage, submitGate))
+        )
       );
     }
     const dto: OffscreenConsumeDto = {
@@ -1834,7 +1862,7 @@ export const midenClientProxy = {
       noteIds: transaction.noteIds,
       delegateTransaction: transaction.delegateTransaction
     };
-    return dispatchOffscreenWrite('consumeNoteId', [dto], signCallback, onStage);
+    return dispatchOffscreenWrite('consumeNoteId', [dto], signCallback, onStage, submitGate);
   },
 
   /**
@@ -1952,12 +1980,18 @@ export const midenClientProxy = {
     requestBytes: Uint8Array,
     delegateTransaction: boolean | undefined,
     signCallback: RawSignCallback,
-    onStage?: StageCallback
+    onStage?: StageCallback,
+    submitGate?: SubmitGate
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async hold =>
         withHoldSigner(hold, signCallback, async () =>
-          (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage)
+          (await getMidenClient()).newTransaction(
+            accountId,
+            requestBytes,
+            delegateTransaction,
+            stageForInlineLeaf(onStage, submitGate)
+          )
         )
       );
     }
@@ -1965,7 +1999,8 @@ export const midenClientProxy = {
       'newTransaction',
       [accountId, requestBytes, delegateTransaction],
       signCallback,
-      onStage
+      onStage,
+      submitGate
     );
   }
 };

@@ -394,7 +394,9 @@ describe('MidenClientInterface', () => {
      * An exact key set forbids it — and anything else new — without naming it.
      */
     const CREATE_OPTION_KEYS = [
+      'beforeNoteAcquisition',
       'feeFaucetId',
+      'indexedDb',
       'keystore',
       'noteTransportMaxRetries',
       'noteTransportUrl',
@@ -3930,20 +3932,25 @@ describe('MidenClientInterface', () => {
       }));
 
       const { MidenClientInterface } = await import('./miden-client-interface');
+      const { WasmClientPoisonedError } = await import('./wasm-client-poison');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recip',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(100),
-        extraInputs: {}
-      } as any);
+      await expect(
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+      ).rejects.toBeInstanceOf(WasmClientPoisonedError);
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
+      expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
+      expect(inner.applyTransaction).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -4496,7 +4503,7 @@ describe('MidenClientInterface', () => {
       markConnectivityIssue: jest.fn(),
       clearConnectivityIssue: jest.fn()
     }));
-    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { MidenClientInterface, useSdkRecoveryStore } = await import('./miden-client-interface');
     const { bumpWasmClientGeneration } = await import('./wasm-client-poison');
     const makeClient = (
       getSyncHeight: jest.Mock = jest.fn(async () => 10),
@@ -4506,7 +4513,7 @@ describe('MidenClientInterface', () => {
         buildFakeMidenClient({ getSyncHeight, ...overrides }),
         'testnet'
       ]);
-    return { makeClient, bumpWasmClientGeneration, clock, log: logSpy, warn };
+    return { makeClient, bumpWasmClientGeneration, useSdkRecoveryStore, clock, log: logSpy, warn };
   }
   const emptyReader = () => ({ getConsumableNotes: jest.fn(async () => []) });
   // Miden 0.17 P2IDE storage: [reclaimer.suffix, reclaimer.prefix, target.suffix, target.prefix, reclaim, timelock].
@@ -4600,6 +4607,26 @@ describe('MidenClientInterface', () => {
       undefined,
       '0xfee'
     );
+  });
+
+  it('rebuilds the reader on the recovery store without terminating the old reader', async () => {
+    let storeName: string | undefined = 'MidenClientDB_mcst';
+    const pinSdkRecoveryStore = jest.fn(() => {
+      storeName = undefined;
+    });
+    readerDoMock('./store-name', () => ({ sdkStoreNameFor: async () => storeName, pinSdkRecoveryStore }));
+    const original = { ...emptyReader(), terminate: jest.fn() };
+    const createClient = jest.fn(async (..._args: unknown[]) => emptyReader()).mockResolvedValueOnce(original);
+    const { makeClient, useSdkRecoveryStore } = await importWithReader(createClient);
+    await makeClient().getConsumableNotes('mtst1account');
+
+    useSdkRecoveryStore('https://rpc.example', false);
+    await makeClient().getConsumableNotes('mtst1account');
+
+    expect(pinSdkRecoveryStore).toHaveBeenCalledWith('https://rpc.example', false);
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(createClient.mock.calls.map(args => args[3])).toEqual(['MidenClientDB_mcst', undefined]);
+    expect(original.terminate).not.toHaveBeenCalled();
   });
 
   // The SDK's static P2IDE check reads an absent reclaim height as 0 and answers the reclaimer (usually the sender)

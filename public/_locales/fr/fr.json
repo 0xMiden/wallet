@@ -1992,5 +1992,13 @@
   "bridgeWithdrawalEffect": "Cela désactive le retrait forcé pour ce verrou. Les fonds déjà récupérés restent dans votre portefeuille. Une nouvelle demande de récupération déclenche une nouvelle période d’attente. Cette transaction nécessite des frais de réseau.",
   "bridgeWithdrawalWalletPrompt": "Ouvrez votre portefeuille EVM connecté et validez la transaction sur $network$. Attendez ici la confirmation.",
   "bridgeWithdrawalUseCircle": "Utilisez plutôt Circle",
-  "bridgeWithdrawalUseSlow": "Utilisez plutôt « Slow bridge »"
+  "bridgeWithdrawalUseSlow": "Utilisez plutôt « Slow bridge »",
+  "storageRecoveryTitle": "Stockage dans le portefeuille indisponible",
+  "storageRecoveryDescription": "Bread n’a pas pu lire les données de votre portefeuille sur cet appareil. Les soldes et les opérations sur le portefeuille sont suspendus jusqu’à ce que la récupération soit vérifiée.",
+  "storageRecoveryRebuild": "Reconstitution à partir des données de récupération",
+  "storageRecoveryWorking": "Vérification des données de portefeuille conservées…",
+  "storageRecoveryVerified": "Récupération du contenu du portefeuille",
+  "storageRecoveryFailed": "Impossible de vérifier le stockage du portefeuille. Libérez de l’espace disque si nécessaire, puis réessayez. Les actions du portefeuille restent suspendues.",
+  "storageRecoveryUnlockOptions": "Retour aux options de déverrouillage",
+  "storageRecoveryProgress": "$verifiedAccounts$ comptes sur $expectedAccounts$ et $verifiedNotes$ notes sur $expectedNotes$ ont été vérifiés."
 }

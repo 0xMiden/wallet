@@ -25,6 +25,10 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     case WalletMessageType.PlatformUnlockRequest:
     case WalletMessageType.PlatformResetRequest:
       throw new Error('Platform authentication unavailable');
+    case WalletMessageType.RebuildWalletStorageRequest: {
+      const { rebuildWalletStorage } = await import('lib/miden/back/storage-recovery');
+      return { type: WalletMessageType.RebuildWalletStorageResponse, result: await rebuildWalletStorage() };
+    }
     case WalletMessageType.GetStateRequest: {
       const state = await Actions.getFrontState();
       return {

@@ -5,6 +5,7 @@
 // activity module's full init chain.
 import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
+import { getWalletStorageFailure } from 'lib/miden/storage-health';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
@@ -90,6 +91,8 @@ let processingRequested = false;
  * every caller — including the dApp private-data readers.
  */
 export async function swSignCallback(publicKey: string, signingInputs: string): Promise<Uint8Array> {
+  const { assertWalletStorageAvailable } = await import('../storage-health');
+  await assertWalletStorageAvailable();
   return withUnlocked(async ({ vault }) => {
     const signatureHex = await vault.signTransaction(publicKey, signingInputs);
     return new Uint8Array(Buffer.from(signatureHex, 'hex'));
@@ -118,9 +121,9 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     });
   },
   signWord: async (publicKey: string, wordHex: string, transactionId?: string) => {
-    return withUnlocked(async ({ vault }) => {
-      return await vault.signWord(publicKey, wordHex, transactionId);
-    });
+    const { assertWalletStorageAvailable } = await import('../storage-health');
+    await assertWalletStorageAvailable();
+    return withUnlocked(({ vault }) => vault.signWord(publicKey, wordHex, transactionId));
   },
   persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {
     return withUnlocked(async ({ vault }) => {
@@ -198,6 +201,7 @@ export async function startTransactionProcessing(): Promise<void> {
 
   let browser: BrowserPolyfill | null = null;
   try {
+    if (await getWalletStorageFailure()) return;
     // In the Vite SW build, the activity module's re-export of lib/miden/transaction
     // doesn't await the async transaction module init (Rolldown treats
     // `export * from '../transaction'` as synchronous). Wait up to 60s for the

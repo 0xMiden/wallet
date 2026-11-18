@@ -9,6 +9,11 @@ import { spendingLimits, transactions } from 'lib/miden/repo';
 import { clearStorage, PENDING_ADMISSION_STORAGE_KEY, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
+import {
+  clearVerifiedStorageFailure,
+  getWalletStorageFailure,
+  markWalletStorageUnavailable
+} from 'lib/miden/storage-health';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -115,6 +120,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 });
 
 const mockVault = {
+  storageJournal: { read: jest.fn(), retain: jest.fn().mockResolvedValue(undefined) },
   fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
   provideRecoverySeed: jest.fn(),
   fetchAccounts: jest.fn(),
@@ -328,7 +334,11 @@ describe('actions', () => {
     mockAccountsUpdated.mockClear();
     mockSettingsUpdated.mockClear();
     mockCurrentAccountUpdated.mockClear();
-    Object.values(mockVault).forEach((mock: jest.Mock) => mock.mockClear());
+    Object.values(mockVault).forEach(mock => {
+      if (typeof mock === 'function') mock.mockClear();
+    });
+    mockVault.storageJournal.read.mockClear();
+    mockVault.storageJournal.retain.mockClear();
     mockRealmGetKey = null;
     mockExportAccountFile.mockReset().mockImplementation(async (_account, assertLive) => {
       assertLive('after account export');
@@ -494,6 +504,24 @@ describe('actions', () => {
         expect(result).toHaveProperty('backendInitialized', true);
       }
     );
+
+    it('exposes the active failure ID even when the disk refuses the marker', async () => {
+      mockStoreState.inited = true;
+      mockStoreState.status = WalletStatus.Ready;
+      mockStorageSet.mockRejectedValueOnce(new DOMException('No space left', 'QuotaExceededError'));
+
+      await markWalletStorageUnavailable();
+      const failure = await getWalletStorageFailure();
+      try {
+        expect(failure).toEqual(expect.any(String));
+        await expect(getFrontState()).resolves.toMatchObject({
+          storageFailure: failure,
+          storageUnavailable: true
+        });
+      } finally {
+        if (failure) await clearVerifiedStorageFailure(failure);
+      }
+    });
 
     it('returns pending Idle when inited is false', async () => {
       mockStoreState.inited = false;

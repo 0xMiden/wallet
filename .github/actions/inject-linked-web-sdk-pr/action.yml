@@ -708,7 +708,7 @@ runs:
           # (Progress and diagnostics still go to stderr, so the job log is
           # unchanged; only the JSON message stream is captured.)
           artifacts="${RUNNER_TEMP:-/tmp}/napi-build-artifacts.jsonl"
-          cargo build -p miden-client-web --no-default-features --features nodejs \
+          cargo build -p miden-client-web --no-default-features --features nodejs,testing \
             --release --message-format=json-render-diagnostics > "$artifacts"
 
           lib="$(python3 - "$artifacts" <<'PYEOF'

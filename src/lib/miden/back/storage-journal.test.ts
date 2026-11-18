@@ -1,0 +1,109 @@
+import { webcrypto } from 'node:crypto';
+
+import { StorageJournal } from './storage-journal';
+import { importVaultKey } from '../passworder';
+import { markWalletStorageUnavailable, WalletStorageUnavailableError } from '../storage-health';
+
+const mockValues: Record<string, unknown> = {};
+const mockSet = jest.fn(async (entries: Record<string, unknown>) => Object.assign(mockValues, entries));
+let mockNetwork = 'mainnet';
+
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => ({
+    get: async (keys: string[]) =>
+      Object.fromEntries(keys.filter(key => key in mockValues).map(key => [key, mockValues[key]])),
+    set: (entries: Record<string, unknown>) => mockSet(entries)
+  })
+}));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetwork }));
+jest.mock('../storage-health', () => ({
+  ...jest.requireActual('../storage-health'),
+  markWalletStorageUnavailable: jest.fn(async () => {})
+}));
+
+const noop = () => {};
+let journal: StorageJournal;
+let cryptoDescriptor: PropertyDescriptor | undefined;
+
+beforeAll(() => {
+  cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto });
+});
+
+afterAll(() => {
+  if (cryptoDescriptor) Object.defineProperty(globalThis, 'crypto', cryptoDescriptor);
+});
+
+beforeEach(async () => {
+  for (const key of Object.keys(mockValues)) delete mockValues[key];
+  mockNetwork = 'mainnet';
+  jest.clearAllMocks();
+  journal = new StorageJournal(await importVaultKey(new Uint8Array(32)));
+});
+
+it('retains account and note recovery data encrypted outside IndexedDB', async () => {
+  await journal.retain(data => ({ ...data, notes: ['private-note-material'] }), noop);
+  await journal.retain(data => ({ ...data, accounts: [{ id: 'wallet-id', state: 'account-state' }] }), noop);
+
+  expect(await journal.read()).toMatchObject({
+    accounts: [{ id: 'wallet-id', state: 'account-state' }],
+    notes: ['private-note-material']
+  });
+  expect(JSON.stringify(mockValues)).not.toMatch(/private-note-material|account-state|wallet-id/);
+});
+
+it('refuses a failed save and preserves the last verified generation', async () => {
+  await journal.retain(data => ({ ...data, notes: ['first'] }), noop);
+  mockSet.mockImplementationOnce(async entries => {
+    for (const key of Object.keys(entries)) mockValues[key] = { dt: 'truncated' };
+    throw new DOMException('No space left', 'QuotaExceededError');
+  });
+
+  await expect(journal.retain(data => ({ ...data, notes: ['second'] }), noop)).rejects.toThrow('No space left');
+
+  expect(await journal.read()).toMatchObject({ generation: 1, notes: ['first'] });
+  expect(markWalletStorageUnavailable).toHaveBeenCalledTimes(1);
+});
+
+it.each(['wallet lock', 'RPC change'])('keeps healthy storage on %s during head readback', async transition => {
+  await journal.retain(data => ({ ...data, notes: ['first'] }), noop);
+  const staleSession = new WalletStorageUnavailableError();
+  let unlocked = true;
+  mockSet.mockImplementationOnce(async entries => Object.assign(mockValues, entries));
+  mockSet.mockImplementationOnce(async entries => {
+    if (transition === 'wallet lock') unlocked = false;
+    else mockNetwork = 'testnet';
+    return Object.assign(mockValues, entries);
+  });
+
+  await expect(
+    journal.retain(
+      data => ({ ...data, notes: ['second'] }),
+      () => {
+        if (!unlocked || mockNetwork !== 'mainnet') throw staleSession;
+      }
+    )
+  ).rejects.toBe(staleSession);
+
+  mockNetwork = 'mainnet';
+  await expect(journal.read()).resolves.toMatchObject({ generation: 2, notes: ['second'] });
+  expect(markWalletStorageUnavailable).not.toHaveBeenCalled();
+});
+
+it('acknowledges 257 compact retained notes while the snapshot fits the byte budget', async () => {
+  const notes = Array.from({ length: 257 }, (_, index) => `note-${index}`);
+
+  await expect(journal.retain(data => ({ ...data, notes }), noop)).resolves.toBeUndefined();
+  expect(await journal.read()).toMatchObject({ generation: 1, notes });
+  expect(markWalletStorageUnavailable).not.toHaveBeenCalled();
+});
+
+it('does not acknowledge an oversized journal or evict the previous notes', async () => {
+  await journal.retain(data => ({ ...data, notes: ['first'] }), noop);
+  const notes = ['x'.repeat(2 * 1024 * 1024)];
+
+  await expect(journal.retain(data => ({ ...data, notes }), noop)).rejects.toThrow('Wallet storage unavailable');
+
+  expect(await journal.read()).toMatchObject({ generation: 1, notes: ['first'] });
+  expect(mockSet).toHaveBeenCalledTimes(3);
+});

@@ -378,6 +378,8 @@ export const useWalletStore = create<WalletStore>()(
         settings: state.settings,
         ownMnemonic: state.ownMnemonic,
         seedPhraseStatus: state.seedPhraseStatus,
+        storageUnavailable: state.storageUnavailable,
+        storageFailure: state.storageFailure,
         isInitialized: true,
         lastSyncedAt: Date.now()
       });
@@ -1038,6 +1040,16 @@ export const useWalletStore = create<WalletStore>()(
         // node's balances. The metadata it wrote stays, each faucet's own record on any network.
         if (effectiveNetwork() !== network) {
           recordUnlandedRead();
+          return;
+        }
+        if (
+          snapshot &&
+          snapshot.accountNonce === undefined &&
+          get().status === WalletStatus.Ready &&
+          get().accounts.some(account => account.publicKey.split('_')[0] === accountAddress.split('_')[0])
+        ) {
+          const { markWalletStorageUnavailable } = await import('lib/miden/storage-health');
+          await markWalletStorageUnavailable();
           return;
         }
         set(state => ({

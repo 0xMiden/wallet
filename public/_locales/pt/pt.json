@@ -1989,5 +1989,13 @@
   "bridgeWithdrawalEffect": "Isso desativa a retirada forçada para esse bloqueio. Os fundos já recuperados permanecem na sua carteira. Uma nova solicitação de recuperação inicia um novo período de espera. Essa transação exige uma taxa de rede.",
   "bridgeWithdrawalWalletPrompt": "Abra sua carteira EVM conectada e aprove a transação na $network$. Aguarde aqui pela confirmação.",
   "bridgeWithdrawalUseCircle": "Use “Circle” em vez disso",
-  "bridgeWithdrawalUseSlow": "Use “Slow bridge” em vez disso"
+  "bridgeWithdrawalUseSlow": "Use “Slow bridge” em vez disso",
+  "storageRecoveryTitle": "Armazenamento na carteira indisponível",
+  "storageRecoveryDescription": "O Bread não conseguiu ler os dados da sua carteira neste dispositivo. Os saldos e as ações da carteira estão suspensos até que a recuperação seja verificada.",
+  "storageRecoveryRebuild": "Reconstruir a partir de dados de recuperação",
+  "storageRecoveryWorking": "Verificando os dados retidos da carteira…",
+  "storageRecoveryVerified": "Armazenamento da carteira recuperado",
+  "storageRecoveryFailed": "Não foi possível verificar o armazenamento da carteira. Libere espaço em disco, se necessário, e tente novamente. As ações da carteira permanecem pausadas.",
+  "storageRecoveryUnlockOptions": "Voltar às opções de desbloqueio",
+  "storageRecoveryProgress": "Foram verificados $verifiedAccounts$ de $expectedAccounts$ contas e $verifiedNotes$ de $expectedNotes$ notas."
 }

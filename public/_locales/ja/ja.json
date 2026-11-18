@@ -1996,5 +1996,13 @@
   "bridgeWithdrawalEffect": "これにより、このロックの強制引き出しが無効になります。すでに復元された資金はウォレットに残ります。新しい復元リクエストを行うと、新たな待機期間が開始されます。この取引にはネットワーク手数料が必要です。",
   "bridgeWithdrawalWalletPrompt": "接続済みのEVMウォレットを開き、$network$上で取引を承認してください。ここで確認が完了するまでお待ちください。",
   "bridgeWithdrawalUseCircle": "代わりに「Circle」を使用してください",
-  "bridgeWithdrawalUseSlow": "代わりに「Slow bridge」を使用してください"
+  "bridgeWithdrawalUseSlow": "代わりに「Slow bridge」を使用してください",
+  "storageRecoveryTitle": "ウォレットの保管機能が利用不可",
+  "storageRecoveryDescription": "このデバイスでは、Breadがウォレットデータを読み取ることができませんでした。復旧が確認されるまで、残高およびウォレット操作は一時停止されます。",
+  "storageRecoveryRebuild": "復旧データからの再構築",
+  "storageRecoveryWorking": "保持されているウォレットデータの確認中…",
+  "storageRecoveryVerified": "ウォレットの保存データの復元",
+  "storageRecoveryFailed": "ウォレットのストレージを確認できませんでした。必要に応じてディスクの空き容量を確保してから、再度お試しください。ウォレットの操作は引き続き一時停止されています。",
+  "storageRecoveryUnlockOptions": "オプションのロック解除に戻る",
+  "storageRecoveryProgress": "$expectedAccounts$アカウントのうち$verifiedAccounts$が検証済みであり、$expectedNotes$の$verifiedNotes$が検証済みです。notes"
 }

@@ -9120,5 +9120,51 @@
   "bridgeWithdrawalUseSlow": {
     "message": "代わりに「Slow bridge」を使用してください",
     "englishSource": "Use Slow bridge instead"
+  },
+  "storageRecoveryTitle": {
+    "message": "ウォレットの保管機能が利用不可",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "このデバイスでは、Breadがウォレットデータを読み取ることができませんでした。復旧が確認されるまで、残高およびウォレット操作は一時停止されます。",
+    "englishSource": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified."
+  },
+  "storageRecoveryRebuild": {
+    "message": "復旧データからの再構築",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryWorking": {
+    "message": "保持されているウォレットデータの確認中…",
+    "englishSource": "Checking retained wallet data…"
+  },
+  "storageRecoveryVerified": {
+    "message": "ウォレットの保存データの復元",
+    "englishSource": "Wallet storage recovered"
+  },
+  "storageRecoveryFailed": {
+    "message": "ウォレットのストレージを確認できませんでした。必要に応じてディスクの空き容量を確保してから、再度お試しください。ウォレットの操作は引き続き一時停止されています。",
+    "englishSource": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused."
+  },
+  "storageRecoveryUnlockOptions": {
+    "message": "オプションのロック解除に戻る",
+    "englishSource": "Return to unlock options"
+  },
+  "storageRecoveryProgress": {
+    "message": "$expectedAccounts$アカウントのうち$verifiedAccounts$が検証済みであり、$expectedNotes$の$verifiedNotes$が検証済みです。notes",
+    "englishSource": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiednotes": {
+        "content": "$3"
+      },
+      "expectednotes": {
+        "content": "$4"
+      }
+    }
   }
 }

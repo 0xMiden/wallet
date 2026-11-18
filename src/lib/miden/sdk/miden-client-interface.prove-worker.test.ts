@@ -417,6 +417,37 @@ describe('send (site 5)', () => {
     expect(error).toBeInstanceOf(WasmClientPoisonedError);
   });
 
+  it('never submits a worker proof if the owner is evicted while awaiting durable submit acknowledgement', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
+    let acknowledge!: () => void;
+    const gate = new Promise<void>(resolve => {
+      acknowledge = resolve;
+    });
+    let arrived!: () => void;
+    const atGate = new Promise<void>(resolve => {
+      arrived = resolve;
+    });
+    let leaf: Promise<unknown> = Promise.resolve();
+    const sending = withWasmClientLock(async () => {
+      leaf = client.sendTransaction(sendTx(false), async stage => {
+        if (stage === 'submitting') {
+          arrived();
+          await gate;
+        }
+      });
+      return leaf;
+    }).catch((error: unknown) => error);
+
+    await atGate;
+    expect(harness.submitProven).not.toHaveBeenCalled();
+    window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+    expect(await sending).toBeInstanceOf(WasmClientPoisonedError);
+    acknowledge();
+    await expect(leaf).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+
   it('an eviction cancels the worker prove, and the abandoned send fails as poisoned without submitting', async () => {
     const harness = buildHarness();
     // A worker that answers only through the cancel, as the real client does on an eviction.

@@ -9122,5 +9122,51 @@
   "bridgeWithdrawalUseSlow": {
     "message": "Bunun yerine \"Slow bridge\" ifadesini kullanın",
     "englishSource": "Use Slow bridge instead"
+  },
+  "storageRecoveryTitle": {
+    "message": "Cüzdan depolama alanı kullanılamıyor",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Bread, bu cihazdaki cüzdan verilerinizi okuyamadı. Kurtarma işlemi doğrulanana kadar bakiyeler ve cüzdan işlemleri askıya alınmıştır.",
+    "englishSource": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified."
+  },
+  "storageRecoveryRebuild": {
+    "message": "Kurtarma verilerinden yeniden oluşturma",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryWorking": {
+    "message": "Cüzdan verileri kontrol ediliyor…",
+    "englishSource": "Checking retained wallet data…"
+  },
+  "storageRecoveryVerified": {
+    "message": "Cüzdan depolama alanı kurtarıldı",
+    "englishSource": "Wallet storage recovered"
+  },
+  "storageRecoveryFailed": {
+    "message": "Cüzdan depolama alanı doğrulanamadı. Gerekirse disk alanını boşaltın, ardından tekrar deneyin. Cüzdan işlemleri askıya alınmış durumda.",
+    "englishSource": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused."
+  },
+  "storageRecoveryUnlockOptions": {
+    "message": "Kilidi açma seçeneklerine geri dön",
+    "englishSource": "Return to unlock options"
+  },
+  "storageRecoveryProgress": {
+    "message": "$expectedAccounts$ hesaplarından $verifiedAccounts$'si ve $expectedNotes$ notes'tan $verifiedNotes$'si doğrulanmıştır.",
+    "englishSource": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiednotes": {
+        "content": "$3"
+      },
+      "expectednotes": {
+        "content": "$4"
+      }
+    }
   }
 }

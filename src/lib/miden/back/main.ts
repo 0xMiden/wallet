@@ -42,9 +42,15 @@ import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-m
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
+import { OFFSCREEN_RETAIN_RECOVERY_NOTES, OFFSCREEN_STORAGE_FAILURE } from 'lib/miden/sdk/storage-recovery-bridge';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { handleTestAuthorizationStorage } from 'lib/miden/sdk/test-authorization-storage';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  assertWalletStorageAvailable,
+  markWalletStorageUnavailable,
+  onWalletStorageChanged
+} from 'lib/miden/storage-health';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import {
@@ -100,6 +106,7 @@ export async function start() {
   intercom.onRequest(dispatchWhenHydrated);
   intercom.onNotFound(confirmationRequestNotFound);
   registerOffscreenSignHandler();
+  onWalletStorageChanged(() => intercom.broadcast({ type: WalletMessageType.StateUpdated }));
   try {
     await ensurePlatformUnlockStartup();
   } catch (error) {
@@ -298,6 +305,7 @@ function registerOffscreenSignHandler(): void {
           line?: string;
           id?: unknown;
           scope?: unknown;
+          notes?: unknown;
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
@@ -316,6 +324,28 @@ function registerOffscreenSignHandler(): void {
     // whose default is to allow is one that stops working the moment something
     // upstream changes shape.
     if (!isOffscreenDocumentSender(sender, chrome.runtime.id, chrome.runtime.getURL(OFFSCREEN_URL))) return false;
+    if (m.type === OFFSCREEN_STORAGE_FAILURE) {
+      void markWalletStorageUnavailable().then(() => sendResponse(true));
+      return true;
+    }
+    if (m.type === OFFSCREEN_RETAIN_RECOVERY_NOTES) {
+      const { notes, scope } = m;
+      if (
+        typeof scope !== 'string' ||
+        !Array.isArray(notes) ||
+        notes.length > 32 ||
+        notes.some(note => typeof note !== 'string' || note.length > 1024 * 1024)
+      )
+        return false;
+      void startupHydration
+        .then(() => import('./storage-recovery'))
+        .then(({ retainWalletNotes }) => retainWalletNotes(notes, scope))
+        .then(
+          () => sendResponse(true),
+          () => sendResponse(false)
+        );
+      return true;
+    }
     if (m.type === OFFSCREEN_TEST_AUTHORIZATION_STORAGE) {
       if (process.env.MIDEN_E2E_TEST !== 'true' || sender.url !== chrome.runtime.getURL(OFFSCREEN_URL)) return false;
       void handleTestAuthorizationStorage(msg).then(sendResponse, () => sendResponse({ ok: false }));
@@ -417,6 +447,7 @@ function registerOffscreenSignHandler(): void {
       const opId = m.op_id;
       const evidence = parseSubmitEvidence(m.evidence);
       startupHydration
+        .then(assertWalletStorageAvailable)
         .then(() =>
           handleOffscreenSubmitGate({
             target: SW_TARGET,
@@ -490,6 +521,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     req?.type === WalletMessageType.NewWalletFromHotKeyRequest ||
     req?.type === WalletMessageType.ImportFromClientRequest ||
     req?.type === WalletMessageType.PlatformUnlockRequest ||
+    req?.type === WalletMessageType.RebuildWalletStorageRequest ||
     req?.type === WalletMessageType.PlatformResetRequest
   ) {
     if (!isExtension()) throw new Error('Extension page required');
@@ -499,6 +531,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     }
   }
   switch (req?.type) {
+    case WalletMessageType.RebuildWalletStorageRequest: {
+      const { rebuildWalletStorage } = await import('./storage-recovery');
+      const result = await rebuildWalletStorage();
+      void doSync(true).catch(error => console.warn('[SyncManager] Post-recovery sync failed:', error));
+      return { type: WalletMessageType.RebuildWalletStorageResponse, result };
+    }
     case WalletMessageType.PlatformResetRequest: {
       const { performAuthorizedExtensionReset } = await import('lib/miden/platform-reset');
       await performAuthorizedExtensionReset(req.nonce);

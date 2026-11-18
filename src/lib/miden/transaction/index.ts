@@ -635,9 +635,16 @@ const stageStampFor =
     // read (#1081). Without an attempt (see the Guardian leaf) only the flag can be recorded.
     if (stage === 'submitting') {
       try {
+        const { assertWalletStorageAvailable } = await import('../storage-health');
+        await assertWalletStorageAvailable();
         await (attempt === undefined
           ? markMayHaveSubmitted(txId)
           : recordSubmitCrossing(txId, detail?.evidence, attempt));
+        if (detail?.reliable !== false) {
+          const { retainWalletTransfer } = await import('../back/storage-recovery');
+          await retainWalletTransfer(txId);
+          await assertWalletStorageAvailable();
+        }
       } catch (err) {
         // A reliable stamp is written in this realm before its submit call, so failing it keeps the write off the
         // network. A replayed one arrives after the fact and can only under-report, which the attempt's catch backs up.
@@ -678,6 +685,38 @@ const offscreenSubmitGate = (stamp: (stage: ITransactionStage, detail?: StageDet
       settled = true;
     }
   };
+};
+
+const recoveryOnlyGate = (transaction: ITransaction): SubmitGate => {
+  const attemptId = transaction.attemptId;
+  return async evidence => {
+    if (attemptId === undefined) {
+      throw new Error(`Transaction ${transaction.id} reached its recovery submit gate without an attempt id`);
+    }
+    try {
+      const { assertWalletStorageAvailable } = await import('../storage-health');
+      await assertWalletStorageAvailable();
+      const { retainWalletTransfer } = await import('../back/storage-recovery');
+      await retainWalletTransfer(transaction.id, { attemptId, evidence });
+      await assertWalletStorageAvailable();
+      return true;
+    } catch (error) {
+      throw new SubmitCrossingUnrecordedError(transaction.id, error);
+    }
+  };
+};
+
+type OrdinaryWriteHooks = [stage: ReturnType<typeof stageStampFor> | undefined, gate?: SubmitGate];
+
+const runOrdinaryWrite = <T>(
+  transaction: ITransaction,
+  attempt: AttemptContext | undefined,
+  leaf: (...hooks: OrdinaryWriteHooks) => Promise<T>
+): Promise<T> => {
+  const hooks: OrdinaryWriteHooks = attempt
+    ? [stageStampFor(transaction.id, attempt)]
+    : [undefined, recoveryOnlyGate(transaction)];
+  return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () => leaf(...hooks));
 };
 
 /** Pending liveness wakes, keyed by transaction id, so each row has at most one. */
@@ -2273,20 +2312,16 @@ const generateTransactionWithProvider = async (
               t.requestBytes = preparedBytes;
             });
           }
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          return runOrdinaryWrite(transaction, attempt, (...hooks) =>
             preparedBytes
               ? midenClientProxy.newTransaction(
                   transaction.accountId,
                   preparedBytes,
                   transaction.delegateTransaction,
                   signer,
-                  attempt && stageStampFor(transaction.id, attempt)
+                  ...hooks
                 )
-              : midenClientProxy.consumeNoteId(
-                  transaction as ConsumeTransaction,
-                  signer,
-                  attempt && stageStampFor(transaction.id, attempt)
-                )
+              : midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signer, ...hooks)
           );
         }
         case 'send': {
@@ -2301,22 +2336,14 @@ const generateTransactionWithProvider = async (
           // that defaults the flag ON - a stage callback that rode the inline leaf only
           // would silently lose the timings on Chrome, the primary platform.
           const attempt = attemptContextOf(transaction);
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-            midenClientProxy.sendTransaction(
-              transaction as SendTransaction,
-              signer,
-              stageStampFor(transaction.id, attempt)
-            )
+          return runOrdinaryWrite(transaction, attempt, stage =>
+            midenClientProxy.sendTransaction(transaction as SendTransaction, signer, stage)
           );
         }
         case 'swap': {
           const attempt = attemptContextOf(transaction);
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-            midenClientProxy.swapTransaction(
-              transaction as SwapTransaction,
-              signer,
-              stageStampFor(transaction.id, attempt)
-            )
+          return runOrdinaryWrite(transaction, attempt, stage =>
+            midenClientProxy.swapTransaction(transaction as SwapTransaction, signer, stage)
           );
         }
         case 'bridged-send':
@@ -2342,15 +2369,15 @@ const generateTransactionWithProvider = async (
           // colliding when an auth arg is already present, and the commitment built here is the
           // same shape it would have built. Persisted because the commitment carries a fresh salt;
           // the annotation is idempotent.
-          // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
+          // Callers that need a terminal answer still get a recovery receipt without a live stage stamp.
           const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          return runOrdinaryWrite(transaction, attempt, (...hooks) =>
             midenClientProxy.newTransaction(
               transaction.accountId,
               requestBytes,
               transaction.delegateTransaction,
               signer,
-              attempt && stageStampFor(transaction.id, attempt)
+              ...hooks
             )
           );
         }
@@ -2392,13 +2419,13 @@ const generateTransactionWithProvider = async (
             });
           }
           const attempt = attemptContextOf(transaction);
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          return runOrdinaryWrite(transaction, attempt, stage =>
             midenClientProxy.newTransaction(
               transaction.accountId,
               executeBytes,
               transaction.delegateTransaction,
               signer,
-              stageStampFor(transaction.id, attempt)
+              stage
             )
           );
         }
@@ -5434,6 +5461,8 @@ export const safeGenerateTransactionsLoop = async (
   return navigator.locks
     .request<Promise<TransactionsLoopOutcome>>(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
       if (!lock) return 'idle';
+      const { getWalletStorageFailure } = await import('../storage-health');
+      if (await getWalletStorageFailure()) return 'idle';
 
       const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
       if (result === true) return 'processed';

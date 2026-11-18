@@ -4349,6 +4349,38 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
 // loadEndpointOverrides() + resetMidenClient() reach only the SW realm. Flag-on it
 // is the OFFSCREEN client that talks to the node, so it needs its own nudge.
 // The offscreen document has no extension storage, so the network it runs on is the one these messages carry (#1482).
+describe('MidenClientProxy ordinary submit gate', () => {
+  it.each([true, false])('acks submit only when the durable stage stamp completes (%s)', async accepted => {
+    const { midenClientProxy, handleOffscreenSubmitGate } = await loadProxy(true);
+    const evidence = { refBlock: 4 };
+    const onStage = jest.fn(async () => {
+      if (!accepted) throw new Error('Could not retain transfer');
+    });
+    let answer: unknown;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+      answer = await handleOffscreenSubmitGate({
+        target: 'sw',
+        type: 'OFFSCREEN_SUBMIT_GATE',
+        op_id: env.op_id,
+        evidence
+      });
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+
+    const write = midenClientProxy.sendTransaction(
+      sendTx() as never,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await write;
+
+    expect(onStage).toHaveBeenCalledWith('submitting', { evidence });
+    expect(answer).toMatchObject({ ok: accepted });
+  });
+});
+
 // #1644: the Guardian leaf's submit gate opens only for an op this worker still runs, after the leaf recorded the
 // crossing, so a leaf the worker never let through never submits.
 describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
@@ -4593,6 +4625,65 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
     fakeChrome.runtime.sendMessage.mockImplementation(async () => ({ ok: false, error: 'storage exploded' }));
     await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
+  });
+
+  it('passes the exact SDK store selected by recovery even when it is the default', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    const { getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    fakeChrome.runtime.sendMessage.mockResolvedValue({ ok: true });
+
+    await expect(
+      reloadOffscreenEndpointOverrides({ rpcUrl: getEffectiveRpcUrl(), usesCedarStore: false })
+    ).resolves.toBe(true);
+
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'offscreen',
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override: null, feeFaucetId: undefined },
+      recoveryUsesCedarStore: false
+    });
+  });
+
+  it('requires a still-open offscreen document to acknowledge recovery', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    const { getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    const recoveryStore = { rpcUrl: getEffectiveRpcUrl(), usesCedarStore: false };
+    fakeChrome.runtime.sendMessage.mockResolvedValueOnce({ ok: false });
+
+    await expect(reloadOffscreenEndpointOverrides(recoveryStore)).rejects.toThrow(
+      'Offscreen SDK did not adopt the wallet recovery store'
+    );
+
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async () => {
+      docExists = false;
+      throw new Error('document closed');
+    });
+    await expect(reloadOffscreenEndpointOverrides(recoveryStore)).resolves.toBe(false);
+  });
+
+  it('refuses a recovery selection when another RPC becomes effective while waiting', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true, { overridesLoaded: false });
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    const stored = {
+      ...endpoints.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      rpcUrl: 'https://replacement.invalid'
+    };
+    await getStorageProvider().set({ [endpoints.ENDPOINT_OVERRIDE_STORAGE_KEY]: stored });
+    const recoveryStore = { rpcUrl: endpoints.getEffectiveRpcUrl(), usesCedarStore: false };
+    const reload = reloadOffscreenEndpointOverrides(recoveryStore);
+
+    await flush();
+
+    await Promise.all([
+      endpoints.loadEndpointOverrides(),
+      expect(reload).rejects.toThrow('Wallet storage unavailable')
+    ]);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('resolves false instead of throwing when the doc is reaped between the check and the send', async () => {

@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][all] Pause wallet actions when local storage is unavailable and rebuild the account from verified recovery data kept outside IndexedDB.
 - [FIX][ci] Wait for the Guardian to settle the funding claim before testing candidate abandonment.
 
 - [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.

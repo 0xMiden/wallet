@@ -886,6 +886,46 @@ describe('resetMidenClient', () => {
     });
   });
 
+  it('leaves the client and its store choice alone if recovery waits across a network change', async () => {
+    const free = jest.fn();
+    const useSdkRecoveryStore = jest.fn();
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: { create: jest.fn(async () => ({ free })) },
+      useSdkRecoveryStore
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { getMidenClient, resetMidenClient, withWasmClientLock } = await import('./miden-client');
+      const endpoints = await import('lib/miden-chain/effective-endpoints');
+      const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+      await getMidenClient();
+      const recoveryStore = { rpcUrl: endpoints.getEffectiveRpcUrl(), usesCedarStore: false };
+      let waitForReset!: () => void;
+      let release!: () => void;
+      const locked = new Promise<void>(resolve => (waitForReset = resolve));
+      const blocking = new Promise<void>(resolve => (release = resolve));
+      const holder = withWasmClientLock(async () => {
+        waitForReset();
+        await blocking;
+      });
+      await locked;
+      const reset = resetMidenClient(recoveryStore);
+      endpoints.adoptEndpointState({
+        override: {
+          ...endpoints.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+          rpcUrl: 'https://replacement.invalid'
+        },
+        feeFaucetId: undefined
+      });
+      release();
+
+      await expect(reset).rejects.toThrow('Wallet storage unavailable');
+      await holder;
+      expect(free).not.toHaveBeenCalled();
+      expect(useSdkRecoveryStore).not.toHaveBeenCalled();
+    });
+  });
+
   it('clears an in-flight no-options creation so it cannot repopulate a stale client after the reset', async () => {
     // Regression for: `disposeAllInstances()` used to only clear `initializingPromise`
     // inside the `if (this.instance)` guard, so a reset that lands *while* a no-options

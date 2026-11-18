@@ -1,5 +1,11 @@
 import * as Actions from 'lib/miden/back/actions';
 import { store } from 'lib/miden/back/store';
+import { putToStorage } from 'lib/miden/front/storage';
+import {
+  clearVerifiedStorageFailure,
+  getWalletStorageFailure,
+  markWalletStorageUnavailable
+} from 'lib/miden/storage-health';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -60,6 +66,11 @@ jest.mock('lib/miden/back/actions', () => ({
   removeDAppSession: jest.fn().mockResolvedValue([]),
   isDAppEnabled: jest.fn().mockResolvedValue(true),
   processDApp: jest.fn().mockResolvedValue({ result: 'success' })
+}));
+
+jest.mock('lib/miden/front/storage', () => ({
+  ...jest.requireActual('lib/miden/front/storage'),
+  putToStorage: jest.fn()
 }));
 
 jest.mock('lib/miden/back/store', () => {
@@ -639,6 +650,23 @@ describe('DesktopIntercomAdapter', () => {
   });
 
   describe('subscribe', () => {
+    it('broadcasts a volatile storage failure when the disk refuses its marker', async () => {
+      await Promise.all([adapter.init(), adapter.init()]);
+      const callback = jest.fn();
+      adapter.subscribe(callback);
+      jest.mocked(putToStorage).mockRejectedValueOnce(new DOMException('No space left', 'QuotaExceededError'));
+
+      await markWalletStorageUnavailable();
+      const failure = await getWalletStorageFailure();
+      try {
+        expect(failure).toEqual(expect.any(String));
+        expect(callback).toHaveBeenCalledTimes(1);
+        expect(callback).toHaveBeenCalledWith({ type: WalletMessageType.StateUpdated });
+      } finally {
+        if (failure) await clearVerifiedStorageFailure(failure);
+      }
+    });
+
     it('adds a subscriber and calls it on state changes', async () => {
       await adapter.init();
       const callback = jest.fn();

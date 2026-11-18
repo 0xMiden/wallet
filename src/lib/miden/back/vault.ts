@@ -65,6 +65,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { fieldWordFromBase64 } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
+import { StorageJournal } from './storage-journal';
 import {
   MNEMONIC_PATTERN,
   importedAccountBackupFailure,
@@ -322,8 +323,10 @@ export class Vault {
   // `syncRealmInsertKeySink`). An adopted vault asserts the slot is its own first
   // inside every hold in which it inserts (#878).
   readonly insertKeySink: ReturnType<typeof insertKeyCallbackWrapper>;
+  readonly storageJournal: StorageJournal;
 
   constructor(private vaultKey: CryptoKey) {
+    this.storageJournal = new StorageJournal(vaultKey);
     this.insertKeySink = insertKeyCallbackWrapper(vaultKey);
     installRealmKeystore({ insertKey: this.insertKeySink });
   }
