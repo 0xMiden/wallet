@@ -19,14 +19,18 @@ import {
   db,
   exportDb,
   importDb,
+  readWalletStoreGeneration,
+  restoreRecoveryTransfers,
   spendingLimits,
   transactions,
   Table,
   TRANSACTIONS_V17_STORE,
   TRANSACTIONS_V2_STORE,
   SPENDING_LIMITS_V17_STORE,
-  SPENDING_LIMITS_V19_STORE
+  SPENDING_LIMITS_V19_STORE,
+  writeWalletStoreGeneration
 } from './repo';
+import { WalletStorageUnavailableError } from './storage-health';
 import { isOpenRecoveredOrder, isRecoveredReturnOrder, recoveredSwapOrderRef } from './swap/recovered-order';
 import { getCompletedTransactionsPage } from './transaction/get';
 import { isRequeueableTransaction } from './transaction/retry';
@@ -2352,5 +2356,87 @@ describe('bounded transaction history', () => {
       isolated.close();
       await Dexie.delete(name);
     }
+  });
+});
+
+describe('verified wallet storage generation', () => {
+  const accountId = 'recovery-account';
+  const sameAccount = (id: string) => id === accountId;
+  const assertCurrent = () => {};
+  const row: ITransaction = {
+    id: 'retained-transfer',
+    accountId,
+    type: 'send',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 10,
+    displayIcon: 'SEND',
+    spentUsd: 20n
+  };
+  const config = (limit: string) => ({ accountId, limit, revision: `limit-${limit}`, createdAt: 10, updatedAt: 10 });
+  const currentGeneration = 'active-generation';
+  const savedGeneration = 'saved-generation';
+
+  beforeEach(async () => {
+    await db.table(Table.Recovery).clear();
+    await transactions.clear();
+    await spendingLimits.clear();
+    await writeWalletStoreGeneration(currentGeneration);
+  });
+
+  afterEach(async () => {
+    await db.table(Table.Recovery).clear();
+    await transactions.clear();
+    await spendingLimits.clear();
+  });
+
+  it.each([
+    ['25', '75'],
+    ['75', '25']
+  ])('recovers the verified generation while keeping the lower of caps %s and %s', async (live, saved) => {
+    await spendingLimits.add(config(live));
+    await expect(writeWalletStoreGeneration(savedGeneration)).rejects.toThrow('Wallet storage generation changed');
+
+    await expect(
+      restoreRecoveryTransfers([row], [config(saved)], sameAccount, assertCurrent, {
+        observed: currentGeneration,
+        verified: savedGeneration
+      })
+    ).resolves.toEqual([config('25')]);
+    await expect(readWalletStoreGeneration()).resolves.toBe(savedGeneration);
+    await expect(transactions.get(row.id)).resolves.toMatchObject({
+      status: ITransactionStatus.Completed,
+      spentUsd: 20n,
+      restoredFromBackup: true,
+      retainedRecoverySpend: true
+    });
+    await expect(spendingLimits.get(accountId)).resolves.toEqual(config('25'));
+  });
+
+  it('refuses recovery when its observed generation is no longer active', async () => {
+    await expect(
+      restoreRecoveryTransfers([row], [config('25')], sameAccount, assertCurrent, {
+        observed: undefined,
+        verified: savedGeneration
+      })
+    ).rejects.toThrow(WalletStorageUnavailableError);
+
+    await expect(transactions.get(row.id)).resolves.toBeUndefined();
+    await expect(spendingLimits.get(accountId)).resolves.toBeUndefined();
+    await expect(readWalletStoreGeneration()).resolves.toBe(currentGeneration);
+  });
+
+  it('keeps the prior generation and policy if a live spending row conflicts with the journal', async () => {
+    await transactions.add({ ...row, spentUsd: 30n });
+    await spendingLimits.add(config('25'));
+
+    await expect(
+      restoreRecoveryTransfers([row], [config('15')], sameAccount, assertCurrent, {
+        observed: currentGeneration,
+        verified: savedGeneration
+      })
+    ).rejects.toThrow(WalletStorageUnavailableError);
+    await expect(readWalletStoreGeneration()).resolves.toBe(currentGeneration);
+    await expect(transactions.get(row.id)).resolves.toMatchObject({ spentUsd: 30n });
+    await expect(spendingLimits.get(accountId)).resolves.toEqual(config('25'));
   });
 });

@@ -325,8 +325,10 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
       const assertCurrent = () => {
         if (store.getState().vault !== vault || getEffectiveRpcUrl() !== rpc) throw new WalletStorageUnavailableError();
       };
+      const observedGeneration = await Repo.readWalletStoreGeneration();
       const retained = await vault.storageJournal.read();
       if (!retained) throw new WalletStorageUnavailableError();
+      const generation = retained.walletStoreGeneration ?? observedGeneration ?? crypto.randomUUID();
       const expected = accounts.map(account => canonicalWalletAccountId(account.publicKey));
       const chain = await readAccountChainStates(expected);
       const states: string[] = [];
@@ -406,18 +408,18 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
         }
       });
       assertCurrent();
-      await Repo.restoreRecoveryTransfers(
+      const acceptedLimits = await Repo.restoreRecoveryTransfers(
         transfers,
         retained.limits,
         id => expected.includes(canonicalWalletAccountId(id)),
-        assertCurrent
+        assertCurrent,
+        { observed: observedGeneration, verified: generation }
       );
-      const generation = retained.walletStoreGeneration ?? crypto.randomUUID();
-      await Repo.writeWalletStoreGeneration(generation);
       await vault.storageJournal.retain(
         data => ({
           ...data,
           walletStoreGeneration: generation,
+          limits: acceptedLimits,
           transfers: Object.fromEntries(transfers.map(row => [row.id, Repo.serializeRecoveryTransfer(row)]))
         }),
         assertCurrent

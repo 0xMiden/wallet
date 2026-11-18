@@ -1,6 +1,8 @@
 import { Account, NoteFile } from '@miden-sdk/miden-sdk/lazy';
 
 import { u8ToB64 } from 'lib/shared/helpers';
+import type { WalletAccount } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 import { ITransactionStatus, type ITransaction } from '../db/types';
 import { readAccountChainStates } from '../guardian/recovery-verification';
@@ -70,7 +72,15 @@ const retained = {
 const mockStorage = new Map<string, unknown>();
 const mockWriteStorage = jest.fn<Promise<void>, [string, unknown]>();
 const mockJournal = { read: jest.fn(), retain: jest.fn() };
-const mockSession = { accounts: [{ publicKey: accountId }], vault: { storageJournal: mockJournal } };
+const testAccount: WalletAccount = {
+  publicKey: accountId,
+  name: 'Saved account',
+  type: WalletType.OnChain,
+  isPublic: false,
+  hdIndex: 0,
+  authScheme: 'ecdsa'
+};
+const mockSession = { accounts: [testAccount], vault: { storageJournal: mockJournal } };
 const mockClient = {
   accounts: { insert: jest.fn(), get: jest.fn() },
   notes: { import: jest.fn(), list: jest.fn() }
@@ -126,6 +136,7 @@ beforeEach(() => {
     .mockReturnValueOnce(noteFile as unknown as NoteFile)
     .mockReturnValueOnce(noteDetailsFile as unknown as NoteFile);
   jest.mocked(Repo.deserializeRecoveryTransfers).mockReturnValue([]);
+  jest.mocked(Repo.restoreRecoveryTransfers).mockResolvedValue(retained.limits);
   mockClient.accounts.get.mockResolvedValue(accountState);
   mockClient.notes.import.mockResolvedValueOnce('file-note-id').mockResolvedValueOnce('note-details-commitment');
   mockClient.notes.list.mockResolvedValue([noteRecord]);
@@ -149,7 +160,14 @@ it('resumes the same account only after reading back the retained files and pers
   expect(mockClient.notes.import).toHaveBeenNthCalledWith(2, noteDetailsFile);
   expect(mockClient.notes.list).toHaveBeenNthCalledWith(1, { ids: ['file-note-id'] });
   expect(mockClient.notes.list).toHaveBeenNthCalledWith(2, { detailsCommitments: ['note-details-commitment'] });
-  expect(Repo.writeWalletStoreGeneration).toHaveBeenCalledWith(retained.walletStoreGeneration);
+  expect(Repo.restoreRecoveryTransfers).toHaveBeenCalledWith(
+    [],
+    retained.limits,
+    expect.any(Function),
+    expect.any(Function),
+    { observed: undefined, verified: retained.walletStoreGeneration }
+  );
+  expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
   expect(mockWriteStorage).toHaveBeenCalledWith(storageHealth.WALLET_STORAGE_FAILURE_KEY, null);
   for (const step of [
     mockClient.accounts.get,
@@ -177,11 +195,30 @@ it('rebuilds retained private notes without importing an old ID-only pointer', a
 });
 
 it('rebuilds after verifying a retained wallet whose IndexedDB generation changed', async () => {
+  const acceptedLimit = { accountId, limit: '20', revision: 'accepted-limit', createdAt: 1, updatedAt: 1 };
+  jest.mocked(Repo.restoreRecoveryTransfers).mockResolvedValue([acceptedLimit]);
   jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue('different-active-generation');
   jest.mocked(Repo.writeWalletStoreGeneration).mockRejectedValue(new Error('Wallet storage generation changed'));
 
   await expect(rebuildWalletStorage()).resolves.toMatchObject({ verifiedAccounts: 1, verifiedNotes: 2 });
+  expect(Repo.restoreRecoveryTransfers).toHaveBeenCalledWith(
+    [],
+    retained.limits,
+    expect.any(Function),
+    expect.any(Function),
+    { observed: 'different-active-generation', verified: retained.walletStoreGeneration }
+  );
+  expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
+  expect((await mockJournal.retain.mock.results[0]!.value).limits).toEqual([acceptedLimit]);
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
+});
+
+it('leaves the failure in place if the recovery transaction refuses a changed generation', async () => {
+  jest.mocked(Repo.restoreRecoveryTransfers).mockRejectedValueOnce(new storageHealth.WalletStorageUnavailableError());
+
+  await expect(rebuildWalletStorage()).rejects.toThrow(storageHealth.WalletStorageUnavailableError);
+  expect(mockJournal.retain).not.toHaveBeenCalled();
+  await expect(storageHealth.getWalletStorageFailure()).resolves.toBe(failureEpoch);
 });
 
 it('acknowledges an incoming ID-only pointer without turning it into mandatory recovery data', async () => {
@@ -206,7 +243,7 @@ it('acknowledges an incoming ID-only pointer without turning it into mandatory r
   const save = mockJournal.retain.mockImplementation(async change => change({ ...retained, notes: [] }));
   await retainWalletNotes([u8ToB64(Uint8Array.of(7, 8)), proof], 'https://node.invalid');
 
-  expect((await save.mock.results[0].value).notes).toEqual([proof]);
+  expect((await save.mock.results[0]!.value).notes).toEqual([proof]);
 });
 
 it('drops old pointers during capture and retains a full proof over the matching expected note', async () => {
@@ -226,11 +263,11 @@ it('drops old pointers during capture and retains a full proof over the matching
 
   await captureWalletAccounts(
     mockSession.vault as unknown as Parameters<typeof captureWalletAccounts>[0],
-    mockSession.accounts as Parameters<typeof captureWalletAccounts>[1],
+    mockSession.accounts,
     () => {}
   );
 
-  expect((await save.mock.results[0].value).notes).toEqual([previous.notes[0]]);
+  expect((await save.mock.results[0]!.value).notes).toEqual([previous.notes[0]]);
 });
 
 it('retains compact recent spending records beyond the old cap with the same spend total', async () => {
@@ -256,12 +293,12 @@ it('retains compact recent spending records beyond the old cap with the same spe
   await expect(
     captureWalletAccounts(
       mockSession.vault as unknown as Parameters<typeof captureWalletAccounts>[0],
-      mockSession.accounts as Parameters<typeof captureWalletAccounts>[1],
+      mockSession.accounts,
       () => {}
     )
   ).resolves.toBeUndefined();
 
-  const saved = await save.mock.results[0].value;
+  const saved = await save.mock.results[0]!.value;
   const recovered = recoveryCodec.deserializeRecoveryTransfers(saved.transfers, id => id === accountId);
   const cap = { accountId, limit: 1n, revision: '1', createdAt: now, updatedAt: now };
   const proposal = { accountId, usdAmount: 1n, now };
@@ -324,6 +361,13 @@ it('stays paused if the verified rebuild cannot be written to the recovery journ
   await expect(rebuildWalletStorage()).rejects.toThrow('No space left');
 
   expect(mockClient.accounts.get).toHaveBeenCalledWith(accountKey);
-  expect(Repo.writeWalletStoreGeneration).toHaveBeenCalledWith(retained.walletStoreGeneration);
+  expect(Repo.restoreRecoveryTransfers).toHaveBeenCalledWith(
+    [],
+    retained.limits,
+    expect.any(Function),
+    expect.any(Function),
+    { observed: undefined, verified: retained.walletStoreGeneration }
+  );
+  expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBe(failureEpoch);
 });
