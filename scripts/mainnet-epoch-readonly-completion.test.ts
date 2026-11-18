@@ -1,6 +1,6 @@
 /** @jest-environment node */
-import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import crypto, { createHash, createHmac } from 'node:crypto';
+import fs, { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { GuardianAwareWalletPage } from '../playwright/e2e/fixtures/two-wallets';
@@ -25,6 +25,14 @@ const mockExport = jest.fn();
 const mockRoute = jest.fn();
 const mockReview = jest.fn();
 const mockIntentStatus = jest.fn();
+const mockGetNotes = jest.fn();
+const mockInspectReturn = jest.fn();
+jest.mock('@miden-sdk/miden-sdk', () => ({
+  ...jest.requireActual('@miden-sdk/miden-sdk'),
+  Endpoint: jest.fn(),
+  RpcClient: jest.fn(() => ({ getNotesById: (...args: unknown[]) => mockGetNotes(...args) })),
+  NoteId: { fromHex: (id: string) => id }
+}));
 jest.mock('@playwright/test', () => ({ expect: jest.requireActual('@playwright/test').expect }));
 jest.mock('viem', () => ({ ...jest.requireActual('viem'), createPublicClient: () => mockClient }));
 jest.mock('../playwright/e2e/ios/helpers/wc-counterparty', () => ({ WcCounterparty: jest.fn() }));
@@ -43,7 +51,10 @@ jest.mock('../playwright/e2e/helpers/mainnet-epoch-provider', () => ({
     sdk: { getIntentStatus: (...args: unknown[]) => mockIntentStatus(...args) }
   })
 }));
-jest.mock('../playwright/e2e/helpers/mainnet-epoch-request', () => ({}));
+jest.mock('../playwright/e2e/helpers/mainnet-epoch-request', () => ({
+  inspectEpochReturnNote: (...args: unknown[]) => mockInspectReturn(...args),
+  mainnetConsumeRequestHash: () => 'e'.repeat(64)
+}));
 jest.mock('../playwright/e2e/helpers/mainnet-epoch-ui', () => ({}));
 jest.mock('../playwright/e2e/helpers/bridge', () => ({
   openRouteStep: (...args: unknown[]) => mockRoute(...args),
@@ -93,11 +104,23 @@ const returnState = () => ({
   paidEvmFees: '1000',
   transactions: [{ kind: 'deposit' as const, nonce: 0, hash, feeWei: '1000' }]
 });
+const unclaimedReturnState = () => ({
+  ...returnState(),
+  returnNoteId: undefined,
+  returnMidenTxId: undefined,
+  consumeAuthority: undefined,
+  reverseReceived: undefined
+});
 let directory: string;
 const wallet = { getAccountAddress: jest.fn(), refreshBalancesLanded: jest.fn(), page: { goto: jest.fn() } };
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.spyOn(crypto, 'randomBytes').mockImplementation(size => Buffer.alloc(size, 19));
   mockVault.mockReset();
+  mockGetNotes.mockReset();
+  mockExport.mockReset();
+  mockInspectReturn.mockReset();
+  mockArm.mockReset();
   mockRoute.mockRejectedValue(new Error('Legacy Circle picker reached'));
   mockReview.mockRejectedValue(new Error('read-only Epoch review reached'));
   wallet.page.goto.mockResolvedValue(undefined);
@@ -110,6 +133,7 @@ beforeEach(() => {
   mockClient.getTransactionReceipt.mockResolvedValue({});
 });
 afterEach(() => {
+  jest.restoreAllMocks();
   rmSync(directory, { recursive: true, force: true });
 });
 const actor = wallet as unknown as GuardianAwareWalletPage;
@@ -325,4 +349,223 @@ it('does not turn an unrelated balance change into a completed return', async ()
   ).rejects.toThrow();
   expect(JSON.parse(readFileSync(path(), 'utf8')).phase).toBe('recovery-required');
   noWrites();
+});
+
+it('waits for the exact return note on the public chain before wallet import', async () => {
+  const state = unclaimedReturnState();
+  const noteId = returnState().returnNoteId;
+  const stopped = new Error('Stop before any claim authorization');
+  const triggerSync = jest.fn().mockResolvedValue(undefined);
+  const returning = { ...wallet, triggerSync } as unknown as GuardianAwareWalletPage;
+  mockIntentStatus.mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }]);
+  mockGetNotes.mockResolvedValueOnce([]).mockResolvedValue([{ noteId: { toString: () => noteId } }]);
+  mockExport.mockImplementation(async () => {
+    expect(mockGetNotes).toHaveBeenCalledTimes(2);
+    throw stopped;
+  });
+  await expect(
+    recoverEpochReturn(returning, state, path(), 'unused-upload', new AbortController().signal)
+  ).rejects.toBe(stopped);
+  expect(triggerSync).toHaveBeenCalledTimes(1);
+  expect(mockGetNotes).toHaveBeenCalledTimes(2);
+  expect(state.returnNoteId).toBeUndefined();
+  expect(state.consumeAuthority).toBeUndefined();
+  expect(mockArm).not.toHaveBeenCalled();
+}, 10_000);
+
+it('retains only sanitized readiness evidence while preserving the original failure', async () => {
+  const state = unclaimedReturnState();
+  const noteId = returnState().returnNoteId;
+  const secret = 'private-key-and-signed-payload-must-not-leak';
+  const failed = new Error(secret);
+  const returning = {
+    ...wallet,
+    triggerSync: jest.fn().mockRejectedValue(failed)
+  } as unknown as GuardianAwareWalletPage;
+  mockIntentStatus.mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }]);
+  mockGetNotes.mockResolvedValue([{ noteId: { toString: () => noteId } }]);
+  await expect(
+    recoverEpochReturn(returning, state, path(), 'unused-upload', new AbortController().signal)
+  ).rejects.toBe(failed);
+  const diagnosticPath = `${path()}.return-readiness-failure.json`;
+  expect(existsSync(diagnosticPath)).toBe(true);
+  const text = readFileSync(diagnosticPath, 'utf8');
+  const diagnostic = JSON.parse(text);
+  expect(diagnostic.stage).toBe('wallet-sync');
+  expect(diagnostic.errorSha256).toBe(createHmac('sha256', Buffer.alloc(32, 19)).update(secret).digest('hex'));
+  expect(diagnostic.errorSha256).not.toBe(createHash('sha256').update(secret).digest('hex'));
+  expect(Object.keys(diagnostic).sort()).toEqual(['errorSha256', 'observedAt', 'stage']);
+  expect(Number.isFinite(Date.parse(diagnostic.observedAt))).toBe(true);
+  expect(text).not.toContain(secret);
+  expect(mockArm).not.toHaveBeenCalled();
+});
+
+it.each(['wrong', 'ambiguous'])('rejects %s public-chain return notes before wallet import', async kind => {
+  const state = unclaimedReturnState();
+  const noteId = returnState().returnNoteId;
+  const note = { noteId: { toString: () => noteId } };
+  const triggerSync = jest.fn();
+  const returning = { ...wallet, triggerSync } as unknown as GuardianAwareWalletPage;
+  mockIntentStatus.mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }]);
+  mockGetNotes.mockResolvedValue(kind === 'ambiguous' ? [note, note] : [{ noteId: { toString: () => hash } }]);
+  await expect(
+    recoverEpochReturn(returning, state, path(), 'unused-upload', new AbortController().signal)
+  ).rejects.toThrow('Epoch return note is not recorded on the live chain');
+  expect(triggerSync).not.toHaveBeenCalled();
+  expect(mockExport).not.toHaveBeenCalled();
+  expect(mockArm).not.toHaveBeenCalled();
+});
+
+it('does not retry public RPC rejection or proceed to wallet import', async () => {
+  const state = unclaimedReturnState();
+  const noteId = returnState().returnNoteId;
+  const failure = new Error('RPC response contains private signed bytes');
+  const triggerSync = jest.fn();
+  const returning = { ...wallet, triggerSync } as unknown as GuardianAwareWalletPage;
+  mockIntentStatus.mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }]);
+  mockGetNotes.mockRejectedValue(failure);
+  await expect(
+    recoverEpochReturn(returning, state, path(), 'unused-upload', new AbortController().signal)
+  ).rejects.toBe(failure);
+  expect(mockGetNotes).toHaveBeenCalledTimes(1);
+  expect(triggerSync).not.toHaveBeenCalled();
+  expect(mockExport).not.toHaveBeenCalled();
+  expect(mockArm).not.toHaveBeenCalled();
+  const diagnostic = JSON.parse(readFileSync(`${path()}.return-readiness-failure.json`, 'utf8'));
+  expect(diagnostic.stage).toBe('provider-note-readiness');
+  expect(JSON.stringify(diagnostic)).not.toContain(failure.message);
+});
+
+it('never switches provider-correlated note identity while public inclusion is pending', async () => {
+  const state = unclaimedReturnState();
+  const noteId = returnState().returnNoteId;
+  const triggerSync = jest.fn();
+  const returning = { ...wallet, triggerSync } as unknown as GuardianAwareWalletPage;
+  mockIntentStatus
+    .mockResolvedValueOnce([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }])
+    .mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: hash }]);
+  mockGetNotes.mockResolvedValue([]);
+  await expect(
+    recoverEpochReturn(returning, state, path(), 'unused-upload', new AbortController().signal)
+  ).rejects.toThrow('Epoch return note identity changed while awaiting inclusion');
+  expect(triggerSync).not.toHaveBeenCalled();
+  expect(mockExport).not.toHaveBeenCalled();
+  expect(mockArm).not.toHaveBeenCalled();
+}, 10_000);
+
+it.each(['private non-Error rejection', { privatePayload: 'must not leak' }])(
+  'fingerprints non-Error RPC rejections without exporting their payload',
+  async failure => {
+    const state = unclaimedReturnState();
+    const noteId = returnState().returnNoteId;
+    const triggerSync = jest.fn();
+    const returning = { ...wallet, triggerSync } as unknown as GuardianAwareWalletPage;
+    mockIntentStatus.mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }]);
+    mockGetNotes.mockRejectedValue(failure);
+    await expect(
+      recoverEpochReturn(returning, state, path(), 'unused-upload', new AbortController().signal)
+    ).rejects.toBe(failure);
+    const text = readFileSync(`${path()}.return-readiness-failure.json`, 'utf8');
+    const message = typeof failure === 'string' ? failure : 'non-error rejection';
+    expect(JSON.parse(text).errorSha256).toBe(createHmac('sha256', Buffer.alloc(32, 19)).update(message).digest('hex'));
+    expect(text).not.toContain('private');
+    expect(text).not.toContain('must not leak');
+    expect(triggerSync).not.toHaveBeenCalled();
+    expect(mockArm).not.toHaveBeenCalled();
+  }
+);
+
+it('stops pending public inclusion on abort without importing or arming a claim', async () => {
+  const state = unclaimedReturnState();
+  const noteId = returnState().returnNoteId;
+  const controller = new AbortController();
+  const triggerSync = jest.fn();
+  const returning = { ...wallet, triggerSync } as unknown as GuardianAwareWalletPage;
+  mockIntentStatus.mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }]);
+  mockGetNotes.mockImplementation(async () => {
+    controller.abort();
+    return [];
+  });
+  await expect(recoverEpochReturn(returning, state, path(), 'unused-upload', controller.signal)).rejects.toThrow(
+    'Epoch return aborted'
+  );
+  expect(mockIntentStatus).toHaveBeenCalledTimes(1);
+  expect(mockGetNotes).toHaveBeenCalledTimes(1);
+  expect(triggerSync).not.toHaveBeenCalled();
+  expect(mockExport).not.toHaveBeenCalled();
+  expect(mockArm).not.toHaveBeenCalled();
+}, 10_000);
+
+it('records inspection failure without persisting a return note or arming its claim', async () => {
+  const state = unclaimedReturnState();
+  const noteId = returnState().returnNoteId;
+  const failure = new Error('Native SDK note has an unexpected owner');
+  const returning = {
+    ...wallet,
+    triggerSync: jest.fn().mockResolvedValue(undefined)
+  } as unknown as GuardianAwareWalletPage;
+  mockIntentStatus.mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }]);
+  mockGetNotes.mockResolvedValue([{ noteId: { toString: () => noteId } }]);
+  mockExport.mockResolvedValue('aa');
+  mockInspectReturn.mockImplementation(() => {
+    throw failure;
+  });
+  await expect(
+    recoverEpochReturn(returning, state, path(), 'unused-upload', new AbortController().signal)
+  ).rejects.toBe(failure);
+  expect(JSON.parse(readFileSync(`${path()}.return-readiness-failure.json`, 'utf8')).stage).toBe('note-inspection');
+  expect(state.returnNoteId).toBeUndefined();
+  expect(mockArm).not.toHaveBeenCalled();
+});
+
+it('does not emit a readiness failure for a successful preparation or bypass claim authorization', async () => {
+  const state = unclaimedReturnState();
+  const noteId = returnState().returnNoteId;
+  const stopped = new Error('Stop at original claim authorization');
+  const returning = {
+    ...wallet,
+    triggerSync: jest.fn().mockResolvedValue(undefined)
+  } as unknown as GuardianAwareWalletPage;
+  mockIntentStatus.mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }]);
+  mockGetNotes.mockResolvedValue([{ noteId: { toString: () => noteId } }]);
+  mockExport.mockResolvedValue('aa');
+  mockInspectReturn.mockReturnValue(1000000n);
+  mockArm.mockRejectedValue(stopped);
+  await expect(
+    recoverEpochReturn(returning, state, path(), 'unused-upload', new AbortController().signal)
+  ).rejects.toBe(stopped);
+  expect(state.returnNoteId).toBe(noteId);
+  expect(mockArm).toHaveBeenCalledWith(wallet.page, {
+    accountId: state.accountHex,
+    noteId,
+    canonicalSha256: 'e'.repeat(64)
+  });
+  expect(state.consumeAuthority).toBeUndefined();
+  expect(existsSync(`${path()}.return-readiness-failure.json`)).toBe(false);
+});
+
+it('retains the original rejection even when writing diagnostics fails', async () => {
+  const state = unclaimedReturnState();
+  const noteId = returnState().returnNoteId;
+  const failure = new Error('Original private SDK failure');
+  const returning = {
+    ...wallet,
+    triggerSync: jest.fn().mockRejectedValue(failure)
+  } as unknown as GuardianAwareWalletPage;
+  mockIntentStatus.mockResolvedValue([{ chainId: state.virtualChainId, status: 'success', midenNoteId: noteId }]);
+  mockGetNotes.mockResolvedValue([{ noteId: { toString: () => noteId } }]);
+  const originalWrite = fs.writeFileSync;
+  const write = jest.spyOn(fs, 'writeFileSync').mockImplementation((...args: Parameters<typeof fs.writeFileSync>) => {
+    if (args[0] === `${path()}.return-readiness-failure.json`) throw new Error('Disk unavailable');
+    return originalWrite(...args);
+  });
+  try {
+    await expect(
+      recoverEpochReturn(returning, state, path(), 'unused-upload', new AbortController().signal)
+    ).rejects.toBe(failure);
+    expect(write.mock.calls.some(([file]) => file === `${path()}.return-readiness-failure.json`)).toBe(true);
+    expect(mockArm).not.toHaveBeenCalled();
+  } finally {
+    write.mockRestore();
+  }
 });

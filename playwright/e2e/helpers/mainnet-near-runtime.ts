@@ -27,6 +27,8 @@ import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from './mainnet
 import {
   prepareMainnetNearRoundTrip,
   selectMainnetNearNativeAsset,
+  signedMainnetNearFees,
+  usesMainnetNearSignedEconomics,
   type MainnetNearPlanningFacts
 } from './mainnet-near-plan';
 import {
@@ -88,6 +90,25 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
     throw new Error('Native NEAR requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH);
   if (mode === 'recover') {
+    if (
+      process.env.MAINNET_NEAR_PREAUTH_UNSPENT === 'true' &&
+      previous &&
+      ['43811169447', '43999834254'].includes(previous.sourceRunId)
+    ) {
+      const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
+      if (!keyPair) throw new Error('Original Guardian is required for live NEAR unspent verification');
+      await restoreMainnetLoopGuardian(wallet, keyPair);
+      await verifyUnstartedNearForward(wallet, previous);
+      previous.phase = 'unspent';
+      previous.updatedAt = new Date().toISOString();
+      saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, previous);
+      mkdirSync('test-results', { recursive: true });
+      writeFileSync(
+        'test-results/mainnet-near-recovery.json',
+        `${JSON.stringify({ recoveryOnly: true, sourceRunId: previous.sourceRunId })}\n`
+      );
+      return;
+    }
     if (
       previous?.phase === 'forward-authorized' &&
       !previous.forwardQuote &&
@@ -207,7 +228,7 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
   const evmAccount = privateKeyToAddress(`0x${key}`);
   await restoreMainnetLoopGuardian(wallet, keyPair);
   const account = await wallet.getAccountAddress();
-  if (swap?.account !== account || epoch?.account !== account)
+  if ((swap?.sourceRunId === runId && swap.account !== account) || epoch?.account !== account)
     throw new Error('Native NEAR and both predecessor costs must belong to the same existing Guardian');
   const setup = await loadMainnetOneClickSetup(fetch, fetch, wallet.extensionId);
   if (!setup) throw new Error('Requested native NEAR coverage requires the owned live nightly catalog/config overlay');
@@ -276,7 +297,7 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
     },
     async request => {
       try {
-        return await requestOneClickQuote(setup.config, request, true, fetcher);
+        return await requestOneClickQuote(setup.config, request, !usesMainnetNearSignedEconomics(setup.config), fetcher);
       } catch (error) {
         if (error instanceof OneClickHttpError && error.status === 400) return undefined;
         throw error;
@@ -376,6 +397,38 @@ export async function runMainnetNearForward(
     setup.config
   );
   const deadline = assertOneClickFundingDeadline(requestDeadline, quote.quote.deadline);
+  if (usesMainnetNearSignedEconomics(setup.config)) {
+    const nativePrice = BigInt(state.native.usdMicros);
+    const tokenPrice = BigInt(state.evm.tokenUsdMicros);
+    const reverseDeadline = new Date(Date.now() + 300_000).toISOString();
+    const reverse = await requestOneClickQuote(
+      setup.config,
+      {
+        originAsset: evm,
+        destinationAsset: native,
+        amount: quote.quote.minAmountOut,
+        refundTo: state.evm.account,
+        recipient: state.account,
+        deadline: reverseDeadline,
+        slippageTolerance: 100
+      },
+      false,
+      createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId)
+    );
+    assertOneClickFundingDeadline(reverseDeadline, reverse.quote.deadline);
+    const nativeInput = tokenValueUsdMicro(BigInt(state.principal), 6, nativePrice, true);
+    const evmMinimum = tokenValueUsdMicro(BigInt(quote.quote.minAmountOut), 6, tokenPrice, false);
+    const evmInput = tokenValueUsdMicro(BigInt(reverse.quote.amountIn), 6, tokenPrice, true);
+    const nativeMinimum = tokenValueUsdMicro(BigInt(reverse.quote.minAmountOut), 6, nativePrice, false);
+    const loss = (nativeInput > evmMinimum ? nativeInput - evmMinimum : 0n) +
+      (evmInput > nativeMinimum ? evmInput - nativeMinimum : 0n) +
+      signedMainnetNearFees(quote, nativePrice, tokenPrice) +
+      signedMainnetNearFees(reverse, tokenPrice, nativePrice) +
+      tokenValueUsdMicro(BigInt(state.feeBudget), 6, nativePrice, true) +
+      tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, BigInt(state.evm.nativeUsdMicros), true);
+    if (loss > BigInt(state.lossBudgetUsdMicros))
+      throw new Error('Native NEAR signed forward economics exceed the remaining shared allowance');
+  }
   state.forwardQuote = {
     quoteHash: hashOneClickQuote(quote),
     correlationId: quote.correlationId,
@@ -832,14 +885,24 @@ export async function runMainnetNearReverse(
       return current > BigInt(original) ? current : BigInt(original);
     };
     const nativePrice = ceil(prices.usdMicrosById[nativePriceId], state.native.usdMicros);
-    const tokenPrice = ceil(prices.usdMicrosById[tokenPriceId], state.evm.tokenUsdMicros);
+    const currentTokenPrice = prices.usdMicrosById[tokenPriceId];
+    const tokenPrice = ceil(currentTokenPrice, state.evm.tokenUsdMicros);
     const gasPrice = ceil(prices.usdMicrosById.ethereum, state.evm.nativeUsdMicros);
     const loss =
       BigInt(state.principal) > BigInt(quote.quote.minAmountOut)
         ? BigInt(state.principal) - BigInt(quote.quote.minAmountOut)
         : 0n;
+    let signedLoss = 0n;
+    if (usesMainnetNearSignedEconomics(setup.config)) {
+      if (!currentTokenPrice || currentTokenPrice <= 0n) throw new Error('Missing fresh native NEAR token valuation');
+      const originalTokenPrice = BigInt(state.evm.tokenUsdMicros);
+      const creditPrice = currentTokenPrice < originalTokenPrice ? currentTokenPrice : originalTokenPrice;
+      const credit = tokenValueUsdMicro(amount, 6, creditPrice, false);
+      const principal = tokenValueUsdMicro(BigInt(state.principal), 6, nativePrice, true);
+      signedLoss = signedMainnetNearFees(quote, tokenPrice, nativePrice) + (principal > credit ? principal - credit : 0n);
+    }
     if (
-      tokenValueUsdMicro(loss + BigInt(state.feeBudget), 6, nativePrice, true) +
+      tokenValueUsdMicro(loss + BigInt(state.feeBudget), 6, nativePrice, true) + signedLoss +
         tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, gasPrice, true) >
       BigInt(state.lossBudgetUsdMicros)
     )
@@ -946,6 +1009,88 @@ export async function runMainnetNearReverse(
   }
 }
 
+export async function verifyUnstartedNearForward(
+  wallet: GuardianAwareWalletPage,
+  state: MainnetNearCheckpoint
+): Promise<void> {
+  parseMainnetNearCheckpoint(state);
+  const quote = state.forwardQuote;
+  const windowEnd = Math.max(Date.parse(state.createdAt), Date.parse(state.pricedAt)) + 600_000;
+  if (
+    !['43811169447', '43999834254'].includes(state.sourceRunId) ||
+    state.authorizationRunId !== state.sourceRunId ||
+    state.phase !== 'forward-authorized' ||
+    !quote ||
+    state.sendAuthority ||
+    state.forwardMidenTxId ||
+    state.forwardEvmTxHash ||
+    state.forwardReceived ||
+    state.reverseQuote ||
+    state.returnAmount ||
+    state.evmNonceBefore !== undefined ||
+    state.transactions?.length ||
+    state.consumeAuthority ||
+    state.returnProviderTxId ||
+    state.returnNoteId ||
+    state.returnMidenTxId ||
+    state.reverseReceived ||
+    state.refunded ||
+    state.returnValuation ||
+    state.realizedCostUsdMicros !== undefined ||
+    state.paidMidenFees !== '0' ||
+    state.paidEvmFees !== '0' ||
+    state.evm.chainId !== 42161 ||
+    !Number.isFinite(windowEnd) ||
+    Date.now() <= windowEnd ||
+    Date.now() <= Date.parse(quote.deadline) ||
+    (await wallet.getAccountAddress()) !== state.account
+  )
+    throw new Error('Original NEAR pre-authorization is live or has an unresolved execution fingerprint');
+  if ((await vaultBalanceByFaucetId(wallet.page, state.native.faucetId)) !== BigInt(state.native.balance))
+    throw new Error('Original NEAR native inventory changed before unspent reconciliation');
+  const client = createPublicClient({
+    chain: mainnetChain(state.evm.chainId),
+    transport: http(mainnetRpc(state.evm.chainId))
+  });
+  const account = getAddress(state.evm.account);
+  if (
+    (await client.getChainId()) !== state.evm.chainId ||
+    (await client.getBalance({ address: account })) !== BigInt(state.evm.nativeBalance) ||
+    (await client.readContract({
+      address: getAddress(state.evm.token),
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [account]
+    })) !== BigInt(state.evm.tokenBalance) ||
+    (await client.getTransactionCount({ address: account, blockTag: 'latest' })) !== 84 ||
+    (await client.getTransactionCount({ address: account, blockTag: 'pending' })) !== 84
+  )
+    throw new Error('Original NEAR EVM inventory or unused nonce changed');
+  const status = await fetchOneClickStatus(
+    {
+      serviceUrl: state.serviceUrl,
+      appFees: state.appFees,
+      feePolicy: state.feePolicy,
+      midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }]
+    },
+    quote.depositAddress,
+    undefined,
+    undefined,
+    createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId)
+  );
+  if (
+    status.status !== 'PENDING_DEPOSIT' ||
+    hashOneClickQuote(status.quoteResponse) !== quote.quoteHash ||
+    status.quoteResponse.quote.depositAddress !== quote.depositAddress ||
+    status.swapDetails.intentHashes.length ||
+    status.swapDetails.nearTxHashes.length ||
+    status.swapDetails.originChainTxHashes.length ||
+    status.swapDetails.destinationChainTxHashes.length ||
+    (status.swapDetails.depositedAmount !== undefined && BigInt(status.swapDetails.depositedAmount) !== 0n)
+  )
+    throw new Error('Original NEAR quote is funded, different or its unused outcome is unknown');
+}
+
 async function originalMainnetNearStatus(
   wallet: GuardianAwareWalletPage,
   state: MainnetNearCheckpoint,
@@ -958,14 +1103,11 @@ async function originalMainnetNearStatus(
     serviceUrl: state.serviceUrl,
     appFees: state.appFees,
     feePolicy: state.feePolicy,
-    midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.faucetId, decimals: 6 }]
+    midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }]
   };
   const fetcher = createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId);
   const checked = (status: OneClickStatusResponse) => {
-    if (
-      hashOneClickQuote(status.quoteResponse) !== authority.quoteHash ||
-      status.quoteResponse.correlationId !== authority.correlationId
-    )
+    if (hashOneClickQuote(status.quoteResponse) !== authority.quoteHash)
       throw new Error('Native NEAR provider response differs from the original recorded quote');
     return status;
   };

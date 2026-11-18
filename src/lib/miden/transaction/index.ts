@@ -20,16 +20,16 @@ import {
   MultisigService,
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
   ProposalChainSyncError,
+  type AbandonTicket,
   type ProposalSyncPhase
 } from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
+  directSwitchTriggerFor,
   GuardianWriteDiscardedError,
   isHotKeyRotatedOutError,
-  isGuardianAccountUnusable,
   isGuardianSwitchDiscardedError,
-  isGuardianUnreachableError,
   readChainAccountCommitment,
   readLastSyncedVerdict
 } from 'lib/miden/guardian/direct-switch';
@@ -52,6 +52,7 @@ import {
   isGuardianCommitmentMismatch,
   isGuardianPendingConflict,
   isGuardianRateLimited,
+  isNewGuardianAnswer,
   recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry
@@ -1441,8 +1442,12 @@ async function reconcileStructuralApplyFailure(
       // with. Completion handles the undefined service by registering on the new
       // guardian directly, which is exactly what a released operator leaves us
       // needing.
-      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
-      console.warn('[Guardian] old guardian unusable during switch reconcile - finalizing directly', error);
+      //
+      // A refusal (any HTTP 4xx, a 401 included) is the same condition here: the
+      // old operator cannot help, and the switch is already submitted.
+      const reconcileTrigger = directSwitchTriggerFor(error);
+      if (reconcileTrigger === undefined) throw error;
+      console.warn(`[Guardian] old guardian ${reconcileTrigger} during switch reconcile - finalizing directly`, error);
     }
   }
   // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
@@ -1465,10 +1470,18 @@ async function reconcileStructuralApplyFailure(
     // The outgoing guardian may hold the executed delta for a nonce the chain will never see, and a
     // later switch meets that candidate as a 409. Not gated on `switchDeltaPushed`: a silent push can
     // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
-    const nonce = (tx as SwitchGuardianTransaction).extraInputs?.switchProposalNonce;
+    const switchInputs = (tx as SwitchGuardianTransaction).extraInputs;
+    const nonce = switchInputs?.switchProposalNonce;
+    const proposalId = switchInputs?.switchProposalId;
     if (isGuardianSwitchDiscardedError(error) && typeof nonce === 'number') {
-      if (service) await abandonDiscardedCandidate(tx.accountId, service, nonce);
-      else flagCandidateForAbandon(tx.accountId, nonce);
+      if (service) {
+        await abandonDiscardedCandidate(
+          tx.accountId,
+          service,
+          nonce,
+          typeof proposalId === 'string' ? proposalId : undefined
+        );
+      } else flagCandidateForAbandon(tx.accountId, nonce);
     }
     throw error;
   }
@@ -3140,10 +3153,15 @@ const pushSwitchDeltaToOutgoingGuardian = async (
  * The record is there to flag: every caller reaches this after the submit resolved, and `recordLeftCandidate`
  * wrote it, with its proposal's stamps, earlier in the same call stack.
  */
-const abandonDiscardedCandidate = async (accountId: string, service: MultisigService, nonce: number): Promise<void> => {
+const abandonDiscardedCandidate = async (
+  accountId: string,
+  service: MultisigService,
+  nonce: number,
+  proposalId: string | undefined
+): Promise<void> => {
   try {
     await withOutgoingGuardianDeadline(
-      () => service.abandonCandidate(nonce),
+      () => service.abandonCandidate(nonce, proposalId),
       'abandoning the discarded candidate on its guardian'
     );
   } catch (abandonError) {
@@ -3195,13 +3213,19 @@ const requireLandedCommit = async (
     throw new Error(`Guardian ${tx.type} ${id} was submitted, but the node has not confirmed it; not completing it.`);
   }
   const nonce = tx.extraInputs?.proposalNonce;
+  const proposalId = tx.extraInputs?.proposalId;
   if (typeof nonce === 'number') {
     try {
       const service = await withOutgoingGuardianDeadline(
         () => buildColdServiceForAccount(tx.accountId, guardianProvider),
         'loading the cold service to abandon a discarded candidate'
       );
-      await abandonDiscardedCandidate(tx.accountId, service, nonce);
+      await abandonDiscardedCandidate(
+        tx.accountId,
+        service,
+        nonce,
+        typeof proposalId === 'string' ? proposalId : undefined
+      );
     } catch (buildError) {
       console.warn(
         `[Guardian] could not build the cold service to abandon the discarded candidate at nonce ${nonce}:`,
@@ -3236,7 +3260,7 @@ const pollLandedCommit = async (
 
 /**
  * The commit wait of a coordinated structural write, settled on the node's verdict (#1233). `service`'s
- * guardian holds a candidate for `nonce` by now: the switch's pushed delta, or the co-sign's for a
+ * guardian holds a candidate for `proposal` by now: the switch's pushed delta, or the co-sign's for a
  * rotation or a threshold update.
  *
  * A wait that fails without the node's own discard asks the node once. Committed: return, and the
@@ -3249,7 +3273,7 @@ const pollLandedCommit = async (
 const waitForStructuralCommit = async (
   id: string,
   service: MultisigService,
-  nonce: number,
+  proposal: Pick<Proposal, 'id' | 'nonce'>,
   type: ITransactionType,
   accountId: string
 ): Promise<void> => {
@@ -3267,7 +3291,7 @@ const waitForStructuralCommit = async (
       return;
     }
     if (landed === undefined) throw waitError;
-    await abandonDiscardedCandidate(accountId, service, nonce);
+    await abandonDiscardedCandidate(accountId, service, proposal.nonce, proposal.id);
     throw new GuardianWriteDiscardedError(`Guardian ${type} ${id} did not land: the node discarded it.`, {
       cause: waitError
     });
@@ -3278,7 +3302,7 @@ const waitForStructuralCommit = async (
  * One-line description of a classified guardian failure, for the audit field on
  * the row. Length-capped because this is persisted: a wasm trap's message can run
  * to kilobytes, and a row is not the place to keep one. The HTTP status is
- * included when present - it is what the unreachability verdict turned on, so a
+ * included when present - it is what the classified verdict turned on, so a
  * later reader can judge whether that verdict was right.
  */
 const describeError = (error: unknown): string => {
@@ -3615,6 +3639,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
   const plain: GuardianCandidate = {
     endpoint: prior.endpoint,
     nonce: prior.nonce,
+    ...(prior.proposalId === undefined ? {} : { proposalId: prior.proposalId }),
     proposedAt: prior.proposedAt,
     proposedAtMono: prior.proposedAtMono
   };
@@ -3625,7 +3650,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
   }
   try {
     await withTimeout(
-      service.abandonCandidate(prior.nonce),
+      service.abandonCandidate(prior.nonce, prior.proposalId),
       PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
       'retrying the abandon of a failed write on its guardian'
     );
@@ -3675,6 +3700,7 @@ const recordLeftCandidate = (
   recordGuardianCandidate(canonicalWalletAccountId(transaction.accountId), {
     endpoint: service.guardianEndpoint,
     nonce: proposal.nonce,
+    proposalId: proposal.id,
     ...proposalStamps,
     ...(attemptId === undefined ? {} : { attemptId })
   });
@@ -3695,6 +3721,7 @@ const persistGuardianCandidate = async (
   const candidate = {
     endpoint: service.guardianEndpoint,
     nonce: proposal.nonce,
+    proposalId: proposal.id,
     proposedAt: proposalStamps.proposedAt,
     attemptId
   };
@@ -3732,12 +3759,13 @@ const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number
 const recordUnabandonedCandidate = (
   accountId: string,
   service: MultisigService,
-  nonce: number,
+  proposal: Pick<Proposal, 'id' | 'nonce'>,
   proposalStamps: ProposalStamps
 ): void =>
   recordGuardianCandidate(canonicalWalletAccountId(accountId), {
     endpoint: service.guardianEndpoint,
-    nonce,
+    nonce: proposal.nonce,
+    proposalId: proposal.id,
     ...proposalStamps,
     abandon: true
   });
@@ -3763,12 +3791,12 @@ const assertProposalEffectBeforeSigning = async (
       // later process's startup sweep must not send it again.
       await forgetPersistedCandidate(transaction, proposal.nonce);
       await withOutgoingGuardianDeadline(
-        () => service.abandonCandidate(proposal.nonce),
+        () => service.abandonCandidate(proposal.nonce, proposal.id),
         'abandoning a guardian candidate whose effect was refused'
       );
     } catch (abandonError) {
       console.error('Failed to abandon a refused Guardian candidate', { nonce: proposal.nonce, error: abandonError });
-      recordUnabandonedCandidate(transaction.accountId, service, proposal.nonce, proposalStamps);
+      recordUnabandonedCandidate(transaction.accountId, service, proposal, proposalStamps);
     }
     throw error;
   }
@@ -3839,9 +3867,10 @@ export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvid
       // keep leaves the candidate on another Guardian than the one this service reaches.
       const record = releasable(accountId, nonce, attemptId);
       if (record === undefined || !sameGuardianEndpoint(record.endpoint, service.guardianEndpoint)) return undefined;
+      let ticket: AbandonTicket;
       try {
-        await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(nonce),
+        ticket = await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(nonce, record.proposalId),
           'abandoning a kept candidate on its guardian'
         );
       } catch (abandonError) {
@@ -3856,7 +3885,7 @@ export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvid
       return {
         status: timeoutMs =>
           withTimeout(
-            service.abandonStatus(nonce),
+            service.abandonStatus(nonce, ticket),
             Math.min(timeoutMs, OUTGOING_GUARDIAN_DEADLINE_MS),
             'reading the release of a kept candidate'
           )
@@ -4037,9 +4066,10 @@ const generateGuardianTransaction = async (
       // guardian's pubkey FIRST (`guardian/index.ts`), so a typo'd or down NEW
       // endpoint fails there - and reporting that as "outgoing guardian
       // unreachable" blames the wrong operator on the one path whose entire job
-      // is saying which one is down. The two are not separable from out here
-      // (one rejection, either origin), so the message widens rather than
-      // guesses; the direct path then re-fails on the new endpoint and names it.
+      // is saying which one is down. A rejection of the new guardian's own key
+      // fetch is marked, so its origin is known and the subject is 'new guardian'.
+      // An unmarked rejection of the proposal push has either origin, so the
+      // subject stays 'outgoing or new guardian' and does not guess.
       let unreachableSubject = 'outgoing guardian';
       let syncPhase: ProposalSyncPhase | undefined;
       try {
@@ -4073,7 +4103,6 @@ const generateGuardianTransaction = async (
         // When the guardian side is unreachable (down operator, DNS, proxy 5xx),
         // fall back to the direct on-chain switch - the whole point of
         // switch-guardian as a recovery path is escaping a dead guardian.
-        // Reachable-guardian errors (401/409/…) keep the normal handling.
         //
         // "It answered, and it cannot co-sign for this account" is the second
         // condition that has to route here, and leaving it out closed the escape
@@ -4093,20 +4122,36 @@ const generateGuardianTransaction = async (
         // AWAY both are exactly as unusable as one that is down, and the direct
         // path needs nothing from either: it signs locally with hot + cold and
         // submits on chain.
-        const directSwitchTrigger = isGuardianUnreachableError(error)
-          ? `${unreachableSubject} unreachable`
-          : isGuardianAccountUnusable(error)
-            ? // Attributed by PHASE, not hardcoded. Only the service load is
-              // account-scoped to the outgoing operator alone; once it has
-              // succeeded the new endpoint is in play too, and a user-typed URL
-              // answering its non-account-scoped `/pubkey` with
-              // `404 {"code":"data_unavailable"}` reaches this same branch. This
-              // reason string is the row's only record of which operator a
-              // verdict was about, so it widens rather than guessing - the same
-              // rule the block above states for unreachability.
-              `${unreachableSubject} cannot co-sign for this account`
-            : undefined;
-        if (directSwitchTrigger === undefined) throw error;
+        //
+        // A refusal (any HTTP 4xx: a 401, a 403, a 409 that did not clear, a 429)
+        // is the third condition. The user asked to leave this operator, so its
+        // refusal of the proposal must not block the switch. A refusal is the
+        // OUTGOING Guardian's answer: a 4xx from the NEW Guardian's key fetch is
+        // marked in `createSwitchGuardianProposal`, is not a refusal, and fails the
+        // row with the Guardian's own error, which gives the status and the reason
+        // and does not name the endpoint. An error that is not a Guardian answer
+        // (a local failure, a rejected signature prompt) has no trigger and fails
+        // the row.
+        const trigger = directSwitchTriggerFor(error);
+        if (trigger === undefined) throw error;
+        // Attributed by PHASE and by MARKER, not hardcoded. Only the service load
+        // is account-scoped to the outgoing operator alone. A user-typed new URL
+        // that answers its key fetch with `404 data_unavailable` is marked and has
+        // no trigger. A marked error that reaches here is an unreachable verdict of
+        // the new Guardian, so its subject is 'new guardian'. Only the outgoing
+        // push can give an account-scoped code after the service loaded.
+        //
+        // Known limit: the multisig client fetches the new Guardian's key again
+        // inside the proposal push (`buildSwitchGuardianSummary` and
+        // `verifyGuardianEndpointCommitment` in `@openzeppelin/miden-multisig-client`,
+        // `multisig.js` lines 1295-1323 and 268-281). Its error carries no URL and
+        // is not marked, so a 4xx from that second fetch looks like an outgoing
+        // refusal and starts the direct switch. The direct switch gives the switch
+        // the user asked for. A fix needs the multisig client to mark or expose the
+        // origin of that fetch. This is why an unmarked push refusal keeps the
+        // subject 'outgoing or new guardian'.
+        const subject = isNewGuardianAnswer(error) ? 'new guardian' : unreachableSubject;
+        const directSwitchTrigger = `${subject} ${trigger}`;
         console.warn(`[Guardian] ${directSwitchTrigger} - switching directly on-chain:`, error);
         await generateDirectSwitchGuardianTransaction(
           sgTx,
@@ -4475,7 +4520,7 @@ const generateGuardianTransaction = async (
           }
           try {
             await withOutgoingGuardianDeadline(
-              () => service.abandonCandidate(proposalResult.nonce),
+              () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
               'abandoning a custom proposal whose summary differs from the approved effects'
             );
           } catch (abandonError) {
@@ -4483,7 +4528,7 @@ const generateGuardianTransaction = async (
               nonce: proposalResult.nonce,
               error: abandonError
             });
-            recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+            recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
           }
           throw effectsError;
         }
@@ -4555,8 +4600,14 @@ const generateGuardianTransaction = async (
       // verdict's timing changes what it means for the direct path, which asks the
       // outgoing operator for nothing; the pushed delta is retracted best-effort
       // just below, exactly as it is for an unreachable operator.
-      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
-      console.warn('[Guardian] outgoing guardian unusable at cold co-sign - switching directly on-chain:', error);
+      //
+      // A refusal of the cold co-sign (any HTTP 4xx) goes to the direct path too.
+      const coldCoSignTrigger = directSwitchTriggerFor(error);
+      if (coldCoSignTrigger === undefined) throw error;
+      console.warn(
+        `[Guardian] outgoing guardian ${coldCoSignTrigger} at cold co-sign - switching directly on-chain:`,
+        error
+      );
       // Try to retract the pushed delta first, best-effort and swallowed - the
       // same idiom the submission failure path below uses. It will usually fail
       // (it needs the operator we just failed to reach), but "the call may fail"
@@ -4573,16 +4624,17 @@ const generateGuardianTransaction = async (
       // there is no co-signature the chain may be about to consume.
       //
       // Deadline-bounded like the calls above it, and for a sharper reason: one
-      // of the two verdicts that reach here is that this operator is unreachable,
-      // and the shape that most often produces that verdict is one that accepts
-      // the connection and never replies. Left to the fetch boundary's minute per
+      // of the three verdicts that reach here (unreachable, cannot co-sign and
+      // refused) is that this operator is unreachable, and the shape that most
+      // often produces that verdict is one that accepts the connection and never
+      // replies. Left to the fetch boundary's minute per
       // request, a best-effort call against it holds the row at `signing-proposal`
       // ahead of the fallback, and `switch-guardian` has no requeue and no Retry.
       // A cleanup step must not be able to cost more than the thing it cleans up.
       try {
         await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(proposalResult.nonce),
+          () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
           'abandoning the pending delta on the outgoing guardian'
         );
       } catch (abandonError) {
@@ -4590,15 +4642,13 @@ const generateGuardianTransaction = async (
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+        recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
       }
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         signCallback,
         guardianProvider,
-        `outgoing guardian ${
-          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
-        } at cold co-sign, after the proposal was pushed: ${describeError(error)}`
+        `outgoing guardian ${coldCoSignTrigger} at cold co-sign, after the proposal was pushed: ${describeError(error)}`
       );
       return;
     }
@@ -4881,7 +4931,11 @@ const generateGuardianTransaction = async (
       submitResolved &&
       (transaction.type === 'replace-hot-key' || transaction.type === 'update-procedure-threshold')
     ) {
-      transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
+      transaction.extraInputs = {
+        ...transaction.extraInputs,
+        proposalNonce: proposalResult.nonce,
+        proposalId: proposalResult.id
+      };
     }
     // A Guardian `commitment_mismatch` refused the push before it wrote a candidate, so there is nothing to abandon.
     if (!submitResolved && !keptForVerdict && !isGuardianCommitmentMismatch(error)) {
@@ -4896,7 +4950,7 @@ const generateGuardianTransaction = async (
         // the same loop) down with it, so the row is not even reaped.
         await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(proposalResult.nonce),
+          () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
           'abandoning the guardian candidate after a failed submission'
         );
       } catch (abandonError) {
@@ -4920,13 +4974,13 @@ const generateGuardianTransaction = async (
           inlineSubmitNotReached ||
           (!offscreenDispatched && !isKilledPipeline(error) && !submitStageRecorded)
         ) {
-          recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+          recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
         }
       }
     }
     // The FOURTH and last outgoing-guardian failure point, behaving like the
     // other three. A `switch-guardian` that reaches here because the operator is
-    // unreachable or cannot co-sign has no requeue and no user-facing Retry, so
+    // unreachable, cannot co-sign or refuses has no requeue and no user-facing Retry, so
     // rethrowing ends it Failed and leaves the user pointed at the very guardian
     // they were trying to escape - the exact dead end this feature exists to
     // remove.
@@ -4945,18 +4999,23 @@ const generateGuardianTransaction = async (
     //
     // The poison case above is deliberately excluded and still rethrows - an
     // evicted pipeline is abandoned rather than stopped, and may yet submit.
-    if (
-      transaction.type === 'switch-guardian' &&
-      !guardianCoSignReturned &&
-      (isGuardianUnreachableError(error) || isGuardianAccountUnusable(error))
-    ) {
+    //
+    // A refusal of the final co-sign (any HTTP 4xx) goes to the direct path too,
+    // under the same `guardianCoSignReturned` condition.
+    const finalCoSignTrigger =
+      transaction.type === 'switch-guardian' && !guardianCoSignReturned ? directSwitchTriggerFor(error) : undefined;
+    if (finalCoSignTrigger !== undefined) {
+      console.warn(
+        `[Guardian] outgoing guardian ${finalCoSignTrigger} at the final co-sign - switching directly on-chain:`,
+        error
+      );
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         signCallback,
         guardianProvider,
-        `outgoing guardian ${
-          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
-        } at the final co-sign, after the proposal was pushed: ${describeError(error)}`
+        `outgoing guardian ${finalCoSignTrigger} at the final co-sign, after the proposal was pushed: ${describeError(
+          error
+        )}`
       );
       return;
     }
@@ -5019,7 +5078,7 @@ const generateGuardianTransaction = async (
       // structural completion below (e.g. leaving replace-hot-key's chain rotation done
       // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
       // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
-      await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type, transaction.accountId);
+      await waitForStructuralCommit(id, service, proposalResult, transaction.type, transaction.accountId);
     }
 
     // Sync the cached hot service so the next consumer sees post-tx state.

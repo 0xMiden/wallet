@@ -583,10 +583,10 @@ export const completeReplaceHotKeyTransaction = async (
     // Re-register on the guardian - REQUIRED, and it must carry the
     // POST-rotation signer set. The guardian's request-auth allowlist
     // (`auth.cosigner_commitments`) is written ONLY by `/configure`
-    // (`registerOnGuardian`); the delta pipeline canonicalizes the state blob
+    // (`configureGuardianAccount`); the delta pipeline canonicalizes the state blob
     // but never touches the allowlist, so without this push every request
     // signed by the NEW hot key 401s ("session expired") forever.
-    // `registerOnGuardian` derives the allowlist from the service's in-memory
+    // Without a fresh read the registration falls back to the service's in-memory
     // `signerCommitments`. `buildColdMultisigService` loads that field from the
     // guardian's stored blob (which can still be pre-rotation), so
     // `reRegisterCurrentStateOnGuardian` re-derives it from the freshly-synced
@@ -1278,7 +1278,7 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result, tx.id),
+    ...feeFieldsFromResult(result, tx.id, tx),
     displayMessage: tx.extraInputs?.provider === 'usdcx' ? 'USDCx burn submitted' : 'Bridged to EVM',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
@@ -1631,6 +1631,7 @@ export const updateBridgedReceivePhase = async (
       | 'errorId'
       | 'usdcxRemoteRecipient'
       | 'epochAllocatorUrl'
+      | 'epochLockedDeposit'
     >
   > & {
     /** What failed the row, read only by its crash report and never stored: a cause can carry addresses and amounts. */

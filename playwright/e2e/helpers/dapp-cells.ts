@@ -77,6 +77,14 @@ export interface FailureEvidence {
   rowStatus?: number;
   rowError?: string;
   dappError?: DappError;
+  /** Driver envelopes, not simulation-only latency; recorded before the unchanged refusal block assertion. */
+  refusalTiming?: {
+    beforeHeight: number;
+    afterHeight: number;
+    beforeSyncMs: number;
+    requestMs: number;
+    afterSyncMs: number;
+  };
   popupOpened?: boolean;
   previewSimulationFailed?: boolean;
   providerAddress?: string | null;

@@ -141,6 +141,34 @@ it('builds a bounded native checkpoint from real quote-boundary results without 
   expect(state.forwardQuote).toBeUndefined();
   expect(state.sendAuthority).toBeUndefined();
 });
+it('rejects dry fee terms when direct nightly planning requires signed execution terms', async () => {
+  const f = planningFixture();
+  f.facts.config.feePolicy = undefined;
+  await expect(prepareMainnetNearRoundTrip(f.facts, f.quote)).rejects.toThrow(/signed execution terms/);
+});
+it('rejects direct execution terms that would refund no principal', async () => {
+  const f = planningFixture();
+  f.facts.config.feePolicy = undefined;
+  await expect(prepareMainnetNearRoundTrip(f.facts, async request => {
+    const response = await f.quote(request);
+    if (response) {
+      response.quoteRequest.dry = false;
+      response.quote.refundFee = response.quote.amountIn;
+    }
+    return response;
+  })).rejects.toThrow(/bounded refund fee/);
+});
+it('accepts bounded execution terms without a fabricated partner policy', async () => {
+  const f = planningFixture();
+  f.facts.config.feePolicy = undefined;
+  const state = await prepareMainnetNearRoundTrip(f.facts, async request => {
+    const response = await f.quote(request);
+    if (response) response.quoteRequest.dry = false;
+    return response;
+  });
+  expect(state.feePolicy).toBeUndefined();
+  expect(state.sendAuthority).toBeUndefined();
+});
 it('refuses a requested route whose conservative quote/fee pair exceeds the actual remaining shared allowance', async () => {
   const f = planningFixture();
   f.facts.lossBudgetUsdMicros = 3000n;

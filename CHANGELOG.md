@@ -1,6 +1,30 @@
 # Changelog
 
-## 1.17.12 (TBD)
+## 1.18.1 (TBD)
+
+- [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.
+
+- [FIX][ci] Allow a first explicitly approved Swap recovery return when an unsigned plan was retained and still matches the verified proceeds and vault balances. Previously issued return authority remains ineligible.
+
+- [FIX][ci] Retry a timed-out test CLI sync once without resending a transaction or changing wallet deadlines.
+
+- [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.
+- [FIX][ci] Keep checking the same public faucet note after a commitment read transport error, within the existing deadline and without another grant.
+
+- [FIX][ci] Compare the USDCx burn activity fee with verification and sponsorship combined, and count each component once in Chrome and iOS live vault checks.
+
+- [FIX][ci] Read measured maximum fee rows in Chrome and iOS USDCx burn reviews, restore each dApp's existing account grant before completion reads, and retain scalar refusal-phase and screenshot-helper diagnostics without changing existing timing bounds.
+- [FIX][ci] Check signed 1Click execution economics against the shared nightly loss allowance when the direct NEAR endpoint has no configured application fees or explicit fee policy. Public wallet settings are unchanged.
+
+- [FIX][ci] Observe an early NEAR quote-response rejection while the nightly waits for Review, preserving the original error on await without changing requests, amounts, timeouts or authorization.
+
+- [FIX][all] A Fast bridge-in whose deposit landed in The Compact while Epoch refused its allocation now reads Deposit locked, and its Activity details let the depositing EVM wallet retry the bridge over the locked balance or withdraw the whole lock back after the lock's reset period; Settings > Advanced > Recover locked bridge funds scans The Compact for every Fast bridge-in address and the connected EVM wallet and offers the same withdraw, cancel and retry per lock; the Fast bridge-in flow lets the EVM wallet disable a forced withdrawal and continues with a fresh quote after confirmation (#2120).
+- [FIX][ci] Retain the first Epoch return solve-failure as a keyed fingerprint and finite SDK kind/HTTP status without exporting private errors or changing transaction, retry, timeout or authorization behavior.
+
+- [CHANGE][all] A basket token's page shows its composition, read from its vault: a bar split by each constituent's share of the vault's value and a list of the constituents with their shares. A basket token now has a 24h move, on its page and in every price list, and its page has a chart, both derived from the constituents' market prices weighted by that composition.
+- [FIX][all] Switch the Guardian directly on chain when the outgoing Guardian refuses the switch proposal or a co-signature with any HTTP 4xx (a 401 included), so a Guardian that rejects this device cannot block the switch.
+
+- [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
 
 - [CHANGE][all] Polish onboarding's Guardian steps and wallet-ready screen: new intro illustration on a stage, filled card icons, a Learn more pill, a provider sheet with outlined cards, the fastest operator first under a Fastest pill, and a new wallet-ready illustration with a larger headline.
 - [CHANGE][extension] Redesign the dApp connect window: the site and connecting account up top, what the site can and cannot do as a fact list, matching warning and error notices, Connect held until the private-data consent is ticked, and the app's page header on every confirm window.
@@ -9,7 +33,20 @@
 - [CHANGE][extension] Restyle the dApp data-request windows (private notes, assets, consumable notes, private-note import) to open like Connect: the Bread and site tiles with the site up top, what it asks for under it, the payload as a titled card, and the private-note download below it; a failed Confirm shows the Couldn't confirm notice and offers Try again.
 - [CHANGE][all] Tidy the Send review: drop the recipient bubble and amount and fee pills that repeated the card below, show the full recipient address right-aligned in the To row, set the USD value and the pending-transfer note in Nunito at 16px, and lay out Advanced options like the other rows, with the transfer type on the right and the expiration under it.
 
-## 1.17.11 (TBD)
+## 1.18.0 (2026-11-17)
+
+- [FIX][all] USDCx burn confirmation shows and records a source-bound native fee maximum. Both signing paths accept only the exact protocol sponsorship for the approved burn within that total cap, and receipts include its actual cost.
+
+- [FIX][ci] Validate the updated extension on its existing profile, keep dApp request accounts and required adapter checks aligned with SDK 0.18, and restore armed read faults before replacement offscreen clients start.
+
+- [CHANGE][all] Upgrade the Miden web, React and wallet adapter SDKs to 0.18.0 and the Rust client and CLI to 0.18.2, with matching native proving dependencies.
+- [FIX][ci] Recognize the next exactly pinned, independently audited unsigned NEAR nightly checkpoint for recovery-only no-spend reconciliation without replaying its expired quote or relaxing SDK upload and inventory checks.
+
+- [FIX][ci] Wait for the exact Epoch return note on the public chain before wallet import and retain sanitized return-readiness failures without exposing private logs or changing claim authorization.
+
+- [FIX][ci] Reconcile the independently audited, expired unsigned NEAR nightly quote only after exact original run/gate provenance, unchanged holdings and unused provider status with canonical hex faucet IDs and normalized tracing metadata, retaining signature and exact quote verification; keep reconciliation recovery-only and retain all SDK upload safeguards.
+
+- [CHANGE][ci] Run mainnet bridges independently with bridges_only, keep swaps_only, and retain both groups in the default nightly with unchanged recovery and spending guards.
 
 - [FIX][all] Auto-consume measures a claim against its fee floor again after it removes the notes that another claim covers or that wait for a retry, so a small payment is no longer claimed alone at a loss (#2192).
 - [FIX][all] Keep documentation and E2E gallery deployments compatible with SHA-pinned action policies.
@@ -21,6 +58,7 @@
 - [CHANGE][all] Show distinct token names and an expandable full Faucet ID with copy feedback on token details.
 - [FEATURE][all] Home hides dust tokens, those worth less than a tenth of a cent, behind a Hide dust tokens switch in General Settings that is on by default; the native token always stays listed.
 - [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
+- [CHANGE][all] Guardian accounts use the 0.19.0-rc.2 Guardian clients for the Miden 0.18 protocol line.
 - [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
 - [FIX][all] Use shared adaptive amount displays across wallet screens, retain exact approval values and number animations, and prevent long bridge amounts from overlapping the transfer arrow (#2114).
 - [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).

@@ -581,7 +581,12 @@ function parseStatus(value: unknown): OneClickStatusResponse {
     !Array.isArray(value.swapDetails.nearTxHashes)
   )
     throw new Error('Invalid 1Click status response');
-  const quoteResponse = parseOneClickQuoteResponse(value.quoteResponse);
+  // Status omits nested tracing metadata; it is not part of the signed quote payload.
+  const quoteResponse = parseOneClickQuoteResponse(
+    isRecord(value.quoteResponse) && value.quoteResponse.correlationId === undefined
+      ? { ...value.quoteResponse, correlationId: value.correlationId }
+      : value.quoteResponse
+  );
   if (!verifyOneClickQuoteSignature(quoteResponse)) throw new Error('1Click status quote signature is invalid');
   return {
     correlationId: value.correlationId,

@@ -59,7 +59,7 @@ export CARGO_PROFILE_RELEASE_DEBUG=false
 
 # Ask cargo where the build lands: CARGO_TARGET_DIR or a build.target-dir config moves it out of
 # $WEB_SDK/target, and a hardcoded path then reports a successful build as "produced no library".
-TARGET_DIR="$(cd "$WEB_SDK" && cargo metadata --format-version 1 --no-deps \
+TARGET_DIR="$(cd "$WEB_SDK" && cargo metadata --locked --format-version 1 --no-deps \
   | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).target_directory')"
 [ -n "$TARGET_DIR" ] || { echo "Error: could not resolve cargo's target directory" >&2; exit 1; }
 
@@ -71,7 +71,7 @@ trap 'rm -rf "$STAGING"' EXIT
 for slice in "${SLICES[@]}"; do
   target="${slice%%:*}"
   echo "Building $target ..."
-  ( cd "$WEB_SDK" && cargo build --release -p miden-mobile-prover --target "$target" )
+  ( cd "$WEB_SDK" && cargo build --release --locked -p miden-mobile-prover --target "$target" )
   built="$TARGET_DIR/$target/release/libmiden_mobile_prover.a"
   [ -f "$built" ] || { echo "Error: $target produced no library" >&2; exit 1; }
   # The C ABI the Swift plugin links against. If this is missing the app fails to
@@ -94,7 +94,7 @@ done
 for slice in "${SLICES[@]}"; do
   dir="${slice##*:}"
   cp "$STAGING/$dir.a" "$XCFRAMEWORK/$dir/libmiden_mobile_prover.a"
-  size=$(stat -f%z "$XCFRAMEWORK/$dir/libmiden_mobile_prover.a")
+  size=$(wc -c < "$XCFRAMEWORK/$dir/libmiden_mobile_prover.a")
   printf "  %-22s %.1f MB\n" "$dir" "$(echo "$size" | awk '{print $1/1048576}')"
   if [ "$size" -gt 104857600 ]; then
     echo "Error: $dir is over GitHub's 100 MB file limit and cannot be pushed." >&2

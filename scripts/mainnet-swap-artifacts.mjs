@@ -56,6 +56,81 @@ export function knownUnspentEpochPreAuthorization(checkpointDigest, run, jobs, n
   });
 }
 
+export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, audit, auditJobs, now = Date.now()) {
+  // The pinned native gate persists its SDK request before upload, then releases it only after immutable ACK.
+  const attempt01 = checkpointDigest === 'a4546b4126ba6c81bc19272117d60ac904eedcea65add3ed7ff7d990817d2b12';
+  if (
+    (!attempt01 && checkpointDigest !== 'd2283bdd2372696ebe109c6b31ce5190ac7b29be07901e2ede142ba8c1f18524') ||
+    !Number.isSafeInteger(now) ||
+    now <= Date.parse(attempt01 ? '2026-11-17T02:21:33.561Z' : '2026-11-16T05:57:46.601Z') ||
+    !Array.isArray(jobs?.jobs) ||
+    !Array.isArray(auditJobs?.jobs)
+  )
+    return false;
+  const scheduled = {
+    id: attempt01 ? 43999834254 : 43811169447,
+    workflow_id: 391951744,
+    head_sha: attempt01 ? 'c3b9997f069267a02a8e1715f691d0187982e23d' : '7fccdbfc371cdefc542b45af51de192032a8d415',
+    head_branch: attempt01 ? 'wiktor/nightly-main-green-01' : 'main',
+    event: attempt01 ? 'workflow_dispatch' : 'schedule',
+    run_attempt: 1,
+    status: 'completed',
+    conclusion: 'failure'
+  };
+  const reviewed = {
+    id: attempt01 ? 44005625246 : 43925502671,
+    workflow_id: 415130600,
+    head_sha: attempt01 ? 'cca4608ecc222693a9f04124c671f06b48cd850f' : '748558a9438ecbbaf73639c4c4b81c303609a068',
+    head_branch: attempt01 ? 'wiktor/nightly-green-01-outcome' : 'wiktor/mainnet-438111-audit',
+    event: 'push',
+    run_attempt: 1,
+    status: 'completed',
+    conclusion: 'success'
+  };
+  if (
+    run?.repository?.id !== 853430876 ||
+    audit?.repository?.id !== 853430876 ||
+    !Object.entries(scheduled).every(([key, value]) => run[key] === value) ||
+    !Object.entries(reviewed).every(([key, value]) => audit[key] === value)
+  )
+    return false;
+  if (
+    auditJobs.jobs.length !== 2 ||
+    !['public-sdk', 'private-inventory'].every(name => {
+      const matches = auditJobs.jobs.filter(job => job.name === name);
+      return matches.length === 1 && matches[0].status === 'completed' && matches[0].conclusion === 'success';
+    })
+  )
+    return false;
+  const matching = jobs.jobs.filter(job => job.name === 'Chrome mainnet round trip');
+  if (
+    matching.length !== 1 ||
+    matching[0].status !== 'completed' ||
+    matching[0].conclusion !== 'failure' ||
+    !Array.isArray(matching[0].steps)
+  )
+    return false;
+  return [
+    ['Prepare mainnet NEAR loop', 'success'],
+    ['Upload native NEAR read-only preflight', 'success'],
+    ['Run mainnet near forward', 'success'],
+    ['Upload NEAR native forward authority', 'failure'],
+    ['Wait for mainnet NEAR forward', 'skipped'],
+    ['Run mainnet near reverse', 'skipped'],
+    ['Upload NEAR reverse authority', 'skipped'],
+    ['Upload mainnet near signed EVM 1', 'skipped', 2],
+    ['Upload mainnet near native return claim', 'skipped', 2],
+    ['Authorize original near return claim', 'skipped'],
+    ['Authorize original near refund', 'skipped'],
+    ['Wait for mainnet NEAR return', 'skipped']
+  ].every(([name, conclusion, count = 1]) => {
+    const matches = matching[0].steps.filter(step => step.name === name);
+    return (
+      matches.length === count && matches.every(step => step.status === 'completed' && step.conclusion === conclusion)
+    );
+  });
+}
+
 function validateProvider(provider) {
   if (!['swap', 'epoch', 'near'].includes(provider)) throw new Error('Invalid mainnet loop provider');
 }
@@ -292,6 +367,22 @@ async function main() {
       if (run.workflow_id !== current.workflow_id) throw new Error('Checkpoint source belongs to a different workflow');
       const jobs = await github(`actions/runs/${id}/jobs?per_page=100`);
       output(`${leg}_attempted`, swapStepAttempted(jobs, leg, provider));
+      if (provider === 'near' && leg === 'forward') {
+        let verified = false;
+        const auditRunId = { 43811169447: '43925502671', 43999834254: '44005625246' }[id];
+        if (auditRunId) {
+          const audit = await github(`actions/runs/${auditRunId}`);
+          const auditJobs = await github(`actions/runs/${auditRunId}/jobs?per_page=100`);
+          verified = knownUnspentNearPreAuthorization(
+            createHash('sha256').update(checkpoint).digest('hex'),
+            run,
+            jobs,
+            audit,
+            auditJobs
+          );
+        }
+        output('forward_pre_authority_unspent', verified);
+      }
       if (provider === 'epoch' && leg === 'forward')
         output(
           'forward_pre_authority_unspent',

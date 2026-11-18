@@ -9,6 +9,21 @@ export interface SavedSwapHolding {
   balance: string;
   usdMicros: string;
 }
+export function minimumFirstSwapRecoveryReturn(
+  state: Pick<MainnetSwapCheckpoint, 'offer' | 'request' | 'reverseMinimum'>
+): bigint {
+  const original = BigInt(state.reverseMinimum);
+  if (
+    state.offer.symbol.toUpperCase() !== 'USDCX' ||
+    !/^(USDCX?|USDT0?)$/i.test(state.request.symbol) ||
+    state.offer.decimals !== 6 ||
+    state.request.decimals !== 6 ||
+    original <= 101n
+  )
+    return original;
+  return original - 101n;
+}
+
 export type SwapLoopPhase =
   | 'forward-authorized'
   | 'forward-settled'
@@ -43,6 +58,7 @@ export interface MainnetSwapCheckpoint {
   authorizationRunId?: string;
   recoveredRunId?: string;
   recoveryReturnAuthorizedAt?: string;
+  recoveryReturnMinimum?: string;
   recoveryReturnReplacement?: {
     authorizedAt: string;
     previous: MainnetSwapRequestAuthority;
@@ -252,6 +268,21 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       !record(value.returnBaseline))
   )
     return false;
+  if (
+    value.recoveryReturnMinimum !== undefined &&
+    (!timestamp(value.recoveryReturnAuthorizedAt) ||
+      value.recoveryReturnReplacement !== undefined ||
+      !amount(value.recoveryReturnMinimum) ||
+      BigInt(value.recoveryReturnMinimum) >= BigInt(value.reverseMinimum) ||
+      BigInt(value.recoveryReturnMinimum) <
+        minimumFirstSwapRecoveryReturn({
+          offer: value.offer,
+          request: value.request,
+          reverseMinimum: value.reverseMinimum
+        }) ||
+      (BigInt(value.recoveryReturnMinimum) * BigInt(value.native.usdMicros)) / 1_000_000n < 1_000_000n)
+  )
+    return false;
   const forward = value.forwardRequestAuthority;
   const reverse = value.reverseRequestAuthority;
   const pricedAt = Date.parse(value.pricedAt);
@@ -301,7 +332,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
     reverse !== undefined &&
     (!requestAuthority(reverse) ||
       reverse.orderId !== value.reverseOrderId ||
-      BigInt(reverse.minimumReceive) < BigInt(value.reverseMinimum) ||
+      BigInt(reverse.minimumReceive) < BigInt(value.recoveryReturnMinimum ?? value.reverseMinimum) ||
       reverse.expiresAt <= returnStart ||
       reverse.expiresAt > returnDeadline ||
       value.knownOrderIds.includes(reverse.orderId) ||
@@ -367,6 +398,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       'authorizationRunId',
       'recoveredRunId',
       'recoveryReturnAuthorizedAt',
+      'recoveryReturnMinimum',
       'recoveryReturnReplacement',
       'phase',
       'createdAt',
@@ -454,7 +486,8 @@ export function matchAuthorizedSwap(
       row.requestedFaucet === request.faucetId &&
       row.offer === (leg === 'forward' ? state.principal : state.returnAmount) &&
       amount(row.minimumReceive) &&
-      BigInt(row.minimumReceive) >= BigInt(leg === 'forward' ? state.forwardMinimum : state.reverseMinimum) &&
+      BigInt(row.minimumReceive) >=
+        BigInt(leg === 'forward' ? state.forwardMinimum : (state.recoveryReturnMinimum ?? state.reverseMinimum)) &&
       (!authority || row.minimumReceive === authority.minimumReceive) &&
       row.initiatedAt >= Math.floor(Date.parse(state.createdAt) / 1000) - 30 &&
       (known ? row.orderId === known : !state.knownOrderIds.includes(row.orderId))

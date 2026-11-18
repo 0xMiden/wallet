@@ -92,6 +92,7 @@ describe('sessionHeld', () => {
     adapterConnected: true,
     adapterAddress: primary,
     providerAddress: 'mtst1qprimary',
+    cachedAddress: primary,
     privateDataPermission: 'UPON_REQUEST',
     walletSessionAccounts: ['mtst1qsecond_qr7qqq9wr6w', primary]
   };
@@ -108,6 +109,11 @@ describe('sessionHeld', () => {
 
   it('does not hold a session whose provider has moved to another account', () => {
     expect(sessionHeld({ ...held, providerAddress: 'mtst1qsecond' }, primary, 'UPON_REQUEST')).toBe(false);
+  });
+
+  it.each([null, 'mtst1qsecond'])('does not reuse a session with cached request account %s', cachedAddress => {
+    const stale = { ...held, cachedAddress };
+    expect(sessionHeld(stale, primary, 'UPON_REQUEST')).toBe(false);
   });
 
   it('does not hold a session granted with another permission', () => {

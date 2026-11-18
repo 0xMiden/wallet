@@ -83,6 +83,7 @@ export interface SessionCheck {
   adapterConnected: boolean;
   adapterAddress: string | null;
   providerAddress: string | null;
+  cachedAddress: string | null;
   privateDataPermission: string | null;
   /** The accounts the wallet's own session store holds for the dApp's origin. */
   walletSessionAccounts: readonly string[];
@@ -99,6 +100,7 @@ export function sessionHeld(state: SessionCheck, account: string, permission: st
     state.adapterConnected &&
     same(state.adapterAddress) &&
     same(state.providerAddress) &&
+    same(state.cachedAddress) &&
     state.privateDataPermission === permission &&
     state.walletSessionAccounts.some(same)
   );

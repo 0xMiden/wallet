@@ -165,6 +165,39 @@ it('fails the tracking row at the solve, with what failed it, when the Epoch SDK
   expect(mockSwitchWebWalletChain).not.toHaveBeenCalled();
 });
 
+it('keeps a deposit that a refused allocation left in The Compact on the row, for recovery (#2120)', async () => {
+  const refusal = 'Nonce has already been used; request a fresh nonce';
+  mockGetRow.mockResolvedValue(undefined);
+  jest.spyOn(Date, 'now').mockReturnValue(5_000_000);
+  mockBuildIntent.mockResolvedValue({
+    taskTypeString: 'bridge',
+    intentData: { tokenIn: '0x0000000000000000000000000000000000000002' },
+    error: refusal,
+    strandedDeposit: { lockId: '42', amount: '99', tokenAddress: '0x0000000000000000000000000000000000000002' }
+  });
+  useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+
+  await useEpochStore.getState().executeEVMToMiden('row-1');
+
+  expect(useEpochStore.getState()).toMatchObject({ status: 'failed', error: refusal });
+  expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
+    error: refusal,
+    epochAllocatorUrl: 'https://allocator.document',
+    epochLockedDeposit: {
+      sponsorAddress: '0xowner',
+      chainId: 11155111,
+      lockId: '42',
+      tokenAddress: '0x0000000000000000000000000000000000000002',
+      isNative: false,
+      amount: '99',
+      taskTypeString: 'bridge',
+      intentData: { tokenIn: '0x0000000000000000000000000000000000000002' },
+      lockedAt: 5000
+    },
+    failure: { step: 'epoch_solve', cause: refusal, requestClient: 'native_reown' }
+  });
+});
+
 it('fails the tracking row at the execute, with what failed it, when the deposit throws before the solve', async () => {
   const cause = new Error('Wallet did not switch');
   mockConnection.mockRejectedValue(cause);

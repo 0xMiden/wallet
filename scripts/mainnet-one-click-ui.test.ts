@@ -1,8 +1,17 @@
 /** @jest-environment node */
-import { selectMainnetOneClickAssets } from '../playwright/e2e/helpers/mainnet-one-click-ui';
-import type { Locator, Page } from '@playwright/test';
+import {
+  captureMainnetOneClickReviewQuote,
+  selectMainnetOneClickAssets
+} from '../playwright/e2e/helpers/mainnet-one-click-ui';
+import type { Locator, Page, Response } from '@playwright/test';
+import type { GuardianAwareWalletPage } from '../playwright/e2e/fixtures/two-wallets';
 
-jest.mock('@playwright/test', () => ({ expect: () => ({ toBeVisible: jest.fn().mockResolvedValue(undefined) }) }));
+jest.mock('@playwright/test', () => ({
+  expect: () => ({
+    toBeVisible: jest.fn().mockResolvedValue(undefined),
+    toBeEnabled: jest.fn().mockResolvedValue(undefined)
+  })
+}));
 
 function nativeSwapPage() {
   const networks = { pay: 'miden', receive: 'miden' };
@@ -72,4 +81,49 @@ it('preserves the exact external recipient without submitting or signing', async
   });
   expect(ui.address()).toBe('original-recipient');
   expect(ui.actions.every(action => !action.includes('confirm') && !action.includes('submit'))).toBe(true);
+});
+
+function quoteReviewWallet(response: Promise<Response>) {
+  const wallet = jest.createMockFromModule<GuardianAwareWalletPage>('@playwright/test');
+  wallet.page = jest.createMockFromModule<Page>('@playwright/test');
+  wallet.page.waitForResponse = jest.fn(() => response);
+  wallet.page.getByTestId = () => {
+    const control = jest.createMockFromModule<Locator>('@playwright/test');
+    control.fill = jest.fn().mockResolvedValue(undefined);
+    control.click = jest.fn().mockResolvedValue(undefined);
+    return control;
+  };
+  return wallet;
+}
+
+const reviewRoute = {
+  payNetwork: 'miden',
+  payAssetId: 'native',
+  receiveNetwork: 'arb',
+  receiveAssetId: 'evm',
+  amount: '1'
+};
+const expectedQuote = {
+  originAsset: 'native',
+  destinationAsset: 'evm',
+  amount: 1n,
+  refundTo: 'original-refund',
+  recipient: 'original-recipient'
+};
+
+it('observes an early quote-response rejection while review is still pending', async () => {
+  const response = new Promise<Response>(() => {});
+  const observed = jest.spyOn(response, 'catch');
+  void captureMainnetOneClickReviewQuote(quoteReviewWallet(response), reviewRoute, expectedQuote, true);
+  await Promise.resolve();
+  expect(observed).toHaveBeenCalledTimes(1);
+});
+
+it('still rejects with the original response error when the quote is awaited', async () => {
+  const original = new Error('synthetic quote-response failure');
+  const response = Promise.reject<Response>(original);
+  void response.catch(() => {});
+  await expect(
+    captureMainnetOneClickReviewQuote(quoteReviewWallet(response), reviewRoute, expectedQuote, true)
+  ).rejects.toBe(original);
 });

@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Şifre kilidini açma",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Şifre anahtarıyla kilidi açma",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Bu cüzdanın kilidini açmak için cihazınızın şifre sağlayıcısını kullanın. Cüzdan şifreniz hâlâ geçerli olacaktır.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Bu cüzdan için Passkey kilit açma özelliği etkinleştirilmiştir.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Bu tarayıcıda, işletim sisteminde veya cüzdanda Passkey kilit açma özelliği kullanılamaz. Yine de cüzdan şifrenizi kullanabilirsiniz.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Geçiş anahtarı kilidini aç",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Şifre anahtarını değiştirin",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Şifre kilidini kaldır",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Burada \"passkey unlock\" seçeneğini kaldırmak, sağlayıcınız tarafından saklanan passkey'i iptal etmez veya silmez. Artık ihtiyacınız yoksa, sağlayıcınızın ayarlarından da silin.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Sağlayıcınız, bu erişim anahtarının yedeklenebileceğini veya senkronize edilebileceğini bildirir. Diğer cihazlarda kullanılabilirlik, sağlayıcınıza bağlıdır.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Sağlayıcınız, bu şifrenin yedeklenemeyeceğini bildiriyor.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Cüzdanın yan panelini açarak şifreli kilidi etkinleştirin, değiştirin veya kaldırın.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Yan panel açılamadı. Cüzdan araç çubuğundan açın ve tekrar deneyin.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "Şifre talebi iptal edildi veya kullanılamıyor. Cüzdan şifrenizi kullanmaya devam edebilirsiniz.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Şifre anahtarıyla kilit açma özelliği etkinleştirilemedi. Cüzdan şifrenizi kontrol edin ve bu özelliği destekleyen bir sağlayıcı kullanın.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Şifre kilidini kaldıramadı. Lütfen tekrar deneyin. Cüzdan şifreniz hâlâ geçerlidir.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Bu erişim anahtarıyla kilit açılmadı. Cüzdan şifrenizi kullanın ve erişim anahtarı ayarlarını kontrol edin.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Tohum ifadenizi yedekleyin",
     "englishSource": "Back up your recovery phrase"
@@ -823,6 +891,10 @@
     "message": "Bu inceleme, farklı bir mevduat token'ı için hazırlanmıştır. Geri dönün ve tutarı tekrar girin.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "Teminat note'unda incelenen token, incelenen tutar ve yapılandırılmış tahsis edici kullanılmalıdır. Hiçbir şey gönderilmedi. Geri dönün ve tekrar deneyin.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Toplam kazanç",
     "englishSource": "Total earned"
@@ -855,6 +927,14 @@
   "earnPositionsLoadError": {
     "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnPositionsUnavailable": {
+    "message": "Epoch ile bakiyenizi kontrol edemedik. Lütfen tekrar deneyin.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
+  "earnBalanceLoadError": {
+    "message": "Bakiyeniz yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "Bu ağda \"Earn\" özelliği mevcut değildir",
@@ -1243,6 +1323,32 @@
   "submissionRejectedByNetwork": {
     "message": "Ağ bu gönderimi reddetti. Lütfen tekrar deneyin.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Guardian'ınız bu işlemi hâlâ elinde tutuyor, bu nedenle henüz yeniden denenemez.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Ağ, bu işlemin hiçbir zaman gerçekleşmediğini doğruladı; dolayısıyla hiçbir şey hareket etmedi. Token'ınız hâlâ Guardian'da tutuluyor; bu nedenle henüz yeniden denenemez.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Guardian'ınız bu işlemi hâlâ bekletiyor. $time$ sonra yeniden deneyebilirsiniz.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "$time$ sonra tekrar deneyebilirsiniz.",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Bu gönderimden herhangi bir yanıt alınamadı. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu nedenle tekrar denemeden önce kontrol edin.",
@@ -3185,6 +3291,14 @@
     "message": "Cüzdanınızı yedekleyin",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Gizlenmiş kurtarma ifadesi",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "Gizli özel anahtar",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Göster",
     "englishSource": "Show"
@@ -3988,6 +4102,10 @@
     "message": "Kendi adresinize gönderim yapamazsınız",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Yeni alıcı",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4019,6 +4137,14 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
+  },
+  "proposalEffectRefused": {
+    "message": "Cüzdan, işlemin yalnızca sizin onayladığınız tutarı aktardığını doğrulayamadığı için, imzalamadan önce bu işlemi durdurdu. Hiçbir fon aktarılmadı.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "Cüzdan ağ ücretini okuyamadı, bu nedenle bu işlemi imzalamadı. Hiçbir şey gönderilmedi. Bir süre sonra tekrar deneyin.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "Tutar, bakiyeden az olmalıdır",
@@ -4132,128 +4258,6 @@
   "confirmationRequired": {
     "message": "Hesap verileri her talep edildiğinde onaylanması gerekmektedir",
     "englishSource": "Confirmation is required every time account data is requested"
-  },
-  "connectFactsTitle": {
-    "message": "Bu site şunları yapabilecektir:",
-    "englishSource": "This site will be able to"
-  },
-  "connectFactSeeBalanceTitle": {
-    "message": "Bakiyenizi ve geçmişinizi görüntüleyin",
-    "englishSource": "See your balance and history"
-  },
-  "connectFactReadPrivateTitle": {
-    "message": "İzin almadan özel verileri okumak",
-    "englishSource": "Read private data without asking"
-  },
-  "connectFactReadPrivateDescription": {
-    "message": "$scopes$'a erişim izni verilecektir",
-    "englishSource": "Access to $scopes$ will be granted",
-    "placeholders": {
-      "scopes": {
-        "content": "$1"
-      }
-    }
-  },
-  "connectFactAskPrivateTitle": {
-    "message": "Özel verileri okumadan önce izin isteyin",
-    "englishSource": "Ask before reading private data"
-  },
-  "connectFactTxRequestsTitle": {
-    "message": "İşlem taleplerinizi gönderin",
-    "englishSource": "Send you transaction requests"
-  },
-  "connectFactTxRequestsDescription": {
-    "message": "Her birini onaylıyorsunuz",
-    "englishSource": "You approve each one"
-  },
-  "connectFactNoFundsTitle": {
-    "message": "Asla kendi başına fon aktarmayın",
-    "englishSource": "Never move funds on its own"
-  },
-  "connectFactNoFundsDescription": {
-    "message": "Para, yalnızca siz onayladığınızda çekilir",
-    "englishSource": "Funds leave only when you approve"
-  },
-  "connectRetryHint": {
-    "message": "İsteğiniz hâlâ burada, bu yüzden yeniden deneyebilirsiniz.",
-    "englishSource": "Your request is still here, so you can retry."
-  },
-  "connectFailedTitle": {
-    "message": "Bağlanılamadı",
-    "englishSource": "Couldn't connect"
-  },
-  "dappNetworkMismatchTitle": {
-    "message": "Farklı ağ",
-    "englishSource": "Different network"
-  },
-  "confirmTxRequestFrom": {
-    "message": "Talep kaynağı",
-    "englishSource": "Request from"
-  },
-  "confirmTxTokenFaucet": {
-    "message": "Token faucet",
-    "englishSource": "Token faucet"
-  },
-  "confirmTxRecallBlocks": {
-    "message": "Blokları geri çağırma",
-    "englishSource": "Recall blocks"
-  },
-  "confirmTxReceiving": {
-    "message": "Alma",
-    "englishSource": "Receiving"
-  },
-  "confirmTxNoteFromFaucet": {
-    "message": "faucet'ten Note notu",
-    "englishSource": "Note from faucet"
-  },
-  "confirmTxYouTag": {
-    "message": "siz",
-    "englishSource": "you"
-  },
-  "confirmTxYouPay": {
-    "message": "Ödeme yaparsınız",
-    "englishSource": "You pay"
-  },
-  "confirmTxYouGet": {
-    "message": "Anladınız mı?",
-    "englishSource": "You get"
-  },
-  "confirmTxLeavesAccount": {
-    "message": "Hesabınızdan çıkar",
-    "englishSource": "Leaves your account"
-  },
-  "confirmTxArrivesAccount": {
-    "message": "Hesabınıza gelir",
-    "englishSource": "Arrives in your account"
-  },
-  "confirmTxCustomTransaction": {
-    "message": "Özel işlem",
-    "englishSource": "Custom transaction"
-  },
-  "confirmSignTransactionSummary": {
-    "message": "İşlem özeti",
-    "englishSource": "Transaction summary"
-  },
-  "confirmTxRetryHint": {
-    "message": "İsteğiniz hâlâ burada, bu yüzden tekrar deneyebilirsiniz.",
-    "englishSource": "Your request is still here, so you can try again."
-  },
-  "confirmTxFailedTitle": {
-    "message": "Doğrulayamadım",
-    "englishSource": "Couldn't confirm"
-  },
-  "confirmTxNotVerifiedTitle": {
-    "message": "Doğrulanmadı",
-    "englishSource": "Not verified"
-  },
-  "midenNetworkName": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "transactionCompleted": {
     "message": "İşlem Tamamlandı",
@@ -4465,6 +4469,18 @@
     "message": "Bu Guardian'da bir yedek bulamadık. URL'yi kontrol edin veya başka bir Guardian seçin.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Hesaplarınız geri yüklenemedi: guardian, kurtarma ifadenizle eşleşmeyen hesap verilerini geri gönderdi. Hiçbir şey geri yüklenmedi.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Hesaplarınız geri yüklenemedi: guardian'ın elindeki hesap kopyası henüz Miden ağıyla eşleşmiyor. Hiçbir şey geri yüklenmedi. Birkaç dakika sonra tekrar deneyin.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Hesaplarınızı kontrol etmek için Miden ağına bağlanılamadı. Kurtarma ifadeniz doğru. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "Bu guardian, başka bir Miden ağında çalışır; bu nedenle buradaki bir hesabı kurtaramaz.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4536,6 +4552,10 @@
   "unknown": {
     "message": "Bilinmiyor",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Henüz talep etmediğiniz notes'u içerir",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "notes'lık girdi tüketildi",
@@ -4736,10 +4756,6 @@
       }
     }
   },
-  "loginSignatureTitle": {
-    "message": "Bu sadece oturum açmanızı sağlar",
-    "englishSource": "This only signs you in"
-  },
   "loginSignatureNote": {
     "message": "Bread, bu oturum açma mesajını yalnızca $domain$ için oluşturulmuş bir anahtarla imzalar. Bu anahtar, fon transferi yapamaz veya hesabınızda değişiklik yapamaz.",
     "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
@@ -4808,6 +4824,14 @@
   "unavailable": {
     "message": "Kullanılamıyor",
     "englishSource": "Unavailable"
+  },
+  "assetPriceUnsupported": {
+    "message": "Desteklenmeyen",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Bilinmeyen ölçek",
+    "englishSource": "Unknown scale"
   },
   "bridgeFeatureUnavailableTitle": {
     "message": "Geçici olarak kullanılamıyor",
@@ -5602,6 +5626,10 @@
     "message": "Token bilgileri",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "Bileşim",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "Açıklama",
     "englishSource": "Description"
@@ -5921,6 +5949,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "MetaMask Akıllı İşlemler bu işlemi gönderemedi. MetaMask ayarlarınızdan Akıllı İşlemler özelliğini kapatın ve tekrar deneyin.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "Bağlantılı cüzdan",
     "englishSource": "Connected wallet"
@@ -6008,6 +6040,10 @@
   "bridgeDepositFailed": {
     "message": "Köprü yatırımı başarısız oldu",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Bağlı cüzdanınızda bu ağda pozitif bakiyeye sahip hiçbir token bulunmamaktadır.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "Bağlı cüzdanınızda $balance$ tutarında $token$, $network$ ağında bulunmaktadır; bu tutar, bu para yatırma işlemi için gereken miktardan daha azdır. Hiçbir şey gönderilmedi.",
@@ -6421,6 +6457,10 @@
     "message": "Bu dApp, özel bir işlem talep ediyor. Cüzdan, işlemin ayrıntılarını çözemedi — ne işe yaradığını tam olarak biliyorsanız devam edin.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "Cüzdan bu işlemi simüle edemediğinden, ne yaptığını gösteremez. Bu işlemi onaylayamazsınız.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Ham değer",
     "englishSource": "Raw value"
@@ -6428,6 +6468,10 @@
   "opaqueSignatureTitle": {
     "message": "Bread bunu önizleyemez",
     "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Bu imza, hesabınızdan bir işlemin gerçekleştirilmesine yetki vermez.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "$domain$ sizden ham bir değeri imzalamanızı istedi. Bread, neye yetki verdiğini gösteremez; bu nedenle, yalnızca bu siteye tamamen güveniyorsanız devam edin.",
@@ -7522,6 +7566,14 @@
   "tokenHiddenNotice": {
     "message": "Ana Sayfadan Gizlenmiş. Cüzdanınızda kalır ve transferleri hâlâ talep edilebilir.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "Toz token'ları gizle",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Varlık listenizden değeri 0,001 $'dan az olan token'ları gizler. Yerel token her zaman görünür kalır.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Gizli varlıklar",
@@ -8737,41 +8789,34 @@
     "message": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   },
+  "autoLock": {
+    "message": "Otomatik kilitleme",
+    "englishSource": "Auto-lock"
+  },
   "autoLockDescription": {
     "message": "Cüzdan bu kadar uzun süre arka planda kaldığında kilitlenir.",
     "englishSource": "Locks the wallet once it has been in the background this long."
   },
-  "evmWalletSmartTransactionsFailed": {
-    "message": "MetaMask Akıllı İşlemler bu işlemi gönderemedi. MetaMask ayarlarınızdan Akıllı İşlemler özelliğini kapatın ve tekrar deneyin.",
-    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  "autoLockMinutes": {
+    "message": "$minutes$ dakika",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   },
-  "unlockWithPasskey": {
-    "message": "Şifre anahtarıyla kilidi açma",
-    "englishSource": "Unlock with passkey"
+  "epochAwaitingReturn": {
+    "message": "Geri Dönüş Bekleniyor",
+    "englishSource": "Awaiting Return"
   },
-  "passkeyCanceled": {
-    "message": "Şifre talebi iptal edildi veya kullanılamıyor. Cüzdan şifrenizi kullanmaya devam edebilirsiniz.",
-    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
-  },
-  "chainFeeUnknown": {
-    "message": "Cüzdan ağ ücretini okuyamadı, bu nedenle bu işlemi imzalamadı. Hiçbir şey gönderilmedi. Bir süre sonra tekrar deneyin.",
-    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
-  },
-  "guardianRecoveryNetworkUnreachable": {
-    "message": "Hesaplarınızı kontrol etmek için Miden ağına bağlanılamadı. Kurtarma ifadeniz doğru. Bağlantınızı kontrol edin ve tekrar deneyin.",
-    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
-  },
-  "opaqueSignatureNotATransaction": {
-    "message": "Bu imza, hesabınızdan bir işlemin gerçekleştirilmesine yetki vermez.",
-    "englishSource": "This signature cannot authorize a transaction from your account."
+  "epochReadyToClaim": {
+    "message": "Talep Etmeye Hazır",
+    "englishSource": "Ready to Claim"
   },
   "epochReturningFunds": {
     "message": "Fonların İadesi",
     "englishSource": "Returning Funds"
-  },
-  "recoveryPhraseHidden": {
-    "message": "Gizlenmiş kurtarma ifadesi",
-    "englishSource": "Recovery phrase hidden"
   },
   "epochFundsReturned": {
     "message": "İade Edilen Fonlar",
@@ -8786,195 +8831,427 @@
       }
     }
   },
-  "epochReturnPaid": {
-    "message": "Hedef adresinize gönderilen fonlar.",
-    "englishSource": "Funds sent to your destination."
-  },
-  "epochReadyToClaim": {
-    "message": "Talep Etmeye Hazır",
-    "englishSource": "Ready to Claim"
+  "epochReturnReady": {
+    "message": "Paralarınızı geri almak için talepte bulunun ve cüzdanınıza aktarın.",
+    "englishSource": "Claim your funds to return them to your wallet."
   },
   "epochReturnPending": {
     "message": "Paralarınız cüzdanınıza iade ediliyor.",
     "englishSource": "Your funds are being returned to your wallet."
   },
-  "earnPositionsUnavailable": {
-    "message": "Epoch ile bakiyenizi kontrol edemedik. Lütfen tekrar deneyin.",
-    "englishSource": "Couldn't check your balance with Epoch. Try again."
-  },
-  "autoLockMinutes": {
-    "message": "$minutes$ dakika",
-    "englishSource": "$minutes$ min",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
-  },
-  "bridgeDepositNoTokenBalance": {
-    "message": "Bağlı cüzdanınızda bu ağda pozitif bakiyeye sahip hiçbir token bulunmamaktadır.",
-    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
-  },
-  "hideDustTokens": {
-    "message": "Toz token'ları gizle",
-    "englishSource": "Hide dust tokens"
-  },
-  "newRecipient": {
-    "message": "Yeni alıcı",
-    "englishSource": "New recipient"
-  },
-  "passkeyDeviceBound": {
-    "message": "Sağlayıcınız, bu şifrenin yedeklenemeyeceğini bildiriyor.",
-    "englishSource": "Your provider reports that this passkey cannot be backed up."
-  },
-  "submissionHeldByGuardian": {
-    "message": "Guardian'ınız bu işlemi hâlâ elinde tutuyor, bu nedenle henüz yeniden denenemez.",
-    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
-  },
-  "customTransactionNotSimulated": {
-    "message": "Cüzdan bu işlemi simüle edemediğinden, ne yaptığını gösteremez. Bu işlemi onaylayamazsınız.",
-    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
-  },
-  "assetValueUnknownScale": {
-    "message": "Bilinmeyen ölçek",
-    "englishSource": "Unknown scale"
-  },
-  "submissionProvenHeldByGuardian": {
-    "message": "Ağ, bu işlemin hiçbir zaman gerçekleşmediğini doğruladı; dolayısıyla hiçbir şey hareket etmedi. Token'ınız hâlâ Guardian'da tutuluyor; bu nedenle henüz yeniden denenemez.",
-    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
-  },
   "epochReturnDone": {
     "message": "Paralarınız cüzdanınıza geri döndü.",
     "englishSource": "Your funds have returned to your wallet."
   },
-  "includesUnclaimedNotes": {
-    "message": "Henüz talep etmediğiniz notes'u içerir",
-    "englishSource": "Includes notes you have not claimed yet"
-  },
-  "passkeyUnlockEnabled": {
-    "message": "Bu cüzdan için Passkey kilit açma özelliği etkinleştirilmiştir.",
-    "englishSource": "Passkey unlock is enabled for this wallet."
-  },
-  "passkeyUnlockUnavailable": {
-    "message": "Bu tarayıcıda, işletim sisteminde veya cüzdanda Passkey kilit açma özelliği kullanılamaz. Yine de cüzdan şifrenizi kullanabilirsiniz.",
-    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
-  },
-  "passkeyRemove": {
-    "message": "Şifre kilidini kaldır",
-    "englishSource": "Remove passkey unlock"
-  },
-  "assetPriceUnsupported": {
-    "message": "Desteklenmeyen",
-    "englishSource": "Unsupported"
-  },
-  "passkeyUnlockDescription": {
-    "message": "Bu cüzdanın kilidini açmak için cihazınızın şifre sağlayıcısını kullanın. Cüzdan şifreniz hâlâ geçerli olacaktır.",
-    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
-  },
-  "passkeySetupFailed": {
-    "message": "Şifre anahtarıyla kilit açma özelliği etkinleştirilemedi. Cüzdan şifrenizi kontrol edin ve bu özelliği destekleyen bir sağlayıcı kullanın.",
-    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
-  },
-  "guardianHoldNotice": {
-    "message": "$time$ sonra tekrar deneyebilirsiniz.",
-    "englishSource": "You can retry after $time$",
-    "placeholders": {
-      "time": {
-        "content": "$1"
-      }
-    }
-  },
-  "privateKeyHidden": {
-    "message": "Gizli özel anahtar",
-    "englishSource": "Private key hidden"
-  },
-  "passkeySidePanelFailed": {
-    "message": "Yan panel açılamadı. Cüzdan araç çubuğundan açın ve tekrar deneyin.",
-    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
-  },
-  "passkeySyncCapable": {
-    "message": "Sağlayıcınız, bu erişim anahtarının yedeklenebileceğini veya senkronize edilebileceğini bildirir. Diğer cihazlarda kullanılabilirlik, sağlayıcınıza bağlıdır.",
-    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
-  },
-  "passkeySidePanelOnly": {
-    "message": "Cüzdanın yan panelini açarak şifreli kilidi etkinleştirin, değiştirin veya kaldırın.",
-    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
-  },
-  "epochReturnUnavailable": {
-    "message": "Para durumunu kontrol edilemiyor. Lütfen tekrar deneyin.",
-    "englishSource": "Unable to check the funds status. Try again."
+  "epochReturnPaid": {
+    "message": "Hedef adresinize gönderilen fonlar.",
+    "englishSource": "Funds sent to your destination."
   },
   "epochReturnSpent": {
     "message": "Bu note kullanıldı, ancak ödeme henüz onaylanmadı. Hedefinizi ve Miden bakiyenizi kontrol edin.",
     "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
   },
-  "guardianHoldRetryRefused": {
-    "message": "Guardian'ınız bu işlemi hâlâ bekletiyor. $time$ sonra yeniden deneyebilirsiniz.",
-    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+  "epochReturnUnavailable": {
+    "message": "Para durumunu kontrol edilemiyor. Lütfen tekrar deneyin.",
+    "englishSource": "Unable to check the funds status. Try again."
+  },
+  "epochDepositLocked": {
+    "message": "Kilitli mevduat",
+    "englishSource": "Deposit locked"
+  },
+  "epochDepositWithdrawn": {
+    "message": "Para yatırma işlemi iptal edildi",
+    "englishSource": "Deposit withdrawn"
+  },
+  "epochDepositLockedTitle": {
+    "message": "Para yatırma işleminiz güvendedir",
+    "englishSource": "Your deposit is safe"
+  },
+  "epochDepositLockedBody": {
+    "message": "$amount$ tutarındaki depozitonuz $network$ üzerindeki The Compact'ta bulunmaktadır, ancak Epoch köprüyü başlatmamıştır. Köprüyü yeniden deneyin veya depozitonuzu $address$ adresine geri çekin.",
+    "englishSource": "Your $amount$ deposit is in The Compact on $network$, but Epoch did not start the bridge. Retry the bridge, or withdraw the deposit back to $address$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      },
+      "address": {
+        "content": "$3"
+      }
+    }
+  },
+  "epochDepositConnectSponsor": {
+    "message": "Bu depozitoyu geri almak için $address$ adresindeki EVM cüzdanını bağlayın.",
+    "englishSource": "Connect the EVM wallet $address$ to recover this deposit.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWrongWallet": {
+    "message": "Bu para yatırma işlemi, bağlı cüzdan tarafından gerçekleştirilmedi. Geri almak için $address$ adresini bağlayın.",
+    "englishSource": "The connected wallet did not make this deposit. Connect $address$ to recover it.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositRetry": {
+    "message": "Köprüyü yeniden dene",
+    "englishSource": "Retry bridge"
+  },
+  "epochDepositRetrying": {
+    "message": "Tekrar deniyorum…",
+    "englishSource": "Retrying…"
+  },
+  "epochDepositWithdraw": {
+    "message": "Para çekme ve para yatırma",
+    "englishSource": "Withdraw deposit"
+  },
+  "epochDepositWithdrawing": {
+    "message": "Geri çekme…",
+    "englishSource": "Withdrawing…"
+  },
+  "epochDepositWithdrawStarted": {
+    "message": "$time$ içinde para çekme işlemi yapılabilir.",
+    "englishSource": "Withdrawal available in $time$.",
     "placeholders": {
       "time": {
         "content": "$1"
       }
     }
   },
-  "earnBalanceLoadError": {
-    "message": "Bakiyeniz yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
-    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  "epochDepositWithdrawStartedUnknown": {
+    "message": "Para çekme talebi. Talebin ardından yaklaşık bir saat sonra kullanılabilir hale gelir.",
+    "englishSource": "Withdrawal requested. It becomes available about one hour after the request."
   },
-  "passkeyRemoveFailed": {
-    "message": "Şifre kilidini kaldıramadı. Lütfen tekrar deneyin. Cüzdan şifreniz hâlâ geçerlidir.",
-    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  "epochDepositWithdrawReady": {
+    "message": "Para çekme işlemi yapılabilir.",
+    "englishSource": "The withdrawal is available."
   },
-  "epochReturnReady": {
-    "message": "Paralarınızı geri almak için talepte bulunun ve cüzdanınıza aktarın.",
-    "englishSource": "Claim your funds to return them to your wallet."
+  "epochDepositWithdrawnBody": {
+    "message": "Para yatırma işlemi $address$ adresine geri gönderildi.",
+    "englishSource": "The deposit went back to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
-  "proposalEffectRefused": {
-    "message": "Cüzdan, işlemin yalnızca sizin onayladığınız tutarı aktardığını doğrulayamadığı için, imzalamadan önce bu işlemi durdurdu. Hiçbir fon aktarılmadı.",
-    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  "epochDepositErrorNotRecoverable": {
+    "message": "Bu para yatırımı bu cüzdandan geri alınamaz.",
+    "englishSource": "This deposit cannot be recovered from this wallet."
   },
-  "passkeyReplace": {
-    "message": "Şifre anahtarını değiştirin",
-    "englishSource": "Replace passkey"
+  "epochDepositErrorWrongChain": {
+    "message": "EVM cüzdanınızı $network$'e geçirin ve tekrar deneyin.",
+    "englishSource": "Switch your EVM wallet to $network$ and try again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
-  "epochCollateralNoteMismatch": {
-    "message": "Teminat note'unda incelenen token, incelenen tutar ve yapılandırılmış tahsis edici kullanılmalıdır. Hiçbir şey gönderilmedi. Geri dönün ve tekrar deneyin.",
-    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  "epochDepositErrorNotStarted": {
+    "message": "Önce para çekme işlemini başlatın.",
+    "englishSource": "Start the withdrawal first."
   },
-  "guardianRecoveryBehindNetwork": {
-    "message": "Hesaplarınız geri yüklenemedi: guardian'ın elindeki hesap kopyası henüz Miden ağıyla eşleşmiyor. Hiçbir şey geri yüklenmedi. Birkaç dakika sonra tekrar deneyin.",
-    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  "epochDepositErrorNotDue": {
+    "message": "Para çekme işlemi henüz kullanılamamaktadır.",
+    "englishSource": "The withdrawal is not available yet."
   },
-  "passkeyUnlockFailed": {
-    "message": "Bu erişim anahtarıyla kilit açılmadı. Cüzdan şifrenizi kullanın ve erişim anahtarı ayarlarını kontrol edin.",
-    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  "epochDepositErrorMissing": {
+    "message": "Compact artık bu mevduatı elinde bulundurmamaktadır.",
+    "englishSource": "The Compact no longer holds this deposit."
   },
-  "hideDustTokensDescription": {
-    "message": "Varlık listenizden değeri 0,001 $'dan az olan token'ları gizler. Yerel token her zaman görünür kalır.",
-    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
+  "epochDepositErrorLockMismatch": {
+    "message": "Epoch, bu para yatırma işlemi için farklı bir kilit döndürdü. Bunun yerine para yatırma işlemini geri çekin.",
+    "englishSource": "Epoch returned a different lock for this deposit. Withdraw the deposit instead."
   },
-  "passkeyProviderRemoval": {
-    "message": "Burada \"passkey unlock\" seçeneğini kaldırmak, sağlayıcınız tarafından saklanan passkey'i iptal etmez veya silmez. Artık ihtiyacınız yoksa, sağlayıcınızın ayarlarından da silin.",
-    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  "recoverLockedFunds": {
+    "message": "Kilitli köprü fonlarını geri alma",
+    "englishSource": "Recover locked bridge funds"
   },
-  "passkeyUnlock": {
-    "message": "Şifre kilidini açma",
-    "englishSource": "Passkey unlock"
+  "recoverFundsOpenLock": {
+    "message": "Bu kilidi Ayarlar'dan yönetin",
+    "englishSource": "Manage this lock in Settings"
   },
-  "guardianRecoveryUnverified": {
-    "message": "Hesaplarınız geri yüklenemedi: guardian, kurtarma ifadenizle eşleşmeyen hesap verilerini geri gönderdi. Hiçbir şey geri yüklenmedi.",
-    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  "recoverFundsDescription": {
+    "message": "Epoch köprüyü başlatmadığında, hızlı bir köprü geçişi (Fast bridge-in) depozitosunu The Compact'ta bırakabilir. Bu sayfa, bu cüzdandan köprü geçişi yapan her EVM cüzdanı ve bağlı cüzdan için The Compact'ı kontrol eder.",
+    "englishSource": "A Fast bridge-in can leave its deposit in The Compact when Epoch does not start the bridge. This page checks The Compact for each EVM wallet that bridged in from this wallet, and for the connected wallet."
   },
-  "autoLock": {
-    "message": "Otomatik kilitleme",
-    "englishSource": "Auto-lock"
+  "recoverFundsConnectedWallet": {
+    "message": "Bağlı cüzdan",
+    "englishSource": "Connected wallet"
   },
-  "passkeyEnable": {
-    "message": "Geçiş anahtarı kilidini aç",
-    "englishSource": "Enable passkey unlock"
+  "recoverFundsNothingLocked": {
+    "message": "Bu cüzdanda hiçbir şey kilitli değildir.",
+    "englishSource": "Nothing is locked for this wallet."
   },
-  "epochAwaitingReturn": {
-    "message": "Geri Dönüş Bekleniyor",
-    "englishSource": "Awaiting Return"
+  "recoverFundsCouldNotCheck": {
+    "message": "$network$ üzerinde $tokens$'i kontrol edilemedi. Daha sonra tekrar deneyin.",
+    "englishSource": "Could not check $tokens$ on $network$. Try again later.",
+    "placeholders": {
+      "tokens": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "recoverFundsConnectAnother": {
+    "message": "Başka bir cüzdanı bağlayın",
+    "englishSource": "Connect another wallet"
+  },
+  "recoverFundsNoAddressesTitle": {
+    "message": "Kontrol edilecek cüzdan yok",
+    "englishSource": "No wallets to check"
+  },
+  "recoverFundsNoAddressesBody": {
+    "message": "Para yatırma işlemini gerçekleştiren EVM cüzdanını bağlayarak, kilitli fon olup olmadığını kontrol edin.",
+    "englishSource": "Connect the EVM wallet that made the deposit to check it for locked funds."
+  },
+  "recoverFundsLockTitle": {
+    "message": "Kilitli fonlar",
+    "englishSource": "Locked funds"
+  },
+  "recoverFundsLockInvalidTitle": {
+    "message": "Bu bağlantı geçersiz",
+    "englishSource": "This link is not valid"
+  },
+  "recoverFundsLockInvalidBody": {
+    "message": "\"Kilitli köprü fonlarını kurtar\" seçeneğinden kilidi tekrar açın.",
+    "englishSource": "Open the lock again from Recover locked bridge funds."
+  },
+  "recoverFundsLockEmpty": {
+    "message": "Burada hiçbir şey kilitli değildir",
+    "englishSource": "Nothing is locked here"
+  },
+  "recoverFundsChecking": {
+    "message": "Kontrol ediliyor…",
+    "englishSource": "Checking…"
+  },
+  "recoverFundsCouldNotCheckShort": {
+    "message": "Kontrol edilemedi",
+    "englishSource": "Could not check"
+  },
+  "recoverFundsWallet": {
+    "message": "Cüzdan",
+    "englishSource": "Wallet"
+  },
+  "recoverFundsLocked": {
+    "message": "Kilitli",
+    "englishSource": "Locked"
+  },
+  "recoverFundsWithdrawal": {
+    "message": "Para Çekme",
+    "englishSource": "Withdrawal"
+  },
+  "recoverFundsWithdrawOff": {
+    "message": "Talep edilmedi",
+    "englishSource": "Not requested"
+  },
+  "recoverFundsCancelWithdrawal": {
+    "message": "Para çekme işlemini devre dışı bırak",
+    "englishSource": "Disable withdrawal"
+  },
+  "recoverFundsCancelling": {
+    "message": "Devre dışı bırakma…",
+    "englishSource": "Disabling…"
+  },
+  "recoverFundsWithdrawBlocksBridge": {
+    "message": "Zorunlu para çekme işlemi, $address$ adresinden $token$'ın yeni Fast köprülemelerini engeller. Paranızı geri aldıktan sonra, tekrar köprüleme yapabilmek için para çekme işlemini devre dışı bırakın.",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Hızlı köprü erişimini kontrol edin",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "Bu token ve cüzdanın para çekme durumunu kontrol etmek.",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "Para çekme durumunu kontrol edilemedi. Fast Bridge'i kullanmadan önce lütfen tekrar deneyin.",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "$network$ ağındaki $token$ için zorunlu para çekme işlemi etkindir. Paranızı geri aldıktan sonra, tekrar köprüye para çekme işlemini devre dışı bırakın.",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "Para çekme işlemini devre dışı bırak",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "Devre dışı bırakma…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "Bu işlem, bu kilit için zorunlu para çekme özelliğini devre dışı bırakır. Halihazırda kurtarılmış olan fonlar cüzdanınızda kalır. Yeni bir kurtarma talebi, yeni bir bekleme süresini başlatır. Bu işlem için ağ ücreti ödenmesi gerekir.",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "Bağlı EVM cüzdanınızı açın ve $network$ üzerindeki işlemi onaylayın. Onay gelene kadar burada bekleyin.",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "Bunun yerine Circle'ı kullanın",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "Bunun yerine \"Slow bridge\" ifadesini kullanın",
+    "englishSource": "Use Slow bridge instead"
+  },
+  "connectFactsTitle": {
+    "message": "Bu site şunları yapabilecektir:",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Bakiyenizi ve geçmişinizi görüntüleyin",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "İzin almadan özel verileri okumak",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "$scopes$'a erişim izni verilecektir",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Özel verileri okumadan önce izin isteyin",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "İşlem taleplerinizi gönderin",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Her birini onaylıyorsunuz",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Asla kendi başına fon aktarmayın",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Para, yalnızca siz onayladığınızda çekilir",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "İsteğiniz hâlâ burada, bu yüzden yeniden deneyebilirsiniz.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "Bağlanılamadı",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Farklı ağ",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "Talep kaynağı",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "Token faucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Blokları geri çağırma",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Alma",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "faucet'ten Note notu",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "siz",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Ödeme yaparsınız",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Anladınız mı?",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Hesabınızdan çıkar",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Hesabınıza gelir",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Özel işlem",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "İşlem özeti",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "İsteğiniz hâlâ burada, bu yüzden tekrar deneyebilirsiniz.",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "Doğrulayamadım",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Doğrulanmadı",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureTitle": {
+    "message": "Bu sadece oturum açmanızı sağlar",
+    "englishSource": "This only signs you in"
   }
 }

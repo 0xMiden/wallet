@@ -754,6 +754,34 @@ test('accepts a claimed forward-settled checkpoint for its first recovery return
     /already prepared or issued/
   );
 });
+test('accepts exact retained return preparation without treating it as an issued grant', () => {
+  const { state, evidence, balances } = recoveryFixture();
+  Object.assign(state, {
+    phase: 'forward-settled',
+    forwardReceived: evidence.amount.toString(),
+    forwardRefunded: '0',
+    paidFees: '266',
+    returnAmount: evidence.amount.toString(),
+    returnBaseline: Object.fromEntries(Object.entries(balances).map(([key, value]) => [key, value.toString()]))
+  });
+  const result = claims.authorizeMainnetSwapRecoveryReturn(state, evidence, balances, '456', grant);
+  assert.equal(result.phase, 'reverse-authorized');
+  assert.equal(result.returnAmount, state.returnAmount);
+  assert.deepEqual(result.returnBaseline, state.returnBaseline);
+  assert.equal(result.reverseRequestAuthority, undefined);
+  assert.equal(result.recoveryReturnAuthorizedAt, grant);
+  for (const changed of [
+    { returnAmount: '1' },
+    { returnBaseline: { ...state.returnBaseline, native: '1' } },
+    { returnBaseline: undefined },
+    { recoveryReturnAuthorizedAt: grant }
+  ]) {
+    assert.throws(() =>
+      claims.authorizeMainnetSwapRecoveryReturn({ ...state, ...changed }, evidence, balances, '456', grant)
+    );
+  }
+});
+
 test('freezes only a first recovery return, retaining original expired bytes/nonce/prices and conservative aggregate costs', () => {
   const { state, evidence, balances } = recoveryFixture();
   const original = structuredClone(state);
