@@ -2483,6 +2483,11 @@ describe('verified wallet storage generation', () => {
     source: 'stage',
     capturedAt: 10
   } as const;
+  const landing = {
+    attemptId: sent.attemptId,
+    boundTransactionId: sent.transactionId,
+    proof: { kind: 'commitment' }
+  } as const;
 
   beforeEach(async () => {
     await db.table(Table.Recovery).clear();
@@ -2510,7 +2515,7 @@ describe('verified wallet storage generation', () => {
         verified: savedGeneration,
         spendingSince: 0
       })
-    ).resolves.toEqual([config('25')]);
+    ).resolves.toEqual({ limits: [config('25')], transfers: [row] });
     await expect(readWalletStoreGeneration()).resolves.toBe(savedGeneration);
     await expect(transactions.get(row.id)).resolves.toMatchObject({
       status: ITransactionStatus.Completed,
@@ -2552,7 +2557,7 @@ describe('verified wallet storage generation', () => {
         observed: currentGeneration,
         verified: currentGeneration,
         spendingSince: 0,
-        verifiedTransfers: new Set([row.id])
+        verifiedTransfers: new Map([[row.id, status === ITransactionStatus.Completed ? landing : undefined]])
       };
       await transactions.bulkAdd([live, { ...live, id: unverified.id }]);
 
@@ -2577,7 +2582,7 @@ describe('verified wallet storage generation', () => {
         observed: currentGeneration,
         verified: currentGeneration,
         spendingSince: 0,
-        verifiedTransfers: new Set([row.id])
+        verifiedTransfers: new Map([[row.id, landing]])
       };
       await transactions.add(live);
 
@@ -2611,11 +2616,11 @@ describe('verified wallet storage generation', () => {
         observed: currentGeneration,
         verified: currentGeneration,
         spendingSince: 0,
-        verifiedTransfers: new Set([row.id])
+        verifiedTransfers: new Map([[row.id, landing]])
       };
       await transactions.add(live);
 
-      await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+      const retained = await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
 
       await expect(transactions.get(row.id)).resolves.toMatchObject({
         status: ITransactionStatus.Completed,
@@ -2623,6 +2628,7 @@ describe('verified wallet storage generation', () => {
         noteDelivery: noteDelivery ?? 'undelivered',
         outputNoteIds: [noteId]
       });
+      expect(retained.transfers).toEqual([await transactions.get(row.id)]);
     }
   );
 
@@ -2640,7 +2646,7 @@ describe('verified wallet storage generation', () => {
       observed: currentGeneration,
       verified: currentGeneration,
       spendingSince: 0,
-      verifiedTransfers: new Set([row.id])
+      verifiedTransfers: new Map([[row.id, landing]])
     };
     await transactions.add(live);
 
@@ -2653,6 +2659,7 @@ describe('verified wallet storage generation', () => {
   });
 
   it('opens the saved order when recovery proves a swap landed', async () => {
+    const noteId = `0x${'a'.repeat(64)}`;
     const live: ITransaction = {
       ...row,
       type: 'swap',
@@ -2661,7 +2668,7 @@ describe('verified wallet storage generation', () => {
       extraInputs: {
         requestedFaucetId: 'requested-faucet',
         requestedAmount: 5n,
-        landedOrder: { orderId: '42', expiresAt: 50, noteId: '0x1234' }
+        landedOrder: { orderId: '42', expiresAt: 50, noteId }
       }
     };
     const verified = { ...live, status: ITransactionStatus.Completed, submitEvidence: [sent] };
@@ -2669,7 +2676,7 @@ describe('verified wallet storage generation', () => {
       observed: currentGeneration,
       verified: currentGeneration,
       spendingSince: 0,
-      verifiedTransfers: new Set([row.id])
+      verifiedTransfers: new Map([[row.id, landing]])
     };
     await transactions.add(live);
 
@@ -2678,7 +2685,7 @@ describe('verified wallet storage generation', () => {
     await expect(transactions.get(row.id)).resolves.toMatchObject({
       status: ITransactionStatus.Completed,
       extraInputs: { orderId: 42n, expiresAt: 50 },
-      outputNoteIds: ['0x1234']
+      outputNoteIds: [noteId]
     });
   });
 

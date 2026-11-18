@@ -27,7 +27,7 @@ import {
   markWalletStorageUnavailable,
   WalletStorageUnavailableError
 } from '../storage-health';
-import { judgeSubmitEvidence } from '../transaction/reconcile-judge';
+import { judgeSubmitEvidence, type RowJudgement } from '../transaction/reconcile-judge';
 import { createNodeReads, observedCadenceMs, RPC_READ_TIMEOUT_MS } from '../transaction/reconcile-reads';
 import { upsertEvidenceEntry } from '../transaction/verdict-rules';
 
@@ -320,7 +320,10 @@ async function fetchCurrentAccountState(account: WalletAccount, vault: Vault, as
   return response.stateJson.data;
 }
 
-async function verifyRetainedTransfers(rows: ITransaction[], assertCurrent: () => void): Promise<Set<string>> {
+async function verifyRetainedTransfers(
+  rows: ITransaction[],
+  assertCurrent: () => void
+): Promise<Map<string, RowJudgement['landed']>> {
   const pending = rows.filter(
     row =>
       row.restoredFromBackup !== true &&
@@ -328,7 +331,8 @@ async function verifyRetainedTransfers(rows: ITransaction[], assertCurrent: () =
       row.status !== ITransactionStatus.Completed &&
       row.neverCommittedAt === undefined
   );
-  if (!pending.length) return new Set();
+  const verified = new Map<string, RowJudgement['landed']>();
+  if (!pending.length) return verified;
   const node = await createNodeReads();
   const nowSec = Math.floor(Date.now() / 1000);
   for (const row of pending) {
@@ -350,8 +354,9 @@ async function verifyRetainedTransfers(rows: ITransaction[], assertCurrent: () =
       row.completedAt ??= nowSec;
       row.neverCommittedAt = nowSec;
     }
+    verified.set(row.id, verdict.landed);
   }
-  return new Set(pending.map(row => row.id));
+  return verified;
 }
 
 export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResult> {
@@ -458,19 +463,16 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
         }
       });
       assertCurrent();
-      const acceptedLimits = await Repo.restoreRecoveryTransfers(
-        transfers,
-        retained.limits,
-        canRestore,
-        assertCurrent,
-        { ...targetGeneration, verifiedTransfers }
-      );
+      const restored = await Repo.restoreRecoveryTransfers(transfers, retained.limits, canRestore, assertCurrent, {
+        ...targetGeneration,
+        verifiedTransfers
+      });
       await vault.storageJournal.retain(
         data => ({
           ...data,
           walletStoreGeneration: generation,
-          limits: acceptedLimits,
-          transfers: Object.fromEntries(transfers.map(row => [row.id, Repo.serializeRecoveryTransfer(row)]))
+          limits: restored.limits,
+          transfers: Object.fromEntries(restored.transfers.map(row => [row.id, Repo.serializeRecoveryTransfer(row)]))
         }),
         assertCurrent
       );
