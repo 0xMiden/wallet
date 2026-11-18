@@ -52,6 +52,7 @@ import {
   isGuardianCommitmentMismatch,
   isGuardianPendingConflict,
   isGuardianRateLimited,
+  isNewGuardianAnswer,
   recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry
@@ -3301,7 +3302,7 @@ const waitForStructuralCommit = async (
  * One-line description of a classified guardian failure, for the audit field on
  * the row. Length-capped because this is persisted: a wasm trap's message can run
  * to kilobytes, and a row is not the place to keep one. The HTTP status is
- * included when present - it is what the unreachability verdict turned on, so a
+ * included when present - it is what the classified verdict turned on, so a
  * later reader can judge whether that verdict was right.
  */
 const describeError = (error: unknown): string => {
@@ -4065,9 +4066,10 @@ const generateGuardianTransaction = async (
       // guardian's pubkey FIRST (`guardian/index.ts`), so a typo'd or down NEW
       // endpoint fails there - and reporting that as "outgoing guardian
       // unreachable" blames the wrong operator on the one path whose entire job
-      // is saying which one is down. The two are not separable from out here
-      // (one rejection, either origin), so the message widens rather than
-      // guesses; the direct path then re-fails on the new endpoint and names it.
+      // is saying which one is down. A rejection of the new guardian's own key
+      // fetch is marked, so its origin is known and the subject is 'new guardian'.
+      // An unmarked rejection of the proposal push has either origin, so the
+      // subject stays 'outgoing or new guardian' and does not guess.
       let unreachableSubject = 'outgoing guardian';
       let syncPhase: ProposalSyncPhase | undefined;
       try {
@@ -4126,19 +4128,30 @@ const generateGuardianTransaction = async (
         // refusal of the proposal must not block the switch. A refusal is the
         // OUTGOING Guardian's answer: a 4xx from the NEW Guardian's key fetch is
         // marked in `createSwitchGuardianProposal`, is not a refusal, and fails the
-        // row with the new endpoint named. An error that is not a Guardian answer
+        // row with the Guardian's own error, which gives the status and the reason
+        // and does not name the endpoint. An error that is not a Guardian answer
         // (a local failure, a rejected signature prompt) has no trigger and fails
         // the row.
         const trigger = directSwitchTriggerFor(error);
         if (trigger === undefined) throw error;
-        // Attributed by PHASE, not hardcoded. Only the service load is
-        // account-scoped to the outgoing operator alone; once it has succeeded the
-        // new endpoint is in play too, and a user-typed URL answering its
-        // non-account-scoped `/pubkey` with `404 {"code":"data_unavailable"}`
-        // reaches this same branch. This reason string is the row's only record of
-        // which operator a verdict was about, so it widens rather than guessing -
-        // the same rule the block above states for unreachability.
-        const directSwitchTrigger = `${unreachableSubject} ${trigger}`;
+        // Attributed by PHASE and by MARKER, not hardcoded. Only the service load
+        // is account-scoped to the outgoing operator alone. A user-typed new URL
+        // that answers its key fetch with `404 data_unavailable` is marked and has
+        // no trigger. A marked error that reaches here is an unreachable verdict of
+        // the new Guardian, so its subject is 'new guardian'. Only the outgoing
+        // push can give an account-scoped code after the service loaded.
+        //
+        // Known limit: the multisig client fetches the new Guardian's key again
+        // inside the proposal push (`buildSwitchGuardianSummary` and
+        // `verifyGuardianEndpointCommitment` in `@openzeppelin/miden-multisig-client`,
+        // `multisig.js` lines 1295-1323 and 268-281). Its error carries no URL and
+        // is not marked, so a 4xx from that second fetch looks like an outgoing
+        // refusal and starts the direct switch. The direct switch gives the switch
+        // the user asked for. A fix needs the multisig client to mark or expose the
+        // origin of that fetch. This is why an unmarked push refusal keeps the
+        // subject 'outgoing or new guardian'.
+        const subject = isNewGuardianAnswer(error) ? 'new guardian' : unreachableSubject;
+        const directSwitchTrigger = `${subject} ${trigger}`;
         console.warn(`[Guardian] ${directSwitchTrigger} - switching directly on-chain:`, error);
         await generateDirectSwitchGuardianTransaction(
           sgTx,

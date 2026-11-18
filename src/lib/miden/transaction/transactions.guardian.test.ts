@@ -16675,6 +16675,28 @@ describe('generateTransaction - direct switch audit marker', () => {
     }
   });
 
+  // A marked error that reaches the trigger is an unreachable verdict of the NEW Guardian's key fetch, so
+  // its origin is known and the audit reason names the new Guardian alone.
+  it('names the new guardian when its key fetch is unreachable with a marked 503', async () => {
+    const txId = 'switch-guardian-marker-new-guardian-unreachable';
+    const provider = setup(txId);
+    const newGuardianDown = Object.assign(new Error('Service Unavailable'), { status: 503 });
+    markNewGuardianAnswer(newGuardianDown);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest.fn(async () => {
+        throw newGuardianDown;
+      }),
+      abandonCandidate: jest.fn(async () => {})
+    });
+
+    await run(txId, provider);
+
+    const extra = markerExtraInputs(txId);
+    expect(extra).toMatchObject({ switchedDirectly: true });
+    expect(extra.directSwitchReason).toContain('new guardian unreachable');
+    expect(extra.directSwitchReason).not.toContain('outgoing');
+  });
+
   it('escapes an outgoing guardian that refuses the cold co-sign', async () => {
     const txId = 'switch-guardian-marker-cold-cosign-refused';
     const provider = setup(txId);
