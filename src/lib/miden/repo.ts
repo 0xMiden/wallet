@@ -19,6 +19,7 @@ import {
 import { ITransaction, ITransactionStatus, type ITransactionType } from './db/types';
 import type { PersistedSpendingLimit } from './spending-limits/types';
 import { observeWalletStorageError, WalletStorageUnavailableError } from './storage-health';
+import type { orderFromSavedRequest } from './transaction/pinned-replay-check';
 import type { RowJudgement } from './transaction/reconcile-judge';
 import { evidenceKey } from './transaction/verdict-rules';
 
@@ -948,6 +949,9 @@ export function deserializeRecoveryTransfers(
 }
 
 type RecoveryStoreGeneration = { observed: string | undefined; verified: string; spendingSince: number };
+export type RecoveryLanding = NonNullable<RowJudgement['landed']> & {
+  savedOrder?: Awaited<ReturnType<typeof orderFromSavedRequest>>;
+};
 
 const hasDifferentRecoveryIdentity = (current: ITransaction, retained: ITransaction): boolean =>
   current.accountId !== retained.accountId ||
@@ -1038,15 +1042,22 @@ export async function restoreRecoveryTransfers(
   limits: readonly PersistedSpendingLimit[],
   canRestore: (accountId: string) => boolean,
   assertCurrent: () => void,
-  generation: RecoveryStoreGeneration & { verifiedTransfers?: ReadonlyMap<string, RowJudgement['landed']> }
+  generation: RecoveryStoreGeneration & { verifiedTransfers?: ReadonlyMap<string, RecoveryLanding | undefined> }
 ): Promise<{ limits: PersistedSpendingLimit[]; transfers: ITransaction[] }> {
   const rows = transfers.map(row => {
     const trusted = row.restoredFromBackup !== true || row.retainedRecoverySpend === true;
     return { ...neutralizeUnfinishedTransaction(row), retainedRecoverySpend: trusted && row.spentUsd !== undefined };
   });
   const validateLimit = await recoveryLimitValidator(limits, canRestore);
-  const [{ applyVerifiedLanding, countNoteDeliveryWrite, verifiedLandingRowFields }, { recordLandedDeliveryTarget }] =
-    await Promise.all([import('./transaction/helper'), import('./transaction/reconcile-unconfirmed')]);
+  const [
+    { applyVerifiedLanding, countNoteDeliveryWrite, verifiedLandingRowFields },
+    { sameRequestBytes },
+    { recordLandedDeliveryTarget }
+  ] = await Promise.all([
+    import('./transaction/helper'),
+    import('./transaction/pinned-replay-check'),
+    import('./transaction/reconcile-unconfirmed')
+  ]);
   const retainedTransfers = [...transfers];
   let deliveryChanged = false;
   const acceptedLimits = await db.transaction('rw', transactions, spendingLimits, recovery, async () => {
@@ -1063,7 +1074,6 @@ export async function restoreRecoveryTransfers(
       assertCurrent();
       const current = await transactions.get(row.id);
       if (current && current.accountId !== row.accountId) throw new WalletStorageUnavailableError();
-      if (current?.status === ITransactionStatus.Completed) continue;
       if (generation.verifiedTransfers?.has(row.id)) {
         const evidence = row.submitEvidence ?? [];
         const observed = current?.submitEvidence ?? [];
@@ -1075,6 +1085,19 @@ export async function restoreRecoveryTransfers(
         ) {
           throw new WalletStorageUnavailableError();
         }
+        const landing = generation.verifiedTransfers.get(row.id);
+        if (current?.status === ITransactionStatus.Completed) {
+          if (
+            !landing ||
+            (landing.boundTransactionId !== undefined &&
+              current.transactionId !== undefined &&
+              current.transactionId !== landing.boundTransactionId)
+          ) {
+            throw new WalletStorageUnavailableError();
+          }
+          retainedTransfers[index] = current;
+          continue;
+        }
         const target = current ?? row;
         target.completedAt = row.completedAt;
         target.mayHaveSubmitted = row.mayHaveSubmitted;
@@ -1082,12 +1105,12 @@ export async function restoreRecoveryTransfers(
         target.submitEvidence = evidence.map(
           entry => observed.find(live => live.attemptId === entry.attemptId) ?? entry
         );
-        const landing = generation.verifiedTransfers.get(row.id);
         if (landing) {
-          applyVerifiedLanding(target, {
-            ...verifiedLandingRowFields(target),
-            transactionId: landing.boundTransactionId ?? target.transactionId
-          });
+          applyVerifiedLanding(
+            target,
+            { ...verifiedLandingRowFields(target), transactionId: landing.boundTransactionId ?? target.transactionId },
+            sameRequestBytes(target.requestBytes, row.requestBytes) ? landing.savedOrder : undefined
+          );
           recordLandedDeliveryTarget(target, landing);
           deliveryChanged ||= target.noteDelivery !== undefined;
         } else {
@@ -1096,7 +1119,7 @@ export async function restoreRecoveryTransfers(
         assertCurrent();
         await transactions.put(target);
         retainedTransfers[index] = target;
-      } else if (!current || replacingGeneration) {
+      } else if (!current || (replacingGeneration && current.status !== ITransactionStatus.Completed)) {
         assertCurrent();
         await transactions.put(row);
       }
