@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
@@ -34,6 +35,7 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 import { findUsdcxDestinationTransaction } from 'lib/usdcx/destination-transaction';
 import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
@@ -581,6 +583,21 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  it('uses only the Command workbench header when reopening the original receipt', async () => {
+    setMockRow(baseSendTx);
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandWorkbench route={{ kind: 'operation', id: 'tx-1' }} container={document.body}>
+          <HistoryDetails transactionId="tx-1" />
+        </CommandWorkbench>
+      </FlowPresentationProvider>
+    );
+    await flush();
+    expect(screen.getByTestId('command-workbench')).toBeInTheDocument();
+    expect(screen.queryByTestId('screen-header')).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
+  });
+
   const setOneClickHistoryRow = (
     originBlockchain = 'eth',
     destinationBlockchain = 'miden',

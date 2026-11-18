@@ -10,6 +10,7 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
@@ -444,6 +445,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     retryErrorDiagnostics
   );
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
 
@@ -589,6 +591,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
       <FlowLayout
         title={processingTitle}
         onClose={onDoneClick}
+        commandFooter={command}
         footer={
           <div className="flex w-full flex-col items-center gap-3">
             {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn

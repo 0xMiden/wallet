@@ -7,6 +7,7 @@ import { HistoryEntryType, type IHistoryEntry } from 'app/templates/history/IHis
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { ReviewLayout } from 'components/review';
 import { AlertSheet } from 'components/ui/AlertSheet';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { goBack, navigate } from 'lib/woozie';
 import { CommandSendReview } from 'screens/send-flow/CommandSendReview';
 
@@ -15,6 +16,7 @@ import { CommandShell } from './CommandShell';
 import { useCommandWorkbenchSlots } from './CommandWorkbench';
 
 let mockRowExists = true;
+const mockReadRow = jest.fn();
 let mockHidden = false;
 let mockRecentEntries: IHistoryEntry[] = [];
 let mockHistoryInputs: { address: string; numItems?: number; pendingItems?: unknown[] } | undefined;
@@ -67,7 +69,10 @@ jest.mock('app/templates/history/HistoryItem', () => ({
   )
 }));
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
-  useTransactionRow: (id: string) => ({ loaded: true, row: mockRowExists ? { id } : undefined })
+  useTransactionRow: (id: string) => {
+    mockReadRow(id);
+    return { loaded: true, row: mockRowExists && id !== 'unknown' ? { id } : undefined };
+  }
 }));
 jest.mock('./useCommandPrivacy', () => ({ useCommandPrivacy: () => [mockHidden, jest.fn()] }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -172,6 +177,39 @@ it('shows newest local rows and claim cards once, bounded to the dashboard, with
   ]);
   expect(screen.getByText(/Burn confirmed/)).toBeInTheDocument();
   expect(screen.queryByText(/Delivered/)).not.toBeInTheDocument();
+});
+
+it('retains an accepted consume without a claim card and does not repeat a failed claim row', () => {
+  mockRecentEntries = [
+    {
+      key: 'accepted',
+      txId: 'accepted',
+      address: 'account-a',
+      timestamp: 60,
+      type: HistoryEntryType.CompletedTransaction,
+      txType: 'consume',
+      message: 'Accepted payment'
+    },
+    {
+      key: 'failed-claim',
+      txId: 'failed-claim',
+      address: 'account-a',
+      timestamp: 59,
+      type: HistoryEntryType.CompletedTransaction,
+      status: ITransactionStatus.Failed,
+      txType: 'consume',
+      message: 'Failed payment'
+    }
+  ];
+  mockClaimItems = [{ note: { id: 'failed-note', receivedAt: 59 }, status: 'failed', txId: 'failed-claim' }];
+  render(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  expect(screen.getByText('Accepted payment')).toBeInTheDocument();
+  expect(screen.queryByText('Failed payment')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'failed-note' })).toBeInTheDocument();
 });
 
 it('keeps dated history before same-time claim cards and leaves unknown-dated claims last', () => {
@@ -535,6 +573,7 @@ it('reopens the same persisted operation by ID after a cold Command shell mount'
     </CommandShell>
   );
   expect(screen.getByText('Existing row receipt')).toBeInTheDocument();
+  expect(mockReadRow).toHaveBeenCalledWith('original');
   expect(navigate).not.toHaveBeenCalled();
 });
 

@@ -7,6 +7,7 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
 import { FlowAccent } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { TokenAmount } from 'components/ui/TokenAmount';
@@ -256,6 +257,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   onClose
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const titleRef = useRef<HTMLHeadingElement>(null);
 
   // The success view owns the whole screen — keep the bottom tab navbar
@@ -289,7 +291,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
       <FlowLayout
         title={headerTitle || t('success')}
         onClose={onClose}
-        commandFooter={commandFooter}
+        commandFooter={command || commandFooter}
         footer={
           <div className="flex w-full flex-col items-center gap-3">
             {footerDescription && <p className="text-center text-sm text-gray">{footerDescription}</p>}

@@ -10,8 +10,10 @@ import type { CommandRoute } from './command-routes';
 import { CommandDock } from './CommandDock';
 import { CommandHeader } from './CommandHeader';
 import { CommandHomePrompts } from './CommandHomePrompts';
+import { CommandOperation } from './CommandOperation';
 import { CommandPalette } from './CommandPalette';
 import { CommandPortfolio } from './CommandPortfolio';
+import { CommandRecentActions } from './CommandRecentActions';
 import { CommandWorkbench } from './CommandWorkbench';
 
 export function CommandShell({
@@ -72,6 +74,7 @@ export function CommandShell({
                   <>
                     <CommandPortfolio scope={scope} />
                     <CommandHomePrompts />
+                    <CommandRecentActions scope={scope} />
                   </>
                 )}
                 <div
@@ -85,7 +88,11 @@ export function CommandShell({
                     route={route}
                     container={portalHost}
                   >
-                    {children}
+                    {route.kind === 'operation' ? (
+                      <CommandOperation id={route.id}>{children}</CommandOperation>
+                    ) : (
+                      children
+                    )}
                   </CommandWorkbench>
                 )}
               </main>

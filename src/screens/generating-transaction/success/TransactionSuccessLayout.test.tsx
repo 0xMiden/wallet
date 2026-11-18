@@ -2,6 +2,9 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
+
 import { ReceiptRows, SuccessSummaryPill, TransactionSuccessLayout } from './TransactionSuccessLayout';
 
 /**
@@ -41,6 +44,18 @@ const baseProps = {
 };
 
 const footerLabels = () => screen.getAllByTestId('footer-action').map(button => button.textContent);
+
+it('pins the existing success actions in the Command operation workbench without a second footer', () => {
+  render(
+    <FlowPresentationProvider value="command">
+      <CommandWorkbench route={{ kind: 'operation', id: 'original-row' }} container={document.body}>
+        <TransactionSuccessLayout {...baseProps} />
+      </CommandWorkbench>
+    </FlowPresentationProvider>
+  );
+  expect(screen.getByTestId('command-footer')).toContainElement(screen.getByRole('button', { name: 'Done' }));
+  expect(screen.getAllByRole('button', { name: 'Done' })).toHaveLength(1);
+});
 
 it('titles the page when the receipt passes no header title, so the page always has an h1', () => {
   render(<TransactionSuccessLayout {...baseProps} headerTitle="" />);
