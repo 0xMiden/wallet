@@ -1,0 +1,43 @@
+name: IndexedDB disk exhaustion proof
+
+on:
+  push:
+    branches: [ci/indexeddb-disk-full-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Run Brave against a bounded, isolated filesystem
+        env:
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+          proof=$(mktemp -d "$RUNNER_TEMP/indexeddb-proof.XXXXXX")
+          volume="$proof/volume"
+          mkdir "$volume"
+          trap 'if mountpoint -q "$volume"; then sudo umount "$volume"; fi' EXIT
+          sudo mount -t tmpfs -o "size=96m,mode=0700,uid=$(id -u),gid=$(id -g)" tmpfs "$volume"
+          test "$(stat -f -c %T "$volume")" = tmpfs
+
+          curl -fsSL --retry 3 -o "$proof/brave.zip" \
+            https://github.com/brave/brave-browser/releases/download/v1.99.57/brave-browser-1.99.57-linux-amd64.zip
+          printf '%s  %s\n' 734bd9e1d24bc0a94c03b0a43845107dd8a29f572c652023cf7177f5fc3a5f38 "$proof/brave.zip" | sha256sum -c
+          unzip -qo "$proof/brave.zip" -d "$proof/browser"
+          brave=$(find "$proof/browser" -type f -name brave -print -quit)
+          test -x "$brave"
+          "$brave" --version
+
+          cp scripts/probe-indexeddb-disk-full.mjs "$proof/"
+          npm install --ignore-scripts --no-audit --no-fund --prefix "$proof" playwright-core@1.61.0
+          node "$proof/probe-indexeddb-disk-full.mjs" "$brave" "$volume" "$proof/extension"
