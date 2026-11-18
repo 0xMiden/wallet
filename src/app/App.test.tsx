@@ -150,11 +150,10 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => mockMidenContext
 }));
 
-jest.mock(
-  'app/pages/WalletStorageRecovery',
-  () => ({ WalletStorageRecovery: () => <div data-testid="wallet-storage-recovery" /> }),
-  { virtual: true }
-);
+jest.mock('react-i18next', () => ({
+  ...jest.requireActual('react-i18next'),
+  useTranslation: () => ({ t: (key: string) => key })
+}));
 
 jest.mock('app/a11y/AwaitFonts', () => ({
   __esModule: true,
@@ -315,7 +314,7 @@ describe('app/App', () => {
     mockBackupRequired = true;
     const view = await renderApp({ windowType: WindowType.FullPage, confirmWindow: true });
 
-    expect(view.getByTestId('wallet-storage-recovery')).toBeInTheDocument();
+    expect(view.getByRole('heading', { name: 'storageRecoveryTitle' })).toBeInTheDocument();
     expect(view.queryByTestId('required-backup')).not.toBeInTheDocument();
     expect(view.queryByTestId('confirm-page')).not.toBeInTheDocument();
     expect(view.queryByTestId('dialogs')).not.toBeInTheDocument();
