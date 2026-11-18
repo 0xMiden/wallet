@@ -3932,20 +3932,25 @@ describe('MidenClientInterface', () => {
       }));
 
       const { MidenClientInterface } = await import('./miden-client-interface');
+      const { WasmClientPoisonedError } = await import('./wasm-client-poison');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recip',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(100),
-        extraInputs: {}
-      } as any);
+      await expect(
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+      ).rejects.toBeInstanceOf(WasmClientPoisonedError);
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
+      expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
+      expect(inner.applyTransaction).not.toHaveBeenCalled();
     });
 
     it.each([

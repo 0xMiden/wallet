@@ -472,7 +472,9 @@ describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
     const { swSignCallback, vaultGuardianProvider } = await import('./transaction-processor');
 
     await expect(swSignCallback('pubkey-hex', 'signing-inputs-hex')).rejects.toThrow('Wallet storage unavailable');
-    await expect(vaultGuardianProvider.signWord('pubkey-hex', 'word-hex')).rejects.toThrow('Wallet storage unavailable');
+    await expect(vaultGuardianProvider.signWord('pubkey-hex', 'word-hex')).rejects.toThrow(
+      'Wallet storage unavailable'
+    );
     expect(mockWithUnlocked).not.toHaveBeenCalled();
   });
   it('getAccounts throws a locked-classified error (not a raw null-deref) when the vault is locked', async () => {

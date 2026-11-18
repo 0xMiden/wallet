@@ -256,6 +256,7 @@ jest.mock('../activity/helpers', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
+  isDesktop: () => false,
   isMobile: () => false,
   isExtension: () => true
 }));

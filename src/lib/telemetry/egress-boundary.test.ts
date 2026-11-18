@@ -1549,11 +1549,16 @@ describe('crash-report egress', () => {
           return [];
         }
       });
-    expect(values).toEqual([
-      expect.stringMatching(
-        /^Transaction failed: tx_bridge; stage unknown; realm unknown; proving preference unknown; platform [a-z]+; point bridge_receive_settlement; rpc; via epoch; failed at epoch_solve; evm error user_rejected\. authentication preparation unavailable; layout unavailable; commitment match unavailable; account code unavailable\. SDK \d+\.\d+\.\d+(?:-rc\.\d+)?; Guardian client \d+\.\d+\.\d+(?:-rc\.\d+)?$/
-      )
-    ]);
+    const versionLabel = (dependency: string) => (dependency.startsWith('file:') ? 'unavailable' : dependency);
+    const sdk = versionLabel(packageJson.dependencies['@miden-sdk/miden-sdk']);
+    const guardian = versionLabel(packageJson.dependencies['@openzeppelin/miden-multisig-client']);
+    const suffix = ` SDK ${sdk}; Guardian client ${guardian}`;
+    expect(values).toHaveLength(1);
+    const message = values[0]!;
+    expect(message.endsWith(suffix)).toBe(true);
+    expect(message.slice(0, -suffix.length)).toMatch(
+      /^Transaction failed: tx_bridge; stage unknown; realm unknown; proving preference unknown; platform [a-z]+; point bridge_receive_settlement; rpc; via epoch; failed at epoch_solve; evm error user_rejected\. authentication preparation unavailable; layout unavailable; commitment match unavailable; account code unavailable\.$/
+    );
     for (const text of [
       host,
       'eip155',
