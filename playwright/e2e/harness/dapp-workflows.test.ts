@@ -1,8 +1,11 @@
 /**
  * @jest-environment node
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import YAML from 'yaml';
 
 import { JOURNEY_TIMEOUT_MS } from '../helpers/dapp-matrix';
 
@@ -261,6 +264,56 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(evidence).not.toContain('adb logcat');
     expect(acceptance).toContain('trap write_acceptance_evidence EXIT');
     expect(acceptance).toContain('timeout 15s adb logcat');
+  });
+
+  it('prints only the private API36 gesture verdict and preserves the child exit status', () => {
+    const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const steps: { name: string; with?: { script?: unknown } }[] =
+      YAML.parse(browser).jobs['android-presentation-gesture'].steps;
+    const script = steps.find(step => step.name === 'Run live API36 managed presentation gestures')?.with?.script;
+    if (typeof script !== 'string') throw new Error('Missing API36 presentation gesture wrapper');
+
+    // Run the actual folded workflow input, but resolve its relative child path only inside a temp directory.
+    const cwd = mkdtempSync(resolve(tmpdir(), 'api36-private-output-'));
+    try {
+      mkdirSync(resolve(cwd, '.github/scripts'), { recursive: true });
+      writeFileSync(
+        resolve(cwd, '.github/scripts/run-dapp-presentation-gesture-api36.sh'),
+        [
+          'printf "%s\\n" "fake child stdout"',
+          'printf "%s\\n" "fake child stderr" >&2',
+          'printf "%s\\n" "$FAKE_MARKER" > "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 99',
+          'exit "$FAKE_STATUS"'
+        ].join('\n')
+      );
+      for (const { marker, status, verdict } of [
+        { marker: 'result-checks', status: 0, verdict: 'PASS' },
+        { marker: 'capsule-commit', status: 23, verdict: 'FAIL (capsule-commit)' },
+        { marker: 'capsule-commit\nunexpected-marker-data', status: 37, verdict: 'FAIL (unknown)' }
+      ]) {
+        const result = spawnSync('/bin/sh', ['-c', script], {
+          cwd,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: {
+            PATH: '/usr/bin:/bin',
+            RUNNER_TEMP: cwd,
+            PRESENTATION_GESTURE_PRIVATE_OUTPUT: 'true',
+            FAKE_MARKER: marker,
+            FAKE_STATUS: String(status)
+          },
+          timeout: 5_000
+        });
+        expect(result.error).toBeUndefined();
+        expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+          status,
+          stdout: `Android API36 presentation gestures: ${verdict}\n`,
+          stderr: ''
+        });
+      }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   it('assigns every in-app browser spec to the mobile leg of its platform', () => {
