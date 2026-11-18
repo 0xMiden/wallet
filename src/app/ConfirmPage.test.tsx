@@ -1593,6 +1593,8 @@ describe('ConfirmPage custom transaction', () => {
     expect(screen.getByTestId('tx-simulation-pending')).toBeInTheDocument();
     expect(screen.queryByTestId('tx-asset-view')).not.toBeInTheDocument();
     expect(acceptButton()).toBeDisabled();
+    // The window names the site that asks while it waits for the simulated view.
+    expect(screen.getByTestId('confirm-request-origin')).toHaveAttribute('title', customPayload().origin);
 
     await act(async () => {
       finish({ view: verifiedView('mtst1acct') });
@@ -1653,6 +1655,8 @@ describe('ConfirmPage custom transaction', () => {
     await waitFor(() =>
       expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('customTransactionNotSimulated')
     );
+    // A request that cannot be approved still names the site, so the user knows whose request they decline.
+    expect(screen.getByTestId('confirm-request-origin')).toHaveAttribute('title', customPayload().origin);
   });
 });
 

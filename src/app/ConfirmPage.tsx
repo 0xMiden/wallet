@@ -14,6 +14,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
+import { DetailCard } from 'components/ui/DetailCard';
 import { HeaderRule } from 'components/ui/HeaderRule';
 import { Spinner } from 'components/ui/Spinner';
 import { useAccount, useMidenContext } from 'lib/miden/front';
@@ -39,6 +40,7 @@ import {
   ConsumeRequest,
   CustomRequest,
   FailureNotice,
+  RequestRows,
   SendRequest,
   TransactionRequestError
 } from './confirm/TransactionRequest';
@@ -214,20 +216,31 @@ const CustomTransactionContent: React.FC<{
     return <CustomRequest {...shared} view={verifiedView} noteFlow={verifiedNoteFlow} />;
   }
 
+  // Every state of the window names the site that asks, as the verified view's request card does.
+  const requestCard = (
+    <DetailCard surface="outline" face="heading">
+      <RequestRows origin={payload.origin} />
+    </DetailCard>
+  );
+
   if (simError) {
     return (
       <div className="flex w-full flex-col gap-4 face-heading">
         <p className="text-body-sm font-semibold text-ink" data-testid="tx-simulation-failed">
           {t('customTransactionNotSimulated')}
         </p>
+        {requestCard}
         {advanced}
       </div>
     );
   }
 
   return (
-    <div className="flex w-full justify-center py-6" data-testid="tx-simulation-pending">
-      <Spinner />
+    <div className="flex w-full flex-col gap-4 face-heading">
+      <div className="flex w-full justify-center py-6" data-testid="tx-simulation-pending">
+        <Spinner />
+      </div>
+      {requestCard}
     </div>
   );
 };
