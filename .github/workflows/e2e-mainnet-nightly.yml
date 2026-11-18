@@ -18,6 +18,10 @@ on:
         description: Validate only the solver round trip, without fresh bridge or send fees.
         type: boolean
         default: false
+      bridges_only:
+        description: Validate bridges without a fresh solver swap; original swap recovery still runs.
+        type: boolean
+        default: false
       loops_only:
         description: Validate swap, Epoch and NEAR without the legacy send, USDCx or AggLayer loops.
         type: boolean
@@ -60,6 +64,7 @@ jobs:
       MAINNET_SWAP_RECOVERY_RETURN_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_swap_recovery_return && 'true' || 'false' }}
       MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.replace_unsubmitted_swap_return && 'true' || 'false' }}
       MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: ${{ github.event_name == 'schedule' && '2000000' || inputs.loss_budget_usd_micros }}
+      MAINNET_LOOP_BRIDGES_ONLY: ${{ inputs.bridges_only && 'true' || 'false' }}
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
       E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
@@ -70,12 +75,16 @@ jobs:
       - name: Require an original, unambiguous run
         env:
           SWAPS_ONLY: ${{ inputs.swaps_only }}
+          BRIDGES_ONLY: ${{ inputs.bridges_only }}
           LOOPS_ONLY: ${{ inputs.loops_only }}
         run: |
           [ "$GITHUB_RUN_ATTEMPT" = 1 ]
           budget="${MAINNET_LOOP_LOSS_BUDGET_USD_MICROS-2000000}"
           if ! [[ "$budget" =~ ^[1-9][0-9]{0,6}$ ]] || [ "$budget" -gt 2000000 ]; then
             echo 'Invalid remaining loss/fee allowance; no wallet restoration authorized.' >&2; exit 1
+          fi
+          if [ "$SWAPS_ONLY" = true ] && [ "$BRIDGES_ONLY" = true ]; then
+            echo 'Choose swaps_only or bridges_only, not both.' >&2; exit 1
           fi
           if [ "$SWAPS_ONLY" = true ] && [ "$LOOPS_ONLY" = true ]; then
             echo 'Choose swaps_only or loops_only, not both.' >&2; exit 1
@@ -479,10 +488,10 @@ jobs:
           if (!recovered) appendFileSync(process.env.GITHUB_ENV, 'MAINNET_LOOP_RECOVERY_CLEARED=true\n');
           NODE
       - name: Prepare mainnet solver swap
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         run: MAINNET_SWAP_MODE=prepare E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-prepare xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
       - name: Upload mainnet swap forward authorization
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mainnet-swap-forward-authorized-${{ github.run_id }}
@@ -490,13 +499,13 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Run mainnet swap forward
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         run: |
           umask 077
           (code=0; MAINNET_SWAP_MODE=forward MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.forward.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-forward-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-forward.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-forward.exit") &
           echo $! > "$RUNNER_TEMP/swap-forward.pid"
       - name: Upload swap SDK forward authority
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         uses: ./.github/actions/mainnet-loop-upload
         with:
           checkpoint: test-results/mainnet-swap-state/roundtrip.json
@@ -505,7 +514,7 @@ jobs:
           process-id: ${{ runner.temp }}/swap-forward.pid
           snapshot-directory: ${{ runner.temp }}/swap-forward-auth
       - name: Upload swap SDK forward claim authority
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         uses: ./.github/actions/mainnet-loop-upload
         with:
           checkpoint: test-results/mainnet-swap-state/roundtrip.json
@@ -514,13 +523,13 @@ jobs:
           process-id: ${{ runner.temp }}/swap-forward.pid
           snapshot-directory: ${{ runner.temp }}/swap-forward-claim-auth
       - name: Wait for mainnet swap forward
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         timeout-minutes: 31
         run: |
           while [ ! -f "$RUNNER_TEMP/swap-forward.exit" ]; do read -r pid < "$RUNNER_TEMP/swap-forward.pid"; kill -0 "$pid"; sleep 1; done
           read -r code < "$RUNNER_TEMP/swap-forward.exit"; [ "$code" = 0 ] || { echo 'Swap forward blocked; retain original authority.' >&2; exit 1; }
       - name: Upload mainnet swap reverse authorization
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mainnet-swap-reverse-authorized-${{ github.run_id }}
@@ -528,13 +537,13 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Run mainnet swap reverse
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         run: |
           umask 077
           (code=0; MAINNET_SWAP_MODE=reverse MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.reverse.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-reverse-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-reverse.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-reverse.exit") &
           echo $! > "$RUNNER_TEMP/swap-reverse.pid"
       - name: Upload swap SDK reverse authority
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         uses: ./.github/actions/mainnet-loop-upload
         with:
           checkpoint: test-results/mainnet-swap-state/roundtrip.json
@@ -543,7 +552,7 @@ jobs:
           process-id: ${{ runner.temp }}/swap-reverse.pid
           snapshot-directory: ${{ runner.temp }}/swap-reverse-auth
       - name: Upload swap SDK reverse claim authority
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         uses: ./.github/actions/mainnet-loop-upload
         with:
           checkpoint: test-results/mainnet-swap-state/roundtrip.json
@@ -552,7 +561,7 @@ jobs:
           process-id: ${{ runner.temp }}/swap-reverse.pid
           snapshot-directory: ${{ runner.temp }}/swap-reverse-claim-auth
       - name: Wait for mainnet swap return
-        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         timeout-minutes: 31
         run: |
           while [ ! -f "$RUNNER_TEMP/swap-reverse.exit" ]; do read -r pid < "$RUNNER_TEMP/swap-reverse.pid"; kill -0 "$pid"; sleep 1; done
