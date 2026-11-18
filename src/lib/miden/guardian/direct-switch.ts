@@ -31,6 +31,7 @@ import {
   GUARDIAN_RETRY_MAX_ATTEMPTS,
   guardianRegisterBackoffMs,
   isGuardianStateNotOnChain,
+  isNewGuardianAnswer,
   NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
 } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -264,9 +265,13 @@ export const isGuardianUnreachableError = (err: unknown): boolean => {
  * `isGuardianUnreachableError`. An error without a status (a local failure, a
  * rejected signature prompt, a node error) is not a Guardian answer and is not a
  * refusal. A local kill is not a Guardian answer either.
+ *
+ * Only the OUTGOING Guardian's answer is a refusal. The NEW Guardian's key fetch is marked
+ * (`markNewGuardianAnswer`), and its 4xx is not a reason to leave the outgoing Guardian.
  */
 export const isGuardianRefusal = (err: unknown): boolean => {
   if (isKilledPipeline(err)) return false;
+  if (isNewGuardianAnswer(err)) return false;
   if (typeof err !== 'object' || err === null) return false;
   return 'status' in err && typeof err.status === 'number' && err.status >= 400 && err.status <= 499;
 };

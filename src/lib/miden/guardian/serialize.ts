@@ -255,6 +255,23 @@ export const GUARDIAN_RETRY_MAX_ATTEMPTS = 8;
  * fails the rotation before any state changed, which is the safe direction.
  */
 export const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
+
+// Errors that the NEW guardian's `GET /pubkey` raised. The set holds the error object itself, so the
+// error is never wrapped or copied and every reader of the original object still gets it unchanged.
+const newGuardianAnswers = new WeakSet<object>();
+
+/**
+ * Mark an error as the NEW guardian's answer. Only the OUTGOING guardian's answer can start the direct
+ * switch as a refusal, so `isGuardianRefusal` does not count a marked error. A value that is not an
+ * object cannot be marked.
+ */
+export const markNewGuardianAnswer = (error: unknown): void => {
+  if (typeof error === 'object' && error !== null) newGuardianAnswers.add(error);
+};
+
+export const isNewGuardianAnswer = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && newGuardianAnswers.has(error);
+
 // Ceiling for a server-provided Retry-After on a 429: high enough to honour the
 // guardian's own cooldown (seconds → ~a minute) instead of retrying under it and
 // earning another 429, bounded so a rate-limited re-register can't stall a

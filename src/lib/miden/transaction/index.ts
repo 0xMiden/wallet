@@ -4122,9 +4122,12 @@ const generateGuardianTransaction = async (
         //
         // A refusal (any HTTP 4xx: a 401, a 403, a 409 that did not clear, a 429)
         // is the third condition. The user asked to leave this operator, so its
-        // refusal of the proposal must not block the switch. An error that is not
-        // a Guardian answer (a local failure, a rejected signature prompt) has no
-        // trigger and fails the row.
+        // refusal of the proposal must not block the switch. A refusal is the
+        // OUTGOING Guardian's answer: a 4xx from the NEW Guardian's key fetch is
+        // marked in `createSwitchGuardianProposal`, is not a refusal, and fails the
+        // row with the new endpoint named. An error that is not a Guardian answer
+        // (a local failure, a rejected signature prompt) has no trigger and fails
+        // the row.
         const trigger = directSwitchTriggerFor(error);
         if (trigger === undefined) throw error;
         // Attributed by PHASE, not hardcoded. Only the service load is

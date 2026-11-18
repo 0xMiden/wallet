@@ -21,7 +21,12 @@ import {
   STATE_ON_CHAIN_WAIT_MS,
   waitForStateOnChain
 } from './direct-switch';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, isGuardianStateNotOnChain, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import {
+  GUARDIAN_RETRY_MAX_ATTEMPTS,
+  isGuardianStateNotOnChain,
+  markNewGuardianAnswer,
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
+} from './serialize';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 
 // ---------------------------------------------------------------------------
@@ -487,6 +492,22 @@ describe('directSwitchTriggerFor', () => {
   ])('does not start the direct switch on %s', (_label, error) => {
     expect(isGuardianRefusal(error)).toBe(false);
     expect(directSwitchTriggerFor(error)).toBeUndefined();
+  });
+
+  it.each([
+    ['a marked 403', Object.assign(new Error('Forbidden'), { status: 403 })],
+    ['a marked 429', Object.assign(new Error('Too Many Requests'), { status: 429 })]
+  ])('does not start the direct switch on %s from the new Guardian', (_label, error) => {
+    markNewGuardianAnswer(error);
+    expect(isGuardianRefusal(error)).toBe(false);
+    expect(directSwitchTriggerFor(error)).toBeUndefined();
+  });
+
+  it('keeps the unreachable verdict for a marked 503 and the refusal for an unmarked 403', () => {
+    const marked = Object.assign(new Error('Service Unavailable'), { status: 503 });
+    markNewGuardianAnswer(marked);
+    expect(directSwitchTriggerFor(marked)).toBe('unreachable');
+    expect(directSwitchTriggerFor(Object.assign(new Error('Forbidden'), { status: 403 }))).toBe('refused the request');
   });
 
   it('does not read a local kill that carries a status as a refusal', () => {

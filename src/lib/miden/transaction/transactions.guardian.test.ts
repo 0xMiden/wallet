@@ -32,6 +32,7 @@ import {
   clearGuardianAccountLocks,
   getGuardianCandidate,
   type GuardianCandidate,
+  markNewGuardianAnswer,
   recordGuardianCandidate
 } from 'lib/miden/guardian/serialize';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
@@ -16617,6 +16618,27 @@ describe('generateTransaction - direct switch audit marker', () => {
     const extra = markerExtraInputs(txId);
     expect(extra).toMatchObject({ switchedDirectly: true });
     expect(extra.directSwitchReason).toContain('outgoing or new guardian refused the request');
+  });
+
+  // A 4xx from the NEW guardian's key fetch is not the outgoing guardian's refusal. The fetch marks its
+  // error, and the row fails with that error instead of leaving a healthy outgoing guardian.
+  it('fails the row when the new guardian key fetch is refused with a marked 403', async () => {
+    const txId = 'switch-guardian-marker-new-guardian-refused';
+    const provider = setup(txId);
+    const newGuardianRefusal = Object.assign(new Error('Forbidden'), { status: 403 });
+    markNewGuardianAnswer(newGuardianRefusal);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest.fn(async () => {
+        throw newGuardianRefusal;
+      }),
+      abandonCandidate: jest.fn(async () => {})
+    });
+
+    await run(txId, provider).catch(() => {});
+
+    expect(markerExtraInputs(txId).switchedDirectly).toBeUndefined();
+    expect(txStore.find(r => r.id === txId)?.status).toBe(ITransactionStatus.Failed);
+    expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
   });
 
   it('escapes an outgoing guardian that refuses the cold co-sign', async () => {
