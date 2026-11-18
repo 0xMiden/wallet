@@ -61,18 +61,38 @@ async function adb(...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-function input(command: { op: string; points?: Point[]; steps?: number; label?: string }, phaseChanged?: (phase: string) => void) {
+type HostRejectionKind = 'framing-protocol' | 'socket-error-or-close' | 'socket-inactivity';
+type HostRejection = { kind?: HostRejectionKind };
+
+function input(
+  command: { op: string; points?: Point[]; steps?: number; label?: string },
+  phaseChanged?: (phase: string) => void,
+  rejection?: HostRejection
+) {
   const id = ++commandId;
   return new Promise<BridgeReply>((resolve, reject) => {
     const socket = createConnection({ host: '127.0.0.1', port: 9236 });
+    const destroyOrigins = new WeakMap<Error, HostRejectionKind>();
     let buffer = '';
-    let completed = false;
-    socket.setTimeout(30_000, () => socket.destroy(new Error('Native gesture input timed out')));
+    let settled = false;
+
+    function destroyWithOrigin(error: Error, kind: HostRejectionKind) {
+      destroyOrigins.set(error, kind);
+      socket.destroy(error);
+    }
+    function rejectOnce(error: Error) {
+      if (settled) return;
+      settled = true;
+      if (rejection) rejection.kind = destroyOrigins.get(error) ?? 'socket-error-or-close';
+      reject(error);
+    }
+
+    socket.setTimeout(30_000, () => destroyWithOrigin(new Error('Native gesture input timed out'), 'socket-inactivity'));
     socket.on('connect', () => socket.write(JSON.stringify({ id, ...command }) + '\n'));
     socket.on('data', chunk => {
       buffer += String(chunk);
       if (buffer.length > 16_384) {
-        socket.destroy(new Error('Oversized native gesture reply'));
+        destroyWithOrigin(new Error('Oversized native gesture reply'), 'framing-protocol');
         return;
       }
       let end: number;
@@ -84,19 +104,19 @@ function input(command: { op: string; points?: Point[]; steps?: number; label?: 
           if (reply.id !== id) throw new Error('Native gesture command identity mismatch');
           if (reply.phase === 'started' || reply.phase === 'injected') phaseChanged?.(reply.phase);
           else if (reply.phase === 'done') {
-            completed = true;
+            settled = true;
             resolve(reply);
             socket.end();
           }
           else throw new Error('Native gesture input rejected the command');
         } catch (error) {
-          socket.destroy(error instanceof Error ? error : new Error(String(error)));
+          destroyWithOrigin(error instanceof Error ? error : new Error(String(error)), 'framing-protocol');
         }
       }
     });
-    socket.on('error', reject);
+    socket.on('error', rejectOnce);
     socket.on('close', () => {
-      if (!completed) reject(new Error('Native gesture input closed without a result'));
+      if (!settled) rejectOnce(new Error('Native gesture input closed without a result'));
     });
   });
 }
@@ -257,11 +277,16 @@ test.describe('API36 managed presentation gestures', () => {
           let started = false;
           let injecting = false;
           let finished = false;
-          const gesture = input({ op: 'swipe', points, steps: 150 }, phase => {
-            if (phase === 'started') started = true;
-            if (phase === 'injected') inputConfirmed = true;
-            injecting = phase === 'started';
-          }).finally(() => {
+          const rejection: HostRejection = {};
+          const gesture = input(
+            { op: 'swipe', points, steps: 150 },
+            phase => {
+              if (phase === 'started') started = true;
+              if (phase === 'injected') inputConfirmed = true;
+              injecting = phase === 'started';
+            },
+            rejection
+          ).finally(() => {
             finished = true;
           });
           void gesture.catch(() => undefined);
