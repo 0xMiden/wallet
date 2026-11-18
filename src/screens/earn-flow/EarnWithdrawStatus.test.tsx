@@ -9,6 +9,8 @@ import type { AssetMetadata } from 'lib/miden/metadata/types';
 import type { NativeAssetChainMetadata } from 'lib/miden-chain/native-asset';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
+import { CommandOperation } from 'screens/command/CommandOperation';
+import { resolveCommandRoute } from 'screens/command/command-routes';
 import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import type { TransactionSuccessLayoutProps } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 
@@ -19,6 +21,7 @@ let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
 let mockRealSuccess = false;
 let mockAssetsMetadata: Record<string, AssetMetadata> = {};
 let mockNativeMetadata: NativeAssetChainMetadata | null = null;
+const mockRowSubscriptionStart = jest.fn();
 
 // Foreign delivery uses the store; native delivery uses resolved chain metadata.
 jest.mock('lib/store', () => ({
@@ -54,7 +57,16 @@ jest.mock('lib/woozie', () => ({
 }));
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
-  useTransactionRow: () => mockRowState
+  useTransactionRow: (id: string) => {
+    React.useEffect(() => {
+      mockRowSubscriptionStart(id);
+    }, [id]);
+    return mockRowState;
+  }
+}));
+
+jest.mock('screens/command/useCommandPrivacy', () => ({
+  useCommandPrivacy: () => [false, jest.fn()]
 }));
 
 jest.mock('components/ui/Spinner', () => ({
@@ -183,13 +195,52 @@ describe('EarnWithdrawStatus', () => {
     mockNativeMetadata = null;
   });
 
-  it('shows a spinner until a transaction row is available', () => {
+  it('keeps a Compact missing-row view unchanged while its first query is pending and after it settles', () => {
     const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
     expect(screen.getByTestId('spinner')).toBeInTheDocument();
 
     mockRowState = { row: undefined, loaded: true };
     view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
     expect(screen.getByTestId('spinner')).toBeInTheDocument();
+  });
+
+  it('shows a safe exit for an unknown Command Earn operation only after the original row lookup settles', () => {
+    const route = resolveCommandRoute('/earn/withdraw-status/missing-id');
+    if (!route || route.kind !== 'operation') throw new Error('Earn withdrawal status did not resolve as an operation');
+    const view = () => (
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={route} container={document.body}>
+            <CommandOperation>
+              <EarnWithdrawStatus txId={route.id} />
+            </CommandOperation>
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const rendered = render(view());
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+    expect(screen.queryByText('historyDetailsLoadError')).not.toBeInTheDocument();
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+    expect(mockRowSubscriptionStart).toHaveBeenCalledWith('missing-id');
+
+    mockRowState = { row: undefined, loaded: true };
+    rendered.rerender(view());
+    expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
+    expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    expect(screen.queryByText('missing-id')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('summary-badge')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry|submit|withdraw|done|hide/i })).not.toBeInTheDocument();
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'viewInActivities' }));
+    expect(navigate).toHaveBeenCalledWith('/history');
+
+    mockRowState = { row: makeRow(makeInputs(), { id: route.id }), loaded: true };
+    rendered.rerender(view());
+    expect(screen.getByText('withdrawalProcessing')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'hide' })).toBeInTheDocument();
+    expect(screen.queryByText('historyDetailsLoadError')).not.toBeInTheDocument();
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
   });
 
   it('shows the processing state before the intent is submitted', () => {
