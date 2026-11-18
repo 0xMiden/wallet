@@ -2,12 +2,10 @@ import React, { useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import { SeedBackupGate } from 'app/templates/SeedBackupGate';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
-import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import { requestLock } from 'lib/lock-up/lock-request';
 import { useMidenContext } from 'lib/miden/front';
 import type { WalletStorageRecoveryResult } from 'lib/shared/types';
@@ -74,27 +72,29 @@ const WalletStorageRecovery: React.FC<{
 };
 
 export const WalletSurfaceGate: React.FC<React.PropsWithChildren> = ({ children }) => {
-  const { hydrated, locked, storageUnavailable, rebuildWalletStorage } = useMidenContext();
-  const lockPending = backgroundLockPending.useValue();
-  const [rebuilding, setRebuilding] = useState(false);
-  if (hydrated && !locked && (storageUnavailable || rebuilding)) {
-    // Recovery must take priority over both account prompts and approval windows.
-    return lockPending ? (
-      <RootSuspenseFallback />
-    ) : (
-      <WalletStorageRecovery
-        rebuild={async () => {
-          setRebuilding(true);
-          try {
-            return await rebuildWalletStorage();
-          } catch (error) {
-            setRebuilding(false);
-            throw error;
-          }
-        }}
-        onContinue={() => setRebuilding(false)}
-      />
-    );
-  }
-  return <SeedBackupGate>{children}</SeedBackupGate>;
+  const { hydrated, locked, storageUnavailable, storageFailure, rebuildWalletStorage } = useMidenContext();
+  const activeFailure = storageFailure ?? (storageUnavailable ? 'unreadable-storage' : undefined);
+  const [hold, setHold] = useState<{ failure: string }>();
+  const resetHold = hold !== undefined && (locked || (activeFailure !== undefined && activeFailure !== hold.failure));
+  if (resetHold) setHold(undefined);
+  const failure = activeFailure ?? (resetHold ? undefined : hold?.failure);
+
+  if (!hydrated || locked || failure === undefined) return <SeedBackupGate>{children}</SeedBackupGate>;
+
+  return (
+    <WalletStorageRecovery
+      key={failure}
+      rebuild={async () => {
+        const attempt = { failure };
+        setHold(attempt);
+        try {
+          return await rebuildWalletStorage();
+        } catch (error) {
+          setHold(current => (current === attempt ? undefined : current));
+          throw error;
+        }
+      }}
+      onContinue={() => setHold(undefined)}
+    />
+  );
 };

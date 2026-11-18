@@ -438,6 +438,8 @@ export type SeedPhraseStatus = 'stored' | 'removing' | 'removed' | 'unavailable'
 
 export interface WalletState {
   storageUnavailable?: boolean;
+  /** Authoritative storage-failure id from `getWalletStorageFailure`, including a volatile id whose disk write failed. */
+  storageFailure?: string;
   seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[]; // Miden sdk might soon export a type for this

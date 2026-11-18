@@ -200,8 +200,13 @@ export async function getFrontState(): Promise<GetStateResponse['state']> {
   try {
     const state = store.getState();
     if (state.inited) {
-      const storageUnavailable = await getWalletStorageFailure().then(Boolean, () => true);
-      return { ...toFront(state), backendInitialized: true, storageUnavailable };
+      // A thrown read fails closed with no id. A resolved id, including the volatile one kept when the disk write
+      // fails, is both the boolean and the generation the recovery screen binds to.
+      const storage = await getWalletStorageFailure().then(
+        failure => ({ storageFailure: failure, storageUnavailable: Boolean(failure) }),
+        () => ({ storageFailure: undefined, storageUnavailable: true })
+      );
+      return { ...toFront(state), backendInitialized: true, ...storage };
     }
   } catch {
     // store not initialized yet

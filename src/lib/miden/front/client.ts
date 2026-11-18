@@ -51,8 +51,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const settings = useWalletStore(s => s.settings);
   const ownMnemonic = useWalletStore(s => s.ownMnemonic);
   const confirmation = useWalletStore(s => s.confirmation);
-  const [storageFailure] = useStorage<string | null>(WALLET_STORAGE_FAILURE_KEY, null);
+  const [storedStorageFailure] = useStorage<string | null>(WALLET_STORAGE_FAILURE_KEY, null);
   const backendStorageUnavailable = useWalletStore(s => s.storageUnavailable);
+  const backendStorageFailure = useWalletStore(s => s.storageFailure);
   const rebuildWalletStorage = useCallback(async () => {
     const response = await request({ type: WalletMessageType.RebuildWalletStorageRequest });
     assertResponse(response.type === WalletMessageType.RebuildWalletStorageResponse);
@@ -412,7 +413,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     locked,
     ready,
     hydrated: isInitialized,
-    storageUnavailable: Boolean(storageFailure || backendStorageUnavailable),
+    storageUnavailable: Boolean(storedStorageFailure || backendStorageUnavailable),
+    storageFailure: backendStorageFailure || storedStorageFailure || undefined,
     rebuildWalletStorage,
 
     // Misc

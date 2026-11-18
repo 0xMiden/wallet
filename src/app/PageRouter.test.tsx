@@ -47,7 +47,7 @@ const mockLocation: { pathname: string; trigger: string | null } = {
 };
 const mockEnv = { popup: false, fullPage: false, sidePanel: false };
 const mockRebuildWalletStorage = jest.fn();
-const mockMiden = {
+let mockMiden = {
   ready: false,
   locked: false,
   hydrated: false,
@@ -403,15 +403,34 @@ describe('wallet storage recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'storageRecoveryRebuild' }));
     await screen.findByRole('heading', { name: 'storageRecoveryVerified' });
 
-    mockMiden.storageUnavailable = false;
-    mockMiden.storageFailure = undefined;
-    mockMiden.locked = true;
+    mockMiden = { ...mockMiden, storageUnavailable: false, storageFailure: undefined, locked: true };
     rerender(<RoutedWallet />);
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
 
-    mockMiden.locked = false;
+    mockMiden = { ...mockMiden, locked: false };
     rerender(<RoutedWallet />);
     expect(screen.getByTestId('explore')).toBeInTheDocument();
+    expect(mockRebuildWalletStorage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the verified recovery screen when a pending lock does not complete', async () => {
+    mockRebuildWalletStorage.mockResolvedValueOnce({
+      verifiedAccounts: 1,
+      expectedAccounts: 1,
+      verifiedNotes: 1,
+      expectedNotes: 1
+    });
+    const { rerender } = renderAt('/', { ...ready, storageUnavailable: true }, null, <RoutedWallet />);
+    fireEvent.click(screen.getByRole('button', { name: 'storageRecoveryRebuild' }));
+    await screen.findByRole('heading', { name: 'storageRecoveryVerified' });
+
+    mockMiden.storageUnavailable = false;
+    mockMiden.storageFailure = undefined;
+    rerender(<RoutedWallet />);
+    act(() => backgroundLockPending.set(true));
+    act(() => backgroundLockPending.set(false));
+
+    expect(screen.getByRole('heading', { name: 'storageRecoveryVerified' })).toBeInTheDocument();
     expect(mockRebuildWalletStorage).toHaveBeenCalledTimes(1);
   });
 

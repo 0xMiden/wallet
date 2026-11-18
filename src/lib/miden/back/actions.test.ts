@@ -9,6 +9,11 @@ import { spendingLimits, transactions } from 'lib/miden/repo';
 import { clearStorage, PENDING_ADMISSION_STORAGE_KEY, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
+import {
+  clearVerifiedStorageFailure,
+  getWalletStorageFailure,
+  markWalletStorageUnavailable
+} from 'lib/miden/storage-health';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -499,6 +504,24 @@ describe('actions', () => {
         expect(result).toHaveProperty('backendInitialized', true);
       }
     );
+
+    it('exposes the active failure ID even when the disk refuses the marker', async () => {
+      mockStoreState.inited = true;
+      mockStoreState.status = WalletStatus.Ready;
+      mockStorageSet.mockRejectedValueOnce(new DOMException('No space left', 'QuotaExceededError'));
+
+      await markWalletStorageUnavailable();
+      const failure = await getWalletStorageFailure();
+      try {
+        expect(failure).toEqual(expect.any(String));
+        await expect(getFrontState()).resolves.toMatchObject({
+          storageFailure: failure,
+          storageUnavailable: true
+        });
+      } finally {
+        if (failure) await clearVerifiedStorageFailure(failure);
+      }
+    });
 
     it('returns pending Idle when inited is false', async () => {
       mockStoreState.inited = false;
