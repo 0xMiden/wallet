@@ -195,6 +195,13 @@ jest.mock('./confirm/note-flow', () => ({
   noteFlowFromSimulatedBytes: jest.fn()
 }));
 
+// The real metadata read by default; a case that pins a rendered amount resolves its faucets to a known scale.
+const mockFetchTokenMetadata = jest.fn();
+jest.mock('lib/miden/metadata/fetch', () => ({
+  ...jest.requireActual('lib/miden/metadata/fetch'),
+  fetchTokenMetadata: (...args: unknown[]) => mockFetchTokenMetadata(...args)
+}));
+
 // Partial mock: `simulatedBytesToView` is stubbed so these UI tests don't touch the WASM SDK, and to prove
 // the window never calls it.
 jest.mock('./confirm/decode', () => ({
@@ -289,6 +296,9 @@ afterAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFetchTokenMetadata.mockImplementation(
+    jest.requireActual('lib/miden/metadata/fetch').fetchTokenMetadata as (...args: unknown[]) => unknown
+  );
   t.mockImplementation((key: string) => key);
   ctx.ready = true;
   mockUseMidenContext.mockReturnValue(ctx);
@@ -1139,19 +1149,27 @@ describe('sign payload — signingInputs', () => {
     expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
   });
 
-  it("shows the background's held-note count and outgoing amount without decoding", () => {
+  /** Every faucet a case reads resolves to TST at scale 0, so a rendered quantity is the measured base units. */
+  const knownScaleMetadata = () =>
+    mockFetchTokenMetadata.mockResolvedValue({ symbol: 'TST', name: 'Test', decimals: 0 });
+
+  it("shows the background's held-note count and outgoing amount without decoding", async () => {
+    knownScaleMetadata();
     setPayload({
       ...siPayload(),
       signingEffects: toSimulatedEffectsWire(
-        measuredView({ outgoing: [{ faucetId: 'bech32:X', amount: 1000n }], inputNotesConsumed: 1, heldNotesSpent: 1 })
+        measuredView({ outgoing: [{ faucetId: 'bech32:X', amount: 1000n }], inputNotesConsumed: 3, heldNotesSpent: 1 })
       )
     });
     render(<ConfirmPage />);
 
+    // The measured outgoing amount is the window's figure, signed and with its symbol.
+    expect((await screen.findByText('-1000')).parentElement).toHaveTextContent(/^-1000TST$/);
+
     expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
     expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
     expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
-    expect(screen.getByText('inputNotesConsumed').parentElement).toHaveTextContent('inputNotesConsumed1');
+    expect(screen.getByText('inputNotesConsumed').parentElement).toHaveTextContent('inputNotesConsumed3');
     // Held notes are value the summary spends: the row names them, apart from the input-note total.
     expect(screen.getByTestId('tx-held-notes-spent')).toHaveTextContent(/^1$/);
     expect(screen.getByText('includesUnclaimedNotes')).toBeInTheDocument();
@@ -1169,7 +1187,8 @@ describe('sign payload — signingInputs', () => {
     expect(screen.queryByText('includesUnclaimedNotes')).not.toBeInTheDocument();
   });
 
-  it('shows the amounts the background measured, not a decode of its own', () => {
+  it('shows the amounts the background measured, not a decode of its own', async () => {
+    knownScaleMetadata();
     bech32ById();
     mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ removed: [makeAsset('rem1', 100)] }));
     const { view } = toSimulatedEffectsWire(measuredView());
@@ -1180,6 +1199,8 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     // The window lays out the wire's measure; the summary's own asset (rem1) is never decoded into it.
+    expect((await screen.findByText('-7')).parentElement).toHaveTextContent(/^-7TST$/);
+    expect(screen.queryByText('-100')).not.toBeInTheDocument();
     expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
     expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
   });
