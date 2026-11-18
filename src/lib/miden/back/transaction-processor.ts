@@ -5,6 +5,7 @@
 // activity module's full init chain.
 import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
+import { getWalletStorageFailure } from 'lib/miden/storage-health';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
@@ -190,6 +191,7 @@ export const reconcileUnconfirmedInWorker = (): Promise<void> =>
  * (#907). navigator.locks in safeGenerateTransactionsLoop guards the loop itself.
  */
 export async function startTransactionProcessing(): Promise<void> {
+  if (await getWalletStorageFailure()) return;
   if (isProcessing) {
     processingRequested = true;
     return;

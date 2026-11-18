@@ -699,7 +699,18 @@ export class MidenClientInterface {
       const feeFaucetId = getEffectiveFeeFaucetId();
       const proverUrl = getEffectiveProverUrl();
       const storeName = await sdkStoreNameFor(rpcUrl);
+      const { retainIncomingNotes, reportSdkStorageFailure } = await import('./storage-recovery-bridge');
+      const storageRecovery = {
+        beforeNoteAcquisition: (batch: { notes: readonly Uint8Array[] }) => retainIncomingNotes(batch, rpcUrl),
+        indexedDb: {
+          durability: 'strict' as const,
+          onFailure: () => {
+            if (!liveness.disposed) void reportSdkStorageFailure();
+          }
+        }
+      };
       const midenClient = await MidenClient.create({
+        ...storageRecovery,
         rpcUrl,
         ...(storeName ? { storeName } : {}),
         noteTransportUrl,

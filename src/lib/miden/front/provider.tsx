@@ -30,6 +30,7 @@ import { SwapSettlementManager } from './SwapSettlementManager';
 import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
+import { WALLET_STORAGE_FAILURE_KEY } from '../storage-health';
 
 /**
  * How long MidenProvider holds its first render for the storage preload. A local read takes milliseconds; a native
@@ -51,6 +52,7 @@ const preloadedStorageKeys = () => [
   NETWORK_STORAGE_ID,
   BADGE_STORAGE_KEY,
   BADGE_SEEN_STORAGE_KEY,
+  WALLET_STORAGE_FAILURE_KEY,
   // SeedBackupGate's SEED_BACKUP_REQUIRED_KEY and WALLET_PROMPTS_STORAGE_KEY, read above every local Suspense
   // boundary. Spelled out: the gate's module imports this one through the front barrel.
   'seed_backup_required_v1',

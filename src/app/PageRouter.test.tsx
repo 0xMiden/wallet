@@ -29,6 +29,7 @@ import React from 'react';
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
+import { WalletSurfaceGate } from 'app/pages/WalletStorageRecovery';
 import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import * as Woozie from 'lib/woozie';
 
@@ -99,6 +100,10 @@ jest.mock('app/env', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => mockMiden
+}));
+
+jest.mock('app/templates/SeedBackupGate', () => ({
+  SeedBackupGate: ({ children }: React.PropsWithChildren) => <>{children}</>
 }));
 
 jest.mock('react-i18next', () => ({
@@ -290,7 +295,7 @@ type Ctx = {
   sidePanel?: boolean;
 };
 
-function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null) {
+function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null, page = <PageRouter />) {
   mockLocation.pathname = pathname;
   mockLocation.trigger = trigger;
   mockEnv.popup = ctx.popup ?? false;
@@ -300,7 +305,7 @@ function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null
   mockMiden.locked = ctx.locked ?? false;
   mockMiden.hydrated = ctx.hydrated ?? false;
   mockMiden.storageUnavailable = ctx.storageUnavailable ?? false;
-  return render(<PageRouter />);
+  return render(page);
 }
 
 describe('background lock cover', () => {
@@ -342,12 +347,18 @@ beforeEach(() => {
 });
 
 describe('wallet storage recovery', () => {
+  const RoutedWallet = () => (
+    <WalletSurfaceGate>
+      <PageRouter />
+    </WalletSurfaceGate>
+  );
+
   it('replaces an open wallet until the user rebuilds and storage is verified', async () => {
-    const { rerender } = renderAt('/', ready);
+    const { rerender } = renderAt('/', ready, null, <RoutedWallet />);
     expect(screen.getByTestId('explore')).toBeInTheDocument();
 
     mockMiden.storageUnavailable = true;
-    rerender(<PageRouter />);
+    rerender(<RoutedWallet />);
 
     expect(screen.getByRole('heading', { name: 'storageRecoveryTitle' })).toHaveFocus();
     expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
@@ -372,14 +383,16 @@ describe('wallet storage recovery', () => {
     expect(screen.getByRole('status')).toHaveTextContent('storageRecoveryProgress 1 1 2 2');
 
     mockMiden.storageUnavailable = false;
-    rerender(<PageRouter />);
+    rerender(<RoutedWallet />);
+    expect(screen.getByRole('heading', { name: 'storageRecoveryVerified' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'continue' }));
     expect(screen.getByTestId('explore')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'storageRecoveryTitle' })).not.toBeInTheDocument();
   });
 
   it('keeps a direct financial route paused when rebuilding fails', async () => {
     mockRebuildWalletStorage.mockRejectedValueOnce(new Error('verification failed'));
-    renderAt('/send/review', { ...ready, storageUnavailable: true });
+    renderAt('/send/review', { ...ready, storageUnavailable: true }, null, <RoutedWallet />);
 
     const rebuild = screen.getByRole('button', { name: 'storageRecoveryRebuild' });
     fireEvent.click(rebuild);
@@ -390,7 +403,7 @@ describe('wallet storage recovery', () => {
   });
 
   it('keeps a locked wallet on the unlock screen', () => {
-    renderAt('/', { ...ready, locked: true, storageUnavailable: true });
+    renderAt('/', { ...ready, locked: true, storageUnavailable: true }, null, <RoutedWallet />);
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'storageRecoveryTitle' })).not.toBeInTheDocument();
   });

@@ -62,6 +62,11 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import {
+  assertWalletStorageAvailable,
+  getWalletStorageFailure,
+  observeWalletStorageError
+} from 'lib/miden/storage-health';
 import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import {
   GetStateResponse,
@@ -195,7 +200,8 @@ export async function getFrontState(): Promise<GetStateResponse['state']> {
   try {
     const state = store.getState();
     if (state.inited) {
-      return { ...toFront(state), backendInitialized: true };
+      const storageUnavailable = await getWalletStorageFailure().then(Boolean, () => true);
+      return { ...toFront(state), backendInitialized: true, storageUnavailable };
     }
   } catch {
     // store not initialized yet
@@ -561,6 +567,17 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
         const ownMnemonic = await vault.isOwnMnemonic();
         const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
         if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
+        try {
+          if (!(await getWalletStorageFailure())) {
+            const { captureWalletAccounts } = await import('./storage-recovery');
+            await captureWalletAccounts(vault, accounts, () => {
+              if (!canAdopt()) throw new Error('The vault was replaced');
+            });
+          }
+        } catch (error) {
+          observeWalletStorageError(error);
+        }
+        if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
         unlocked({
           vault,
           accounts,
@@ -801,10 +818,13 @@ export async function saveSpendingLimit(
   observedRevision: string | undefined,
   strictlyAuthenticated: boolean
 ): Promise<PersistedSpendingLimit | undefined> {
+  await assertWalletStorageAvailable();
   const saved = await saveStoredSpendingLimit(parseSerializedSpendingLimitDraft(serializedDraft), {
     observedRevision,
     strictlyAuthenticated
   });
+  const { retainSpendingLimits } = await import('./storage-recovery');
+  await retainSpendingLimits();
   return saved === undefined ? undefined : toPersistedSpendingLimit(saved);
 }
 
@@ -830,18 +850,21 @@ export async function verifyStrictActionAuthentication(credential?: string): Pro
 
 export function signTransaction(publicKey: string, signingInputs: string) {
   return withUnlocked(async ({ vault }) => {
+    await assertWalletStorageAvailable();
     return await vault.signTransaction(publicKey, signingInputs);
   });
 }
 
 export function signWord(publicKey: string, wordHex: string, transactionId?: string) {
   return withUnlocked(async ({ vault }) => {
+    await assertWalletStorageAvailable();
     return await vault.signWord(publicKey, wordHex, transactionId);
   });
 }
 
 export function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
   return withUnlocked(async ({ vault }) => {
+    await assertWalletStorageAvailable();
     return await vault.signEvm(accountPublicKey, operation);
   });
 }

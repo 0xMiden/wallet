@@ -12,6 +12,14 @@
 
 const mockIsExist = jest.fn();
 const mockGetCurrentAccountPublicKey = jest.fn();
+let mockWalletStorageFailure: string | undefined;
+jest.mock('../storage-health', () => ({
+  ...jest.requireActual('../storage-health'),
+  getWalletStorageFailure: async () => mockWalletStorageFailure,
+  markWalletStorageUnavailable: async () => {
+    mockWalletStorageFailure = 'missing-account';
+  }
+}));
 jest.mock('../transaction/claim-fee', () => ({
   ...jest.requireActual('../transaction/claim-fee'),
   readClaimFeeContext: jest.fn(jest.requireActual('../transaction/claim-fee').readClaimFeeContext)
@@ -364,6 +372,7 @@ const queuedClaimNoteIds = async (): Promise<string[]> =>
     .sort();
 
 beforeEach(() => {
+  mockWalletStorageFailure = undefined;
   mockInitiateConsumeBatch.mockClear();
   mockBaseFee = 0;
   mockFloorFee = undefined;
@@ -373,7 +382,11 @@ beforeEach(() => {
   mockGetCurrentAccountPublicKey.mockResolvedValue('pk-1');
   mockClient.syncState.mockResolvedValue(undefined);
   mockClient.getConsumableNoteDtos.mockResolvedValue([]);
-  mockClient.getAccount.mockResolvedValue(null);
+  mockClient.getAccount.mockImplementation(async () =>
+    mockStoreAccounts.length
+      ? { nonce: () => ({ asInt: () => 0n }), vault: () => ({ fungibleAssets: () => [] }) }
+      : null
+  );
   mockFetchTokenMetadata.mockResolvedValue({
     decimals: 6,
     symbol: 'TOK',
@@ -429,13 +442,12 @@ describe('computeSyncBackoffMs (gap 14 — exponential backoff + jitter)', () =>
 describe('doSync', () => {
   it('does not publish zero balances when the vault account is missing from IndexedDB', async () => {
     mockStoreAccounts = [{ publicKey: 'pk-1' }];
-    mockClient.getAccount.mockResolvedValue(null);
+    mockClient.getAccount.mockResolvedValueOnce(null);
 
     await doSync();
 
-    expect(mockStorageSet).not.toHaveBeenCalledWith(
-      expect.objectContaining({ miden_sync_data: expect.any(Object) })
-    );
+    expect(mockStorageSet).not.toHaveBeenCalledWith(expect.objectContaining({ miden_sync_data: expect.any(Object) }));
+    expect(mockWalletStorageFailure).toBe('missing-account');
   });
 
   it('is a no-op when the vault is not set up', async () => {

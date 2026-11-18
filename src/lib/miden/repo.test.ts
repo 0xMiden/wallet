@@ -876,10 +876,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 3.2', () => {
+  it('keys spending limits by account alone on schema version 3.3', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3.2);
+    expect(db.verno).toBe(3.3);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -1057,7 +1057,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3.2);
+    expect(upgraded.verno).toBe(3.3);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -1108,7 +1108,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3.2);
+    expect(upgraded.verno).toBe(3.3);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -1155,7 +1155,7 @@ describe('writing a transaction row', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.2);
+      expect(upgraded.verno).toBe(3.3);
       const upgradedLegacy = await upgraded.table(Table.Transactions).get(legacy.id);
       expect(upgradedLegacy).toMatchObject(legacy);
       expect(upgradedLegacy).not.toHaveProperty('badgeEvidenceRevision');
@@ -1545,7 +1545,7 @@ describe('wallet storage rejection boundaries', () => {
   // never become telemetry merely because it passed through the wallet middleware.
   it('does not guess an owner for a historical or unknown table', async () => {
     const target = database();
-    target.version(3.3).stores({ transactionRequests: 'id', unrelated: 'id' });
+    target.version(3.4).stores({ transactionRequests: 'id', unrelated: 'id' });
     const failures = new Map<string, Error>();
     target.use({
       stack: 'dbcore',
@@ -2169,7 +2169,7 @@ describe('wallet storage rejection boundaries', () => {
         target.close();
         let upgrades = 0;
         target
-          .version(3.3)
+          .version(3.4)
           .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE })
           .upgrade(async tx => {
             upgrades++;
@@ -2201,7 +2201,7 @@ describe('wallet storage rejection boundaries', () => {
       await target.open();
       target.close();
       target
-        .version(3.3)
+        .version(3.4)
         .stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE })
         .upgrade(() => {
           throw failure;

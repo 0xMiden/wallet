@@ -378,6 +378,7 @@ export const useWalletStore = create<WalletStore>()(
         settings: state.settings,
         ownMnemonic: state.ownMnemonic,
         seedPhraseStatus: state.seedPhraseStatus,
+        storageUnavailable: state.storageUnavailable,
         isInitialized: true,
         lastSyncedAt: Date.now()
       });

@@ -21,6 +21,8 @@ export enum WalletMessageType {
   // Request-Response pairs
   GetStateRequest = 'GET_STATE_REQUEST',
   GetStateResponse = 'GET_STATE_RESPONSE',
+  RebuildWalletStorageRequest = 'REBUILD_WALLET_STORAGE_REQUEST',
+  RebuildWalletStorageResponse = 'REBUILD_WALLET_STORAGE_RESPONSE',
   NewWalletRequest = 'NEW_WALLET_REQUEST',
   NewWalletResponse = 'NEW_WALLET_RESPONSE',
   NewWalletFromHotKeyRequest = 'NEW_WALLET_FROM_HOT_KEY_REQUEST',
@@ -435,6 +437,7 @@ export type GuardianRecoveryAction =
 export type SeedPhraseStatus = 'stored' | 'removing' | 'removed' | 'unavailable';
 
 export interface WalletState {
+  storageUnavailable?: boolean;
   seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[]; // Miden sdk might soon export a type for this
@@ -1351,8 +1354,16 @@ export enum WalletStatus {
   Ready
 }
 
+export interface WalletStorageRecoveryResult {
+  verifiedAccounts: number;
+  expectedAccounts: number;
+  verifiedNotes: number;
+  expectedNotes: number;
+}
+
 export type WalletRequest =
   | MidenRequest
+  | { type: WalletMessageType.RebuildWalletStorageRequest }
   | AcknowledgeRequest
   | GetStateRequest
   | NewWalletRequest
@@ -1431,6 +1442,7 @@ export type WalletRequest =
 
 export type WalletResponse =
   | MidenResponse
+  | { type: WalletMessageType.RebuildWalletStorageResponse; result: WalletStorageRecoveryResult }
   | AcknowledgeResponse
   | LoadingResponse
   | GetStateResponse

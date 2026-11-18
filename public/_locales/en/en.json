@@ -1996,5 +1996,12 @@
   "bridgeWithdrawalEffect": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee.",
   "bridgeWithdrawalWalletPrompt": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
   "bridgeWithdrawalUseCircle": "Use Circle instead",
-  "bridgeWithdrawalUseSlow": "Use Slow bridge instead"
+  "bridgeWithdrawalUseSlow": "Use Slow bridge instead",
+  "storageRecoveryTitle": "Wallet storage unavailable",
+  "storageRecoveryDescription": "Bread could not read your wallet data on this device. Balances and wallet actions are paused until recovery is verified.",
+  "storageRecoveryRebuild": "Rebuild from recovery data",
+  "storageRecoveryWorking": "Checking retained wallet data…",
+  "storageRecoveryVerified": "Wallet storage recovered",
+  "storageRecoveryFailed": "Could not verify wallet storage. Free up disk space if needed, then try again. Wallet actions remain paused.",
+  "storageRecoveryProgress": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes."
 }

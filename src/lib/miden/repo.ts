@@ -17,11 +17,13 @@ import {
 } from 'lib/telemetry/crash-diagnostics';
 
 import { ITransaction, ITransactionStatus, type ITransactionType } from './db/types';
-import { PersistedSpendingLimit } from './spending-limits/types';
+import { parsePersistedSpendingLimit, PersistedSpendingLimit } from './spending-limits/types';
+import { observeWalletStorageError } from './storage-health';
 
 export enum Table {
   Transactions = 'transactions',
-  SpendingLimits = 'spendingLimits'
+  SpendingLimits = 'spendingLimits',
+  Recovery = 'recovery'
 }
 
 /**
@@ -404,6 +406,8 @@ function defineSchema(target: Dexie): void {
         });
     });
 
+  target.version(3.3).stores({ [Table.Recovery]: 'id' });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -448,7 +452,7 @@ function defineSchema(target: Dexie): void {
 // concerns collide. It applies to every `modify` on this database, including the schema upgrades
 // above, which walk the whole table.
 function buildTridentDb(name: string): Dexie {
-  const target = new Dexie(name, { modifyChunkSize: 25 });
+  const target = new Dexie(name, { modifyChunkSize: 25, chromeTransactionDurability: 'strict' });
   defineSchema(target);
   installWalletStorageDiagnostics(target);
   return target;
@@ -468,10 +472,12 @@ function observeWalletStorage<T>(
   try {
     // Keep the invoked promise's chain and Dexie's active transaction zone.
     return invoke().then(undefined, (error: unknown) => {
+      observeWalletStorageError(error);
       annotateCrash(error, { storageOwner: owner, storageOperation: operation });
       throw error;
     });
   } catch (error) {
+    observeWalletStorageError(error);
     annotateCrash(error, { storageOwner: owner, storageOperation: operation });
     throw error;
   }
@@ -498,8 +504,15 @@ function installWalletStorageDiagnostics(target: Dexie): void {
         const store = stores.length === 1 ? stores[0] : undefined;
         const owner = store === undefined ? 'wallet_database' : (walletTableOwner(store) ?? 'wallet_database');
         try {
-          return down.transaction(...args);
+          const tx = down.transaction(...args);
+          if (typeof (tx as IDBTransaction).addEventListener === 'function') {
+            (tx as IDBTransaction).addEventListener('abort', () =>
+              observeWalletStorageError((tx as IDBTransaction).error)
+            );
+          }
+          return tx;
         } catch (error) {
+          observeWalletStorageError(error);
           annotateCrash(error, { storageOwner: owner, storageOperation: 'transaction' });
           throw error;
         }
@@ -559,6 +572,20 @@ function installWalletStorageDiagnostics(target: Dexie): void {
 }
 
 export const db = buildTridentDb('TridentMain');
+
+const recovery = db.table<{ id: string; generation: string }, string>(Table.Recovery);
+
+export async function readWalletStoreGeneration(): Promise<string | undefined> {
+  return (await recovery.get('wallet'))?.generation;
+}
+
+export async function writeWalletStoreGeneration(generation: string): Promise<void> {
+  await db.transaction('rw', recovery, async () => {
+    const active = await readWalletStoreGeneration();
+    if (active && active !== generation) throw new Error('Wallet storage generation changed');
+    if (!active) await recovery.add({ id: 'wallet', generation });
+  });
+}
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
@@ -898,6 +925,52 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
   };
 };
 
+export function serializeRecoveryTransfer(row: ITransaction): string {
+  const { dappOrigins: _origins, resultBytes: _result, ...rest } = row;
+  return JSON.stringify(mapValues(rest, toSerializable));
+}
+
+export function deserializeRecoveryTransfers(
+  transfers: Readonly<Record<string, string>>,
+  canRestore: (accountId: string) => boolean
+): ITransaction[] {
+  return Object.entries(transfers).map(([id, value]) => {
+    const row = mapValues(JSON.parse(value), fromSerializable) as unknown as ITransaction;
+    if (row.id !== id || typeof row.accountId !== 'string' || !canRestore(row.accountId)) {
+      throw new Error('Invalid retained transfer');
+    }
+    return row;
+  });
+}
+
+export async function restoreRecoveryTransfers(
+  transfers: readonly ITransaction[],
+  limits: readonly PersistedSpendingLimit[],
+  canRestore: (accountId: string) => boolean,
+  assertCurrent: () => void
+): Promise<void> {
+  const rows = transfers.map(row => {
+    const trusted = row.restoredFromBackup !== true || row.retainedRecoverySpend === true;
+    return { ...neutralizeUnfinishedTransaction(row), retainedRecoverySpend: trusted && row.spentUsd !== undefined };
+  });
+  for (const limit of limits) parsePersistedSpendingLimit(limit);
+  await db.transaction('rw', transactions, spendingLimits, async () => {
+    for (const row of rows) {
+      assertCurrent();
+      if (!(await transactions.get(row.id))) {
+        assertCurrent();
+        await transactions.add(row);
+      }
+    }
+    for (const limit of limits) {
+      assertCurrent();
+      if (!canRestore(limit.accountId)) throw new Error('Invalid retained spending limit');
+      if (!(await spendingLimits.get(limit.accountId))) await spendingLimits.add(limit);
+    }
+    assertCurrent();
+  });
+}
+
 export async function exportDb(): Promise<string> {
   const dump: { [tableName: string]: unknown[] } = {};
   await db.transaction('r', transactions, async () => {
@@ -909,6 +982,7 @@ export async function exportDb(): Promise<string> {
         dappOrigins: _dappOrigins,
         recoveredBadgeNetwork: _recoveredBadgeNetwork,
         badgeEvidenceRevision: _badgeEvidenceRevision,
+        retainedRecoverySpend: _retainedRecoverySpend,
         ...rest
       }) => ({
         ...mapValues(rest, toSerializable),
@@ -959,6 +1033,7 @@ export async function importDb(dump: string): Promise<void> {
         dappOrigins: _dappOrigins,
         recoveredBadgeNetwork: _recoveredBadgeNetwork,
         badgeEvidenceRevision: _badgeEvidenceRevision,
+        retainedRecoverySpend: _retainedRecoverySpend,
         extraInputs,
         ...rest
       } = mapValues(tx, fromSerializable);

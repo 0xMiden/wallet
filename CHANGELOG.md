@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][all] Pause wallet actions when local storage is unavailable and rebuild the account from verified recovery data kept outside IndexedDB.
+
 - [FIX][ci] Retry a timed-out test CLI sync once without resending a transaction or changing wallet deadlines.
 
 - [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.

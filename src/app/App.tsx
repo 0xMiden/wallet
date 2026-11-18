@@ -16,6 +16,7 @@ import { ExternalPageFailedNotice } from 'app/ExternalPageFailedNotice';
 import Dialogs from 'app/layouts/Dialogs';
 import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
+import { WalletSurfaceGate } from 'app/pages/WalletStorageRecovery';
 import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
 import { GuardianRecoveryProvider } from 'app/providers/GuardianRecoveryProvider';
 import { UpdateNotificationProvider } from 'app/providers/UpdateNotificationProvider';
@@ -25,7 +26,6 @@ import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { OpenLinkPrompt } from 'app/templates/OpenLinkPrompt';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
-import { SeedBackupGate } from 'app/templates/SeedBackupGate';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider, request } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
@@ -103,7 +103,7 @@ const App: FC<AppProps> = ({ env }) => {
                       by vaul). Must wrap the whole app surface. */}
                       <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
                         <BackgroundLockCover />
-                        <SeedBackupGate>
+                        <WalletSurfaceGate>
                           <Dialogs />
                           {isExtension() && <PinExtensionPrompt />}
                           {checkIsDesktop() && (
@@ -136,7 +136,7 @@ const App: FC<AppProps> = ({ env }) => {
                               <PageRouter />
                             </UpdateNotificationProvider>
                           )}
-                        </SeedBackupGate>
+                        </WalletSurfaceGate>
                       </div>
                     </BootAnimation>
                   </AwaitFonts>

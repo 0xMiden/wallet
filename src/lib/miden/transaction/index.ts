@@ -635,9 +635,16 @@ const stageStampFor =
     // read (#1081). Without an attempt (see the Guardian leaf) only the flag can be recorded.
     if (stage === 'submitting') {
       try {
+        const { assertWalletStorageAvailable } = await import('../storage-health');
+        await assertWalletStorageAvailable();
         await (attempt === undefined
           ? markMayHaveSubmitted(txId)
           : recordSubmitCrossing(txId, detail?.evidence, attempt));
+        if (detail?.reliable !== false) {
+          const { retainWalletTransfer } = await import('../back/storage-recovery');
+          await retainWalletTransfer(txId);
+          await assertWalletStorageAvailable();
+        }
       } catch (err) {
         // A reliable stamp is written in this realm before its submit call, so failing it keeps the write off the
         // network. A replayed one arrives after the fact and can only under-report, which the attempt's catch backs up.
@@ -5404,6 +5411,8 @@ export const safeGenerateTransactionsLoop = async (
   return navigator.locks
     .request<Promise<TransactionsLoopOutcome>>(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
       if (!lock) return 'idle';
+      const { getWalletStorageFailure } = await import('../storage-health');
+      if (await getWalletStorageFailure()) return 'idle';
 
       const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
       if (result === true) return 'processed';

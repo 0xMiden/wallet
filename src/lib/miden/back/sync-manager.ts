@@ -7,6 +7,12 @@ import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
+  getWalletStorageFailure,
+  markWalletStorageUnavailable,
+  observeWalletStorageError,
+  WalletStorageUnavailableError
+} from 'lib/miden/storage-health';
+import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
   MAX_CONSECUTIVE_SYNC_FAILURES,
@@ -34,7 +40,7 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { isRotationPendingAccount } from './rotation-pending';
 import { isUnlocked, store } from './store';
 import { Vault } from './vault';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { localSwapOrders } from '../swap/classification';
@@ -221,7 +227,7 @@ async function runSync(force: boolean): Promise<void> {
     // Skip if wallet not set up
     const vault = await getVault();
     const exists = await vault.isExist();
-    if (!exists) return;
+    if (!exists || (await getWalletStorageFailure())) return;
 
     // [Lock 1] THE sync for the whole app. The timeout bounds only the
     // RPC itself, NOT the lock acquisition — when a local prove is in
@@ -432,6 +438,17 @@ async function runSync(force: boolean): Promise<void> {
     const intercom = getIntercom()!;
     const vault2 = await getVault();
     const accountPubKey = await vault2.getCurrentAccountPublicKey();
+    const current = store.getState();
+    if (syncSucceededAt !== undefined && isUnlocked(current) && current.vault.storageJournal) {
+      const { captureWalletAccounts } = await import('./storage-recovery');
+      const rpc = getEffectiveRpcUrl();
+      await captureWalletAccounts(current.vault, current.accounts, () => {
+        if (store.getState().vault !== current.vault || getEffectiveRpcUrl() !== rpc) {
+          throw new WalletStorageUnavailableError();
+        }
+      });
+      if (await getWalletStorageFailure()) return;
+    }
 
     if (accountPubKey && !(inlineWasm && syncHoldEvicted)) {
       // Loaded once per sync and threaded into classify + reconcile below —
@@ -559,6 +576,13 @@ async function runSync(force: boolean): Promise<void> {
           // call on an object borrowed from the client's RefCell, so reading it after an
           // eviction is the double borrow, not merely a stale read.
           stillOurs('after the account read');
+          if (
+            !account &&
+            store.getState().accounts.some(entry => sameWalletAccountId(entry.publicKey, accountPubKey))
+          ) {
+            await markWalletStorageUnavailable();
+            throw new WalletStorageUnavailableError();
+          }
           const assets: SerializedVaultAsset[] = [];
           if (account) {
             const fungibleAssets = account.vault().fungibleAssets();
@@ -580,6 +604,7 @@ async function runSync(force: boolean): Promise<void> {
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
       ).catch((err: unknown) => {
+        observeWalletStorageError(err);
         // A zero-fill build this hold's eviction abandoned books its own key; no other failure of the read is booked.
         noteZeroFillBuildHoldFailure(notesReadHold, err);
         throw err;

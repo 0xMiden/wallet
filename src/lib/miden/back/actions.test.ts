@@ -115,6 +115,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 });
 
 const mockVault = {
+  storageJournal: { read: jest.fn(), retain: jest.fn().mockResolvedValue(undefined) },
   fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
   provideRecoverySeed: jest.fn(),
   fetchAccounts: jest.fn(),
@@ -328,7 +329,11 @@ describe('actions', () => {
     mockAccountsUpdated.mockClear();
     mockSettingsUpdated.mockClear();
     mockCurrentAccountUpdated.mockClear();
-    Object.values(mockVault).forEach((mock: jest.Mock) => mock.mockClear());
+    Object.values(mockVault).forEach(mock => {
+      if (typeof mock === 'function') mock.mockClear();
+    });
+    mockVault.storageJournal.read.mockClear();
+    mockVault.storageJournal.retain.mockClear();
     mockRealmGetKey = null;
     mockExportAccountFile.mockReset().mockImplementation(async (_account, assertLive) => {
       assertLive('after account export');
